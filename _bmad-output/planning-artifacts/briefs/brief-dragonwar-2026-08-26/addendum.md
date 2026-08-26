@@ -133,9 +133,10 @@ Final stack: **DragonWar GPL-3.0 · Babylon.js Apache-2.0 · MPF ontology MIT.**
 2. **Which colour means what?** The grammar is settled in principle (§8) but the specific state-to-colour mapping is not. Assign it early and hold it.
 3. **Which lightmap UV scheme** — standard UVs (camera-free, VR-capable) or camera-projected (VPX-style, locks the camera)? Must be decided before modelling starts.
 4. **How is sound generated?** The strategy is settled (§8); the synthesis approach is not. Ball roll in real simulators is sample playback driven by velocity and position with a pitch shift by surface, not synthesis — a generated-audio approach needs its own answer for that.
-5. **Shot layout.** The modes now imply their shots — a loop for the joust, targets for DRAGON, a mouth to feed. Turning that into a playfield is the next real design problem, and it iterates with the rules rather than following them.
+5. **Playfield geometry.** The shot map is settled (§8); drawing it — where the loops enter and exit, ramp height and return, the dragon's exact position and the lock lane beneath it, pop bumper and slingshot placement — is the PRD's first real design problem, and it iterates with the rules rather than following them.
+6. **How the campaign gates.** Are the modes independently available, or does the joust need the monster beaten first? The escalating reading in §8 suggests a sequence; the PRD should decide.
 
-*Resolved since first draft: the theme spine (knight, flippers as weapon, war = multiball); the project licence (GPL-3.0, §5); physical access to a reference machine; the feature-mode set, backglass treatment and audio strategy (§8); the colour-grammar split and the joust mechanic (§8).*
+*Resolved since first draft: the theme spine (knight, flippers as weapon, war = multiball); the project licence (GPL-3.0, §5); physical access to a reference machine; the feature-mode set, backglass treatment and audio strategy; the colour-grammar split, the joust mechanic, and the shot map including the dragon's placement and physical lock (§8).*
 
 ---
 
@@ -185,7 +186,30 @@ The specific colour-to-state mapping is still to be assigned, and should be sett
 
 The fit is exact: a joust is repeated passes — charge, pass, wheel around, charge again — which is mechanically what an orbit shot is. It is also a proven rule pattern rather than an invention; the research found Stern's Godzilla builds **loop combos up to 10x for consecutive shots**.
 
-*Suggested, not yet decided:* a **spinner on the loop**. Classic orbit furniture, and the rip of a spinner is the sound of a charge.
+### Shot layout — settled in principle
+
+The modes now imply their shots, and the author has placed the major pieces. Geometry is the PRD's to draw; this is the shot map it draws from.
+
+| Shot | Job | Notes |
+|---|---|---|
+| **Left loop / right loop** | The joust | Alternate them — left, right, left. Same loop twice breaks the charge. Physically what a joust looks like, and harder than hammering one shot. |
+| **Spinner** | On *one* loop only | So the two orbits are not the same shot. That loop is the loud one; the other is the quiet return. |
+| **Ramp** | Qualifier | Lights modes — the ramp's role in the modern skeleton (§2). |
+| **DRAGON targets** | Spell the letters | Qualifies the war. |
+| **The dragon** | Off-centre bash toy | Right flipper takes it straight; left flipper backhands it. |
+| **Between the dragon's legs** | Physical ball lock | A precise shot goes *under* the dragon and locks; a slightly-off shot hits the body. Two shots in one lane, separated by precision. |
+| **The dragon's mouth** | Multiball eject | A vertical up-kicker lifts the locked balls and fires them out of the mouth as dragon fire. The balls you locked are the balls that come back at you. |
+
+**Why off-centre matters, so it survives layout pressure:** a dead-centre bash toy rejects balls straight down the middle; off-centre, a rejection deflects toward a flipper (Lawlor's miss test). It also creates a backhand — and flipper friction of 0.8–0.9 is precisely what makes backhands possible, so the geometry rewards the physics being built. Off-centre bash toys are the modern standard (Pulp Fiction's briefcase, Cactus Canyon's Bart, Godzilla).
+
+**Device model consequences:**
+
+- The dragon is *two devices*: a bash target on the body and a `ball_device` (physical lock) beneath it, with the mouth as the lock's eject. In MPF terms the lock is a `multiball_lock` — balls out of play, deducted from the count — not a `ball_hold`.
+- **Lock 2, ball in play makes 3** for the war. 4-ball stays reserved for a later finale (§2).
+- **The lock must be disabled during multiball**, so an under-leg shot counts as a bash hit rather than a re-lock.
+- Physical over virtual lock is the right call *for a simulation*: the research found real machines went virtual for BOM cost and trough-reliability reasons that do not apply here, and the payoff — the dragon swallows your balls and spits them back — is the whole moment.
+
+**Layout rules carried from the research:** orbit exits feed straight toward the flippers; ball guides end at rubber posts so the ball does not rattle off bare metal; and Lawlor's test for every shot — *a miss must come back playable, not drain*. The mix is healthy: loops and ramp are flow shots, targets and dragon are stop-and-go.
 
 ### Audio
 
