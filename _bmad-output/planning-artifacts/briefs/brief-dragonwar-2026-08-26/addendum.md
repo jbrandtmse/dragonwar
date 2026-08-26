@@ -129,18 +129,65 @@ Final stack: **DragonWar GPL-3.0 · Babylon.js Apache-2.0 · MPF ontology MIT.**
 
 ## 7. Open questions for the PRD
 
-1. **Does the author have physical access to a machine to tune against?** Determines whether feel is validated against a reference or against memory. *Asked twice, unanswered.*
-2. **How many feature modes in v1?** "Not just one facet" is agreed; the count is not. Three to five is typical for a first release.
-3. **What are the other modes about?** The knight-versus-dragon frame is set, but the supporting modes are blank. Candidate directions the theme invites: defending a village, forging or upgrading a weapon, a rival knight, the dragon's hoard, a wounded-dragon rage phase.
+1. **Which machine is at the bar, and from which era?** The author has a real machine within walking distance and plays it regularly — the calibration reference is real. But flipper strength is era-banded (roughly 500–1000 for electromechanicals up to 3200–3300 for mid-90s-and-later, in VPX units), so calibrating against a specific machine means inheriting that machine's era feel. Fine, but it should be deliberate.
+2. **What form does the joust take?** Named as a feature, mechanic undecided. The word implies a charge, a head-to-head, and timing — which suggests repeated orbit or loop shots (building a charge), or a timed duel against a rival knight. Needs design.
+3. **Insert colour grammar.** See §9 — "rustic" needs reconciling with the fact that insert colour does a functional job.
 4. **Which lightmap UV scheme** — standard UVs (camera-free, VR-capable) or camera-projected (VPX-style, locks the camera)? Must be decided before modelling starts.
-5. **Where does audio come from?** Mechanical sounds, music, and callouts are a real asset burden. Ball roll is sample playback driven by velocity and position with a pitch shift by surface — not synthesis.
-6. **What does the backglass show**, and is it animated? It is the first thing seen in the walk-up, and under the knight framing it is the natural place to establish the war before a ball is plunged.
+5. **How is sound generated?** The strategy is settled (§9); the synthesis approach is not. Ball roll in real simulators is sample playback driven by velocity and position with a pitch shift by surface, not synthesis — a generated-audio approach needs its own answer for that.
 
-*Resolved since first draft: the theme spine (knight, flippers as weapon, war = multiball) and the project licence (GPL-3.0, §5).*
+*Resolved since first draft: the theme spine (knight, flippers as weapon, war = multiball); the project licence (GPL-3.0, §5); physical access to a reference machine; the feature-mode set, backglass treatment, and audio strategy (§9).*
 
 ---
 
-## 8. Deferred, not rejected
+## 8. Feature modes and presentation — author input for the PRD
+
+Supplied by the author after the brief was drafted. Recorded verbatim in intent; the structural reading is flagged as such.
+
+### The modes
+
+| Mode | Fiction | Form |
+|---|---|---|
+| Skill shot | **Arming oneself** | Standard skill shot at the plunge |
+| Hurry-up | **A call to arms** | Timed, decaying value |
+| Quick multiball | **Fight the monster** | 2-ball |
+| Joust | — | **Undecided.** See §7. |
+| Dragon-fire multiball | **The war** | 3-ball, the headline mode |
+
+**Structural reading (inferred, not stated by the author):** these form a *knight's campaign* that escalates — arm yourself → answer the call → fight a monster → joust → war with the dragon. If that reading is right, the qualifying order should follow it rather than modes being independently available, and the campaign gives the table a spine a player can feel without being told.
+
+Note the skill shot is the sharpest theme fit in the set: it fires at the plunge, *before* the ball is in play, so "arming oneself" and the mechanic land on the same beat.
+
+Against the researched skeleton, this gives a healthy first release: four qualifying features plus the headline multiball sits inside the typical three-to-five range, and the 2-ball / 3-ball split respects the ball-count grammar in §2 (with 4-ball still reserved should a final wizard mode arrive later).
+
+### Backglass
+
+**Animated, pixelated, dot-matrix-looking.** Three things recommend this beyond taste:
+
+- It is period-authentic — Williams/Bally dot-matrix displays are exactly this.
+- It pairs with the stylized low-poly direction rather than fighting it.
+- It removes the need for high-resolution backglass art entirely, which is a real saving on the project's largest unbudgeted item.
+
+It is also the first thing seen in the walk-up, so it carries the job of establishing the war before a ball is plunged.
+
+### Colour grammar — flagged tension
+
+The author's instinct is "kind of rustic", undecided.
+
+**Insert colour does a functional job.** The research established it is the *mode-state channel* — how a player reads the table without instructions (Jurassic Park: white = qualify, red = rescue, yellow = set trap, green = the moving target). Muted earth tones would undercut that.
+
+**Proposed resolution: rustic playfield art and materials, saturated functional inserts.** This is how real machines actually look — painted wood under bright RGB — so it costs nothing thematically and keeps the inserts readable. The rustic register lives in the art, the grammar lives in the light.
+
+### Audio
+
+**Generated for now, with recorded real-machine sounds swappable in later.**
+
+This is an architecture constraint as much as a content decision: **the audio layer must sit behind a swappable asset interface from day one**, so sources can be replaced without touching game logic. Cheap if designed in, painful to retrofit.
+
+Worth pairing with an earlier suggestion: the author can record his own reference machine's mechanical sounds on a phone — coil fires, flipper snap, ball roll on wood, a drop bank resetting. Unambiguously his, no licensing question, and it will sound more like a real machine than any sample pack because it is one.
+
+---
+
+## 9. Deferred, not rejected
 
 Recorded so these are not silently lost:
 
