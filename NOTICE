@@ -1,0 +1,67 @@
+NOTICE
+======
+
+DragonWar
+Copyright (C) 2026 Joshua Brandt
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version. See the LICENSE file for the full text.
+
+
+Third-party content included in this repository
+-----------------------------------------------
+
+The following directories contain third-party tooling that is NOT
+authored by this project and is NOT covered by the GPL-3.0 licence
+above. Each remains governed by its own upstream terms.
+
+  .claude/skills/    BMad Method v6.11.0 (agent skills and workflows)
+  _bmad/             BMad Method v6.11.0 (module config and scripts)
+
+  Installed 2026-08-26. No licence file ships with the installation;
+  refer to the upstream project for its terms.
+  Documentation: https://docs.bmad-method.org
+
+These directories are committed for reproducibility of the planning
+process. They are not part of the DragonWar program and may be removed
+without affecting it.
+
+
+Attribution obligations to observe as the project develops
+----------------------------------------------------------
+
+Recorded here so they are not discovered late. None of the following is
+yet present in this repository.
+
+  Visual Pinball / vpx-js
+    If physics code is ported from vpdb/vpx-js, its existing copyright
+    notices must be PRESERVED alongside ours, not replaced. That project
+    is licensed "version 2 of the GNU General Public License, or (at
+    your option) any later version"; DragonWar exercises the or-later
+    clause to combine it with Apache-2.0 dependencies under GPL-3.0.
+    A port inherits its authors' authorship.
+
+  Visual Pinball (vpinball/vpinball)
+    Dual-licensed and mid-migration. Files converted to GPLv3+ carry
+    "// license:GPLv3+" on their first line; unmarked files remain under
+    MAME-derived terms that forbid commercial use. Any file taken from
+    that project must be checked individually.
+
+  Mission Pinball Framework
+    MIT licensed (documentation CC BY 4.0). If its device ontology,
+    naming, or event vocabulary is adopted, include its copyright notice
+    and permission notice.
+
+  Babylon.js
+    Apache-2.0. Retain the licence and any NOTICE content from the
+    distribution.
+
+  vbousquet/pinball-parts
+    CC BY-SA, with the exception of a "Thin Film Interaction" node group
+    licensed CC BY-NC-SA 4.0. If part models are used, attribute them
+    and exclude the non-commercial component.
+
+This file records what the licence documents say. It is not legal
+advice.
