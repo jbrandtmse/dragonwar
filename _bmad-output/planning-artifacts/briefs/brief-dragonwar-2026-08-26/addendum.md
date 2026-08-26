@@ -1,6 +1,6 @@
 ---
 title: 'DragonWar Brief — Addendum'
-status: draft
+status: complete
 created: '2026-08-26'
 updated: '2026-08-26'
 ---
