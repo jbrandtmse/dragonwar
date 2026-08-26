@@ -130,12 +130,12 @@ Final stack: **DragonWar GPL-3.0 · Babylon.js Apache-2.0 · MPF ontology MIT.**
 ## 7. Open questions for the PRD
 
 1. **Which machine is at the bar, and from which era?** The author has a real machine within walking distance and plays it regularly — the calibration reference is real. But flipper strength is era-banded (roughly 500–1000 for electromechanicals up to 3200–3300 for mid-90s-and-later, in VPX units), so calibrating against a specific machine means inheriting that machine's era feel. Fine, but it should be deliberate.
-2. **What form does the joust take?** Named as a feature, mechanic undecided. The word implies a charge, a head-to-head, and timing — which suggests repeated orbit or loop shots (building a charge), or a timed duel against a rival knight. Needs design.
-3. **Insert colour grammar.** See §9 — "rustic" needs reconciling with the fact that insert colour does a functional job.
-4. **Which lightmap UV scheme** — standard UVs (camera-free, VR-capable) or camera-projected (VPX-style, locks the camera)? Must be decided before modelling starts.
-5. **How is sound generated?** The strategy is settled (§9); the synthesis approach is not. Ball roll in real simulators is sample playback driven by velocity and position with a pitch shift by surface, not synthesis — a generated-audio approach needs its own answer for that.
+2. **Which colour means what?** The grammar is settled in principle (§8) but the specific state-to-colour mapping is not. Assign it early and hold it.
+3. **Which lightmap UV scheme** — standard UVs (camera-free, VR-capable) or camera-projected (VPX-style, locks the camera)? Must be decided before modelling starts.
+4. **How is sound generated?** The strategy is settled (§8); the synthesis approach is not. Ball roll in real simulators is sample playback driven by velocity and position with a pitch shift by surface, not synthesis — a generated-audio approach needs its own answer for that.
+5. **Shot layout.** The modes now imply their shots — a loop for the joust, targets for DRAGON, a mouth to feed. Turning that into a playfield is the next real design problem, and it iterates with the rules rather than following them.
 
-*Resolved since first draft: the theme spine (knight, flippers as weapon, war = multiball); the project licence (GPL-3.0, §5); physical access to a reference machine; the feature-mode set, backglass treatment, and audio strategy (§9).*
+*Resolved since first draft: the theme spine (knight, flippers as weapon, war = multiball); the project licence (GPL-3.0, §5); physical access to a reference machine; the feature-mode set, backglass treatment and audio strategy (§8); the colour-grammar split and the joust mechanic (§8).*
 
 ---
 
@@ -150,7 +150,7 @@ Supplied by the author after the brief was drafted. Recorded verbatim in intent;
 | Skill shot | **Arming oneself** | Standard skill shot at the plunge |
 | Hurry-up | **A call to arms** | Timed, decaying value |
 | Quick multiball | **Fight the monster** | 2-ball |
-| Joust | — | **Undecided.** See §7. |
+| Joust | **The charge** | Looping / orbit shots — consecutive loops build, a miss breaks the charge |
 | Dragon-fire multiball | **The war** | 3-ball, the headline mode |
 
 **Structural reading (inferred, not stated by the author):** these form a *knight's campaign* that escalates — arm yourself → answer the call → fight a monster → joust → war with the dragon. If that reading is right, the qualifying order should follow it rather than modes being independently available, and the campaign gives the table a spine a player can feel without being told.
@@ -169,13 +169,23 @@ Against the researched skeleton, this gives a healthy first release: four qualif
 
 It is also the first thing seen in the walk-up, so it carries the job of establishing the war before a ball is plunged.
 
-### Colour grammar — flagged tension
+### Colour grammar — resolved
 
-The author's instinct is "kind of rustic", undecided.
+**Rustic playfield art and materials, saturated functional inserts.**
 
-**Insert colour does a functional job.** The research established it is the *mode-state channel* — how a player reads the table without instructions (Jurassic Park: white = qualify, red = rescue, yellow = set trap, green = the moving target). Muted earth tones would undercut that.
+The tension this resolves: insert colour does a *functional* job — the research established it is the mode-state channel, how a player reads the table without instructions (Jurassic Park: white = qualify, red = rescue, yellow = set trap, green = the moving target). Muted earth tones across the board would have undercut it.
 
-**Proposed resolution: rustic playfield art and materials, saturated functional inserts.** This is how real machines actually look — painted wood under bright RGB — so it costs nothing thematically and keeps the inserts readable. The rustic register lives in the art, the grammar lives in the light.
+The split costs nothing thematically because it is how real machines already look: painted wood under bright RGB. **The rustic register lives in the art; the grammar lives in the light.**
+
+The specific colour-to-state mapping is still to be assigned, and should be settled early and then held.
+
+### The joust — resolved
+
+**Looping / orbit shots.** Consecutive loops build the charge; a miss breaks it.
+
+The fit is exact: a joust is repeated passes — charge, pass, wheel around, charge again — which is mechanically what an orbit shot is. It is also a proven rule pattern rather than an invention; the research found Stern's Godzilla builds **loop combos up to 10x for consecutive shots**.
+
+*Suggested, not yet decided:* a **spinner on the loop**. Classic orbit furniture, and the rip of a spinner is the sound of a charge.
 
 ### Audio
 
