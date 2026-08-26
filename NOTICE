@@ -32,8 +32,12 @@ without affecting it.
 Attribution obligations to observe as the project develops
 ----------------------------------------------------------
 
-Recorded here so they are not discovered late. None of the following is
-yet present in this repository.
+The live ledger of everything third-party in this repository is
+ATTRIBUTIONS.md, and the rule governing what may be added is in
+CLAUDE.md. Nothing enters the repository without recorded provenance.
+
+Summarised below so the obligations are not discovered late. None of the
+following is yet present in this repository.
 
   Visual Pinball / vpx-js
     If physics code is ported from vpdb/vpx-js, its existing copyright
