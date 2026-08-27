@@ -17,3 +17,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T18:49:39Z	Epic 1	runtime_lock_released	stage=adr_verifications
 2026-08-27T18:50:07Z	Story 1.1	adr_clarification_requested	reason=spike1_edge_leg_fails_windows_bar blocking=architectural_fork tick_hz_provisional=1000 model=claude-opus-5
 2026-08-27T20:54:07Z	Story 1.1	adr_verifications_complete	tool=cdp_runner_measure_mjs acs=ac4,ac5 result=pass evidence=docs/spikes/spike-1.md model=claude-opus-5 measurement_surface=production_build chrome_p95_median_ms=3.50 edge_p95_median_ms=3.70 tick_hz=1000 provisional=true note=production_measurement_supplied_by_orchestrator
+2026-08-27T20:58:29Z	Epic 1	epic_context_compiled	sha=52e5f12 reason=epics_amended model=claude-opus-5
