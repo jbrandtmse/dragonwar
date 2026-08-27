@@ -859,3 +859,42 @@ threshold regardless of the `3×medium + 1×low` score (which independently comp
 - This story's diff is large (~50 files, ~7,000 lines, mostly the vpx-js port) — the spec's
   own `warnings: ['oversized']` already flagged this; the review layers were run against
   the full diff (lockfile body elided for signal-to-noise) without chunking.
+
+### Lead resolution of the HIGH-1 consequence (rework iteration 1, 2026-08-27)
+
+Code review left the story `in-progress` on one open consequence: the gravity fix landed but the
+browser legs had not been re-run, so the PASS verdict did not stand. Re-measuring is lead-side
+work under this pipeline (ADR-tooled verification and smoke are never delegated to a spawned
+subagent), so the lead closed it directly rather than through a dev re-spawn. Commit `1a5b5a2`.
+
+**Re-measured on the corrected scene, production build** (`vite build` + `vite preview`, per the
+amended AC): Chrome/Windows **1.8 ms** median, 8/8 runs under the 4 ms bar; Edge/Windows
+**1.8 ms** median, 8/8 under. **PASS on the gating path**, ~14.9 ms of the frame left over.
+`TICK_HZ` stays 1000 and stays provisional — Chrome/macOS and Safari/macOS gate and are unmeasured.
+
+The re-measurement also produced three controlled same-session findings that revise earlier
+conclusions in this spec and in `docs/spikes/spike-1.md` (full data there):
+
+1. The gravity fix has **no measurable effect on browser p95** — pre-fix and post-fix builds
+   measured alternately in one session both give 1.8 ms. It is a correctness fix, not a
+   performance one. (The Node leg's 1.40x rise is real and unchanged; the two legs differ because
+   Node times individual ticks over 10,000 samples while the browser times 17-tick frames over a
+   window that is half quiescent — see finding 3.)
+2. Dev page vs production build has **no measurable effect** — both 1.8 ms in one session. The
+   earlier "the dev page is not a valid proxy" conclusion, drawn from a 0.4 ms cross-session
+   delta, does not survive a same-session test. Measuring production remains correct practice, so
+   the amended AC stands; its stated justification does not.
+3. **This host's session-to-session variance is ~1.9x on byte-identical code** (3.50 ms vs 1.8 ms,
+   same pre-fix build, different sessions), which dwarfs both effects above. Filed as an
+   `escalated` ledger entry: no absolute p95 from this host should be treated as a
+   characterization, and every later performance claim must be an A/B measured back-to-back in
+   one session.
+
+Also filed: the harness scene is near-quiescent for roughly half the measured window (total ball
+speed 53.6 at the end of warm-up, ~1.4 from tick 6,000 of 11,220), so the recorded figure is a
+floor rather than a characterization. Routed to Story 1.5, where a served ball on real geometry
+gives a continuously-active workload. Deliberately NOT fixed here — redesigning the scene would
+re-invalidate the baseline a third time.
+
+Remaining open items are all ledger-tracked and none blocks the story: the two author-owned macOS
+legs, the TICK_HZ ratification, and the two entries above.
