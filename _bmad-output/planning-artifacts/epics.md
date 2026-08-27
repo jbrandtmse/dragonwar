@@ -110,7 +110,7 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 **Distribution (§4.10)**
 
 - FR-53: The Table loads and plays from a URL with no install, plugin or account; a stranger reaches the Walk-up with only a press-to-begin gesture between; the build is a static `dist/` with relative paths deployed to GitHub Pages.
-- FR-54: Current Chrome, Edge and Safari on Windows and macOS are supported, Firefox best-effort; WebGL2 is the floor and WebGPU an enhancement; an unsupported browser gets a message naming supported ones before any asset loads; the WebGL2 path is fully playable and equal in feel; WebGPU improves lighting quality only; `?renderer=webgl2` and a Settings toggle force the floor.
+- FR-54: Current Chrome, Edge and Safari on Windows and macOS are supported, Firefox best-effort (Edge's functional support is unchanged; it is best-effort for the Story 1.1 frame-budget gate only — see that story's change log); WebGL2 is the floor and WebGPU an enhancement; an unsupported browser gets a message naming supported ones before any asset loads; the WebGL2 path is fully playable and equal in feel; WebGPU improves lighting quality only; `?renderer=webgl2` and a Settings toggle force the floor.
 - FR-55: The repository is public under GPL-3.0 with a clean, verified attribution ledger — every third-party file and generated asset in `ATTRIBUTIONS.md` with source, author, licence and verification date before it enters; ported files keep their original notices plus the DragonWar marker, checked per file in CI; `v1.0.0` is tagged.
 
 ### NonFunctional Requirements
@@ -325,15 +325,33 @@ So that the browser-first premise is proven — or the 480 Hz fallback is taken 
 **When** 10,000 ticks are stepped in Node
 **Then** no ball leaves the bounds or overlaps another, every step terminates (forced advance by `STATICTIME`), and the mean and p95 cost per tick are reported
 
-**Given** the same harness in a Vite dev page
+**Given** the same harness served from a **production build** (`vite build` + `vite preview`), not the Vite dev page `[AMENDED 2026-08-27 — see the story change log below]`
 **When** 17 steps (one 60 Hz frame of simulated time) are measured per frame over 600 frames in Chrome and Safari on the author's macOS machine and Chrome and Edge on the Windows machine
 **Then** the p95 sim cost per frame is recorded per browser and machine
-**And** the spike passes if p95 ≤ 4 ms on every measured path `[ASSUMPTION: leaves ≥ 12 ms of a 16.67 ms frame for rendering]`, fails otherwise
+**And** the spike passes if p95 ≤ 4 ms on every **gating** path — Chrome/Windows, Chrome/macOS and Safari/macOS — `[ASSUMPTION: leaves ≥ 12 ms of a 16.67 ms frame for rendering]`, fails otherwise
+**And** Edge/Windows is measured and recorded but is **best-effort for this gate**: its number never decides the verdict. Edge remains a fully supported browser (FR-54, NFR-6 unchanged) — this is a frame-budget carve-out, not a support-tier demotion
 
 **Given** the measured result
 **When** the spike closes
 **Then** `TICK_HZ` in `src/sim/contracts/time.ts` is set to 1000 on pass or 480 on fail, the numbers, machines, browsers and date are recorded in `docs/spikes/spike-1.md`
 **And** on fail the solver re-tune is logged there as the next piece of work before Story 1.3
+
+**Change log**
+
+- **2026-08-27 — measurement surface amended from the Vite dev page to a production build.** The
+  dev page is not a valid proxy for the frame budget: measured against it the Edge/Windows leg
+  came in at 3.7–4.1 ms median depending on the session, and at 4.1 ms (7/20 runs under the bar)
+  it failed the gate outright. The same harness on a production build measured 3.70 ms median
+  with 18/20 runs under — a 0.4 ms delta that flipped the verdict. Story 1.2's size and load-time
+  numbers must come from the real production artifact for the same reason.
+- **2026-08-27 — Edge/Windows carved out to best-effort for this gate.** Author decision after
+  the spike escalation: Chrome is the primary target, so Chrome/Windows, Chrome/macOS and
+  Safari/macOS gate `TICK_HZ` while Edge is measured and recorded only. **Safari was NOT
+  demoted** — it runs JavaScriptCore rather than V8, is still unmeasured, and is the real
+  remaining performance risk. Edge's functional support is untouched: it keeps its place in
+  Story 6.1's boot message and Story 6.6's release matrix, and FR-54, NFR-6, `prd.md` and
+  `SPEC.md` are unchanged.
+- Outcome: `TICK_HZ = 1000`, provisional pending the author's two macOS legs.
 
 ### Story 1.2: Spike 3 — build size and load time measured from a link
 

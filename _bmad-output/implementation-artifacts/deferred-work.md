@@ -214,3 +214,14 @@ edited into the entry's own `occurrences:` field.
   left at its provisional 1000 and NOT changed, because the fail branch bundles a solver re-tune and
   both are the author's decision. Full evidence, sample lists and a 480 Hz estimate are in
   `docs/spikes/spike-1.md` under "Independent lead verification". **Epic 1 is halted at this fork.**
+- 2026-08-27 · Story 1.1 · **Author-owned: TICK_HZ ratification from Spike 1** — **DECIDED by the
+  author 2026-08-27.** `TICK_HZ = 1000`, set from the **production-build** measurement (Chrome/Windows
+  3.50 ms median 5/5 under; Edge/Windows 3.70 ms median 18/20 under, known tail at 4.3 and 4.4 ms).
+  The dev-page failure the lead escalated was an artifact of the unoptimized build — a 0.4 ms delta
+  that flipped the Edge verdict; the lead's measurement was sound, the surface was wrong. The story's
+  AC has been amended to measure against a production build, and Edge/Windows is now **best-effort
+  for the frame-budget gate only** (its functional support is unchanged; FR-54, NFR-6, prd.md and
+  SPEC.md untouched). Gating paths are Chrome/Windows, Chrome/macOS and Safari/macOS. **This entry
+  stays open**: two of the three gating paths are still unmeasured, so TICK_HZ remains provisional.
+  **Safari was NOT demoted** — JavaScriptCore rather than V8, still unmeasured, and the real
+  remaining performance risk. Author action: run the Chrome/macOS and Safari/macOS legs.

@@ -4,7 +4,24 @@ Story 1.1. Measures whether a time-of-impact pinball solver stepping six balls a
 1000 Hz fits inside a 60 Hz frame budget in a browser, before anything else in
 Epic 1 is built on the answer.
 
-## Verdict: **PASS** — by a narrow margin on the Edge leg
+## Verdict: **PASS on the gating paths** — `TICK_HZ = 1000`, provisional
+
+> **Read this first. The rest of this section, and the two sections after it, are
+> SUPERSEDED.** They measured the Vite **dev page**, which turned out not to be a
+> valid proxy for the frame budget. The deciding measurement is the
+> **production build**, in
+> [Production-build measurement, 2026-08-27](#production-build-measurement-2026-08-27-orchestrator--this-is-the-deciding-result)
+> near the end of this document. The superseded sections are kept deliberately and
+> must not be deleted: the dev-vs-production delta is itself a finding.
+>
+> **Current result** — production build, gating paths only:
+> Chrome/Windows **3.50 ms** median (5/5 under the bar). Chrome/macOS and
+> Safari/macOS **PENDING — author's legs**; both gate. Edge/Windows **3.70 ms**
+> median (18/20 under) is **best-effort for this gate** and never decides the
+> verdict, though Edge remains a fully supported browser.
+> `TICK_HZ` = **1000**, provisional: two of the three gating paths are unmeasured.
+
+### Superseded: the original dev-page verdict (kept for the record)
 
 Both measured Windows paths clear the p95 ≤ 4 ms bar, but the margin is thin, not
 wide: median p95 is 3.90 ms on Chrome and 3.75 ms on Edge, leaving as little as
@@ -16,7 +33,7 @@ PASS, but see "Repeat-run variance" below — this is a closer result than a sin
 run would suggest, and the author should read that section before treating the
 margin as comfortable.
 
-## Measurements
+## Measurements (dev page — SUPERSEDED, see the production-build section)
 
 | Path | Machine | Browser | p95 (recorded) | Date | Result |
 |---|---|---|---|---|---|
@@ -430,3 +447,67 @@ Both would clear the bar with wide margin at 480 Hz. Treat these as estimates, n
 provisional 1000 pending that decision — it has NOT been changed to 480, because the fail branch
 also mandates a solver re-tune, and both are the author's call. See the deferred-work ledger
 entry "Author-owned: TICK_HZ ratification from Spike 1".
+
+---
+
+## Production-build measurement, 2026-08-27 (orchestrator) — THIS IS THE DECIDING RESULT
+
+The two sections above measured the **Vite dev page**, which is what the story's original
+acceptance criterion specified. The orchestrator then measured the **production build** — what
+actually ships — on the same idle host (9% CPU, no stray browser processes), interleaving the
+two browsers exactly as the lead did.
+
+### Method
+
+```
+npx vite build tools/spike-1 --base ./ --outDir <scratch>/spike1-site/tools/spike-1
+vite preview            # port 4174
+node tools/spike-1/measure.mjs --browser <chrome|edge> \
+     --url http://localhost:4174/tools/spike-1/index.html
+```
+
+Production bundle: 36 KB minified, 31 modules. Same harness, same host, `measure.mjs`
+unmodified. One Chrome run failed to attach over CDP; it was discarded and not retried, so the
+Chrome leg reports 5 samples rather than 6.
+
+### Results
+
+| Path | Runs | Median p95 | Range | Meeting p95 <= 4 ms | Gates? |
+|---|---|---|---|---|---|
+| Chrome / Windows | 5 | **3.50 ms** | 3.4 - 4.0 ms | **5 / 5 (100%)** | **yes** |
+| Edge / Windows | 20 | **3.70 ms** | 3.0 - 4.4 ms | **18 / 20 (90%)** | no - best-effort |
+| Chrome / macOS | — | PENDING — author's leg | — | — | **yes** |
+| Safari / macOS | — | PENDING — author's leg | — | — | **yes** |
+
+Chrome, all 5 production samples (ms): `3.4, 3.4, 3.5, 3.6, 4.0`
+
+Edge, all 20 production samples (ms):
+`3.0, 3.5, 3.5, 3.6, 3.6, 3.6, 3.7, 3.7, 3.7, 3.7, 3.7, 3.8, 3.8, 3.8, 3.9, 3.9, 3.9, 3.9, 4.3, 4.4`
+
+**Known tail on Edge:** two of the twenty runs (4.3 and 4.4 ms) exceed the bar. Recorded, not
+smoothed away. Edge is best-effort for this gate, so they do not change the verdict — but a
+later story that tightens the frame budget should expect this tail to still be there.
+
+### The dev-vs-production delta is itself a finding
+
+| Path | Dev page | Production build | Delta |
+|---|---|---|---|
+| Chrome / Windows | 3.7 ms median, 10/10 under | 3.50 ms median, 5/5 under | -0.2 ms |
+| Edge / Windows | 4.1 ms median, 7/20 under | 3.70 ms median, 18/20 under | **-0.4 ms, verdict flips** |
+
+The dev page cost the Edge leg roughly 0.4 ms and flipped its pass/fail answer. Nothing was
+wrong with the lead's dev-page measurement — the dev page is simply not a valid proxy for the
+frame budget. **Measure the frame budget against a production build.** Story 1.2's size and
+load-time numbers must come from the real production artifact for the same reason.
+
+## Final verdict: **PASS on the gating paths**, macOS still PENDING
+
+`TICK_HZ` in `src/sim/contracts/time.ts` is **1000**, set from the production numbers and still
+marked **provisional**: two of the three gating paths (Chrome/macOS and Safari/macOS) are
+unmeasured. Safari is the real remaining performance risk — it runs JavaScriptCore rather than
+V8 and it **gates**; it has not been demoted.
+
+Author decision, 2026-08-27: keep `TICK_HZ = 1000`; Chrome is the primary target; **Edge is
+best-effort for the frame-budget gate only.** Edge remains a fully supported browser — it keeps
+its place in Story 6.1's boot message and Story 6.6's release matrix. This is a perf-gate
+carve-out, not a support-tier demotion; FR-54 and NFR-6 are unchanged.
