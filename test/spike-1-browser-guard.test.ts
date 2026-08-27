@@ -26,6 +26,12 @@ function installFakeRaf(timestamps: number[]): () => void {
 	let call = 0;
 	globalThis.requestAnimationFrame = ((cb: RafCallback) => {
 		const ts = timestamps[call++];
+		// Without this, running past the end of `timestamps` feeds `undefined` into
+		// the guard, every delta becomes NaN, and `NaN > 100` is false -- so the
+		// throttle test would pass for entirely the wrong reason.
+		if (ts === undefined) {
+			throw new Error(`fake requestAnimationFrame ran out of timestamps after ${call - 1} frames`);
+		}
 		setTimeout(() => cb(ts), 0);
 		return 0;
 	}) as typeof requestAnimationFrame;

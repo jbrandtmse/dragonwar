@@ -330,6 +330,18 @@ export class PlayerPhysics {
 		if (!this.hitTopGlass) {
 			throw new Error('PlayerPhysics.step: setTopGlassHit() must be called before the first step().');
 		}
+		// Third guard of the same family: statics added but the octree never built.
+		// `physicsSimulateCycle` queries `hitOcTree`, which stays empty until
+		// `finalizeStatics()` runs -- so every wall and corner would simply be absent
+		// from the broadphase and balls would pass straight through with no error,
+		// exactly the silent failure `addStaticHitObject()`'s own guard describes.
+		if (this.hitObjects.length > 0 && !this.staticsFinalized) {
+			throw new Error(
+				'PlayerPhysics.step: finalizeStatics() must be called before the first step() -- ' +
+				`${this.hitObjects.length} static hit object(s) were added but the octree was ` +
+				'never built, so none of them would take part in collision detection.',
+			);
+		}
 		this.updateVelocities();
 		this.physicsSimulateCycle(PHYS_FACTOR);
 	}

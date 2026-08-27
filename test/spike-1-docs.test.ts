@@ -76,3 +76,57 @@ describe('docs/spikes/spike-1.md -- results document structure (Story 1.1 AC)', 
 		expect(normalized).toMatch(/[Hh]eaderless/); // any upstream file that carried no header
 	});
 });
+
+describe('docs/spikes/spike-1.md -- the deciding table identifies its measurement environment', () => {
+	// The AC requires "the numbers, machines, browsers and date" to be recorded.
+	// Before this test they appeared only inside the section the document itself
+	// marks SUPERSEDED, so the figures that actually gate TICK_HZ carried no
+	// provenance at all -- and no assertion noticed. Scoped to the deciding section
+	// rather than the whole document precisely so a superseded table cannot satisfy it.
+	const raw = readFileSync(DOC_PATH, 'utf8');
+	const decidingSection = raw.slice(raw.indexOf('## Post-fix re-measurement'));
+
+	it('the deciding section exists and is the last major section of the document', () => {
+		expect(decidingSection.length).toBeGreaterThan(0);
+		expect(decidingSection).toContain('Re-measured on the corrected scene');
+	});
+
+	it('names the machine the deciding runs were made on', () => {
+		expect(normalize(decidingSection)).toMatch(/Intel Core i5-8259U/);
+		expect(normalize(decidingSection)).toMatch(/Windows 11 Pro/);
+	});
+
+	it('names the browser versions the deciding runs used', () => {
+		expect(normalize(decidingSection)).toMatch(/Chrome \d+\.\d+\.\d+/);
+		expect(normalize(decidingSection)).toMatch(/Edge \d+\.\d+\.\d+/);
+	});
+
+	it('carries the date the deciding runs were made', () => {
+		expect(normalize(decidingSection)).toMatch(/2026-08-27/);
+	});
+
+	it('records a reproducible build/preview method for the deciding runs', () => {
+		expect(normalize(decidingSection)).toMatch(/vite build/);
+		expect(normalize(decidingSection)).toMatch(/vite preview/);
+	});
+});
+
+describe('docs/spikes/spike-1.md -- no superseded result is presented as current', () => {
+	const raw = readFileSync(DOC_PATH, 'utf8');
+
+	it('does not still claim the measurements were never re-taken', () => {
+		// The invalidation banner was correct when written and false the moment the
+		// post-fix re-measurement landed below it. It is the first thing in the file.
+		expect(normalize(raw)).not.toMatch(/EVERY MEASUREMENT BELOW IS INVALIDATED/);
+		expect(normalize(raw)).not.toMatch(/have \*\*not\*\* been re-taken/);
+	});
+
+	it('exactly one section claims to be the deciding result', () => {
+		const decidingClaims = raw.match(/THIS IS THE DECIDING RESULT/g) ?? [];
+		expect(decidingClaims.length).toBeLessThanOrEqual(0);
+		// and the current-result summary quotes the post-fix figure, not a superseded one
+		const summary = raw.slice(raw.indexOf('**Current result**'), raw.indexOf('### Superseded'));
+		expect(summary).toMatch(/1\.8 ms/);
+		expect(summary).not.toMatch(/3\.50 ms|3\.70 ms/);
+	});
+});

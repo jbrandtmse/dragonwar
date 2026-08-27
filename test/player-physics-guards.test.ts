@@ -52,6 +52,18 @@ describe('PlayerPhysics setup guards (DragonWar hardening around the ported solv
 		expect(() => physics.step()).toThrow(/setPlayfieldHit/);
 	});
 
+	it('step() with statics added but finalizeStatics() never called throws instead of ignoring them', () => {
+		const physics = new PlayerPhysics();
+		physics.setPlayfieldHit(playfield());
+		physics.setTopGlassHit(topGlass());
+		physics.addStaticHitObject(new HitPoint(new Vertex3D(0, 0, 0)));
+		// Without the guard the octree is never built, so the static simply is not in
+		// the broadphase: the step succeeds and balls pass straight through it. This
+		// is the third member of the same family as the two guards above -- and the
+		// only one of the three that was still missing.
+		expect(() => physics.step()).toThrow(/finalizeStatics\(\) must be called/);
+	});
+
 	it('step() without setTopGlassHit() throws naming the missing call', () => {
 		const physics = new PlayerPhysics();
 		physics.finalizeStatics();

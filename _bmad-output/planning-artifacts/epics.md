@@ -338,12 +338,17 @@ So that the browser-first premise is proven — or the 480 Hz fallback is taken 
 
 **Change log**
 
-- **2026-08-27 — measurement surface amended from the Vite dev page to a production build.** The
-  dev page is not a valid proxy for the frame budget: measured against it the Edge/Windows leg
-  came in at 3.7–4.1 ms median depending on the session, and at 4.1 ms (7/20 runs under the bar)
-  it failed the gate outright. The same harness on a production build measured 3.70 ms median
-  with 18/20 runs under — a 0.4 ms delta that flipped the verdict. Story 1.2's size and load-time
-  numbers must come from the real production artifact for the same reason.
+- **2026-08-27 — measurement surface amended from the Vite dev page to a production build.**
+  The amendment stands: a frame-budget number that gates anything should come from the artifact
+  that ships, and Story 1.2's size and load-time numbers must come from the real production
+  artifact for the same reason.
+  **Its original justification has since been retracted.** The amendment was made on a 0.4 ms
+  dev-vs-production delta (Edge/Windows 4.1 ms median on the dev page against 3.70 ms on a
+  production build) measured in two different sessions. A later same-session A/B — dev and
+  production measured alternately on identical code — found **no measurable difference** (both
+  1.8 ms). That delta was session noise. Keep the rule as standing practice; do not cite the
+  0.4 ms figure as evidence for it. See `docs/spikes/spike-1.md`, "Post-fix re-measurement and a
+  variance investigation", and the ledger entry on this host's ~1.9x session variance.
 - **2026-08-27 — Edge/Windows carved out to best-effort for this gate.** Author decision after
   the spike escalation: Chrome is the primary target, so Chrome/Windows, Chrome/macOS and
   Safari/macOS gate `TICK_HZ` while Edge is measured and recorded only. **Safari was NOT

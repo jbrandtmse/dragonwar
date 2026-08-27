@@ -25,3 +25,7 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T21:53:30Z	Story 1.1	cr_complete	spawn_at=2026-08-27T21:08:02Z model=claude-opus-5 resolved=13 routed=2 by_design_wontfix=9 dismissed=6 high=2 med=5 low=6 story_status=in-progress closing_sections_present=true
 2026-08-27T21:53:30Z	Story 1.1	rework_measurement	iteration=1 lead_side=true reason=gravity_fix_invalidated_measurements result=pass chrome_p95_ms=1.8 edge_p95_ms=1.8 surface=production_build model=claude-opus-5
 2026-08-27T21:53:44Z	Epic 1	runtime_lock_released	stage=smoke
+2026-08-27T22:19:50Z	Epic 1	runtime_lock_acquired	stage=smoke
+2026-08-27T22:23:47Z	Story 1.1	cr_complete	spawn_at=2026-08-27T21:55:02Z model=claude-opus-5 cycle_iteration=2 story_status=done tests=187 resolved=4 routed=1 occurrences=4 closing_sections_present=true
+2026-08-27T22:23:47Z	Story 1.1	smoke_complete	method=browser result=pass iterations=1 defects_caught=1 evidence=docs/spikes/spike-1.md model=claude-opus-5 note=deliverable_ok_measurement_methodology_defect_filed
+2026-08-27T22:23:55Z	Epic 1	runtime_lock_released	stage=smoke

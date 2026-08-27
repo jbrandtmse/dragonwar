@@ -5,8 +5,11 @@
 // recorded numbers and the p95 method.
 
 import { describe, expect, it } from 'vitest';
+import { TICK_HZ } from '../src/sim/contracts/time';
+import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from '../src/sim/physics/constants';
 import {
 	BALL_DIAMETER_MM,
+	PITCH_DEG,
 	createSpikeScene,
 	GLASS_HEIGHT_MM,
 	mmToVu,
@@ -28,10 +31,10 @@ const GLASS_HEIGHT_VU = mmToVu(GLASS_HEIGHT_MM);
 // between a hit being detected and C_DISP_GAIN's partial positional correction
 // fully resolving it (verbatim upstream behaviour — see ball-hit.ts collide3DWall /
 // collide). Generous on purpose: this is a bounds/overlap sanity check, not a
-// sub-VU precision assertion. Observed in practice (both tests below log the
-// worst value they actually saw): worst bounds excess ~0.013 VU, worst overlap
-// penetration ~0.006 VU — both far under this 2.0 VU ceiling, so the generous
-// tolerance is headroom, not something masking a near-miss.
+// sub-VU precision assertion. Observed in practice on the corrected-gravity scene
+// (both tests below log the worst value they actually saw): worst bounds excess
+// 0.0149 VU, worst overlap penetration 0.0083 VU — both ~150-240x under this 2.0 VU
+// ceiling, so the generous tolerance is headroom, not something masking a near-miss.
 const BOUNDS_TOLERANCE_VU = 2.0;
 const OVERLAP_TOLERANCE_VU = 2.0;
 
@@ -199,5 +202,63 @@ describe('Spike 1 — Node correctness leg (10,000 ticks, six balls)', () => {
 		// Reporting only — transcribe the numbers above into docs/spikes/spike-1.md.
 		expect(mean).toBeGreaterThan(0);
 		expect(p95).toBeGreaterThan(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Harness configuration pins.
+//
+// Both of these guard a defect that this story actually shipped and had to be
+// re-measured for. Neither was detectable by the correctness tests above: their
+// tolerances are ~150x wider than the effect, the determinism test compares a
+// scene against itself, and the cost test asserts only that the numbers are
+// positive. Reverting either fix left the whole suite green.
+// ---------------------------------------------------------------------------
+describe('Spike 1 harness — scene configuration pins', () => {
+	// 1 U = 0.53975 mm and 1 T = 10 ms (the unit note in the ported constants.ts),
+	// so 1 U/T^2 = 0.53975e-3 m / (0.01 s)^2 = 5.3975 m/s^2. Converting lets these
+	// assertions state the physical quantity the story argues about rather than a
+	// VP-unit number that has to be re-derived to be checked.
+	const M_PER_S2_PER_VU_T2 = 5.3975;
+
+	it('runs the scene at the GRAVITYCONST-scaled strength, not the bare 0.97 multiplier', () => {
+		const { physics } = createSpikeScene();
+
+		// Upstream feeds PlayerPhysics.setGravity() `TableData.gravity`, which
+		// table-api.ts defines as already GRAVITYCONST-scaled
+		// (`set Gravity(v) { this.data.gravity = v * GRAVITYCONST; }`). Passing the
+		// bare DEFAULT_TABLE_GRAVITY ran the scene at ~55% of a real playfield and
+		// invalidated every recorded measurement in this story.
+		const totalMagnitude = Math.hypot(physics.gravity.y, physics.gravity.z) * M_PER_S2_PER_VU_T2;
+		expect(totalMagnitude, 'total gravity should be 0.97 g, i.e. ~9.51 m/s^2').toBeCloseTo(9.51, 1);
+
+		const downSlope = Math.abs(physics.gravity.y) * M_PER_S2_PER_VU_T2;
+		expect(
+			downSlope,
+			'down-slope acceleration on a 6.5 deg playfield should be ~1.08 m/s^2 ' +
+			'(the bare-0.97 regression gives 0.593)',
+		).toBeCloseTo(1.08, 1);
+
+		// And pin the exact relationship, so the failure message points at the cause.
+		const expectedStrength = DEFAULT_TABLE_GRAVITY * GRAVITYCONST;
+		const radians = (PITCH_DEG * Math.PI) / 180;
+		// Precision 6, not more: the ported degToRad() rounds slightly differently from
+		// this line's Math.PI/180, which shows up around 1e-9. The regression this
+		// guards against moves these numbers by ~45%, so 1e-6 is ample.
+		expect(physics.gravity.y).toBeCloseTo(Math.sin(radians) * expectedStrength, 6);
+		expect(physics.gravity.z).toBeCloseTo(-Math.cos(radians) * expectedStrength, 6);
+		expect(physics.gravity.x).toBe(0);
+	});
+
+	it('rounds the steps-per-frame budget UP, so a frame is never under-measured', () => {
+		// The browser leg measures STEPS_PER_FRAME_60HZ steps per frame and that p95
+		// is what gates TICK_HZ. Math.floor here would measure 16 steps instead of 17
+		// — a ~6% understatement of the budget — with the whole suite still green.
+		expect(STEPS_PER_FRAME_60HZ).toBe(Math.ceil(TICK_HZ / 60));
+		expect(
+			STEPS_PER_FRAME_60HZ,
+			'must round up: a frame owes TICK_HZ/60 ticks and the remainder is carried (AD-4)',
+		).toBeGreaterThanOrEqual(TICK_HZ / 60);
+		expect(Number.isInteger(STEPS_PER_FRAME_60HZ)).toBe(true);
 	});
 });

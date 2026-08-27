@@ -11,9 +11,13 @@
 //
 // MEASUREMENT SURFACE. Story 1.1's acceptance criterion was amended on 2026-08-27:
 // the frame budget is measured against a PRODUCTION BUILD (`vite build` +
-// `vite preview`), never the Vite dev page. The dev page is not a valid proxy --
-// it measured one browser leg about 0.4 ms slower per frame and flipped that leg's
-// verdict. `--url` still DEFAULTS to the dev server below because this repository
+// `vite preview`), never the Vite dev page. Measure the production build because
+// that is what ships and what the amended AC names. (The original justification --
+// that the dev page measured one browser leg about 0.4 ms slower and flipped that
+// leg's verdict -- was RETRACTED on 2026-08-27: a same-session A/B found the two
+// surfaces indistinguishable on this host and that delta to be cross-session noise.
+// The rule stands; only its stated evidence was wrong. See docs/spikes/spike-1.md.)
+// `--url` still DEFAULTS to the dev server below because this repository
 // has no build/preview script yet (Story 1.2 owns `vite build`); pass the preview
 // URL explicitly for any number that is meant to gate, and see
 // docs/spikes/spike-1.md for the exact build/preview invocation.
@@ -23,7 +27,7 @@
 //       [--url http://localhost:4174/tools/spike-1/index.html] [--exe <path>]
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -37,10 +41,37 @@ const CDP_PORT = 9333;
 const CDP_READY_TIMEOUT_MS = 20_000;
 const RUN_TIMEOUT_MS = 60_000; // 660 rAF frames at 60Hz ~= 11s; generous headroom.
 
+/**
+ * True when `url` looks like a Vite dev server rather than a production preview.
+ * Deliberately a heuristic over host+port, not equality with DEFAULT_URL: the dev
+ * page is still the dev page on 127.0.0.1, on the next free port Vite picks when
+ * 5173 is taken, or with a query string appended, and an exact-match guard let
+ * every one of those through unwarned.
+ */
+function looksLikeDevServer(url) {
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	const devHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+	// Vite dev defaults to 5173 and increments while ports are taken; `vite preview`
+	// defaults to 4173 and increments the same way. Treat the 5173-5183 band as dev.
+	const port = Number(parsed.port);
+	return devHosts.has(parsed.hostname) && port >= 5173 && port <= 5183;
+}
+
 function requireValue(argv, i, flag) {
 	const value = argv[i];
 	if (value === undefined) {
 		throw new Error(`${flag} requires a value`);
+	}
+	// An empty or whitespace-only value parses fine and then flows into spawn() as
+	// an empty exe path or URL, which throws outside the try/finally -- leaking the
+	// temp profile directory because cleanup never runs.
+	if (value.trim() === '') {
+		throw new Error(`${flag} requires a value that is not empty`);
 	}
 	return value;
 }
@@ -153,6 +184,11 @@ function connectCdp(webSocketDebuggerUrl) {
 	const ready = new Promise((resolve, reject) => {
 		ws.addEventListener('open', () => resolve());
 		ws.addEventListener('error', (err) => reject(new Error(`CDP WebSocket error: ${err.message ?? err}`)));
+		// A socket can close during the handshake without ever emitting `error`
+		// (browser exits, target vanishes). Without this, `await cdp.ready` would
+		// never settle and the run would hang past every deadline -- the same failure
+		// mode the in-flight-send rejection below fixes, one step earlier.
+		ws.addEventListener('close', () => reject(new Error('CDP WebSocket closed before it opened')));
 	});
 
 	// Without this, a socket that closes mid-run (browser crash, tab killed) leaves
@@ -206,8 +242,20 @@ function sweepStaleProfileDirs() {
 	}
 	for (const entry of entries) {
 		if (entry.startsWith(PROFILE_DIR_PREFIX)) {
+			const dir = path.join(tmpdir(), entry);
 			try {
-				rmSync(path.join(tmpdir(), entry), { recursive: true, force: true });
+				// Age gate: a concurrent measure.mjs holds a profile dir that is, by
+				// definition, recent. Without this, a second invocation would delete the
+				// first one's live profile out from under its browser. RUN_TIMEOUT_MS is
+				// the longest a healthy run can last, so anything older is certainly dead.
+				if (Date.now() - statSync(dir).mtimeMs < RUN_TIMEOUT_MS * 2) {
+					continue;
+				}
+			} catch {
+				continue; // vanished or unreadable between readdir and stat; nothing to do
+			}
+			try {
+				rmSync(dir, { recursive: true, force: true });
 			} catch {
 				// still locked or otherwise unremovable right now — leave it for next time
 			}
@@ -239,7 +287,11 @@ async function main() {
 	// eslint-disable-next-line no-console
 	console.error(`[measure] launching ${args.browser} headed: ${exe}`);
 	console.error(`[measure] target: ${args.url}`);
-	if (args.url === DEFAULT_URL) {
+	// Heuristic, not string identity: `--url` may legitimately differ from
+	// DEFAULT_URL in host (localhost vs 127.0.0.1), port (Vite picks the next free
+	// one when 5173 is taken) or query string, and every one of those is still the
+	// dev page. Matching only DEFAULT_URL let all of them through unwarned.
+	if (looksLikeDevServer(args.url)) {
 		console.error(
 			'[measure] WARNING: this is the Vite DEV page. The amended Story 1.1 acceptance ' +
 			'criterion measures the frame budget against a PRODUCTION build only -- a dev-page ' +

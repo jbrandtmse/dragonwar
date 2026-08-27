@@ -1,14 +1,18 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 1.1, Spike 1 — the browser leg. Served by `vite dev` at
-// tools/spike-1/index.html. `performance` and `requestAnimationFrame` live here,
-// not in sim/, per AD-3 ("all timing code lives outside src/sim/").
+// Story 1.1, Spike 1 — the browser leg. Served at tools/spike-1/index.html, from a
+// PRODUCTION build (`vite build` + `vite preview`) for any number meant to gate --
+// the amended AC bans a dev-page figure from setting TICK_HZ. `vite dev` serves the
+// same page and is fine for iterating, just not for the recorded measurement.
+//
+// `performance` and `requestAnimationFrame` live here, not in sim/, per AD-3
+// ("all timing code lives outside src/sim/").
 //
 // 60 warm-up frames are discarded, then 600 measured frames of `STEPS_PER_FRAME_60HZ`
 // steps each are timed with `performance.now()` around the step calls only (no DOM
 // work in the sample). `window.__spike1Run()` is what `tools/spike-1/measure.mjs`
 // (and the chrome-devtools-mcp fallback) call via CDP; this file also renders the
-// result to the page for a human looking at the dev server directly.
+// result to the page for a human looking at the served page directly.
 
 import { createSpikeScene, step, STEPS_PER_FRAME_60HZ, type SpikeScene } from './scene';
 

@@ -292,6 +292,56 @@ methodological and affect every later performance story, so neither is filed aga
   - location: tools/spike-1/scene.ts
 
 
+## Deferred from: code review re-review of spec-1-1-spike-1 (rework iteration 1, 2026-08-27)
+
+- **`tsconfig.json` gives `src/sim/**` the DOM lib, so a banned DOM reference typechecks**
+  - status: routed
+  - originating story: 1.1
+  - severity: medium - fix-risk: med (splitting the single tsconfig into per-area projects
+    touches the whole build; doing it wrong breaks `pnpm typecheck` for every story)
+  - occurrences: 1.1
+  - rationale: >-
+      `tsconfig.json` sets `"lib": ["ES2023", "DOM", "DOM.Iterable"]` with one `include`
+      covering `src`, `test` and `tools`. `document.getElementById('x')` inside `src/sim/`
+      therefore compiles cleanly, and the only thing standing between that and a green build
+      is `test/sim-boundary.test.ts`'s textual scan - which its own header calls a naive
+      stand-in. AD-1/AD-3 want `sim/` to be structurally incapable of touching the DOM, not
+      merely linted for it. The harness legitimately needs the DOM lib, so the fix is
+      project separation, not deleting the lib entry.
+  - suggested resolution: >-
+      Story 1.3 owns the boundary enforcement that replaces `test/sim-boundary.test.ts`
+      (AD-16). Give `src/sim/` its own tsconfig project without `DOM`/`DOM.Iterable`, with
+      `tools/` and `test/` keeping theirs, and wire both into the dependency-cruiser rules.
+      Then the guard is the type system rather than a regex.
+  - location: tsconfig.json
+
+
+---
+
+## Deferred from: lead per-story smoke of Story 1.1 (2026-08-27)
+
+- **The background-throttle guard misses moderate throttling, so any measurement taken outside `measure.mjs` is silently inflated**
+  - status: open
+  - originating story: 1.1
+  - severity: high - fix-risk: low (tighten the threshold and assert the cadence)
+  - occurrences: 1.1
+  - rationale: >-
+      The smoke drove the harness through Chrome DevTools MCP and got p95 4.8 ms against
+      `measure.mjs`'s 4.0 ms on the same build in the same minutes. Cause: the MCP-launched browser
+      ran requestAnimationFrame at 28.9 fps (34.6 ms median frame delta) while reporting
+      `visibilityState === 'visible'` and `hasFocus() === true`. The guard only rejects a frame whose
+      wall-clock delta exceeds 100 ms, so moderate throttling passes and inflates p95 about 2.7x; a
+      visibility-based guard would miss it too. `measure.mjs` avoids this only because it launches
+      headed with the three anti-throttling flags - nothing enforces that a recorded number came from
+      that path.
+  - suggested resolution: >-
+      Reject a run whose median frame delta exceeds roughly 20 ms (i.e. below ~50 fps) rather than
+      only policing a 100 ms outlier, and have the harness report its observed cadence alongside the
+      p95 so any inflated run is self-evident in the recorded output. Cheap and worth doing before
+      Story 4.7 (Spike 2) or 6.6 (browser matrix) take any further numbers.
+  - location: tools/spike-1/browser.ts, tools/spike-1/measure.mjs
+
+
 ## Occurrence log
 
 Append-only. Each line records one occurrence against a canonical entry above, naming the entry
@@ -372,3 +422,48 @@ edited into the entry's own `occurrences:` field.
 - 2026-08-27 · Story 1.1 · **Author-owned: macOS / Safari measurement legs** — still pending after
   the post-fix re-measurement; the corrected-scene production numbers above are Windows-only. When
   the author runs the macOS legs, measure them A/B in one session per the variance entry above.
+- 2026-08-27 · Story 1.1 · **This host's session-to-session measurement variance (~1.9x)
+  exceeds every effect being measured** — seen again in the code-review re-review. The
+  retracted "the dev page is not a valid proxy" conclusion is still asserted as established
+  fact in two artifacts this review is barred from editing:
+  `_bmad-output/planning-artifacts/epics.md` (the Story 1.1 AC change log, which cites the
+  0.4 ms delta as the reason for the amendment) and
+  `_bmad-output/implementation-artifacts/epic-1-context.md` (the compiled context later
+  stories read, which repeats it). The amendment itself stands on its own merits - measure
+  what ships - so only the stated justification needs correcting. `src/sim/contracts/time.ts`
+  and `tools/spike-1/measure.mjs` carried the same claim and were fixed in this pass.
+  Lead action: amend those two artifacts' wording when next touched.
+- 2026-08-27 · Story 1.1 · **`measure.mjs` hardcodes CDP port 9333 with no free-port check**
+  — seen again from a second direction: `sweepStaleProfileDirs()` deleted *every*
+  `dragonwar-spike1-*` temp directory on startup, including one a concurrently running
+  measurement still had a browser attached to. Mitigated in this pass with an age gate (only
+  directories older than twice `RUN_TIMEOUT_MS` are swept), which removes the data-destruction
+  half. The port collision itself is unchanged and still the canonical issue: two concurrent
+  runs would still both target 9333. No change to disposition.
+- 2026-08-27 · Story 1.1 · **The "terminates every step" test does not construct a genuinely
+  non-convergent input** — seen again in the re-review, with a sharper statement of why the
+  current test cannot substitute: if `physicsSimulateCycle`'s loop ever failed to terminate it
+  would hang *synchronously*, which defeats both the test's own per-tick wall-clock ceiling and
+  Vitest's `testTimeout` (neither can fire while the event loop is blocked). So the existing
+  assertion cannot detect the failure it is named for, under any timeout value. Bounding the
+  loop inside the ported file is barred by AD-15/AD-16, so the fix has to be an adversarial
+  input plus an out-of-process timeout. No change to disposition (still `open`, Story 1.5).
+- 2026-08-27 · Story 1.1 · **The Spike 1 harness scene is near-quiescent for about half the
+  measured window** — corroborated independently in the re-review from the Node leg: on the
+  corrected scene the Node p95 is 220,600-240,500 ns/tick (derived per-frame 3.75-4.09 ms,
+  straddling the 4 ms bar) while the browser leg measures 1.8 ms. The two disagree precisely
+  because the Node statistic is the 500th-worst individual tick out of 10,000 (dominated by the
+  violent opening) and the browser statistic is the 569th-worst 17-tick frame out of 600 (half
+  of it quiescent). Recorded in `docs/spikes/spike-1.md`'s Node-leg section this pass. Reinforces
+  the entry's suggested resolution: Story 1.5 re-takes the characterization on an active scene.
+- 2026-08-27 · Story 1.1 · **This host's session-to-session measurement variance (~1.9x) exceeds
+  every effect being measured** — *strengthened by the per-story smoke.* The drift is **not only
+  between sessions: it happens within one.** The same command against the same build measured 1.8 ms
+  and then 4.0 ms about forty minutes apart in a single session, mean sim cost rising 1.07 -> 1.51 ms,
+  under sustained CPU load from browser launches, test suites and subagents. Across every run recorded
+  in `docs/spikes/spike-1.md` identical code has spanned roughly **1.6-4.8 ms**, and the 4 ms bar sits
+  inside that range. Consequence: no PASS/FAIL verdict this host produces is reproducible. The
+  standing rule (A/B back-to-back in one session) is necessary but **not sufficient** — an A/B pair
+  must also be adjacent in time, not merely same-session. Before `TICK_HZ` is ratified, re-run the
+  gating legs on a machine with stable sustained clocks, or on a cool idle host, and report the
+  distribution rather than a point.

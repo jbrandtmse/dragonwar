@@ -158,3 +158,41 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 		expect(BALL_BALL_RESTITUTION, 'BALL_BALL_RESTITUTION (lib/vpt/ball/ball-hit.ts:303)').toBe(0.8);
 	});
 });
+
+describe('DragonWar-authored source files carry the GPL-3.0 header (AD-16)', () => {
+	// This story's "Always" bullet requires every NEWLY AUTHORED source file to carry
+	// the GPL-3.0 header. Two files shipped without it and both were caught by hand
+	// (vitest.config.ts in the implement stage, tools/spike-1/index.html in review) --
+	// nothing automated looked. The header check above covers only src/sim/physics/**,
+	// and it checks the UPSTREAM notice, which is the opposite requirement.
+	const AUTHORED_HEADER = 'DragonWar is licensed GPL-3.0';
+	const PORT_MARKER_TEXT = 'Ported from vpdb/vpx-js';
+	const REPO_ROOT = path.resolve(__dirname, '..');
+
+	const roots = [
+		path.resolve(REPO_ROOT, 'src', 'sim', 'contracts'),
+		path.resolve(REPO_ROOT, 'tools'),
+		path.resolve(REPO_ROOT, 'test'),
+	];
+	const authored = roots
+		.flatMap((root) => listFilesRecursive(root))
+		.filter((f) => /\.(ts|tsx|mjs|cjs|js)$/.test(f))
+		.concat([path.resolve(REPO_ROOT, 'vitest.config.ts')]);
+
+	it('finds the authored source files (sanity check the test itself is wired up)', () => {
+		expect(authored.length).toBeGreaterThan(5);
+	});
+
+	for (const file of authored) {
+		const relative = path.relative(REPO_ROOT, file).split(path.sep).join('/');
+		it(`${relative} carries the DragonWar GPL-3.0 header`, () => {
+			const code = readFileSync(file, 'utf8');
+			// A ported file carries the upstream notice instead -- that is AD-16's other
+			// half, asserted by the describe block above, and must not be overwritten here.
+			if (code.includes(PORT_MARKER_TEXT)) {
+				return;
+			}
+			expect(code, `${relative}: missing the "${AUTHORED_HEADER}" header line`).toContain(AUTHORED_HEADER);
+		});
+	}
+});

@@ -17,6 +17,8 @@
 // port -- neither is touched here.)
 
 import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -70,9 +72,71 @@ describe('tools/spike-1/measure.mjs -- CLI argument validation (real subprocess,
 		expect(stderr).toMatch(/--exe requires a value/);
 	});
 
+	it('exits non-zero when a flag is given an empty value', () => {
+		// An empty string parses fine and then reaches spawn() as an empty exe path,
+		// which throws outside the try/finally -- leaking the temp profile directory.
+		const { status, stderr } = runMeasure(['--browser', 'chrome', '--exe', '']);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/--exe requires a value that is not empty/);
+	});
+
 	it('exits non-zero naming an unrecognized argument', () => {
 		const { status, stderr } = runMeasure(['--bogus-flag']);
 		expect(status).toBe(1);
 		expect(stderr).toMatch(/unrecognized argument: --bogus-flag/);
+	});
+});
+
+describe('tools/spike-1/measure.mjs -- the dev-page measurement-surface warning', () => {
+	// The amended AC bans a dev-page number from gating TICK_HZ, and this warning is
+	// the only thing standing between a careless run and exactly that. It had no
+	// coverage: every existing test fails argument parsing first, so it never ran.
+	// A nonexistent --exe reaches the launch phase (printing target + warning) and
+	// then exits 1 cleanly, which is what makes this testable without a browser.
+	const NONEXISTENT_EXE = path.resolve(REPO_ROOT, 'no-such-browser-binary.exe');
+
+	it('warns loudly when the target is the default Vite dev page', () => {
+		const { stderr } = runMeasure(['--browser', 'chrome', '--exe', NONEXISTENT_EXE]);
+		expect(stderr).toContain('Vite DEV page');
+		expect(stderr).toMatch(/PRODUCTION build/i);
+	});
+
+	it('warns for a dev URL that is not byte-identical to the default (127.0.0.1, other port)', () => {
+		// The guard used to be `args.url === DEFAULT_URL`, so every one of these
+		// evaded it while still being the dev page.
+		for (const url of [
+			'http://127.0.0.1:5173/tools/spike-1/index.html',
+			'http://localhost:5174/tools/spike-1/index.html',
+			'http://localhost:5173/tools/spike-1/index.html?cachebust=1',
+		]) {
+			const { stderr } = runMeasure(['--browser', 'chrome', '--url', url, '--exe', NONEXISTENT_EXE]);
+			expect(stderr, `expected a dev-page warning for ${url}`).toContain('Vite DEV page');
+		}
+	});
+
+	it('does NOT warn for a production preview URL', () => {
+		const { stderr } = runMeasure([
+			'--browser', 'chrome',
+			'--url', 'http://localhost:4174/tools/spike-1/index.html',
+			'--exe', NONEXISTENT_EXE,
+		]);
+		expect(stderr).not.toContain('Vite DEV page');
+	});
+});
+
+describe('tools/spike-1/measure.mjs -- argument parsing happens before the profile sweep', () => {
+	it('a failed argument parse leaves existing spike-1 profile directories alone', () => {
+		// sweepStaleProfileDirs() mutates %TEMP%. It must not run when the arguments
+		// are invalid, or `pnpm test` (which spawns this script repeatedly) destroys a
+		// live measurement's browser profile. Regression test for that ordering.
+		const marker = path.join(tmpdir(), `dragonwar-spike1-cli-test-${process.pid}`);
+		mkdirSync(marker, { recursive: true });
+		try {
+			const { status } = runMeasure(['--not-a-real-flag']);
+			expect(status).toBe(1);
+			expect(existsSync(marker), 'the profile directory was swept despite a parse failure').toBe(true);
+		} finally {
+			rmSync(marker, { recursive: true, force: true });
+		}
 	});
 });

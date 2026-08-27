@@ -1,7 +1,7 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // Spike 1's shared six-ball harness (Story 1.1). Consumed by both `test/spike-1.test.ts`
-// (Node) and `tools/spike-1/browser.ts` (the Vite dev page) so the two measured legs
+// (Node) and `tools/spike-1/browser.ts` (the browser page) so the two measured legs
 // step the identical scene. Imports only `src/sim/physics/**` — DOM-free,
 // timing-free, allocation-free in the step path (everything below `createSpikeScene`
 // runs once; `step()` is the only function called on the hot path).

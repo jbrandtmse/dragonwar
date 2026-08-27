@@ -54,3 +54,15 @@ describe('ATTRIBUTIONS.md -- vpdb/vpx-js provenance record (Story 1.1 AC)', () =
 		expect(normalized).toMatch(/or-later clause/);
 	});
 });
+
+describe('package.json licence identifier (code review 2026-08-27, HIGH-2)', () => {
+	it("declares GPL-3.0-or-later, matching NOTICE's or-later grant", () => {
+		// NOTICE grants "either version 3 of the License, or (at your option) any
+		// later version". package.json previously declared the narrower, contradictory
+		// GPL-3.0-only -- exactly the package.json-vs-headers trap CLAUDE.md names.
+		// Nothing pinned it, so the fix could silently revert.
+		const pkgPath = path.resolve(__dirname, '..', 'package.json');
+		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { license?: string };
+		expect(pkg.license).toBe('GPL-3.0-or-later');
+	});
+});

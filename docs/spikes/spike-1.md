@@ -1,50 +1,30 @@
 # Spike 1 — the ported physics loop at 1 kHz over six bodies
 
-> ## ⚠ EVERY MEASUREMENT BELOW IS INVALIDATED — code review, 2026-08-27
+> ## ✅ RESOLVED — the gravity defect was fixed and every measurement re-taken
 >
-> **The harness measured the wrong scene.** `tools/spike-1/scene.ts` built its gravity
-> vector from the bare `DEFAULT_TABLE_GRAVITY` multiplier (`0.97`) instead of the
-> `GRAVITYCONST`-scaled strength upstream actually feeds that formula. vpx-js's
-> `lib/vpt/table/table-api.ts:156-158` settles it: the script-facing property is
-> `get Gravity() { return this.data.gravity / GRAVITYCONST; }` and
-> `set Gravity(v) { this.data.gravity = v * GRAVITYCONST; }`, so `TableData.gravity` —
-> the value `PlayerPhysics.init()` uses — is already scaled. `GRAVITYCONST` (1.81751,
-> "Earth gravity in VP units") was ported into `constants.ts` and then referenced by
-> nothing, which is the tell.
+> **What happened.** Code review (2026-08-27) found that `tools/spike-1/scene.ts`
+> built its gravity vector from the bare `DEFAULT_TABLE_GRAVITY` multiplier
+> (`0.97`) instead of the `GRAVITYCONST`-scaled strength upstream actually feeds
+> that formula. vpx-js's `lib/vpt/table/table-api.ts:156-158` settles it: the
+> script-facing property is `get Gravity() { return this.data.gravity / GRAVITYCONST; }`
+> and `set Gravity(v) { this.data.gravity = v * GRAVITYCONST; }`, so
+> `TableData.gravity` — the value `PlayerPhysics.init()` uses — is already scaled.
+> `GRAVITYCONST` (1.81751, "Earth gravity in VP units") was ported into
+> `constants.ts` and then referenced by nothing, which was the tell.
 >
-> **Effect:** the six balls ran at **0.593 m/s² of down-slope acceleration instead of
-> ~1.08 m/s²** — about 55% of a real 6.5° playfield. Fewer collisions per second means
-> a materially lighter solver workload, so **every p95 in this document is optimistic**.
+> **Effect on the measurements taken before the fix:** the six balls ran at
+> **0.593 m/s² of down-slope acceleration instead of ~1.08 m/s²** — about 55% of a
+> real 6.5° playfield at VPX's default table gravity of 0.97 g — so every p95
+> recorded before the fix was taken on a materially lighter workload.
 >
-> **Measured cost of the correction** (Node leg, same host, 10,000 ticks, back to back):
->
-> | Gravity | p95 ns/tick | Derived per-frame (p95 × 17) |
-> |---|---|---|
-> | As measured (0.97) | 171,300 | 2.91 ms |
-> | Corrected (0.97 × GRAVITYCONST = 1.76298) | 240,500 | **4.09 ms** |
->
-> That is a **1.40× rise in p95**, and it puts the Node cross-check *over* the 4 ms bar.
-> The browser legs measure the same solver on the same scene and will move with it —
-> and the recorded production-build margins were 3.50 ms (Chrome) and 3.70 ms (Edge)
-> against a 4.00 ms bar, with a known Edge tail already at 4.3–4.4 ms.
->
-> **`tools/spike-1/scene.ts` has been corrected.** The numbers in this document have
-> **not** been re-taken — re-measuring needs the production build and both browsers, and
-> the verdict it feeds is the author's call. Until the browser legs are re-run on the
-> corrected scene:
->
-> - The **PASS verdict below is not established.**
-> - **`TICK_HZ = 1000` rests on an invalidated measurement.** It has deliberately been
->   left at 1000 rather than changed, exactly as the earlier Edge escalation was handled:
->   the fail branch bundles a solver re-tune, and both are the author's decision. See the
->   ledger entry "Author-owned: TICK_HZ ratification from Spike 1".
-> - The re-run must also record **machine identification, browser versions and the run
->   date in the deciding table itself** — the AC requires them and the production-build
->   table below carries none of the three (they appear only in the superseded dev-page
->   section).
->
-> Everything below is kept unedited as the record of what was measured and why it did
-> not hold.
+> **Status now:** `tools/spike-1/scene.ts` is corrected, and the browser legs
+> **have been re-run on the corrected scene against a production build**. The
+> deciding result is
+> [Post-fix re-measurement, 2026-08-27](#post-fix-re-measurement-and-a-variance-investigation-2026-08-27-lead)
+> at the end of this document. Every section between here and there measured the
+> under-gravity scene and is **superseded**; all of it is kept deliberately,
+> because the sequence of wrong answers and how each was caught is itself the
+> record.
 
 
 Story 1.1. Measures whether a time-of-impact pinball solver stepping six balls at
@@ -53,20 +33,26 @@ Epic 1 is built on the answer.
 
 ## Verdict: **PASS on the gating paths** — `TICK_HZ = 1000`, provisional
 
-> **Read this first. The rest of this section, and the two sections after it, are
-> SUPERSEDED.** They measured the Vite **dev page**, which turned out not to be a
-> valid proxy for the frame budget. The deciding measurement is the
-> **production build**, in
-> [Production-build measurement, 2026-08-27](#production-build-measurement-2026-08-27-orchestrator--this-is-the-deciding-result)
-> near the end of this document. The superseded sections are kept deliberately and
-> must not be deleted: the dev-vs-production delta is itself a finding.
+> **Read this first. Everything in this document above
+> [Post-fix re-measurement, 2026-08-27](#post-fix-re-measurement-and-a-variance-investigation-2026-08-27-lead)
+> is SUPERSEDED** — it was measured on the under-gravity scene described in the
+> banner above, and the two earlier verdict headings ("THIS IS THE DECIDING
+> RESULT" and "Final verdict") were both written before the defect was found. The
+> superseded sections are kept deliberately and must not be deleted: how each
+> wrong answer was caught is part of the record.
 >
-> **Current result** — production build, gating paths only:
-> Chrome/Windows **3.50 ms** median (5/5 under the bar). Chrome/macOS and
-> Safari/macOS **PENDING — author's legs**; both gate. Edge/Windows **3.70 ms**
-> median (18/20 under) is **best-effort for this gate** and never decides the
-> verdict, though Edge remains a fully supported browser.
+> **Current result** — corrected scene, production build, 2026-08-27:
+> Chrome/Windows **1.8 ms** median (8/8 runs under the 4 ms bar). Edge/Windows
+> **1.8 ms** median (8/8 under) is **best-effort for this gate** and never decides
+> the verdict, though Edge remains a fully supported browser. Chrome/macOS and
+> Safari/macOS **PENDING — author's legs**; both gate.
 > `TICK_HZ` = **1000**, provisional: two of the three gating paths are unmeasured.
+>
+> **Do not read the Windows figure as a point value.** This host's
+> session-to-session variance is ~1.9× on byte-identical code (~1.6–4.6 ms observed
+> across sessions), and the harness scene is near-quiescent for about half the
+> measured window, so 1.8 ms is a floor, not a characterization. Both facts are
+> ledgered in `deferred-work.md`.
 
 ### Superseded: the original dev-page verdict (kept for the record)
 
@@ -136,24 +122,41 @@ sharing the core).
 
 ### Node leg (informational — does not gate)
 
-10,000 ticks, six balls, `process.hrtime.bigint()` around each tick (most recent
-verification run):
+> **Re-taken on the corrected-gravity scene, 2026-08-27 (code review).** The
+> figures below are the post-fix ones. The pre-fix scene reported mean 86,020 ns /
+> p95 154,700 ns / 2.63 ms derived; those are superseded and kept only in this note.
 
-- Mean: **86,020 ns/tick** (~86.0 µs)
-- p95: **154,700 ns/tick** (~154.7 µs)
-- Derived per-frame equivalent (`p95_tick x 17`): **2.63 ms** — comfortably under
-  4 ms, consistent with (not a substitute for) the browser legs above.
+10,000 ticks, six balls, `process.hrtime.bigint()` around each tick, corrected
+scene, five runs on `NOMAD` (Windows 11 Pro 10.0.26200, Intel Core i5-8259U):
 
-Run-to-run variance on this host is roughly 85,000-93,000 ns mean / 154,000-168,000
-ns p95, attributable to JIT warm-up and host scheduling jitter, not the solver
-itself — see `test/spike-1.test.ts`'s determinism assertion, which holds exactly
+- Mean: **91,000-97,000 ns/tick** (~91-97 µs)
+- p95: **220,600-240,500 ns/tick** (~221-241 µs)
+- Derived per-frame equivalent (`p95_tick x 17`): **3.75-4.09 ms** — straddling
+  the 4 ms bar. Observed samples: 3.7502, 3.8471, 3.8862, 4.0800, 4.09 ms.
+
+**Why this informational figure sits near the bar while the browser legs measure
+1.8 ms — the two are not the same statistic.** The Node leg's p95 is the 500th-worst
+*individual tick* out of 10,000, so it is dominated by the scene's short violent
+opening, and it pays roughly 100 ns of `hrtime` instrumentation on every one of
+those samples. The browser leg's p95 is the 569th-worst *17-tick frame* out of 600,
+measured over a window that is near-quiescent for about half its length (see the
+post-fix section's experiment 3). The gating number is the browser one, per
+"Reading the pass threshold" below; this cross-check is reported, not decisive, and
+the correction moved it from comfortably-under to straddling. That it no longer
+agrees with the browser figure is expected given the two definitions — but it is the
+reason the harness-quiescence entry is ledgered and Story 1.5 re-takes the
+characterization on a continuously-active scene.
+
+Run-to-run variance on this host is attributable to JIT warm-up and host scheduling
+jitter, not the solver itself — see `test/spike-1.test.ts`'s determinism assertion, which holds exactly
 regardless of timing noise. Per-tick `process.hrtime.bigint()` instrumentation
 itself adds on the order of 100 ns per sample. Unlike the browser legs, every
 observed Node run stayed well clear of the 4 ms-equivalent bar.
 
 The same 10,000-tick Node run also logs the worst bounds/overlap values it
-observed (`test/spike-1.test.ts`'s first two tests): worst bounds excess over the
-nominal playfield edge ~0.013 VU, worst ball-ball overlap penetration ~0.006 VU —
+observed (`test/spike-1.test.ts`'s first two tests) — on the corrected scene, worst
+bounds excess over the nominal playfield edge **0.0149 VU**, worst ball-ball overlap
+penetration **0.0083 VU** (the pre-fix scene reported 0.0129 / 0.0064) —
 both roughly two orders of magnitude under the tests' 2.0 VU tolerance ceiling.
 That ceiling exists for a real, documented reason (the one-tick lag between a hit
 being detected and `C_DISP_GAIN`'s partial positional correction fully resolving
@@ -528,7 +531,13 @@ entry "Author-owned: TICK_HZ ratification from Spike 1".
 
 ---
 
-## Production-build measurement, 2026-08-27 (orchestrator) — THIS IS THE DECIDING RESULT
+## SUPERSEDED: Production-build measurement, 2026-08-27 (orchestrator)
+
+> **This was the deciding result until the gravity defect was found.** It measured
+> the under-gravity scene; the deciding result is now
+> [Post-fix re-measurement, 2026-08-27](#post-fix-re-measurement-and-a-variance-investigation-2026-08-27-lead).
+> Kept unedited — its samples are the pre-fix baseline the post-fix section
+> compares against.
 
 The two sections above measured the **Vite dev page**, which is what the story's original
 acceptance criterion specified. The orchestrator then measured the **production build** — what
@@ -566,7 +575,14 @@ Edge, all 20 production samples (ms):
 smoothed away. Edge is best-effort for this gate, so they do not change the verdict — but a
 later story that tightens the frame budget should expect this tail to still be there.
 
-### The dev-vs-production delta is itself a finding
+### SUPERSEDED: "the dev-vs-production delta is itself a finding"
+
+> **This conclusion was retracted.** A later same-session A/B (experiment 2 under
+> [Post-fix re-measurement](#post-fix-re-measurement-and-a-variance-investigation-2026-08-27-lead))
+> measured the dev page and the production build as indistinguishable on this host:
+> the 0.4 ms delta below was cross-session noise. Measuring against a production
+> build remains the right standing practice and the amended AC stands — but not for
+> the reason given here.
 
 | Path | Dev page | Production build | Delta |
 |---|---|---|---|
@@ -578,7 +594,13 @@ wrong with the lead's dev-page measurement — the dev page is simply not a vali
 frame budget. **Measure the frame budget against a production build.** Story 1.2's size and
 load-time numbers must come from the real production artifact for the same reason.
 
-## Final verdict: **PASS on the gating paths**, macOS still PENDING
+## SUPERSEDED: "Final verdict", 2026-08-27 (pre-gravity-fix)
+
+> **Not the final verdict.** Written before the gravity defect was found, on the
+> under-gravity numbers above. Its *policy* conclusions still stand and were not
+> re-litigated — `TICK_HZ = 1000`, Chrome primary, Edge best-effort for the
+> frame-budget gate only, Safari not demoted. Its *measurements* are superseded by
+> [Post-fix re-measurement, 2026-08-27](#post-fix-re-measurement-and-a-variance-investigation-2026-08-27-lead).
 
 `TICK_HZ` in `src/sim/contracts/time.ts` is **1000**, set from the production numbers and still
 marked **provisional**: two of the three gating paths (Chrome/macOS and Safari/macOS) are
@@ -598,17 +620,33 @@ Code review found that the harness fed `PlayerPhysics.setGravity()` the bare
 `DEFAULT_TABLE_GRAVITY` (0.97) instead of the `GRAVITYCONST`-scaled strength upstream uses, so
 the scene ran at about 55% of a real 6.5 deg playfield's down-slope acceleration. The fix is
 correct and independently confirmed: `1 / GRAVITYCONST` = 0.550 exactly accounts for the
-shortfall, and `g * sin(6.5 deg)` = 1.11 m/s^2 matches the corrected figure. Every measurement
+shortfall, and the corrected down-slope acceleration is
+`0.97 g * sin(6.5 deg)` = **1.08 m/s^2** (0.97 g because 0.97 is VPX's default
+table gravity, not 1.0 g), which is what the corrected scene now runs at. Every measurement
 above was taken on the under-gravity scene and had to be re-taken.
+
+### Method
+
+Identical to the superseded production-build section above — same harness, same
+`measure.mjs`, unmodified, on the same idle host:
+
+```
+npx vite build tools/spike-1 --base ./ --outDir <scratch>/spike1-site/tools/spike-1
+vite preview            # port 4174
+node tools/spike-1/measure.mjs --browser <chrome|edge>      --url http://localhost:4174/tools/spike-1/index.html
+```
+
+Each run is 60 discarded warm-up frames then 600 measured frames of 17 steps, with
+the p95 taken nearest-rank at index 569 (see "p95 method" above).
 
 ### Re-measured on the corrected scene, production build
 
-| Path | Runs | Median p95 | Range | Meeting p95 <= 4 ms | Gates? |
-|---|---|---|---|---|---|
-| Chrome / Windows | 8 | **1.8 ms** | 1.7 - 1.9 ms | **8 / 8** | **yes** |
-| Edge / Windows | 8 | **1.8 ms** | 1.7 - 1.9 ms | **8 / 8** | no - best-effort |
-| Chrome / macOS | — | PENDING — author's leg | — | — | **yes** |
-| Safari / macOS | — | PENDING — author's leg | — | — | **yes** |
+| Path | Machine | Browser | Date | Runs | Median p95 | Range | Meeting p95 <= 4 ms | Gates? |
+|---|---|---|---|---|---|---|---|---|
+| Chrome / Windows | `NOMAD`, Windows 11 Pro 10.0.26200, Intel Core i5-8259U @ 2.30GHz | Chrome 151.0.7922.174 | 2026-08-27 | 8 | **1.8 ms** | 1.7 - 1.9 ms | **8 / 8** | **yes** |
+| Edge / Windows | `NOMAD`, Windows 11 Pro 10.0.26200, Intel Core i5-8259U @ 2.30GHz | Edge 151.0.4129.107 | 2026-08-27 | 8 | **1.8 ms** | 1.7 - 1.9 ms | **8 / 8** | no - best-effort |
+| Chrome / macOS | — | — | — | — | PENDING — author's leg | — | — | **yes** |
+| Safari / macOS | — | — | — | — | PENDING — author's leg | — | — | **yes** |
 
 Chrome (ms): `1.7, 1.7, 1.7, 1.8, 1.8, 1.8, 1.8, 1.9`
 Edge (ms): `1.7, 1.7, 1.7, 1.8, 1.8, 1.8, 1.9, 1.9`
@@ -686,3 +724,55 @@ Story 4.7 (Spike 2, the lightmap scaling envelope) and Story 6.6 (the browser ma
 **provisional**: Chrome/macOS and Safari/macOS are unmeasured and both gate, and this host's
 variance means the Windows figure is a range rather than a point. Safari remains the real
 outstanding risk.
+
+---
+
+## Per-story smoke, 2026-08-27 (lead) — the variance is WITHIN a session too
+
+The smoke drove the final production build through Chrome DevTools MCP — a different channel from
+`measure.mjs`, deliberately, so the deliverable was exercised end to end rather than re-running the
+same harness the same way.
+
+**Deliverable: PASS.** The production build serves, the module graph loads, the harness initialises
+("Spike 1 harness ready (17 steps/frame)"), `window.__spike1Run()` resolves with a well-formed
+result, and the DOM updates with it. No console errors.
+
+**But the smoke caught a measurement defect the automated tiers cannot see.**
+
+| Channel | p95 | mean | rAF cadence |
+|---|---|---|---|
+| Chrome DevTools MCP | 4.8 ms | 2.51 ms | **28.9 fps** (34.6 ms median frame delta) |
+| `measure.mjs`, same build, same minutes | 4.0, 4.0, 3.9 ms | ~1.51 ms | 60 fps (anti-throttling flags) |
+| `measure.mjs`, same build, ~40 min earlier | 1.8, 1.8, 1.7 ms | ~1.07 ms | 60 fps |
+
+Two distinct problems, both real:
+
+1. **The background-throttle guard does not catch moderate throttling.** The MCP-launched browser
+   ran rAF at 28.9 fps — clearly throttled — while reporting `document.visibilityState === 'visible'`
+   and `document.hasFocus() === true`. The guard only rejects a run when a frame's wall-clock delta
+   exceeds 100 ms, so 34.6 ms sails through, and the resulting p95 is inflated about 2.7x. A
+   visibility-based guard would not have caught it either. `measure.mjs` avoids this by launching
+   headed with `--disable-background-timer-throttling`, `--disable-backgrounding-occluded-windows`
+   and `--disable-renderer-backgrounding` — but nothing enforces that a measurement came from that
+   path, so any future run through another channel silently produces inflated numbers.
+
+2. **The host drifts within a single session.** The same command, same build, same session measured
+   1.8 ms and then 4.0 ms about forty minutes apart, with mean sim cost rising 1.07 -> 1.51 ms.
+   Earlier this was characterised as session-to-session variance; it is narrower than that. Sustained
+   CPU load (browser launches, test suites, subagents) plausibly heats a 15 W 2018 mobile part into
+   sustained-clock throttling, though package power and frequency were never instrumented, so the
+   mechanism remains unproven.
+
+### What this means for the verdict
+
+Across everything recorded in this document, identical code has measured roughly **1.6 ms to 4.8 ms**
+p95 on this host. **The 4 ms bar sits inside that range**, so no PASS/FAIL verdict this host produces
+is reproducible, and the recorded PASS should be read as "passes when the machine is cool and
+otherwise idle", not as a property of the code.
+
+`TICK_HZ` stays **1000** — that is the author's decision of 2026-08-27 and this does not overturn it;
+the mean sim cost (1.07-2.51 ms per 17-step frame) leaves comfortable headroom on any of these runs,
+and it is the p95 tail, not the typical frame, that moves. But the value stays **provisional**, and
+the two macOS legs still gate. Recommended before ratification: re-run the gating legs on a machine
+with stable sustained clocks, or on a cool idle host with nothing else running, and report the
+distribution rather than a point.
