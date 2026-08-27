@@ -1,0 +1,620 @@
+<title>DragonWar Architecture Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f1efe9;
+    --surface: #fbfaf7;
+    --surface-2: #e9e5dc;
+    --ink: #1d1a15;
+    --ink-2: #4f4942;
+    --muted: #7a7267;
+    --line: #d5cec2;
+    --line-2: #b9b0a1;
+    --accent: #c9711a;
+    --accent-ink: #fff7ee;
+    --accent-soft: #f6e3cd;
+    --dmd: #2a1d0f;
+    --dmd-dot: #f29a2e;
+    --dmd-dim: #5a3a16;
+    --g-white: #e8e6e0;
+    --g-red: #d9342b;
+    --g-green: #2e9e4f;
+    --g-blue: #2f6de0;
+    --g-orange: #ef8a24;
+    --g-purple: #8b4fd6;
+    --shadow: 0 1px 0 rgba(0,0,0,.04), 0 8px 24px -16px rgba(40,25,5,.35);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151210;
+      --surface: #1d1915;
+      --surface-2: #26211b;
+      --ink: #efe7da;
+      --ink-2: #c9bfb0;
+      --muted: #978d7f;
+      --line: #36302a;
+      --line-2: #4c443b;
+      --accent: #f29a2e;
+      --accent-ink: #1d1206;
+      --accent-soft: #3a2812;
+      --dmd: #0e0906;
+      --dmd-dot: #ffa63a;
+      --dmd-dim: #4a2f10;
+      --g-white: #f4f2ec;
+      --shadow: 0 1px 0 rgba(255,255,255,.03), 0 12px 28px -18px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151210;
+    --surface: #1d1915;
+    --surface-2: #26211b;
+    --ink: #efe7da;
+    --ink-2: #c9bfb0;
+    --muted: #978d7f;
+    --line: #36302a;
+    --line-2: #4c443b;
+    --accent: #f29a2e;
+    --accent-ink: #1d1206;
+    --accent-soft: #3a2812;
+    --dmd: #0e0906;
+    --dmd-dot: #ffa63a;
+    --dmd-dim: #4a2f10;
+    --g-white: #f4f2ec;
+    --shadow: 0 1px 0 rgba(255,255,255,.03), 0 12px 28px -18px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; } }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code, .mono { font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; font-size: .92em; }
+  code { background: var(--surface-2); padding: .05em .35em; border-radius: 3px; }
+
+  .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0; max-width: 1180px; margin: 0 auto; }
+  @media (max-width: 860px) { .shell { grid-template-columns: 1fr; } .rail { display: none; } }
+
+  .rail { position: sticky; top: 0; align-self: start; height: 100vh; padding: 28px 20px 28px 24px; border-right: 1px solid var(--line); }
+  .rail .eyebrow { font-family: "Barlow Condensed", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .rail a { display: block; text-decoration: none; padding: 5px 8px; border-radius: 4px; font-size: 13.5px; color: var(--ink-2); border-left: 2px solid transparent; }
+  .rail a:hover { background: var(--surface-2); color: var(--ink); }
+  .rail a.active { color: var(--ink); border-left-color: var(--accent); background: var(--surface); }
+  .rail .ad { margin-top: 18px; font-size: 12px; color: var(--muted); }
+
+  main { padding: 0 40px 96px 40px; }
+  @media (max-width: 860px) { main { padding: 0 20px 64px; } }
+
+  /* hero */
+  .hero { padding: 56px 0 32px; border-bottom: 1px solid var(--line); margin-bottom: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; align-items: end; }
+  @media (max-width: 1000px) { .hero { grid-template-columns: 1fr; } }
+  .kicker { font-family: "Barlow Condensed", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .14em; font-size: 13px; color: var(--accent); }
+  h1 { font-family: "Barlow Condensed", sans-serif; font-weight: 700; font-size: clamp(44px, 6vw, 72px); line-height: .95; letter-spacing: -.01em; text-transform: uppercase; margin: 8px 0 18px; text-wrap: balance; }
+  .lede { font-size: 19px; line-height: 1.5; max-width: 60ch; color: var(--ink-2); margin: 0; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  .dmd { background: var(--dmd); border-radius: 6px; padding: 14px 16px; box-shadow: var(--shadow); border: 1px solid #000; }
+  .dmd svg { display: block; width: 100%; height: auto; }
+
+  /* sections */
+  section { padding: 12px 0 44px; scroll-margin-top: 12px; }
+  h2 { font-family: "Barlow Condensed", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; font-size: 30px; line-height: 1.05; margin: 0 0 6px; text-wrap: balance; }
+  .h2wrap { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+  .h2wrap .num { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); letter-spacing: .08em; }
+  h3 { font-family: "Barlow Condensed", sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; font-size: 17px; margin: 22px 0 6px; color: var(--ink-2); }
+  p { max-width: 68ch; margin: 0 0 14px; }
+  ul, ol { max-width: 68ch; padding-left: 22px; margin: 0 0 14px; }
+  li { margin-bottom: 4px; }
+  .rule { font-size: 15px; color: var(--ink-2); border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; margin: 14px 0 18px; max-width: 68ch; }
+  .rule b { color: var(--ink); }
+  .adref { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--accent); letter-spacing: .04em; text-decoration: none; white-space: nowrap; }
+
+  figure { margin: 18px 0 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px 16px 12px; box-shadow: var(--shadow); overflow-x: auto; }
+  figure svg { display: block; max-width: 100%; height: auto; color: var(--ink); }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; max-width: 80ch; }
+  figcaption b { color: var(--ink-2); font-weight: 500; }
+
+  .discuss { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; background: var(--accent-soft); border-radius: 6px; padding: 12px 14px; margin: 14px 0 18px; max-width: 72ch; font-size: 15px; }
+  .discuss .tag { font-family: "Barlow Condensed", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; font-size: 12px; color: var(--accent); padding-top: 3px; }
+  .discuss p { margin: 0; }
+
+  /* layer explorer */
+  .explorer { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .explorer { grid-template-columns: 1fr; } }
+  .explorer figure { margin: 0; }
+  .layer-btn { cursor: pointer; }
+  .layer-btn rect { fill: var(--surface-2); stroke: currentColor; stroke-width: 1; transition: fill .15s; }
+  .layer-btn:hover rect { fill: var(--accent-soft); }
+  .layer-btn.on rect { fill: var(--accent); stroke: var(--accent); }
+  .layer-btn.on text { fill: var(--accent-ink); }
+  .layer-btn text { fill: currentColor; pointer-events: none; }
+  .edge { stroke: currentColor; stroke-width: 1.1; opacity: .38; transition: opacity .15s, stroke .15s; }
+  .edge.hot { opacity: 1; stroke: var(--accent); stroke-width: 2; }
+  .edge.dim { opacity: .12; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; font-size: 14px; box-shadow: var(--shadow); min-height: 220px; }
+  .panel h4 { font-family: "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .06em; font-size: 16px; margin: 0 0 6px; }
+  .panel .lab { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; margin: 10px 0 3px; }
+  .panel ul { padding-left: 16px; margin: 0; font-size: 13.5px; }
+
+  /* stepper */
+  .stepper { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; }
+  .steps button { font: inherit; font-family: "IBM Plex Mono", monospace; font-size: 12px; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+  .steps button:hover { border-color: var(--accent); color: var(--ink); }
+  .steps button[aria-current="step"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .journey-fig { margin: 0; }
+  .jnode rect { fill: var(--surface-2); stroke: currentColor; stroke-width: 1; }
+  .jnode text { fill: currentColor; }
+  .jnode.hot rect { fill: var(--accent); stroke: var(--accent); }
+  .jnode.hot text { fill: var(--accent-ink); }
+  .jnode.past rect { fill: var(--accent-soft); stroke: var(--accent); }
+  .jedge { stroke: currentColor; stroke-width: 1.1; opacity: .3; }
+  .jedge.hot { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
+  .jedge.past { stroke: var(--accent); opacity: .55; }
+  .jtext { font-size: 11.5px; fill: var(--muted); }
+  .step-body { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-height: 120px; box-shadow: var(--shadow); }
+  .step-body h4 { margin: 0 0 6px; font-family: "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .05em; font-size: 17px; }
+  .step-body p { margin: 0; font-size: 14.5px; max-width: none; }
+  .step-nav { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .step-nav button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .step-nav button:hover { border-color: var(--accent); }
+
+  /* tables */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 14px; margin: 10px 0 18px; }
+  .tbl th, .tbl td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .tbl th { font-family: "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .08em; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .tbl td:first-child { white-space: nowrap; }
+  .tblwrap { overflow-x: auto; }
+
+  /* ownership cards */
+  .own { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin: 12px 0 18px; }
+  @media (max-width: 760px) { .own { grid-template-columns: 1fr; } }
+  .own .card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .own h4 { margin: 0 0 4px; font-family: "Barlow Condensed", sans-serif; text-transform: uppercase; letter-spacing: .06em; font-size: 16px; }
+  .own .path { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--accent); margin-bottom: 8px; }
+  .own ul { padding-left: 16px; margin: 0; font-size: 13.5px; }
+
+  /* grammar chips */
+  .grammar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 16px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 10px 6px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+  .chip i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 2px var(--surface), 0 0 10px 1px var(--c); background: var(--c); }
+  .chip code { background: transparent; padding: 0; color: var(--muted); }
+
+  .defer { columns: 2; column-gap: 28px; max-width: none; font-size: 14.5px; }
+  @media (max-width: 760px) { .defer { columns: 1; } }
+  .defer li { break-inside: avoid; }
+
+  .footer { border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 24px; }
+</style>
+
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <div class="eyebrow">DragonWar</div>
+    <ol>
+      <li><a href="#paradigm">The machine, virtualised</a></li>
+      <li><a href="#layers">Layers &amp; the dependency law</a></li>
+      <li><a href="#clock">One clock</a></li>
+      <li><a href="#journey">A flip, tick by tick</a></li>
+      <li><a href="#lock">The Lock lane</a></li>
+      <li><a href="#state">Who owns what</a></li>
+      <li><a href="#assets">Blender to playfield</a></li>
+      <li><a href="#light">Light</a></li>
+      <li><a href="#deferred">Left open, on purpose</a></li>
+      <li><a href="#index">AD index</a></li>
+    </ol>
+    <div class="ad">19 architecture decisions · spine 2026-08-26</div>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div>
+        <div class="kicker">Architecture walkthrough</div>
+        <h1>A pinball machine, built as one</h1>
+        <p class="lede">DragonWar is arranged the way a real machine is wired. <strong>Physics is the cabinet.</strong> <strong>Rules is the game CPU.</strong> <strong>Presentation is the lamp, coil and display drivers.</strong> One fixed-step clock runs through all of it, and nothing crosses a seam except the closed set of types this page walks through.</p>
+      </div>
+      <div class="dmd" aria-hidden="true">
+        <svg viewBox="0 0 320 96">
+          <g fill="var(--dmd-dim)">
+            <rect x="0" y="0" width="320" height="96" fill="var(--dmd)"/>
+            <g id="dots"></g>
+          </g>
+          <text x="160" y="40" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" font-weight="500" fill="var(--dmd-dot)" letter-spacing="4">D-R-A-G-O-N</text>
+          <text x="160" y="70" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--dmd-dot)" letter-spacing="2">LOCK 2 · WAR READY</text>
+        </svg>
+      </div>
+    </header>
+
+    <section id="paradigm">
+      <div class="h2wrap"><span class="num">AD-1</span><h2>The machine, virtualised</h2></div>
+      <p>Every serious pinball simulator that works was built around the machine's own anatomy, not a generic game-engine stack. DragonWar takes that literally. The <b>Rules</b> layer is a pure function of switches — it never learns a ball's position or speed. The <b>Physics</b> core is a cabinet behind a virtual I/O board: switch closures come out, coil pulses go in. <b>Presentation</b> is a set of drivers that turn semantic commands into light, sound and motion. The <b>Host</b> wires them together and owns no game logic.</p>
+      <div class="rule"><b>The one-table guard.</b> The registry and loader are exactly the seed of a generic table runtime, and the brief names that erosion as the project's biggest risk. So: <code>sim/table/dragonwar.ts</code> is imported directly everywhere; there is no <code>Table</code> interface, no table-loading API, no plugin registration. <a class="adref" href="#index">AD-1</a></div>
+      <div class="discuss"><span class="tag">Discuss</span><p>Is the "no <code>Table</code> interface" line too strict for a future authoring path, or exactly the fence that keeps v1 a game? The layer separation preserves the option at no cost; the fence is about not paying for it early.</p></div>
+    </section>
+
+    <section id="layers">
+      <div class="h2wrap"><span class="num">AD-1 · AD-16</span><h2>Layers &amp; the dependency law</h2></div>
+      <p>Seven directories, and the arrows between them are the only permitted imports — enforced in CI by dependency-cruiser, not by convention. Click a layer to see what it may reach and what it produces.</p>
+      <div class="explorer">
+        <figure>
+          <svg id="layerSvg" viewBox="0 0 640 300" role="img" aria-label="Dependency graph: host imports presentation, loop, contracts and table; presentation imports contracts and table; loop imports physics, rules, contracts and table; physics and rules each import contracts and table; table imports contracts.">
+            <defs>
+              <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker>
+            </defs>
+            <g id="edges" fill="none" marker-end="url(#arr)">
+              <line data-e="host-pres" class="edge" x1="120" y1="60" x2="222" y2="60"/>
+              <line data-e="host-loop" class="edge" x1="100" y1="80" x2="284" y2="146"/>
+              <line data-e="host-contracts" class="edge" x1="60" y1="80" x2="452" y2="248"/>
+              <line data-e="host-table" class="edge" x1="80" y1="80" x2="318" y2="248"/>
+              <line data-e="pres-contracts" class="edge" x1="290" y1="80" x2="484" y2="240"/>
+              <line data-e="pres-table" class="edge" x1="272" y1="80" x2="336" y2="240"/>
+              <line data-e="loop-physics" class="edge" x1="290" y1="180" x2="180" y2="238"/>
+              <line data-e="loop-rules" class="edge" x1="330" y1="180" x2="470" y2="150"/>
+              <line data-e="loop-contracts" class="edge" x1="350" y1="176" x2="490" y2="240"/>
+              <line data-e="loop-table" class="edge" x1="330" y1="180" x2="340" y2="240"/>
+              <line data-e="rules-contracts" class="edge" x1="520" y1="170" x2="520" y2="238"/>
+              <line data-e="rules-table" class="edge" x1="480" y1="170" x2="378" y2="240"/>
+              <line data-e="physics-contracts" class="edge" x1="220" y1="260" x2="452" y2="260"/>
+              <line data-e="physics-table" class="edge" x1="220" y1="252" x2="300" y2="252"/>
+              <line data-e="table-contracts" class="edge" x1="400" y1="262" x2="452" y2="262"/>
+            </g>
+            <g class="layer-btn" data-l="host" tabindex="0" role="button" aria-label="host"><rect x="20" y="40" width="100" height="40" rx="3"/><text x="70" y="65" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">host/</text></g>
+            <g class="layer-btn" data-l="pres" tabindex="0" role="button" aria-label="presentation"><rect x="222" y="40" width="140" height="40" rx="3"/><text x="292" y="65" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">presentation/</text></g>
+            <g class="layer-btn" data-l="loop" tabindex="0" role="button" aria-label="sim/loop"><rect x="270" y="140" width="100" height="40" rx="3"/><text x="320" y="165" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">sim/loop</text></g>
+            <g class="layer-btn" data-l="rules" tabindex="0" role="button" aria-label="sim/rules"><rect x="470" y="130" width="110" height="40" rx="3"/><text x="525" y="155" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">sim/rules</text></g>
+            <g class="layer-btn" data-l="physics" tabindex="0" role="button" aria-label="sim/physics"><rect x="100" y="240" width="120" height="40" rx="3"/><text x="160" y="265" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">sim/physics</text></g>
+            <g class="layer-btn" data-l="table" tabindex="0" role="button" aria-label="sim/table"><rect x="300" y="240" width="100" height="40" rx="3"/><text x="350" y="265" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">sim/table</text></g>
+            <g class="layer-btn" data-l="contracts" tabindex="0" role="button" aria-label="sim/contracts"><rect x="452" y="240" width="130" height="40" rx="3"/><text x="517" y="265" text-anchor="middle" font-size="13" font-family="IBM Plex Mono, monospace">sim/contracts</text></g>
+          </svg>
+          <figcaption><b>Arrows are the law.</b> Rules and physics never import each other. Nothing under <code>sim/</code> imports presentation, host, Babylon, or a DOM global. Host never reaches physics or rules directly — only through the loop.</figcaption>
+        </figure>
+        <div class="panel" id="layerPanel">
+          <h4>Pick a layer</h4>
+          <p style="margin:0;color:var(--muted);font-size:13.5px">Click a box in the diagram to see what it owns, what it may import, and what it emits across its seam.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="clock">
+      <div class="h2wrap"><span class="num">AD-3 · AD-4</span><h2>One clock</h2></div>
+      <p>There is exactly one time inside <code>sim/</code>: the tick. <code>TICK_HZ</code> is one constant, taken from the ported core's <code>PHYSICS_STEPTIME</code> — 1000 µs, so 1 kHz — and every timer in the game (ball save, grace, hurry-up, mode select, tilt settle) is authored in milliseconds and converted once at load. Wall-clock exists only in the host accumulator. If the 1 kHz spike fails and the sim drops to 480 Hz, one constant changes and the golden replays are re-recorded; nothing else moves.</p>
+      <figure>
+        <svg viewBox="0 0 760 190" role="img" aria-label="Timeline of one display frame at 60 Hz: 16.67 ms of wall time becomes 16 physics ticks with a 0.67 ms remainder carried into the next frame; key transitions are stamped to ticks; a stall beyond 200 ms of owed time discards the excess.">
+          <defs><marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+          <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor">
+            <text x="20" y="28">rAF frame (60 Hz) · elapsed 16.67 ms</text>
+            <rect x="20" y="36" width="560" height="22" fill="none" stroke="currentColor" opacity=".5"/>
+            <text x="590" y="51" opacity=".7">carry 0.67 ms →</text>
+            <text x="20" y="92">sim ticks · TICK_HZ = 1000</text>
+            <g id="ticks"></g>
+            <text x="20" y="150">input</text>
+            <line x1="182" y1="120" x2="182" y2="160" stroke="var(--accent)" stroke-width="2"/>
+            <text x="188" y="158" fill="var(--accent)">flipper_l ↓ stamped from event.timeStamp → tick 5</text>
+            <line x1="425" y1="120" x2="425" y2="160" stroke="var(--accent)" stroke-width="2"/>
+            <text x="431" y="158" fill="var(--accent)">flipper_l ↑ → tick 12</text>
+            <text x="20" y="182" opacity=".75">owed &gt; 200 ms? discard the excess, emit sim_time_discarded — never fast-forward, never freeze</text>
+          </g>
+        </svg>
+        <figcaption><b>Why transitions, not a per-frame latch.</b> A latch would land the same key press on a different tick at 30 Hz than at 120 Hz, and a light tap inside one frame would vanish. Stamping each transition to a tick makes a replay identical regardless of display rate — the whole basis of the determinism tests.</figcaption>
+      </figure>
+      <div class="rule"><b>Rules step after every physics step</b>, even when there are no events — that is what lets timers count ticks. Commands issued at tick <i>t</i> take effect at <i>t+1</i>. The accumulator carries its fractional remainder; only time beyond 200 ms of debt is discarded. <a class="adref" href="#index">AD-4</a></div>
+      <div class="discuss"><span class="tag">Discuss</span><p>Main thread in v1 was a deliberate call: the sim is DOM-free, so a Worker move later is a host-only change — but it would have to use <code>postMessage</code> snapshots, because GitHub Pages cannot serve the COOP/COEP headers that <code>SharedArrayBuffer</code> needs.</p></div>
+    </section>
+
+    <section id="journey">
+      <div class="h2wrap"><span class="num">AD-2 · AD-5 · AD-9 · AD-19</span><h2>A flip, tick by tick</h2></div>
+      <p>The clearest way to see the seams is to follow one press of the left flipper button through them until an insert changes colour. Eight stops.</p>
+      <div class="stepper">
+        <div class="steps" id="steps" role="tablist" aria-label="Journey steps"></div>
+        <figure class="journey-fig">
+          <svg id="journeySvg" viewBox="0 0 760 210" role="img" aria-label="The path of one flipper press: host input to loop, loop to physics hardware rule and button switch, physics to devices layer as a switch edge, devices to modes as a shot event, modes to lamp projection, loop diffs lamps, grammar maps role and step to colour, driver lights the insert.">
+            <defs><marker id="arr3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+            <g fill="none" marker-end="url(#arr3)">
+              <line class="jedge" data-j="1" x1="100" y1="60" x2="150" y2="60"/>
+              <line class="jedge" data-j="2" x1="250" y1="60" x2="300" y2="60"/>
+              <line class="jedge" data-j="3" x1="400" y1="60" x2="450" y2="60"/>
+              <line class="jedge" data-j="4" x1="550" y1="60" x2="600" y2="60"/>
+              <line class="jedge" data-j="5" x1="650" y1="80" x2="650" y2="130"/>
+              <line class="jedge" data-j="6" x1="600" y1="150" x2="550" y2="150"/>
+              <line class="jedge" data-j="7" x1="450" y1="150" x2="400" y2="150"/>
+              <line class="jedge" data-j="8" x1="300" y1="150" x2="250" y2="150"/>
+            </g>
+            <g font-family="IBM Plex Mono, monospace" font-size="11.5">
+              <g class="jnode" data-n="0"><rect x="10" y="40" width="90" height="40" rx="3"/><text x="55" y="64" text-anchor="middle">host/input</text></g>
+              <g class="jnode" data-n="1"><rect x="150" y="40" width="100" height="40" rx="3"/><text x="200" y="64" text-anchor="middle">sim/loop</text></g>
+              <g class="jnode" data-n="2"><rect x="300" y="40" width="100" height="40" rx="3"/><text x="350" y="64" text-anchor="middle">physics</text></g>
+              <g class="jnode" data-n="3"><rect x="450" y="40" width="100" height="40" rx="3"/><text x="500" y="64" text-anchor="middle">rules/devices</text></g>
+              <g class="jnode" data-n="4"><rect x="600" y="40" width="100" height="40" rx="3"/><text x="650" y="64" text-anchor="middle">rules/modes</text></g>
+              <g class="jnode" data-n="5"><rect x="600" y="130" width="100" height="40" rx="3"/><text x="650" y="154" text-anchor="middle">lampsOf()</text></g>
+              <g class="jnode" data-n="6"><rect x="450" y="130" width="100" height="40" rx="3"/><text x="500" y="154" text-anchor="middle">loop · diff</text></g>
+              <g class="jnode" data-n="7"><rect x="300" y="130" width="100" height="40" rx="3"/><text x="350" y="154" text-anchor="middle">grammar.ts</text></g>
+              <g class="jnode" data-n="8"><rect x="150" y="130" width="100" height="40" rx="3"/><text x="200" y="154" text-anchor="middle">LampDriver</text></g>
+            </g>
+            <g class="jtext" font-family="IBM Plex Mono, monospace">
+              <text x="125" y="52" text-anchor="middle">transition</text>
+              <text x="275" y="52" text-anchor="middle">frame+switch</text>
+              <text x="425" y="52" text-anchor="middle">edge</text>
+              <text x="575" y="52" text-anchor="middle">shot event</text>
+              <text x="668" y="110">roles</text>
+              <text x="575" y="142" text-anchor="middle">LampState</text>
+              <text x="425" y="142" text-anchor="middle">LampCommand</text>
+              <text x="275" y="142" text-anchor="middle">(role, step)</text>
+            </g>
+          </svg>
+          <figcaption id="journeyCap"><b>Top row: input to game meaning.</b> Bottom row: game meaning back out to light. The flipper itself moved at stop 3 — it never waited for the rules.</figcaption>
+        </figure>
+        <div class="step-body" id="stepBody"></div>
+        <div class="step-nav"><button id="prevStep" type="button">← Back</button><button id="nextStep" type="button">Next →</button></div>
+      </div>
+    </section>
+
+    <section id="lock">
+      <div class="h2wrap"><span class="num">AD-6 · AD-18</span><h2>The Lock lane</h2></div>
+      <p>The lane between the Dragon's legs does three jobs — lock a ball, start a mode, or count a Strike — and the founding moment of the game fires from it. Two independently built epics could each legally decide what an entry means and each pulse the Mouth. The spine closes that with a single arbiter.</p>
+      <figure>
+        <svg viewBox="0 0 760 250" role="img" aria-label="Lock arbiter: a lock_lane_entered event goes to exactly one component, which emits exactly one of four outcomes — locked, mode start, strike, or spit — and is the only thing that pulses the Mouth coil or serves a ball from the trough afterwards.">
+          <defs><marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+          <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">
+            <rect x="16" y="100" width="150" height="44" rx="3" fill="none" stroke="currentColor"/>
+            <text x="91" y="120" text-anchor="middle">bd_lock slot closes</text>
+            <text x="91" y="136" text-anchor="middle" opacity=".7">physics · parks ball</text>
+            <line x1="166" y1="122" x2="230" y2="122" stroke="currentColor" fill="none" marker-end="url(#arr4)"/>
+            <text x="198" y="114" text-anchor="middle" opacity=".7" font-size="10.5">devices</text>
+            <rect x="232" y="88" width="170" height="68" rx="3" fill="var(--accent)" stroke="var(--accent)"/>
+            <text x="317" y="114" text-anchor="middle" fill="var(--accent-ink)" font-weight="500">Lock arbiter</text>
+            <text x="317" y="132" text-anchor="middle" fill="var(--accent-ink)" font-size="10.5">ball-controller · reads GameState</text>
+            <text x="317" y="146" text-anchor="middle" fill="var(--accent-ink)" font-size="10.5">emits exactly one ↓</text>
+            <g stroke="currentColor" fill="none" marker-end="url(#arr4)">
+              <line x1="402" y1="100" x2="470" y2="40"/>
+              <line x1="402" y1="115" x2="470" y2="95"/>
+              <line x1="402" y1="130" x2="470" y2="150"/>
+              <line x1="402" y1="145" x2="470" y2="205"/>
+            </g>
+            <text x="480" y="44">lock_lane_locked</text>
+            <text x="480" y="58" opacity=".7" font-size="10.5">credits &lt; 2, no multiball → serve from trough</text>
+            <text x="480" y="99">lock_lane_mode_start {candidates}</text>
+            <text x="480" y="113" opacity=".7" font-size="10.5">mode lit → select window, ball stays parked</text>
+            <text x="480" y="154">lock_lane_strike</text>
+            <text x="480" y="168" opacity=".7" font-size="10.5">machine.multiball ≠ null → count, eject</text>
+            <text x="480" y="209">lock_lane_spit</text>
+            <text x="480" y="223" opacity=".7" font-size="10.5">device full of another player's balls → eject one, credit still counts</text>
+            <text x="20" y="200" opacity=".75">Only the arbiter pulses c_mouth. Every Mouth eject is preceded by show_dragon_mouth_open by mouthOpenLeadMs.</text>
+            <text x="20" y="218" opacity=".75">"A multiball is running" = machine.multiball, set only by a multiball's _starting phase — never derived from ballsInPlay.</text>
+          </g>
+        </svg>
+        <figcaption><b>One consumer, four outcomes, one commander.</b> Modes react to the outcome events and never emit a coil command. The same rule shape protects ball save: one machine device that modes may <i>arm</i>, never own.</figcaption>
+      </figure>
+      <div class="discuss"><span class="tag">Discuss</span><p>The order-free War start (spell DRAGON and lock two, in either order) means the sixth drop target can be the event that opens the mouth. The arbiter is where that moment lives — worth walking as a story before writing the epic.</p></div>
+    </section>
+
+    <section id="state">
+      <div class="h2wrap"><span class="num">AD-7 · AD-8</span><h2>Who owns what</h2></div>
+      <p><code>GameState</code> is one plain JSON tree, mutated only inside <code>rules.step</code>, hashable and replayable. Every fact has exactly one scope. Hot seat makes this matter on day one: player 1 drains with two balls in the Lock, and player 2's credits must still read zero while the physical device still holds two balls.</p>
+      <div class="own">
+        <div class="card"><h4>Player</h4><div class="path">players[i]</div><ul><li>score, bonus, multiplier</li><li>DRAGON letters</li><li>Lock credits (0–2)</li><li>modes played, extra balls</li><li>tilt warnings</li><li>lanes (lit, completed)</li><li>Jackpot seed, Wars started</li></ul></div>
+        <div class="card"><h4>Machine</h4><div class="path">machine</div><ul><li>device slots, ballsInPlay</li><li>hardwareEnabled</li><li>ballSave (one device)</li><li>tilt state</li><li>multiball: null | quickmb | war</li><li>highscores (read-only)</li></ul></div>
+        <div class="card"><h4>Mode</h4><div class="path">modes[i] → ModeView</div><ul><li>own timers and counters</li><li>published only as a typed ModeView</li><li>empty between balls</li><li>unique priority: base 100 · skill 200 · hurry-up 300 · joust 310 · quick MB 400 · War 500</li></ul></div>
+      </div>
+      <div class="rule"><b>Lamps are a projection, not state.</b> <code>lampsOf(state)</code> is recomputed every step from the active modes by priority; the loop emits the diff. No mode ever "turns a lamp off" — it simply stops being active. <a class="adref" href="#index">AD-9</a></div>
+    </section>
+
+    <section id="assets">
+      <div class="h2wrap"><span class="num">AD-10 · AD-11</span><h2>Blender to playfield</h2></div>
+      <p>Geometry has one owner — the Blender file — and devices have one owner — <code>TABLE</code>. The export script is what keeps them honest: it validates every node name and custom property against a dump of <code>TABLE</code> before writing anything, and it writes two outputs so the physics loader never needs Babylon.</p>
+      <figure>
+        <svg viewBox="0 0 760 200" role="img" aria-label="Asset pipeline: dragonwar.blend is exported by tools/export.py, which validates against a JSON dump of TABLE and writes dragonwar.glb for presentation and dragonwar.collision.json for the physics loader; both loaders fail fast on a missing node.">
+          <defs><marker id="arr5" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+          <g font-family="IBM Plex Mono, monospace" font-size="11.5" fill="currentColor">
+            <rect x="16" y="70" width="140" height="44" rx="3" fill="none" stroke="currentColor"/>
+            <text x="86" y="89" text-anchor="middle">dragonwar.blend</text>
+            <text x="86" y="104" text-anchor="middle" opacity=".7" font-size="10.5">owns placement</text>
+            <rect x="16" y="130" width="140" height="44" rx="3" fill="none" stroke="currentColor"/>
+            <text x="86" y="149" text-anchor="middle">TABLE (as const)</text>
+            <text x="86" y="164" text-anchor="middle" opacity=".7" font-size="10.5">owns devices, wiring</text>
+            <g stroke="currentColor" fill="none" marker-end="url(#arr5)">
+              <line x1="156" y1="92" x2="240" y2="112"/>
+              <line x1="156" y1="152" x2="240" y2="132"/>
+            </g>
+            <text x="198" y="96" opacity=".7" font-size="10.5">blend</text>
+            <text x="198" y="158" opacity=".7" font-size="10.5">json dump</text>
+            <rect x="242" y="96" width="150" height="52" rx="3" fill="var(--accent)" stroke="var(--accent)"/>
+            <text x="317" y="118" text-anchor="middle" fill="var(--accent-ink)" font-weight="500">tools/export.py</text>
+            <text x="317" y="134" text-anchor="middle" fill="var(--accent-ink)" font-size="10.5">validate names · props · groups</text>
+            <g stroke="currentColor" fill="none" marker-end="url(#arr5)">
+              <line x1="392" y1="110" x2="470" y2="70"/>
+              <line x1="392" y1="134" x2="470" y2="160"/>
+            </g>
+            <rect x="472" y="46" width="150" height="44" rx="3" fill="none" stroke="currentColor"/>
+            <text x="547" y="65" text-anchor="middle">dragonwar.glb</text>
+            <text x="547" y="80" text-anchor="middle" opacity=".7" font-size="10.5">vis_ · l_ · UV2 · metres</text>
+            <rect x="472" y="140" width="150" height="44" rx="3" fill="none" stroke="currentColor"/>
+            <text x="547" y="159" text-anchor="middle">collision.json</text>
+            <text x="547" y="174" text-anchor="middle" opacity=".7" font-size="10.5">col_ · sw_ · mm · table frame</text>
+            <g stroke="currentColor" fill="none" marker-end="url(#arr5)">
+              <line x1="622" y1="68" x2="690" y2="68"/>
+              <line x1="622" y1="162" x2="690" y2="162"/>
+            </g>
+            <text x="695" y="72">scene</text>
+            <text x="695" y="166">physics</text>
+          </g>
+        </svg>
+        <figcaption><b>Two outputs, one source.</b> Presentation loads the glb; <code>sim/physics/loader</code> loads the collision JSON — which is why physics tests run headless in Node. Both fail fast on a missing node or an unknown property value.</figcaption>
+      </figure>
+      <h3>Frames and units</h3>
+      <p>Four coordinate systems meet here — Blender, glTF, VP units inside the port, Babylon — and the classic failure is a ball rendered at the mirror of its collision position. The spine fixes one canonical <b>table frame</b> (millimetres, right-handed, origin at the player's bottom-left, Z toward the glass) and sanctions exactly three conversions in one file: <code>glbToTable()</code>, <code>toPhysics()</code>, <code>toScene()</code>. The Babylon scene is created right-handed so the glTF loader adds no hidden flip. Pitch is never modelled in geometry: physics applies it as the gravity vector, presentation rotates <code>playfield_root</code> about <code>pivot_pitch</code> while <code>cabinet_root</code> stays level.</p>
+      <div class="rule"><b>Reference dimensions are asserted, not hoped for.</b> <code>TABLE.reference</code> carries the standard-body playfield (514.4 × 1066.8 mm), the ball (26.99 mm), the pitch (6.5°) and the flipper bat; the loader checks the exported bounds against them. The one browser pinball the research found was criticised first for a ball the wrong size. <a class="adref" href="#index">AD-10</a></div>
+    </section>
+
+    <section id="light">
+      <div class="h2wrap"><span class="num">AD-9 · AD-12</span><h2>Light</h2></div>
+      <p>Insert colour is how a player reads the table without instructions, so the colour grammar is held in exactly one place — <code>presentation/lighting/grammar.ts</code> — and rules never see a colour. They emit a <b>role</b> and a <b>step</b> (off, lit, emphasised, urgent); the grammar turns that into RGB, intensity and blink cadence. The Jackpot ladder, ball-save hurry-up and the Joust's Charge are all steps.</p>
+      <div class="grammar">
+        <span class="chip" style="--c: var(--g-white)"><i></i>white <code>lit</code></span>
+        <span class="chip" style="--c: var(--g-red)"><i></i>red <code>hurryup</code></span>
+        <span class="chip" style="--c: var(--g-green)"><i></i>green <code>quickmb</code></span>
+        <span class="chip" style="--c: var(--g-blue)"><i></i>blue <code>joust</code></span>
+        <span class="chip" style="--c: var(--g-orange)"><i></i>orange <code>dragon</code> · letters, Lock, War</span>
+        <span class="chip" style="--c: var(--g-purple)"><i></i>purple <code>special</code></span>
+      </div>
+      <h3>The lighting bet</h3>
+      <p>Four channels — GI, inserts, flashers, architectural — sit behind one <code>LampDriver</code>. The asset contract is fixed <i>now</i>: every static mesh carries standard lightmap UVs and a named light group from the first model, and inserts are real geometry (a lens and a cup below the surface) lit from beneath, never decals. The per-group additive bake — the technique the dominant virtual-pinball platform ships — arrives later, behind the same driver, because it earns its place for indirect bounce and contact-soft shadows, not for light count.</p>
+      <p>On light count the research's caveat turned out stale: Babylon's clustered forward lighting runs on WebGL2 (verified 2026-08-26, about 23 lights per batch), so the WebGL2 floor has a real dynamic path and is never the degraded one. <code>?renderer=webgl2</code> forces it, and the feel test runs on both paths.</p>
+      <div class="discuss"><span class="tag">Discuss</span><p>Spike 2 — the lightmap scaling envelope — has no published numbers anywhere. The light-group partition in <code>TABLE</code> stays provisional until it runs. When is the right moment: before the first real playfield model, or after the geometry settles?</p></div>
+    </section>
+
+    <section id="deferred">
+      <div class="h2wrap"><span class="num">Deferred</span><h2>Left open, on purpose</h2></div>
+      <p>A spine stays lean by naming what it will not decide. These are pushed down with the reason they can wait.</p>
+      <ul class="defer">
+        <li><b>Web Worker</b> — host-only change later; <code>postMessage</code> snapshots only.</li>
+        <li><b>Bake pipeline</b> — spike 2 feeds the light-group partition.</li>
+        <li><b>WebGPU-only quality</b> — never a feature; after the floor is equal in feel.</li>
+        <li><b>Playfield geometry</b> — epic 2's first problem, in Blender, under Lawlor's miss test.</li>
+        <li><b>Mode-start device</b> — a separate scoop is a <code>TABLE</code> change, not an architecture change.</li>
+        <li><b>Hop control</b> — one tunable; never scatter or randomness.</li>
+        <li><b>Flipper calibration, scoring values</b> — tunables, frozen after playtest.</li>
+        <li><b>Roll synthesis, DMD technique, asset split</b> — presentation-internal.</li>
+        <li><b>Tauri, presets, credits, gamepad, wizard mode</b> — out of v1; nothing blocks them.</li>
+        <li><b>Gates carried</b> — spike 1 (1 kHz over 6 bodies) and spike 3 (measured load) gate browser-first; renderer re-check due 2026-09-26; the Reference machine is unnamed.</li>
+      </ul>
+    </section>
+
+    <section id="index">
+      <div class="h2wrap"><span class="num">AD-1 … AD-19</span><h2>AD index</h2></div>
+      <div class="tblwrap">
+        <table class="tbl">
+          <thead><tr><th>AD</th><th>Decision</th><th>Prevents</th></tr></thead>
+          <tbody>
+            <tr><td>AD-1</td><td>Virtual-machine ports-and-adapters; fixed dependency direction; one table</td><td>Shortcuts across layers; the registry becoming an engine</td></tr>
+            <tr><td>AD-2</td><td>Switches are edges from one source per class; contacts and actuations to presentation only</td><td>Velocity in rules; double debounce; snap played during Tilt</td></tr>
+            <tr><td>AD-3</td><td>One clock behind one constant; no wall-clock, no unseeded randomness in <code>sim/</code></td><td>Unreplayable games; a 480 Hz fallback rewriting every timer</td></tr>
+            <tr><td>AD-4</td><td>Tick-stamped input; rules after every step; remainder carried; 200 ms cap</td><td>Display-rate-dependent outcomes; lost taps; slow motion</td></tr>
+            <tr><td>AD-5</td><td>Hardware rules in physics gated by coil enable; flipper mover verbatim; nudge coupling re-derived</td><td>Flipper latency through rules; a hybrid coil model; nudge as ball force</td></tr>
+            <tr><td>AD-6</td><td>Physics owns bodies and mechanical state; rules own accounting; slot switches are the count</td><td>Two owners of "where is ball 2"; drift on a double drain</td></tr>
+            <tr><td>AD-7</td><td><code>GameState</code> with fixed player / machine / mode scopes</td><td>Player facts on the machine; a Joust surviving into the next player</td></tr>
+            <tr><td>AD-8</td><td>Unique mode priorities; four-phase lifecycle events</td><td>Two modes claiming the Backglass; ad-hoc start/stop</td></tr>
+            <tr><td>AD-9</td><td>Closed command union; roles and steps, not colours; lamp state as projection; payload-complete events</td><td>RGB in rules; event-to-snapshot races; three truths for the Dragon</td></tr>
+            <tr><td>AD-10</td><td>One table frame; three sanctioned conversions; right-handed scene; unpitched geometry; dimensions asserted</td><td>Mirrored collision; pitch applied twice; the wrong-size ball</td></tr>
+            <tr><td>AD-11</td><td>Blender owns geometry, <code>TABLE</code> owns devices; export script enforces; glb + collision JSON</td><td>Drifting positions; <code>sim/</code> parsing glb; art blocking epic 1</td></tr>
+            <tr><td>AD-12</td><td>Four channels behind one driver; clustered forward is the WebGL2 floor; UV2 now, bake later</td><td>Camera-locked lightmaps; a degraded floor nobody runs</td></tr>
+            <tr><td>AD-13</td><td>Shows by name behind an asset provider; contacts drive mechanical sound</td><td>Double-triggered sounds; recordings swap touching rules</td></tr>
+            <tr><td>AD-14</td><td>Host-only persistence; <code>GameStart</code> bundle; settings split by owner</td><td>Rules reading storage; volume waiting for the next game</td></tr>
+            <tr><td>AD-15</td><td>Solver constants verbatim; tunables in one file with provenance; replays and state hash</td><td><code>PHYS_SKIN</code> on a slider; invented numbers; engine-dependent goldens</td></tr>
+            <tr><td>AD-16</td><td>dependency-cruiser boundaries; banned globals; licence rules per source</td><td>Erosion one import at a time; a stripped notice; an NC file</td></tr>
+            <tr><td>AD-17</td><td>Static bundle; gate and error panel before assets; CSP no-network; size budget; SHA stamp</td><td>Origin assumptions; a broken canvas; a nameless release</td></tr>
+            <tr><td>AD-18</td><td>Lock arbiter; multiball flag; one ball-save device</td><td>Two deciders and two Mouth commanders; double trough ejects</td></tr>
+            <tr><td>AD-19</td><td>Devices-and-shots layer is the only switch consumer</td><td>Each mode deciding what "a Loop" is</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="footer">
+        <span>Binding text: <code>ARCHITECTURE-SPINE.md</code></span>
+        <span>Rationale: <code>SOLUTION-DESIGN.md</code></span>
+        <span>Run memory: <code>.memlog.md</code></span>
+        <span>Stack verified 2026-08-26 · re-check 2026-09-26</span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  // DMD dot field
+  var dots = document.getElementById('dots');
+  if (dots) {
+    var frag = '';
+    for (var y = 6; y < 96; y += 6) for (var x = 6; x < 320; x += 6) frag += '<circle cx="' + x + '" cy="' + y + '" r="1.4"/>';
+    dots.innerHTML = frag;
+  }
+  // tick strip
+  var ticks = document.getElementById('ticks');
+  if (ticks) {
+    var s = '';
+    for (var i = 0; i < 16; i++) {
+      var x = 20 + i * 35;
+      s += '<rect x="' + x + '" y="100" width="33" height="16" fill="none" stroke="currentColor" opacity=".5"/>';
+      s += '<text x="' + (x + 16) + '" y="112" text-anchor="middle" font-size="9" opacity=".7">' + i + '</text>';
+    }
+    ticks.innerHTML = s;
+  }
+
+  // Layer explorer
+  var layers = {
+    host: { t: 'host/', owns: ['boot: press-to-begin, WebGL2 gate, error panel', 'rAF accumulator (remainder carried)', 'key map → InputAction, tick-stamped transitions', 'dragonwar.save, settings, dev tuning panel'], imports: ['presentation/**', 'sim/loop', 'sim/contracts', 'sim/table'], never: ['sim/physics', 'sim/rules'], emits: ['InputTransition[] → loop', 'GameStart → loop', 'FrameOutput → presentation'], edges: ['host-pres','host-loop','host-contracts','host-table'] },
+    pres: { t: 'presentation/', owns: ['scene (right-handed), mechanisms, lighting + grammar.ts', 'backglass, audio provider, camera'], imports: ['sim/contracts', 'sim/table'], never: ['sim/physics', 'sim/rules', 'sim/loop', 'InputFrame'], emits: ['nothing back into sim — view state only'], edges: ['pres-contracts','pres-table'] },
+    loop: { t: 'sim/loop', owns: ['fixed-step conductor', 'button switches from InputFrame', 'lamp diff from lampsOf(state)', 'replay recorder / player'], imports: ['sim/physics', 'sim/rules', 'sim/contracts', 'sim/table'], never: ['presentation', 'host', 'DOM'], emits: ['FrameOutput { snapshot, events, contactEvents, commands }'], edges: ['loop-physics','loop-rules','loop-contracts','loop-table'] },
+    rules: { t: 'sim/rules', owns: ['devices/ (only switch consumer, shots)', 'ball-controller/ (Lock arbiter, ball save, ball search)', 'players/, modes/, scoring/, lamps.ts'], imports: ['sim/contracts', 'sim/table'], never: ['sim/physics', 'ContactEvent', 'ball position or speed'], emits: ['SemanticEvent[] (payload-complete)', 'CoilCommand, RecoverCommand → physics', 'Lamp/Gi/Flasher/ShowCommand → presentation'], edges: ['rules-contracts','rules-table'] },
+    physics: { t: 'sim/physics', owns: ['vpx-js port: hit objects, broadphase, ball, flipper', 'solver constants (verbatim)', 'hardware rules: flippers, plunger, slings, pops', 'devices, oscillator, tilt bob, slam detector'], imports: ['sim/contracts', 'sim/table', 'collision.json'], never: ['sim/rules', 'glb', 'Math.random'], emits: ['SwitchEvent (edges) → rules', 'ContactEvent (contacts + actuations) → presentation', 'Snapshot'], edges: ['physics-contracts','physics-table'] },
+    table: { t: 'sim/table', owns: ['TABLE as const: switches, coils, lamps, flashers, ball devices, shots, shows, lightGroups, reference', 'names.ts (name unions)', 'frames.ts (three conversions)', 'tuning.ts (tunables with provenance)'], imports: ['sim/contracts'], never: ['anything else'], emits: ['the vocabulary every layer binds to by name'], edges: ['table-contracts'] },
+    contracts: { t: 'sim/contracts', owns: ['TICK_HZ', 'InputFrame / InputTransition', 'SwitchEvent, ContactEvent', 'the command union, SemanticEvent', 'GameState, Snapshot, ModeView', 'GameStart, ReplayHeader'], imports: ['nothing'], never: ['the table (generic over name unions)'], emits: ['types only'], edges: [] }
+  };
+  var panel = document.getElementById('layerPanel');
+  var btns = document.querySelectorAll('.layer-btn');
+  var edges = document.querySelectorAll('#edges .edge');
+  function pick(key) {
+    var L = layers[key];
+    btns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-l') === key); });
+    edges.forEach(function (e) {
+      var hot = L.edges.indexOf(e.getAttribute('data-e')) >= 0;
+      e.classList.toggle('hot', hot); e.classList.toggle('dim', !hot);
+    });
+    function li(a) { return a.map(function (x) { return '<li>' + x + '</li>'; }).join(''); }
+    panel.innerHTML = '<h4>' + L.t + '</h4><div class="lab">Owns</div><ul>' + li(L.owns) + '</ul><div class="lab">May import</div><ul>' + li(L.imports) + '</ul><div class="lab">Never</div><ul>' + li(L.never) + '</ul><div class="lab">Emits across its seam</div><ul>' + li(L.emits) + '</ul>';
+  }
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () { pick(b.getAttribute('data-l')); });
+    b.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(b.getAttribute('data-l')); } });
+  });
+
+  // Journey stepper
+  var steps = [
+    { k: 'press', t: '1 · The key goes down', b: 'host/input maps the key code to the action <code>flipper_l</code> and stamps the transition with the sim tick derived from the DOM event\'s timeStamp. Key codes never enter <code>sim/</code>. The host hands the loop an ordered <code>InputTransition[]</code>, not a per-frame latch — so the press lands on the same tick at 30, 60 or 120 Hz.' },
+    { k: 'loop', t: '2 · The loop applies the frame in force', b: 'For each owed step the loop looks up the <code>InputFrame</code> in force at that tick, emits the cabinet button switch <code>s_flipper_l</code> as an edge to rules, and hands the frame to physics. Rules will step after this physics step whether or not anything happened — timers count ticks.' },
+    { k: 'physics', t: '3 · The flipper moves — now, in physics', b: 'The flipper is a hardware rule: button → coil on the same tick, running vpx-js\'s <code>FlipperMover</code> verbatim (strength, ramp-up, end-of-stroke torque, return). It is gated only by <code>enable</code>/<code>disable</code> on <code>c_flipper_l</code>, which Tilt, game over and Attract clear. Nothing waited for the rules layer — that is the latency budget.' },
+    { k: 'edge', t: '4 · A switch edge, and only that', b: 'The ball climbs the left loop and closes <code>s_loop_l_in</code> then <code>s_loop_l_out</code>. Physics emits each as one <code>closed: true</code> edge with the switch class\'s settle ticks already applied. Rules never debounce. Meanwhile the ball-on-rubber <code>ContactEvent</code>, with speed and surface, went to presentation only — rules will never see a velocity.' },
+    { k: 'shot', t: '5 · The devices layer names the shot', b: '<code>sim/rules/devices/</code> is the only consumer of raw switches. It matches the two closures against <code>TABLE.shots.shot_left_loop</code> — an ordered sequence inside a tick window — and emits <code>shot_left_loop_made</code>. Joust, Hurry-up and the War all consume that one event; none of them gets to decide what "a Loop" is.' },
+    { k: 'mode', t: '6 · Modes react by priority', b: 'Every active mode receives the shot event, highest priority first (War 500 … base 100). The Joust, at 310, sees a left loop after a right loop, advances the Charge, and contributes its lamp roles. It emits no coil command and never touches a lamp directly.' },
+    { k: 'lamps', t: '7 · Lamp state is recomputed, not mutated', b: '<code>lampsOf(state)</code> projects the whole lamp state from the active modes by priority, every step. The loop diffs it against the previous step and emits <code>LampCommand { lamp: l_loop_r, role: joust, step: 2 }</code> — a role and a step, never a colour or a blink rate.' },
+    { k: 'light', t: '8 · The grammar makes it blue', b: '<code>presentation/lighting/grammar.ts</code> is the one table that maps <code>(joust, 2)</code> to blue, emphasised, with its cadence. <code>LampDriver</code> lights the right-loop insert — today an emissive material plus a dynamic light on the WebGL2 clustered path, later a tinted white-baked lightmap group, behind the same driver. The player reads "shoot the other loop" without instructions.' }
+  ];
+  var cur = 0;
+  var stepsEl = document.getElementById('steps'), body = document.getElementById('stepBody');
+  var jn = document.querySelectorAll('.jnode'), je = document.querySelectorAll('.jedge');
+  steps.forEach(function (s, i) {
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = (i + 1) + ' ' + s.k; b.setAttribute('role', 'tab');
+    b.addEventListener('click', function () { show(i); });
+    stepsEl.appendChild(b);
+  });
+  function show(i) {
+    cur = i;
+    body.innerHTML = '<h4>' + steps[i].t + '</h4><p>' + steps[i].b + '</p>';
+    stepsEl.querySelectorAll('button').forEach(function (b, k) { if (k === i) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current'); });
+    jn.forEach(function (n) { var k = +n.getAttribute('data-n'); n.classList.toggle('hot', k === i); n.classList.toggle('past', k < i); });
+    je.forEach(function (e) { var k = +e.getAttribute('data-j'); e.classList.toggle('hot', k === i); e.classList.toggle('past', k < i); });
+  }
+  document.getElementById('prevStep').addEventListener('click', function () { show((cur + steps.length - 1) % steps.length); });
+  document.getElementById('nextStep').addEventListener('click', function () { show((cur + 1) % steps.length); });
+  show(0);
+
+  // Rail highlighting
+  var links = document.querySelectorAll('.rail a');
+  var secs = [];
+  links.forEach(function (a) { var el = document.querySelector(a.getAttribute('href')); if (el) secs.push({ a: a, el: el }); });
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { links.forEach(function (l) { l.classList.remove('active'); }); secs.forEach(function (s) { if (s.el === en.target) s.a.classList.add('active'); }); }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    secs.forEach(function (s) { io.observe(s.el); });
+  }
+})();
+</script>
