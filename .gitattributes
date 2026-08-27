@@ -7,3 +7,7 @@ _bmad-output/implementation-artifacts/deferred-work.md merge=union
 _bmad-output/implementation-artifacts/*.md eol=lf
 _bmad-output/implementation-artifacts/*.yaml eol=lf
 _bmad/custom/*.yaml eol=lf
+
+# Shell scripts must stay LF: core.autocrlf=true would otherwise give a fresh
+# clone CRLF shebangs, which Git Bash rejects with "bad interpreter".
+*.sh eol=lf

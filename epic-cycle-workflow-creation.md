@@ -1,6 +1,6 @@
 # Epic Cycle Workflow — Installation Kit
 
-**Kit-Version:** 2026-08-26.1
+**Kit-Version:** 2026-08-27.1
 
 **Requires BMAD Method v6.11.0 or later** (`_bmad/_config/manifest.yaml` → `installation.version`). This kit drives the v6.11 Phase-4 chain — `bmad-sprint-planning → bmad-build-auto → bmad-code-review` — and its rendered skills need `uv` (Python 3.11+ provisioned by uv) on PATH. For BMAD ≤ 6.10 projects use the last pre-6.11 kit release; do not install this kit there.
 
@@ -15,6 +15,7 @@ A self-contained kit for installing the `/epic-cycle` slash command and its BMAD
 | `_bmad/custom/bmad-build.toml` | Loads `skill-rules.md` for the interactive build skill and disables its `open_spec` editor launch (manual runs in a pipeline project) |
 | `_bmad/custom/bmad-qa-generate-e2e-tests.toml` | Loads `skill-rules.md` for the QA skill |
 | `_bmad/custom/bmad-code-review.toml` | Loads `skill-rules.md` for the code-review skill |
+| `_bmad/scripts/ledger.sh` | Deferred-work ledger tool (bash + awk): the only reader/writer of `deferred-work.md` the pipeline uses — `load` / `slice` / `show` / `new` / `append` |
 | `.claude/commands/epic-cycle.md` | The slash command body (self-contained at runtime) |
 
 Removed by this kit version (they targeted the deprecated `bmad-create-story` / `bmad-dev-story` shims, which the pipeline no longer invokes): `_bmad/custom/bmad-create-story.toml`, `_bmad/custom/bmad-dev-story.toml` — backed up, then deleted in Step 1.
@@ -59,6 +60,11 @@ grep -l "on_complete" _bmad/custom/bmad-*.toml 2>/dev/null
 
 # 5. Does a prior rules registry exist?
 ls _bmad/custom/*-skill-rules.md _bmad/custom/skill-rules.md 2>/dev/null
+
+# 6. Does a ledger exist, and is it in the DW-entry grammar (Kit-Version >= 2026-08-27.1)?
+test -f _bmad-output/implementation-artifacts/deferred-work.md && echo "LEDGER-PRESENT" || echo "LEDGER-ABSENT"
+grep -c "^### DW-[0-9]*: " _bmad-output/implementation-artifacts/deferred-work.md 2>/dev/null   # 0 with the file present = legacy grammar
+grep -cE "^- \*\*\[|^## Deferred from:|^- source_spec:" _bmad-output/implementation-artifacts/deferred-work.md 2>/dev/null   # legacy entry shapes
 ```
 
 **Decision table:**
@@ -69,7 +75,8 @@ ls _bmad/custom/*-skill-rules.md _bmad/custom/skill-rules.md 2>/dev/null
 | `uv` missing | HALT with the install pointer (https://docs.astral.sh/uv/). `bmad-build-auto` renders via `uv run` and halts on activation without it; every other BMAD skill resolves its customization through `uv run` too. |
 | `OUTPUT-IGNORED` | HALT: `_bmad-output/implementation-artifacts` is gitignored. The pipeline's durable state (cycle logs, `sprint-status.yaml`, specs, `deferred-work.md`) must be committed on the epic branch — Rule 16's bookkeeping commits, resume, and the parallel merge queue all depend on it. Have the user drop `_bmad-output/` (or at least `implementation-artifacts/`) from `.gitignore` and commit the directory; resume after. |
 | Slash command absent | Proceed to Step 2 — clean install. |
-| Slash command present and the `Halt after planning` count (check 2, second command) is 0 | This is an upgrade from the shim-era pipeline. Back up, report, continue — the overwrite IS the upgrade. If a cycle log for an in-flight epic exists (`_bmad-output/implementation-artifacts/cycle-log-epic-*.md` with entries but no `epic_merged_to_feature`/`epic_merge_skipped`), WARN: that epic was logged by the old pipeline; the new command resumes it story-by-story (stories at `committed` are safe; a story mid-`dev_complete` under the old dev-story skill must be finished or reverted by hand first). |
+| Slash command present and the `Halt after planning` count (check 2, second command) is 0 | This is an upgrade from the shim-era pipeline. Back up, report, continue — the overwrite IS the upgrade. If a cycle log for an in-flight epic exists (`_bmad-output/implementation-artifacts/cycle-log-epic-*.md` with entries but no `epic_merged_to_feature`/`epic_merge_skipped`), WARN: that epic was logged by the old pipeline; the new command resumes it story-by-story (stories at `committed` are safe; a story mid-`dev_complete` under the old dev-story skill must be finished or reverted by hand first). Read the user the "Mid-epic upgrade" note in Step 5 before continuing, and HALT if a parallel run (`cycle-log-parallel.md` with open epics, or live `.worktrees/epic-*`) is in flight. |
+| Any in-flight epic (same evidence) on a v6.11 command | Same "Mid-epic upgrade" note (Step 5): confirm with the user that no story stage is mid-spawn and the tree is clean, that this is not a live orchestrator run, and that the ledger migration (if offered) will be part of this upgrade commit. |
 | Legacy `bmad-create-story.toml` / `bmad-dev-story.toml` present | Back up each to `<file>.bak-<UTC>`, then DELETE both. The skills they customize are deprecated shims the pipeline never invokes; leaving the files is harmless but misleading. If the user still runs those shims by name and wants the rules loaded there, they can restore the backups. |
 | Slash command present, `Halt after planning` count > 0, zero deprecated-pattern matches (after the exclusion) | A v6.11 command written by this kit — a plain re-run/upgrade. Back up to `.claude/commands/epic-cycle.md.bak-<UTC>` and continue. |
 | Slash command present with deprecated-pattern matches | Back up to `.claude/commands/epic-cycle.md.bak-<UTC>`, report the matching lines to the user, continue. Note: `SendMessage` matches may be the PARALLEL kit's sanctioned orchestrator→runner resume (the same file will contain "orchestrator→runner resume") — report those as parallel-kit content, not legacy debris. |
@@ -78,6 +85,7 @@ ls _bmad/custom/*-skill-rules.md _bmad/custom/skill-rules.md 2>/dev/null
 | `.toml` files present without `on_complete` | Back up each to `<file>.bak-<UTC>`, overwrite in Step 2. |
 | `.toml` files present with `on_complete` | Back up each, overwrite in Step 2 (the new versions omit `on_complete`). |
 | `_bmad/custom/skill-rules.md` present | Back up to `<file>.bak-<UTC>`. Before overwriting in Step 2, extract and PRESERVE: (a) the parallel kit's `## Rule 10` – `## Rule 12` blocks, re-inserted immediately before `## Rule 13` in the new file (so a parallel install is not silently un-installed); (b) everything under `## Project-specific rules` (rules numbered 17+ and any prose), re-appended verbatim. Report what was carried over. |
+| `LEDGER-PRESENT` in legacy grammar (check 6: no `### DW-` headings but legacy shapes > 0) | Offer a one-time **ledger migration** (do it in a bookkeeping commit of its own, never mid-story): back up the file; for each legacy entry create a DW entry via `bash _bmad/scripts/ledger.sh <ledger> new …` carrying its summary, source, severity (default `med`), fix-risk (default `med`), footprint (default `out-of-footprint`), a one-line evidence digest, its LAST recorded status mapped onto the Rule 15 vocabulary (`deferred`/`open` → `open`; `wontfix` → `wontfix-accepted` with `reopen_if=unknown`; `resolved` → `resolved-by:<story or unknown>`), and `owner=burndown` unless the entry names a live story key. Rename the backup to `deferred-work.legacy.md` (kept for forensics, never read by the pipeline). Report `total`/`open` before and after. A ledger with hundreds of entries is migrated by a spawned Sonnet subagent working from `grep -n` slices, never by loading the file into the lead. Declining the migration means the next epic's `ledger_load` gate will halt on the legacy file. |
 | Prior rules registry under a different name (e.g., `<project>-skill-rules.md`) | Rename to `skill-rules.md` after backing up, OR back up + delete (the new install creates `skill-rules.md` from scratch — manual merge if the prior registry had project-specific rules). |
 
 **Backup convention:** `<original-path>.bak-<UTC-timestamp>` (e.g., `.claude/commands/epic-cycle.md.bak-2026-05-22T14-30-00Z`). Backups stay in place so the developer can diff post-install.
@@ -95,7 +103,7 @@ Write the following content verbatim (the block is delimited by FOUR-backtick fe
 ````markdown
 # BMAD Skill Rules
 
-Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 16.
+Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 17.
 
 ## Rule 1 — Integration ACs (`bmad-build-auto` / `bmad-build` planning step)
 
@@ -219,9 +227,19 @@ Every review finding is dispositioned AT REVIEW TIME — fix, or close with a na
 | Real issue, out-of-footprint | `routed` — ONE canonical ledger entry per root cause; later sightings append an `occurrence`, never a new entry. Occurrence count is a priority signal. |
 | Genuine product/preference call | `decision-pending` — batched to the user at the next gate; decided once; terminal either way. |
 
-Ledger (`_bmad-output/implementation-artifacts/deferred-work.md`): canonical entries carry `status:` (`open | escalated | routed | by-design | wontfix-theoretical | decision-pending | resolved-by:<story>`), originating story, severity + fix-risk, occurrences, rationale, suggested resolution. Status changes are APPENDED annotation lines (union-merge-safe) — never rewrite prior lines. Consult the ledger before filing; adjudicated items are never re-reported. Terminal-entry rationales are calibration context for future reviews. Cap: more than 8 `open`+`routed` entries at an epic's close makes the next Story X.0 a mandatory fix-or-close pass. Anything the size of real work is a story, not a fix-pack item.
+**Ledger grammar** (`_bmad-output/implementation-artifacts/deferred-work.md`). One entry per root cause:
 
-**Three writers, one ledger.** (a) `bmad-build-auto` never writes the ledger — it records deferred findings in the spec's frontmatter `deferred:` list (`summary` / `evidence` / optional `location`, `severity`). The **lead harvests** every new item into `deferred-work.md` as a canonical entry after each `dev_complete` (status `open` or `routed` by footprint; severity from the item; fix-risk assessed by the lead; `source_spec:` = the spec path). (b) `bmad-code-review` appends its `defer` findings under its own upstream heading (`## Deferred from: code review of <spec-basename> (<date>)`); Rule 15 fields are appended as annotation lines beneath each bullet — never reformat upstream output. (c) The lead/runner writes dispositions and occurrences. A `deferred:` item that never reaches the ledger is invisible to Story X.0 triage — the harvest is mandatory, not best-effort.
+```
+### DW-<n>: <one-line summary>
+- source: <spec file or stage> | severity: <high|med|low> | fix-risk: <low|med|high> | footprint: <in-story|in-epic|out-of-footprint>
+- evidence: <why this is real — written once, at most 3 lines>
+- <UTC> status=<status> owner=<story-key|burndown> by=<stage> note=<at most 120 chars>
+- <UTC> occurrence=<story-key>
+```
+
+The body is written once. Everything after it is an append-only **trailer** of single-line, fixed-grammar annotations, and the **effective status and owner are whatever the LAST trailer line set** — an instrument reads the last line, never the prose, so an entry grows by one short line per transition and never by accretion. Statuses — non-terminal: `open | routed | escalated | decision-pending`; terminal: `by-design | wontfix-theoretical | wontfix-accepted | dropped | resolved-by:<story-key>`. `wontfix-accepted` = real and reachable but decided not worth pursuing; its `note=` MUST carry `reopen_if=<observable probe>`. `dropped` = invalid or duplicate. Every non-terminal entry has exactly one effective owner: a story key (the story that will close it) or `burndown` (this epic's burn-down gate, Rule 17); `owner=none` is illegal after the epic's `ledger_load` gate. All reads and writes go through `bash _bmad/scripts/ledger.sh <ledger> load | slice | show | new | append` — the lead and every agent use `slice`/`show`, never the whole file (a mature ledger is megabytes), and write only with `new` (canonical entry, next id) or `append` (one trailer line). Entries and trailer lines are only ever added, so the file stays union-merge safe. Consult `slice all` (grep the summaries) before filing: an adjudicated root cause gets an `occurrence=<story-key>` line, never a new entry. Terminal-entry notes are calibration context for future reviews. Anything the size of real work is a story, not a fix-pack item.
+
+**Every entry is born with an owner.** (a) `bmad-build-auto` never writes the ledger — it records deferred findings in the spec frontmatter `deferred:` list. The **lead harvests** each new item after `dev_complete` via `ledger.sh new` with `by=harvest`: in-story footprint → `status=open owner=<this story key>` (adjudicated at this story's gate); in-epic → `status=routed owner=<the story key that will touch it>`; out-of-footprint → `status=routed owner=burndown`. (b) `bmad-code-review` files its `defer` findings the same way (`by=cr`) instead of the skill's default `## Deferred from:` bullets — the spawn prompt says so. (c) The lead/runner writes every disposition and occurrence. An item that never reaches the ledger is invisible to the drain — the harvest is mandatory, not best-effort.
 
 ## Rule 16 — Clean tree before every `bmad-build-auto` dispatch (lead/runner, under `/epic-cycle`)
 
@@ -229,9 +247,20 @@ Ledger (`_bmad-output/implementation-artifacts/deferred-work.md`): canonical ent
 
 **The one sanctioned source-file bookkeeping commit — the rework commit.** Before a rework re-dispatch (Rework Loop, Fix Pack, or a failed smoke that re-enters implement), QA's test files and the reviewer's applied patches are still uncommitted source changes (those spawns are forbidden to commit). The lead commits them together with the re-opened spec and the bookkeeping files as `chore(epic-N): rework <story-id> iteration <k>` on the epic branch (SC-3 assertion) so the tree is clean for the dispatch. That commit is part of the story's history, not a violation of this rule.
 
+## Rule 17 — The drain is a stage, not a sentence (lead/runner, under `/epic-cycle`)
+
+Every gate that files into the ledger is matched by a **logged stage that closes entries**; a ledger with writers and no drain is monotonic by construction (field report 2026-08-27: 0 → 1,588 entries in 114 days, never once shrinking, under a version of this workflow that filed at thirteen gates and read at one). The drain has four parts, each enforced by the cycle log:
+
+1. **Born owned** (Rule 15): a harvested or reviewer-filed entry carries `owner=<story-key>` or `owner=burndown` from its first trailer line. The epic-start `ledger_load` gate re-owns any stray `owner=none`.
+2. **Per-story adjudication** — `ledger_adjudicated`, mandatory between `cr_complete` and `smoke_complete`: every entry whose effective owner is this story's key is dispositioned against the story's DELIVERED scope (the diff since `baseline_revision` and its tests), never its title — `resolved-by:<key>` with evidence, re-owned to a named story key with the residual restated in the note, or terminal. `ledger.sh slice <key>` reads empty before smoke.
+3. **Burn-down gate** — `ledger_burndown_complete|skipped`, mandatory after the epic's last `committed` and before `epic_status_done`: every non-terminal entry owned by `burndown` or by any of this epic's story keys is resolved or made terminal now, chartered into ONE burn-down story (`N.9`) that runs the full per-story pipeline before the epic closes, or re-owned to a SPECIFIC next-epic story key with the reason in the note. "The next X.0" is not an owner; `burndown` ownership does not survive the gate.
+4. **Story X.0 is a CLOSE, not a relabel:** its outcomes are `resolved-by`, own (X.0 itself or a named story key in this epic), or terminal. "Defer with rationale" does not exist.
+
+Resume refuses `smoke_complete` without (2) for that story and refuses `epic_status_done` without (3) for that epic. Planning sees the load: `ledger_load` runs before sprint planning and its counts go into the sprint-planning argument and the retrospective's context. A rule that says "periodic burn-down" with no stage that executes it never runs.
+
 ## Project-specific rules (add below as retros surface them)
 
-> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 16. Each rule should state what it applies to, the obligation, and (briefly) why.
+> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 17. Each rule should state what it applies to, the obligation, and (briefly) why.
 ````
 
 The customization mechanism (BMAD ≥ 6.11): each skill ships `.claude/skills/<skill>/customize.toml` (installer-owned, overwritten on update); project overrides live in `_bmad/custom/<skill-dir-name>.toml` (team, committed) and `<skill-dir-name>.user.toml` (personal, gitignored). Scalars replace, lists append, arrays-of-tables merge by `id`/`code`. The key is the **skill directory name**. An override that fails to parse makes the renderer HALT — Step 4 verifies every file below parses.
@@ -278,6 +307,155 @@ persistent_facts = [
 ]
 ```
 
+### File 6: `_bmad/scripts/ledger.sh` (verbatim)
+
+Cross-platform bash (Git Bash on Windows; bash 3.2+ on macOS/Linux; any awk). Invoked as `bash _bmad/scripts/ledger.sh …`, so no executable bit is required. Create `_bmad/scripts/` if absent (BMAD ≥ 6.11 already ships Python helpers there; this file sits beside them and is never touched by the BMAD installer, which only writes files listed in its own manifest).
+
+```bash
+#!/usr/bin/env bash
+# Deferred-work ledger tool for /epic-cycle (skill-rules Rule 15 + Rule 17).
+#
+# Cross-platform: Git Bash on Windows, bash 3.2+ on macOS/Linux; needs awk (gawk, mawk, or
+# BSD awk) and date. Output is pure ASCII key=value / TAB-separated text for the lead to parse.
+# The lead NEVER reads the whole ledger: it uses `load`, `slice`, and `show`, and writes only
+# through `new` and `append` (append-only trailer lines; union-merge safe).
+#
+# Entry grammar (one entry = one heading, a fixed body written once, then trailer lines):
+#   ### DW-41: <one-line summary>
+#   - source: <spec or stage> | severity: <high|med|low> | fix-risk: <low|med|high> | footprint: <in-story|in-epic|out-of-footprint>
+#   - evidence: <why this is real, <= 3 lines>
+#   - <UTC> status=<status> owner=<story-key|burndown|none> by=<stage> note=<short>
+#   - <UTC> occurrence=<story-key>
+# Effective status/owner = the LAST trailer line that sets each. Statuses:
+#   non-terminal: open | routed | escalated | decision-pending
+#   terminal:     by-design | wontfix-theoretical | wontfix-accepted | dropped | resolved-by:<story-key>
+set -euo pipefail
+
+FILE="${1:-}"; CMD="${2:-}"
+usage() {
+  cat >&2 <<'EOF'
+usage: bash ledger.sh <deferred-work.md> <command> [args]
+  load                        counts: total open routed escalated decision_pending terminal, then owner:<key>=<n> for non-terminal
+  slice <owner>|all           non-terminal entries: DW-n TAB status TAB owner TAB summary
+  show DW-<n>                 print one entry verbatim
+  next-id                     next unused DW number
+  new "<summary>" "<source>" "<severity>" "<fix-risk>" "<footprint>" "<evidence>" "<status>" "<owner>" "<by>" "<note>"
+                              append a canonical entry with the next id; prints DW-<n>
+  append DW-<n> "<trailer>"   add one trailer line to that entry (UTC prepended), e.g.
+                              "status=resolved-by:3-4-retry-hardening by=adjudication note=commit 9f8e7d6"
+EOF
+  exit 1
+}
+[ -n "$FILE" ] && [ -n "$CMD" ] || usage
+case "$CMD" in load|slice|show|next-id|new|append) ;; *) usage ;; esac
+if [ ! -f "$FILE" ]; then
+  case "$CMD" in
+    load) echo "total=0 open=0 routed=0 escalated=0 decision_pending=0 terminal=0"; exit 0 ;;
+    slice) exit 0 ;;
+    next-id) echo 1; exit 0 ;;
+    new) printf '# Deferred Work Ledger\n\nSee _bmad/custom/skill-rules.md Rule 15 (entry grammar) and Rule 17 (the drain).\n' > "$FILE" ;;
+    *) echo "ERROR: $FILE not found" >&2; exit 1 ;;
+  esac
+fi
+
+# Shared scanner: computes effective status/owner per entry, then acts per mode.
+scan() {
+  awk -v mode="$1" -v arg="${2:-}" '
+    function terminal(s) { return (s == "by-design" || s == "wontfix-theoretical" || s == "wontfix-accepted" || s == "dropped" || s ~ /^resolved-by:/) }
+    function emit(   k) {
+      if (id == "") return
+      n++; ids[n] = id; st[n] = status; ow[n] = owner; sm[n] = summary; blk[n] = block
+    }
+    /^### DW-[0-9]+: / {
+      emit(); id = $2; sub(/:$/, "", id); summary = $0; sub(/^### DW-[0-9]+: /, "", summary)
+      status = "open"; owner = "none"; block = $0; next
+    }
+    id != "" {
+      if ($0 ~ /^### /) { emit(); id = ""; next }
+      block = block "\n" $0
+      if ($0 ~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:]+Z /) {
+        for (i = 3; i <= NF; i++) {
+          if ($i ~ /^status=/) status = substr($i, 8)
+          else if ($i ~ /^owner=/) owner = substr($i, 7)
+        }
+      }
+    }
+    END {
+      emit()
+      if (mode == "load") {
+        for (i = 1; i <= n; i++) {
+          total++
+          if (terminal(st[i])) term++
+          else { cnt[st[i]]++; own[ow[i]]++ }
+        }
+        printf "total=%d open=%d routed=%d escalated=%d decision_pending=%d terminal=%d\n", total, cnt["open"]+0, cnt["routed"]+0, cnt["escalated"]+0, cnt["decision-pending"]+0, term+0
+        for (k in own) printf "owner:%s=%d\n", k, own[k]
+      } else if (mode == "slice") {
+        for (i = 1; i <= n; i++) if (!terminal(st[i]) && (arg == "all" || ow[i] == arg)) printf "%s\t%s\t%s\t%s\n", ids[i], st[i], ow[i], sm[i]
+      } else if (mode == "show") {
+        for (i = 1; i <= n; i++) if (ids[i] == arg) { print blk[i]; found = 1 }
+        if (!found) { print "ERROR: " arg " not found" > "/dev/stderr"; exit 1 }
+      } else if (mode == "next-id") {
+        for (i = 1; i <= n; i++) { v = ids[i]; sub(/^DW-/, "", v); if (v + 0 > max) max = v + 0 }
+        print max + 1
+      } else if (mode == "exists") {
+        for (i = 1; i <= n; i++) if (ids[i] == arg) found = 1
+        exit found ? 0 : 1
+      }
+    }
+  ' "$FILE"
+}
+
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+case "$CMD" in
+  load)    scan load ;;
+  slice)   [ -n "${3:-}" ] || usage; scan slice "$3" ;;
+  show)    [ -n "${3:-}" ] || usage; scan show "$3" ;;
+  next-id) scan next-id ;;
+  new)
+    [ $# -eq 12 ] || { echo "ERROR: new needs exactly 10 arguments (see usage)" >&2; usage; }
+    SUMMARY="$3"; SOURCE="$4"; SEV="$5"; RISK="$6"; FOOT="$7"; EVID="$8"; STATUS="$9"; OWNER="${10}"; BY="${11}"; NOTE="${12}"
+    case "$SUMMARY$SOURCE$EVID$NOTE" in *$'\n'*) echo "ERROR: arguments must be single-line" >&2; exit 1 ;; esac
+    ID="DW-$(scan next-id)"
+    {
+      printf '\n### %s: %s\n' "$ID" "$SUMMARY"
+      printf -- '- source: %s | severity: %s | fix-risk: %s | footprint: %s\n' "$SOURCE" "$SEV" "$RISK" "$FOOT"
+      printf -- '- evidence: %s\n' "$EVID"
+      printf -- '- %s status=%s owner=%s by=%s note=%s\n' "$(now)" "$STATUS" "$OWNER" "$BY" "$NOTE"
+    } >> "$FILE"
+    echo "$ID" ;;
+  append)
+    [ -n "${3:-}" ] && [ -n "${4:-}" ] || usage
+    ID="$3"; LINE="$4"
+    case "$LINE" in *$'\n'*) echo "ERROR: trailer must be a single line" >&2; exit 1 ;; esac
+    scan exists "$ID" || { echo "ERROR: $ID not found" >&2; exit 1; }
+    TS="$(now)"
+    # Insert the trailer as the last line of the entry (before the next heading or EOF). Pure line insertion: union-merge safe.
+    awk -v id="$ID" -v line="- $TS $LINE" '
+      function flushpending() { print line; if (blanks != "") { printf "%s", blanks; blanks = "" } }
+      BEGIN { inside = 0 }
+      /^### DW-[0-9]+: / {
+        if (inside) { flushpending(); inside = 0 }
+        h = $2; sub(/:$/, "", h); if (h == id) inside = 1
+        print; next
+      }
+      /^### / { if (inside) { flushpending(); inside = 0 } print; next }
+      {
+        if (inside) {
+          # buffer trailing blank lines so the trailer lands directly after the last content line
+          if ($0 ~ /^[[:space:]]*$/) { blanks = blanks $0 "\n"; next }
+          if (blanks != "") { printf "%s", blanks; blanks = "" }
+          print; next
+        }
+        print
+      }
+      END { if (inside) flushpending() }
+    ' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+    echo "$ID $TS $LINE" ;;
+esac
+```
+
 ---
 
 ## Step 3: Write `.claude/commands/epic-cycle.md`
@@ -310,6 +488,8 @@ If `Agent` is a deferred tool, load its schema via `ToolSearch` with `"select:Ag
 
 - `SPRINT_PLAN status --status-file <impl>/sprint-status.yaml` → per-status counts, `open_action_items`, `recommendation.story_key`, `all_done`.
 - `SPRINT_PLAN validate --status-file <impl>/sprint-status.yaml` → `valid`, `problems`.
+
+**`LEDGER` shorthand.** `LEDGER` means `bash _bmad/scripts/ledger.sh <impl>/deferred-work.md` (installed by this kit). `LEDGER load` → counts + `owner:<key>=<n>` lines; `LEDGER slice <owner>|all` → `DW-n TAB status TAB owner TAB summary` for non-terminal entries; `LEDGER show DW-n` → one entry; `LEDGER new "<summary>" "<source>" <severity> <fix-risk> <footprint> "<evidence>" <status> <owner> <by> "<note>"` → creates an entry, prints its id; `LEDGER append DW-n "status=… owner=… by=… note=…"` → one trailer line. Nobody in the pipeline reads or edits `deferred-work.md` any other way.
 - `SPRINT_PLAN generate --epic-file <planning>/epics.md --status-file <impl>/sprint-status.yaml --stories-dir <impl> --project <project_name> --date "<MM-DD-YYYY HH:MM>" --set <key>=<status> [--set …]` → the lead's ONLY sanctioned status writer. The merge itself never downgrades, but **`--set` is the script's repair path and is applied unconditionally — it WILL downgrade.** Before every `--set`, read the key's current value (`SPRINT_PLAN status` or the file) and refuse to write a lower rank (`backlog < ready-for-dev < in-progress < review < done`). `--set` on a key that is not in the generated plan fails (`ok: false`, "not in the generated plan") and writes nothing — a story must exist in the epic file first. Preserves comments; reports `explicit_set`. Use `--dry-run` when unsure. (`<epic-file>` may repeat for multi-file epics; `<project_name>` from `_bmad/config.toml` `[core] project_name`; `<impl>` / `<planning>` are the `implementation_artifacts` / `planning_artifacts` values from `_bmad/config.toml` `[modules.bmm]`.)
 
 ## Task Sequence
@@ -320,29 +500,31 @@ If `Agent` is a deferred tool, load its schema via `ToolSearch` with `"select:Ag
 2. **Lead** determines per-repo resume mode (see "Resume Semantics").
 3. For repos in FRESH mode: **Lead** verifies (or creates with user authorization) the feature branch per Rule SC-1, then verifies (or creates) the epic branch `{TICKET}-epic{N}` per Rule SC-2.
 4. **Lead** checks every affected repo out to `{TICKET}-epic{N}` and logs `epic_branch_checked_out`.
-5. **Lead** executes `/bmad-sprint-planning` directly, **headless**, and branches on its readiness `gate` (see "Sprint Planning Per Epic").
-6. If a previous epic's retrospective, `deferred-work.md`, or open `action_items` in `sprint-status.yaml` have unresolved items, **Lead** reviews them, triages, and creates Story X.0 via a `bmad-build-auto` plan spawn (see "Retrospective Review & Story X.0 Creation").
+5. **Lead** measures the ledger (`LEDGER load`; re-owns any `owner=none` entry) and logs `ledger_load`, then executes `/bmad-sprint-planning` directly, **headless**, with the load in its argument, and branches on its readiness `gate` (see "Sprint Planning Per Epic" and "Ledger Drain").
+6. If a previous epic's retrospective, the ledger (`LEDGER slice all`), or open `action_items` in `sprint-status.yaml` have unresolved items, **Lead** reviews them, **closes** each (resolve / own / terminal — Rule 17), and creates Story X.0 via a `bmad-build-auto` plan spawn (see "Retrospective Review & Story X.0 Creation").
 
 **Per Story (executed once per story in the epic):**
 
 1. **Lead** asserts the branch, writes `story_planning` to the cycle log, and makes the bookkeeping commit (Rule 16 — the tree MUST be clean before every `bmad-build-auto` dispatch).
 2. Agent — **PLAN**: `/bmad-build-auto` on the Opus tier, prompt = the explicit sprint-status story key plus `Halt after planning.` It writes `spec-{key}.md` and halts with status `ready-for-dev`. **Lead captures the spec path** and logs `story_created`.
 3. **Lead** gates the spec: Integration-AC validation (Rules 1/2), ADR mapping (Rule 6); logs `spec_validated`; sets the story `ready-for-dev` via `SPRINT_PLAN generate --set`; bookkeeping commit (everything under `implementation-artifacts`: spec, log, tracker).
-4. **Lead** sets the story `in-progress` (+ `epic-{N}` lift) via `SPRINT_PLAN`, bookkeeping commit; then Agent — **IMPLEMENT**: `/bmad-build-auto` on the Sonnet tier, prompt = the spec path. It implements (via its handoff subagent), self-reviews with its four layers, finalizes the spec `status: done`, and makes a local commit. **Lead** reads the spec frontmatter, harvests `deferred:` into the ledger (Rule 15), sets the story `review` via `SPRINT_PLAN`, and logs `dev_complete` with `build_sha=`.
+4. **Lead** sets the story `in-progress` (+ `epic-{N}` lift) via `SPRINT_PLAN`, bookkeeping commit; then Agent — **IMPLEMENT**: `/bmad-build-auto` on the Sonnet tier, prompt = the spec path. It implements (via its handoff subagent), self-reviews with its four layers, finalizes the spec `status: done`, and makes a local commit. **Lead** reads the spec frontmatter, harvests `deferred:` into the ledger — each item born with an owner via `LEDGER new` (Rule 15) — sets the story `review` via `SPRINT_PLAN`, and logs `dev_complete` with `build_sha=`.
 5. **Lead** executes any ADR-tooled AC verifications (see "ADR-Aware Execution").
 6. Agent: `/bmad-qa-generate-e2e-tests` (scope pre-answered to this story's deliverable = `git diff --name-only <baseline_revision>..HEAD`).
 7. Agent: `/bmad-code-review` on the Opus tier, with the spec path as the explicit argument (`review_mode = full`). If the review leaves the story `in-progress` (unresolved high/medium findings), run the Rework Loop (max 3 iterations) before proceeding.
-8. **Lead** performs per-story smoke (see "Per-Story Smoke").
-9. **Lead** commits (QA tests, review patches, bookkeeping) and pushes — **only to the epic branch** in every affected repo, never to main/master/develop (Rule SC-3 + SC-6).
+8. **Lead** adjudicates the ledger slice this story owns (Rule 17): every entry with effective `owner=<this story key>` is closed against DELIVERED scope — `resolved-by` with evidence, re-owned with the residual restated, or terminal — until `LEDGER slice <key>` reads empty. Logs `ledger_adjudicated`.
+9. **Lead** performs per-story smoke (see "Per-Story Smoke").
+10. **Lead** commits (QA tests, review patches, ledger, bookkeeping) and pushes — **only to the epic branch** in every affected repo, never to main/master/develop (Rule SC-3 + SC-6).
 
 A story therefore produces several commits on the epic branch: bookkeeping commits, the plan commit (spec), `bmad-build-auto`'s finalize commit (`build_sha`), and the lead's post-smoke commit (`committed sha`). That is by design; the epic's `--no-ff` merge preserves the graph.
 
 **End of Epic (executed once per epic after all stories):**
 
-1. **Lead** sets `epic-{N}: done` via `SPRINT_PLAN generate --set epic-{N}=done` — a transition no skill writes (see "Status Ownership") — and logs `epic_status_done`.
-2. If `_bmad/custom/model-overrides.yaml` is armed (`stack_risk: uncommon` or `review_tier: mixed`), **Lead** runs the model-tier checkpoint (see "Model Strategy") and logs `model_tier_checkpoint` — plus `model_tier_changed` if the policy file is updated.
-3. **Lead** pauses: "Run a retrospective?" If yes, execute `/bmad-retrospective` fully interactive — the human-in-the-middle exception; see "Retrospective Per Epic".
-4. **Lead** pauses: "Merge `{TICKET}-epic{N}` into the feature branch and delete the epic branch (local + remote)?" — per Rule SC-4. If yes, execute the merge in each affected repo (submodules-first, parent last).
+1. **Lead** runs the **burn-down gate** (Rule 17, see "Ledger Drain"): every non-terminal ledger entry owned by `burndown` or by one of this epic's story keys is resolved / made terminal now, chartered into ONE burn-down story `N.9` that runs the full per-story pipeline before the epic closes, or re-owned to a specific next-epic story key. Logs `ledger_burndown_complete` (or `ledger_burndown_skipped reason=empty`).
+2. **Lead** sets `epic-{N}: done` via `SPRINT_PLAN generate --set epic-{N}=done` — a transition no skill writes (see "Status Ownership") — and logs `epic_status_done`.
+3. If `_bmad/custom/model-overrides.yaml` is armed (`stack_risk: uncommon` or `review_tier: mixed`), **Lead** runs the model-tier checkpoint (see "Model Strategy") and logs `model_tier_checkpoint` — plus `model_tier_changed` if the policy file is updated.
+4. **Lead** pauses: "Run a retrospective?" If yes, execute `/bmad-retrospective` fully interactive — the human-in-the-middle exception; see "Retrospective Per Epic".
+5. **Lead** pauses: "Merge `{TICKET}-epic{N}` into the feature branch and delete the epic branch (local + remote)?" — per Rule SC-4. If yes, execute the merge in each affected repo (submodules-first, parent last).
 
 ## Execution Guidelines
 
@@ -533,7 +715,7 @@ Rules for this stage (from skill-rules.md):
 
 Review-layer model policy: read `_bmad/custom/model-overrides.yaml` (relative to the working directory stated in this prompt). If it sets `review_tier: mixed`, launch the defect-discovery layers — `blind-hunter`, `edge-case-hunter`, `verification-gap` (by `id` in the skill's review_layers) — with an explicit `model: sonnet` parameter on their Agent calls, and launch `acceptance-auditor` with no model override so it inherits your model. If the file is absent or says `review_tier: full-opus`, launch every layer with no model override (they inherit your model). Never launch any review layer on a lighter tier than the model that implemented the story. State in ## Decisions which review tier was applied and which layers ran.
 
-Every ledger write follows Rule 15: ONE canonical entry per root cause in _bmad-output/implementation-artifacts/deferred-work.md. The skill's step-04 appends `defer` findings under its own heading (`## Deferred from: code review of <spec-basename> (<date>)`, one bullet per finding) — keep that upstream shape, and add Rule 15's fields as indented annotation lines beneath each bullet: `status:` (open | escalated | routed | by-design | wontfix-theoretical | decision-pending | resolved-by:<story>), originating story ID, severity + fix-risk, occurrence list, rationale, suggested resolution. Append-only (union-merge-safe); never rewrite prior lines. Consult the ledger BEFORE filing anything — including the entries the lead harvested from this story's build-auto `deferred:` list — an adjudicated item gets an occurrence annotation, not a new entry.
+Every ledger write follows Rule 15's grammar and goes through the tool — pre-answered override of the skill's step-04 "append to deferred-work.md": do NOT write the skill's default `## Deferred from:` bullets. Instead, for each `defer` finding: first `bash _bmad/scripts/ledger.sh <ledger> slice all` and grep the summaries — an existing root cause gets `append DW-n "occurrence=<story-key>"`, never a new entry; otherwise `new "<summary>" "<spec-basename>" <severity> <fix-risk> <footprint> "<evidence, one line>" <status> <owner> cr "<note>"` where status/owner follow Rule 15's disposition table: `escalated owner=burndown` (MED, high fix-risk or out-of-footprint), `routed owner=<story key in this epic that will touch it, else burndown>` (real, out-of-footprint), `decision-pending owner=burndown` (genuine product call), `by-design` / `wontfix-theoretical` (terminal — owner is still required; use the story key). Entries born from this review carry `by=cr`. Never open or rewrite the ledger file directly; never write `owner=none`.
 
 🚫 Do NOT `git commit` or `git push`. You MAY edit files to apply patches and update tracking docs (the spec's `### Review Findings`, deferred-work.md, sprint-status.yaml), but the lead commits everything (submodules-first) after the per-story smoke gate. Do NOT change the spec's frontmatter `status:` (it is bmad-build-auto's machine state; the lead re-opens the spec when rework is needed) — record your verdict in sprint-status.yaml and in your closing summary only. Do NOT write cycle-log entries — that is the lead's job.
 
@@ -626,15 +808,17 @@ For each epic in range:
   Lead checks every affected repo out to {TICKET}-epic{N}; logs epic_branch_checked_out
   If ideSync: restore objectscript.conn.active to original   # <<< Window A end — MANDATORY (try/finally; restore even on halt/failure)
 
-  Lead executes /bmad-sprint-planning via Skill tool, HEADLESS; parses the trailing JSON:
+  Lead: LEDGER load → re-own every owner=none entry (append owner=<story key>|burndown) → logs ledger_load   # see Ledger Drain
+    (a legacy-grammar ledger — no `### DW-` headings — HALTS here: run the Step-1 migration first)
+  Lead executes /bmad-sprint-planning via Skill tool, HEADLESS, with "Ledger load: <the load line>" in its argument; parses the trailing JSON:
     gate=FAIL or status=blocked → STOP; surface findings (and the saved implementation-readiness.md if written)
     gate=CONCERNS → surface once; continue
     gate=PASS → continue
   Lead logs sprint_planning_complete gate=<PASS|CONCERNS>
-  If Epic N-1 retrospective exists OR deferred-work.md has unresolved items OR sprint-status.yaml action_items has status=open entries,
+  If Epic N-1 retrospective exists OR LEDGER slice all is non-empty OR sprint-status.yaml action_items has status=open entries,
      AND no prior retro_review_* entry for this epic:
-    Lead reads all sources, triages, creates Story X.0 via a bmad-build-auto PLAN spawn (freeform intent + "Halt after planning."),
-      appends the triage table to the resulting spec; logs retro_review_complete
+    Lead reads all sources, CLOSES every ledger item (resolved-by | own | terminal — Rule 17), inserts Story X.0 into epics.md,
+      plans it via the normal PLAN spawn, appends the triage table to the spec; logs retro_review_complete
   Else if no prior retro_review_* entry:
     Lead logs retro_review_skipped reason=no_retro_no_open_ledger_no_open_action_items
   Else:
@@ -661,7 +845,7 @@ For each epic in range:
     Lead: SPRINT_PLAN generate --set <key>=in-progress --set epic-{N}=in-progress; bookkeeping commit
     Lead invokes Agent for /bmad-build-auto with the spec path (model=sonnet unless re-pinned)
       → re-reads spec: status done → build_sha = HEAD (its finalize commit); asserts tree clean
-        Lead harvests spec frontmatter deferred: → deferred-work.md (Rule 15); SPRINT_PLAN generate --set <key>=review
+        Lead harvests spec frontmatter deferred: → LEDGER new … <status> <owner> harvest (born owned, Rule 15); SPRINT_PLAN generate --set <key>=review
         Lead mirrors baseline_revision into the spec frontmatter as baseline_commit (bmad-code-review reads that key)
         logs dev_complete build_sha=<sha> baseline_revision=<sha> review_loop_iteration=<n> followup_review_recommended=<bool> deferred=<n>
       → status blocked → Clarification protocol (build-auto table)
@@ -677,16 +861,24 @@ For each epic in range:
       Lead re-runs ADR verifications if rework touched ADR-constrained ACs; SPRINT_PLAN generate --set <key>=review
       Lead resets spec baseline_commit to the iteration-1 baseline; re-spawns /bmad-code-review → logs cr_complete
     If still in-progress after 3 iterations: STOP; surface outstanding findings to user
+    Lead adjudicates LEDGER slice <key> against delivered scope (resolved-by | re-own | terminal) until empty; logs ledger_adjudicated   # Rule 17
     Lead performs per-story smoke (lead-side); logs smoke_complete
     Lead asserts current branch == {TICKET}-epic{N}; commits (QA tests, review patches, bookkeeping) + pushes ONLY to {TICKET}-epic{N} (submodules first if applicable)
     Lead logs committed; next story
 
+  # Burn-down gate (Rule 17) — before the epic closes
+  Lead: LEDGER slice burndown + slice <each story key of epic N>:
+    empty → logs ledger_burndown_skipped reason=empty
+    else  → resolve / terminal what can be closed now; if what remains exceeds ledger_cap (default 8) OR any remaining entry has 2+ occurrences:
+              charter Story N.9 "Epic N burn-down" (insert into epics.md, SPRINT_PLAN generate, pre-warm, full per-story pipeline incl. its own ledger_adjudicated)
+            every entry still non-terminal → append owner=<specific next-epic story key> with the reason (never "burndown", never "none")
+            logs ledger_burndown_complete open_before= resolved= terminal= chartered= reowned= open_after= cap=
   Lead: SPRINT_PLAN generate --set epic-{N}=done (no skill writes this transition); bookkeeping commit; logs epic_status_done
   If model-overrides.yaml is armed (stack_risk=uncommon or review_tier=mixed):   # model-tier checkpoint — see Model Strategy
     Lead evaluates this epic's cycle log against the escalation / de-escalation / rollback thresholds; logs model_tier_checkpoint
     On approved change (or the mandatory mixed-revert): update model-overrides.yaml overrides+history; logs model_tier_changed
   Lead pauses: "Run a retrospective?"   # human-in-the-middle gate — never auto-answered, never times out into a default
-    If yes → /bmad-retrospective via Skill tool, fully interactive (all WAITs reach the user); logs epic_retro_complete
+    If yes → /bmad-retrospective via Skill tool, fully interactive (all WAITs reach the user), with the burn-down counts in its argument; logs epic_retro_complete
     If no  → logs epic_retro_skipped reason=user_declined
   Lead pauses: "Merge {TICKET}-epic{N} → feature, delete {TICKET}-epic{N}?" → if yes:
     If ideSync: set objectscript.conn.active = false   # >>> Window B start — wraps the merge branch ops
@@ -765,6 +957,37 @@ The smoke is not a substitute for automated tiers; it's the final check that the
 4. On success: log `<UTC> TAB Story <id> TAB smoke_complete TAB method=<browser|cli|api|other> result=pass iterations=<N> defects_caught=<N> evidence=<path-or-summary> model=<lead-model>`. `iterations` is 1 for first-run pass, bump on re-smoke. `defects_caught` = count of bugs the smoke caught that automated tiers passed.
 5. Proceed to commit.
 
+### Ledger Drain (Critical Gates — Rule 17)
+
+The deferred-work ledger has as many drains as it has inflows, and every drain is a logged stage. The lead never opens `deferred-work.md`; every read is `LEDGER load|slice|show` and every write is `LEDGER new|append` (see the shorthand under Pre-flight; grammar and vocabulary in Rule 15).
+
+**Epic start — `ledger_load` (before sprint planning).** `LEDGER load`. If the file exists but `total=0` while `grep -c "^### DW-"` is 0 and the file is non-empty, it is a legacy-grammar ledger — HALT and run the kit's Step-1 migration. Re-own every `owner:none` entry (`LEDGER slice none`; `append DW-n "owner=<story key in this epic|burndown> by=load note=…"`). Log `ledger_load total= open= routed= escalated= decision_pending= terminal= burndown=<owner:burndown count>`; put the same line into the headless sprint-planning argument (`Ledger load: …`) so the readiness gate can weigh it, and size Story X.0 by it.
+
+**Harvest — at `dev_complete`, born owned.** For each item in the spec's frontmatter `deferred:` list: `LEDGER slice all` + grep the summaries for the same root cause → `append DW-n "occurrence=<key>"`; otherwise `LEDGER new "<summary>" "<spec path>" <severity from the item, else med> <fix-risk assessed by the lead> <footprint> "<evidence, one line>" <status> <owner> harvest "<note>"` — in-story → `open owner=<this key>`; in-epic → `routed owner=<the story key that will touch it>`; out-of-footprint → `routed owner=burndown`. `dev_complete` records `deferred=<count harvested>`.
+
+**Per-story adjudication — `ledger_adjudicated` (after the last `cr_complete`, before smoke).** `LEDGER slice <this story key>`. For each entry, judge it against DELIVERED scope — `git diff --name-only <baseline_revision>..HEAD`, the tests, the spec's Verification — never against the story title:
+
+| Finding | Trailer line |
+| --- | --- |
+| Covered by the delivered change | `status=resolved-by:<key> by=adjudication note=<commit/test evidence>` |
+| Real, not covered, belongs to another story in this epic | `status=routed owner=<that key> by=adjudication note=<residual, restated>` |
+| Real, not covered, belongs to no story yet | `status=routed owner=burndown by=adjudication note=<residual, restated>` |
+| Real but decided not worth pursuing | `status=wontfix-accepted by=adjudication note=reopen_if=<observable probe>` |
+| Spec-bound / no realistic failure / invalid or duplicate | `status=by-design` / `status=wontfix-theoretical` / `status=dropped` (+ note) |
+
+`LEDGER slice <key>` must read empty before `smoke_complete`. Log `ledger_adjudicated owned=N resolved=N reowned=N terminal=N`. An entry the story was supposed to close but did not is a real defect: if it is LOW and a two-way door, fix it in the Fix Pack iteration; otherwise re-own it honestly — re-owning is not failure, silent carry-forward is.
+
+**Burn-down gate — `ledger_burndown_complete|skipped` (after the last story's `committed`, before `epic_status_done`).** Enumerate `LEDGER slice burndown` plus `LEDGER slice <key>` for each of this epic's story keys (the latter should be empty after adjudication; anything there is a missed gate — adjudicate it now). If the union is empty → `ledger_burndown_skipped reason=empty`. Otherwise:
+
+1. Resolve or make terminal everything that can be closed on evidence now (same table as adjudication, `by=burndown`).
+2. If the remainder exceeds `ledger_cap` (default 8; a project may set `cap:` in `_bmad/custom/ledger.yaml`) OR any remaining entry has two or more `occurrence=` lines, charter **Story N.9 — "Epic N burn-down"**: insert it under Epic N in `epics.md` with one acceptance bullet per entry (`DW-n: <summary>`), `SPRINT_PLAN generate`, re-run the pre-warm, bookkeeping commit, then run the full per-story pipeline on it (plan → validate → implement → ADR → QA → CR → **its own `ledger_adjudicated`** → smoke → commit). Exactly one burn-down story per epic — the gate is bounded.
+3. Every entry still non-terminal after that gets `append DW-n "owner=<specific story key in the next epic> by=burndown note=<why it waits>"`. `burndown` is not a legal owner after this gate and `owner=none` never is. If no next-epic story can own it, it is `wontfix-accepted` with a probe or `decision-pending owner=<next X.0 key>` batched for the user — the only case where an X.0 key appears as owner, and only because it is a real, named story.
+4. Log `ledger_burndown_complete open_before=N resolved=N terminal=N chartered=N reowned=N open_after=N cap=N`. Resume refuses `epic_status_done` without a `ledger_burndown_*` entry for the epic.
+
+**Retrospective input.** Pass `Ledger: open_before=… open_after=… chartered=…` in the `/bmad-retrospective` argument so the human-in-the-middle sees the drain, not just the inflow.
+
+**Final epic of the range.** After its burn-down gate, `LEDGER slice all` is the range's residue: every entry must be terminal or owned by a named story key outside the range — surface the list at the SC-4 merge gate as the ledger sweep.
+
 ### Epic Context Pre-warm (per epic, lead-driven)
 
 `bmad-build-auto`'s epic-story path compiles `<implementation_artifacts>/epic-<N>-context.md` on first use — by spawning a subagent *before* its own clean-tree check, so the freshly written, untracked cache file would trip that check on the very first plan spawn of every epic (and again after any planning-artifact edit, which invalidates the cache). The lead therefore owns the compile:
@@ -783,15 +1006,15 @@ After sprint planning, before building the story list, review the previous epic'
 1. Calculate previous epic number (N-1 if processing N).
 2. Search for `_bmad-output/implementation-artifacts/epic-{N-1}-retro-*.md`. If multiple, latest by mtime; tie-break by lexicographic filename. Log which file was selected.
 3. If a retrospective exists, extract: action items (status: completed / in-progress / not addressed), deferred review findings, preparation tasks for current epic.
-4. Also read `_bmad-output/implementation-artifacts/deferred-work.md` if present, and the `action_items:` block of `sprint-status.yaml` (`SPRINT_PLAN status` → `open_action_items`; v6.11 retrospectives append their action items there with `status: open`).
-5. Triage per Rule 15: terminal entries (`by-design`, `wontfix-theoretical`, decided `decision-pending`) are NOT triage input. Default-INCLUDE every `open`/`routed` entry that is (a) trivial + low fix-risk by now, or (b) has occurrences ≥ 2 — excluding one requires written justification (the burden flips to exclusion). Open action items are included unless the user explicitly defers them. Batch undecided `decision-pending` entries to the user in one sitting. Defer-with-rationale only what fails both include tests. If `open`+`routed` entries exceeded 8 at the previous epic's close, Story X.0 is a mandatory fix-or-close pass over the entire ledger.
+4. Also take the ledger's non-terminal slice (`LEDGER slice all`, plus `LEDGER show DW-n` for any entry whose summary is not enough — never the whole file), and the `action_items:` block of `sprint-status.yaml` (`SPRINT_PLAN status` → `open_action_items`; v6.11 retrospectives append their action items there with `status: open`).
+5. **Close every ledger item — this is a CLOSE, not a relabelling (Rule 17).** Each non-terminal entry gets exactly one trailer line, `by=x0`: **resolve** (`status=resolved-by:<story> note=<evidence>` — it was fixed since it was filed); **own** (`owner=<N>-0-… ` for items Story X.0 will do, or `owner=<a specific story key of THIS epic whose gate genuinely fails while the item stands>`); or **terminal** (`by-design` / `wontfix-theoretical` / `wontfix-accepted note=reopen_if=…` / `dropped`). Undecided `decision-pending` items are batched to the user in one sitting and leave this step decided. There is no "defer with rationale" and nothing may stay `owner=burndown` or `owner=none`. Default-INCLUDE in X.0 every entry that is (a) trivial + low fix-risk by now, or (b) has two or more `occurrence=` lines — excluding one requires written justification in its note (the burden flips to exclusion). Open action items are included unless the user explicitly defers them. If the previous epic's burn-down gate left more than `ledger_cap` entries owned by this epic's keys, X.0 is a mandatory fix-or-close pass over all of them.
 6. Create Story X.0 in four steps (the tracker script rejects `--set` for any key not derived from the epic files, so the story must exist in `epics.md` first):
    - **6a:** Insert `### Story {N}.0: Epic {N-1} Deferred Cleanup` as the first story under Epic {N} in `epics.md`, in the same heading/format as the sibling stories, with a one-paragraph description and the included items as acceptance bullets (one per triaged item, naming its source). Re-run `SPRINT_PLAN generate` (no `--set`) so the key `{N}-0-epic-{N-1}-deferred-cleanup` appears as `backlog`; confirm it in `new_entries`.
    - **6b:** Re-run the epic-context pre-warm (the `epics.md` edit made the planning artifacts newer than `epic-{N}-context.md`); bookkeeping commit (epics.md + tracker + context + log).
-   - **6c:** Spawn the normal **plan** stage with the story key + `Halt after planning.` — Story X.0 is now an ordinary epic story. Validate the spec as usual; append the full triage table under its `## Design Notes` (rows of `Item | Source (retro | deferred-work.md | action_items) | Triage Decision`; header notes which Epic N-1 the triage covers + the date).
+   - **6c:** Spawn the normal **plan** stage with the story key + `Halt after planning.` — Story X.0 is now an ordinary epic story. Validate the spec as usual; append the full triage table under its `## Design Notes` (rows of `Item (DW-n where applicable) | Source (retro | ledger | action_items) | Disposition (resolved-by | own:<key> | terminal:<status>)`; header notes which Epic N-1 the triage covers + the date). Story X.0 closes its own owned entries at its `ledger_adjudicated` gate like any other story.
    - **6d:** `SPRINT_PLAN generate --set {N}-0-epic-{N-1}-deferred-cleanup=ready-for-dev`; bookkeeping commit. Under the parallel kit, the orchestrator treats an `epics.md` change whose only diff is an appended Story X.0 as hash-exempt (re-record `epics_md_hash` without a re-approval).
 7. Skip Story X.0 ONLY if all three sources are empty. If the retro is missing but the ledger or action items have entries, do NOT skip — execute steps 5-6 from those sources. If nothing is skipped, the pre-warm in 6b doubles as the epic's initial pre-warm; if X.0 is skipped, run the pre-warm now.
-8. Log retro_review_complete or retro_review_skipped. Closing a previous epic's action item (`sprint_status.py update --set-action-status`) happens only with the user's confirmation, at the next retrospective — never silently here.
+8. Log `retro_review_complete source_retro=<path-or-empty> resolved=N owned=N terminal=N dropped=N load_before=N load_after=N cap=N` or `retro_review_skipped`. Closing a previous epic's action item (`sprint_status.py update --set-action-status`) happens only with the user's confirmation, at the next retrospective — never silently here.
 
 ### Source Control Branching (Critical Gates)
 
@@ -912,7 +1135,7 @@ After the retrospective gate (whether opted in or not), the lead pauses:
 
 > "Epic {N} is complete. Merge `{TICKET}-epic{N}` into the feature branch and delete the epic branch (local + remote) in every affected repo?"
 
-Before asking, surface every ledger entry dispositioned `escalated` during this epic (Rule 15: MED findings with high fix-risk or out-of-footprint) — each needs a decision now: fix-now story, route, or wontfix. If this is the range's FINAL epic, follow the merge with the ledger sweep: present every remaining `open`/`routed`/`decision-pending` entry with a recommended disposition — the end-of-project manual triage, sized for one sitting.
+Before asking, surface the burn-down gate's result for this epic (`ledger_burndown_*` entry: what was resolved, made terminal, chartered into `N.9`, and re-owned to which next-epic keys) — the `escalated` entries Rule 15 routes to `burndown` were decided there. If this is the range's FINAL epic, follow the merge with the ledger sweep: `LEDGER slice all` — every remaining non-terminal entry must already be owned by a named story key outside the range; present the list with a recommended disposition for each — the end-of-project triage, sized for one sitting.
 
 If **yes**, execute the merge — submodules-first, then the parent (mirrors per-story Submodule Commit Order to avoid broken pointers on the feature branch's remote). This is "Window B" for the IDE file-sync toggle: if that toggle applies, set `objectscript.conn.active: false` before the first `checkout` below and restore it immediately after the deletes complete (mandatory, `try/finally`; restore even if the merge conflicts and halts):
 
@@ -1031,6 +1254,7 @@ If Epic A is being resumed and Epic B merged to feature in the interim, Epic A's
 
 #### Resume across the end-of-epic gates
 
+- Last story `committed` but no `ledger_burndown_*` entry → resume at the burn-down gate (Rule 17); never write `epic_status_done` without it. A story with `cr_complete` but no `ledger_adjudicated` resumes at adjudication, never at smoke.
 - Log shows `epic_status_done` but no `epic_retro_*` entry → on an armed project (model-overrides.yaml `stack_risk: uncommon` or `review_tier: mixed`), run the model-tier checkpoint first if no `model_tier_checkpoint` entry exists for this epic (the evaluation is idempotent — re-running it is harmless); then resume at the retrospective question.
 - `epic_retro_*` present but no `epic_merged_to_feature` / `epic_merge_skipped` → resume at the merge question.
 - Both gates are user decision points; re-asking after a long pause is correct behavior. A run interrupted mid-retrospective resumes by re-asking the retrospective question (the skill's own output artifacts show how far it got); never auto-complete a half-finished retro.
@@ -1121,6 +1345,7 @@ The lead's context window is the scarcest resource in a multi-epic run. Fresh co
 - Do NOT pull stage diffs, full test output, or whole spec files into the lead's context; the completion contracts exist precisely so stage detail stays in the stage. The lead reads a spec only at gates that require it (spec validation, ADR mapping, rework re-open, smoke planning) and otherwise reads only its frontmatter and `## Auto Run Result`.
 - After a context compaction/summarization event, re-anchor before the next action: re-read the cycle-log tail, the sprint-status snapshot (`SPRINT_PLAN status`), the current spec path and its frontmatter `status`. The write-ahead rule guarantees that is sufficient to continue exactly where the run left off.
 - Never load the rendered `bmad-build-auto` workflow into the lead's context — it runs inside the stage agent. The lead only ever reads spec frontmatter and the `## Auto Run Result` section.
+- Never open `deferred-work.md`. A healthy ledger is small; an unhealthy one is megabytes, and either way `LEDGER load|slice|show` returns exactly the lines a gate needs.
 - Budget: one story's pipeline should cost the lead only its gate-skill invocations, spawn prompts, returned closing summaries, and log writes.
 
 ### ADR-Aware Execution (Required)
@@ -1204,7 +1429,7 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
   - **Story-level:** `Story <id>` (most entries).
   - **Epic-level:** `Epic <N>` (branch lifecycle + the optional epic summary).
 
-**Valid story-level stages, in order:** `story_planning` (write-ahead marker before the plan spawn), `story_created` (plan spawn returned `ready-for-dev`), `spec_validated` (lead gate passed; `ready-for-dev` written), `dev_complete` (implement spawn returned `done`; `review` written), `adr_verifications_complete` (mandatory, between dev and qa; emits `result=none_required` if no ADR-tooled ACs), `qa_complete`, `cr_complete`, `smoke_complete` (mandatory, between cr and commit), `committed`. Clarification events use `<stage>_clarification_requested` (`<stage>` ∈ `plan | dev | qa | cr`), closed by that stage's normal success entry on the re-spawn — `story_created` for `plan`, `dev_complete`, `qa_complete`, `cr_complete` — never by a literal `<stage>_complete` (there is no `plan_complete`). Optional: `bookkeeping_committed sha=<short>` after each Rule 16 commit (aids resume forensics; not required).
+**Valid story-level stages, in order:** `story_planning` (write-ahead marker before the plan spawn), `story_created` (plan spawn returned `ready-for-dev`), `spec_validated` (lead gate passed; `ready-for-dev` written), `dev_complete` (implement spawn returned `done`; `review` written), `adr_verifications_complete` (mandatory, between dev and qa; emits `result=none_required` if no ADR-tooled ACs), `qa_complete`, `cr_complete`, `ledger_adjudicated` (mandatory, after the last cr and before smoke — Rule 17), `smoke_complete` (mandatory, between adjudication and commit), `committed`. Clarification events use `<stage>_clarification_requested` (`<stage>` ∈ `plan | dev | qa | cr`), closed by that stage's normal success entry on the re-spawn — `story_created` for `plan`, `dev_complete`, `qa_complete`, `cr_complete` — never by a literal `<stage>_complete` (there is no `plan_complete`). Optional: `bookkeeping_committed sha=<short>` after each Rule 16 commit (aids resume forensics; not required).
 
 **Valid epic-level stages:**
 
@@ -1216,8 +1441,10 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
 - `runtime_gate` — Pre-flight BMAD/uv check. Metadata: `bmad=<version>` `uv=<version>`. (Both pre-flight entries are written to the cycle log of the FIRST epic in the requested range, as `Epic <N>`, before any other entry.)
 - `root_freshness_resolved` — SC-1 root freshness check needed a user decision. Metadata: `repo=<path>` `root=<origin/branch>` `choice=push_local_first|base_on_local|base_on_origin_anyway`.
 - `epic_context_compiled` — Lead-driven epic-context pre-warm wrote `epic-{N}-context.md`. Metadata: `sha=<bookkeeping-commit>` `reason=<initial|planning_artifact_newer|x0_inserted|nfr_amendment>` `model=<id>`.
+- `ledger_load` — Epic-start ledger measurement, before sprint planning (Rule 17). Metadata: `total=N open=N routed=N escalated=N decision_pending=N terminal=N burndown=N reowned_none=N`.
 - `sprint_planning_complete` — Sprint planning done. Metadata: `gate=<PASS|CONCERNS>`.
-- `retro_review_complete` / `retro_review_skipped` — Retro + Story X.0 gate done (start-of-epic triage of the PREVIOUS epic's retro artifacts). Metadata: `source_retro=<path-or-empty>` `included=<N>` `deferred=<N>` `dropped=<N>` for complete; `reason=<short>` for skipped.
+- `ledger_burndown_complete` / `ledger_burndown_skipped` — End-of-epic burn-down gate (Rule 17), after the last `committed` and before `epic_status_done`. Metadata: `open_before=N resolved=N terminal=N chartered=N reowned=N open_after=N cap=N` for complete; `reason=empty` for skipped.
+- `retro_review_complete` / `retro_review_skipped` — Retro + Story X.0 gate done (start-of-epic CLOSE of the previous epic's retro artifacts, the ledger slice, and open action items). Metadata: `source_retro=<path-or-empty>` `resolved=<N>` `owned=<N>` `terminal=<N>` `dropped=<N>` `load_before=<N>` `load_after=<N>` `cap=<N>` for complete; `reason=<short>` for skipped.
 - `epic_retro_complete` / `epic_retro_skipped` — End-of-epic retrospective gate (the fully interactive, human-in-the-middle run of `/bmad-retrospective` — distinct from `retro_review_*` above). Metadata: `reason=<short>` for skipped.
 - `epic_status_done` — Lead set `epic-{N}: done` in sprint-status.yaml after the last story reached `done`. Metadata: `stories=<N>`.
 - `model_tier_checkpoint` — End-of-epic tier evaluation (only when model-overrides.yaml is armed). Metadata: `stack_risk=<uncommon|standard>` `review_tier=<full-opus|mixed>` `implement_model=<id>` `high_med_avg=<per-story>` `review_loop_thrash=<N>` `rework_lang_defects=<N>` `review_high=<N>` `review_med=<N>` `result=hold|recommend_escalate|offer_mixed|revert_required`.
@@ -1241,6 +1468,7 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
 - `adr_verifications_complete`: `tool=<id> acs=<comma-separated-list> result=pass|fail|none_required evidence=<path-or-empty>`.
 - `qa_complete`: `tests_added=N first_run_failures=N clarifications=N closing_sections_present=true|false`.
 - `cr_complete`: `resolved=N fixed_at_source=N by_design=N wontfix_theoretical=N routed=N escalated=N decision_pending=N deferred=N dismissed=N high=N med=N low=N clarifications=N closing_sections_present=true|false`.
+- `ledger_adjudicated`: `owned=N resolved=N reowned=N terminal=N` (`owned` = slice size before; `resolved+reowned+terminal` must equal it).
 - `smoke_complete`: `method=<browser|cli|api|other> result=pass|fail iterations=N defects_caught=N evidence=<path>`.
 - `committed`: `sha=<short-hash> submodules=<paths-or-empty>`.
 
@@ -1252,6 +1480,7 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
 2026-05-18T13:55:02Z→Epic 1→feature_branch_created→repos=. ticket=PROJ-1234 description=initial-foundation root=origin/main
 2026-05-18T13:55:10Z→Epic 1→epic_branch_created→repos=. from=a1b2c3d
 2026-05-18T13:55:11Z→Epic 1→epic_branch_checked_out→repos=. head=a1b2c3d
+2026-05-18T13:55:40Z→Epic 1→ledger_load→total=0 open=0 routed=0 escalated=0 decision_pending=0 terminal=0 burndown=0 reowned_none=0
 2026-05-18T13:56:00Z→Epic 1→sprint_planning_complete→gate=PASS model=claude-opus-4-8
 2026-05-18T13:56:30Z→Epic 1→retro_review_skipped→reason=no_retro_no_open_ledger_no_open_action_items
 2026-05-18T13:57:10Z→Epic 1→epic_context_compiled→sha=b2c3d4e reason=initial model=claude-opus-4-8
@@ -1262,8 +1491,10 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
 2026-05-18T14:25:00Z→Story 1.5→adr_verifications_complete→tool=chrome_devtools_mcp acs=ac5 result=pass evidence=path/to/evidence/ model=claude-opus-4-8
 2026-05-18T14:29:47Z→Story 1.5→qa_complete→spawn_at=2026-05-18T14:25:30Z model=claude-sonnet-5 tests=tests/render-engine.test.ts tests_added=14 closing_sections_present=true
 2026-05-18T14:33:18Z→Story 1.5→cr_complete→spawn_at=2026-05-18T14:30:15Z model=claude-opus-4-8 resolved=2 deferred=0 high=1 med=1 low=0 closing_sections_present=true
+2026-05-18T14:33:50Z→Story 1.5→ledger_adjudicated→owned=1 resolved=1 reowned=0 terminal=0 model=claude-opus-4-8
 2026-05-18T14:34:00Z→Story 1.5→smoke_complete→method=browser result=pass iterations=1 defects_caught=0 evidence=path/to/screens/ model=claude-opus-4-8
 2026-05-18T14:34:30Z→Story 1.5→committed→sha=abc1234 submodules=
+2026-05-18T17:58:10Z→Epic 1→ledger_burndown_complete→open_before=3 resolved=1 terminal=1 chartered=0 reowned=1 open_after=1 cap=8
 2026-05-18T17:58:40Z→Epic 1→epic_status_done→stories=6
 2026-05-18T18:02:11Z→Epic 1→epic_merged_to_feature→repos=. feature_sha=def5678 merge_sha=fed8765 submodules=
 ```
@@ -1306,8 +1537,11 @@ Derivable from per-stage entries; a convenience, not a source of truth.
 - **Missing context handoff** — Not passing the spec path, `baseline_revision`, and the diff file list between stages; code reviewers can't review effectively.
 - **Parent-before-submodule push** — Broken submodule pointers on the remote. Always submodules-first.
 - **Normalizing known test failures** — Carrying forward "N pre-existing failures, unrelated" erodes baseline reliability. Fix or formally defer in `deferred-work.md` immediately.
-- **Deferred findings only in spec files** — Without centralized tracking in `deferred-work.md`, deferred items are invisible at the next epic's Story X.0 triage.
-- **Re-filing an adjudicated finding** — a `by-design`/`wontfix`/`routed` ledger entry re-reported as new work re-purchases triage every epic (pilot: one root cause written up four times). Rule 15: consult the ledger first; append an occurrence to the canonical entry.
+- **Deferred findings only in spec files** — Without centralized tracking in `deferred-work.md`, deferred items are invisible to the drain (adjudication, burn-down, X.0).
+- **Filing without draining** — Every gate writes to `deferred-work.md` and no stage closes an entry, so the pool is monotonic and its open count stops meaning anything (field report: 0 → 1,588 entries in 114 days, never shrinking). A rule that says "periodic burn-down" with no stage that executes it never runs. The drain is a stage with a log entry: `ledger_adjudicated` per story, `ledger_burndown_*` per epic, X.0 as a close (Rule 17).
+- **Relabelling instead of closing** — "Defer with rationale", re-owning to "the next X.0", or leaving `owner=burndown` past the burn-down gate moves an entry without deciding it. Every disposition is `resolved-by`, a specific story key, or terminal.
+- **Reading or hand-editing the ledger file** — Prose accretes (a field-reported 24 kB entry), owner clauses land on the wrong line, and a closed-family word in a body fools every count. `LEDGER` is the only reader and writer; effective state is the last trailer line.
+- **Re-filing an adjudicated finding** — a `by-design`/`wontfix`/`routed` ledger entry re-reported as new work re-purchases triage every epic (pilot: one root cause written up four times). Rule 15: `LEDGER slice all` first; `append occurrence=` on the canonical entry.
 - **Reading only from `epics.md`** — `sprint-status.yaml` may contain additional stories (cleanup, hotfixes). Build the story list from both sources.
 - **Skipping retrospective review before epic start** — Without explicitly reading the previous retro and triaging deferred items, accumulation goes silent.
 - **Parallelizing without verifying disjoint files** — Two agents writing the same file produce non-deterministic state and corrupt the commit.
@@ -1336,7 +1570,7 @@ Derivable from per-stage entries; a convenience, not a source of truth.
 - **Re-dispatching on a `blocked` spec without resetting `status`** — build-auto routes by frontmatter status; a `blocked` spec always halts `blocked spec supplied`. Apply the answer, set `draft` (re-plan) or `in-progress` (re-implement), commit, re-spawn on the spec path — never on the story key (that creates `spec-<key>-2.md`).
 - **Trusting `--set` never to downgrade** — `sprint_plan.py generate --set` is the script's repair path and writes unconditionally. Read the current value first.
 - **Unbounded implement↔review rework** — Endless re-spawn ping-pong on unresolved findings is a signal the spec is wrong, not the code. Cap at 3 rework iterations, then surface to the user (see Rework Loop).
-- **Skipping the `deferred:` harvest** — build-auto's deferred findings live only in spec frontmatter until the lead copies them into `deferred-work.md`; unharvested items are invisible to Story X.0 triage and the merge-gate sweep (Rule 15).
+- **Skipping the `deferred:` harvest, or harvesting without an owner** — build-auto's deferred findings live only in spec frontmatter until the lead files them with `LEDGER new … <status> <owner> harvest`; unharvested items are invisible to the drain, and ownerless ones have no gate that will ever close them (Rules 15/17).
 - **Automating the retrospective** — Spawning `/bmad-retrospective` as a subagent, pre-answering its elicitation or WAIT points, or passing its `-H` / `--headless` flag. The retrospective is the one deliberate human-in-the-middle gate in the loop; its output is only as good as the human answers it collects. (Distinct from the start-of-epic retro-REVIEW gate, which is lead-automated triage of the previous retro's written artifacts and needs no human.)
 - **Mis-scoping or forgetting to restore the IDE file-sync toggle** — On IRIS/ObjectScript projects, disable `objectscript.conn.active` ONLY transiently around each branch-changing git operation (Window A: epic-start branching; Window B: SC-4 merge), and restore it immediately after each window. Do NOT leave the sync disabled for the whole epic — the per-story pipeline (commits/pushes, which don't change branches) must run with the sync ON. Each window's restore is mandatory `try/finally`-style: restore on success, halt, failure, merge conflict, or cancellation; an un-restored toggle leaves the workspace silently disconnected from IRIS (no error — just no sync). Never `git add` the transiently-toggled `.vscode/settings.json` into any commit.
 - **Basing a new branch on a stale remote root** — when the local trunk is ahead of `origin/<trunk>` (unpushed commits), `checkout -b ... origin/<trunk>` silently removes those commits' files from the working tree — up to and including the project's own `.claude/` + `_bmad/` tooling (pilot incident, 2026-07-10). SC-1's root freshness check is mandatory before creating any branch from a root ref.
@@ -1374,7 +1608,11 @@ After writing all files, run these checks:
 1b. **Finding disposition bar (Rule 15), Rule 16, and the v6.11 stage doctrine installed:**
    ```bash
    grep -c "Rule 15" .claude/commands/epic-cycle.md          # >= 3 (CR block, rework loop, X.0, SC-4)
-   grep -cE "^## Rule 1[3456]" _bmad/custom/skill-rules.md  # 4 (13, 14, 15, 16)
+   grep -cE "^## Rule 1[34567]" _bmad/custom/skill-rules.md # 5 (13, 14, 15, 16, 17)
+   grep -c "ledger_adjudicated" .claude/commands/epic-cycle.md    # >= 5 (Task Sequence, Pipeline Flow, Ledger Drain, resume, stage enum)
+   grep -c "ledger_burndown" .claude/commands/epic-cycle.md       # >= 5
+   grep -c "LEDGER " .claude/commands/epic-cycle.md               # >= 12
+   grep -c "Filing without draining" .claude/commands/epic-cycle.md   # 1
    grep -c "Fix Pack" .claude/commands/epic-cycle.md         # >= 2
    grep -c "Root freshness check" .claude/commands/epic-cycle.md  # 1 (SC-1)
    grep -c "Lead model gate" .claude/commands/epic-cycle.md       # 1 (pre-flight)
@@ -1402,6 +1640,18 @@ After writing all files, run these checks:
    ```
    Expected: `skill-rules.md`, `bmad-build-auto.toml`, `bmad-build.toml`, `bmad-qa-generate-e2e-tests.toml`, `bmad-code-review.toml` (plus `.bak-*` backups and any `.user.toml`).
 
+2b. **The ledger tool parses and round-trips** (run against a scratch file, never the project's ledger):
+   ```bash
+   bash -n _bmad/scripts/ledger.sh
+   T=$(mktemp -t ledger-XXXX.md); rm -f "$T"
+   bash _bmad/scripts/ledger.sh "$T" new "Self-test entry" "kit-step-4" low low in-story "installer self-test" open 0-0-selftest install "delete me"   # prints DW-1
+   bash _bmad/scripts/ledger.sh "$T" append DW-1 "status=dropped by=install note=self-test"
+   bash _bmad/scripts/ledger.sh "$T" load     # total=1 open=0 ... terminal=1
+   bash _bmad/scripts/ledger.sh "$T" slice all | wc -l   # 0
+   rm -f "$T"
+   ```
+   Expected exactly as commented. If the project already has a `deferred-work.md` in the DW grammar, also run `bash _bmad/scripts/ledger.sh _bmad-output/implementation-artifacts/deferred-work.md load` and report the counts.
+
 3. **No `.toml` carries an `on_complete` hook:**
    ```bash
    grep -l "on_complete" _bmad/custom/bmad-*.toml
@@ -1420,7 +1670,7 @@ After writing all files, run these checks:
    ```
    Expected: each file reports `1`.
 
-6. **The slash command contains every section:** open `.claude/commands/epic-cycle.md` and confirm presence of: Pre-flight Runtime Check (with the BMAD + runtime gate and the `SPRINT_PLAN` shorthand), Task Sequence, Permission Mode, Model Strategy, Skill Tool Invocation, Agent Invocation Pattern (with Spawn Prompt Skeleton, Plan / Implement / QA / Code-review stage blocks, Clarification protocol with the build-auto blocking-condition table and re-dispatch protocol, Pipeline Flow), Smart Parallelism (retired), Rework Loop, Status Ownership, Per-Story Smoke, Epic Context Pre-warm, Retrospective Review & Story X.0 Creation, Source Control Branching (with the conditional IRIS/ObjectScript IDE file-sync toggle, Rules SC-1 through SC-8, and Tracker format flexibility), Resume Semantics, Sprint Planning Per Epic, Retrospective Per Epic, Lead Validates the Story Spec, Context Handoff Between Stages, Lead Context Management, ADR-Aware Execution, When to Pause, Handling Clarifications, Submodule / Sub-Repository Commit Order, Completion Logging, Workflow Telemetry, Anti-Patterns.
+6. **The slash command contains every section:** open `.claude/commands/epic-cycle.md` and confirm presence of: Pre-flight Runtime Check (with the BMAD + runtime gate and the `SPRINT_PLAN` shorthand), Task Sequence, Permission Mode, Model Strategy, Skill Tool Invocation, Agent Invocation Pattern (with Spawn Prompt Skeleton, Plan / Implement / QA / Code-review stage blocks, Clarification protocol with the build-auto blocking-condition table and re-dispatch protocol, Pipeline Flow), Smart Parallelism (retired), Rework Loop, Status Ownership, Per-Story Smoke, Ledger Drain, Epic Context Pre-warm, Retrospective Review & Story X.0 Creation, Source Control Branching (with the conditional IRIS/ObjectScript IDE file-sync toggle, Rules SC-1 through SC-8, and Tracker format flexibility), Resume Semantics, Sprint Planning Per Epic, Retrospective Per Epic, Lead Validates the Story Spec, Context Handoff Between Stages, Lead Context Management, ADR-Aware Execution, When to Pause, Handling Clarifications, Submodule / Sub-Repository Commit Order, Completion Logging, Workflow Telemetry, Anti-Patterns.
 
 7. **Telemetry metadata is documented:**
    ```bash
@@ -1473,11 +1723,19 @@ The workflow is ready to use. Projects can add custom rules to `_bmad/custom/ski
 
 **Upgrading from a pre-6.11 install:** `_bmad/custom/model-overrides.yaml` (if present) is keyed by skill in the old schema (`bmad-dev-story`, `bmad-quick-dev`, `bmad-qa-generate-e2e-tests`); offer to rewrite it to the stage-keyed schema (`implement`, `qa`) with a `history:` entry `action: schema-migrated-to-stages`. The `.bak-*` copies of `bmad-create-story.toml` / `bmad-dev-story.toml` can be deleted once the user is satisfied; restoring them only affects explicit by-name runs of those deprecated shims.
 
+**Mid-epic upgrade (tell the user this whenever Step 1 found an in-flight epic — a `cycle-log-epic-*.md` with entries but no `epic_merged_to_feature` / `epic_merge_skipped`):**
+
+- **Sequential run — safe at a story boundary.** Upgrade after a story's `committed` entry and before the next `story_planning` (or at any stage boundary with a clean tree and no spawn in flight — never while a `bmad-build-auto` / QA / code-review agent is running). The install commit lands on the epic branch (a chore commit under SC-3; it reaches the feature branch at the SC-4 merge). On the next `/epic-cycle` invocation resume does the rest: committed stories are skipped; sprint planning re-runs, so `ledger_load` runs; a story at `cr_complete` without `ledger_adjudicated` resumes at adjudication; an epic whose last story is committed but has no `ledger_burndown_*` entry runs the burn-down gate before `epic_status_done`.
+- **Ledger migration is not optional mid-epic.** `ledger_load` halts on a legacy-grammar ledger, so the Step 1 migration must be part of the upgrade commit. Migrated entries default to `owner=burndown`; this epic's burn-down gate is therefore the first real drain of the whole backlog and will probably charter a Story N.9 — budget for it.
+- **Pre-6.11 kit → this kit with a story mid-`bmad-dev-story`:** finish that story to `committed` under the old command (or revert it) BEFORE upgrading; the new resume logic reads spec files and cannot continue a half-done legacy story file.
+- **Orchestrator (parallel) mode — do NOT upgrade with runners in flight.** The install commit lands in the main checkout; each runner's worktree is a checkout of its epic branch, which does not contain it, so runners keep the old command and rules — and live runners hold their old doctrine in context anyway. Finish and merge the in-flight epics first, then upgrade before the next dispatch. If waiting is impossible: merge the feature branch (carrying the upgrade commit) into every open epic branch by hand, stop the runners, and re-dispatch them at their resume points from a fresh orchestrator session.
+- **Always restart** every session that has loaded `/epic-cycle` (see the warning below).
+
 **Coexistence with `bmad-loop`:** if the project has the `bmad-loop` module installed (`_bmad/bmad-loop/`, `.bmad-loop/policy.toml`), tell the user that `/epic-cycle` and `bmad-loop` both drive `bmad-build-auto` and must not be run over the same stories concurrently — `bmad-loop` dispatches from a `bmad-spec` folder (`SPEC.md` + `stories.yaml`), `/epic-cycle` from `epics.md` + `sprint-status.yaml`; pick one per epic.
 
 Record the install: create/update `_bmad/custom/kit-versions.yaml` with `epic-cycle-base: <this document's Kit-Version>` (companions record their own keys: `skill-optimization`, `parallel-epic-cycle`). The parallel kit's upgrade check reads this registry.
 
-**Commit the OUTPUT, completely.** `git add -A && git commit` with a message naming the kit version applied — the output set is the installed files (`.claude/commands/epic-cycle.md`, `_bmad/custom/*` including `kit-versions.yaml`, `.claude/settings.json` if Step 3b ran, backups), NOT just the kit source documents. Verify `git status --short` is empty afterward; a dirty tree trips the next run's clean-tree gates. (Pilot finding 2026-07-11: an upgrade session committed only the kit documents and left every output file dirty.)
+**Commit the OUTPUT, completely.** `git add -A && git commit` with a message naming the kit version applied — the output set is the installed files (`.claude/commands/epic-cycle.md`, `_bmad/custom/*` including `kit-versions.yaml`, `_bmad/scripts/ledger.sh`, a migrated ledger + its `.legacy.md` if Step 1 migrated one, `.claude/settings.json` if Step 3b ran, backups), NOT just the kit source documents. Verify `git status --short` is empty afterward; a dirty tree trips the next run's clean-tree gates. (Pilot finding 2026-07-11: an upgrade session committed only the kit documents and left every output file dirty.)
 
 **⚠️ Tell the user explicitly — session restart required.** A session that has already invoked `/epic-cycle` holds the OLD command text in its context; this install/upgrade takes effect only in NEW sessions and invocations. Instruct the user, verbatim: close this session and any session currently mid-`/epic-cycle`, and start a fresh session before the next `/epic-cycle`.
 

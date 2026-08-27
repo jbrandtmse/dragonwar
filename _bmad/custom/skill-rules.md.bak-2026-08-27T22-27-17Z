@@ -1,6 +1,6 @@
 # BMAD Skill Rules
 
-Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 17.
+Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 16.
 
 ## Rule 1 — Integration ACs (`bmad-build-auto` / `bmad-build` planning step)
 
@@ -136,19 +136,9 @@ Every review finding is dispositioned AT REVIEW TIME — fix, or close with a na
 | Real issue, out-of-footprint | `routed` — ONE canonical ledger entry per root cause; later sightings append an `occurrence`, never a new entry. Occurrence count is a priority signal. |
 | Genuine product/preference call | `decision-pending` — batched to the user at the next gate; decided once; terminal either way. |
 
-**Ledger grammar** (`_bmad-output/implementation-artifacts/deferred-work.md`). One entry per root cause:
+Ledger (`_bmad-output/implementation-artifacts/deferred-work.md`): canonical entries carry `status:` (`open | escalated | routed | by-design | wontfix-theoretical | decision-pending | resolved-by:<story>`), originating story, severity + fix-risk, occurrences, rationale, suggested resolution. Status changes are APPENDED annotation lines (union-merge-safe) — never rewrite prior lines. Consult the ledger before filing; adjudicated items are never re-reported. Terminal-entry rationales are calibration context for future reviews. Cap: more than 8 `open`+`routed` entries at an epic's close makes the next Story X.0 a mandatory fix-or-close pass. Anything the size of real work is a story, not a fix-pack item.
 
-```
-### DW-<n>: <one-line summary>
-- source: <spec file or stage> | severity: <high|med|low> | fix-risk: <low|med|high> | footprint: <in-story|in-epic|out-of-footprint>
-- evidence: <why this is real — written once, at most 3 lines>
-- <UTC> status=<status> owner=<story-key|burndown> by=<stage> note=<at most 120 chars>
-- <UTC> occurrence=<story-key>
-```
-
-The body is written once. Everything after it is an append-only **trailer** of single-line, fixed-grammar annotations, and the **effective status and owner are whatever the LAST trailer line set** — an instrument reads the last line, never the prose, so an entry grows by one short line per transition and never by accretion. Statuses — non-terminal: `open | routed | escalated | decision-pending`; terminal: `by-design | wontfix-theoretical | wontfix-accepted | dropped | resolved-by:<story-key>`. `wontfix-accepted` = real and reachable but decided not worth pursuing; its `note=` MUST carry `reopen_if=<observable probe>`. `dropped` = invalid or duplicate. Every non-terminal entry has exactly one effective owner: a story key (the story that will close it) or `burndown` (this epic's burn-down gate, Rule 17); `owner=none` is illegal after the epic's `ledger_load` gate. All reads and writes go through `bash _bmad/scripts/ledger.sh <ledger> load | slice | show | new | append` — the lead and every agent use `slice`/`show`, never the whole file (a mature ledger is megabytes), and write only with `new` (canonical entry, next id) or `append` (one trailer line). Entries and trailer lines are only ever added, so the file stays union-merge safe. Consult `slice all` (grep the summaries) before filing: an adjudicated root cause gets an `occurrence=<story-key>` line, never a new entry. Terminal-entry notes are calibration context for future reviews. Anything the size of real work is a story, not a fix-pack item.
-
-**Every entry is born with an owner.** (a) `bmad-build-auto` never writes the ledger — it records deferred findings in the spec frontmatter `deferred:` list. The **lead harvests** each new item after `dev_complete` via `ledger.sh new` with `by=harvest`: in-story footprint → `status=open owner=<this story key>` (adjudicated at this story's gate); in-epic → `status=routed owner=<the story key that will touch it>`; out-of-footprint → `status=routed owner=burndown`. (b) `bmad-code-review` files its `defer` findings the same way (`by=cr`) instead of the skill's default `## Deferred from:` bullets — the spawn prompt says so. (c) The lead/runner writes every disposition and occurrence. An item that never reaches the ledger is invisible to the drain — the harvest is mandatory, not best-effort.
+**Three writers, one ledger.** (a) `bmad-build-auto` never writes the ledger — it records deferred findings in the spec's frontmatter `deferred:` list (`summary` / `evidence` / optional `location`, `severity`). The **lead harvests** every new item into `deferred-work.md` as a canonical entry after each `dev_complete` (status `open` or `routed` by footprint; severity from the item; fix-risk assessed by the lead; `source_spec:` = the spec path). (b) `bmad-code-review` appends its `defer` findings under its own upstream heading (`## Deferred from: code review of <spec-basename> (<date>)`); Rule 15 fields are appended as annotation lines beneath each bullet — never reformat upstream output. (c) The lead/runner writes dispositions and occurrences. A `deferred:` item that never reaches the ledger is invisible to Story X.0 triage — the harvest is mandatory, not best-effort.
 
 ## Rule 16 — Clean tree before every `bmad-build-auto` dispatch (lead/runner, under `/epic-cycle`)
 
@@ -156,17 +146,6 @@ The body is written once. Everything after it is an append-only **trailer** of s
 
 **The one sanctioned source-file bookkeeping commit — the rework commit.** Before a rework re-dispatch (Rework Loop, Fix Pack, or a failed smoke that re-enters implement), QA's test files and the reviewer's applied patches are still uncommitted source changes (those spawns are forbidden to commit). The lead commits them together with the re-opened spec and the bookkeeping files as `chore(epic-N): rework <story-id> iteration <k>` on the epic branch (SC-3 assertion) so the tree is clean for the dispatch. That commit is part of the story's history, not a violation of this rule.
 
-## Rule 17 — The drain is a stage, not a sentence (lead/runner, under `/epic-cycle`)
-
-Every gate that files into the ledger is matched by a **logged stage that closes entries**; a ledger with writers and no drain is monotonic by construction (field report 2026-08-27: 0 → 1,588 entries in 114 days, never once shrinking, under a version of this workflow that filed at thirteen gates and read at one). The drain has four parts, each enforced by the cycle log:
-
-1. **Born owned** (Rule 15): a harvested or reviewer-filed entry carries `owner=<story-key>` or `owner=burndown` from its first trailer line. The epic-start `ledger_load` gate re-owns any stray `owner=none`.
-2. **Per-story adjudication** — `ledger_adjudicated`, mandatory between `cr_complete` and `smoke_complete`: every entry whose effective owner is this story's key is dispositioned against the story's DELIVERED scope (the diff since `baseline_revision` and its tests), never its title — `resolved-by:<key>` with evidence, re-owned to a named story key with the residual restated in the note, or terminal. `ledger.sh slice <key>` reads empty before smoke.
-3. **Burn-down gate** — `ledger_burndown_complete|skipped`, mandatory after the epic's last `committed` and before `epic_status_done`: every non-terminal entry owned by `burndown` or by any of this epic's story keys is resolved or made terminal now, chartered into ONE burn-down story (`N.9`) that runs the full per-story pipeline before the epic closes, or re-owned to a SPECIFIC next-epic story key with the reason in the note. "The next X.0" is not an owner; `burndown` ownership does not survive the gate.
-4. **Story X.0 is a CLOSE, not a relabel:** its outcomes are `resolved-by`, own (X.0 itself or a named story key in this epic), or terminal. "Defer with rationale" does not exist.
-
-Resume refuses `smoke_complete` without (2) for that story and refuses `epic_status_done` without (3) for that epic. Planning sees the load: `ledger_load` runs before sprint planning and its counts go into the sprint-planning argument and the retrospective's context. A rule that says "periodic burn-down" with no stage that executes it never runs.
-
 ## Project-specific rules (add below as retros surface them)
 
-> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 17. Each rule should state what it applies to, the obligation, and (briefly) why.
+> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 16. Each rule should state what it applies to, the obligation, and (briefly) why.

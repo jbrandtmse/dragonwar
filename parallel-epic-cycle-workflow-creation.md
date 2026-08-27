@@ -1,8 +1,8 @@
 # Parallel Epic Cycle — Installation Kit
 
-**Kit-Version:** 2026-08-26.1
+**Kit-Version:** 2026-08-27.1
 
-**Requires BMAD Method v6.11.0 or later and base kit ≥ 2026-08-26.1** (the v6.11 `bmad-build-auto` pipeline). Runners spawn `bmad-build-auto` stage agents, which spawn their own subagents — depth-3 nesting (orchestrator → runner → build-auto → handoff/review) verified on Claude Code 2026-08-26.
+**Requires BMAD Method v6.11.0 or later and base kit ≥ 2026-08-27.1** (the v6.11 `bmad-build-auto` pipeline). Runners spawn `bmad-build-auto` stage agents, which spawn their own subagents — depth-3 nesting (orchestrator → runner → build-auto → handoff/review) verified on Claude Code 2026-08-26.
 
 A self-contained kit that upgrades an installed `/epic-cycle` workflow with **parallel epic execution**: orchestrator/runner modes, submodule-aware git worktrees, a runtime-lock protocol, and a serialized merge queue. Run this as a Claude Code session — the session reads each step, performs the indicated file operations, and verifies the result.
 
@@ -26,7 +26,7 @@ Re-running the base kit later overwrites `.claude/commands/epic-cycle.md`, which
 | `_bmad/custom/parallel.yaml` | create | Per-project parallel-execution config |
 | `_bmad/scripts/new-epic-worktree.sh` | create | Submodule-aware epic worktree provisioning (cross-platform bash) |
 | `_bmad/scripts/remove-epic-worktree.sh` | create | Guarded worktree teardown (cross-platform bash) |
-| `_bmad/custom/skill-rules.md` | append | Rules 10–12 (submodule discipline, footprint discipline, runtime lock) — Rules 13–16 come from the base kit |
+| `_bmad/custom/skill-rules.md` | append | Rules 10–12 (submodule discipline, footprint discipline, runtime lock) — Rules 13–17 come from the base kit |
 | `.claude/commands/epic-cycle.md` | patch (6 edits) | Mode Resolution, Parallel Orchestration + Runner-Mode Deltas, SC-8 addendum, anti-pattern revisions, permission-mode note, stage-block hardening |
 | `.gitignore` | append | `.worktrees/` |
 | `.gitattributes` | append | union merge for `deferred-work.md` |
@@ -45,7 +45,7 @@ ls -d .claude/skills/bmad-* >/dev/null 2>&1 && echo BMAD-PRESENT || echo BMAD-AB
 grep -A1 "^installation:" _bmad/_config/manifest.yaml | grep version      # >= 6.11.0
 uv --version                                                              # must succeed
 test -f .claude/skills/bmad-build-auto/SKILL.md && echo BUILD-AUTO-PRESENT || echo BUILD-AUTO-ABSENT
-git ls-files --error-unmatch .claude/skills/bmad-build-auto/SKILL.md _bmad/scripts/render_skill.py _bmad/config.toml _bmad/custom/skill-rules.md _bmad/custom/bmad-build-auto.toml .claude/commands/epic-cycle.md >/dev/null 2>&1 && echo BMAD-TRACKED || echo BMAD-UNTRACKED
+git ls-files --error-unmatch .claude/skills/bmad-build-auto/SKILL.md _bmad/scripts/render_skill.py _bmad/scripts/ledger.sh _bmad/config.toml _bmad/custom/skill-rules.md _bmad/custom/bmad-build-auto.toml .claude/commands/epic-cycle.md >/dev/null 2>&1 && echo BMAD-TRACKED || echo BMAD-UNTRACKED
 git check-ignore -q _bmad-output/implementation-artifacts && echo OUTPUT-IGNORED || echo OUTPUT-TRACKED   # must be TRACKED (base-kit gate)
 
 # 1. Base kit present, at the v6.11 generation, and anchors intact?
@@ -62,6 +62,11 @@ head -5 .claude/commands/epic-cycle.md 2>/dev/null | grep -c "^model:"
 # 2. Prior parallel install?
 grep -c "Mode Resolution" .claude/commands/epic-cycle.md
 ls _bmad/custom/parallel.yaml _bmad/scripts/new-epic-worktree.sh 2>/dev/null
+
+# 3. Orchestrator run in flight? (HALT if so — see Step 8 "Mid-run upgrade")
+grep -c "runner_dispatched" _bmad-output/implementation-artifacts/cycle-log-parallel.md 2>/dev/null
+grep -c "epic_merged_to_feature\|epic_branches_deleted" _bmad-output/implementation-artifacts/cycle-log-parallel.md 2>/dev/null
+ls -d .worktrees/epic-* 2>/dev/null
 ```
 
 ### Step 1a — Prerequisite chaining (offer, don't just halt)
@@ -71,13 +76,14 @@ The companion documents normally sit **in the same directory as this kit** (the 
 1. **BMAD absent** (check 0): stop and have the user run `npx bmad-method install` (modules `core,bmm`, IDE `claude-code`) — the BMAD installer is interactive and cannot be chained from here. Resume this kit afterwards.
 2. **Base kit absent or anchors broken** (check 1): OFFER to install it now. On consent, execute `epic-cycle-workflow-creation.md` in full — its Steps 1–5, including its own detection and backups — then re-run this Step's checks and continue. On decline, HALT: this kit patches anchors only the base kit provides.
 3. **Model-tier pass not applied** (check 1.5 = 0): OFFER the optional `skill-optimization-prompt.md`. On consent, execute it now. On decline, note the choice and continue — declining is a valid configuration, not an error (the command's stage→model map still governs spawned plan/implement/QA/CR stages; only the lead-session `model: opus` pin and per-skill pins are absent).
-4. **Installed content stale (upgrade check):** read `Kit-Version` from this document and from each companion in the same directory; compare against `_bmad/custom/kit-versions.yaml` (file or entry missing → treat that install as stale). For any companion document newer than its recorded entry, OFFER its re-run in canonical order — base kit first (accept its overwrite warning; the overwrite IS the upgrade), then the model pass — then apply THIS kit's steps (grep-guards make the pass incremental). Re-running this kit alone NEVER refreshes base-owned sections (SC-1, the finding disposition bar, Story X.0, SC-4, Rules 13–16, the v6.11 plan/implement stage blocks): a stale base kit requires the base re-run. After any upgrade re-run, the session-restart reminder in Step 8 is mandatory — an orchestrator session that is mid-`/epic-cycle` keeps its old doctrine until restarted.
+4. **Installed content stale (upgrade check):** read `Kit-Version` from this document and from each companion in the same directory; compare against `_bmad/custom/kit-versions.yaml` (file or entry missing → treat that install as stale). For any companion document newer than its recorded entry, OFFER its re-run in canonical order — base kit first (accept its overwrite warning; the overwrite IS the upgrade), then the model pass — then apply THIS kit's steps (grep-guards make the pass incremental). Re-running this kit alone NEVER refreshes base-owned sections (SC-1, the finding disposition bar, Story X.0, SC-4, Rules 13–17, the v6.11 plan/implement stage blocks, the ledger drain): a stale base kit requires the base re-run. After any upgrade re-run, the session-restart reminder in Step 8 is mandatory — an orchestrator session that is mid-`/epic-cycle` keeps its old doctrine until restarted.
 
 **Decision table:**
 
 | Finding | Action |
 | --- | --- |
 | BMAD-ABSENT | Step 1a item 1 — user runs the BMAD installer; resume after. |
+| Orchestrator run in flight (check 3: more `runner_dispatched` than merged/deleted epics, or live `.worktrees/epic-*`) | HALT with the Step 8 "Mid-run upgrade" note. Do not patch the command, the rules, or `parallel.yaml` until the in-flight epics are merged (or the user has merged the feature branch into every open epic branch and stopped the runners). |
 | BMAD version < 6.11.0, BUILD-AUTO-ABSENT, or `uv` missing | HALT — same gates as the base kit (upgrade BMAD / install uv). |
 | BMAD-UNTRACKED | HALT and explain: an epic worktree is a checkout of the epic branch, so `.claude/skills/`, `_bmad/scripts/`, `_bmad/config.toml`, and `_bmad/custom/` must be committed or the runner cannot render `bmad-build-auto` inside its worktree. The user removes those paths from `.gitignore` (keeping `_bmad/render/`, `_bmad-output/`, `*.user.toml`, `.worktrees/` ignored) and commits them; resume after. |
 | CMD-ABSENT, or any base anchor grep returns 0 | Step 1a item 2 — offer the base kit; HALT only if the user declines. A `Halt after planning` count of 0 with the command present means a pre-6.11 base kit: that is the stale-base path of item 4, not a clean install. |
@@ -366,9 +372,9 @@ An epic-runner may modify only the paths and submodules declared in its epic's f
 Stages named in `_bmad/custom/parallel.yaml` `runtime_locks[].stages` must hold the named lock for their duration (`all-runtime` is shorthand for every stage that executes project code against the shared runtime: `implement` — where `bmad-build-auto` runs the spec's Verification commands, its Matrix Test Audit, and its review layers' test runs — `qa`, `smoke`, `adr_verifications`): claim by creating `<worktree_base>/.coordination/locks/<name>.lock` (atomic create-new; content: `epic=<N> stage=<stage> acquired_at=<UTC>`), release by deleting it. If the lock exists, WAIT and retry with 30–90 s jitter — lock contention is normal, not an error. Never delete another epic's lock; a lock older than `stale_minutes` is reported to the orchestrator, which alone may sweep it after confirming the owner is dead. Log the lock lifecycle to the epic's cycle log — `runtime_lock_acquired` / `runtime_lock_released` on each transition, `runtime_lock_waiting` after the first minute of contention. A lock event that exists only in memory is invisible to telemetry and resume.
 ```
 
-### Step 4b — Rules 13–16 are base-kit territory (13–15 since base Kit-Version 2026-07-11.3; 16 since 2026-08-26.1)
+### Step 4b — Rules 13–17 are base-kit territory (13–15 since base Kit-Version 2026-07-11.3; 16 since 2026-08-26.1; 17 since 2026-08-27.1)
 
-Rules 13 (working-directory discipline), 14 (ASCII-escape discipline), 15 (finding disposition bar), and 16 (clean tree before every `bmad-build-auto` dispatch) are installed by the BASE kit — they are general-purpose, not parallel-specific. If Step 1's checks show any of them missing from `_bmad/custom/skill-rules.md`, the base kit is stale: run the Step 1a item-4 upgrade path (base-kit re-run) rather than patching here. Rule 16 applies verbatim inside a worktree: the runner's bookkeeping commits land on the epic branch in the worktree; `.worktrees/` and `<worktree_base>/.coordination/` are gitignored so the orchestrator's `dispatch.yaml` writes never dirty a worktree.
+Rules 13 (working-directory discipline), 14 (ASCII-escape discipline), 15 (finding disposition bar + ledger grammar), 16 (clean tree before every `bmad-build-auto` dispatch), and 17 (the ledger drain) are installed by the BASE kit — they are general-purpose, not parallel-specific. If Step 1's checks show any of them missing from `_bmad/custom/skill-rules.md`, the base kit is stale: run the Step 1a item-4 upgrade path (base-kit re-run) rather than patching here. Rule 16 applies verbatim inside a worktree: the runner's bookkeeping commits land on the epic branch in the worktree; `.worktrees/` and `<worktree_base>/.coordination/` are gitignored so the orchestrator's `dispatch.yaml` writes never dirty a worktree.
 
 ## Step 5: Patch `.claude/commands/epic-cycle.md`
 
@@ -434,7 +440,7 @@ The orchestrator then WAITS on notifications. Between notifications it does noth
 6. Retro-review assignment (`own` or `skip: handled by epic {M}`).
 7. Runtime-lock table from parallel.yaml (Rule 12 applies; quote it) + Rule 10 (quote it).
 8. Clarification protocol: "If you must stop for ANY clarification, end your run with the `## Clarification Needed` section; you will be resumed with the answer in a follow-up message — your context is preserved. For a missing-tool problem, start the section body with `TOOLING:` and name the exact verification you could not run."
-9. Completion contract: "End your final message with `## Epic Runner Complete` followed by: `epic: {N}`, `stories_completed: <n>`, `ready_for_merge: true|false`, `submodules_touched: <paths or (none)>`, `unpushed_work: none` (verify with `git log --branches --not --remotes` in every repo before claiming), and a one-line-per-story summary table. Per-story cycle-log entries must carry real `spawn_at` values captured when each stage `Agent` call is made — never backfilled equal to the completion timestamp."
+9. Completion contract: "End your final message with `## Epic Runner Complete` followed by: `epic: {N}`, `stories_completed: <n>`, `ready_for_merge: true|false`, `submodules_touched: <paths or (none)>`, `unpushed_work: none` (verify with `git log --branches --not --remotes` in every repo before claiming), `ledger: open_before=<n> resolved=<n> terminal=<n> chartered=<0|1> reowned=<n> open_after=<n>` (copied from your `ledger_burndown_*` entry), and a one-line-per-story summary table. Per-story cycle-log entries must carry real `spawn_at` values captured when each stage `Agent` call is made — never backfilled equal to the completion timestamp."
 
 ### Notification handling
 
@@ -453,7 +459,7 @@ Runners claim/release per Rule 12. The orchestrator: never brokers healthy locks
 
 One epic at a time, in the MAIN checkout. If the IRIS/ObjectScript IDE file-sync toggle applies to this project, it wraps this whole sequence (Window B) — worktrees themselves never need the toggle (they are not open in VS Code).
 
-1. Ask the user: "Epic {N} is ready. Merge `{TICKET}-epic{N}` into `<feature>`?" Queue holds while other epics keep running. Surface this epic's `escalated` ledger entries (Rule 15) before the question; on the range's FINAL epic, follow the merge with the Rule 15 ledger sweep (every remaining `open`/`routed`/`decision-pending` entry, recommended disposition each).
+1. Ask the user: "Epic {N} is ready. Merge `{TICKET}-epic{N}` into `<feature>`?" Queue holds while other epics keep running. Surface the runner's `ledger:` line and the entries it re-owned to next-epic keys (Rule 17) before the question; on the range's FINAL epic, follow the merge with the ledger sweep (`LEDGER slice all` in the main checkout after the merge — every remaining non-terminal entry with a recommended disposition).
 2. Submodules first, for each modified submodule: `git -C <sub> fetch origin && git -C <sub> merge --no-ff {TICKET}-epic{N} && git -C <sub> push origin <feature>`. Do NOT delete the submodule epic branch yet (git refuses while the worktree mounts it).
 3. Superproject: `git merge --no-ff --no-commit {TICKET}-epic{N}`, then for EVERY affected submodule `git add <sub-path>` to re-record the gitlink at the submodule's post-merge feature HEAD, then commit. Never plain-merge: pointer drift leaves the main checkout permanently dirty.
 4. Conflicts: gitlink conflict (`UU <sub>`) → deterministic, resolve via step 3's `git add <sub-path>` (pointer = submodule feature HEAD, which contains all merged epics). `sprint-status.yaml` conflict → take either side, then regenerate with `SPRINT_PLAN generate` (deterministic preserve-never-downgrade merge from the epic files) and re-apply any statuses the losing side carried with `--set`; verify with `SPRINT_PLAN validate` before committing. `deferred-work.md` auto-resolves (union merge attribute). `cycle-log-epic-*.md` never conflicts (one file per epic). ANY code conflict → STOP and surface to the user; auto-resolution forbidden.
@@ -492,7 +498,8 @@ The runner is the per-epic lead of the classic flow, with exactly these changes:
 | Clean-tree gate, sprint planning (headless), retro-review/Story X.0 (only if assigned `own`), plan spawns (Opus) + spec validation, implement spawns (Sonnet), QA/CR spawns (synchronous, per the stage→model map), bookkeeping commits (Rule 16), rework loop, ADR gates, per-story smoke, per-story commits+pushes (submodules-first, SC-3) | KEPT verbatim — all inside the worktree. Treat the worktree root as `{project-root}` (spawn every stage agent with the worktree root as its working directory — the skill's own bootstrap resolves `{project-root}` from there, so each worktree renders its own `_bmad/render/` generation). Never touch the main checkout or another epic's worktree. |
 | `bmad-build-auto` stage mode | Per `parallel.yaml` `build_auto_mode`: **`spawned`** (default) — spawn the stage agent exactly as the classic lead does (`general-purpose`, `model` per the map); **`inline`** — invoke `/bmad-build-auto` via `Skill` on the runner itself (plan runs at the runner's Opus tier; for implement, the project's `_bmad/custom/bmad-build-auto.toml` `implementation_handoff` prose must direct the handoff subagent to `model: sonnet`, else implementation silently runs at Opus). Inline trades the runner's context budget for one less nesting level; use only if a spawned stage agent fails to spawn its own subagents on the project's harness. |
 | ADR-tooled verifications + smoke + QA e2e execution (+ the implement stage if `runtime_locks[].stages` lists `implement` / `all-runtime`) | KEPT, but wrapped in the runtime lock when parallel.yaml lists the stage (Rule 12). On a missing tool: `TOOLING:` clarification (the orchestrator runs it and resumes you). |
-| End-of-epic: retro question, SC-4 merge, `epic-{N}: done` write, IDE-sync windows | REMOVED — orchestrator-owned (retro runs post-merge, orchestrator-side). Your last acts: final story committed AND pushed, verify `unpushed_work: none` in every repo, append `epic_runner_complete` to your cycle log, emit the completion contract. |
+| Ledger drain: harvest-with-owner, per-story `ledger_adjudicated`, and the end-of-epic **burn-down gate** (`ledger_burndown_*`, including chartering and running Story N.9 through the full pipeline inside the worktree) | KEPT verbatim — runner-side, because the burn-down story is part of Epic N and must land on `{TICKET}-epic{N}` before the merge. The ledger lives inside the worktree (it merges with `merge=union`; `LEDGER` only ever adds lines). Re-own leftovers to specific next-epic story keys as Rule 17 requires; the orchestrator surfaces those at the merge gate. The epic-start `ledger_load` runs in the worktree too (its `owner:none` re-own happens there). |
+| End-of-epic: retro question, SC-4 merge, `epic-{N}: done` write, IDE-sync windows | REMOVED — orchestrator-owned (retro runs post-merge, orchestrator-side, and receives the `ledger:` line from your completion contract as its argument context). Your last acts: burn-down gate logged, final story committed AND pushed, verify `unpushed_work: none` in every repo, append `epic_runner_complete` to your cycle log, emit the completion contract. |
 | Clarifications | End your run with `## Clarification Needed`; you are resumed with the answer (context preserved). Do not poll or wait in-run. |
 
 ````
@@ -587,7 +594,9 @@ grep -c "new-epic-worktree.sh" .claude/commands/epic-cycle.md                   
 grep -c "epic-runner-{N}" .claude/commands/epic-cycle.md                        # >= 2
 grep -c "orchestrator→runner resume" .claude/commands/epic-cycle.md            # >= 1
 grep -c "Rule 1[012]" _bmad/custom/skill-rules.md                               # >= 3
-grep -cE "^## Rule 1[3456]" _bmad/custom/skill-rules.md                         # 4 (working-dir, ASCII-escape, disposition bar, clean-tree — base kit)
+grep -cE "^## Rule 1[34567]" _bmad/custom/skill-rules.md                        # 5 (working-dir, ASCII-escape, disposition bar, clean-tree, drain — base kit)
+grep -c "ledger_burndown" .claude/commands/epic-cycle.md                        # >= 6 (base kit + Runner-Mode Deltas)
+test -f _bmad/scripts/ledger.sh && bash -n _bmad/scripts/ledger.sh              # base kit installed the ledger tool
 grep -c "runtime_lock_acquired" _bmad/custom/skill-rules.md                     # >= 1 (Rule 12 lock-lifecycle logging)
 grep -c "show-toplevel" .claude/commands/epic-cycle.md                          # >= 5 (skeleton item 9 + plan/implement/qa/cr bullets)
 grep -ci "file-list completeness" .claude/commands/epic-cycle.md                # >= 1 (base kit, QA block)
@@ -612,5 +621,7 @@ Record the install: create/update `_bmad/custom/kit-versions.yaml` with `paralle
 **Commit the OUTPUT, completely.** `git add -A && git commit` with a message naming the kit versions applied — the output set is the installed files (command, `_bmad/custom/*` including `kit-versions.yaml`, scripts, settings, backups), NOT just the kit source documents; verify `git status --short` is empty afterward (a dirty tree trips the next run's clean-tree gates — pilot finding 2026-07-11).
 
 **⚠️ Tell the user explicitly — session restart required.** A Claude Code session that has already invoked `/epic-cycle` (or loaded the BMAD skills) holds the OLD text in its context; nothing installed here takes effect in it. End this kit run by instructing the user, verbatim: close this session AND any session currently mid-`/epic-cycle`, and start a fresh session before the next `/epic-cycle` invocation. (Runner subagents spawned after the upgrade read the new command from disk, but a live orchestrator keeps its stale doctrine until restarted.)
+
+**Mid-run upgrade — do not apply this kit (or a base-kit re-run) while an orchestrator run is in flight.** Evidence of one: `_bmad-output/implementation-artifacts/cycle-log-parallel.md` with epics not yet `epic_merged_to_feature`, or live `<worktree_base>/epic-*` directories. The upgrade commit lands in the main checkout; each runner's worktree is a checkout of its epic branch, which does not contain that commit, so runners keep the old command and rules — and live runners hold their old doctrine in context regardless. Finish and merge the in-flight epics first, then upgrade before the next dispatch. Only if waiting is impossible: merge the feature branch (carrying the upgrade commit) into every open epic branch by hand, stop the runners, and re-dispatch them at their resume points from a fresh orchestrator session. A sequential (single-epic) run may be upgraded at a story boundary — see the base kit's "Mid-epic upgrade" note.
 
 Orchestrator usage: `/epic-cycle 2-4` on a project with `parallel.yaml` present runs the dependency analysis/approval and dispatches runners; `/epic-cycle 2` or a project without `parallel.yaml` behaves exactly as the classic sequential workflow. First run on a new project: expect the SC-1 feature-branch prompt and the dependency-graph approval gate before any dispatch. Keep `max_parallel_epics: 2` until a full parallel run's telemetry has been reviewed.
