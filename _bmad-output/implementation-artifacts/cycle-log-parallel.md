@@ -15,3 +15,5 @@ Per-epic cycle logs live inside each epic's worktree and are committed on that e
 2026-08-27T19:05:46Z	Epic 1	runner_tooling_backstop	orchestrator_initiated=true story=1.1 verification=production_build_p95 chrome_median=3.50 edge_median=3.70 edge_pass=18/20 evidence=scratchpad/prod-runs.jsonl
 2026-08-27T20:52:40Z	Epic 1	runner_resumed	runner=epic-runner-1 story=1.1 decision=tick_hz_1000 basis=production_build edge=best_effort_perf_gate safari=still_gating resume_at=qa
 2026-08-27T21:18:48Z	Epic 1	runner_pause_requested	runner=epic-runner-1 halt_after=story_1.1 reason=epic_cycle_command_upgrade next_story=1.2 epic_complete=false
+2026-08-27T22:35:13Z	Epic 1	runner_complete	runner=epic-runner-1 stories_completed=1 ready_for_merge=false reason=deliberate_pause unpushed_work=none
+2026-08-27T22:35:13Z	Epic 1	kit_upgraded	base=2026-08-27.1 parallel=2026-08-27.1 model_pass=reapplied rules=1-17 ledger=migrated_16_entries merged_to=DW-1-epic1 session_restart=required
