@@ -1,2 +1,9 @@
 # Deferred-work ledger is append-only across parallel epic branches
 _bmad-output/implementation-artifacts/deferred-work.md merge=union
+
+# Cycle logs are TAB-delimited and parsed field-by-field on resume; a CRLF checkout
+# would append \r to every metadata value. Keep the tracker files LF in the working
+# tree too, so every epic worktree parses identically.
+_bmad-output/implementation-artifacts/*.md eol=lf
+_bmad-output/implementation-artifacts/*.yaml eol=lf
+_bmad/custom/*.yaml eol=lf
