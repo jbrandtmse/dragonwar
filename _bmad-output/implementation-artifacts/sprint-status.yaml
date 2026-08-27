@@ -29,14 +29,14 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 08-27-2026 15:49
+last_updated: 08-27-2026 09:13
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: backlog
-  1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies: backlog
+  1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies: ready-for-dev
   1-2-spike-3-build-size-and-load-time-measured-from-a-link: backlog
   1-3-seam-contracts-the-table-registry-and-boundary-lint: backlog
   1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi: backlog

@@ -1,0 +1,414 @@
+---
+title: 'Story 1.1: Spike 1 - the ported physics loop at 1 kHz over six bodies'
+type: 'feature'
+created: '2026-08-27'
+status: 'ready-for-dev'
+review_loop_iteration: 0
+followup_review_recommended: false
+context:
+  - '{project-root}/CLAUDE.md'
+  - '{project-root}/AGENTS.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
+warnings: ['oversized']
+deferred: []
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** DragonWar's whole browser-first premise rests on an unmeasured claim: that a
+time-of-impact pinball solver stepping six balls at 1000 Hz fits inside a 60 Hz frame budget
+in a browser. No published benchmark covers the 1-6 body regime, so `TICK_HZ`, every solver
+constant and every golden replay downstream are being chosen on argument rather than
+measurement. Nothing else in Epic 1 may land until this is settled.
+
+**Approach:** Stand up the greenfield single-package repository far enough to run a port,
+port the minimum `vpdb/vpx-js` physics surface at commit `e8a6d6f` under `src/sim/physics/`
+with its licence provenance recorded first, build one shared six-ball harness, and measure it
+two ways - 10,000 ticks in Node (correctness plus per-tick cost) and 17 steps per animation
+frame over 600 frames in Windows Chrome and Windows Edge (per-frame p95). Record the numbers
+in `docs/spikes/spike-1.md` and set `TICK_HZ` from them, provisionally, pending the author's
+macOS leg.
+
+## Boundaries & Constraints
+
+**Always:**
+- The `ATTRIBUTIONS.md` entry for `vpdb/vpx-js` lands BEFORE any ported file is written to
+  disk. It records: `vpdb/vpx-js`, commit `e8a6d6f` (v1.3.4, 2020-11-12), authors freezy
+  <freezy@vpdb.io> (Copyright (C) 2019) with contributors Jason Millard <jsm174@gmail.com>
+  and Michael Vogt <michael@neeo.com>, licence `GPL-2.0-or-later` **as verified in the source
+  file headers, NOT `package.json`**, and verification date `2026-08-27`. The entry must state
+  explicitly that `package.json` declares only `GPL-2.0` while the file headers grant "version
+  2 of the License, or (at your option) any later version", and that DragonWar exercises the
+  or-later clause to distribute under GPL-3.0.
+- Every ported file keeps its ORIGINAL upstream copyright header byte-for-byte, immediately
+  followed by the single line
+  `// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0`.
+  Upstream notices are never stripped, reworded or replaced.
+- Every newly authored source file carries the GPL-3.0 header (AD-16).
+- Solver constants are transcribed verbatim from the pinned upstream source (AD-15). The
+  values named in the story ACs are a restatement; the upstream file is the authority.
+- `src/sim/**` references none of: `window`, `document`, `performance`, `Math.random`, `Date`,
+  `setTimeout`, `setInterval`, `requestAnimationFrame`, `localStorage`, `navigator`,
+  `globalThis`, `@babylonjs/*` (AD-1, AD-3, AD-16). All timing code lives outside `src/sim/`.
+- `tsc --noEmit` passes over the whole repository, and the default `vitest run` suite is green.
+
+**Block If:**
+- The `vpdb/vpx-js` source at `e8a6d6f` cannot be retrieved, or its file headers cannot be
+  read to establish the licence. A licence that cannot be established at source means the file
+  is NOT added - HALT with status `blocked`, blocking condition `provenance unverifiable`.
+- A ported file's upstream licence header, once read, is anything other than
+  GPL-2.0-or-later - HALT, blocking condition `provenance unverifiable`.
+- Neither Chrome nor Edge can be driven on this Windows host to produce a measurement, after
+  both the CDP runner and the chrome-devtools-mcp fallback have been tried - HALT, blocking
+  condition `windows browser legs unmeasurable`. Do NOT fabricate, estimate or extrapolate a
+  browser number, and do NOT quietly downgrade the Windows legs to author-owned.
+
+**Never:**
+- Never file a new `deferred-work.md` entry for the macOS/Safari legs or for the `TICK_HZ`
+  ratification. Both are already adjudicated under "Author-owned: macOS / Safari measurement
+  legs" and "Author-owned: TICK_HZ ratification from Spike 1" - reference them by name.
+- Never weaken, skip or mark-pending the Windows Chrome and Windows Edge legs. They are hard,
+  measured, blocking acceptance criteria.
+- Never port `lib/vpt/flipper/` (Story 1.6), the plunger, kicker, trigger, bumper, spinner or
+  gate trees, any mesh/render/asset code, or anything pulling `three` or a renderer into `src/`.
+- Never build Story 1.3's work here (the full directory seed, the seam contracts beyond
+  `time.ts`, `TABLE`, `names.ts`, `tuning.ts`, `frames.ts`, dependency-cruiser) or Story 1.2's
+  work (root `index.html`, CSP tag, `vite build`, `.github/workflows/**`, Pages deploy,
+  size budget, `@babylonjs/*`). Reference them as the consuming stories instead.
+- Never introduce a browser-automation dependency (Playwright, Puppeteer, Selenium). The CDP
+  runner uses only Node 24 built-ins.
+- Never let the harness or its measurement code live under `src/sim/`.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Node correctness leg | Harness scene: 514.4 x 1066.8 mm playfield plane, thick walls on all four sides, gravity for 6.5 deg pitch, six 26.99 mm balls at distinct start poses; 10,000 ticks stepped | Every ball stays inside the playfield bounds every tick; no two ball centres ever closer than one ball diameter; the run completes 10,000 ticks without a non-terminating step | Test fails naming the tick, ball id and the violated bound |
+| Step termination | A tick whose time-of-impact loop would otherwise not converge | Forced advance by `STATICTIME` bounds the step; the tick returns | Test fails if any step exceeds the forced-advance iteration bound |
+| Determinism | The same harness run twice in one Node process from identical initial state | Byte-identical final ball positions and velocities across both runs | Test fails printing the first differing ball and component |
+| Node cost report | The 10,000-tick run, per-tick timing via `process.hrtime.bigint()` | Mean and p95 nanoseconds per tick written to stdout and into `docs/spikes/spike-1.md`, plus a derived informational per-frame equivalent (`p95_tick x 17`) | n/a - reporting only, does not gate |
+| Browser measurement leg | The same harness in the Vite dev page, driven by `requestAnimationFrame`; 60 warm-up frames discarded, then 600 measured frames of 17 steps each | Per-frame sim-cost samples collected; p95 (nearest-rank) reported per browser as JSON on stdout | Runner exits non-zero if the page errors, the target never appears, or fewer than 600 samples are collected |
+| Background-throttle guard | The measuring window is occluded or backgrounded so `requestAnimationFrame` throttles | Run is rejected: any frame whose wall-clock delta exceeds 100 ms invalidates the run | Runner exits non-zero naming the throttled frame; measurement is re-run foregrounded |
+| Pass verdict | p95 per frame from each measured Windows path | PASS if p95 <= 4 ms on both Windows paths, FAIL otherwise; verdict written to `docs/spikes/spike-1.md` | n/a - both outcomes are valid results |
+| macOS / Safari legs | No macOS host available on this cycle host | The Chrome-macOS and Safari-macOS rows exist in `docs/spikes/spike-1.md` and read `PENDING - author's macOS leg` | Not an error; referenced to the existing ledger entry |
+| Boundary guard | Any file under `src/sim/` containing a banned global or a `@babylonjs/` import | Boundary test fails naming the file, line and the banned token | Test fails; this is the Story 1.1 stand-in until Story 1.3's dependency-cruiser |
+| Header guard | A file under `src/sim/physics/` that is a port | Boundary test asserts the file contains the exact port-marker line and a preceding upstream copyright block | Test fails naming the file |
+| Integration (consumer) | `test/spike-1.test.ts` and `tools/spike-1/browser.ts` both import the harness, which imports only `src/sim/physics/**` and `src/sim/contracts/time.ts` | Both consumers step the identical scene and produce their observable effects: the Node test's assertions pass, and the browser page renders a p95 figure and resolves `window.__spike1Run()` with it | A consumer failing to construct the scene fails its own tier |
+
+</intent-contract>
+
+## Code Map
+
+Greenfield: there is no `src/`, no `package.json`, no `docs/` in this repository yet. Everything
+below is created by this story except where marked read-only.
+
+**Read-only governing sources (do not edit):**
+- `CLAUDE.md` -- the provenance rule; the `package.json`-vs-headers trap is named there explicitly.
+- `_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md`
+  -- invariants AD-1..AD-17; AD-3 (line ~81), AD-4 (~87), AD-10 (~168), AD-15 (~198), AD-16 (~204)
+  govern this story. Stack table at ~275; Structural Seed at ~291.
+- `_bmad-output/planning-artifacts/epics.md` -- Story 1.1 ACs at lines 306-336.
+- `_bmad-output/implementation-artifacts/deferred-work.md` -- the two pre-adjudicated
+  author-owned entries to reference (macOS/Safari legs; TICK_HZ ratification).
+- `ATTRIBUTIONS.md` -- edited by this story; its "Planned dependencies" table already carries
+  the `vpdb/vpx-js` row and states the or-later reasoning.
+
+**Upstream port source, `vpdb/vpx-js` @ `e8a6d6f` (verified reachable 2026-08-27):**
+- `lib/physics/` (20 files): `constants.ts`, `functions.ts`, `collision-event.ts`,
+  `collision-type.ts`, `hit-object.ts`, `hit-plane.ts`, `hit-point.ts`, `hit-line-3d.ts`,
+  `hit-line-z.ts`, `hit-circle.ts`, `hit-triangle.ts`, `hit-3dpoly.ts`, `hit-quadtree.ts`,
+  `hit-kd.ts`, `hit-kd-node.ts`, `line-seg.ts`, `line-seg-slingshot.ts`, `mover-object.ts`,
+  `anim-object.ts`, `anim-slingshot.ts`.
+- `lib/math/` -- the transitive dependency the story AC names as "math": `vertex3d.ts`,
+  `vertex2d.ts`, `vertex.ts`, `float.ts`, `functions.ts`, `frect3d.ts`, `matrix3d.ts`,
+  `matrix2d.ts` (port only what the closure needs; `catmull-curve`, `dragpoint`, `edge-set`,
+  `progressive-mesh`, `spline-vertex` are mesh authoring and are out).
+- `lib/vpt/ball/`: `ball.ts`, `ball-data.ts`, `ball-hit.ts`, `ball-mover.ts`, `ball-state.ts`
+  (skip `*.spec.ts`, `ball-api.ts`, `ball-mesh-generator.ts`, `ball-updater.ts`).
+- `lib/game/player-physics.ts` -- the fixed-step outer loop and the time-of-impact cycle.
+- `lib/game/` interface/event surface (`event.ts`, `event-proxy.ts`, `ihittable.ts`,
+  `imovable.ts`, `iplayable.ts`) -- upstream physics files import these; sever or minimally
+  stub, see Design Notes.
+
+**Verified upstream facts (checked at source 2026-08-27, cite these rather than re-deriving):**
+- `lib/physics/constants.ts` has **no licence header at all** and begins at line 1 with
+  `export const PHYSICS_STEPTIME = 1000;`. Handling: see Design Notes.
+- Values confirmed in that file: `PHYSICS_STEPTIME = 1000` (usec), `PHYS_SKIN = 25.0` (L48),
+  `PHYS_TOUCH = 0.05` (L52), `C_LOWNORMVEL = 0.0001` (L54), `C_CONTACTVEL = 0.099` (L55),
+  `C_PRECISION = 0.01` (L41), `C_DISP_GAIN = 0.9875` (L67), `C_DISP_LIMIT = 5.0` (L68),
+  `STATICTIME = 0.005` (L75), `VELOCITY_EPSILON = 0.05` (L82), `PHYS_FACTOR = 0.1` (derived, L8).
+  The unit note is in that file: `1 U = .53975 mm`, `1 T = 10 ms`.
+- Ball-ball restitution is hardcoded at `lib/vpt/ball/ball-hit.ts:303`:
+  `const impulse = -(1.0 + 0.8) * dot / (myInvMass + ball.hit.invMass);` -- coefficient `0.8`.
+- Header form on files that have one (e.g. `lib/physics/hit-object.ts`, `lib/vpt/ball/ball.ts`,
+  `lib/game/player-physics.ts`): `VPDB - Virtual Pinball Database / Copyright (C) 2019 freezy
+  <freezy@vpdb.io>` followed by the GPL "version 2 ... or (at your option) any later version"
+  paragraph. `package.json` says `"license": "GPL-2.0"` -- the exact trap CLAUDE.md warns about.
+- `lib/vpt/ball/ball-hit.ts` uses a `Vertex3D` object pool (`clone(true)`, `release`,
+  `addAndRelease`). This is load-bearing for the frame budget, not clutter - preserve it.
+
+**Files this story creates:**
+- `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `vitest.config.ts`, `.gitignore` (edit).
+- `src/sim/physics/**` -- the port.
+- `src/sim/contracts/time.ts` -- `TICK_HZ`, this story's only contracts file.
+- `tools/spike-1/{scene.ts,index.html,browser.ts,measure.mjs}` -- the harness and runners.
+- `test/spike-1.test.ts`, `test/sim-boundary.test.ts`.
+- `ATTRIBUTIONS.md` (edit), `docs/spikes/spike-1.md`.
+
+## Tasks & Acceptance
+
+**Execution:** (in dependency order; the first task is a hard gate on every later task)
+
+- `ATTRIBUTIONS.md` -- BEFORE any other file: fetch `lib/physics/hit-object.ts` at `e8a6d6f`,
+  read its header, and add the `vpdb/vpx-js` row to the **Code** table with commit, authors,
+  `GPL-2.0-or-later`, verification date `2026-08-27`, and a note recording the
+  `package.json` (`GPL-2.0`) vs header (or-later) divergence and the GPL-3.0 or-later exercise
+  -- rationale: CLAUDE.md's hard gate; the entry precedes the file.
+- `package.json` + `pnpm-lock.yaml` + `tsconfig.json` + `vitest.config.ts` + `.gitignore` --
+  scaffold the single package: `"packageManager": "pnpm@11.24.0"`, `"engines": {"node": ">=24"}`,
+  `"type": "module"`, devDependencies `typescript@7.0.2`, `vite@8.2.2`, `vitest@4.1.11`,
+  `@types/node`; scripts `dev` (`vite`), `typecheck` (`tsc --noEmit`), `test` (`vitest run`).
+  `tsconfig.json`: `strict: true`, `module: esnext`, `moduleResolution: bundler`, explicit
+  `"types": ["node"]`, **no `baseUrl`**, `include` covering `src`, `test`, `tools`.
+  `vitest.config.ts`: `environment: 'node'`, `include: ['test/**/*.test.ts']`. `.gitignore`:
+  add `node_modules/`, `dist/`, `.vite/` -- rationale: TS 7.0 makes `baseUrl` and
+  `moduleResolution: node` hard errors and ships `types: []` with no auto-discovery; without
+  `node_modules/` ignored the finalize clean-tree check cannot pass.
+- `src/sim/physics/**` -- port the minimum transitive closure from the four upstream trees
+  named in the Code Map, each file keeping its upstream header plus the port marker line.
+  Extract the hardcoded `0.8` ball-ball restitution into `constants.ts` as a named export
+  citing `ball-hit.ts:303`. Sever `lib/game/` coupling per Design Notes. Replace any upstream
+  wall-clock or random usage with tick-driven deterministic equivalents, commenting each site
+  -- rationale: the story's deliverable; AD-15 verbatim solver constants; AD-16 headers.
+- `src/sim/contracts/time.ts` -- export `TICK_HZ` with the GPL-3.0 header and the loud
+  provisional comment quoted in Design Notes -- rationale: AD-3, one clock behind one constant.
+- `tools/spike-1/scene.ts` -- the shared harness: build the 514.4 x 1066.8 mm plane, four
+  thick walls, 6.5 deg pitch gravity vector, six 26.99 mm balls at distinct poses, scatter 0
+  on every material; export `createSpikeScene()` and `step(scene)`. DOM-free, timing-free,
+  allocation-free in the step path -- rationale: one scene, two consumers, comparable numbers.
+- `tools/spike-1/index.html` + `tools/spike-1/browser.ts` -- the Vite dev page: 60 warm-up
+  frames then 600 measured frames of 17 steps, `performance.now()` around the 17 steps only;
+  render the result and expose `window.__spike1Run(): Promise<Spike1Result>`
+  -- rationale: `performance` is banned inside `sim/`, so the timing lives here.
+- `tools/spike-1/measure.mjs` -- Node-24-builtins-only CDP runner: `--browser chrome|edge`,
+  launches the browser headed with a temp profile, remote debugging and the
+  background-throttling flags, evaluates `window.__spike1Run()`, prints the JSON, exits
+  non-zero on failure -- rationale: makes both Windows legs agent-executable with no new dep.
+- `test/spike-1.test.ts` -- the Node leg: 10,000 ticks, the bounds / overlap / termination /
+  determinism assertions from the I/O Matrix, per-tick mean and p95 reported
+  -- rationale: correctness and the Node cost figure, inside the default suite.
+- `test/sim-boundary.test.ts` -- assert no banned global or `@babylonjs/` import anywhere under
+  `src/sim/`, and assert every file under `src/sim/physics/` carries an upstream copyright block
+  followed by the exact port-marker line -- rationale: Story 1.3's lint does not exist yet.
+- `docs/spikes/spike-1.md` -- the result document: the four measurement rows, the verdict, the
+  p95 method, the "17 steps" derivation, the port deviation list, and the two ledger references
+  -- rationale: the AC's named output artefact.
+
+**Acceptance Criteria:**
+
+- Given `ATTRIBUTIONS.md` has no `vpdb/vpx-js` entry in its Code table and no file exists under
+  `src/sim/physics/`, when the port begins, then the `ATTRIBUTIONS.md` entry is written first and
+  records commit `e8a6d6f`, the named authors, `GPL-2.0-or-later` **verified in the source file
+  headers and explicitly not from `package.json`**, and the date - and only then is any ported
+  file written to disk.
+- Given any file under `src/sim/physics/`, when it is inspected, then it contains a verbatim
+  upstream copyright block immediately followed by the exact line
+  `// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0`,
+  and `pnpm test` asserts this for every such file.
+- Given the scaffolded repository, when `pnpm typecheck` runs, then `tsc --noEmit` exits 0 over
+  `src`, `test` and `tools` with `strict: true`, explicit `types` and no `baseUrl`.
+- Given `src/sim/physics/constants.ts`, when it is read, then `PHYS_SKIN` is `25.0`,
+  `PHYS_TOUCH` is `0.05`, `C_DISP_GAIN` is `0.9875`, `STATICTIME` is `0.005`, and the ball-ball
+  restitution `0.8` is a named exported constant citing `lib/vpt/ball/ball-hit.ts:303` - each
+  value transcribed from the pinned upstream source, none of them tunable.
+- Given `pnpm test`, when the suite runs, then `test/sim-boundary.test.ts` passes, proving no
+  file under `src/sim/` references `window`, `document`, `performance`, `Math.random`, `Date`,
+  `setTimeout`, `setInterval`, `requestAnimationFrame`, `localStorage`, `navigator`,
+  `globalThis` or imports `@babylonjs/*`.
+- Given the Vite dev server is running and the harness page is served, when
+  `node tools/spike-1/measure.mjs --browser chrome` is run on this Windows 11 host, then it
+  exits 0 and prints a JSON result containing 600 samples and a nearest-rank p95 in milliseconds.
+- Given the same, when `node tools/spike-1/measure.mjs --browser edge` is run, then it likewise
+  exits 0 and prints a 600-sample p95. **Both Windows legs are blocking; neither may be skipped,
+  estimated, or recorded as pending.**
+- Given both Windows p95 figures and the Node per-tick figures, when `docs/spikes/spike-1.md` is
+  written, then it carries a four-row table (Chrome/Windows, Edge/Windows, Chrome/macOS,
+  Safari/macOS) with the two Windows rows filled with measured numbers, machine identification,
+  browser versions and the date the runs were made, and the two macOS rows present and marked
+  `PENDING - author's macOS leg`, referencing the existing `deferred-work.md` entry
+  "Author-owned: macOS / Safari measurement legs" - with no new ledger entry filed.
+- Given the recorded Windows numbers, when the verdict is computed, then `docs/spikes/spike-1.md`
+  states PASS if p95 <= 4 ms on both Windows paths and FAIL otherwise, and `TICK_HZ` in
+  `src/sim/contracts/time.ts` is set to 1000 on PASS or 480 on FAIL - and in both files the value
+  is marked loudly as **provisional, pending the author's macOS leg**, referencing the existing
+  ledger entry "Author-owned: TICK_HZ ratification from Spike 1" with no new entry filed.
+- Given the verdict is FAIL, when `docs/spikes/spike-1.md` is finished, then the solver re-tune
+  is logged there as the next piece of work **before Story 1.3**, with the measured shortfall.
+- Given the port is complete, when `docs/spikes/spike-1.md` is read, then it lists every
+  deviation from a verbatim port: severed `lib/game/` couplings, the extracted restitution
+  constant, any wall-clock or random substitution, and any upstream file that carried no header.
+
+## Spec Change Log
+
+## Review Triage Log
+
+## Design Notes
+
+**Governing ADs (Rule 6)** - the registry for this project is the architecture spine's
+invariants at
+`_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md`,
+not a `docs/adr/` directory:
+- **AD-1** (ports-and-adapters, fixed dependency direction): the harness and all timing code sit
+  outside `src/sim/`; `sim/` is DOM-free and engine-free.
+- **AD-3** (one clock behind one constant): `TICK_HZ` is the single constant in
+  `src/sim/contracts/time.ts`, set from the port's `PHYSICS_STEPTIME` (1000 usec -> 1000 Hz);
+  no literal millisecond elsewhere in `sim/`; physics draws no randomness and scatter is 0.
+- **AD-4** (loop contract): the time-of-impact loop inside a step is bounded by forced advance
+  (`STATICTIME`) so every step terminates deterministically - the Node leg asserts this.
+- **AD-10** (units and frames): physics keeps VP units internally, `1 U = 0.53975 mm`; the
+  harness authors its dimensions in mm and converts at its own boundary. Story 1.4 owns
+  `frames.ts`; this story's conversion is local to the harness and must be replaced by
+  `frames.ts` later - say so in a comment at the conversion site.
+- **AD-15** (solver constants verbatim, never tunable): `constants.ts` is transcribed, not
+  authored. Changing one later is a physics-version bump that re-records every golden.
+- **AD-16** (boundaries linted; ported files keep their notices): the header rules above.
+  Story 1.3's dependency-cruiser supersedes `test/sim-boundary.test.ts`.
+- **AD-17** is NOT in scope: the static build, CSP tag, size budget and CI belong to Story 1.2.
+
+**Integration ACs / Consumed-by / Consumes (Rules 1 and 2).** This story introduces a shared
+module (`src/sim/physics/**` plus `src/sim/contracts/time.ts`). It has two real in-story
+consumers, both exercised against the real module and neither mocked - the Node test
+`test/spike-1.test.ts` and the browser page `tools/spike-1/browser.ts`, via the shared harness
+`tools/spike-1/scene.ts`. Their Integration AC is the last row of the I/O Matrix.
+- `Consumes:` nothing. Story 1.1 is the first story of a greenfield epic; there is no previous
+  `done` story and no existing module to consume.
+- `Consumed-by:`
+  - Story 1.3 - `src/sim/contracts/time.ts` (`TICK_HZ`) feeds the ms-to-ticks conversion and the
+    dependency-cruiser rules that replace `test/sim-boundary.test.ts`.
+  - Story 1.4 - `src/sim/physics/loader` builds the compound collision body from the ported
+    primitive set and replaces the harness's local unit conversion with `frames.ts`.
+  - Story 1.5 - `sim/loop` drives `physics.step` at `TICK_HZ` for the serve/roll/drain slice.
+  - Story 1.6 - ports `lib/vpt/flipper/` on top of this base as the hardware-rule flipper.
+  - Story 1.7 - the cabinet oscillator, tilt bob and slam sensor sit beside this physics state.
+  - Story 1.8 - replay goldens hash the state this physics produces; a change to any solver
+    constant here re-records all of them.
+
+**Reading the pass threshold.** The story's AC says "p95 <= 4 ms on every measured path"
+directly after the AC that defines the measured paths as "per browser and machine". The threshold
+is therefore scoped to the **per-frame** browser figures - that is the gating number. The Node leg
+reports **per-tick** cost, a different unit; record it, and record the derived per-frame
+equivalent (`p95_tick x 17`) as an informational cross-check that does not gate. State this
+reading in `docs/spikes/spike-1.md` so the author can overrule it cheaply.
+
+**Why 17 steps.** At `TICK_HZ = 1000`, one 60 Hz frame owes 16.67 steps; 17 is the worst-case
+whole-step count a frame can be asked for once the fractional remainder is carried (AD-4). The
+planning artifacts state "17 steps (one 60 Hz frame of simulated time)" without deriving it -
+this is the derivation; put it in the results document.
+
+**p95 method (a spec decision - the artifacts do not specify one).** Nearest-rank on the sorted
+sample array: `sorted[Math.ceil(0.95 * n) - 1]`. Browser: discard 60 warm-up frames, then collect
+exactly 600 samples (n = 600, index 569). Node: 10,000 samples timed individually with
+`process.hrtime.bigint()` (index 9499); note in the results document that per-tick timing adds
+roughly 100 ns of instrumentation to each sample. Record the method in `docs/spikes/spike-1.md`
+so a later re-run is comparable.
+
+**Browser measurement must not be throttled.** Launch headed, never `--headless`: a background or
+occluded window throttles `requestAnimationFrame` and silently ruins the numbers. Pass
+`--disable-background-timer-throttling`, `--disable-backgrounding-occluded-windows`,
+`--disable-renderer-backgrounding`, a fresh `--user-data-dir` in the OS temp directory, and
+`--remote-debugging-port`. Reject the run if any frame's wall-clock delta exceeds 100 ms.
+Time only the 17 `step()` calls - the page renders no 3D and must not include DOM work in the
+sample. Windows executables to probe, with an `--exe` override:
+Chrome `C:\Program Files\Google\Chrome\Application\chrome.exe`,
+Edge `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`.
+`measure.mjs` speaks CDP over Node 24's global `fetch` (`/json/list`) and global `WebSocket`
+(`Runtime.evaluate` with `awaitPromise: true`) - no npm dependency. If it cannot drive Chrome,
+the documented fallback for the Chrome leg only is `chrome-devtools-mcp`
+(`new_page` on the dev URL, then `evaluate_script` calling `window.__spike1Run()`); the Edge leg
+has no MCP fallback, which is why the runner exists.
+
+**Severing the `lib/game/` coupling.** Upstream physics files import `EventProxy`, `Event`,
+`IHittable`, `IMovable`, `IPlayable` from `lib/game/`. DragonWar has its own event model
+(`SwitchEvent` / `ContactEvent`, Story 1.3), so do not port vpx-js's event system. Port the
+minimal structural type surface these files need into `src/sim/physics/` (interfaces only, no
+behaviour), leave event emission as a no-op seam with a `TODO(story-1.3)` comment naming what
+will replace it, and list each severed import in the deviation list. Keep the surgery minimal -
+the goal is a compiling, measurable solver, not a redesign.
+
+**The header-less upstream file.** `lib/physics/constants.ts` at `e8a6d6f` carries no copyright
+header. Do NOT give it a bare GPL-3.0 header - that would assert DragonWar authorship over
+upstream work. Give it the project's canonical upstream header (the block from
+`lib/physics/hit-object.ts`, unchanged), then the port-marker line, then a third line recording
+that the upstream file itself carried no header and that the licence was established from the
+repository's other source files. Record this in `ATTRIBUTIONS.md` and in the deviation list.
+
+**Rule 14 and ported bytes.** Newly authored code uses escape sequences for any non-ASCII
+character. Ported files are the deliberate exception: their upstream bytes - copyright headers
+included - are preserved exactly, because AD-16 and the GPL grant require it. Note this in the
+deviation list so a reviewer does not file it as a Rule 14 violation.
+
+**Exact `time.ts` comment wording** (keep it loud; the reviewer and the merge gate look for it):
+
+```ts
+// PROVISIONAL - pending the author's macOS leg of Spike 1.
+// Set from the Windows Chrome + Windows Edge p95 measured <YYYY-MM-DD of the runs>; see
+// docs/spikes/spike-1.md. The macOS Chrome and Safari rows are still PENDING, so this
+// value is NOT ratified. Ledger: "Author-owned: TICK_HZ ratification from Spike 1".
+// Changing it re-records every golden replay (AD-3, AD-15).
+export const TICK_HZ = 1000; // 1000 on PASS, 480 on FAIL
+```
+
+**Toolchain fallback.** `packageManager: "pnpm@11.24.0"` makes pnpm self-provision that version;
+the host currently has pnpm 11.3.0. If self-provisioning is unavailable, proceed on the installed
+pnpm 11.x - the story AC's own bar is "pnpm 11" - and record the deviation in the results
+document. No `vite.config.ts` is created: Vite defaults serve the harness at
+`http://localhost:5173/tools/spike-1/index.html`, and the root `index.html` plus the build
+config belong to Story 1.2.
+
+**Root-file footprint note.** Epic 1's `paths_hint` lists `src/**`, `test/**`, `tools/**`,
+`assets/src/**`, `.github/workflows/**`, `package.json`. This story additionally touches
+`tsconfig.json`, `vitest.config.ts`, `pnpm-lock.yaml`, `.gitignore`, `ATTRIBUTIONS.md` and
+`docs/spikes/spike-1.md`. All are unavoidable for a greenfield scaffold, none is claimed by
+another epic, and Epic 1 runs alone in wave 1.
+
+## Verification
+
+**Commands:** (run from `C:/git/dragonwar/.worktrees/epic-1`)
+
+- `pnpm install` -- expected: exits 0; `pnpm-lock.yaml` written; `node_modules/` ignored by git.
+- `pnpm typecheck` -- expected: `tsc --noEmit` exits 0 with no diagnostics.
+- `pnpm test` -- expected: exits 0; `test/spike-1.test.ts` and `test/sim-boundary.test.ts` both
+  pass; the Node per-tick mean and p95 appear in the output.
+- `pnpm dev` (background) then
+  `node tools/spike-1/measure.mjs --browser chrome --url http://localhost:5173/tools/spike-1/index.html`
+  -- expected: exits 0, prints JSON with `samples: 600` and a numeric `p95Ms`.
+- `node tools/spike-1/measure.mjs --browser edge --url http://localhost:5173/tools/spike-1/index.html`
+  -- expected: exits 0, prints JSON with `samples: 600` and a numeric `p95Ms`.
+- `git status --porcelain` -- expected: no untracked `node_modules/` or `dist/` entries.
+
+**Manual checks:**
+- `ATTRIBUTIONS.md` Code table carries the `vpdb/vpx-js` row with commit `e8a6d6f`, the authors,
+  `GPL-2.0-or-later`, the date, and the explicit note that the licence was read from the source
+  file headers while `package.json` says only `GPL-2.0`.
+- Confirm by inspection that the attribution entry exists and is complete before any ported file
+  is staged.
+- `docs/spikes/spike-1.md` shows four measurement rows: two filled Windows rows and two macOS
+  rows reading `PENDING - author's macOS leg`; a PASS/FAIL verdict; the p95 method; the "17
+  steps" derivation; the deviation list; and references (not new entries) to the two existing
+  `deferred-work.md` author-owned entries.
+- `src/sim/contracts/time.ts` carries the provisional comment block verbatim as written above.
+- `_bmad-output/implementation-artifacts/deferred-work.md` is unchanged by this story.
+
+## Auto Run Result
+
+Status: ready-for-dev
+Blocking condition: none
+
+Planned 2026-08-27 by `bmad-build-auto` (plan stage, halt-after-planning). Epic context reused
+from the committed `_bmad-output/implementation-artifacts/epic-1-context.md`; no previous `done`
+story exists (1.1 is the first story of Epic 1). Verified against the READY FOR DEVELOPMENT
+standard: actionable, dependency-ordered, Given/When/Then throughout, surface-anchored on
+`pnpm typecheck` / `pnpm test` / the CDP runner's exit code and JSON / the named artefact files,
+no placeholders, no unresolved gaps. Left uncommitted for the lead's validation gate.
