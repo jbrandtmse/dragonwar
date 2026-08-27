@@ -29,3 +29,5 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T22:23:47Z	Story 1.1	cr_complete	spawn_at=2026-08-27T21:55:02Z model=claude-opus-5 cycle_iteration=2 story_status=done tests=187 resolved=4 routed=1 occurrences=4 closing_sections_present=true
 2026-08-27T22:23:47Z	Story 1.1	smoke_complete	method=browser result=pass iterations=1 defects_caught=1 evidence=docs/spikes/spike-1.md model=claude-opus-5 note=deliverable_ok_measurement_methodology_defect_filed
 2026-08-27T22:23:55Z	Epic 1	runtime_lock_released	stage=smoke
+2026-08-27T22:24:41Z	Story 1.1	committed	sha=601f8d9 submodules=
+2026-08-27T22:24:41Z	Epic 1	epic_runner_paused	reason=orchestrator_requested_halt_after_story_1_1 stories_completed=1 next_story=1-2-spike-3-build-size-and-load-time-measured-from-a-link resume_at=plan_spawn epic_status=in-progress
