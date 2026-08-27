@@ -3,10 +3,9 @@
 An open-source pinball simulation: one table, browser-first, Windows and macOS.
 Licensed **GPL-3.0**. See `LICENSE`, `NOTICE`, and `ATTRIBUTIONS.md`.
 
-Planning artifacts live in `_bmad-output/planning-artifacts/` — the technical
-research (stack decision, physics approach, machine specifications) and the
-product brief (scope, rules spine, success criteria). Read those before making
-architectural decisions; they are cited and were adversarially reviewed.
+Repository orientation, the planning-artifact map and the coding conventions
+live in `AGENTS.md`. Read it first; the architecture spine it points to governs
+structural decisions.
 
 ---
 
