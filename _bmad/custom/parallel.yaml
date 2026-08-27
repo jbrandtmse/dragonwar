@@ -1,0 +1,26 @@
+# Parallel epic execution — read by /epic-cycle (orchestrator mode).
+# Safe defaults; tune per project.
+
+max_parallel_epics: 2            # raise only after reviewing a full parallel run's telemetry
+worktree_base: .worktrees        # short path under repo root; use e.g. C:\wt\<proj> if MAX_PATH bites
+runner_isolation: subagent       # subagent (supported) | headless (designed, Phase 3 — not yet implemented)
+submodule_mode: none             # gitlink-worktree (default; shared objects, teardown-safe)
+                                 # | clone-per-worktree (plain init; unpushed work dies at teardown)
+                                 # | none (project has no submodules)  <- DragonWar: no .gitmodules
+footprint_overlap_threshold: 0.20  # estimated file-overlap between two epics above this -> serialize them
+merge_policy: queue-ask          # queue-ask (user approves each epic merge; only supported policy today)
+story_parallelism: off           # off is the only supported value under BMAD v6.11 — story-level batching inside one
+                                 # checkout is retired (bmad-build-auto's clean-tree checks); concurrency is per-epic worktrees
+build_auto_mode: spawned         # spawned (default; runner spawns bmad-build-auto stage agents — depth-3 nesting)
+                                 # | inline (runner invokes bmad-build-auto via Skill; implement tier must then be
+                                 #   routed through _bmad/custom/bmad-build-auto.toml implementation_handoff — see Runner-Mode Deltas)
+
+# Runtime-touching stages serialize behind named claim-file locks
+# (<worktree_base>/.coordination/locks/<name>.lock). A project with no shared
+# live runtime (no shared dev server/namespace/ports) can set stages: [].
+# Note: the implement stage (bmad-build-auto) runs the project's tests during its
+# Matrix Test Audit and self-review — add `implement` if those tests touch the shared runtime.
+runtime_locks:
+  - name: runtime
+    stages: [smoke, qa, adr_verifications]   # add implement, or use [all-runtime] to include build-auto's test runs
+    stale_minutes: 45

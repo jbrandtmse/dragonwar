@@ -1,6 +1,7 @@
 ---
 name: bmad-document-project
 description: 'Deprecated — forwards to bmad-project-context. Use when the user says "document this project" or "generate project docs"'
+model: sonnet
 ---
 
 # DEPRECATED — forwards to bmad-project-context

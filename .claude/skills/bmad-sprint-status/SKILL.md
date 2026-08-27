@@ -1,6 +1,7 @@
 ---
 name: bmad-sprint-status
 description: 'Deprecated — forwards to bmad-sprint-planning (status view).'
+model: sonnet
 ---
 
 # DEPRECATED — forwards to bmad-sprint-planning (status view)

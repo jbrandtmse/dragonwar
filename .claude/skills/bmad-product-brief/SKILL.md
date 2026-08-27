@@ -1,6 +1,7 @@
 ---
 name: bmad-product-brief
 description: Create, update, or validate a product brief. Use when the user wants help producing, editing, or validating a brief.
+model: sonnet
 ---
 
 # Overview

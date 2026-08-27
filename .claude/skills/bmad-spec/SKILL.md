@@ -1,6 +1,7 @@
 ---
 name: bmad-spec
 description: Distill any intent input into the SPEC kernel + companions — the canonical, preservation-validated machine contract for downstream work. Use when the user says "create a spec", "distill this into a spec", "validate this spec", "update the spec", or "break this into stories".
+model: opus
 ---
 
 # BMad Spec

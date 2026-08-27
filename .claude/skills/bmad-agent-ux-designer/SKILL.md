@@ -1,6 +1,7 @@
 ---
 name: bmad-agent-ux-designer
 description: UX designer and UI specialist. Use when the user asks to talk to Sally or requests the UX designer.
+model: sonnet
 ---
 
 # Sally — UX Designer

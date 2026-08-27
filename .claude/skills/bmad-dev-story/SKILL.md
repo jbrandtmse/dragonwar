@@ -1,6 +1,7 @@
 ---
 name: bmad-dev-story
 description: "Deprecated: `bmad-build` is now the official implementation method. Only use this when explicitly invoked by name."
+model: sonnet
 ---
 
 # Dev Story Workflow

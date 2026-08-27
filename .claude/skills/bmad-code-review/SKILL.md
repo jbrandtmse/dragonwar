@@ -1,6 +1,7 @@
 ---
 name: bmad-code-review
 description: 'Adversarial code review using parallel review layers and structured triage. Use when the user says "run code review" or "review this code"'
+model: opus
 ---
 
 # Code Review Workflow

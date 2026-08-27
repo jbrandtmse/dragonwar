@@ -1,0 +1,4 @@
+# Installed workflow-kit versions. Read by the parallel kit's upgrade check.
+epic-cycle-base: 2026-08-26.1
+skill-optimization: 2026-08-26.1
+parallel-epic-cycle: 2026-08-26.1

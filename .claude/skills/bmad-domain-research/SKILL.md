@@ -1,6 +1,7 @@
 ---
 name: bmad-domain-research
 description: 'Deprecated — forwards to bmad-deep-recon (domain type).'
+model: sonnet
 ---
 
 # DEPRECATED — forwards to bmad-deep-recon (domain type)

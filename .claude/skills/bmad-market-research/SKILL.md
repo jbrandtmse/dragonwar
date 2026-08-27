@@ -1,6 +1,7 @@
 ---
 name: bmad-market-research
 description: 'Deprecated — forwards to bmad-deep-recon (market type).'
+model: sonnet
 ---
 
 # DEPRECATED — forwards to bmad-deep-recon (market type)

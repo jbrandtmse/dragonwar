@@ -1,6 +1,7 @@
 ---
 name: bmad-create-architecture
 description: 'Deprecated — forwards to bmad-architecture (create intent).'
+model: opus
 ---
 
 # DEPRECATED — forwards to bmad-architecture (create intent)

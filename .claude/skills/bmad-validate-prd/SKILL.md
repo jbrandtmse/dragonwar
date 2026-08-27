@@ -1,6 +1,7 @@
 ---
 name: bmad-validate-prd
 description: 'Deprecated — forwards to bmad-prd (validate intent).'
+model: opus
 ---
 
 # DEPRECATED — forwards to bmad-prd (validate intent)
