@@ -44,6 +44,11 @@ CC0 / public domain · CC BY · CC BY-SA (assets).
 - **Assets from commercial pinball machines** — playfield art, sculpted toys,
   logos, sound and speech, ROMs. DragonWar is an original table and needs none
   of it.
+  The one exception: recordings the author makes of a real machine's generic
+  mechanical noises (coil fires, flipper snap, ball rolling on wood) carry no
+  copyrightable expression and may be added, recorded in `ATTRIBUTIONS.md` as
+  author-made with the date. Speech, music, callouts and any produced audio
+  from a commercial machine remain out.
 
 **Two project-specific traps:**
 
