@@ -184,6 +184,114 @@ none matching an existing canonical entry above.
 
 ---
 
+---
+
+## Deferred from: code review of spec-1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies.md (2026-08-27)
+
+Two new canonical entries. Everything else this review found was either fixed in place, or
+closed at emission (`by-design` / `wontfix-theoretical`) with the rationale recorded in the
+spec's `### Review Findings`. The gravity defect that invalidated the spike's measurements is
+NOT ledgered as deferred work -- it was fixed, and its consequence is an occurrence against the
+existing TICK_HZ entry below.
+
+- **The production-build measurement surface has no scaffold in the repository**
+  - status: routed
+  - originating story: 1.1
+  - severity: medium · fix-risk: low (two `package.json` scripts plus a Vite entry config)
+  - occurrences: 1.1
+  - rationale: >-
+      Story 1.1's AC was amended on 2026-08-27 to measure the frame budget against a
+      production build (`vite build` + `vite preview`) and to exclude the dev page as a
+      measurement surface. Nothing in the repository implements that surface: `package.json`
+      has only `dev` / `typecheck` / `test`, there is no `vite.config.ts`, and the deciding
+      run survives only as prose in `docs/spikes/spike-1.md` (`npx vite build tools/spike-1
+      --base ./ --outDir <scratch>/...` plus a bare `vite preview`, which as written does not
+      reproduce -- the outDir is a placeholder outside the repo and the preview command shows
+      no matching root). `tools/spike-1/measure.mjs` still DEFAULTS `--url` to the dev server
+      on port 5173. Story 1.1's Never list explicitly bars it from building `vite build`, so
+      this is Story 1.2's work, not a defect it could have fixed.
+      Mitigated in this review: `measure.mjs` now prints its target and warns loudly when that
+      target is the dev page, so the surface can no longer be got wrong silently.
+  - suggested resolution: >-
+      Story 1.2 adds `build` and `preview` scripts and whatever Vite entry configuration the
+      harness page needs, then re-points `measure.mjs`'s DEFAULT_URL at the preview port and
+      records the exact reproducible command in docs/spikes/spike-1.md.
+  - location: package.json, tools/spike-1/measure.mjs
+
+- **`measure.mjs`'s non-Windows paths are untested, and the macOS legs are its next caller**
+  - status: routed
+  - owner: pairs with "Author-owned: macOS / Safari measurement legs"
+  - originating story: 1.1
+  - severity: low · fix-risk: low
+  - occurrences: 1.1
+  - rationale: >-
+      The runner is Windows-shaped throughout and no non-Windows path has ever executed.
+      `DEFAULT_EXE` carries only Windows Chrome/Edge paths, so a macOS run needs `--exe` every
+      time. `killTree()`'s else branch calls `process.kill(-pid, 'SIGKILL')` for "the whole
+      process group, when detached", but the `spawn()` never passes `detached: true`, so the
+      child is not a group leader and that call falls through to the plain `process.kill(pid)`
+      the file's own header documents as leaving the browser's helper processes running.
+      `process.exit()` immediately after `console.log`ing the result JSON is safe on Windows
+      (pipe writes are synchronous there) but can truncate that JSON on POSIX when stdout is a
+      pipe rather than a TTY -- and the JSON is the whole machine-readable output.
+  - suggested resolution: >-
+      Fix all three together immediately before the author's macOS leg runs, so the first
+      macOS invocation is not also the first test of these paths: add macOS defaults to
+      `DEFAULT_EXE`, pass `detached: true` on non-Windows spawns, and set `process.exitCode`
+      plus clear the run timeout instead of calling `process.exit()`.
+  - location: tools/spike-1/measure.mjs
+
+
+---
+
+## Deferred from: lead post-fix re-measurement of Story 1.1 (2026-08-27)
+
+Two findings from the lead's re-measurement after code review's gravity fix. Both are
+methodological and affect every later performance story, so neither is filed against 1.1 alone.
+
+- **This host's session-to-session measurement variance (~1.9x) exceeds every effect being measured**
+  - status: escalated
+  - originating story: 1.1
+  - severity: high - fix-risk: n/a (a measurement-environment property, not a code defect)
+  - occurrences: 1.1
+  - rationale: >-
+      Byte-identical code (the pre-fix scene, production build, Chrome/Windows) measured 3.50 ms
+      p95 in one session and 1.8 ms in another. Controlled same-session A/B tests showed the
+      gravity fix and the dev-vs-production build BOTH have no measurable effect - each apparent
+      delta previously attributed to them was cross-session noise. Across all sessions the figure
+      ranged roughly 1.6-4.6 ms, straddling the 4 ms bar. Likely cause is thermal/power throttling
+      on a 15 W 2018 mobile part (i5-8259U) under varying prior load; not instrumented, so
+      unproven. Consequence: the Edge/Windows best-effort carve-out and the "dev page is not a
+      valid proxy" conclusion were both decided on differences this host cannot resolve.
+  - suggested resolution: >-
+      Adopt a standing rule: every performance claim on this host must be an A/B measured
+      back-to-back in ONE session, interleaved - never a comparison against a number from another
+      session. Applies to Story 1.2 (payload/load time), 4.7 (Spike 2) and 6.6 (browser matrix).
+      If an absolute number ever needs to gate, measure on a machine with stable sustained clocks,
+      or pin CPU frequency and report the distribution across sessions rather than a point.
+  - location: docs/spikes/spike-1.md
+
+- **The Spike 1 harness scene is near-quiescent for about half the measured window**
+  - status: routed
+  - originating story: 1.1
+  - severity: medium - fix-risk: med (a scene redesign re-invalidates every recorded number)
+  - occurrences: 1.1
+  - rationale: >-
+      Probed total ball speed across a full 11,220-tick run: 72.3 at tick 0, 53.6 at the end of
+      the 60-frame warm-up, 6.9 by tick 3,000, then flat at about 1.4 from tick 6,000 onward -
+      six balls creeping in the STATICTIME forced-advance regime. The p95 therefore reflects a
+      short violent opening plus a long quiet tail, not a steady-state pinball workload. Pre-fix
+      and post-fix settle identically, so this is a harness property, not a consequence of the
+      gravity fix. It makes the recorded figure optimistic as a characterization of a real table.
+  - suggested resolution: >-
+      Do not redesign the spike scene - that would re-invalidate the recorded baseline for a third
+      time. Re-take the frame-budget characterization in Story 1.5, where a served ball on the
+      real placeholder geometry gives a continuously-active workload, and treat Spike 1's number
+      as a floor until then. Related: the existing "corner HitPoint may be unexercised" entry has
+      the same root cause (an unrepresentative scene).
+  - location: tools/spike-1/scene.ts
+
+
 ## Occurrence log
 
 Append-only. Each line records one occurrence against a canonical entry above, naming the entry
@@ -225,3 +333,42 @@ edited into the entry's own `occurrences:` field.
   stays open**: two of the three gating paths are still unmeasured, so TICK_HZ remains provisional.
   **Safari was NOT demoted** — JavaScriptCore rather than V8, still unmeasured, and the real
   remaining performance risk. Author action: run the Chrome/macOS and Safari/macOS legs.
+
+- 2026-08-27 · Story 1.1 · **Author-owned: TICK_HZ ratification from Spike 1** — *code review
+  invalidates the measurement the author's 2026-08-27 decision rested on.* The harness built its
+  gravity vector from the bare `DEFAULT_TABLE_GRAVITY` multiplier (0.97) instead of the
+  `GRAVITYCONST`-scaled strength upstream feeds that formula (`vpx-js lib/vpt/table/table-api.ts:156-158`
+  defines `Gravity` as `data.gravity / GRAVITYCONST`, so the value `init()` consumes is already
+  scaled; `GRAVITYCONST` was ported and then referenced by nothing). The six balls therefore ran
+  at **0.593 m/s² of down-slope acceleration instead of ~1.08 m/s²** — about 55% of a real 6.5°
+  playfield — making the collision workload, and every recorded p95, optimistic. Correcting it
+  raises the Node leg's p95 **1.40×** (171,300 → 240,500 ns/tick; derived per-frame 2.91 → 4.09 ms,
+  i.e. *over* the 4 ms bar). `tools/spike-1/scene.ts` has been fixed; the browser legs have **not**
+  been re-run. `TICK_HZ` has deliberately been left at **1000** — unchanged — because the fail
+  branch bundles a solver re-tune and both are the author's call, exactly as the earlier Edge
+  escalation was handled. **This entry stays open and its severity rises: the PASS verdict is now
+  unestablished on all four paths, not just the two macOS ones.** Author action: re-run the
+  browser legs on the corrected scene against a production build, then ratify 1000 or direct 480.
+- 2026-08-27 · Story 1.1 · **Author-owned: macOS / Safari measurement legs** — scope grows: the
+  gravity correction above invalidates the *Windows* legs too, so Chrome/Windows and Edge/Windows
+  must be re-measured alongside Chrome/macOS and Safari/macOS rather than being carried forward as
+  already-done. The re-run must also record machine identification, browser versions and the run
+  date in the deciding table itself — the AC requires all three and the production-build table
+  currently carries none of them (they appear only in the section the document marks superseded).
+- 2026-08-27 · Story 1.1 · **The "terminates every step" test does not construct a genuinely
+  non-convergent input** — seen again in code review, and the gravity correction makes it more
+  pressing rather than less: higher approach velocities push the time-of-impact loop harder, so the
+  STATICTIME forced-advance path is closer to being exercised for real while still being asserted
+  only as a 250 ms wall-clock ceiling on the ordinary scene. No change to the entry's disposition
+  (still `open`, still targeted at Story 1.5's loop work).
+- 2026-08-27 · Story 1.1 · **Author-owned: TICK_HZ ratification from Spike 1** — post-fix
+  re-measurement on the corrected scene (production build, this session): Chrome/Windows **1.8 ms**
+  median 8/8 under the bar, Edge/Windows **1.8 ms** median 8/8 under. **PASS on the gating path with
+  wide margin**, so `TICK_HZ = 1000` is comfortable on the Windows evidence. Two caveats the author
+  must carry: (1) this host's session variance is ~1.9x on identical code, so treat the Windows
+  figure as a range (~1.6-4.6 ms across sessions), not a point; (2) the harness scene is
+  near-quiescent for about half the measured window, so the number is a floor rather than a
+  characterization. Chrome/macOS and Safari/macOS remain unmeasured and both gate. Entry stays open.
+- 2026-08-27 · Story 1.1 · **Author-owned: macOS / Safari measurement legs** — still pending after
+  the post-fix re-measurement; the corrected-scene production numbers above are Windows-only. When
+  the author runs the macOS legs, measure them A/B in one session per the variance entry above.

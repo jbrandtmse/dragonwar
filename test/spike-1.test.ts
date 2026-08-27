@@ -8,21 +8,21 @@ import { describe, expect, it } from 'vitest';
 import {
 	BALL_DIAMETER_MM,
 	createSpikeScene,
+	GLASS_HEIGHT_MM,
+	mmToVu,
 	PLAYFIELD_HEIGHT_MM,
 	PLAYFIELD_WIDTH_MM,
 	step,
+	STEPS_PER_FRAME_60HZ,
 } from '../tools/spike-1/scene';
 
 const TICKS = 10_000;
-const MM_PER_VU = 0.53975; // must match tools/spike-1/scene.ts — see its conversion-site comment.
-function mmToVu(mm: number): number {
-	return mm / MM_PER_VU;
-}
 
 const WIDTH_VU = mmToVu(PLAYFIELD_WIDTH_MM);
 const HEIGHT_VU = mmToVu(PLAYFIELD_HEIGHT_MM);
 const BALL_RADIUS_VU = mmToVu(BALL_DIAMETER_MM) / 2;
 const BALL_DIAMETER_VU = BALL_RADIUS_VU * 2;
+const GLASS_HEIGHT_VU = mmToVu(GLASS_HEIGHT_MM);
 
 // Collision tolerance: PHYS_TOUCH (0.05 VU) plus headroom for the one-tick lag
 // between a hit being detected and C_DISP_GAIN's partial positional correction
@@ -71,6 +71,19 @@ describe('Spike 1 — Node correctness leg (10,000 ticks, six balls)', () => {
 					y + r,
 					`tick ${tick}, ${ball.getName()}: top edge (y=${y}) escaped playfield bounds`,
 				).toBeLessThanOrEqual(HEIGHT_VU + BOUNDS_TOLERANCE_VU);
+
+				// The z axis is a bound too: below the playfield plane means the ball
+				// tunnelled through the surface it rests on, above the glass means it
+				// escaped the top. Checking only x/y would pass either.
+				const z = ball.state.pos.z;
+				expect(
+					z - r,
+					`tick ${tick}, ${ball.getName()}: fell through the playfield plane (z=${z})`,
+				).toBeGreaterThanOrEqual(-BOUNDS_TOLERANCE_VU);
+				expect(
+					z + r,
+					`tick ${tick}, ${ball.getName()}: escaped above the top glass (z=${z})`,
+				).toBeLessThanOrEqual(GLASS_HEIGHT_VU + BOUNDS_TOLERANCE_VU);
 			}
 		}
 
@@ -170,12 +183,16 @@ describe('Spike 1 — Node correctness leg (10,000 ticks, six balls)', () => {
 		const sorted = [...samples].sort((a, b) => a - b);
 		const mean = samples.reduce((sum, v) => sum + v, 0) / samples.length;
 		const p95 = sorted[Math.ceil(0.95 * sorted.length) - 1];
-		const p95PerFrameEquivalent = (p95 * 17) / 1e6; // informational cross-check only, see Design Notes
+		// Informational cross-check only (see Design Notes). Uses the harness's derived
+	// steps-per-frame rather than a hardcoded 17, so the 480 Hz fallback would report
+	// its own 8-step figure instead of silently keeping the 1 kHz one.
+	const p95PerFrameEquivalent = (p95 * STEPS_PER_FRAME_60HZ) / 1e6;
 
 		// eslint-disable-next-line no-console
 		console.log(
 			`[spike-1] Node leg: ${TICKS} ticks — mean ${(mean).toFixed(1)} ns/tick, ` +
-			`p95 ${(p95).toFixed(1)} ns/tick, derived per-frame equivalent (p95 x 17) ` +
+			`p95 ${(p95).toFixed(1)} ns/tick, derived per-frame equivalent ` +
+			`(p95 x ${STEPS_PER_FRAME_60HZ}) ` +
 			`${p95PerFrameEquivalent.toFixed(4)} ms`,
 		);
 

@@ -17,7 +17,7 @@ import { HitPoint } from '../../src/sim/physics/hit-point';
 import { LineSeg } from '../../src/sim/physics/line-seg';
 import { Vertex2D } from '../../src/sim/physics/math/vertex2d';
 import { Vertex3D } from '../../src/sim/physics/math/vertex3d';
-import { DEFAULT_TABLE_GRAVITY } from '../../src/sim/physics/constants';
+import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from '../../src/sim/physics/constants';
 import { PlayerPhysics } from '../../src/sim/physics/game/player-physics';
 import { Ball } from '../../src/sim/physics/ball/ball';
 import { BallData } from '../../src/sim/physics/ball/ball-data';
@@ -29,13 +29,20 @@ export const PLAYFIELD_WIDTH_MM = 514.4;
 export const PLAYFIELD_HEIGHT_MM = 1066.8;
 export const BALL_DIAMETER_MM = 26.99;
 export const PITCH_DEG = 6.5;
-const WALL_HEIGHT_MM = 50; // "thick walls" — tall enough that a rolling ball cannot hop over one.
+// "Thick walls": the ported primitive set has no volumetric wall, so each side is a
+// `LineSeg` (a swept, zero-thickness barrier a time-of-impact solver cannot tunnel
+// through) extruded from z=0 to this height, with a `HitPoint` closing each corner.
+// The height, not a thickness, is what stops a ball hopping over — recorded in
+// docs/spikes/spike-1.md's deviation list.
+export const WALL_HEIGHT_MM = 50;
+/** Height of the "glass" ceiling plane above the playfield. */
+export const GLASS_HEIGHT_MM = 500;
 
 // AD-10: physics keeps VP units internally, 1 U = 0.53975 mm. This conversion is
 // local to the harness per this story's Design Notes; Story 1.4's
 // `sim/table/frames.ts` is the one file allowed to convert units elsewhere.
-const MM_PER_VU = 0.53975;
-function mmToVu(mm: number): number {
+export const MM_PER_VU = 0.53975;
+export function mmToVu(mm: number): number {
 	return mm / MM_PER_VU;
 }
 
@@ -91,7 +98,21 @@ export function createSpikeScene(): SpikeScene {
 	// Gravity vector for a 6.5 deg pitch — same formula as upstream's
 	// `PlayerPhysics.init()` (lib/game/player-physics.ts:123-125), which this story's
 	// trimmed port exposes as `setGravity()`.
-	physics.setGravity(PITCH_DEG, DEFAULT_TABLE_GRAVITY);
+	//
+	// The strength upstream feeds that formula is `TableData.gravity`, which is
+	// ALREADY scaled by `GRAVITYCONST` (1.81751 U/T² = 1 g): vpx-js's
+	// `lib/vpt/table/table-api.ts:156-158` defines the script-facing property as
+	// `get Gravity() { return this.data.gravity / GRAVITYCONST; }` and
+	// `set Gravity(v) { this.data.gravity = v * GRAVITYCONST; }`. So a table authored
+	// at VPX's default gravity of 0.97 g runs at `0.97 * GRAVITYCONST` = 1.76298 U/T²,
+	// not 0.97. `DEFAULT_TABLE_GRAVITY` is the bare 0.97 multiplier, so it must be
+	// scaled here before it becomes a strength.
+	//
+	// Passing the unscaled 0.97 gives 0.593 m/s² of down-slope acceleration instead of
+	// the ~1.08 m/s² a real 6.5 deg playfield has — about 55% of gravity, which makes
+	// the six-ball collision workload materially lighter than the machine it stands in
+	// for, and therefore makes any frame-budget measurement taken on it optimistic.
+	physics.setGravity(PITCH_DEG, DEFAULT_TABLE_GRAVITY * GRAVITYCONST);
 
 	const widthVu = mmToVu(PLAYFIELD_WIDTH_MM);
 	const heightVu = mmToVu(PLAYFIELD_HEIGHT_MM);
@@ -106,7 +127,7 @@ export function createSpikeScene(): SpikeScene {
 	// A generous "glass" ceiling far above the playfield, facing down (-Z). Every
 	// physics tick tests it unconditionally (see player-physics.ts), but nothing in
 	// this scene's initial speeds gets anywhere near it.
-	const glassHeightVu = mmToVu(500);
+	const glassHeightVu = mmToVu(GLASS_HEIGHT_MM);
 	const topGlass = new HitPlane(new Vertex3D(0, 0, -1), -glassHeightVu);
 	topGlass.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
 	physics.setTopGlassHit(topGlass);

@@ -335,6 +335,205 @@ below is created by this story except where marked read-only.
   deviation from a verbatim port: severed `lib/game/` couplings, the extracted restitution
   constant, any wall-clock or random substitution, and any upstream file that carried no header.
 
+### Review Findings
+
+**Code review, 2026-08-27** (stage: `code-review`, full review mode, spec-anchored).
+Review tier: all four layers run in parallel at the session's Opus tier, no model override
+(`_bmad/custom/model-overrides.yaml` does not exist in this project) — blind-hunter,
+edge-case-hunter, verification-gap, acceptance-auditor. Baseline `bc8a47b`, 58 tracked files
+plus QA's 5 untracked test files, `pnpm-lock.yaml`'s 931 generated lines elided. No layer
+failed. Reviewed in full, no chunking.
+
+Counts: **2 high, 5 medium, 6 low resolved by patch · 2 routed to the ledger · 9 closed at
+emission · 6 dismissed** (false positives and already-adjudicated re-reports).
+
+Suite after patches: `pnpm typecheck` exits 0; `pnpm test` **155/155 across 9 files**
+(was 149 across 8 — one new test file, four new guard tests, two new z-bounds assertions).
+
+#### HIGH — fixed
+
+1. **The harness measured a scene at ~55% of gravity, invalidating every recorded p95.**
+   `tools/spike-1/scene.ts` passed the bare `DEFAULT_TABLE_GRAVITY` multiplier (`0.97`) as the
+   gravity *strength*. Upstream's `PlayerPhysics.init()` consumes `TableData.gravity`, which is
+   already `GRAVITYCONST`-scaled — `vpx-js lib/vpt/table/table-api.ts:156-158` defines
+   `get Gravity() { return this.data.gravity / GRAVITYCONST; }` and the matching setter — and
+   `GRAVITYCONST` (1.81751) was ported into `constants.ts` and then referenced by nothing, which
+   is the tell. Effect: 0.593 m/s² of down-slope acceleration instead of ~1.08 m/s² on a 6.5°
+   playfield, so the six-ball collision workload — the entire point of the spike — was materially
+   lighter than the machine it stands in for.
+   *Empirically quantified before rating:* correcting it raises the Node leg's p95 **1.40×**
+   (171,300 → 240,500 ns/tick; derived per-frame 2.91 → **4.09 ms**, over the 4 ms bar). The
+   correctness legs still pass (worst bounds excess 0.0149 VU, worst overlap 0.0083 VU).
+   *Fixed* in `scene.ts` with the upstream citation inline. fix-risk: low for the line, high for
+   the consequence — **the browser legs have not been re-run and the PASS verdict no longer
+   stands.** `TICK_HZ` deliberately left at 1000 (unchanged): the fail branch bundles a solver
+   re-tune and both are the author's call. Recorded as an occurrence on the existing ledger entry
+   "Author-owned: TICK_HZ ratification from Spike 1" — no new entry, per this spec's Never list.
+
+2. **`package.json` declared `GPL-3.0-only`, contradicting `NOTICE`'s or-later grant.**
+   `NOTICE` (committed before this story) grants "either version 3 of the License, or (at your
+   option) any later version" = `GPL-3.0-or-later`. The story's new `package.json` declared
+   `GPL-3.0-only` — a narrower, contradictory SPDX identifier, and precisely the failure mode
+   `CLAUDE.md` names as the trap that "decided the whole licensing plan" (vpx-js's `package.json`
+   saying `GPL-2.0` while its headers granted `GPL-2.0-or-later`). Nothing anywhere recorded a
+   decision to be GPL-3.0-only. *Fixed:* `"license": "GPL-3.0-or-later"`. fix-risk: low (one
+   line; combining inbound GPL-2.0-or-later into GPL-3.0-or-later is the exercise
+   `ATTRIBUTIONS.md` already documents).
+
+#### MEDIUM — fixed
+
+3. **The two `PlayerPhysics` setup guards — one of them this story's own `high` fix — had zero
+   test coverage.** Deleting either left all 149 tests green, because `tools/spike-1/scene.ts` is
+   the only caller and always calls them in the right order. Added
+   `test/player-physics-guards.test.ts` (4 tests), and made `finalizeStatics()` symmetric with
+   `addStaticHitObject()` by throwing on a second call — it previously re-added every static to
+   the octree, silently duplicating every wall and corner. fix-risk: low.
+4. **The frame-budget multiplier was pinned only in prose.** `test/spike-1.test.ts` hardcoded
+   `p95 * 17` while `docs/spikes/spike-1.md` claimed the derivation was automatic; changing
+   `scene.ts`'s `Math.ceil` to `Math.floor` would have understated the budget ~6% with the suite
+   green. Now imports `STEPS_PER_FRAME_60HZ`. fix-risk: low.
+5. **The Node bounds test checked x and y only.** A ball tunnelling through the playfield plane or
+   escaping above the glass passed the story's own "no ball leaves the bounds" AC. Added z
+   assertions against the playfield and the glass (verified the real range is z ∈ [24.99, 37.64]
+   VU, so the assertions have wide margin). fix-risk: low.
+6. **`MM_PER_VU` was duplicated in the test.** `test/spike-1.test.ts` re-declared the harness's
+   conversion behind a "must match" comment — two conversion sites, which is what AD-10 exists to
+   prevent — so a change to the harness would leave the correctness leg asserting stale bounds and
+   still passing. `scene.ts` now exports `mmToVu` / `MM_PER_VU` / `GLASS_HEIGHT_MM` and the test
+   imports them. fix-risk: low.
+7. **`measure.mjs` could silently measure the surface the amended AC bans.** It now prints its
+   target and warns loudly when that target is the dev page, and its header records the amended
+   measurement rule. The missing `build`/`preview` scaffold is Story 1.2's (routed below).
+   fix-risk: low.
+
+#### LOW — fixed
+
+8. **`pnpm test` deleted `%TEMP%/dragonwar-spike1-*`.** `main()` swept before parsing arguments,
+   and `test/measure-cli.test.ts` spawns the script six times — running the suite while a
+   measurement was in flight destroyed that browser's live profile. Parse now happens first.
+   Distinct root cause from the already-adjudicated CDP-port entry.
+9. **A dropped CDP WebSocket hung the runner past every deadline.** `connectCdp()` had no `close`
+   handler, so in-flight `send()`s never settled and the probe loop's deadline check (after the
+   `await`) was unreachable. Pending requests are now rejected on close.
+10. **`tools/spike-1/index.html` carried no GPL-3.0 header**, which this story's own "Always"
+    bullet requires of every newly authored source file (the same class of miss the implement
+    stage caught on `vitest.config.ts`). Added.
+11. **Boundary-guard holes.** `test/sim-boundary.test.ts` scanned only `.ts`, so a `.js`/`.mjs`
+    under `src/sim/` bypassed it entirely; `test/spike-1-harness-boundary.test.ts`'s regex
+    required a `from` clause, so a bare side-effect `import '@babylonjs/core';` — the exact threat
+    its own header names — passed, and it never covered `browser.ts`. Both extended; verified with
+    a negative control (the injected side-effect import now fails the suite).
+12. **No `testTimeout`.** Vitest's 5 s default was already 83% consumed by the heaviest test, and
+    the gravity correction pushed it over — a real failure, not a hypothetical. Set to 60 s in
+    `vitest.config.ts` as a hang guard, with the reasoning recorded there.
+13. **Inherited/authored deviations missing from the results document.** Added to the deviation
+    list: `HitLine3D.hitTest()`'s double position transform and untransformed velocity (**verbatim
+    upstream — verified byte-identical against `e8a6d6f`, not a port defect**; unexercised here,
+    and Story 1.4's loader is the first caller that must decide about it); `meshAsPlayfield` being
+    dead but gating two live branches; `line-seg-slingshot.ts:100`'s literal `+ 100` ms as a
+    recorded AD-3 carve-out that AD-15/AD-16 win (Story 1.3's dependency-cruiser must whitelist
+    ported files for ms literals); and "thick walls" being satisfied by 50 mm-tall zero-thickness
+    `LineSeg`s plus corner `HitPoint`s rather than volumetric geometry.
+
+#### Routed to `deferred-work.md` (2 new canonical entries)
+
+- **The production-build measurement surface has no scaffold in the repository** — `medium`,
+  fix-risk low, out-of-footprint (this story's Never list bars it from `vite build`). Story 1.2.
+- **`measure.mjs`'s non-Windows paths are untested, and the macOS legs are its next caller** —
+  `low`, fix-risk low. Missing macOS `DEFAULT_EXE`, `detached` never set so the group kill falls
+  through, and `process.exit()` can truncate the result JSON on POSIX pipes.
+
+Occurrences appended (no new entries, per Rule 15 and this spec's Never list): **Author-owned:
+TICK_HZ ratification from Spike 1** (basis invalidated), **Author-owned: macOS / Safari
+measurement legs** (Windows legs now also need re-running, with machine/browser/date recorded in
+the deciding table), **The "terminates every step" test does not construct a genuinely
+non-convergent input**.
+
+#### Closed at emission
+
+- `by-design`: the `+ 100` ms literal inside the ported `line-seg-slingshot.ts` (AD-15/AD-16
+  forbid editing ported bytes; recorded as a carve-out instead — the acceptance auditor rated this
+  HIGH under "an AD violation is never a deferrable low", but the AD registry itself resolves the
+  AD-3/AD-15 collision in the port's favour, so the defect is the missing record, now written).
+- `by-design`: `test/time-contract.test.ts` accepting either 1000 or 480 — pinning 1000 would be
+  wrong while finding 1 leaves the verdict unestablished.
+- `by-design`: the AD-15 constants pin covering 12 of ~30 ported constants — it pins exactly the
+  values the ACs name.
+- `by-design`: `test/sim-boundary.test.ts`'s naive `//`-stripping and its not checking outward
+  imports from `sim/` — a deliberate stand-in that AD-16 says Story 1.3's dependency-cruiser
+  supersedes.
+- `wontfix-theoretical`: the `ATTRIBUTIONS.md` entry landing in the *same* commit as the ported
+  files rather than an earlier one. The AC says "before any ported file is **committed**", and no
+  commit in history ever contains a ported file without the entry, so the substantive protection
+  holds; "written to disk first" is unauditable post-hoc. *What would make it real:* a ported file
+  appearing in any commit whose `ATTRIBUTIONS.md` lacks its entry.
+- `wontfix-theoretical`: `nearestRankP95([])` returning `undefined`, and `runFrames(scene, 0, …)`
+  still running one frame — no caller passes either.
+- `wontfix-theoretical`: the throttle guard's `lastTimestamp` resetting between the warm-up and
+  measured runs, so a gap spanning that boundary is undetected. It is one frame in 660, and a
+  single inflated sample sorts above the nearest-rank p95 index (569 of 600), so it cannot move
+  the reported statistic. *What would make it real:* reporting a mean, or a percentile at a rank
+  one sample could occupy.
+- `wontfix-theoretical`: `measure.mjs` not verifying that the browser answering CDP port 9333 is
+  the one it launched — the concurrency root cause is already adjudicated in the ledger.
+- `wontfix-theoretical`: `findPageTarget()` not catching a transient `fetch` failure inside its
+  retry loop.
+
+#### Dismissed
+
+- **`HitLine3D` double-transform reported as a port-introduced bug** (blind-hunter *and*
+  verification-gap, independently). Diffed against `vpdb/vpx-js@e8a6d6f`: the file is
+  byte-identical apart from the port marker and rewritten import paths. Not a porting defect —
+  re-authoring it would be the divergence AD-15/AD-16 forbid. Recorded in the deviation list
+  instead (finding 13).
+- **`deterministicScatterUnit()` returning the distribution endpoint.** `scatter = 0 * 2 - 1 = -1`
+  looks wrong, but the next line's `(1.0 - scatter * scatter)` shaping is exactly zero at the
+  endpoints, so the applied deflection is 0 — numerically identical to a neutral draw. Verified by
+  reading the shaping, not the substitution alone.
+- **`epic-1-context.md` "deletions".** That file is the lead's recompile after the `epics.md`
+  amendment (commit `5d4202d`), not this story's deliverable.
+- **Re-reports of adjudicated ledger items** (`ObjectPool` counters, corner `HitPoint`, the CDP
+  port, the end-to-end throttle-guard test, the AGENTS.md TODOs) — already canonical; not re-filed.
+- **Amended-AC framing treated as contradiction** — the production-build surface, Edge/Windows
+  being best-effort for the gate, `TICK_HZ` provisional, and the deliberately retained superseded
+  sections are all intended.
+- **Cosmetic scaffold nits** (`.gitignore` lacking `coverage/`, `dist/` unused until Story 1.2).
+
+#### Rule checks
+
+- **Rule 1 (Integration AC):** satisfied and real, not decorative. The I/O matrix's last row is
+  exercised by two genuine consumers against the real module — `test/spike-1.test.ts` and
+  `tools/spike-1/browser.ts` via the shared harness — with `test/spike-1-harness-boundary.test.ts`
+  pinning the import direction (now for both halves of the harness). No mocks.
+- **Rule 3 (real-runtime evidence):** satisfied for the CLI — `test/measure-cli.test.ts` spawns the
+  real `measure.mjs` as a subprocess and asserts real exit codes and stderr. The browser harness is
+  developer measurement tooling that ships nothing to a player, so it is **exempt**; the residual
+  gap is already adjudicated `wontfix-theoretical` in the ledger.
+- **Rule 5 (NFR tripwire):** complied with, in the right direction. The Edge frame-budget problem
+  was resolved by amending `epics.md` with a dated change log, not by code comments plus a ledger
+  entry.
+- **Rule 6 (AD conformance):** AD-1 clean (no banned global or `@babylonjs/*` in executable code
+  under `src/sim/`; the harness sits outside `sim/`). AD-15 **verified byte-for-byte**:
+  `constants.ts`'s body diffs identically against upstream `e8a6d6f`, and `FLT_MIN`/`FLT_MAX` match
+  `lib/vpt/mesh.ts:27-28`. AD-16 clean: all 36 ported files carry an upstream copyright block
+  immediately followed by the exact port marker. 22 of the 36 are code-identical to upstream; every
+  one of the other 14 changes maps to a documented deviation. AD-3 is the one tension — see the
+  `by-design` closure above. AD-10 was the *substance* of finding 1 (the harness's own conversion
+  boundary) and finding 6.
+- **Rule 13 (working directory):** `git rev-parse --show-toplevel` verified as
+  `C:/git/dragonwar/.worktrees/epic-1` by this agent and independently by each of the four layers,
+  which were each given the path and the verification requirement. No findings discarded.
+- **Provenance (`CLAUDE.md`, hard requirement):** `ATTRIBUTIONS.md` records `vpdb/vpx-js` at
+  `e8a6d6f` (tag v1.3.4, 2020-11-12), all three named authors, `GPL-2.0-or-later` **as verified in
+  the source file headers with the `package.json`-says-`GPL-2.0` divergence stated explicitly**,
+  and the verification date. Independently re-verified against upstream this pass. The one
+  provenance defect found was on DragonWar's own side, not the port's — finding 2.
+
+**Verdict: `in-progress`.** Finding 1 is fixed in code but not resolved in consequence: the browser
+legs must be re-measured on the corrected scene, against a production build, before the PASS
+verdict and `TICK_HZ = 1000` mean anything. That re-measurement is author-owned and already
+ledgered.
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -517,6 +716,35 @@ another epic, and Epic 1 runs alone in wave 1.
   `deferred-work.md` author-owned entries.
 - `src/sim/contracts/time.ts` carries the provisional comment block verbatim as written above.
 - `_bmad-output/implementation-artifacts/deferred-work.md` is unchanged by this story.
+
+**Automated tests added (QA):** the four Manual checks above, plus the harness's Integration AC
+import boundary and `measure.mjs`'s previously-untested CLI argument-validation path, converted
+to regression tests. All discoverable and green under `pnpm test` (149/149 passing) alongside the
+122 pre-existing tests; none duplicate existing coverage (bounds/overlap/termination/determinism/
+per-tick cost, `sim/` purity + port-header provenance + AD-15 constant pins, or the
+background-throttle guard / `nearestRankP95()`), and none touch the pre-adjudicated deferred gaps
+(the adversarial STATICTIME input, an end-to-end CDP throttle-guard test, or the hardcoded CDP
+port).
+- `test/attributions.test.ts` (QA) -- pins `ATTRIBUTIONS.md`'s `vpdb/vpx-js` provenance record
+  (commit, three authors, `GPL-2.0-or-later` verified in headers not `package.json`, the
+  verification date, and the GPL-3.0 or-later exercise reasoning) so a future edit can't silently
+  trim or corrupt it.
+- `test/spike-1-docs.test.ts` (QA) -- pins `docs/spikes/spike-1.md`'s AC-required structure: the
+  four measurement-path rows, the macOS/Safari `PENDING` rows referencing the existing
+  `deferred-work.md` ledger entries by exact name (cross-checked that both entries actually exist
+  there), a PASS/FAIL verdict, the p95 nearest-rank method, the "17 steps" derivation, and every
+  required category of the port-deviation list.
+- `test/time-contract.test.ts` (QA) -- pins `src/sim/contracts/time.ts`: `TICK_HZ` is `1000` or
+  `480`, the comment is marked `PROVISIONAL` and explicitly `NOT ratified`, it names the
+  pre-adjudicated `TICK_HZ` ratification ledger entry (cross-checked it exists in
+  `deferred-work.md`), and it flags the still-pending macOS leg (AD-3, AD-15).
+- `test/spike-1-harness-boundary.test.ts` (QA) -- pins the I/O matrix's "Integration (consumer)"
+  row: `tools/spike-1/scene.ts` imports only from `src/sim/physics/**` or
+  `src/sim/contracts/time` (AD-1), the direction `test/sim-boundary.test.ts` does not check.
+- `test/measure-cli.test.ts` (QA) -- real subprocess invocations of `tools/spike-1/measure.mjs`
+  (Rule 3) exercising its argument-validation error paths (missing `--browser`, an unrecognized
+  `--browser` value, a flag left with no value, an unrecognized flag), none of which needs a
+  browser or CDP and none of which had any prior test coverage.
 
 ## Auto Run Result
 

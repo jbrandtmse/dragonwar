@@ -2,7 +2,7 @@
   "name": "dragonwar",
   "version": "0.0.0",
   "private": true,
-  "license": "GPL-3.0-only",
+  "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@11.24.0",
   "engines": {
     "node": ">=24"

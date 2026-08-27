@@ -6,12 +6,21 @@
 // `WebSocket` for the CDP protocol connection) — no Playwright, Puppeteer or
 // Selenium (this story's Never list). Launches the target browser HEADED (never
 // --headless: a background/occluded window throttles requestAnimationFrame and
-// silently ruins the numbers), points it at the Spike 1 dev page, calls
+// silently ruins the numbers), points it at the Spike 1 harness page, calls
 // `window.__spike1Run()` over CDP, and prints its JSON result to stdout.
+//
+// MEASUREMENT SURFACE. Story 1.1's acceptance criterion was amended on 2026-08-27:
+// the frame budget is measured against a PRODUCTION BUILD (`vite build` +
+// `vite preview`), never the Vite dev page. The dev page is not a valid proxy --
+// it measured one browser leg about 0.4 ms slower per frame and flipped that leg's
+// verdict. `--url` still DEFAULTS to the dev server below because this repository
+// has no build/preview script yet (Story 1.2 owns `vite build`); pass the preview
+// URL explicitly for any number that is meant to gate, and see
+// docs/spikes/spike-1.md for the exact build/preview invocation.
 //
 // Usage:
 //   node tools/spike-1/measure.mjs --browser chrome|edge
-//       [--url http://localhost:5173/tools/spike-1/index.html] [--exe <path>]
+//       [--url http://localhost:4174/tools/spike-1/index.html] [--exe <path>]
 
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -146,6 +155,16 @@ function connectCdp(webSocketDebuggerUrl) {
 		ws.addEventListener('error', (err) => reject(new Error(`CDP WebSocket error: ${err.message ?? err}`)));
 	});
 
+	// Without this, a socket that closes mid-run (browser crash, tab killed) leaves
+	// every in-flight send() pending forever: the probe loop below awaits its result
+	// before it re-checks its deadline, so the process would hang past every timeout.
+	ws.addEventListener('close', () => {
+		for (const { reject } of pending.values()) {
+			reject(new Error('CDP WebSocket closed before the request completed'));
+		}
+		pending.clear();
+	});
+
 	function send(method, params = {}) {
 		const id = nextId++;
 		return new Promise((resolve, reject) => {
@@ -197,9 +216,12 @@ function sweepStaleProfileDirs() {
 }
 
 async function main() {
-	sweepStaleProfileDirs();
-
+	// Parse first, sweep second. `sweepStaleProfileDirs()` mutates global machine
+	// state (%TEMP%), and test/measure-cli.test.ts spawns this script six times to
+	// exercise argument validation alone -- with the sweep first, running `pnpm test`
+	// while a measurement is in flight would delete that live browser's profile.
 	const args = parseArgs(process.argv.slice(2));
+	sweepStaleProfileDirs();
 	const exe = args.exe ?? DEFAULT_EXE[args.browser];
 	const profileDir = mkdtempSync(path.join(tmpdir(), `${PROFILE_DIR_PREFIX}${args.browser}-`));
 
@@ -216,6 +238,14 @@ async function main() {
 
 	// eslint-disable-next-line no-console
 	console.error(`[measure] launching ${args.browser} headed: ${exe}`);
+	console.error(`[measure] target: ${args.url}`);
+	if (args.url === DEFAULT_URL) {
+		console.error(
+			'[measure] WARNING: this is the Vite DEV page. The amended Story 1.1 acceptance ' +
+			'criterion measures the frame budget against a PRODUCTION build only -- a dev-page ' +
+			'number must not be used to gate TICK_HZ. See docs/spikes/spike-1.md.',
+		);
+	}
 	const child = spawn(exe, launchArgs, { stdio: 'ignore', windowsHide: false });
 
 	let exitCode = 0;

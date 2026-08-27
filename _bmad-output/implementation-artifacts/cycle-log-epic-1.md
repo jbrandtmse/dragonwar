@@ -18,3 +18,10 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T18:50:07Z	Story 1.1	adr_clarification_requested	reason=spike1_edge_leg_fails_windows_bar blocking=architectural_fork tick_hz_provisional=1000 model=claude-opus-5
 2026-08-27T20:54:07Z	Story 1.1	adr_verifications_complete	tool=cdp_runner_measure_mjs acs=ac4,ac5 result=pass evidence=docs/spikes/spike-1.md model=claude-opus-5 measurement_surface=production_build chrome_p95_median_ms=3.50 edge_p95_median_ms=3.70 tick_hz=1000 provisional=true note=production_measurement_supplied_by_orchestrator
 2026-08-27T20:58:29Z	Epic 1	epic_context_compiled	sha=52e5f12 reason=epics_amended model=claude-opus-5
+2026-08-27T20:58:34Z	Epic 1	runtime_lock_acquired	stage=qa
+2026-08-27T21:07:58Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-27T21:08:02Z	Story 1.1	qa_complete	spawn_at=2026-08-27T20:58:34Z model=claude-sonnet-5 tests_added=27 test_files_added=5 total_tests=149 first_run_failures=0 clarifications=0 closing_sections_present=true
+2026-08-27T21:34:34Z	Epic 1	runtime_lock_acquired	stage=smoke
+2026-08-27T21:53:30Z	Story 1.1	cr_complete	spawn_at=2026-08-27T21:08:02Z model=claude-opus-5 resolved=13 routed=2 by_design_wontfix=9 dismissed=6 high=2 med=5 low=6 story_status=in-progress closing_sections_present=true
+2026-08-27T21:53:30Z	Story 1.1	rework_measurement	iteration=1 lead_side=true reason=gravity_fix_invalidated_measurements result=pass chrome_p95_ms=1.8 edge_p95_ms=1.8 surface=production_build model=claude-opus-5
+2026-08-27T21:53:44Z	Epic 1	runtime_lock_released	stage=smoke

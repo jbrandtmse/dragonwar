@@ -1,5 +1,52 @@
 # Spike 1 — the ported physics loop at 1 kHz over six bodies
 
+> ## ⚠ EVERY MEASUREMENT BELOW IS INVALIDATED — code review, 2026-08-27
+>
+> **The harness measured the wrong scene.** `tools/spike-1/scene.ts` built its gravity
+> vector from the bare `DEFAULT_TABLE_GRAVITY` multiplier (`0.97`) instead of the
+> `GRAVITYCONST`-scaled strength upstream actually feeds that formula. vpx-js's
+> `lib/vpt/table/table-api.ts:156-158` settles it: the script-facing property is
+> `get Gravity() { return this.data.gravity / GRAVITYCONST; }` and
+> `set Gravity(v) { this.data.gravity = v * GRAVITYCONST; }`, so `TableData.gravity` —
+> the value `PlayerPhysics.init()` uses — is already scaled. `GRAVITYCONST` (1.81751,
+> "Earth gravity in VP units") was ported into `constants.ts` and then referenced by
+> nothing, which is the tell.
+>
+> **Effect:** the six balls ran at **0.593 m/s² of down-slope acceleration instead of
+> ~1.08 m/s²** — about 55% of a real 6.5° playfield. Fewer collisions per second means
+> a materially lighter solver workload, so **every p95 in this document is optimistic**.
+>
+> **Measured cost of the correction** (Node leg, same host, 10,000 ticks, back to back):
+>
+> | Gravity | p95 ns/tick | Derived per-frame (p95 × 17) |
+> |---|---|---|
+> | As measured (0.97) | 171,300 | 2.91 ms |
+> | Corrected (0.97 × GRAVITYCONST = 1.76298) | 240,500 | **4.09 ms** |
+>
+> That is a **1.40× rise in p95**, and it puts the Node cross-check *over* the 4 ms bar.
+> The browser legs measure the same solver on the same scene and will move with it —
+> and the recorded production-build margins were 3.50 ms (Chrome) and 3.70 ms (Edge)
+> against a 4.00 ms bar, with a known Edge tail already at 4.3–4.4 ms.
+>
+> **`tools/spike-1/scene.ts` has been corrected.** The numbers in this document have
+> **not** been re-taken — re-measuring needs the production build and both browsers, and
+> the verdict it feeds is the author's call. Until the browser legs are re-run on the
+> corrected scene:
+>
+> - The **PASS verdict below is not established.**
+> - **`TICK_HZ = 1000` rests on an invalidated measurement.** It has deliberately been
+>   left at 1000 rather than changed, exactly as the earlier Edge escalation was handled:
+>   the fail branch bundles a solver re-tune, and both are the author's decision. See the
+>   ledger entry "Author-owned: TICK_HZ ratification from Spike 1".
+> - The re-run must also record **machine identification, browser versions and the run
+>   date in the deciding table itself** — the AC requires them and the production-build
+>   table below carries none of the three (they appear only in the superseded dev-page
+>   section).
+>
+> Everything below is kept unedited as the record of what was measured and why it did
+> not hold.
+
+
 Story 1.1. Measures whether a time-of-impact pinball solver stepping six balls at
 1000 Hz fits inside a 60 Hz frame budget in a browser, before anything else in
 Epic 1 is built on the answer.
@@ -331,6 +378,37 @@ recorded here rather than silently left for a later story to rediscover):
   itself is inherited upstream noise, not a transcription error introduced by
   this port. Flagged here so a future reader doesn't mistake it for one.
 
+- `hit-line-3d.ts`'s `hitTest()` applies `this.matrix` to `ball.state.pos` **twice**
+  (`:84-85`) and never applies it to `ball.hit.vel`, while still saving and restoring
+  `oldVel` around the call — dead work unless the second line was meant to transform the
+  velocity. The line geometry (`:59-61`) is built from a *single* application of the same
+  matrix, so `HitLineZ.hitTest()` compares a doubly-rotated position, an untransformed
+  velocity and singly-rotated geometry. **This is verbatim upstream at `e8a6d6f`** —
+  byte-for-byte identical, confirmed by diffing against the pinned source — not a
+  transcription slip introduced here, and AD-15/AD-16 forbid re-authoring it silently.
+  Nothing in this story instantiates a `HitLine3D` (the harness scene uses only
+  `HitPlane`, `LineSeg` and `HitPoint`), so it is untested and unexercised. **Story 1.4's
+  collision loader is the first caller** and must decide deliberately whether to carry the
+  upstream behaviour or fix forward as a recorded, ATTRIBUTIONS-consistent divergence.
+- `game/player-physics.ts`'s `meshAsPlayfield` is declared `false` and never assigned
+  (upstream's dropped `init()` was its only writer), so the two branches that read it —
+  the playfield hit test at `:193` and `step()`'s guard at `:318` — are effectively
+  unconditional. Same class as `timeMsec` above.
+- `line-seg-slingshot.ts:100` contains a literal millisecond, `this.slingshotAnim.timeReset
+  = this.physics.timeMsec + 100`. AD-3 says no literal millisecond belongs anywhere under
+  `sim/` outside `tuning.ts`; AD-15 says ported solver files are transcribed verbatim.
+  **The port wins here** — editing the line would be exactly the re-authoring AD-16 forbids
+  — so this is a recorded AD-3 carve-out, not an oversight. It is unreachable today (no
+  slingshot is instantiated, and `timeMsec` never advances), and Story 1.3's
+  dependency-cruiser rules must whitelist ported files for ms literals or they will flag it.
+
+**"Thick walls"**: the AC says "thick walls on all four sides" and AD-11 says "walls and
+floor have real thickness", but the ported primitive set has no volumetric wall. Each side
+is one zero-thickness `LineSeg` extruded from z=0 to `WALL_HEIGHT_MM` (50 mm), with a
+`HitPoint` closing each corner. A swept time-of-impact solver cannot tunnel through a
+`LineSeg`, so this is functionally equivalent for containment — the *height* is what stops
+a ball hopping over — but it is a departure from the AC's wording and is recorded here.
+
 **Rule 14 note**: every ported file's upstream bytes — copyright headers
 included — are preserved exactly, non-ASCII and all, per AD-16 and the GPL grant;
 this is the documented exception to escaping non-ASCII characters in newly
@@ -511,3 +589,100 @@ Author decision, 2026-08-27: keep `TICK_HZ = 1000`; Chrome is the primary target
 best-effort for the frame-budget gate only.** Edge remains a fully supported browser — it keeps
 its place in Story 6.1's boot message and Story 6.6's release matrix. This is a perf-gate
 carve-out, not a support-tier demotion; FR-54 and NFR-6 are unchanged.
+
+---
+
+## Post-fix re-measurement and a variance investigation, 2026-08-27 (lead)
+
+Code review found that the harness fed `PlayerPhysics.setGravity()` the bare
+`DEFAULT_TABLE_GRAVITY` (0.97) instead of the `GRAVITYCONST`-scaled strength upstream uses, so
+the scene ran at about 55% of a real 6.5 deg playfield's down-slope acceleration. The fix is
+correct and independently confirmed: `1 / GRAVITYCONST` = 0.550 exactly accounts for the
+shortfall, and `g * sin(6.5 deg)` = 1.11 m/s^2 matches the corrected figure. Every measurement
+above was taken on the under-gravity scene and had to be re-taken.
+
+### Re-measured on the corrected scene, production build
+
+| Path | Runs | Median p95 | Range | Meeting p95 <= 4 ms | Gates? |
+|---|---|---|---|---|---|
+| Chrome / Windows | 8 | **1.8 ms** | 1.7 - 1.9 ms | **8 / 8** | **yes** |
+| Edge / Windows | 8 | **1.8 ms** | 1.7 - 1.9 ms | **8 / 8** | no - best-effort |
+| Chrome / macOS | — | PENDING — author's leg | — | — | **yes** |
+| Safari / macOS | — | PENDING — author's leg | — | — | **yes** |
+
+Chrome (ms): `1.7, 1.7, 1.7, 1.8, 1.8, 1.8, 1.8, 1.9`
+Edge (ms): `1.7, 1.7, 1.7, 1.8, 1.8, 1.8, 1.9, 1.9`
+
+**PASS on the gating path, with wide margin** — about 14.9 ms of a 16.67 ms frame left over.
+
+### But these numbers moved for a reason that is not the fix — read this
+
+The corrected scene measured *faster* than the under-gravity scene did in earlier sessions
+(1.8 ms against 3.50 ms), which is backwards: stronger gravity is a heavier workload. That
+contradiction was investigated rather than reported as an improvement. Three controlled
+experiments, all run back-to-back in one session on one host:
+
+1. **Does the gravity fix change the browser p95?** Built the pre-fix `scene.ts` (from commit
+   `6d2be83`) and the post-fix one side by side and measured them alternately, same session:
+
+   | | Chrome p95 samples (ms) | Median |
+   |---|---|---|
+   | Pre-fix (under-gravity) | 1.6, 1.8, 1.8, 1.8 | 1.8 |
+   | Post-fix (corrected) | 1.7, 1.8, 1.8, 1.8 | 1.8 |
+
+   **No measurable difference.** The fix is a correctness fix, not a performance one.
+
+2. **Is the dev page really a slower proxy than a production build?** Measured both in one
+   session on identical code: dev `1.7, 1.8, 1.8, 2.0` (median 1.8) against production
+   `1.7, 1.7, 1.7, 1.8, 1.8, 1.8, 1.8, 1.9` (median 1.8). **No measurable difference.**
+
+3. **Does the scene stay representative for the whole measured window?** Probed total ball speed
+   through a full 11,220-tick run. It falls from 72.3 at tick 0 to 53.6 at the end of the
+   60-frame warm-up, 6.9 by tick 3,000, and about 1.4 from tick 6,000 onward — six balls
+   creeping in the STATICTIME forced-advance regime. **Roughly half the measured window is a
+   near-quiescent scene**, so the p95 reflects a short violent opening followed by a long quiet
+   tail, not a steady-state pinball workload. Pre-fix and post-fix settle at the same rate, so
+   this is a property of the harness, not of the fix.
+
+### What actually moves these numbers: session-to-session variance
+
+The same code measured on the same host in different sessions:
+
+| Measurement | Session | Chrome p95 |
+|---|---|---|
+| Production build, pre-fix scene | orchestrator's | 3.50 ms |
+| Production build, pre-fix scene | lead's (experiment 1) | 1.8 ms |
+| Production build, post-fix scene | lead's | 1.8 ms |
+
+**A 1.9x swing on byte-identical code.** That dwarfs every effect this document has attributed
+to a code or build change. It follows that:
+
+- The earlier conclusion that **"the dev page is not a valid proxy"** — drawn from a 0.4 ms
+  cross-session delta — **does not survive a same-session test.** That delta was noise. Measuring
+  against a production build is still the right standing practice, so the amended acceptance
+  criterion stands; but its stated 0.4 ms justification is not reproducible.
+- The earlier **Edge dev-page "failure"** (median 4.1 ms, 7/20 under the bar) and the implement
+  stage's Edge PASS (3.75 ms) are the same measurement in two sessions. The Edge/Windows
+  best-effort carve-out was decided on a difference this host cannot reliably resolve.
+- **No single session's absolute p95 from this host should be treated as the characterization.**
+  Across every session recorded here the figure has ranged roughly 1.6 - 4.6 ms, straddling the
+  4 ms bar.
+
+Likely cause: this is a 2018 mobile part (Intel Core i5-8259U, 4C/8T, 15 W) in a laptop, where
+sustained-load thermal and power limits move single-thread throughput substantially, and the
+measuring sessions differed in how much CPU work immediately preceded them. Not proven — nobody
+instrumented package power or frequency — so it is offered as the likely mechanism, not a fact.
+
+### Standing recommendation for every later performance story
+
+Do not compare a number taken now against a number taken in another session. Any performance
+claim on this host must come from an **A/B measured back-to-back in one session**, interleaved,
+as experiments 1 and 2 above were. This applies directly to Story 1.2 (payload and load time),
+Story 4.7 (Spike 2, the lightmap scaling envelope) and Story 6.6 (the browser matrix).
+
+### Verdict after the fix
+
+**PASS on the gating path**, comfortably, in this session. `TICK_HZ` stays **1000** and stays
+**provisional**: Chrome/macOS and Safari/macOS are unmeasured and both gate, and this host's
+variance means the Windows figure is a range rather than a point. Safari remains the real
+outstanding risk.

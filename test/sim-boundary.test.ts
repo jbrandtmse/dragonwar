@@ -65,7 +65,9 @@ function bannedTokenPattern(token: string): RegExp {
 }
 
 describe('sim/ boundary (AD-16 stand-in)', () => {
-	const simFiles = listFilesRecursive(SIM_ROOT).filter((f) => f.endsWith('.ts'));
+	// Not just `.ts`: a `.js`/`.mjs`/`.cjs`/`.tsx` file dropped under src/sim/ would
+	// otherwise bypass the boundary check entirely.
+	const simFiles = listFilesRecursive(SIM_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 
 	it('finds at least one file under src/sim/ (sanity check the test itself is wired up)', () => {
 		expect(simFiles.length).toBeGreaterThan(0);
@@ -104,7 +106,7 @@ describe('sim/ boundary (AD-16 stand-in)', () => {
 
 describe('src/sim/physics/** header provenance (AD-16)', () => {
 	const PORT_MARKER = '// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0';
-	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => f.endsWith('.ts'));
+	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 
 	it('finds at least one file under src/sim/physics/ (sanity check the test itself is wired up)', () => {
 		expect(physicsFiles.length).toBeGreaterThan(0);

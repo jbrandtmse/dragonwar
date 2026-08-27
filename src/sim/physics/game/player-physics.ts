@@ -157,9 +157,18 @@ export class PlayerPhysics {
 
 	/**
 	 * Builds the static broadphase tree from every shape passed to
-	 * `addStaticHitObject()`. Call once, after the last such call.
+	 * `addStaticHitObject()`. Call once, after the last such call. Throws on a
+	 * second call: the loop below would add every static to the octree a second
+	 * time, silently duplicating every wall and corner in the broadphase rather
+	 * than failing. Symmetric with `addStaticHitObject()`'s post-finalize guard.
 	 */
 	public finalizeStatics(): void {
+		if (this.staticsFinalized) {
+			throw new Error(
+				'PlayerPhysics.finalizeStatics: already called — a second call would add every ' +
+				'static hit object to the octree twice.',
+			);
+		}
 		for (const hitObject of this.hitObjects) {
 			this.hitOcTree.addElement(hitObject);
 		}

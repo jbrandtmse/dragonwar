@@ -1,0 +1,56 @@
+// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
+//
+// Story 1.1's hard, spec-level acceptance criterion: ATTRIBUTIONS.md's Code
+// table must record the vpdb/vpx-js port's provenance -- commit, authors,
+// licence (GPL-2.0-or-later, verified from the source file headers and
+// explicitly NOT from package.json, which is exactly the trap CLAUDE.md's
+// provenance rule warns about), and the verification date -- before any ported
+// file exists under src/sim/physics/. Nothing currently pins this content by an
+// automated test; only manual inspection did (see the spec's Verification
+// section). This is a regression guard: a future edit that trims or "corrects"
+// away this record would otherwise go undetected by `pnpm test`.
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const ATTRIBUTIONS_PATH = path.resolve(__dirname, '..', 'ATTRIBUTIONS.md');
+
+function normalize(text: string): string {
+	return text.replace(/\s+/g, ' ');
+}
+
+describe('ATTRIBUTIONS.md -- vpdb/vpx-js provenance record (Story 1.1 AC)', () => {
+	const normalized = normalize(readFileSync(ATTRIBUTIONS_PATH, 'utf8'));
+
+	it('names the upstream project and the pinned commit', () => {
+		expect(normalized).toContain('vpdb/vpx-js');
+		expect(normalized).toContain('e8a6d6f');
+	});
+
+	it('names all three upstream authors', () => {
+		expect(normalized).toContain('freezy');
+		expect(normalized).toContain('Jason Millard');
+		expect(normalized).toContain('Michael Vogt');
+	});
+
+	it('records the licence as GPL-2.0-or-later, verified in the source file headers', () => {
+		expect(normalized).toContain('GPL-2.0-or-later');
+		expect(normalized).toMatch(/verified in the source file headers/);
+	});
+
+	it('explicitly records the package.json-vs-header divergence (the CLAUDE.md trap)', () => {
+		expect(normalized).toMatch(/package\.json/);
+		expect(normalized).toMatch(/"license":\s*"GPL-2\.0"/);
+		expect(normalized).toMatch(/or \(at your option\) any later version/);
+	});
+
+	it('records the 2026-08-27 verification date', () => {
+		expect(normalized).toContain('2026-08-27');
+	});
+
+	it('states the GPL-3.0 or-later exercise reasoning', () => {
+		expect(normalized).toMatch(/GPL-3\.0/);
+		expect(normalized).toMatch(/or-later clause/);
+	});
+});
