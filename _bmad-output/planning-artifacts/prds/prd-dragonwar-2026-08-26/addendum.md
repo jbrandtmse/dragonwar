@@ -2,7 +2,7 @@
 title: 'PRD: DragonWar — Addendum'
 status: final
 created: '2026-08-26'
-updated: '2026-08-26'
+updated: '2026-08-27'
 ---
 
 # PRD: DragonWar — Addendum
@@ -53,7 +53,7 @@ Dimensionless VPX values port directly; strength values are VPX-internal units a
 
 **Flipper strength:** banding flipper-coil strength by shot-distance intent (yellow < green < red < orange < blue) is a better basis than banding by resistance. Era note: the brief's addendum §7 records VPX flipper strength as era-banded (~500–1000 for electromechanicals up to ~3200–3300 for mid-90s-and-later, VPX-internal units, relative use only — they do not port as physical values); calibrating to the Reference machine inherits the modern band.
 
-**Numbers that do not exist — do not invent them:** steel-on-clearcoat or steel-on-rubber restitution/friction; manufacturer coil pulse duration; a measured flipper tip gap ("the one unmeasured quantity in the entire drain triangle, and it is the geometry the whole game balances around"); a dimensioned drain zone; any hours-per-table figure. Match 8% is unverified.
+**Numbers that do not exist — do not invent them:** steel-on-clearcoat or steel-on-rubber restitution/friction; manufacturer coil pulse duration; a measured flipper tip gap ("the one unmeasured quantity in the entire drain triangle, and it is the geometry the whole game balances around"); a dimensioned drain zone; any hours-per-table figure. Match 8% is a deliberate choice (2026-08-27), not a measurement.
 
 **Implementation notes carried from the research and its red-team digests:**
 

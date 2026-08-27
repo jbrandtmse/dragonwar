@@ -2,7 +2,7 @@
 title: 'PRD: DragonWar'
 status: final
 created: '2026-08-26'
-updated: '2026-08-26'
+updated: '2026-08-27'
 ---
 
 # PRD: DragonWar
@@ -93,7 +93,7 @@ Table authors and modders (no editor, no plugin path); cabinet owners wanting ph
 - **Hot seat** — 1–4 players taking turns on one Table.
 - **Settings** — the player-facing adjustments that persist locally (Pitch, Tilt warning count, balls per game, Match probability, volume, key bindings).
 - **High-score table** — Grand Champion plus a ranked list with three-initial entry, persisted locally.
-- **Reference machine** — the modern Stern/JJP-era machine within walking distance of the author, used for the feel test.
+- **Reference machine** — Stern's *Dungeons & Dragons* (modern Stern era), the machine within walking distance of the author, used for the feel test. Named 2026-08-27; a feel reference only — no assets from it (§9).
 
 ## 4. Features
 
@@ -177,7 +177,7 @@ Each ball accumulates bonus by category (letters, Loops, Strikes) multiplied by 
 Extra balls are awarded from a menu of long-horizon achievements, not a single lane. **Consequences:** at least three distinct achievements light Extra ball `[ASSUMPTION: win a War, complete a Joust at full Charge, play every Mode once]`; the lit Extra ball is collected at the Right Loop `[ASSUMPTION: collect shot]`.
 
 #### FR-22: Match
-At game end, a Match draw compares a multiple-of-ten number against each player's last two score digits and awards a free game. **Consequences:** number is always a multiple of ten; probability is a Setting defaulting to 8% `[ASSUMPTION: unverified figure — see Open Questions]`.
+At game end, a Match draw compares a multiple-of-ten number against each player's last two score digits and awards a free game. **Consequences:** number is always a multiple of ten; probability is a Setting defaulting to 8% (chosen deliberately 2026-08-27 — a conventional figure, not a sourced one; it stays adjustable).
 
 #### FR-23: Ball search
 If no switch closes for 15 s `[ASSUMPTION: period]` during play, the Table runs an escalating Ball search and, on failure, serves a new ball. **Consequences:** Ball search does not release locked balls while a Mode timer is running.
@@ -342,7 +342,7 @@ The repository is public under GPL-3.0 with a clean, verified attribution ledger
 
 ### 6.3 Sequencing Intent (for epics)
 
-The brief's structural defences against solo-project fatigue are *phased content* and a *playable-early loop*. Epics should honour that order: (1) one ball, two flippers and a bare Playfield at real dimensions, with the feel test (UJ-4) starting here and never stopping; (2) the full shot map geometry and standard game flow (§4.4–4.5); (3) the Modes and the War (§4.6); (4) presentation depth — lighting bake, Backglass animation, audio; (5) art passes, phased, allowed to trail the rules. Art is the brief's largest unbudgeted risk; nothing in (1)–(3) should wait on it.
+The brief's structural defences against solo-project fatigue are *phased content* and a *playable-early loop*. Epics should honour that order: (1) one ball, two flippers and a bare Playfield at real dimensions, with the feel test (UJ-4) starting here and never stopping; (2) the full shot map geometry and standard game flow (§4.4–4.5); (3) the Modes and the War (§4.6); (4) presentation depth — lighting bake, Backglass animation, audio; (5) art passes, phased, allowed to trail the rules. Art is the brief's largest unbudgeted risk; nothing in (1)–(3) should wait on it. Spikes 1 and 3 (addendum §1) are epic 1's first two stories — nothing else in epic 1 lands before they do (decided 2026-08-27). Scoring values freeze after the first full playtest of epic 3.
 
 ## 7. Success Metrics
 
@@ -386,16 +386,18 @@ Detail and the verified compatibility check are in `addendum.md`.
 
 ## 10. Open Questions
 
-1. **Which machine is the Reference machine?** The era is decided (modern Stern/JJP); the specific title should be named so the feel test is reproducible. Owner: author.
-2. **Match probability.** The widely repeated 8% default could not be confirmed against a primary source; confirm or pick deliberately before implementing FR-22.
-3. **Scoring values** (FR-20, FR-34, FR-36, FR-39) are starting values to be tuned in play; when do they freeze?
-4. **Slam tilt trigger** in a keyboard-only sim (FR-16): a distinct key, a Nudge threshold separate from the Tilt bob's, or drop it to a Setting? The research's point stands either way: it must not share the bob's threshold.
-5. **Mode-start device.** The assumption that the Lock lane doubles as the mode-start scoop (FR-33) should be confirmed against the drawn geometry; if it overloads the lane, a separate scoop is the fallback.
-6. **Playfield geometry.** First, the flipper tip gap, outlane widths and post positions — the geometry the whole game balances around, and the one unmeasured quantity in the drain triangle. A DXF/SVG Bally playfield template is the highest-value artifact: it would settle all three at once. Then where Loops enter and exit, Ramp height and return, the Dragon's exact position and the Lock lane beneath it, pop and sling placement, the DRAGON bank and Top lanes. The architecture's first design problem; iterates with the rules.
-7. **Ball-roll audio under a generated-audio strategy** (FR-46): real sims use velocity-driven sample playback; the generated approach needs its own answer.
-8. **Decision freshness.** Renderer choice and WebGPU browser support are to be re-checked by 2026-09-26; the two research spikes that gate the browser-first premise (a 6-body 1000 Hz JS loop vs WASM; measured build size and load time) have no owner or date yet.
+1. **Which machine is the Reference machine?** — *Resolved 2026-08-27:* Stern's *Dungeons & Dragons*. Glossary updated.
+2. **Match probability.** — *Resolved 2026-08-27:* 8% chosen deliberately as the default Setting; the figure is conventional, not sourced. FR-22 updated.
+3. **Scoring values** (FR-20, FR-34, FR-36, FR-39) — *Resolved 2026-08-27:* starting values freeze after the first full playtest of epic 3 (Modes and the War). §6.3 updated.
+4. **Slam tilt trigger** (FR-16) — *Resolved by the architecture (AD-5):* a tick-windowed nudge count inside physics with its own threshold, never the bob's; inside the replay.
+5. **Mode-start device.** *Open by choice (2026-08-27):* the assumption that the Lock lane doubles as the mode-start scoop (FR-33) is confirmed against the drawn geometry in epic 2; if it overloads the lane, a separate scoop is the fallback — a table-definition and geometry change only.
+6. **Playfield geometry.** *Partly resolved 2026-08-27:* no Bally template drawing will be sourced; geometry is drawn from the reference dimensions alone. Still open: the flipper tip gap, outlane widths and post positions — the geometry the whole game balances around, and the one unmeasured quantity in the drain triangle — then where Loops enter and exit, Ramp height and return, the Dragon's exact position and the Lock lane beneath it, pop and sling placement, the DRAGON bank and Top lanes. Epic 2's first design problem; iterates with the rules.
+7. **Ball-roll audio** (FR-46) — *Resolved at the seam by the architecture (AD-13):* one continuous voice per ball driven from the snapshot behind the asset provider; the synthesis technique is presentation-internal.
+8. **Decision freshness.** — *Resolved 2026-08-27:* spikes 1 and 3 are epic 1's first two stories (owner: author). The renderer and WebGPU re-check stays due 2026-09-26.
 
 ## 11. Assumptions Index
+
+*All entries below were confirmed by the author as starting values on 2026-08-27. They remain tunables and freeze per Open Question 3.*
 
 - §4.1 FR-2 — Backglass shown as a strip at the top of the fixed view.
 - §4.2 FR-10 — Pitch range 6.0–8.5°.
@@ -405,7 +407,7 @@ Detail and the verified compatibility check are in `addendum.md`.
 - §4.4 FR-19 — Grace period 2 s.
 - §4.4 FR-20 — Bonus multiplier 2×→3×→5× via Top lanes, reset each ball.
 - §4.4 FR-21 — Extra-ball achievements: win a War, full-Charge Joust, play every Mode; collected at the Right Loop.
-- §4.4 FR-22 — Match 8% (unverified).
+- §4.4 FR-22 — Match 8% (chosen deliberately 2026-08-27).
 - §4.4 FR-23 — Ball search after 15 s.
 - §4.4 FR-25 — Lane change adopted as standard.
 - §4.5 FR-26 — Spinner on the Left Loop.

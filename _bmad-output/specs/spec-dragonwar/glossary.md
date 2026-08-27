@@ -1,0 +1,63 @@
+# Glossary
+
+Capitalised terms as used in SPEC.md and its companions. Device and seam names (`s_…`, `c_…`, `bd_…`, `show_…`, `TABLE`, `tick`) are defined in `ARCHITECTURE-SPINE.md`.
+
+- **Table** — the whole DragonWar machine as presented: cabinet, backbox, Backglass, Playfield.
+- **Playfield** — the standard-body playing surface (20.25 × 42.00 in) with its devices, at an exposed Pitch.
+- **Pitch** — the playfield incline angle; a player-facing difficulty Setting (default 6.5°).
+- **Walk-up** — the presentation sequence on load and in Attract: backbox and Backglass first, then the camera descends to the fixed playfield view.
+- **Attract** — the idle state between games: the Walk-up, Backglass animations, the High-score table, and the key bindings shown once.
+- **Backglass** — the animated, pixelated, dot-matrix-style display in the backbox; carries scores, player number, mode prompts, and the war fiction.
+- **Physics core** — the simulation that moves balls and flippers and emits Switch events; the cabinet behind a virtual I/O board. No knowledge of rules.
+- **Rules layer** — the game CPU: a pure function of Switch events → game state → Presentation commands. No knowledge of ball velocity.
+- **Presentation** — lights, Backglass, audio, mechanisms and camera driven by Rules-layer commands; the output drivers.
+- **Host** — the composition root: boot, frame loop, input, persistence, settings, dev panel.
+- **Switch event** — a discrete edge from the Physics core: a named switch closed or opened.
+- **Contact event** — a ball hit or a mechanism actuation, with speed and surface; goes to Presentation only.
+- **Insert** — a lamp beneath the translucent playfield, the atomic unit of game-state display; its colour follows the Colour grammar.
+- **GI** — general illumination: the ambient playfield lamps.
+- **Flasher** — a high-intensity coil-class lamp used for events, with duty-cycle limits.
+- **Architectural lighting** — backbox, arch and cabinet lamps not tied to game state.
+- **Colour grammar** — the held mapping from Insert colour to game state (CAP-44).
+- **Mode** — any of Skill shot, Hurry-up, Quick multiball, Joust, War. Modes are independently available.
+- **Skill shot** — the award available on the plunge before the ball is in play. Fiction: arming oneself.
+- **Hurry-up** — a timed Mode whose value decays until collected. Fiction: a call to arms.
+- **Quick multiball** — a 2-ball multiball Mode. Fiction: fight the monster.
+- **Joust** — a Mode built on alternating Loop shots; consecutive alternating Loops build the Charge. Fiction: the charge.
+- **Charge** — the Joust's combo counter; broken by a miss or by repeating the same Loop.
+- **War** — Dragon-fire multiball, the headline 3-ball Mode; every Dragon hit is a Strike; enough Strikes win the War.
+- **Strike** — one Dragon hit during the War.
+- **Jackpot** — the award for winning the War; progressive, seeded by prior play.
+- **Loop** — either of the two orbit shots (Left Loop, Right Loop); the Spinner is on one of them.
+- **Spinner** — a rotating target on one Loop that awards per rotation; makes that Loop "the loud one".
+- **Ramp** — the flow shot that lights Modes (the qualifier).
+- **Top lanes** — the rollover lanes at the top of the Playfield; the Skill shot target and the Bonus multiplier advance.
+- **DRAGON bank** — a single six-target drop-target bank; knocking all six down spells DRAGON and resets the bank.
+- **Dragon** — the off-centre bash toy; the table's protagonist. Right flipper takes it straight; left flipper backhands it.
+- **Lock lane** — the lane between the Dragon's legs; a precise shot enters it, a slightly-off shot hits the Dragon body.
+- **Lock** — the physical ball lock beneath the Dragon (`bd_lock`), holding up to two balls out of play plus one staging slot.
+- **Lock credit** — a per-player count (0–2) of balls that player has locked; the War needs two.
+- **Lock arbiter** — the single rules component that decides what a Lock-lane entry means (lock, mode start, strike, or spit).
+- **Mouth** — the Lock's eject: a vertical up-kicker that fires locked balls out of the Dragon's mouth toward the flippers.
+- **Trough** — the ball device (`bd_trough`, capacity 4) that holds drained balls and serves new ones.
+- **Ball save** — a period after launch during which a drained ball is returned; has a Grace period and a hurry-up state.
+- **Grace period** — the interval past the displayed Ball save expiry during which drains still save.
+- **Nudge** — a player-applied cabinet movement (left, right, up) that the ball responds to.
+- **Tilt bob** — the pendulum sensor Nudges disturb; produces Tilt warnings and then a Tilt.
+- **Tilt warning** — a per-player warning before a Tilt; count is a Setting.
+- **Tilt** — ends the ball and forfeits the End-of-ball bonus; does not zero the score.
+- **Slam tilt** — a separate cabinet-abuse sensor that ends all games in progress.
+- **Ball search** — the escalating protocol the machine runs when a ball is missing.
+- **End-of-ball bonus** — per-ball accumulated award, multiplied by the Bonus multiplier, paid at ball end unless tilted.
+- **Bonus multiplier** — the per-ball multiplier on the End-of-ball bonus, advanced by completing the Top lanes.
+- **Extra ball** — an additional ball awarded from a menu of long-horizon achievements.
+- **Match** — the end-of-game draw against the last two score digits; always a multiple of ten.
+- **Hot seat** — 1–4 players taking turns on one Table.
+- **Settings** — the player-facing adjustments that persist locally (Pitch, Tilt warning count, balls per game, Match probability, volume, key bindings).
+- **High-score table** — Grand Champion plus a ranked list with three-initial entry, persisted locally.
+- **Reference machine** — Stern's *Dungeons & Dragons* (modern Stern era), the machine within walking distance of the author, used for the feel test. Named 2026-08-27. A feel reference only — no assets, art, audio or rules from it (see `licensing.md`).
+- **Feel test** — the development ritual (UJ-4): play the Reference machine, play the build, name what differs on cradling, flipper snap, and rejection/rebound.
+- **Lawlor's test** — every shot's miss must come back playable, not drain.
+- **Replay** — a `ReplayHeader` plus tick-stamped input transitions that reproduces a game to a state hash.
+- **Golden** — a recorded replay under `test/replays/` whose state hash CI asserts.
+- **Spike 1 / 2 / 3** — the three pre-commit measurements: the ported loop at 1 kHz over six bodies; the lightmap scaling envelope; build size and load time.
