@@ -1,2 +1,7 @@
 # Parallel epic-cycle worktrees (includes .worktrees/.coordination/)
 .worktrees/
+
+# Node / build tooling (Story 1.1 scaffold)
+node_modules/
+dist/
+.vite/
