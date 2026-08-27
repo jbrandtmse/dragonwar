@@ -368,3 +368,65 @@ with `tasklist`. Three more issues surfaced during review, all fixed:
 - `_bmad-output/implementation-artifacts/deferred-work.md` →
   **"Author-owned: TICK_HZ ratification from Spike 1"** — the provisional
   `TICK_HZ = 1000` in `src/sim/contracts/time.ts`.
+
+---
+
+## Independent lead verification, 2026-08-27 — this CONTRADICTS the PASS verdict above
+
+The epic-cycle lead re-ran the browser legs independently after the implement stage, on the
+same idle host (CPU load 6%, no orphaned browser processes, dev server the only other load),
+with no code changes between runs. **The Edge result did not reproduce.**
+
+| Path | Runs | Median p95 | Range | Runs meeting p95 <= 4 ms |
+|---|---|---|---|---|
+| Chrome / Windows | 10 | **3.7 ms** | 3.5 - 3.8 ms | **10 / 10 (100%)** |
+| Edge / Windows | 20 | **4.1 ms** | 3.8 - 4.6 ms | **7 / 20 (35%)** |
+
+Edge, all 20 samples sorted (ms):
+`3.8, 3.9, 4.0, 4.0, 4.0, 4.0, 4.0, 4.1, 4.1, 4.1, 4.1, 4.1, 4.2, 4.2, 4.2, 4.2, 4.2, 4.4, 4.5, 4.6`
+
+Chrome, all 10 samples sorted (ms):
+`3.5, 3.6, 3.6, 3.7, 3.7, 3.7, 3.7, 3.8, 3.8, 3.8`
+
+### Why this is an engine difference, not session load
+
+The five Chrome runs interleaved *after* the twenty Edge runs, in the same session, returned
+3.7, 3.7, 3.8, 3.7, 3.8 ms — statistically flat against the five Chrome runs taken *before* the
+Edge block. Chrome's mean per-frame cost rose only slightly across the session (1.44 -> 1.63 ms,
+about 13%), while Edge's p95 sat a consistent ~0.4 ms above Chrome's throughout. A loaded host
+would have moved both. It moved only Edge.
+
+### Consequence for the verdict
+
+The story's acceptance criterion reads: *"the spike passes if p95 <= 4 ms on **every measured
+path**, fails otherwise."* On this measurement the Edge/Windows path does not meet it — the
+median exceeds the bar and roughly two runs in three exceed it. **By the AC as written, Spike 1
+FAILS on the Windows numbers**, which routes to the AC's own fail branch: `TICK_HZ = 480` and a
+logged solver re-tune before Story 1.3.
+
+The implement stage's Edge figures (median 3.75 ms, 10 runs) and the lead's (median 4.1 ms,
+20 runs) were both taken honestly on the same host. Neither is wrong; the Edge leg simply sits
+close enough to the threshold that the verdict flips between sessions. That instability is
+itself the finding: **a metric that decides the project's core tick rate should not be one whose
+pass/fail answer depends on which session measured it.**
+
+### The 480 Hz fallback, estimated
+
+Not measured directly (`STEPS_PER_FRAME_60HZ` is a compile-time constant in
+`tools/spike-1/browser.ts`; varying it means editing source, which the lead did not do
+mid-pipeline). Per-frame cost is very close to linear in step count, so a first-order estimate
+from the measured per-step cost:
+
+| Path | Measured p95 @ 17 steps (1 kHz) | Per-step | Estimated p95 @ 8 steps (480 Hz) |
+|---|---|---|---|
+| Chrome / Windows | 3.7 ms | 0.218 ms | ~1.74 ms |
+| Edge / Windows | 4.1 ms | 0.241 ms | ~1.93 ms |
+
+Both would clear the bar with wide margin at 480 Hz. Treat these as estimates, not measurements.
+
+### Status
+
+**Escalated to the author as an architectural fork before Story 1.3.** `TICK_HZ` remains at its
+provisional 1000 pending that decision — it has NOT been changed to 480, because the fail branch
+also mandates a solver re-tune, and both are the author's call. See the deferred-work ledger
+entry "Author-owned: TICK_HZ ratification from Spike 1".
