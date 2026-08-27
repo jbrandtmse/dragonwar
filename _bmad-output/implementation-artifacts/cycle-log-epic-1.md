@@ -33,3 +33,7 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T22:24:41Z	Epic 1	epic_runner_paused	reason=orchestrator_requested_halt_after_story_1_1 stories_completed=1 next_story=1-2-spike-3-build-size-and-load-time-measured-from-a-link resume_at=plan_spawn epic_status=in-progress
 2026-08-27T22:34:57Z	Story 1.1	ledger_adjudicated	slice_empty=true entries_owned=0 nonterminal=0 terminal=2 reconstructed_at=kit_upgrade_2026-08-27.1 note=story_predates_rule_17;condition_verified_not_backdated
 2026-08-27T22:34:57Z	Epic 1	ledger_load	total=16 open=5 routed=7 escalated=1 decision_pending=1 terminal=2 owner_none=0 grammar=DW source=migration_2026-08-27.1
+2026-08-27T22:44:57Z	Epic 1	lead_model_gate	model=claude-opus-5 action=proceed
+2026-08-27T22:44:57Z	Epic 1	runtime_gate	bmad=6.11.0 uv=0.12.5
+2026-08-27T22:44:57Z	Epic 1	epic_runner_resumed	repos=. head=0d33d30 branch=DW-1-epic1 resume_at=story_1_2_plan_spawn kit=2026-08-27.1
+2026-08-27T22:44:57Z	Story 1.2	story_planning	model=claude-opus-5
