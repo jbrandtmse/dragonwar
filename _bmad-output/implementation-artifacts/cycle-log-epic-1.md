@@ -37,3 +37,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T22:44:57Z	Epic 1	runtime_gate	bmad=6.11.0 uv=0.12.5
 2026-08-27T22:44:57Z	Epic 1	epic_runner_resumed	repos=. head=0d33d30 branch=DW-1-epic1 resume_at=story_1_2_plan_spawn kit=2026-08-27.1
 2026-08-27T22:44:57Z	Story 1.2	story_planning	model=claude-opus-5
+2026-08-27T23:05:51Z	Story 1.2	plan_clarification_requested	spawn_at=2026-08-27T22:45:10Z model=claude-opus-5 build_status=blocked blocking=intent_gap reason=nfr7_csp_connect_src_none_vs_glb_fetch;pages_private_repo_no_site path=_bmad-output/implementation-artifacts/spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md verified_by_lead=true
