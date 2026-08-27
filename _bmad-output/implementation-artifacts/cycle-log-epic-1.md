@@ -11,3 +11,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T15:55:00Z	Story 1.1	story_planning	model=claude-opus-5
 2026-08-27T16:13:42Z	Story 1.1	story_created	spawn_at=2026-08-27T15:55:00Z model=claude-opus-5 path=_bmad-output/implementation-artifacts/spec-1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies.md build_status=ready-for-dev epic_context=reused
 2026-08-27T16:13:42Z	Story 1.1	spec_validated	service_introducing=true integration_ac=present adr_constrained_acs=ad1,ad3,ad4,ad10,ad15,ad16 model=claude-opus-5
+2026-08-27T18:33:54Z	Story 1.1	dev_complete	spawn_at=2026-08-27T16:13:52Z model=claude-sonnet-5 build_sha=6d2be83 baseline_revision=bc8a47b review_loop_iteration=0 followup_review_recommended=true deferred=6 files=53 loc_added=7529 loc_removed=5 cycle_iteration=1

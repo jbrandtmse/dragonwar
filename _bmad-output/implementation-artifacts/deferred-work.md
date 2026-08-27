@@ -81,3 +81,125 @@ already adjudicated -- **append occurrences, do not re-file.**
       contract conformance, the loader wiring, the triangle-budget and size-budget checks, the
       ATTRIBUTIONS.md scaffold, and a placeholder that satisfies the contract. Author supplies
       the authored mesh and textures. Do NOT commit an asset without its verified provenance entry.
+
+---
+
+## Deferred from: bmad-build-auto implement stage of spec-1-1-spike-1 (2026-08-27)
+
+Harvested by the lead from the spec's frontmatter `deferred:` list (Rule 15). Six entries,
+none matching an existing canonical entry above.
+
+- **AGENTS.md scaffold-stage TODOs are now answerable but unrefreshed**
+  - status: open
+  - originating story: 1.1
+  - severity: low · fix-risk: low (a doc refresh; `bmad-project-context` owns the block)
+  - occurrences: 1.1
+  - rationale: >-
+      AGENTS.md still reads "TODO - no package.json yet ... Verify the real scripts here on the
+      first refresh after scaffolding" and "TODO - CI is .github/workflows/ci.yml, not yet
+      written." Story 1.1 added package.json / tsconfig.json / vitest.config.ts (the very
+      "first refresh after scaffolding" the TODO names), and Story 1.2 adds the CI workflow.
+      The story's footprint barred it from touching AGENTS.md.
+  - suggested resolution: >-
+      Refresh the AGENTS.md bmad:context block once Story 1.3 lands the full CI workflow and
+      the dependency-cruiser scripts, so both TODOs are closed in one pass rather than two.
+
+- **`ObjectPool` exhaustion counters are tracked but never surfaced**
+  - status: open
+  - originating story: 1.1
+  - severity: low · fix-risk: low (in-file; add an assertion or a dev-mode read)
+  - occurrences: 1.1
+  - rationale: >-
+      `release()` sets `this.warned` and increments `this.skipped` when the pool is full, but
+      nothing reads either field. A pool-exhaustion regression in a later story would be
+      invisible until it surfaced as a physics anomaly. Story 1.1's fixed six-ball scene never
+      exercises exhaustion.
+  - suggested resolution: >-
+      Surface both counters through the dev tuning panel (Story 1.9) or assert them in the
+      multi-ball goldens (Story 1.8), whichever lands first.
+  - location: src/sim/physics/util/object-pool.ts
+
+- **Corner `HitPoint` primitive may be unexercised by either correctness leg**
+  - status: open
+  - originating story: 1.1
+  - severity: low · fix-risk: med (a scene redesign invalidates the recorded measurements)
+  - occurrences: 1.1
+  - rationale: >-
+      The six ball start poses sit mid-field (110-410 mm on a 514 mm table) at moderate
+      velocities; whether any ball ever contacts a corner `HitPoint` in the 10,000-tick Node
+      run or the 600-frame browser run was not confirmed. The primitive is header-tested but
+      possibly never executed.
+  - suggested resolution: >-
+      Cover it in Story 1.4, where the real placeholder collision geometry replaces the harness
+      scene and corner contacts become natural - not by redesigning the spike scene, which
+      would invalidate the recorded p95 baseline.
+  - location: tools/spike-1/scene.ts
+
+- **The "terminates every step" test does not construct a genuinely non-convergent input**
+  - status: open
+  - originating story: 1.1
+  - severity: medium · fix-risk: med (needs solver expertise to build a non-flaky adversarial case)
+  - occurrences: 1.1
+  - rationale: >-
+      `test/spike-1.test.ts`'s termination test runs the ordinary six-ball scene and asserts a
+      wall-clock ceiling per tick. That is a sanity net around STATICTIME's guarantee (AD-4),
+      not a targeted test of the forced-advance mechanism the I/O matrix's "Step termination"
+      row names as its input.
+  - suggested resolution: >-
+      Build the adversarial case alongside Story 1.5's loop work, where `advance()` and the
+      forced-advance path are under active development and the solver behaviour is fresh.
+      AD-4 is load-bearing for the whole loop, so this should not drift past Epic 1.
+  - location: test/spike-1.test.ts
+
+- **Background-throttle guard is unit-tested but not end-to-end through `measure.mjs`**
+  - status: wontfix-theoretical
+  - originating story: 1.1
+  - severity: low · fix-risk: med (needs a mocked CDP layer or real window-visibility automation)
+  - occurrences: 1.1
+  - rationale: >-
+      `test/spike-1-browser-guard.test.ts` drives `runFrames()` with a fake
+      `requestAnimationFrame` and does cover the guard's logic. The untested remainder is the
+      page-exception -> CDP `exceptionDetails` -> `exitCode=1` chain, verified by inspection.
+      Closing it needs either a mocked CDP layer (against this project's real-runtime testing
+      preference) or automating a real window's visibility state.
+  - what would make it real: >-
+      A measurement run that is silently throttled and still reports a passing p95 - i.e. the
+      guard failing open in `measure.mjs` rather than in `runFrames()`. If a future spike's
+      numbers are ever suspected of throttling, reopen this.
+  - location: tools/spike-1/measure.mjs
+
+- **`measure.mjs` hardcodes CDP port 9333 with no free-port check**
+  - status: wontfix-theoretical
+  - originating story: 1.1
+  - severity: low · fix-risk: low
+  - occurrences: 1.1
+  - rationale: >-
+      Two simultaneous `measure.mjs` runs, or a leftover process still holding 9333, would send
+      the second run's CDP calls to the wrong browser. The documented usage runs the Chrome and
+      Edge legs strictly sequentially, so there is no present user-reachable failure.
+  - what would make it real: >-
+      Parallelising the browser legs, or running the spike from two epic worktrees at once.
+      Story 6.6 re-runs the browser matrix - if it parallelises, fix the port first.
+  - location: tools/spike-1/measure.mjs
+
+---
+
+## Occurrence log
+
+Append-only. Each line records one occurrence against a canonical entry above, naming the entry
+verbatim. Rule 15 forbids rewriting prior lines, so occurrences accumulate here rather than being
+edited into the entry's own `occurrences:` field.
+
+- 2026-08-27 · Story 1.1 · **Author-owned: macOS / Safari measurement legs** — Spike 1's browser
+  measurement leg was executed on Windows only. `docs/spikes/spike-1.md` carries the Chrome-macOS
+  and Safari-macOS rows marked `PENDING - author's macOS leg`. Windows Chrome p95 3.90 ms and
+  Windows Edge p95 3.75 ms are recorded and PASS the 4 ms bar. Author action: run the two macOS
+  rows and fill them in.
+- 2026-08-27 · Story 1.1 · **Author-owned: TICK_HZ ratification from Spike 1** — `TICK_HZ` set to
+  **1000** in `src/sim/contracts/time.ts`, marked PROVISIONAL in a loud comment block pending the
+  author's macOS leg. Justified by the Windows numbers above. **Caveat the author must weigh:** the
+  margin is narrow, not comfortable. Across repeated runs Edge ranged 3.6-4.5 ms and **3 of 10
+  individual runs exceeded the 4 ms bar**; Chrome ranged 3.5-3.9 ms with all 5 runs under. The PASS
+  verdict rests on the median of repeated runs, and `docs/spikes/spike-1.md` discloses this in its
+  "Repeat-run variance" section. If the macOS legs also land near 4 ms, the 480 Hz fallback deserves
+  a second look before Epic 2 builds further on 1 kHz. Author action: ratify 1000 or direct 480.
