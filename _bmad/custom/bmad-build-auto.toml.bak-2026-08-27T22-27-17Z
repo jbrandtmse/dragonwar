@@ -1,0 +1,6 @@
+# /epic-cycle: load the cross-cutting rules registry into the unattended build skill
+# (plan + implement stages). Lists append to the skill's defaults.
+[workflow]
+persistent_facts = [
+  "file:{project-root}/_bmad/custom/skill-rules.md",
+]
