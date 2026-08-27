@@ -17,3 +17,6 @@ Per-epic cycle logs live inside each epic's worktree and are committed on that e
 2026-08-27T21:18:48Z	Epic 1	runner_pause_requested	runner=epic-runner-1 halt_after=story_1.1 reason=epic_cycle_command_upgrade next_story=1.2 epic_complete=false
 2026-08-27T22:35:13Z	Epic 1	runner_complete	runner=epic-runner-1 stories_completed=1 ready_for_merge=false reason=deliberate_pause unpushed_work=none
 2026-08-27T22:35:13Z	Epic 1	kit_upgraded	base=2026-08-27.1 parallel=2026-08-27.1 model_pass=reapplied rules=1-17 ledger=migrated_16_entries merged_to=DW-1-epic1 session_restart=required
+2026-08-27T22:42:57Z	Epic 1	lead_model_gate	model=claude-opus-5 action=proceed
+2026-08-27T22:42:57Z	Epic 1	runtime_gate	bmad=6.11.0 uv=0.12.5 python=ok skills=present artifacts_tracked=true
+2026-08-27T22:42:57Z	Epic 1	runner_redispatched	runner=epic-runner-1 resume_at=plan_spawn story=1.2 reason=fresh_session_after_kit_upgrade worktree_clean=true local_eq_remote=true integrity_checks=pass ledger_open=14
