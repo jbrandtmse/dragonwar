@@ -203,3 +203,14 @@ edited into the entry's own `occurrences:` field.
   verdict rests on the median of repeated runs, and `docs/spikes/spike-1.md` discloses this in its
   "Repeat-run variance" section. If the macOS legs also land near 4 ms, the 480 Hz fallback deserves
   a second look before Epic 2 builds further on 1 kHz. Author action: ratify 1000 or direct 480.
+- 2026-08-27 · Story 1.1 · **Author-owned: TICK_HZ ratification from Spike 1** — *supersedes the
+  occurrence line immediately above (append-only: that line is left intact, not edited).* The lead's
+  independent re-measurement did **not** reproduce the implement stage's Edge result. Over 20 runs on
+  an idle host the Edge/Windows median p95 is **4.1 ms** with only **7 of 20 runs** meeting the
+  `p95 <= 4 ms` bar, while Chrome/Windows held at **3.7 ms median, 10 of 10 passing** in the same
+  session — an engine difference, not host load. **By the story's AC as written ("passes if
+  p95 <= 4 ms on every measured path"), Spike 1 FAILS on the Windows numbers**, routing to the AC's
+  fail branch (`TICK_HZ = 480` plus a logged solver re-tune before Story 1.3). `TICK_HZ` has been
+  left at its provisional 1000 and NOT changed, because the fail branch bundles a solver re-tune and
+  both are the author's decision. Full evidence, sample lists and a 480 Hz estimate are in
+  `docs/spikes/spike-1.md` under "Independent lead verification". **Epic 1 is halted at this fork.**
