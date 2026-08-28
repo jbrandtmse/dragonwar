@@ -143,3 +143,8 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T19:28:02Z	Epic 1	runtime_lock_released	stage=smoke
 2026-08-28T19:28:19Z	Story 1.5	committed	sha=9313cd4 submodules= pushed=true
 2026-08-28T19:28:46Z	Epic 1	epic_runner_paused	reason=epic_cycle_kit_upgrade stories_completed=5 next_story=1-6-flippers-and-the-manual-plunger-as-hardware-rules resume_at=plan_spawn epic_status=in-progress burndown_gate=not_run
+2026-08-28T22:45:43Z	Epic 1	lead_model_gate	model=claude-opus-5 action=proceed
+2026-08-28T22:45:43Z	Epic 1	runtime_gate	bmad=6.11.0 uv=0.12.5 resolve_config=exit0 skills_verified=build-auto,code-review,qa-e2e,sprint_plan,ledger.sh impl_artifacts_tracked=true
+2026-08-28T22:45:43Z	Epic 1	telemetry_gate	pending=0 action=none
+2026-08-28T22:45:43Z	Epic 1	epic_runner_resumed	reason=epic_cycle_kit_upgrade_2026-08-29.1 resume_at=1-6_plan_spawn head=4369e2c worktree_clean=true remote_sync=0_0 start_gates_not_rerun=ledger_load,retro_review tracker_drift_check=in_sync_true_changed_0 tracker_valid=true epic_context_fresh=true_ctx_86d464f_newer_than_all_planning_artifacts ledger_load_at_resume=total71_open1_routed45_escalated5_dp1_terminal19 adr_registry=ARCHITECTURE-SPINE.md_AD-1..AD-19_no_docs_adr
+2026-08-28T22:45:52Z	Story 1.6	stage_spawned	stage=plan spawn_at=2026-08-28T22:45:52Z model=claude-opus-5 agent_name=1-6-flippers-plunger-plan-1 cycle_iteration=1
