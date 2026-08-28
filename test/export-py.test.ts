@@ -20,6 +20,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const BLEND_PATH = path.join(REPO_ROOT, 'assets', 'src', 'dragonwar.blend');
 const EXPORT_PY = path.join(REPO_ROOT, 'tools', 'export.py');
 const MUTATOR_PY = path.join(REPO_ROOT, 'test', 'fixtures', 'export-py', 'mutate-blend.py');
+const WRITE_FAILURE_HARNESS_PY = path.join(REPO_ROOT, 'test', 'fixtures', 'export-py', 'write-failure-harness.py');
 const COMMITTED_GLB = path.join(REPO_ROOT, 'public', 'assets', 'dragonwar.glb');
 const COMMITTED_COLLISION = path.join(REPO_ROOT, 'public', 'assets', 'dragonwar.collision.json');
 const RUN_TIMEOUT_MS = 90_000;
@@ -182,6 +183,75 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		const { status, stderr } = runExportPy(mutated, outDir);
 		expect(status).not.toBe(0);
 		expect(stderr).toContain('col_playfield.001');
+	});
+
+	it('an sw_ node authored without a "switch" property exits non-zero naming the node and the property (Review Findings, MED: previously an unhandled KeyError that named neither)', () => {
+		const mutated = mutateBlend('missing-switch-property');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		// The old crash path (bare `obj['switch']` inside build_switch_zones())
+		// raised a plain KeyError whose message is just "'switch'" -- it never
+		// mentioned the node at all, so asserting the node name here is the
+		// actual discriminator between the fixed and broken behaviour.
+		expect(stderr).toContain('sw_shooter_lane');
+		expect(stderr).toContain('switch');
+	});
+
+	it('a col_ node authored without a "surface" property exits non-zero naming the node and the property (Review Findings, MED: the switch-sibling half of the same presence-check gap)', () => {
+		const mutated = mutateBlend('missing-surface-property');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('col_playfield');
+		expect(stderr).toContain('surface');
+	});
+
+	it('a col_ node authored without a "phys_material" property exits non-zero naming the node and the property (Review Findings, MED: the other switch-sibling half of the same presence-check gap)', () => {
+		const mutated = mutateBlend('missing-phys-material-property');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('col_playfield');
+		expect(stderr).toContain('phys_material');
+	});
+
+	it('a fault injected after every validate_*() call passes -- during the build-and-write phase -- leaves neither committed output changed and no .tmp file behind (Review Findings, MED: write-ordering/atomic-replace fix)', () => {
+		const outDir = freshTmpDir();
+		const sentinelGlb = Buffer.from('sentinel-glb-content-not-a-real-glTF-file');
+		const sentinelCollision = '{"sentinel":true}';
+		writeFileSync(path.join(outDir, 'dragonwar.glb'), sentinelGlb);
+		writeFileSync(path.join(outDir, 'dragonwar.collision.json'), sentinelCollision, 'utf8');
+
+		const tableJsonPath = writeTableJson(freshTmpDir());
+		const result = spawnSync(
+			blenderPath!,
+			[
+				'--background',
+				'--factory-startup',
+				BLEND_PATH,
+				'--python-exit-code', '1',
+				'--python', WRITE_FAILURE_HARNESS_PY,
+				'--',
+				'--table-json', tableJsonPath,
+				'--out', outDir,
+			],
+			{ cwd: REPO_ROOT, encoding: 'utf8', timeout: RUN_TIMEOUT_MS },
+		);
+
+		// The harness always exits 0 -- it reports what happened via a stdout
+		// marker instead, so a genuine harness/Blender crash (rather than the
+		// injected fault) is caught here with the full output for context.
+		expect(result.status, `harness stdout+stderr:\n${result.stdout}\n${result.stderr}`).toBe(0);
+		expect(result.stdout).toContain('INJECTED_FAILURE_RAISED');
+
+		// The exact scenario the original finding measured with a real Blender
+		// run: neither committed artifact changed, and no stray .tmp file was
+		// left in a TRACKED directory for `git status` to notice.
+		expect(readFileSync(path.join(outDir, 'dragonwar.glb'))).toEqual(sentinelGlb);
+		expect(readFileSync(path.join(outDir, 'dragonwar.collision.json'), 'utf8')).toBe(sentinelCollision);
+		expect(existsSync(path.join(outDir, 'dragonwar.tmp.glb'))).toBe(false);
+		expect(existsSync(path.join(outDir, 'dragonwar.tmp.collision.json'))).toBe(false);
 	});
 
 	it('a missing required node exits non-zero naming the missing node', () => {

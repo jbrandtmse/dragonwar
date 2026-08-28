@@ -59,8 +59,15 @@ PLAYFIELD_THICKNESS_MM = 19.0
 GLASS_Z_MM = 400.0
 GLASS_THICKNESS_MM = 10.0
 
-LANE_W_MM = 32.0
-LANE_X0_MM = PLAYFIELD_W_MM - LANE_W_MM  # 482.4
+# col_wall_lane's interior (lane-facing) clearance, main-field wall to
+# right-perimeter wall. Widened from the original 20 mm (Review Findings,
+# HIGH): once tools/export.py's wall reduction preserves real thickness
+# instead of a zero-thickness centreline, col_wall_lane's lane-facing face
+# becomes real collision geometry rather than being silently absent -- and
+# 20 mm is narrower than the 26.99 mm reference ball. 34 mm clears the ball
+# with a comfortable margin either side.
+LANE_CLEAR_MM = 34.0
+LANE_X0_MM = PLAYFIELD_W_MM - LANE_CLEAR_MM - WALL_T_MM  # 468.4 -- main-field-facing edge of col_wall_lane
 LANE_WALL_TOP_Y_MM = 950.0  # gap above this lets a launched ball cross into the main field
 
 DRAIN_X0_MM = 200.0

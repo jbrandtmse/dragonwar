@@ -131,6 +131,25 @@ def validate_properties(dump):
 
 	for obj in bpy.data.objects:
 		props = obj.keys()
+		is_col_or_sw = obj.name.startswith('col_') or obj.name.startswith('sw_')
+
+		# Presence, not just value (Review Findings, MED): a col_/sw_ node
+		# authored without "surface"/"phys_material" -- or an sw_ node without
+		# "switch" -- previously escaped this function entirely (the checks
+		# below only ever looked at a value that was already there) and
+		# surfaced downstream as an unhandled KeyError with NO node or
+		# property named -- measured verbatim, contradicting every failure
+		# path's contract of naming the offending node and property. Task 7's
+		# own spec requires these properties on every col_/sw_ node, so
+		# absence is exactly as much a contract violation as a bad value.
+		if is_col_or_sw:
+			if 'surface' not in props:
+				fail(f'node "{obj.name}" is missing required property "surface"')
+			if 'phys_material' not in props:
+				fail(f'node "{obj.name}" is missing required property "phys_material"')
+		if obj.name.startswith('sw_') and 'switch' not in props:
+			fail(f'node "{obj.name}" is missing required property "switch"')
+
 		if 'surface' in props and obj['surface'] not in known_surfaces:
 			fail(f'node "{obj.name}" property "surface" has unknown value "{obj["surface"]}"')
 		if 'phys_material' in props and obj['phys_material'] not in known_phys_materials:
@@ -196,18 +215,30 @@ def world_bbox_mm(obj):
 
 
 def wall_footprint_mm(bbox_min, bbox_max):
-	"""A wall's collision footprint: the centreline of its bounding box along
-	its dominant (longer) horizontal axis -- the placeholder `.blend` authors
-	every wall as an axis-aligned thin box, so this is exact for it. A future
-	diagonal wall would need footprint authored a different way; this reduction
-	is export.py's, not a `TABLE` or physics concern."""
-	dx = bbox_max['x'] - bbox_min['x']
-	dy = bbox_max['y'] - bbox_min['y']
-	if dx >= dy:
-		cy = round((bbox_min['y'] + bbox_max['y']) / 2, BBOX_ROUND)
-		return [{'x': bbox_min['x'], 'y': cy}, {'x': bbox_max['x'], 'y': cy}]
-	cx = round((bbox_min['x'] + bbox_max['x']) / 2, BBOX_ROUND)
-	return [{'x': cx, 'y': bbox_min['y']}, {'x': cx, 'y': bbox_max['y']}]
+	"""A wall's full horizontal footprint: the four corners of its bounding
+	box, wound counter-clockwise from bbox_min -- preserving BOTH long faces
+	(AD-11: "walls ... have real thickness"). The loader treats this as a
+	CLOSED polygon (an edge between every consecutive pair, plus one closing
+	the last point back to the first), so every face -- both long sides and
+	both short ends -- becomes real collision geometry.
+
+	Previously this collapsed each wall to a single zero-thickness centreline
+	along its dominant axis, oriented toward the table's own centre point.
+	That is correct only for a PERIMETER wall, whose uncovered side always
+	faces away from the table; it is wrong for an INTERIOR divider such as
+	`col_wall_lane`, whose lane-facing side was left completely unguarded
+	(Review Findings, HIGH -- measured: a ball fired into the lane from the
+	main field crossed the divider's centreline and kept going, straight
+	through). A full four-corner footprint has no such asymmetry: the loader
+	orients each face outward from the wall's OWN local centroid rather than
+	from any assumed "interior" direction, which is correct for a perimeter
+	wall and an interior divider alike."""
+	return [
+		{'x': bbox_min['x'], 'y': bbox_min['y']},
+		{'x': bbox_max['x'], 'y': bbox_min['y']},
+		{'x': bbox_max['x'], 'y': bbox_max['y']},
+		{'x': bbox_min['x'], 'y': bbox_max['y']},
+	]
 
 
 def build_collision_nodes(dump):
@@ -283,13 +314,17 @@ def build_devices(dump):
 # glTF export (presentation subset only).
 # ---------------------------------------------------------------------------
 
-def export_glb(out_glb_path):
+def export_glb(out_glb_path, dump):
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	export_objects = [obj for obj in bpy.data.objects if is_presentation_object(obj)]
 	for obj in export_objects:
 		obj.select_set(True)
-	bpy.context.view_layer.objects.active = bpy.data.objects.get('playfield_root')
+	# Read from the dump, not a literal: this file enforces the no-string-
+	# literal-node-name contract for everything else in the .blend, and a
+	# hardcoded name here would go stale silently (`.get()` returns None) if
+	# TABLE.nodes.playfieldRoot were ever renamed (Review Findings, LOW).
+	bpy.context.view_layer.objects.active = bpy.data.objects.get(dump['nodes']['playfieldRoot'])
 
 	bpy.ops.export_scene.gltf(
 		filepath=out_glb_path,
@@ -339,9 +374,21 @@ def run(argv):
 	os.makedirs(out_dir, exist_ok=True)
 	out_glb_path = os.path.join(out_dir, 'dragonwar.glb')
 	out_collision_path = os.path.join(out_dir, 'dragonwar.collision.json')
+	# Suffixed BEFORE the real extension (not appended after it), so the temp
+	# path still ends in `.glb` -- avoids relying on whether Blender's glTF
+	# exporter would otherwise auto-correct a non-`.glb`-suffixed `filepath`
+	# back onto one, which would silently defeat the final `os.replace()`.
+	tmp_glb_path = os.path.join(out_dir, 'dragonwar.tmp.glb')
+	tmp_collision_path = os.path.join(out_dir, 'dragonwar.tmp.collision.json')
 
-	export_glb(out_glb_path)
-
+	# Build the collision document FULLY IN MEMORY before writing anything to
+	# disk at all -- previously the glb was written first, and only THEN did
+	# the collision document get built; a failure in between (measured with a
+	# real Blender run against a mutated .blend: every validate_*() passed,
+	# the glb was written, then the run exited 1 with no collision JSON) left
+	# `out_dir` holding a fresh glb beside a stale, mismatched collision file
+	# (Review Findings, MED). Any defect in this construction now surfaces
+	# before either output path is touched.
 	collision_doc = {
 		'version': 1,
 		'units': 'mm',
@@ -351,9 +398,28 @@ def run(argv):
 		'switchZones': build_switch_zones(dump),
 		'devices': build_devices(dump),
 	}
-	with open(out_collision_path, 'w', encoding='utf-8') as f:
-		json.dump(collision_doc, f, indent=2, sort_keys=True)
-		f.write('\n')
+
+	# Belt and braces beyond build-before-write: write each artifact to a
+	# `.tmp` path first and only `os.replace()` it over the real path once
+	# the write itself has fully succeeded, so a mid-write failure (disk
+	# full, killed process) can never leave a half-written file at either
+	# committed path. `os.replace()` is an atomic rename on every platform
+	# this project targets.
+	try:
+		export_glb(tmp_glb_path, dump)
+		with open(tmp_collision_path, 'w', encoding='utf-8') as f:
+			json.dump(collision_doc, f, indent=2, sort_keys=True)
+			f.write('\n')
+		os.replace(tmp_glb_path, out_glb_path)
+		os.replace(tmp_collision_path, out_collision_path)
+	finally:
+		# Best-effort cleanup of any temp file left behind by a failure above
+		# -- `out_dir` is `public/assets`, a TRACKED directory, so a stray
+		# `.tmp` file is not merely clutter, it is something `git status`
+		# would notice.
+		for tmp_path in (tmp_glb_path, tmp_collision_path):
+			if os.path.exists(tmp_path):
+				os.remove(tmp_path)
 
 	print(f'[export.py] wrote {out_glb_path}')
 	print(f'[export.py] wrote {out_collision_path}')

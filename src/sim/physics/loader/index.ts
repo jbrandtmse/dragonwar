@@ -26,14 +26,17 @@
 // flipped, per `frames.ts`'s own header): a winding/normal direction that is
 // correct in the table frame is NOT automatically correct after conversion.
 // Every primitive below is therefore oriented by testing its converted
-// normal against the playfield's own centre point, in PHYSICS space, rather
-// than by trusting an assumption carried over from the source document --
-// the same self-correcting technique for both the wall segments (their
-// normal must face the playfield's interior) and the box triangles (their
-// normal must face outward). This was verified necessary, not theoretical:
-// a naive pass-through of `col_wall_left`'s footprint order produced an
-// OUTWARD-facing wall once the y-flip was accounted for (review finding,
-// this story's own implementation pass).
+// normal against a reference point, in PHYSICS space, rather than by
+// trusting an assumption carried over from the source document -- the same
+// self-correcting technique for both the wall segments (each edge's normal
+// must face AWAY from its own footprint's centroid -- see `addWall()`'s
+// header for why this is the local, per-wall replacement for an earlier
+// "face the playfield's interior" rule that broke on an interior divider)
+// and the box triangles (their normal must face outward from the box). This
+// was verified necessary, not theoretical: a naive pass-through of
+// `col_wall_left`'s footprint order produced an OUTWARD-facing wall once the
+// y-flip was accounted for (review finding, this story's own implementation
+// pass).
 
 import { PlayerPhysics } from '../game/player-physics';
 import { HitPlane } from '../hit-plane';
@@ -174,8 +177,11 @@ function parseCollisionDoc(doc: unknown): CollisionDoc {
 			return { ...node, normal: asVec3Mm(raw.normal, `node "${raw.name}".normal`), dMm: requireNumber(raw.dMm, `node "${raw.name}".dMm`) };
 		}
 		if (shape === 'wall') {
-			if (!Array.isArray(raw.footprintMm) || raw.footprintMm.length < 2) {
-				throw new Error(`loadCollision(): wall node "${raw.name}" needs a footprintMm array of at least 2 points`);
+			// A CLOSED polygon (edges between every consecutive pair, plus one
+			// closing the last point back to the first -- addWall() below), so
+			// at least 3 points are needed for it to enclose any area at all.
+			if (!Array.isArray(raw.footprintMm) || raw.footprintMm.length < 3) {
+				throw new Error(`loadCollision(): wall node "${raw.name}" needs a closed footprintMm polygon of at least 3 points`);
 			}
 			const footprintMm = raw.footprintMm.map((p: unknown, j: number) => {
 				// Finite, not merely `number` -- see asVec3Mm()'s comment above.
@@ -287,28 +293,35 @@ function applyMaterial<T extends { setElasticity(e: number, f?: number): unknown
 }
 
 // ---------------------------------------------------------------------------
-// Wall construction: a LineSeg per footprint edge, oriented to face the
-// playfield's interior in PHYSICS space (see this file's header), plus a
-// HitPoint at every footprint vertex (matches `tools/spike-1/scene.ts`'s own
-// corner construction -- the reason ledger DW-7 closes from this loader).
+// Wall construction: a LineSeg per footprint edge of a CLOSED polygon,
+// oriented outward from the wall's OWN local centroid in PHYSICS space (see
+// this file's header), plus a HitPoint at every footprint vertex (matches
+// `tools/spike-1/scene.ts`'s own corner construction -- the reason ledger
+// DW-7 closes from this loader).
+//
+// Every side is real collision geometry now, not just the one side facing an
+// assumed "interior": `tools/export.py`'s `wall_footprint_mm()` used to
+// collapse each wall to a single zero-thickness centreline oriented toward
+// the TABLE's own centre point, which is correct only for a perimeter wall
+// (whose uncovered side always faces away from the table) and wrong for an
+// INTERIOR divider like `col_wall_lane`, whose lane-facing side was left
+// completely unguarded (Review Findings, HIGH). Orienting each edge outward
+// from the wall's own footprint centroid, rather than from the table's,
+// fixes both cases uniformly with no perimeter/interior distinction needed.
 // ---------------------------------------------------------------------------
 
-function tableCentrePhysics(): Vec3 {
-	return toPhysics({ x: TABLE.reference.playfieldMm.w / 2, y: TABLE.reference.playfieldMm.h / 2, z: 0 });
-}
-
 /**
- * `p1`/`p2` and `centre` must already be in the SAME frame -- this loader
+ * `p1`/`p2` and `centroid` must already be in the SAME frame -- this loader
  * always calls it with all three already converted to physics space (never
- * table-frame points against a physics-frame centre): `toPhysics()` is
+ * table-frame points against a physics-frame centroid): `toPhysics()` is
  * orientation-reversing (see this file's header), so verifying "which way is
- * inward" in the SOURCE frame and carrying that ordering through the
+ * outward" in the SOURCE frame and carrying that ordering through the
  * conversion silently produces an outward-facing wall (measured, this
  * story's own implementation pass -- a ball fired at a wall corner sailed
  * straight through every static object in the compound body with the
  * table-frame-then-convert version of this function).
  */
-function orientedEdge(p1: Vec2Mm, p2: Vec2Mm, centre: Vec2Mm): [Vec2Mm, Vec2Mm] {
+function orientedEdge(p1: Vec2Mm, p2: Vec2Mm, centroid: Vec2Mm): [Vec2Mm, Vec2Mm] {
 	// Mirrors LineSeg.calcNormal()'s own convention: normal = ((v1-v2).y, -(v1-v2).x), normalised.
 	const vtx = p1.x - p2.x;
 	const vty = p1.y - p2.y;
@@ -317,13 +330,17 @@ function orientedEdge(p1: Vec2Mm, p2: Vec2Mm, centre: Vec2Mm): [Vec2Mm, Vec2Mm] 
 	const ny = -vtx / len;
 	const midX = (p1.x + p2.x) / 2;
 	const midY = (p1.y + p2.y) / 2;
-	const towardX = centre.x - midX;
-	const towardY = centre.y - midY;
-	const dot = nx * towardX + ny * towardY;
+	// AWAY from the centroid (outward), the mirror image of the old "toward
+	// the table centre" (inward) test -- a footprint's own centroid always
+	// sits INSIDE its closed polygon, so "away from it" is unambiguously
+	// outward for every edge, perimeter wall or interior divider alike.
+	const awayX = midX - centroid.x;
+	const awayY = midY - centroid.y;
+	const dot = nx * awayX + ny * awayY;
 	return dot >= 0 ? [p1, p2] : [p2, p1];
 }
 
-function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, centre: Vec3): void {
+function addWall(physics: PlayerPhysics, node: CollisionNodeDoc): void {
 	const footprint = node.footprintMm!;
 	const zLowVu = toPhysics({ x: 0, y: 0, z: node.zLowMm! }).z;
 	const zHighVu = toPhysics({ x: 0, y: 0, z: node.zHighMm! }).z;
@@ -332,8 +349,23 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, centre: Vec3): 
 	// verified there, never in the table frame (see orientedEdge()'s doc comment).
 	const physicsPoints = footprint.map((p) => toPhysics({ x: p.x, y: p.y, z: 0 }));
 
-	for (let i = 0; i < physicsPoints.length - 1; i++) {
-		const [a, b] = orientedEdge(physicsPoints[i], physicsPoints[i + 1], centre);
+	// The footprint's own centroid (in physics space, matching the points
+	// above -- toPhysics() is affine, so this equals converting the
+	// table-frame centroid, but computing it directly here keeps every
+	// orientation decision in one frame with no cross-frame reasoning).
+	const centroid: Vec2Mm = {
+		x: physicsPoints.reduce((sum, p) => sum + p.x, 0) / physicsPoints.length,
+		y: physicsPoints.reduce((sum, p) => sum + p.y, 0) / physicsPoints.length,
+	};
+
+	// A CLOSED polygon: an edge between every consecutive pair, plus one
+	// closing the last point back to the first -- so a rectangular footprint
+	// (four corners) yields all four faces, both long sides and both short
+	// ends, each independently oriented outward.
+	for (let i = 0; i < physicsPoints.length; i++) {
+		const p1 = physicsPoints[i];
+		const p2 = physicsPoints[(i + 1) % physicsPoints.length];
+		const [a, b] = orientedEdge(p1, p2, centroid);
 		const lineSeg = new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
 		applyMaterial(lineSeg, node.physMaterial, node.name);
 		physics.addStaticHitObject(lineSeg);
@@ -429,7 +461,6 @@ export function loadCollision(doc: unknown): LoadedCollision {
 	assertReferenceDimensions(parsed);
 
 	const physics = new PlayerPhysics();
-	const centre = tableCentrePhysics();
 
 	const playfieldNode = findNode(parsed, TABLE.nodes.colPlayfield);
 	const glassNode = findNode(parsed, TABLE.nodes.colGlass);
@@ -454,7 +485,7 @@ export function loadCollision(doc: unknown): LoadedCollision {
 			throw new Error(`loadCollision(): node "${node.name}" is an unexpected plane-shaped node -- only col_playfield and col_glass may be plane-shaped`);
 		}
 		if (node.shape === 'wall') {
-			addWall(physics, node, centre);
+			addWall(physics, node);
 		} else {
 			addBox(physics, node);
 		}

@@ -17,7 +17,7 @@
 #
 # Usage: blender --background --factory-startup assets/src/dragonwar.blend \
 #   --python test/fixtures/export-py/mutate-blend.py -- \
-#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv>
+#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property>
 
 import argparse
 import sys
@@ -62,6 +62,39 @@ def mutate_missing_uv():
 	layers.remove(layers[-1])
 
 
+def mutate_missing_switch_property():
+	# An sw_ node authored WITHOUT a "switch" property previously escaped
+	# validate_properties() entirely (it only ever checked a value that was
+	# already present) and crashed inside build_switch_zones()'s bare
+	# obj['switch'] as an unhandled, unnamed KeyError -- naming neither the
+	# node nor the property, contradicting every other failure path's
+	# contract (Review Findings, MED).
+	obj = bpy.data.objects['sw_shooter_lane']
+	del obj['switch']
+
+
+def mutate_missing_surface_property():
+	# A col_/sw_ node authored WITHOUT a "surface" property has the same
+	# escape-then-crash shape as mutate_missing_switch_property() above, but
+	# through a different downstream site: build_collision_nodes() reads
+	# obj.get('surface') (which would silently serialise JSON null, not
+	# crash) while the loader-side consumer (src/sim/physics/loader) is the
+	# one that would eventually choke on it. validate_properties()'s presence
+	# check closes this at the source instead (Review Findings, MED -- "Same
+	# gap for absent surface/phys_material" alongside the switch gap fixed
+	# above; this mutation and its sibling below give that half of the
+	# finding the same dedicated coverage the switch half already has).
+	obj = bpy.data.objects['col_playfield']
+	del obj['surface']
+
+
+def mutate_missing_phys_material_property():
+	# Same shape as mutate_missing_surface_property() above, for
+	# "phys_material" instead of "surface".
+	obj = bpy.data.objects['col_playfield']
+	del obj['phys_material']
+
+
 MUTATIONS = {
 	'bad-name': mutate_bad_name,
 	'two-materials': mutate_two_materials,
@@ -69,6 +102,9 @@ MUTATIONS = {
 	'name-collision-attempt': mutate_name_collision_attempt,
 	'missing-node': mutate_missing_node,
 	'missing-uv': mutate_missing_uv,
+	'missing-switch-property': mutate_missing_switch_property,
+	'missing-surface-property': mutate_missing_surface_property,
+	'missing-phys-material-property': mutate_missing_phys_material_property,
 }
 
 

@@ -15,7 +15,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { loadCollision } from '../src/sim/physics/loader';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { toPhysics } from '../src/sim/table/frames';
+import { fromPhysics, toPhysics } from '../src/sim/table/frames';
 import { HitPoint } from '../src/sim/physics/hit-point';
 import { LineSeg } from '../src/sim/physics/line-seg';
 import { HitTriangle } from '../src/sim/physics/hit-triangle';
@@ -145,6 +145,24 @@ describe('src/sim/physics/loader -- document shape validation (load-time paths t
 		const bboxOverflowed = JSON.parse(raw.replace('"x": 514.4', '"x": 1e999')) as unknown;
 		expect(() => loadCollision(bboxOverflowed)).toThrowError(/finite/);
 	});
+
+	it('throws naming the node when a wall node\'s footprintMm has fewer than 3 points (review finding: the closed-polygon threshold, changed from < 2 to < 3 alongside the Review Findings HIGH wall-thickness fix, had no dedicated test on either value)', () => {
+		// addWall() treats footprintMm as a CLOSED polygon (an edge between
+		// every consecutive pair, plus one closing the last point back to the
+		// first), so at least 3 points are needed for it to enclose any area
+		// at all -- the threshold this guard enforces. Every sibling defensive
+		// guard in this file (assertPlaneShaped(), the second-plane rejection,
+		// findNode()'s duplicate-name guard, applyMaterial()'s
+		// unknown-material guard, the switch-zone unknown-switch guard below)
+		// has a matching hand-mutated-document test; this one previously did not.
+		const doc = loadMutableCommittedDoc();
+		const wallNode = doc.nodes.find((n) => n.name === 'col_wall_left')!;
+		expect(wallNode.shape).toBe('wall');
+		wallNode.footprintMm = [{ x: 0, y: 0 }, { x: 0, y: 100 }]; // 2 points -- one short of enclosing any area
+
+		expect(() => loadCollision(doc)).toThrowError(/col_wall_left/);
+		expect(() => loadCollision(doc)).toThrowError(/at least 3 points/);
+	});
 });
 
 describe('src/sim/physics/loader -- ledger DW-7: a corner HitPoint primitive is exercised by this story\'s own geometry', () => {
@@ -152,15 +170,20 @@ describe('src/sim/physics/loader -- ledger DW-7: a corner HitPoint primitive is 
 		const doc = loadCommittedDoc();
 		const { physics } = loadCollision(doc);
 
-		// col_wall_lane's far end (table (488.4, 950), open space beyond it --
-		// the lane wall simply ends there so a launched ball can cross into the
-		// main field) is a real corner of THIS story's own placeholder
-		// geometry (not tools/spike-1/scene.ts, which stays untouched -- the
-		// reason this closes ledger DW-7 from here).
+		// col_wall_lane's lane-facing corner (table (480.4, 950) -- the far end
+		// of its now-real lane-facing face, open space beyond it: the lane wall
+		// simply ends there so a launched ball can cross into the main field)
+		// is a real, literal corner of THIS story's own placeholder geometry
+		// (not tools/spike-1/scene.ts, which stays untouched -- the reason this
+		// closes ledger DW-7 from here). Since the Review Findings HIGH fix
+		// (wall_footprint_mm() now preserves real thickness as a closed
+		// four-corner polygon), col_wall_lane's footprint has genuine
+		// rectangular corners of its own, not merely the capped ends of an
+		// open segment.
 		const collideSpy = vi.spyOn(HitPoint.prototype, 'collide');
 
 		const data = new BallData(26.99 / 2 / 0.53975, 1, 1);
-		const cornerPhysics = toPhysics({ x: 488.4, y: 950, z: 0 });
+		const cornerPhysics = toPhysics({ x: 480.4, y: 950, z: 0 });
 
 		// A ball resting exactly at the corner's own z (0 -- floor level, where
 		// the wall's rounded corner point sits) fired directly at it from a
@@ -189,17 +212,21 @@ describe('src/sim/physics/loader -- LineSeg regression guard (orientedEdge() ori
 		const doc = loadCommittedDoc();
 		const { physics } = loadCollision(doc);
 
-		// col_wall_left's footprint midpoint (table (-6, 533.4)) is well clear
-		// of BOTH its endpoints (table y=0 and y=1066.8), so only the wall's
-		// FACE -- the LineSeg orientedEdge() constructs, never a corner
-		// HitPoint -- can catch this approach. This is the regression guard
+		// col_wall_left's INTERIOR-facing face (table x = 0, the real face a
+		// ball approaching from the main field actually meets -- since the
+		// Review Findings HIGH fix, the wall's footprint is the full-thickness
+		// rectangle x:[-12, 0], not a virtual zero-thickness centreline at
+		// x = -6) at its midpoint (table (0, 533.4)) is well clear of BOTH its
+		// endpoints (table y = 0 and y = 1066.8), so only the wall's FACE --
+		// the LineSeg orientedEdge() constructs, never a corner HitPoint --
+		// can catch this approach. This is the regression guard
 		// orientedEdge()'s own doc comment names: inverting its final ternary
 		// (swapping the [p1,p2] / [p2,p1] branches) flips every wall to face
 		// outward, and this is the only test in this suite that would notice.
 		const collideSpy = vi.spyOn(LineSeg.prototype, 'collide');
 
 		const data = new BallData(26.99 / 2 / 0.53975, 1, 1);
-		const wallMidPhysics = toPhysics({ x: -6, y: 533.4, z: 0 });
+		const wallMidPhysics = toPhysics({ x: 0, y: 533.4, z: 0 });
 
 		const start = new Vertex3D(wallMidPhysics.x + 5, wallMidPhysics.y, data.radius);
 		const state = new BallState('WallFaceBall', start);
@@ -212,6 +239,48 @@ describe('src/sim/physics/loader -- LineSeg regression guard (orientedEdge() ori
 		}
 
 		expect(collideSpy).toHaveBeenCalled();
+		collideSpy.mockRestore();
+	});
+});
+
+describe('src/sim/physics/loader -- interior divider guards BOTH faces (Review Findings, HIGH)', () => {
+	it('firing a ball from inside the plunger lane at col_wall_lane blocks it -- it must not cross into the main field', () => {
+		const doc = loadCommittedDoc();
+		const { physics } = loadCollision(doc);
+
+		// The HIGH finding's own measured reproduction: `wall_footprint_mm()`
+		// used to collapse every wall to a single zero-thickness centreline
+		// oriented toward the TABLE's centre, which left col_wall_lane's
+		// lane-facing side (the side actually inside the plunger lane)
+		// completely unguarded -- a ball at table (504, 300, 13.5) moving -x
+		// sailed straight through the divider and came to rest at table
+		// x = 331.3, deep in the main field. col_wall_lane's lane-facing face
+		// now sits at table x = 480.4 (widened from the original 494.4 -- see
+		// tools/make-placeholder-blend.py's LANE_CLEAR_MM -- because a
+		// correctly-guarded lane's old 20 mm clearance was narrower than the
+		// 26.99 mm reference ball).
+		const collideSpy = vi.spyOn(LineSeg.prototype, 'collide');
+
+		const data = new BallData(26.99 / 2 / 0.53975, 1, 1);
+		const startPhysics = toPhysics({ x: 504, y: 300, z: 13.5 });
+		const state = new BallState('LaneBall', new Vertex3D(startPhysics.x, startPhysics.y, startPhysics.z));
+		const velocity = new Vertex3D(-8, 0, 0);
+		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
+		physics.addBall(ball);
+
+		for (let i = 0; i < 200; i++) {
+			physics.step();
+		}
+
+		expect(collideSpy).toHaveBeenCalled();
+		const finalTable = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
+		// The wall's full footprint spans table x:[468.4, 480.4] -- the ball
+		// must never reach the main-field side of it (the regression this
+		// guards against reached table x = 331.3, far past even that).
+		expect(
+			finalTable.x,
+			`ball crossed col_wall_lane into the main field: table x = ${finalTable.x} (the divider's main-field face is at x = 468.4)`,
+		).toBeGreaterThan(468.4);
 		collideSpy.mockRestore();
 	});
 });
