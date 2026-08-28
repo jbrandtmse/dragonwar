@@ -121,7 +121,7 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 - NFR-4: First playable Walk-up within 10 s on a 50 Mbps connection; compressed initial payload ≤ 20 MB enforced in CI as the proxy (re-set by spike 3).
 - NFR-5: The Rules layer runs headless as a pure function of Switch events; identical inputs replay identically to a state hash (FNV-1a over canonical `GameState` plus ball positions quantised to 0.01 mm).
 - NFR-6: Windows 11 and macOS current-1 in current Chrome, Edge and Safari; Firefox best-effort; no mobile or Linux commitment.
-- NFR-7: Local browser storage only; no network calls after load (CSP `default-src 'self'; connect-src 'self'`, grepped in CI).
+- NFR-7: Local browser storage only; no network calls after load (CSP `default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:`, grepped in CI).
 - NFR-8: English only; rebindable keys are the sole accessibility feature; English literals live in `presentation/backglass` only.
 - NFR-9: Provenance is a hard requirement: the `ATTRIBUTIONS.md` entry lands before the file; licences verified at source, never from package metadata; nothing unlicensed, non-commercial, GPL-2.0-only, or from a commercial machine; `vpinball/vpinball` only from files headed `// license:GPLv3+`; author recordings of generic mechanical noise only.
 
@@ -370,7 +370,7 @@ So that the load NFR is a measured number and the CI size budget is set before t
 **When** they are added at 9.22.2
 **Then** each is recorded with Apache-2.0 verified at the package's LICENSE in the source repository, with the date, before `pnpm add`
 
-**Given** `index.html` carries `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'">` and a press-to-begin panel
+**Given** `index.html` carries `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:">` and a press-to-begin panel
 **When** `vite build` runs
 **Then** `dist/` contains only relative asset paths, no service worker, and a CI step greps the CSP tag and fails if it is absent
 
@@ -1688,7 +1688,7 @@ So that the machine remembers me without an account or a network.
 **When** a game starts
 **Then** it is the only object the host hands `sim/loop`, `highscores` is read-only inside `sim/`, and dependency-cruiser confirms nothing under `src/sim/` references `localStorage`
 
-**Given** the CSP `connect-src 'self'`
+**Given** the CSP `connect-src 'self' blob:`
 **When** the game runs through a full session
 **Then** the network panel shows no request after the initial asset load
 

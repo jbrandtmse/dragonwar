@@ -17,7 +17,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const PINNED_CSP_TAG =
-	'<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; connect-src \'self\'">';
+	'<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob:">';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const ENTRY_HTML_FILES = [

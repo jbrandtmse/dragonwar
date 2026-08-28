@@ -32,7 +32,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PINNED_CSP = "default-src 'self'; connect-src 'self'";
+const PINNED_CSP = "default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:";
 
 export class CheckDistError extends Error {}
 

@@ -16,7 +16,7 @@ const CHECK_DIST_SCRIPT = path.resolve(__dirname, '..', 'tools', 'check-dist.mjs
 const RUN_TIMEOUT_MS = 10_000;
 
 const VALID_CSP_TAG =
-	'<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; connect-src \'self\'">';
+	'<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; connect-src \'self\' blob:; img-src \'self\' blob:">';
 
 const createdDirs: string[] = [];
 

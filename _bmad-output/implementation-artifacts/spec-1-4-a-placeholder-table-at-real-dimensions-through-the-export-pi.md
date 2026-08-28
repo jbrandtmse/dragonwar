@@ -645,6 +645,27 @@ against the fix, with the code then restored.
 
 ## Spec Change Log
 
+- **2026-08-28 -- lead, CSP amendment (user-authorised), after a FAILED per-story smoke.** The story's
+  first textured asset made the app fail to boot: Babylon serves images embedded in a `.glb` through
+  `blob:` URLs, which the previously pinned CSP blocked on `connect-src` and on `img-src` (via the
+  `default-src` fallback). All 442 tests passed -- `NullEngine` never decodes images -- so only the
+  browser smoke caught it. Escalated as a Rule 5 tripwire because the exact CSP string was pinned in
+  an Accepted Decision; the user authorised the amendment and widened the footprint for it.
+  **The minimal grant was applied and proven, not assumed:** `default-src 'self'; connect-src 'self'
+  blob:; img-src 'self' blob:` -- **`data:` was deliberately NOT added**, and the re-smoke confirmed
+  it is unnecessary (`list_console_messages` after press-to-begin returned zero CSP violations; the
+  only remaining console lines were the pre-existing favicon 404 (DW-43) and an unrelated WebGPU
+  fallback warning (DW-57)). NFR-7's intent is intact: `blob:` is a same-document scheme that cannot
+  reach the network, so no-network still rests on `connect-src` admitting no remote origin.
+  Amended in 11 places -- 6 planning (`ARCHITECTURE-SPINE.md` AD-17 with an explicit `**Amended:**`
+  record, `SOLUTION-DESIGN.md`, `epics.md` NFR-7, `epics.md` Story 1.2 AC, `epics.md` Story 6.2 AC,
+  `reviews/review-rubric.md` L9) and 5 in-repo (`index.html`, `tools/spike-1/index.html`,
+  `tools/check-dist.mjs` `PINNED_CSP`, `test/entry-html-csp.test.ts`, `test/check-dist.test.ts`).
+  The last two were exact-string pins that no one had flagged and that would have failed the build.
+  `docs/spikes/spike-3.md` was NOT retro-edited -- its measurement stands as recorded, with a
+  forward-reference appended.
+
+
 - **2026-08-28 -- lead, rework iteration 1 (cycle_iteration 2).** Code review returned the story
   `in-progress` with one blocking HIGH and three further unresolved items, all in `tools/export.py`'s
   wall reduction and validation ordering. Re-opened the spec (`status: in-progress`) so

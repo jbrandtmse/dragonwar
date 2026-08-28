@@ -9,7 +9,7 @@
 		asserts it on every emitted page. The harness needs no directive beyond 'self':
 		it fetches nothing.
 	-->
-	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:">
 	<title>DragonWar — Spike 1 harness</title>
 </head>
 <body>

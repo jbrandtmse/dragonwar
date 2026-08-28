@@ -554,3 +554,23 @@ the branch's own deletion, not a workflow-file change this story makes.
 - **`DW-1`** ("Author-owned: macOS / Safari measurement legs") — **not
   closed, no new entry filed.** The Safari/macOS row above reads `PENDING`
   and references this entry by name.
+
+---
+
+## Forward reference — CSP amended after this spike (2026-08-28, Story 1.4)
+
+**This record is left exactly as measured.** Spike 3 ran, and its numbers were taken, under
+`default-src 'self'; connect-src 'self'` — the policy in force on 2026-08-27. Nothing above is
+restated or corrected, because it was true when it was written.
+
+For readers arriving later: that policy was **amended on 2026-08-28 during Story 1.4** to
+
+```
+default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:
+```
+
+Babylon.js serves images embedded in a `.glb` through `blob:` URLs, so the first textured asset made
+the app fail to boot under the old policy. `blob:` is a same-document scheme that cannot reach the
+network, so NFR-7's no-network guarantee is unchanged and still rests on `connect-src` admitting no
+remote origin. The amendment is recorded under AD-17 in `ARCHITECTURE-SPINE.md`. Spike 3's payload
+and load-time measurements are unaffected — the CSP does not influence transferred bytes.
