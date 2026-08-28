@@ -59,3 +59,7 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T03:39:59Z	Story 1.2	committed	sha=c4d52ca submodules=
 2026-08-28T03:40:44Z	Story 1.2	provenance_verified	method=clean_rebuild result=pass model=claude-opus-5 license_txt_bytes=35823 notices_bytes=16273 vpxjs_freezy_matches=6 babylon_vite_matches=13 both_pages_link=true guard_negative_test=fails_build_exit_1 note=coordinator_requested_reverification_after_3_high_findings
 2026-08-28T03:40:44Z	Epic 1	epic_runner_paused	reason=orchestrator_requested_halt_after_story_1_2 stories_completed=2 next_story=1-3-seam-contracts-the-table-registry-and-boundary-lint resume_at=plan_spawn epic_status=in-progress burndown_gate=not_run
+2026-08-28T03:55:25Z	Epic 1	lead_model_gate	model=claude-opus-5 action=proceed
+2026-08-28T03:55:25Z	Epic 1	runtime_gate	bmad=6.11.0 uv=0.12.5
+2026-08-28T03:55:25Z	Epic 1	epic_branch_checked_out	repos=. head=d9fc7e1
+2026-08-28T03:55:25Z	Story 1.3	stage_spawned	stage=plan spawn_at=2026-08-28T03:55:25Z model=claude-opus-5 agent_name=1-3-seam-contracts-plan-1 cycle_iteration=1
