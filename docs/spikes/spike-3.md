@@ -13,10 +13,11 @@ Both the compressed transfer size and the navigation-to-first-frame time are
 comfortably inside NFR-4's targets on every accepted run, on both the deployed
 Pages link and the local `vite preview` control:
 
-| | Compressed transfer | 10 s target | Nav-to-first-frame\* | Margin |
-|---|---|---|---|---|
-| Deployed link | ~0.59 MB | 20 MB | 1.49 s (median) | ~13x under the time budget, ~34x under the payload budget |
-| Local preview | ~0.59 MB | 20 MB | 1.40 s (median) | ~14x under the time budget, ~34x under the payload budget |
+| | Compressed transfer | Payload budget | Nav-to-first-frame\* | Time budget | Margin |
+|---|---|---|---|---|---|
+| Deployed link (lead-verified) | **0.588 MB** (588,022 B median) | 20 MB | **1.84 s** (median of 5) | 10 s | ~5.4x under the time budget, ~34x under the payload budget |
+| Deployed link (implementer's run) | ~0.59 MB | 20 MB | 1.49 s (median) | 10 s | ~6.7x under the time budget, ~34x under the payload budget |
+| Local preview (implementer's run) | ~0.59 MB | 20 MB | 1.40 s (median) | 10 s | ~7.1x under the time budget, ~34x under the payload budget |
 
 \* Taken with vsync/frame-rate-limiting disabled on this display-less
 automated session (see "Environment" below) — a well-measured lower bound,
@@ -24,6 +25,48 @@ not a normally-displayed consumer figure. The compressed-transfer figures are
 unaffected. Re-verification on a host with a real attached display is a
 reasonable follow-up (review finding 2026-08-28, added because this table is
 what a reader skimming only the top of the document would see).
+
+### Lead re-verification (ADR gate, 2026-08-28, under the runtime lock)
+
+The figures originally recorded here were taken by a spawned implementation
+subagent, which does not satisfy this pipeline's lead-side ADR-verification
+gate. The epic lead re-ran the measurement personally against the live
+deployment. Five cold runs, `tools/spike-3/measure-load.mjs`, Chrome headed,
+50 Mbps / 20 ms / cache disabled, against
+`https://jbrandtmse.github.io/dragonwar/`:
+
+| Run | Transfer (bytes) | Nav-to-first-frame (ms) | Renderer | Median rAF delta (ms) |
+|---|---|---|---|---|
+| 1 | 588,140 | 1844.2 | webgl2-fallback | 0.50 |
+| 2 | 588,082 | 2246.4 | webgl2-fallback | 0.70 |
+| 3 | 588,022 | 1987.6 | webgl2-fallback | 0.50 |
+| 4 | 587,944 | 1406.0 | webgl2-fallback | 1.10 |
+| 5 | 588,022 | 1424.8 | webgl2-fallback | 1.00 |
+
+**Payload: confirmed precisely.** Median 588,022 bytes; the whole spread is
+196 bytes (0.03%), because byte counts do not depend on display or vsync
+state. This independently reproduces the originally recorded ~0.59 MB and is
+the figure the CI size budget rests on.
+
+**Timing: confirmed only as a lower bound, and the median moved.** The lead's
+median is 1.84 s against the 1.49 s recorded, with a run-to-run spread of
+1.41-2.25 s. That gap sits inside `DW-13`'s documented ~1.9x host variance and
+changes nothing about the verdict: the worst single run measured, 2.25 s, is
+still 4.4x inside the 10 s budget. The median rAF deltas of 0.5-1.1 ms are the
+signature of the disabled-vsync workaround (`DW-17`) and are the reason this
+row is a bound rather than a consumer figure.
+
+**Silent WebGPU fallback: confirmed live on all five runs.** Every run reported
+`renderer: webgl2-fallback`, with the WebGPU engine constructing successfully
+under the pinned CSP and then failing at `createRenderPipeline`, caught and
+downgraded with nothing surfaced to the player -- exactly what the amended
+acceptance criterion and AD-12 / AR-27 require.
+
+**Note on artifact identity:** the deployed artifact measured above is
+`2e57815`, which predates the review pass's commit (`c7ba18d`). The review
+patches changed error-path and test code, not the load path, and the local
+build's compressed `dist/` total after them is 0.725 MB, still ~27x inside the
+20 MB budget and inside the 2.75 MB CI budget.
 
 The renderer is WebGL2 on every run (WebGPU initialises under the pinned CSP
 but fails later in this Babylon version for this scene — see "Renderer
