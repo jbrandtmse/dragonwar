@@ -115,6 +115,38 @@ describe('PlayerPhysics.removeBall() -- Story 1.5, the authored inverse of addBa
 		expect(() => physics.step()).not.toThrow();
 	});
 
+	// Review finding 2026-08-28: task 13 asks for a case proving a removed
+	// ball "no longer moves AND no longer collides", but the collision half
+	// above is only `expect(() => physics.step()).not.toThrow()` -- which
+	// proves stepping does not crash, not that the removed body left the
+	// broadphase. If removeBall() spliced `balls` but forgot
+	// `hitObjectsDynamic` / the rebuilt hitOcTreeDynamic, that assertion would
+	// still pass while the invisible body kept deflecting live balls.
+	it('a removed ball is genuinely out of the collision set -- a live ball passes straight through where it sat', () => {
+		function run(removeTheObstacle: boolean): number {
+			const physics = scene();
+			// The obstacle sits directly in the traveller's path.
+			const obstacle = buildBall(1, 200, 100, 0);
+			const traveller = buildBall(0, 100, 100, 60);
+			physics.addBall(obstacle);
+			physics.addBall(traveller);
+			if (removeTheObstacle) {
+				physics.removeBall(obstacle);
+			}
+			for (let i = 0; i < 200; i++) {
+				physics.step();
+			}
+			return traveller.state.pos.x;
+		}
+
+		const blocked = run(false);
+		const clear = run(true);
+
+		// Control: with the obstacle present the traveller is genuinely
+		// deflected/stopped -- otherwise this case would prove nothing.
+		expect(clear, 'a removed obstacle must not deflect a live ball -- if it still does, removeBall() left it in the broadphase').toBeGreaterThan(blocked);
+	});
+
 	it('throws when removing a ball that was never added', () => {
 		const physics = scene();
 		const notAdded = buildBall(0, 100, 100, 0);

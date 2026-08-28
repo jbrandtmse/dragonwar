@@ -86,7 +86,13 @@ export const NO_FRAME: InputFrame = {
  */
 function buttonSwitchByAction(): ReadonlyMap<InputAction, SwitchName> {
 	const map = new Map<InputAction, SwitchName>();
-	const actions: InputAction[] = ['flipper_l', 'flipper_r', 'plunger', 'nudge_l', 'nudge_r', 'nudge_up', 'start', 'menu'];
+	// Review finding 2026-08-28: this was a hand-written literal list of the
+	// eight InputAction members, so a NINTH action added to the union would
+	// silently get no button switch and no compile error -- while this doc
+	// comment claimed derivation. `NO_FRAME` has exactly the union's key set
+	// (`InputFrame` requires every action to be present), so reading the keys
+	// off it makes the claim true and a new action a one-line change there.
+	const actions = Object.keys(NO_FRAME) as InputAction[];
 	for (const action of actions) {
 		const candidate = `s_${action}` as SwitchName;
 		const known = (TABLE.switches as Record<string, { settleClass: string }>)[candidate];
@@ -114,6 +120,30 @@ export function buttonSwitchEdges(previous: InputFrame, current: InputFrame, tic
 		}
 	}
 	return edges;
+}
+
+/**
+ * Test-only export: consumes every pending `InputTransition` whose tick has
+ * been reached and returns the `InputFrame` in force at `tick` (AD-4: "the
+ * loop applies the `InputFrame` in force at each tick"). `pending` is sorted
+ * ascending by tick and is MUTATED -- consumed transitions are shifted off,
+ * so a transition stamped beyond this frame's last tick stays queued and
+ * applies on a later frame rather than being dropped.
+ *
+ * Extracted from `advance()` at review 2026-08-28 purely so the rule is
+ * observable: `FrameOutput` carries no `SwitchEvent`s and `machine.step()`
+ * ignores `frame` in this story, so the frame resolved for a given tick had
+ * NO surface any test could see. All three of `test/loop.test.ts`'s
+ * transition cases asserted only a tick count or a no-throw, and stayed green
+ * with the transition queue deleted outright -- while Story 1.6 wires the
+ * real key->action map into exactly this argument.
+ */
+export function frameInForceAt(pending: InputTransition[], tick: number, current: InputFrame): InputFrame {
+	let frame = current;
+	while (pending.length > 0 && pending[0].tick <= tick) {
+		frame = pending.shift()!.frame;
+	}
+	return frame;
 }
 
 /**
@@ -220,8 +250,20 @@ export function createLoop(options: CreateLoopOptions): Loop {
 		// timestamps, which is always finite in practice, but advance() is a
 		// public sim/loop API surface and a future or test caller passing a
 		// bad value should fail loudly here rather than freeze invisibly.
-		if (!Number.isFinite(elapsedMs)) {
-			throw new Error(`advance(): elapsedMs must be a finite number, got ${elapsedMs}`);
+		// Review finding 2026-08-28: the guard originally rejected only a
+		// NON-FINITE value, leaving a negative one to do the same class of
+		// damage more quietly. `advance(-0.4, [])` gives owedExact = -0.4 and
+		// `Math.floor(-0.4) = -1`, so owedTicks is -1: the `owedTicks === 0`
+		// early return is SKIPPED (breaking AD-4's "N = 0 -> unchanged
+		// snapshot", since the frame rebuilds and returns a new Snapshot
+		// object), the step loop runs zero times anyway, and
+		// owedRemainderTicks is credited +0.6 ticks of time that never
+		// elapsed -- a phantom extra step on some later frame. Wall-clock time
+		// does not run backwards, so the real caller cannot reach this; a test
+		// or a future caller should fail loudly here rather than silently
+		// desynchronise the accumulator.
+		if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+			throw new Error(`advance(): elapsedMs must be a finite number >= 0, got ${elapsedMs}`);
 		}
 
 		pendingTransitions.push(...transitions);
@@ -240,7 +282,13 @@ export function createLoop(options: CreateLoopOptions): Loop {
 		const commands: FrameOutput['commands'][number][] = [];
 
 		if (owedTicks > MAX_OWED_TICKS) {
-			const discardedTicks = owedTicks - MAX_OWED_TICKS;
+			// Review finding 2026-08-28: the carried fraction is thrown away
+			// here too (the cap resets the accumulator outright), so it is part
+			// of the discarded amount and belongs in the reported `ms` -- the
+			// I/O matrix's own wording is "`ms` is the discarded amount".
+			// Reporting only the whole-tick part under-reported by up to one
+			// tick on every capped frame.
+			const discardedTicks = owedTicks - MAX_OWED_TICKS + owedRemainderTicks;
 			events.push({ type: 'sim_time_discarded', ms: ticksToMs(discardedTicks), tick: tick + 1 });
 			owedTicks = MAX_OWED_TICKS;
 			owedRemainderTicks = 0;
@@ -249,9 +297,7 @@ export function createLoop(options: CreateLoopOptions): Loop {
 		for (let i = 0; i < owedTicks; i++) {
 			tick += 1;
 
-			while (pendingTransitions.length > 0 && pendingTransitions[0].tick <= tick) {
-				currentFrame = pendingTransitions.shift()!.frame;
-			}
+			currentFrame = frameInForceAt(pendingTransitions, tick, currentFrame);
 			const edges = buttonSwitchEdges(previousFrame, currentFrame, tick);
 			previousFrame = currentFrame;
 

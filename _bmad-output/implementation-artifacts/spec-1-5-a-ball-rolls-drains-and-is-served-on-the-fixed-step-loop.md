@@ -843,7 +843,153 @@ that consumes the regenerated artifacts):
   the files this Code Map lists appear — no `dist/`, no stray probe scripts, no `.tmp` artifacts in
   `public/assets/`, and no edit under `docs/**` or `_bmad-output/planning-artifacts/`.
 
+### Review Findings
+
+`bmad-code-review`, 2026-08-28 (Tier 1 / full, four layers). All patches applied in-review; the suite
+went 503 passed + 21 skipped → **529 passed + 21 skipped**, with `typecheck`, `lint:boundaries`,
+`check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all exiting 0. Deferrals are
+in the ledger (`deferred-work.md`) via `ledger.sh`, never as bullets here.
+
+**Patched — assertions that could not fail (this epic's recurring defect class):**
+
+- [x] [Review][Patch] `test/tuning.test.ts` asserted two string LITERALS against themselves
+  (`expect('troughEjectSpeedMmPerS'.endsWith('Ms')).toBe(false)`) — green whatever `TUNING` contains. Now
+  reads the names off `TUNING` and pins the consequence: a `…Ms` key is converted to `…Ticks` by
+  `resolveTuning()`, so a speed misnamed `…Ms` would vanish from the resolved shape.
+  [`test/tuning.test.ts`:128]
+- [x] [Review][Patch] `test/ball-render.test.ts`'s "onFrame runs BEFORE the scene has rendered" assertion
+  was vacuous: Babylon increments `_frameId` only inside `endFrame()`, which runs *after* the whole
+  render-loop callback, so `frameId` is constant for the iteration and reads 0 in **both** orderings.
+  Moving `onFrame` after `scene.render()` — a permanent one-frame lag between sim and display, against
+  AD-4's "renders the latest snapshot" — left it green. Replaced with an observer attached *after* the
+  boot promise resolves (an observer registered from inside `onFrame` inherits the ordering under test and
+  its missed first observation cancels the signal exactly, which is how the original became vacuous).
+  [`test/ball-render.test.ts`:212]
+- [x] [Review][Patch] Tick-stamped `InputTransition` application had **no** discriminating test: all three
+  cases asserted only a tick count or a no-throw, and deleting `pendingTransitions.push(...transitions)`
+  outright left them green. `FrameOutput` carries no `SwitchEvent` and `machine.step()` ignores `frame`,
+  so the resolved frame had no observable surface. Extracted `frameInForceAt()` as a test-only export
+  (the file's established pattern, beside `NO_FRAME`/`buttonSwitchEdges`) and pinned the rule with five
+  cases. Story 1.6 wires the real key→action map into exactly this argument.
+  [`src/sim/loop/index.ts`:119, `test/loop.test.ts`]
+- [x] [Review][Patch] `PlayerPhysics.removeBall()`'s "no longer collides" half of task 13 was asserted as
+  `expect(() => physics.step()).not.toThrow()` — a crash check, not a collision check. A `removeBall()`
+  that spliced `balls` but left `hitObjectsDynamic`/`hitOcTreeDynamic` populated would pass. Added a real
+  pass-through case with a control run. [`test/player-physics-guards.test.ts`:118]
+- [x] [Review][Patch] `BallSnapshot.vel`/`.speed` are computed every frame and published to presentation,
+  and **no** test read either — the determinism hash quantises `pos` only. Dropping the `* 100` (a 100×
+  unit error) or differencing the other way (a sign flip) shipped green, to be baked into Story 1.8's
+  goldens. Added a round-trip band against the authored eject speed, which also cross-checks the two
+  independently hand-derived conversions `DW-61` records. [`test/machine-serve-drain.test.ts`]
+- [x] [Review][Patch] `test/asset-contract.test.ts` pinned the trough retiling in **x** only; the y
+  widening (−80..−40 → −80..0) that `make-placeholder-blend.py` says is what catches a draining ball was
+  pinned nowhere, so narrowing it back regressed the drain narrative with a green suite.
+  [`test/asset-contract.test.ts`:202]
+
+**Patched — untested modules:**
+
+- [x] [Review][Patch] `src/host/loop.ts` — the one module deciding how wall-clock time enters the fixed
+  step — had **no executed test anywhere**. Changing `nowMs - lastFrameMs` to `nowMs` (every frame owing
+  `performance.now()` ms, permanently pinning the 200 ms cap, the sim at ~12× real time) left the suite
+  green. Added `test/host-loop.test.ts`: a manual rAF queue driving the real driver. [`test/host-loop.test.ts`]
+- [x] [Review][Patch] `src/sim/rules/**` — the whole AD-19 devices layer and AD-6 accounting — had no
+  dedicated test; everything went through the one balanced integration sequence real gravity happens to
+  produce. Added `test/rules-devices.test.ts` pinning the switch→device-event mapping (including the
+  switches that must map to **nothing**) and the accounting. [`test/rules-devices.test.ts`]
+
+**Patched — defects:**
+
+- [x] [Review][Patch] `host/loop.ts`'s `tick()` re-armed rAF unconditionally after `onFrame`, so `stop()`
+  called from inside `onFrame` was undone one line later and the loop ran forever; and a throw left the
+  already-fired handle non-null, killing the chain **and** making `start()` report "already running"
+  forever. `advance()`'s new non-finite guard makes the throw reachable rather than theoretical.
+  [`src/host/loop.ts`:33]
+- [x] [Review][Patch] `detectEntries()` iterates devices outer, movements inner, with no record of which
+  balls were already parked. With a second parking device — AD-6 already names `bd_lock` — one ball
+  intersecting two devices' slot zones in a tick is parked twice and `removeBall()` throws "not
+  registered", propagating out of `machine.step()` and `advance()` into the host rAF chain.
+  [`src/sim/physics/devices.ts`:241]
+- [x] [Review][Patch] `ballsInPlay` had no floor. The increment has one source (`ball_launched`) and the
+  decrement another (a ball parking), so they are not structurally paired: any ball parking without having
+  opened `s_shooter_lane` first drove the count negative permanently. Floored at 0, with the
+  count-vs-reality disagreement named as `ball_missing`'s job (Story 2.12).
+  [`src/sim/rules/ball-controller.ts`:19]
+- [x] [Review][Patch] `advance()` guarded non-finite `elapsedMs` but not a negative one:
+  `Math.floor(-0.4) = -1`, so `owedTicks` was −1 — not 0, so AD-4's "N = 0 → empty arrays and the
+  **unchanged** snapshot" early return was skipped and a fresh `Snapshot` was returned, while
+  `owedRemainderTicks` was credited +0.6 ticks that never elapsed. [`src/sim/loop/index.ts`:223]
+- [x] [Review][Patch] `sim_time_discarded { ms }` under-reported: the cap zeroes `owedRemainderTicks`, so
+  the carried fraction is discarded too but was computed out of the reported amount. The I/O matrix's
+  wording is "`ms` is the discarded amount". [`src/sim/loop/index.ts`:242]
+- [x] [Review][Patch] `buttonSwitchByAction()`'s action list was a hand-written literal while its doc
+  comment claimed TABLE-derivation — a ninth `InputAction` would get no button switch and no compile
+  error. Now derived from `NO_FRAME`'s key set. [`src/sim/loop/index.ts`:87]
+- [x] [Review][Patch] `spawnBall()` used the template literal `` `ejected` `` with nothing interpolated,
+  so every ball carried the identical name — and `removeBall()`'s three "not registered" diagnostics all
+  report `ball.getName()`. [`src/sim/physics/devices.ts`:171]
+- [x] [Review][Patch] Two spec-vs-code contradictions recorded in `## Spec Change Log`, which was empty:
+  the shipped `troughEjectSpeedMmPerS` (300, not task 10(b)'s 500) and the `deviceSlots` ownership
+  deviation from task 18.
+
+**Deferred (ledger only — `bash _bmad/scripts/ledger.sh … slice all`):**
+
+- [x] [Review][Defer] `DW-67` — `createSwitchTracker()` requires a new raw value to hold for
+  `settleTicks + 1` consecutive ticks, so a crossing **shorter** than the settle window emits no edge at
+  all. Unreachable today (every Epic 1 zone-tested switch settles in 0 ms) but makes `standup` (8 ms) and
+  `drop_target` (20 ms) switches dead on arrival. Routed to Story 2.1.
+  [`src/sim/physics/switches.ts`:150]
+- [x] [Review][Defer] `DW-68` — `export.py`'s convex-hull reduction silently replaces a concave wall
+  footprint with its filled hull, no `fail()`, no diagnostic. Pairs with `DW-52`. Routed to Story 2.1.
+- [x] [Review][Defer] `DW-69` — `loadCollision()` validates document→`TABLE` but not `TABLE`→document, so
+  a device missing from the document becomes a permanent runtime `eject_failed` rather than a load-time
+  throw (against AD-17). Routed to burndown.
+- [x] [Review][Defer] `DW-70` — **escalated** (Rule 15: med + fix-risk high). `GameState.machine.deviceSlots`
+  is written by `sim/loop` after `rules.step()` returns, not derived in `ball-controller.ts` as AD-7 and
+  task 18 both require. Values are correct today; a future rules-side write would be silently clobbered.
+  The correct fix needs a new device event for a non-parking entry switch *closing*.
+- [x] [Review][Defer] `DW-71` — `test/solver-termination.test.ts`'s in-process companion asserts a
+  wall-clock **ratio** in the default suite, so scheduler noise can fail it for reasons unrelated to
+  solver termination. The substance is spec-bound (task 24); only the formulation is at issue.
+- [x] [Review][Defer] `DW-62` — occurrence appended: `host/loop.ts` is a *second*, independent rAF chain
+  with the same "a throw stops the loop with nothing surfaced" root cause. This review made it stop
+  cleanly and rethrow; surfacing it to the user remains Story 6.1's.
+- [x] [Review][Defer] `DW-65` — no new entry, but its scope understates the problem: `test/machine-serve-drain.test.ts`
+  hardcodes `484.4`/`510.4`/`10`/`60` for `sw_shooter_lane`'s bounds as well as the `468.4` the entry
+  names, all readable from the document the test already loads.
+
+**Verified and rejected** (recorded so a later review does not re-raise them): AD-4's "commands issued at
+the previous tick" IS correctly implemented — `pendingPulses` is drained at the *top* of each tick, so
+nothing issued during tick *t* can be consumed at tick *t*; the variable name `commandsForThisTick` reads
+misleadingly but the semantics are right. AD-19 holds in the wiring: `processSwitchEvents()` is the only
+reader of `SwitchEvent`, the loop only *emits* button edges, `machine.ts` reads tracker *state* rather
+than events, and the ball controller consumes `DeviceEvent`. `test/sim-boundary.test.ts`'s authored branch
+asserts the GPL-3.0 header **and** the absence of both the port marker and the upstream VPDB block, so the
+ported/authored disjointness survives this story's three new physics files. `ATTRIBUTIONS.md`'s three
+generated-asset rows accurately describe the regenerated artifacts and are re-dated; Blender correctly has
+no Code-table row.
+
 ## Spec Change Log
+
+### 2026-08-28 — `troughEjectSpeedMmPerS` authored at 300, not 500 (recorded at code review)
+
+Task 10(b) specifies `troughEjectSpeedMmPerS` "authored 500 — measured to place the ball in
+`sw_shooter_lane` and leave it there". The implementation ships **300**, pinned by `test/tuning.test.ts`
+and explained in `## Auto Run Result`: at 500 the ball overshot the zone's `y ≤ 60` ceiling and produced a
+spurious `s_shooter_lane` open (hence a spurious `ball_launched`). 300 is the re-measured figure against
+the same regenerated geometry. Recorded here because the task text still reads 500 and the two disagreed
+silently. Both remain `confidence: 'unverified'` per AD-15, and both are derived from the provisional
+placeholder geometry `DW-58` replaces.
+
+### 2026-08-28 — `machine.deviceSlots` derived in `sim/loop`, not `ball-controller.ts` (recorded at code review)
+
+Task 18 assigns `machine.deviceSlots` derivation to `sim/rules/ball-controller.ts` ("from the closed slot
+switches and nothing else"), and AD-7 says `GameState` is "mutated only inside `rules.step`". The
+implementation instead copies the physics machine's live view onto `GameState` in `sim/loop/index.ts`
+immediately after `rules.step()` returns. The values are correct and the deviation is documented in two
+code comments, but it was never recorded as a spec change. Ledgered as `DW-70`, **escalated** to this
+epic's merge gate rather than fixed in-review: `ball-controller.ts` cannot currently derive `bd_shooter`'s
+slot, because `sim/rules/devices.ts` emits a device event only when a non-parking entry switch *opens*,
+never when it closes.
 
 ## Review Triage Log
 
@@ -1178,6 +1324,59 @@ No change is planned to `AGENTS.md`, `CLAUDE.md`, `NOTICE`, `LICENSE`, `vite.con
 - Run a production build and drive it in a real browser: press to begin, issue the two dev pulses, and
   confirm a ball is visible, moves, reaches the playfield and disappears on drain, with an empty CSP-error
   console.
+
+**Test files extended (QA, this stage):** `pnpm test` — 503 passed / 21 skipped with `BLENDER` unset (was
+497/21); 524 passed / 0 skipped with `BLENDER` set (was 518). `pnpm typecheck`, `pnpm lint:boundaries` (`OK
+-- 64 .ts file(s) under src/ cruised, no violations` -- unchanged, no `src/**` file touched) and `pnpm
+check:headers` all re-verified green after these additions. No new files; all four are existing test files
+this story already created, extended in place. Aimed specifically at the risk areas named for this pass
+(the AD-4 loop contract's vacuous-pass surface, and the two boundary/ordering rows -- device_overflow and
+settleTicks debounce -- whose non-trivial branches had no test anywhere in the suite):
+- `test/switch-zones.test.ts` (QA) — three new cases under `createSwitchTracker() -- non-zero settleTicks
+  classes (debounce/hysteresis, AD-2, task 14)`. Every switch Epic 1's own `TABLE.switches` actually uses
+  (`button`, `rollover`, `tilt_bob`, `slam`) resolves to a 0 ms settle class, so `createSwitchTracker()`'s
+  own multi-tick hysteresis branch (`elapsedTicks >= tracked.settleTicks`, and the "cancelled, not merely
+  paused" reset on a bounce back to the reported value) had never been exercised with a non-zero
+  `settleTicks` by any test, real or synthetic, anywhere in this project. Drives the same generic tracker
+  against a REAL switch name (`s_start`) with an OVERRIDDEN `settleTicks` value passed directly as
+  `resolvedTuning` (no `src/**` change, no mocking) — a sub-window bounce that never reaches `reported`; the
+  exact-tick boundary (no edge at `elapsedTicks = settleTicks - 1`, exactly one edge at `= settleTicks`); and
+  a bounce mid-window that restarts the timer from the LATEST transition rather than resuming a paused count.
+  Verified discriminating for the boundary case by reasoning against the exact `switches.ts` comparison
+  (`>=`) — an off-by-one in either direction changes which tick in the sequence produces the edge, and the
+  test asserts the empty-array ticks individually rather than only the final firing tick.
+- `test/machine-serve-drain.test.ts` (QA) — one new case under `sim/physics/machine.ts -- device_overflow
+  reaches step()'s semanticEvents, not just createDeviceMechanics().detectEntries() directly`. The existing
+  `device_overflow` coverage (this file, above) drives `createDeviceMechanics()` directly; `machine.ts:116`'s
+  own spread (`semanticEvents: [...commandResult.failures, ...entryResult.failures]`) — the same class of
+  wiring this file's own `eject_failed` "...through the REAL loop" case protects — was untested at the
+  `machine.step()` layer. Since `device_overflow`'s real trigger (a 5th ball) has no legitimate path through
+  Epic 1's own single-ball rules (matching this file's existing comment on that unreachability), the new
+  case injects an overflowing ball's position directly onto the array `machine.balls` exposes (the SAME
+  live array `machine.step()` reads back, per its own `get balls()` getter) rather than through
+  `PlayerPhysics.addBall()`, then calls the real `machine.step()`. Verified discriminating: with the
+  injection commented out, the test fails (`expected [] to deep equally contain {type: 'device_overflow', ...}`
+  ), confirming the assertion depends on the injected ball and would catch a regression that dropped
+  `entryResult.failures` from the machine.ts:116 spread; restored before finishing.
+- `test/loop.test.ts` (QA) — one new case under `sim/loop -- the 200 ms owed-time cap (AD-4)`. The existing
+  cap test's frame has nothing else happening, so `events[0].type === 'sim_time_discarded'` cannot actually
+  distinguish "prepended before the tick loop" from "the only event that exists". The new case pulses
+  `c_autolaunch` with no ball ever served (a real `eject_failed` on tick 1) inside the SAME capped
+  `advance(2000, [])` call, and asserts `sim_time_discarded` is ordered before it — proving the ordering
+  against a frame with a genuine second event, not a length-1 array.
+- `test/loop-determinism.test.ts` (QA) — one new case under `cadence independence WITH a ball in genuine
+  motion (probes for a vacuous determinism claim)`. The existing cadence-independence test's scripted
+  sequence never issues a coil pulse, so `snapshot.balls` stays `[]` for the entire run at all three
+  cadences — the determinism AC's own headline claim (identical state hashes across 30/60/120 Hz) never
+  actually exercises the "ball positions quantised to 0.01 mm" half of AD-15's hash definition, since an
+  empty array canonicalizes identically regardless of whether the underlying physics is deterministic. The
+  new case ejects a ball on tick 1 (before the first `advance()` call, so it lands on the same tick
+  regardless of display cadence) and re-runs the same 30/60/120 Hz/2 s-gap comparison with the ball still
+  present at the end of each run (asserted explicitly, `ballCount === 1`) — closing the gap with 5.2 simulated
+  seconds of real, floating-point-sensitive rolling/settling physics driving the comparison instead of an
+  empty array three times over. Verified non-vacuous by an out-of-suite probe (temporary, removed before
+  finishing) confirming the ball's position and velocity genuinely change and are still oscillating (not
+  frozen) at the tick range the comparison covers.
 
 ## Auto Run Result
 

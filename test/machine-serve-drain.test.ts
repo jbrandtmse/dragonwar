@@ -18,11 +18,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoop } from '../src/sim/loop';
+import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { createDeviceMechanics } from '../src/sim/physics/devices';
+import { createMachine } from '../src/sim/physics/machine';
 import { loadCollision } from '../src/sim/physics/loader';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
+import { MM_PER_VU, toPhysics } from '../src/sim/table/frames';
 import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
@@ -205,6 +207,58 @@ describe('sim/physics/devices.ts -- park into the lowest empty slot; the ball le
 	});
 });
 
+// Review finding 2026-08-28 (this file, the eject_failed case below) closed
+// the analogous gap for eject_failed by proving it reaches FrameOutput.events
+// through the REAL sim/loop -- but device_overflow's own trigger (a 5th ball
+// entering an already-full 4-slot trough) has no legitimate path through real
+// gameplay under Epic 1's own single-ball rules, so that half was left at the
+// createDeviceMechanics()-direct unit level above, "appropriately". This
+// closes the REACHABLE half of that same gap one layer deeper: it exercises
+// machine.ts's own step() wiring (`semanticEvents: [...commandResult.
+// failures, ...entryResult.failures]`, machine.ts:116) -- the exact spread a
+// dropped-entryResult.failures regression would silently break -- without
+// needing a legitimate real-loop path to the unreachable trigger itself.
+describe("sim/physics/machine.ts -- device_overflow reaches step()'s semanticEvents, not just createDeviceMechanics().detectEntries() directly", () => {
+	it("an overflowing ball's swept segment, injected directly onto machine.balls (the SAME live array machine.step() reads back -- machine.ts's own get balls() getter returns physics.balls itself), produces device_overflow through the real machine.step()", () => {
+		const machine = createMachine(loadDoc(), resolveTuning());
+		expect(machine.deviceSlots.bd_trough).toEqual([true, true, true, true]);
+
+		// A trough slot zone's centre, in physics units -- read from the real
+		// committed collision document via loadCollision(), never hardcoded.
+		const { switchZones } = loadCollision(loadDoc());
+		const slotSwitch = TABLE.ballDevices.bd_trough.slots[0];
+		const zone = switchZones.find((z) => z.switch === slotSwitch)!;
+		const centreMm = {
+			x: (zone.minMm.x + zone.maxMm.x) / 2,
+			y: (zone.minMm.y + zone.maxMm.y) / 2,
+			z: (zone.minMm.z + zone.maxMm.z) / 2,
+		};
+		const posPhysics = toPhysics(centreMm);
+		const radiusVu = TABLE.reference.ballMm / 2 / MM_PER_VU;
+		const data = new BallData(radiusVu, 1, 1);
+		const state = new BallState('OverflowProbe', new Vertex3D(posPhysics.x, posPhysics.y, posPhysics.z));
+		const extra = new Ball(998, data, state, new Vertex3D(0, 0, 0), TABLE_DATA);
+
+		// Pushed directly onto the array machine.balls exposes, deliberately
+		// NOT through PlayerPhysics.addBall() (which also registers a mover):
+		// an unregistered ball is still hit-tested by PlayerPhysics.step()'s
+		// per-ball loop but is never MOVED (only registered movers get
+		// updateDisplacements()), so its before/after table-mm position this
+		// tick is IDENTICAL -- a degenerate swept segment already inside the
+		// zone, which segmentIntersectsBoxLocal (devices.ts) still classifies
+		// as "entered" (each axis's delta is ~0, so the test falls back to
+		// "is the start point inside [min, max]" -- verified by reading
+		// devices.ts's segmentIntersectsBoxLocal directly).
+		(machine.balls as Ball[]).push(extra);
+
+		const result = machine.step(1, NO_FRAME, []);
+		expect(result.semanticEvents).toContainEqual({ type: 'device_overflow', device: 'bd_trough', tick: 1 });
+		// AD-6: an overflow leaves the device untouched -- still full, nothing
+		// parked, nothing opened.
+		expect(machine.deviceSlots.bd_trough).toEqual([true, true, true, true]);
+	});
+});
+
 // ---------------------------------------------------------------------------
 // Integration-level: the real sim/loop over the committed collision document.
 // ---------------------------------------------------------------------------
@@ -235,6 +289,47 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		expect(ball!.pos.y).toBeGreaterThanOrEqual(10);
 		expect(ball!.pos.y).toBeLessThanOrEqual(60);
 		expect(out.snapshot.mechanisms.devices.bd_shooter.slots).toEqual([true]);
+	});
+
+	// Review finding 2026-08-28: BallSnapshot.vel and .speed are computed by
+	// sim/loop's physicsVelocityToTableMmPerS() on EVERY frame and published to
+	// presentation, and no test anywhere read either field -- the determinism
+	// hash quantises `pos` only. Dropping the `* 100` (a 100x unit error) or
+	// differencing the other way (a sign flip) left the whole suite green,
+	// while Story 1.8 would bake the result into the shipped golden hashes and
+	// Epic 4's contact sound would inherit it. This also cross-checks the two
+	// independently hand-derived conversions DW-61 records: the forward one in
+	// sim/physics/devices.ts (which produced this velocity) against the inverse
+	// in sim/loop (which reports it).
+	it('the served ball\'s published vel/speed round-trip the authored eject speed, in table mm/s and the table\'s own sign convention', () => {
+		const tuning = resolveTuning();
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		loop.pulseCoil('c_trough_eject');
+		const out = loop.advance(1, []); // exactly one tick: one ms of gravity, no more.
+
+		const ball = out.snapshot.balls[0];
+		expect(ball, 'the eject must have spawned a ball').toBeDefined();
+
+		const authored = tuning.troughEjectSpeedMmPerS.value;
+		// One tick of up-slope gravity and deck contact has already bled a
+		// little speed off by the time the snapshot is built (measured 293.25
+		// mm/s against an authored 300), so this is a BAND, not an equality.
+		// It is still far tighter than any of the errors it exists to catch: a
+		// dropped VP time-unit factor reports 3, an extra one reports 30000,
+		// and a sign flip reports -293.
+		const lo = authored * 0.9;
+		const hi = authored * 1.1;
+
+		// bd_trough's authored eject dir is (0, 1, 0) -- up the playfield in the
+		// table frame -- so the published velocity is almost all +y.
+		expect(ball!.vel.y, 'the eject drives the ball UP the playfield: table +Y is positive here').toBeGreaterThan(lo);
+		expect(ball!.vel.y).toBeLessThan(hi);
+		expect(Math.abs(ball!.vel.x), 'an axis-aligned eject must not acquire lateral speed').toBeLessThan(authored * 0.05);
+		expect(
+			ball!.speed,
+			`speed must be the magnitude of vel in table mm/s -- got ${ball!.speed} against an authored ${authored}`,
+		).toBeGreaterThan(lo);
+		expect(ball!.speed).toBeLessThan(hi);
 	});
 
 	it('pulse c_autolaunch on a served ball: s_shooter_lane opens (ball_launched fires once), ballsInPlay becomes 1, and the ball reaches the main field', () => {

@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createLoop, buttonSwitchEdges, NO_FRAME } from '../src/sim/loop';
+import { createLoop, buttonSwitchEdges, frameInForceAt, NO_FRAME } from '../src/sim/loop';
 import { MAX_OWED_TICKS } from '../src/sim/contracts/time';
 import type { InputTransition } from '../src/sim/contracts/input';
 
@@ -74,6 +74,44 @@ describe('sim/loop -- the 200 ms owed-time cap (AD-4)', () => {
 		const after = loop.advance(0.4, []);
 		expect(after.snapshot.tick).toBe(out.snapshot.tick);
 	});
+
+	// Review finding 2026-08-28: the cap resets owedRemainderTicks to zero, so
+	// the carried FRACTION is discarded too -- but it was computed out of the
+	// reported amount, which under-reported by up to one tick on every capped
+	// frame. The I/O matrix's wording is "`ms` is the discarded amount".
+	it('the discarded ms includes the carried fractional remainder the cap also throws away', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		const out = loop.advance(2000.5, []);
+
+		expect(out.snapshot.tick).toBe(MAX_OWED_TICKS);
+		expect(out.events[0].type).toBe('sim_time_discarded');
+		// 2000.5 ms owed, MAX_OWED_TICKS run: everything else is gone, the
+		// half-tick included. Reporting only the whole-tick part gives 1800.
+		expect((out.events[0] as { ms: number }).ms).toBeCloseTo(2000.5 - MAX_OWED_TICKS, 9);
+	});
+
+	// The test above's frame has NOTHING else happening -- sim_time_discarded
+	// is its only event, so `events[0].type === 'sim_time_discarded'` cannot
+	// actually distinguish "prepended before the tick loop's own events" from
+	// "the only event that happened to exist". This case forces a SECOND,
+	// genuine per-tick event into the SAME capped frame (an eject_failed from
+	// pulsing c_autolaunch with no ball ever served, which machine.ts's
+	// step() produces on tick 1 -- see test/machine-serve-drain.test.ts's own
+	// "eject_failed{device: bd_shooter}" case) and asserts the ordering is
+	// discard-THEN-eject_failed, not the reverse -- proving events.push({...
+	// sim_time_discarded}) genuinely runs before the tick loop, not merely
+	// that it is alone.
+	it('sim_time_discarded is ordered BEFORE a real per-tick event produced in the SAME capped frame, not merely the sole event', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		loop.pulseCoil('c_autolaunch'); // no ball has ever been served -- fails on tick 1.
+		const out = loop.advance(2000, []);
+
+		expect(out.events.length).toBeGreaterThanOrEqual(2);
+		expect(out.events[0].type).toBe('sim_time_discarded');
+		expect(out.events.some((e) => e.type === 'eject_failed')).toBe(true);
+		// The eject_failed must not itself be mistaken for the first event.
+		expect(out.events.findIndex((e) => e.type === 'eject_failed')).toBeGreaterThan(0);
+	});
 });
 
 // Review finding 2026-08-28: a non-finite elapsedMs previously poisoned
@@ -96,6 +134,98 @@ describe('sim/loop -- a non-finite elapsedMs throws immediately, rather than sil
 	it('advance(Infinity, []) also throws', () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		expect(() => loop.advance(Infinity, [])).toThrow(/finite/i);
+	});
+
+	// Review finding 2026-08-28: the guard rejected only NON-FINITE values, so
+	// a negative one slipped through and did the quieter damage --
+	// Math.floor(-0.4) is -1, so owedTicks was -1: not 0, so AD-4's "N = 0 ->
+	// EMPTY arrays and the UNCHANGED previous snapshot" early return was
+	// skipped and a fresh Snapshot object was built and returned, while
+	// owedRemainderTicks was credited +0.6 ticks of time that never elapsed.
+	it('advance(-0.4, []) throws rather than skipping the N = 0 early return and crediting phantom time', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		const first = loop.advance(10, []);
+		expect(() => loop.advance(-0.4, [])).toThrow(/>= 0/);
+
+		// The accumulator is untouched by the rejected call: 10 more ms owes
+		// exactly 10 more ticks, not 11 (which is what the phantom +0.6 credit
+		// plus a later fraction would eventually produce).
+		const second = loop.advance(10, []);
+		expect(second.snapshot.tick).toBe(first.snapshot.tick + 10);
+	});
+});
+
+// Review finding 2026-08-28: `advance()` resolved the InputFrame in force at
+// each tick, but NO test observed the result -- FrameOutput carries no
+// SwitchEvent (by design) and machine.step() ignores `frame` in this story,
+// so all three transition cases below asserted only a tick count or a
+// no-throw and stayed green with the transition queue deleted outright.
+// Story 1.6 wires the real key->action map into exactly this argument, so the
+// rule is extracted as `frameInForceAt()` and pinned here directly.
+describe('frameInForceAt() -- the InputFrame in force at a tick (AD-4), unit-level', () => {
+	const held = { ...NO_FRAME, flipper_l: true };
+	const alsoStart = { ...NO_FRAME, flipper_l: true, start: true };
+
+	it('a transition applies from ITS OWN tick, not the tick before and not the tick after', () => {
+		const pending: InputTransition[] = [{ tick: 3, frame: held }];
+		let frame = NO_FRAME;
+
+		frame = frameInForceAt(pending, 1, frame);
+		expect(frame.flipper_l, 'tick 1 is before the transition').toBe(false);
+		frame = frameInForceAt(pending, 2, frame);
+		expect(frame.flipper_l, 'tick 2 is still before the transition').toBe(false);
+		frame = frameInForceAt(pending, 3, frame);
+		expect(frame.flipper_l, 'tick 3 IS the transition tick -- it must apply here, not at tick 4').toBe(true);
+		expect(pending, 'a consumed transition must leave the queue').toHaveLength(0);
+	});
+
+	it('two transitions inside one frame each apply from their own tick, in order', () => {
+		const pending: InputTransition[] = [
+			{ tick: 3, frame: held },
+			{ tick: 8, frame: NO_FRAME },
+		];
+		const seen: boolean[] = [];
+		let frame = NO_FRAME;
+		for (let tick = 1; tick <= 10; tick++) {
+			frame = frameInForceAt(pending, tick, frame);
+			seen.push(frame.flipper_l);
+		}
+		// Held from tick 3 through tick 7 inclusive; released at tick 8.
+		expect(seen).toEqual([false, false, true, true, true, true, true, false, false, false]);
+	});
+
+	it('a transition stamped BEFORE the first tick applies from the first tick, not silently dropped', () => {
+		const pending: InputTransition[] = [{ tick: 0, frame: held }];
+		const frame = frameInForceAt(pending, 1, NO_FRAME);
+		expect(frame.flipper_l).toBe(true);
+		expect(pending).toHaveLength(0);
+	});
+
+	it('a transition stamped AFTER the last tick stays queued and applies on a later frame', () => {
+		const pending: InputTransition[] = [{ tick: 50, frame: held }];
+		let frame = NO_FRAME;
+		for (let tick = 1; tick <= 5; tick++) {
+			frame = frameInForceAt(pending, tick, frame);
+		}
+		expect(frame.flipper_l, 'tick 50 is far beyond this frame').toBe(false);
+		expect(pending, 'the transition must be RETAINED, not consumed or dropped').toHaveLength(1);
+
+		frame = frameInForceAt(pending, 50, frame);
+		expect(frame.flipper_l).toBe(true);
+		expect(pending).toHaveLength(0);
+	});
+
+	it('several transitions whose ticks have all passed collapse to the LAST one, and the queue drains', () => {
+		// The documented consequence of "a transition stamped before the
+		// frame's first owed tick applies from the first tick" (this story's
+		// own I/O matrix row) when more than one has accumulated.
+		const pending: InputTransition[] = [
+			{ tick: 1, frame: held },
+			{ tick: 2, frame: alsoStart },
+		];
+		const frame = frameInForceAt(pending, 9, NO_FRAME);
+		expect(frame).toEqual(alsoStart);
+		expect(pending).toHaveLength(0);
 	});
 });
 

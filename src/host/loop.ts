@@ -32,27 +32,50 @@ export function createHostLoop(collisionDoc: unknown, onFrame: (output: FrameOut
 
 	let rafHandle: number | null = null;
 	let lastFrameMs: number | null = null;
+	// Review finding 2026-08-28: `rafHandle` alone cannot answer "is this loop
+	// running". Inside tick() the handle it holds has ALREADY fired, so (a)
+	// `stop()` called from within `onFrame` nulled it and the re-arm below
+	// immediately resurrected the chain, and (b) a throw out of advance() or
+	// onFrame left the stale non-null handle in place, which killed the chain
+	// AND made start() refuse to restart it ("already running"). `running` is
+	// the state; `rafHandle` is only what cancelAnimationFrame needs.
+	let running = false;
 
 	function tick(nowMs: number): void {
+		rafHandle = null;
 		const elapsedMs = lastFrameMs === null ? 0 : nowMs - lastFrameMs;
 		lastFrameMs = nowMs;
-		// Story 1.6 fills this in from host/input's key->action map; key codes
-		// never enter sim/ (AD-4), and this story issues every dev action
-		// through pulseCoil() instead of a real InputTransition.
-		const output = loop.advance(elapsedMs, []);
-		onFrame(output);
-		rafHandle = requestAnimationFrame(tick);
+		try {
+			// Story 1.6 fills this in from host/input's key->action map; key codes
+			// never enter sim/ (AD-4), and this story issues every dev action
+			// through pulseCoil() instead of a real InputTransition.
+			const output = loop.advance(elapsedMs, []);
+			onFrame(output);
+		} catch (error) {
+			// A throw out of the simulation or presentation must not leave a
+			// half-live loop behind: stop cleanly and let it reach the host's
+			// own handler rather than dying silently mid-chain.
+			running = false;
+			throw error;
+		}
+		// Re-arm only if nothing stopped us during this frame -- `onFrame` may
+		// legitimately call stop() (the error path in src/host/boot.ts does).
+		if (running) {
+			rafHandle = requestAnimationFrame(tick);
+		}
 	}
 
 	return {
 		start(): void {
-			if (rafHandle !== null) {
+			if (running) {
 				return; // already running
 			}
+			running = true;
 			lastFrameMs = null;
 			rafHandle = requestAnimationFrame(tick);
 		},
 		stop(): void {
+			running = false;
 			if (rafHandle !== null) {
 				cancelAnimationFrame(rafHandle);
 				rafHandle = null;

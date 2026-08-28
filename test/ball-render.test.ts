@@ -209,24 +209,78 @@ describe('src/presentation/scene/balls.ts -- syncBalls() against the real loaded
 // devices; it only needs loadAndRenderOnceForTests() to demonstrably invoke
 // what it was given.
 describe('src/presentation/scene/create-engine.ts -- loadAndRenderOnce() actually invokes its onFrame callback', () => {
-	it('onFrame is called at least once, and BEFORE the scene it is given has rendered a frame render-complete', async () => {
+	it('onFrame is called at least once by the render loop', async () => {
+		// Review finding 2026-08-28: this case also asserted
+		// `calledScene.getEngine().frameId <= 1` on the first call, claiming to
+		// prove "onFrame precedes scene.render()". It could not: Babylon
+		// increments `_frameId` only inside `endFrame()`
+		// (@babylonjs/core/Engines/abstractEngine.pure.js), and
+		// `_processFrame()` runs `beginFrame(); _renderFrame(); endFrame();` --
+		// so `frameId` is CONSTANT for the whole render-loop iteration and
+		// reads 0 on the first onFrame call whether onFrame runs before or
+		// after `scene.render()`. The ordering guarantee is now pinned for real
+		// by the case below; this one keeps the (genuinely discriminating)
+		// "it is invoked at all" half.
 		const engine = new NullEngine();
 		try {
 			const bytes = readFileSync(GLB_PATH);
 			let callCount = 0;
-			let calledBeforeFirstRenderComplete = false;
-			const { scene } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' }, (calledScene) => {
+			const { scene } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' }, () => {
 				callCount += 1;
-				// onAfterRenderObservable has not yet fired for this frame at the
-				// point onFrame runs -- proving onFrame precedes scene.render(),
-				// not just that it eventually runs at some point.
-				if (callCount === 1 && calledScene.getEngine().frameId <= 1) {
-					calledBeforeFirstRenderComplete = true;
-				}
 			});
 			try {
 				expect(callCount, 'onFrame must be invoked at least once by the render loop').toBeGreaterThan(0);
-				expect(calledBeforeFirstRenderComplete, 'onFrame must run before/around the first completed render, not only on some later frame').toBe(true);
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+
+	// AD-4: "presentation renders the latest snapshot without interpolation."
+	// That guarantee is an ORDERING one -- create-engine.ts must call onFrame
+	// BEFORE scene.render() in the same iteration, so the frame Babylon draws
+	// reflects this frame's FrameOutput and not the previous one. Moving the
+	// call after scene.render() would ship a permanent one-frame lag between
+	// simulation and display, which the manual browser smoke ("a ball is
+	// visible and moves") would not distinguish.
+	//
+	// The instrumentation deliberately attaches AFTER loadAndRenderOnceForTests
+	// resolves rather than from inside onFrame: an observer registered from
+	// inside the callback inherits the very ordering under test, and its
+	// missed-first-observation offset cancels the signal exactly (which is how
+	// the frameId assertion above came to be vacuous).
+	it('onFrame runs BEFORE scene.render() in the same iteration, not after it', async () => {
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			let onFrameCalls = 0;
+			const { scene } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' }, () => {
+				onFrameCalls += 1;
+			});
+			try {
+				// Attached between iterations, so its first observation is a whole
+				// iteration whose onFrame call it can see or miss on the merits.
+				let onFrameCallsSeenAtRender = -1;
+				scene.onBeforeRenderObservable.add(() => {
+					onFrameCallsSeenAtRender = onFrameCalls;
+				});
+
+				const callsAtAttach = onFrameCalls;
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				expect(onFrameCalls, 'the render loop must still be running for this case to mean anything').toBeGreaterThan(callsAtAttach);
+				expect(onFrameCallsSeenAtRender, 'scene.onBeforeRenderObservable must have fired').toBeGreaterThanOrEqual(0);
+
+				// onFrame BEFORE scene.render(): the render of iteration k sees
+				// onFrame call k already counted, so the last render observed the
+				// same count the loop has now.
+				// onFrame AFTER scene.render(): the render of iteration k sees only
+				// k-1 calls, leaving a permanent off-by-one here.
+				expect(
+					onFrameCalls - onFrameCallsSeenAtRender,
+					'the most recent scene.render() must have seen this iteration\'s onFrame call already applied -- onFrame must precede scene.render(), or presentation draws the PREVIOUS frame\'s snapshot (AD-4)',
+				).toBe(0);
 			} finally {
 				scene.dispose();
 			}

@@ -22,7 +22,18 @@ export function applyDeviceEvents(machine: MachineState, events: readonly Device
 		if (event.type === 'ball_launched') {
 			ballsInPlay += 1;
 		} else if (event.type === 'device_ball_entered') {
-			ballsInPlay -= 1;
+			// Review finding 2026-08-28: floored at zero. The increment has one
+			// source (`ball_launched`, AD-6's "the one event that means
+			// 'plunged'") and the decrement another (a ball reaching a parking
+			// device), so the two are not structurally paired: any ball that
+			// parks WITHOUT having opened `s_shooter_lane` first -- two dev
+			// `c_trough_eject` pulses in a row, a ball knocked back out of the
+			// lane, Story 2.12's ball search dislodging a stuck ball -- drove
+			// this negative, and nothing brought it back. "No balls in play" is
+			// the correct reading of that state; the count-vs-reality
+			// DISAGREEMENT it hides is what AD-6's `ball_missing { count }`
+			// exists to report, and Story 2.12 (ball search) owns emitting it.
+			ballsInPlay = Math.max(0, ballsInPlay - 1);
 		}
 	}
 	if (ballsInPlay === machine.ballsInPlay) {

@@ -127,8 +127,29 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 	});
 
 	it('neither new speed tunable\'s name ends in "Ms" -- both are mm/s speeds, not durations', () => {
-		expect('troughEjectSpeedMmPerS'.endsWith('Ms')).toBe(false);
-		expect('autolaunchSpeedMmPerS'.endsWith('Ms')).toBe(false);
+		// Review finding 2026-08-28: this previously read
+		// `expect('troughEjectSpeedMmPerS'.endsWith('Ms')).toBe(false)` -- two
+		// string LITERALS asserted against themselves, which cannot fail
+		// whatever TUNING actually contains. Read the names off TUNING itself,
+		// and pin the consequence that matters: resolveTuning() CONVERTS a
+		// `…Ms` key into a `…Ticks` key, so a speed misnamed `…Ms` would
+		// silently become a tick count and vanish from the resolved shape its
+		// only consumers (sim/physics/devices.ts) read.
+		const speedEntries = [TUNING.troughEjectSpeedMmPerS, TUNING.autolaunchSpeedMmPerS];
+		const speedKeys = Object.keys(TUNING).filter((key) => speedEntries.includes(TUNING[key as keyof typeof TUNING] as never));
+		expect(speedKeys, 'both speed tunables must be reachable as TUNING keys').toHaveLength(2);
+		for (const key of speedKeys) {
+			expect(
+				key.endsWith('Ms'),
+				`TUNING.${key} is a speed, not a duration -- a name ending in "Ms" is converted to ticks by resolveTuning()`,
+			).toBe(false);
+		}
+
+		// ...and they really do survive the conversion unconverted, with their
+		// authored mm/s values intact.
+		const resolved = resolveTuning();
+		expect(resolved.troughEjectSpeedMmPerS.value).toBe(TUNING.troughEjectSpeedMmPerS.value);
+		expect(resolved.autolaunchSpeedMmPerS.value).toBe(TUNING.autolaunchSpeedMmPerS.value);
 	});
 });
 

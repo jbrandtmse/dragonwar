@@ -217,6 +217,25 @@ describe('asset contract -- Story 1.5: the drain aperture is tiled with no gap (
 			).toBeCloseTo(sorted[i + 1].minMm.x, 6);
 		}
 	});
+
+	// Review finding 2026-08-28: the case above pins the x retiling only, but
+	// tools/make-placeholder-blend.py's own comment records that the zones
+	// were ALSO widened in y (-80..-40 -> -80..0, the upper bound landing
+	// exactly on the drain wall's inner face) and that this is what lets a
+	// ball actually crossing the aperture get caught. Narrowing y back to -40
+	// regressed the drain narrative with a fully green suite.
+	it('every sw_trough_* zone spans y up to the drain wall\'s inner face (y = 0), not the pre-retiling y = -40', () => {
+		const doc = readCollisionDoc();
+		const zones = doc.switchZones.filter((z) => z.name.startsWith('sw_trough_'));
+		expect(zones.length, 'all four sw_trough_* zones must be present').toBe(4);
+		for (const zone of zones) {
+			expect(zone.minMm.y, `${zone.name}: the trough channel's far edge`).toBeCloseTo(-80, 6);
+			expect(
+				zone.maxMm.y,
+				`${zone.name}: the zone must reach the drain wall's inner face (y = 0) -- a ball crossing the aperture enters through that face, so a lower bound lets it pass without ever entering the zone`,
+			).toBeCloseTo(0, 6);
+		}
+	});
 });
 
 describe('asset contract -- Story 1.5: col_lane_deflector is present with a real, angled footprint (DW-58)', () => {

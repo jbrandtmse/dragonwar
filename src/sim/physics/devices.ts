@@ -171,8 +171,13 @@ export function createDeviceMechanics(options: {
 	function spawnBall(posMm: Vec3, velocity: Vertex3D): Ball {
 		const posPhysics = toPhysics(posMm);
 		const data = new BallData(ballRadiusVu(), 1, 1);
-		const state = new BallState(`ejected`, new Vertex3D(posPhysics.x, posPhysics.y, posPhysics.z));
-		const ball = new Ball(nextBallId(), data, state, velocity, BALL_HIT_TABLE_DATA);
+		// Review finding 2026-08-28: this was the template literal `` `ejected` ``
+		// with nothing interpolated, so EVERY ball carried the identical name --
+		// and PlayerPhysics.removeBall()'s three "not registered" diagnostics all
+		// report ball.getName(), which named an indistinguishable ball.
+		const id = nextBallId();
+		const state = new BallState(`ejected-${id}`, new Vertex3D(posPhysics.x, posPhysics.y, posPhysics.z));
+		const ball = new Ball(id, data, state, velocity, BALL_HIT_TABLE_DATA);
 		physics.addBall(ball);
 		return ball;
 	}
@@ -243,11 +248,25 @@ export function createDeviceMechanics(options: {
 		const contactEvents: ContactEventLike[] = [];
 		const failures: DeviceFailure[] = [];
 
+		// Review finding 2026-08-28: devices are the OUTER loop and movements
+		// the inner, with no record of which balls have already been parked.
+		// With a second parking device -- AD-6 already names `bd_lock`
+		// (capacity 3, slots `s_lock_1..3`) -- a swept segment intersecting two
+		// devices' slot zones in one tick would park the SAME ball twice and
+		// call removeBall() on it twice; the second call hits
+		// PlayerPhysics.removeBall()'s "not registered" throw, which propagates
+		// out of machine.step() and advance() and kills the host rAF chain.
+		// One parked ball belongs to exactly one device.
+		const parked = new Set<Ball>();
+
 		for (const [name, zones] of slotZonesByDevice) {
 			const slots = parkingSlots[name]!;
 			const slotSwitchNames = (TABLE.ballDevices[name] as { slots: readonly string[] }).slots as readonly SwitchName[];
 
 			for (const movement of movements) {
+				if (parked.has(movement.ball)) {
+					continue;
+				}
 				const entered = zones.some((zone) => segmentIntersectsBoxLocal(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
 				if (!entered) {
 					continue;
@@ -260,6 +279,7 @@ export function createDeviceMechanics(options: {
 				slots[lowestEmpty] = true;
 				switchEvents.push({ type: 'switch', switch: slotSwitchNames[lowestEmpty], closed: true, tick });
 				contactEvents.push({ type: 'contact', kind: 'hit', ballId: movement.ball.id, device: name, pos: movement.afterMm, tick });
+				parked.add(movement.ball);
 				physics.removeBall(movement.ball);
 			}
 		}
