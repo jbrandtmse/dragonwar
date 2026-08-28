@@ -56,6 +56,7 @@ const CDP_READY_TIMEOUT_MS = 20_000;
 const GESTURE_READY_TIMEOUT_MS = 20_000;
 const BOOT_TIMEOUT_MS = 30_000;
 const CADENCE_SAMPLE_FRAMES = 30;
+const NETWORK_IDLE_TIMEOUT_MS = 10_000;
 const MEDIAN_FRAME_DELTA_MS = 20; // DW-16, same threshold as tools/spike-1/browser.ts
 const DOWNLOAD_THROUGHPUT_BYTES_PER_SEC = 6_250_000; // 50 Mbps, this story's AC
 const DEFAULT_LATENCY_MS = 20; // authored default, overridable by --latency, always echoed
@@ -334,11 +335,20 @@ async function run(args) {
 					uploadThroughput: DOWNLOAD_THROUGHPUT_BYTES_PER_SEC,
 				});
 
+				let inFlightCount = 0;
 				cdp.on('Network.requestWillBeSent', () => {
 					requestCount++;
+					inFlightCount++;
 				});
 				cdp.on('Network.loadingFinished', (params) => {
 					transferBytes += params.encodedDataLength ?? 0;
+					inFlightCount--;
+				});
+				cdp.on('Network.loadingFailed', () => {
+					// A failed/cancelled request (e.g. modulepreload speculatively
+					// dropped) still leaves requestWillBeSent's count incremented;
+					// this is what keeps inFlightCount from stalling network-idle below.
+					inFlightCount--;
 				});
 				cdp.on('Runtime.consoleAPICalled', (params) => {
 					const text = (params.args ?? []).map((a) => a.value ?? a.description ?? '').join(' ');
@@ -457,6 +467,26 @@ async function run(args) {
 				}
 				const medianFrameDeltaMs = median([...deltas].sort((a, b) => a - b));
 
+				// Network idle before finalising transferBytes: requestCount fires at
+				// Network.requestWillBeSent (request START) so it is always complete
+				// by this point, but transferBytes only accumulates as each request's
+				// Network.loadingFinished arrives -- closing the CDP connection before
+				// every in-flight request has actually finished silently undercounts
+				// it. Verified empirically: without this wait, byte-identical loads of
+				// the same URL varied by roughly 11% run to run while requestCount
+				// stayed constant at 67 -- exactly this race, not real variance.
+				const networkIdleDeadline = Date.now() + NETWORK_IDLE_TIMEOUT_MS;
+				while (inFlightCount > 0 && Date.now() < networkIdleDeadline) {
+					await sleep(50);
+				}
+				const networkIdleTimedOut = inFlightCount > 0;
+				if (networkIdleTimedOut) {
+					console.error(
+						`[measure-load] WARNING: ${inFlightCount} request(s) still in flight after ` +
+						`${NETWORK_IDLE_TIMEOUT_MS}ms -- transferBytes may undercount`,
+					);
+				}
+
 				cdp.close();
 
 				if (medianFrameDeltaMs > MEDIAN_FRAME_DELTA_MS) {
@@ -478,6 +508,7 @@ async function run(args) {
 					renderer: boot.renderer,
 					medianFrameDeltaMs,
 					cadenceFrames: cadenceTimestamps.length,
+					networkIdleTimedOut,
 					consoleMessages,
 				};
 				console.log(JSON.stringify(jsonResult));

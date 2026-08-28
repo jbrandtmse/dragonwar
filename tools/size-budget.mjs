@@ -22,7 +22,11 @@
 // Measured 2026-08-27 on this story's production build (root page +
 // Spike 1 harness page, both counted -- "the Spike 1 harness page is built
 // into dist/ and therefore deployed and counted", this spec's own decision):
-//   baseline  = 0.723116 MB (723,116 bytes gzipped)
+//   baseline  = 0.725152 MB (725,152 bytes gzipped -- every file under dist/,
+//               gzip level 9, summed; see docs/spikes/spike-3.md for the
+//               distinction from the ~588-592 KB a real root-page load
+//               actually transfers, which excludes the separate Spike 1
+//               harness page's own files)
 //   rounded   = 0.75 MB   (next 0.25 MB increment above the baseline)
 //   headroom  = 2.00 MB   (authored, for the remainder of Epic 1)
 //   BUDGET    = 0.75 + 2.00 = 2.75 MB = 2,750,000 bytes
