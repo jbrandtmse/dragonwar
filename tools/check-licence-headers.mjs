@@ -44,14 +44,26 @@ const PORT_MARKER = 'Ported from vpdb/vpx-js';
 export class CheckHeadersError extends Error {}
 
 function listTrackedFiles() {
-	const result = spawnSync('git', ['ls-files'], { cwd: REPO_ROOT, encoding: 'utf8' });
+	// `-z` (NUL-separated, never quoted) rather than plain `git ls-files`:
+	// with the default `core.quotePath`, a tracked path containing a
+	// non-ASCII byte comes back C-quoted, e.g. `"src/caf\303\251.ts"`. That
+	// string's extension parses as `.ts"`, which is not in
+	// AUTHORED_EXTENSIONS, so the file was silently skipped by the very check
+	// that exists to leave no source file unexamined (review finding, this
+	// story's review pass).
+	const result = spawnSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' });
 	if (result.status !== 0) {
 		throw new CheckHeadersError(`"git ls-files" failed (exit ${result.status}): ${result.stderr}`);
 	}
-	return result.stdout
-		.split('\n')
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0);
+	const files = result.stdout.split('\0').filter((line) => line.length > 0);
+	// Never report success over an empty file list: run from the wrong cwd or
+	// against an empty index this check would otherwise print OK having read
+	// nothing, the same vacuous-pass failure the boundary lint's coverage
+	// guard exists to prevent.
+	if (files.length === 0) {
+		throw new CheckHeadersError('"git ls-files" reported no tracked files -- this check inspected nothing, which is a defect, not a pass');
+	}
+	return files;
 }
 
 export function checkLicenceHeaders(files = listTrackedFiles()) {

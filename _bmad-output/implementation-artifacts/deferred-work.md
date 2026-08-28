@@ -36,6 +36,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: in-epic
 - evidence: AGENTS.md still says no package.json and no CI workflow; 1.1 added both scaffolds and 1.2 adds CI
 - 2026-08-27T22:32:55Z status=open owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=migration note=Refresh the bmad:context block once 1.3 lands CI and dependency-cruiser so both TODOs close in one pass
+- 2026-08-28T06:42:59Z status=routed owner=burndown by=adjudication note=Not closed by Story 1.3: the lead removed task 19 at the spec-validation gate because AGENTS.md is outside Epic 1's declared footprint (Rule 11). Residual restated: AGENTS.md's bmad:context block still says there is no package.json and no CI, both now false, and says the spine runs to AD-17 where it runs to AD-19. Proper fix is a bmad-project-context run, which regenerates the managed block. Burn-down gate to assign a specific next-epic story key.
 
 ### DW-6: ObjectPool exhaustion counters are tracked but never surfaced
 - source: spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: in-epic
@@ -93,6 +94,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: cr re-review spec-1-1-spike-1 | severity: med | fix-risk: med | footprint: in-epic
 - evidence: lib is ES2023+DOM+DOM.Iterable over one include covering src, test and tools, so document.getElementById inside src/sim compiles; only a naive textual scan stands between that and a green build
 - 2026-08-27T22:33:15Z status=routed owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=migration note=1.3 owns AD-16 boundary enforcement: give src/sim its own tsconfig project without DOM, keep tools and test theirs, wire both into dependency-cruiser
+- 2026-08-28T06:43:00Z status=resolved-by:1-3-seam-contracts-the-table-registry-and-boundary-lint by=adjudication note=Closed at the compiler layer, not beside it: tsconfig.sim.json drops the DOM lib and @types/node for src/sim/**. Lead negative probe confirmed pnpm typecheck exits 1 with 'Cannot find name document' for a DOM reference in src/sim; QA added test/typecheck-sim-boundary.test.ts, a real tsc --noEmit subprocess regression test whose fixture extends the shipped tsconfig.sim.json, proven non-vacuous. Commit c41849e.
 
 ### DW-16: The background-throttle guard misses moderate throttling, so measurements taken outside measure.mjs are silently inflated
 - source: lead smoke 1.1 | severity: high | fix-risk: low | footprint: in-epic
@@ -130,6 +132,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: ci.yml's single on: block is shared by both jobs, so on.push.branches:[main] silences the checks job on epic-branch pushes too; the spec's task line asks for the checks job on every push and pull request (AR-34 minimum CI) and its own AC (when a commit is pushed to the epic branch, the checks job runs and passes) is no longer reproducible. Branch work now gets CI only once a PR exists. Touches the author-settled narrow-back, so not changed unilaterally at review time
 - 2026-08-28T03:30:05Z status=escalated owner=burndown by=cr note=Deploy is now separately guarded by github.ref == refs/heads/main, so re-widening on.push would not re-open the shipping rule
+- 2026-08-28T06:43:00Z by=adjudication note=Evidence for the burn-down gate: Story 1.3 widened .github/workflows/ci.yml to a bare 'on: push:' with no branch filter, so CI now runs on every branch push again while the deploy job's own if: guard still restricts publishing to main. Appears closed; disposition deferred to the burn-down gate.
 
 ### DW-23: check-dist's external-origin scan is narrower than the frozen I/O matrix row it implements, a disclosed deviation never ratified by the lead
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: in-epic
@@ -145,23 +148,99 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: ATTRIBUTIONS.md; package.json; .github/workflows/ci.yml
 - evidence: Both files first change together in 9595a7c, so no diff can show the attribution row predating the dependency; raised by code review 2026-08-28 as a note rather than a defect since the licences themselves were verified at source and are correct
 - 2026-08-28T03:38:55Z status=routed owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=adjudication note=Substance is satisfied - every licence was read at its source repository and recorded correctly. What is missing is the audit trail. Story 1.3 already extends CI with the per-file licence-header check and is the natural home for a convention that dependency additions land as two commits (attribution first, then the add) or for a check that fails when package.json gains a dependency with no matching ATTRIBUTIONS row.
+- 2026-08-28T06:43:00Z status=wontfix-accepted by=adjudication note=Substance closed: tools/check-attributions.mjs makes it impossible for a package.json dependency to exist without an ATTRIBUTIONS.md row, enforced in CI (lead probe: adding left-pad without a row fails check:attributions exit 1). The ordering-as-history half is genuinely not achievable here -- this pipeline finalises a story in one commit, so 'row written in an earlier commit than the pnpm add' cannot be demonstrated from version control. Mechanical enforcement is strictly stronger than the ordering evidence this entry asked for. reopen_if=a dependency lands whose licence is wrong or whose ATTRIBUTIONS.md row was written after the fact
 
 ### DW-26: Task 7 asks tuning.ts for a hopControl tunable, but FR-9 names no unit, magnitude or mechanism and the architecture spine's own Deferred section lists hopControl as undecided, so the implementation omitted it and documented the omission
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: src/sim/table/tuning.ts
 - evidence: No formal AC names hopControl; only task 7's list line does. tuning.ts's header comment and test/tuning.test.ts assert the omission with this rationale; spec Change Log 2026-08-27 'task 7 vs the Block-If rule'
 - 2026-08-28T05:59:46Z status=open owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=harvest note=Lead call at this story's ledger gate: a tunable with no unit, magnitude or mechanism cannot carry AD-15's mandatory source and confidence, so authoring one would violate AD-15 to satisfy a task line the spine itself defers
+- 2026-08-28T06:36:24Z occurrence=1-3-seam-contracts-the-table-registry-and-boundary-lint
+- 2026-08-28T06:43:00Z status=by-design by=adjudication note=Lead call: a hopControl tunable naming no unit, magnitude or mechanism cannot carry AD-15's mandatory source and confidence fields, so authoring one would violate AD-15 in order to satisfy a task-list line that the architecture spine's own Deferred section lists as undecided. No Acceptance Criterion names hopControl. The omission is documented in src/sim/table/tuning.ts's header and asserted in test/tuning.test.ts; spec task 7 text was corrected to match.
 
 ### DW-27: CI applies pnpm install --frozen-lockfile --ignore-scripts to the whole dependency tree on the strength of a one-time check that @swc/core is the only package needing an install script; nothing re-validates that when a dependency is added
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: .github/workflows/ci.yml
 - evidence: Plain pnpm install --frozen-lockfile exits 1 with ERR_PNPM_IGNORED_BUILDS on @swc/core, so the flag is currently necessary and currently safe; the native binary needs no build step. Future dependencies whose install script is load-bearing would fail silently
 - 2026-08-28T05:59:46Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=harvest note=Supply-chain hygiene; natural home is the release ledger audit. Not in Story 1.3's delivered scope -- the flag is correct today
+- 2026-08-28T06:36:24Z occurrence=1-3-seam-contracts-the-table-registry-and-boundary-lint
 
 ### DW-28: ATTRIBUTIONS.md and check:attributions cover only package.json's direct dependencies and devDependencies, not the roughly 40 transitive packages pnpm-lock.yaml adds, and no line states that scope decision explicitly
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: ATTRIBUTIONS.md; tools/check-attributions.mjs
 - evidence: Pre-existing project convention this story did not introduce or narrow; the italic note this story replaced already scoped attribution to direct dependencies. CLAUDE.md's provenance rule reads absolute, so the scope boundary is an open policy question rather than a defect
 - 2026-08-28T05:59:46Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=harvest note=Policy question for the release audit: either state the direct-dependency scope explicitly in ATTRIBUTIONS.md or widen the check to the lockfile
+- 2026-08-28T06:36:24Z occurrence=1-3-seam-contracts-the-table-registry-and-boundary-lint
 
 ### DW-29: tools/boundary-lint.mjs listFilesRecursive() has no symlink-cycle guard and would stack-overflow on a directory symlink cycle instead of reporting a lint result
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: tools/boundary-lint.mjs
 - evidence: Confirmed by code reading: listFilesRecursive() recurses into every directory entry with no visited-path tracking and no lstat symlink check. No symlink exists anywhere in this repository today
 - 2026-08-28T05:59:46Z status=open owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=harvest note=Theoretical today; to be dispositioned at this story's ledger gate
+- 2026-08-28T06:43:00Z status=wontfix-theoretical by=adjudication note=No symlink exists anywhere in this repository and none is planned; listFilesRecursive() walks a checked-in source tree, not user input, so there is no realistic reachable failure. reopen_if=a directory symlink is introduced under src/, test/ or tools/, or the walker is ever pointed at a path outside the repository
+
+### DW-30: check-licence-headers' authored-extension allowlist omits shader, script and vector extensions, so Epic 4's .glsl and any .sh/.ps1/.svg ship with no licence header and a green check
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: AUTHORED_EXTENSIONS lists 12 extensions; .glsl .sh .ps1 .svg .json and extension-less files are silently exempt. Spec task 11 enumerated this exact list, so the tool matches its instruction; the risk lands when Epic 4 adds shaders.
+- 2026-08-28T06:36:24Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=cr note=inverted allowlist (check everything tracked except known-binary/generated) matches the stated intent
+
+### DW-31: check-attributions accepts a bare name match anywhere in ATTRIBUTIONS.md, so a stale version or a prose mention satisfies a package's provenance row
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: Verified: package.json declaring vite 99.0.0 passes against the row recording vite 8.2.2, and an ATTRIBUTIONS.md body of 'We do not use left-pad because it is bad' satisfies a left-pad dependency. Spec task 12 asked only for 'no occurrence in ATTRIBUTIONS.md', so the tool matches its instruction.
+- 2026-08-28T06:36:36Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=cr note=require the declared version and a licence token on the matched row
+
+### DW-32: The three tsconfig projects do not provably cover all of src/, so a future src/*.tsx or a new src/ subdirectory outside sim|host|presentation is typechecked by nothing
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: sim includes src/sim/**, app includes src/host/** + src/presentation/**, node includes test|tools|root configs. A src/index.ts or src/shared/** is in no project. The pre-story tsconfig.json had include: [src,test,tools] and no such hole. boundary-lint does scan .tsx textually, so the two gates disagree about what exists.
+- 2026-08-28T06:36:36Z status=routed owner=burndown by=cr note=assert the union of the three project file lists equals the real src listing
+
+### DW-33: deepFreeze short-circuits on an already-frozen node, so children of a pre-frozen sub-object stay mutable while the DeepReadonly<T> return type claims otherwise
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: med | footprint: in-epic
+- evidence: Reproduced: deepFreeze(Object.freeze({inner:{a:1}})) then inner.a=99 succeeds. Latent today (TABLE and TUNING are fresh literals) but the helper is exported for reuse. The !Object.isFrozen gate is also the current cycle guard, so a fix needs a visited set rather than unconditional recursion.
+- 2026-08-28T06:36:36Z status=routed owner=burndown by=cr note=fix-risk is the cycle guard, not the freeze itself
+
+### DW-34: resolveTuning returns an unfrozen object and converts only top-level scalar keys, so a nested ...Ms tunable is silently never converted and a hand-written ...Ticks key would be overwritten
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: The {...tuning, ...scalarTicks} spread is a fresh mutable object, unlike the frozen TUNING it derives from; the loop walks Object.entries(tuning) one level deep and switchSettleMsByClass is special-cased by name. Story 1.6 adds the ported FlipperMover parameters, which is where nested ...Ms first becomes real.
+- 2026-08-28T06:36:49Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=cr note=freeze the result and throw on a ...Ticks key collision when the nested case lands
+
+### DW-35: msToTicks has no negative-value and no rounds-to-zero guard, so a sub-millisecond or negative tunable silently becomes 0 or a negative tick count
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: Math.round((ms * tickHz) / 1000) with only a Number.isFinite check. At the 480 Hz fallback time.ts calls live, any tunable under about 1.04 ms rounds to 0 ticks, disabling the timer it represents rather than failing loudly. No current tunable is affected at 1000 Hz.
+- 2026-08-28T06:36:49Z status=routed owner=1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop by=cr note=first story to consume resolveTuning against real timers
+
+### DW-36: FR-14's tilt-warning default of 1 is never transcribed, so GameAdjustments.tiltWarnings has no table default even though AD-15 lists tiltWarnings among the table tunables
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: epics.md FR-14: 'per-player Tilt warnings on the Backglass up to the Settings count (default 1)'. contracts/replay.ts declares readonly tiltWarnings: number on GameAdjustments; tuning.ts seeds tiltWarningSpacingMs and tiltSettleMs but no tiltWarnings. The value is artifact-stated, so the Block-If does not apply; task 7's own seed list simply does not name it.
+- 2026-08-28T06:36:49Z status=routed owner=2-11-tilt-warnings-tilt-and-slam-tilt by=cr note=the story that owns tilt warnings seeds the default
+
+### DW-37: The dependency-cruiser config has no no-circular rule and no rules constraining direction inside sim/, so a cycle among the seam contracts or a sim/table to sim/physics import passes
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: Six forbidden rules cover sim to host|presentation, sim to Babylon, contracts to outside, presentation to sim internals, host to physics|rules, and Havok. Nothing forbids sim/table importing sim/physics or sim/rules, nothing constrains physics vs rules direction, and no no-circular rule exists. The repo has no cycle today. Spec task 9 named five rules; review added the sixth.
+- 2026-08-28T06:37:03Z status=routed owner=burndown by=cr note=no-circular is six lines of config and would pass clean today
+
+### DW-38: no-device-name-literal has broad single-letter prefixes and no suppression mechanism, so an ordinary c_ f_ or l_ string in presentation code is a violation with no in-file escape hatch
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: The pattern is ^(s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$ over all of src/**. A CSS class 'c_hidden', a shader uniform 'f_time' or an i18n key 'l_label' matches; the only remedy is editing tools/boundary-lint.mjs. Epic 4's lighting and Epic 5's art are where non-device strings in that shape become likely.
+- 2026-08-28T06:37:03Z status=routed owner=burndown by=cr note=add a per-line suppression comment or a narrow allowlist before Epic 4
+
+### DW-39: The boundary-lint fixtures prove every rule fires but never prove its exemptions hold, so an over-broad exemption edit would leave the whole suite green
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: Fixtures exist for TICK_HZ named outside its two permitted files and a literal ...Ms outside tuning.ts, but nothing asserts that sim/contracts/time.ts and sim/table/tuning.ts are themselves exempt, nor that the exemption is path-exact rather than basename-matched; the same holds for no-device-name-literal's single dragonwar.ts exemption. Changing the check to relative.endsWith('tuning.ts') would pass every existing test.
+- 2026-08-28T06:37:03Z status=routed owner=burndown by=cr note=fixtures at the exact exempt paths plus a near-miss path each
+
+### DW-40: no-havok is scoped from ^src/ and the cruise only ever walks src, so the 'banned everywhere' promise is not enforced in tools/, test/ or root config files
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: tools/boundary-lint.mjs passes srcArg='src' to dependency-cruiser, so even an unscoped from: pattern could not reach tools/ or test/. Widening the cruise would subject test/fixtures/** (deliberate violations) to the real rules, so the fix is not a two-way door. No @babylonjs/havok entry can reach package.json without a check:attributions row first.
+- 2026-08-28T06:37:17Z status=wontfix-theoretical owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=cr note=real if a havok import ever lands in tools/ or test/ with an attributions row already present
+
+### DW-41: coilRampUp 2.5 from AR-17 is not seeded in tuning.ts
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: AR-17 states 'coil ramp-up 2.5' and AD-15 lists ramp-up among table tunables, but task 7's own 'seed exactly' list does not name it, and the spec's Consumed-by section explicitly assigns the ported FlipperMover parameters (strength, ramp-up, end-of-stroke, return) to Story 1.6 because their units come from the port. AR-17 states the magnitude but no unit, so a unit-suffixed name cannot be authored here without inventing one.
+- 2026-08-28T06:37:17Z status=by-design owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=cr note=Story 1.6 transcribes it with the port's units; re-raise there, not here
+
+### DW-42: src/host/loop.ts is absent although epics.md Story 1.3 AC 1 and AR-1 both name it in the structural seed
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: Verified absent: src/host holds boot.ts, build-info.ts and the four subdirectories. Task 8 rules it out explicitly ('src/host/loop.ts is Story 1.5's; note the gap in a comment') and the intent-contract's Never clause forbids building the fixed-step loop this story does not own; boot.ts carries the gap comment. A placeholder file would be the Never clause's violation, not its satisfaction.
+- 2026-08-28T06:37:17Z status=by-design owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=cr note=Story 1.5 creates it with advance(); the seed AC is satisfied by every other path
+
+### DW-43: The shipped page declares no favicon, so every load of the deployed site emits a 404 for /favicon.ico in the browser console
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: index.html; public/
+- evidence: Observed at Story 1.3's browser smoke against a real preview of the current dist: the only console error on load is 'Failed to load resource: 404' for http://localhost:4187/favicon.ico. index.html declares no icon link and public/ ships no favicon
+- 2026-08-28T06:46:08Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=smoke note=Cosmetic and pre-existing (index.html is Story 1.2's, untouched by 1.3), but it is a console error on every load of a public site and Story 6.1 owns the press-to-begin shell and error panel, so it is the natural place to add an icon

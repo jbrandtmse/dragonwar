@@ -91,6 +91,55 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary (one violation per r
 		expect(stderr).toContain('[sim-no-banned-global]');
 		expect(stderr).toContain('src/sim/banned-global.js');
 	});
+
+	// Review finding, this story's review pass: MS_BINDING_PATTERN matched
+	// plain decimal only, so every one of these spellings declared a literal
+	// millisecond inside src/sim/** while the lint reported OK.
+	it.each([
+		['separatorMs', 'a numeric separator (1_000)'],
+		['exponentMs', 'exponent notation (1e3)'],
+		['hexMs', 'a hex literal (0x10)'],
+		['leadingDotMs', 'a leading-dot literal (.5)'],
+		['DEBOUNCE_MS', 'the SCREAMING_SNAKE _MS suffix'],
+	])('catches "%s" declared with %s (AD-3: no literal millisecond outside tuning.ts)', (binding) => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/ms-literal-spellings.ts'));
+		expect(lines.join('\n')).toContain(`"${binding}"`);
+	});
+
+	it('catches a device name in the trailing chunk of a template literal, after a ${} interpolation', () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/presentation/device-name-template.ts'));
+		expect(lines, `expected exactly one violation, got:\n${lines.join('\n')}`).toHaveLength(1);
+		// Not "_troug": the delimiter strip is conditional, so the reported
+		// name is the real device name a maintainer can search for.
+		expect(lines[0]).toContain('"s_trough_1"');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- fails closed rather than scanning blind', () => {
+	it('throws, naming the file, when the tokenizer ends inside an unterminated span (regex literal containing a backtick)', () => {
+		const { status, stdout, stderr } = run([path.join(FIXTURES_ROOT, 'unterminated-span')]);
+		expect(status, `expected non-zero exit, stdout:\n${stdout}`).not.toBe(0);
+		expect(stderr).toContain('src/sim/regex-backtick.ts');
+		expect(stderr).toMatch(/unterminated template span/);
+		// The whole point: it must not silently report success over a file it
+		// could only partially classify.
+		expect(stdout).not.toMatch(/OK --/);
+	});
+
+	it('counts .mts toward graph coverage, so a file the swc parser cannot scan is reported, not skipped', () => {
+		const { status, stdout, stderr } = run([path.join(FIXTURES_ROOT, 'mts-coverage')]);
+		expect(status, `expected non-zero exit, stdout:\n${stdout}`).not.toBe(0);
+		expect(stderr).toContain('src/sim/hidden.mts');
+		expect(stderr).toContain('a lint that cannot see the files is a defect');
+		expect(stdout).not.toMatch(/OK --/);
+	});
+
+	it('never reports OK over a src/ tree containing no TypeScript at all (I/O matrix: "never exit 0 over an empty graph")', () => {
+		const { status, stdout, stderr } = run([path.join(FIXTURES_ROOT, 'empty-graph')]);
+		expect(status, `expected non-zero exit, stdout:\n${stdout}`).not.toBe(0);
+		expect(stderr).toMatch(/inspected nothing/);
+		expect(stdout).not.toMatch(/OK --/);
+	});
 });
 
 describe('tools/boundary-lint.mjs -- empty-graph / missing-file guard (test/fixtures/boundary/coverage-gap)', () => {

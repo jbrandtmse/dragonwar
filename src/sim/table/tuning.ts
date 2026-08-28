@@ -166,11 +166,11 @@ export type ResolvedTuning = typeof TUNING &
 		readonly switchSettleTicksByClass: Readonly<Record<SettleClass, TuningEntry<number>>>;
 	};
 
-function msToTicks(ms: number, label: string): number {
+function msToTicks(ms: number, label: string, tickHz: number): number {
 	if (!Number.isFinite(ms)) {
 		throw new Error(`resolveTuning(): "${label}" is not a finite number (got ${String(ms)})`);
 	}
-	return Math.round((ms * TICK_HZ) / 1000);
+	return Math.round((ms * tickHz) / 1000);
 }
 
 /**
@@ -179,28 +179,43 @@ function msToTicks(ms: number, label: string): number {
  * dictionary, gets a `…Ticks` sibling computed once from `TICK_HZ`. Values
  * and `source`/`confidence` survive unchanged on every entry; a non-finite
  * `…Ms` value throws (load-time paths throw -- AD-16 Conventions).
+ *
+ * `tickHz` is injectable so the conversion can be observed at a rate other
+ * than the current `TICK_HZ`. At 1000 Hz `Math.round(ms * 1000 / 1000) === ms`
+ * for every integer tunable, so a test pinned to the default rate cannot tell
+ * a real conversion from `return ms` -- and `TICK_HZ` is explicitly
+ * PROVISIONAL ("1000 on PASS, 480 on FAIL", `sim/contracts/time.ts`), which is
+ * exactly when a regressed conversion would start mattering (review finding,
+ * this story's review pass).
  */
-export function resolveTuning(tuning: typeof TUNING = TUNING): ResolvedTuning {
+export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = TICK_HZ): ResolvedTuning {
 	const scalarTicks: Record<string, TuningEntry<number>> = {};
 	for (const [key, value] of Object.entries(tuning)) {
 		if (!key.endsWith('Ms')) {
 			continue;
 		}
 		if (typeof value !== 'object' || value === null || !('value' in value) || typeof (value as TuningEntry<number>).value !== 'number') {
-			// switchSettleMsByClass is the one `…MsByClass` dictionary; it does not
-			// end in the literal "Ms" suffix this loop matches, so it never reaches
-			// here and is handled by name below instead.
-			continue;
+			// The I/O matrix's "Tunable conversion" row requires a throw here:
+			// "a tunable named `…Ms` whose value is not a finite number throws at
+			// load". This branch used to `continue`, which silently skipped
+			// exactly that case -- and its comment cited switchSettleMsByClass,
+			// which ends in "Class" and is filtered out one branch earlier, so
+			// the guard had no legitimate live use at all (review finding, this
+			// story's review pass).
+			throw new Error(
+				`resolveTuning(): "${key}" ends in "Ms" but is not a TuningEntry<number> ` +
+				`(got ${value === null ? 'null' : typeof value}); every …Ms tunable must carry a numeric value.`,
+			);
 		}
 		const entryValue = value as TuningEntry<number>;
 		const ticksKey = `${key.slice(0, -2)}Ticks`;
-		scalarTicks[ticksKey] = entry(msToTicks(entryValue.value, key), entryValue.source, entryValue.confidence);
+		scalarTicks[ticksKey] = entry(msToTicks(entryValue.value, key, tickHz), entryValue.source, entryValue.confidence);
 	}
 
 	const switchSettleTicksByClass: Record<string, TuningEntry<number>> = {};
 	for (const [settleClass, value] of Object.entries(tuning.switchSettleMsByClass)) {
 		switchSettleTicksByClass[settleClass] = entry(
-			msToTicks(value.value, `switchSettleMsByClass.${settleClass}`),
+			msToTicks(value.value, `switchSettleMsByClass.${settleClass}`, tickHz),
 			value.source,
 			value.confidence,
 		);

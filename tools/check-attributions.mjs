@@ -43,9 +43,20 @@ export function checkAttributions(
 	}
 	const normalizedAttributions = normalize(attributions);
 
+	// CLAUDE.md's provenance rule draws no distinction between kinds of
+	// dependency ("nothing enters this repository without known provenance"),
+	// so every manifest key that can introduce a third-party package is read,
+	// not just `dependencies`/`devDependencies` -- a package moved to
+	// `optionalDependencies` or `peerDependencies` would otherwise silently
+	// lose its attribution requirement (review finding, this story's review
+	// pass). None of the three extra keys is present today; this keeps the
+	// check total if one ever is.
 	const declared = {
 		...(pkg.dependencies ?? {}),
 		...(pkg.devDependencies ?? {}),
+		...(pkg.optionalDependencies ?? {}),
+		...(pkg.peerDependencies ?? {}),
+		...(pkg.bundledDependencies ?? {}),
 	};
 
 	const missing = [];

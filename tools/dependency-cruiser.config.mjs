@@ -38,6 +38,12 @@ export default {
 		doNotFollow: {
 			path: 'node_modules',
 		},
+		// Stated explicitly (this story's task 9 pins it) even though `false`
+		// is already the default: pre-compilation dependency resolution is
+		// dependency-cruiser's TypeScript-compiler-backed path, which is the
+		// very compiler-API dependency AD-16 forbids. Pinning it here means a
+		// future default change cannot quietly switch it on.
+		tsPreCompilationDeps: false,
 		// AD-16's own rationale: dependency-cruiser's TypeScript-compiler-backed
 		// pre-compilation-dependency resolution is exactly the compiler-API
 		// dependency this project avoids; swc's own import-graph resolution is

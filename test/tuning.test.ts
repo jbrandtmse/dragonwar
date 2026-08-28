@@ -161,4 +161,44 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		};
 		expect(() => resolveTuning(broken)).toThrow(/tiltSettleMs/);
 	});
+
+	// Review finding, this story's review pass: at TICK_HZ = 1000,
+	// Math.round(ms * 1000 / 1000) === ms for every integer tunable in TUNING,
+	// so every assertion above is satisfied by a resolveTuning() that does no
+	// conversion at all (`return ms` was verified to leave the whole suite
+	// green). time.ts marks TICK_HZ PROVISIONAL -- "1000 on PASS, 480 on
+	// FAIL" -- which is precisely when a regressed conversion would start
+	// silently mis-scaling every debounce, tilt and plunger duration. These
+	// cases evaluate the conversion at a rate where it is NOT the identity.
+	describe('the conversion is real, not the identity it looks like at 1000 Hz', () => {
+		const at480 = resolveTuning(TUNING, 480);
+
+		it('scales a 500 ms tunable to 240 ticks at 480 Hz', () => {
+			expect(at480.tiltWarningSpacingMs.value).toBe(500);
+			expect(at480.tiltWarningSpacingTicks.value).toBe(240);
+		});
+
+		it('scales the AD-2 settle classes by the tick rate, not by copying the ms figures', () => {
+			expect(at480.switchSettleTicksByClass.standup.value).toBe(4);
+			expect(at480.switchSettleTicksByClass.drop_target.value).toBe(10);
+			expect(at480.switchSettleTicksByClass.bumper_skirt.value).toBe(1);
+			expect(at480.switchSettleTicksByClass.rollover.value).toBe(0);
+		});
+
+		it('rounds rather than truncates (3000 ms at 480 Hz is 1440 ticks)', () => {
+			expect(at480.tiltSettleTicks.value).toBe(1440);
+		});
+
+		it('still preserves source and confidence at any rate', () => {
+			expect(at480.tiltSettleTicks.source).toBe(TUNING.tiltSettleMs.source);
+			expect(at480.tiltSettleTicks.confidence).toBe(TUNING.tiltSettleMs.confidence);
+		});
+	});
+
+	it('throws for a …Ms key whose value is not a numeric TuningEntry (I/O matrix: load-time paths throw)', () => {
+		// Previously a silent `continue`, so a mis-shaped …Ms tunable was
+		// dropped from the conversion with no counterpart and no complaint.
+		const broken = { ...TUNING, brokenMs: { source: 'test fixture', confidence: 'unverified' as const } };
+		expect(() => resolveTuning(broken as unknown as typeof TUNING)).toThrow(/brokenMs/);
+	});
 });

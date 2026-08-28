@@ -9,7 +9,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
-import type { BallDeviceName, CoilName, SwitchName } from '../src/sim/table/names';
+import type {
+	BallDeviceName,
+	CoilName,
+	SwitchName,
+	CoilCommand as BoundCoilCommand,
+	MachineState as BoundMachineState,
+	SwitchEvent as BoundSwitchEvent,
+} from '../src/sim/table/names';
 
 describe('TABLE.reference -- AD-10 / AR-16 exact figures', () => {
 	it('matches the spine\'s reference dimensions exactly', () => {
@@ -132,5 +139,42 @@ describe('Integration AC -- names.ts binds the name unions to TABLE; an unknown 
 		// `pnpm typecheck`, not discovered at runtime (this story's own
 		// I/O-matrix row, "Name unions bind to TABLE").
 		acceptsSwitchName('s_not_a_switch');
+	});
+
+	// Review finding, this story's review pass: the thirteen BOUND seam
+	// aliases in names.ts had no consumer and no test anywhere in src/, test/
+	// or tools/. Every generic in sim/contracts/** is constrained
+	// `TX extends string`, so loosening a binding to `ContractsSnapshot<string>`
+	// (or binding the wrong union) still typechecks and every gate in this
+	// story stays green -- the Integration AC was verified for `SwitchName`
+	// read directly, but not for the seam types Stories 1.5/1.6 will import.
+	// These cases exercise the bound aliases themselves.
+	it('the bound seam aliases carry TABLE\'s unions, so a wrong device name is a type error', () => {
+		const sw: BoundSwitchEvent = { type: 'switch', switch: 's_start', closed: true, tick: 0 };
+		expect(sw.switch).toBe('s_start');
+
+		const coil: BoundCoilCommand = { type: 'coil', coil: 'c_flipper_l', action: 'pulse', tick: 0 };
+		expect(coil.coil).toBe('c_flipper_l');
+
+		// @ts-expect-error -- bound to SwitchName, so an unknown switch fails here
+		// exactly as it does on the bare name union above.
+		const badSwitch: BoundSwitchEvent = { type: 'switch', switch: 's_nope', closed: true, tick: 0 };
+		void badSwitch;
+
+		// @ts-expect-error -- bound to CoilName; 's_start' is a switch, not a coil,
+		// so binding the wrong union to this alias would be caught.
+		const badCoil: BoundCoilCommand = { type: 'coil', coil: 's_start', action: 'pulse', tick: 0 };
+		void badCoil;
+	});
+
+	it('the bound Snapshot/MachineState alias is keyed by BallDeviceName, not by string', () => {
+		function acceptsBallDeviceKey(key: keyof BoundMachineState['deviceSlots']): string {
+			return key;
+		}
+		expect(acceptsBallDeviceKey('bd_trough')).toBe('bd_trough');
+
+		// @ts-expect-error -- if MachineState were bound to `string` (or to the
+		// wrong union) this line would compile, and nothing else would notice.
+		acceptsBallDeviceKey('bd_not_a_device');
 	});
 });

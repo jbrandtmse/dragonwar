@@ -501,6 +501,131 @@ out of footprint; see task 19 and the footprint ruling in Design Notes.)
   job's condition is still `github.event_name != 'pull_request' && github.ref == 'refs/heads/main'`,
   no epic-branch trigger exists anywhere in the file, and `index.html`'s CSP meta tag is unchanged.
 
+### Review Findings
+
+**Code review, 2026-08-28.** Review tier `full-opus` (no `_bmad/custom/model-overrides.yaml` exists,
+so every layer inherited the reviewing agent's Opus tier). All four layers ran: Blind Hunter, Edge
+Case Hunter, Verification Gap Reviewer and Acceptance Auditor (armed because `{review_mode}` =
+"full"). No layer failed or returned empty; none reported editing or committing anything, confirmed
+against `git status --short`.
+
+**Verdict: the enforcement machinery is real and it bites.** The negative probes were re-run
+independently of the implement stage: every dependency-cruiser rule, the coverage guard, the tick/ms
+rule, the device-name rule, the header check and the attribution check each fail on deliberately
+violating input, and `pnpm lint:boundaries` reports 51 of 51 `.ts` files under `src/`, matching
+`find src -name '*.ts' | wc -l`. The Acceptance Auditor's field-by-field pass against the spine's
+Seam Contracts table (line 228), `TABLE.reference` (AD-10), the AD-2 settle classes and AR-17's
+material values found no mismatch. **Rule 6: no ADR violation was found** across the governing set
+AD-1, AD-2, AD-3, AD-4, AD-6, AD-7, AD-9, AD-10, AD-11, AD-15, AD-16, AD-17. The deploy guard, the
+CSP tag and the third-party notices are byte-identical to Story 1.2, and `tools/check-dist.mjs`
+gained the SHA-stamp assertion without losing a notice assertion. **Provenance re-verified at
+source:** `node_modules/dependency-cruiser/LICENSE` opens "The MIT License (MIT) / Copyright (c)
+2016-2026 Sander Verweij" and `node_modules/@swc/core/LICENSE` opens with the Apache License 2.0
+header — both rows name the licence file URL read and the date, and both licences are genuinely what
+the rows claim.
+
+What the review did find was a cluster of holes in the gate's own *reach* — this story's signature
+hazard, stated in its own Always rule ("A lint that cannot see the files is a defect, not a pass").
+Each was reproduced against the shipped tool before being patched, and each now has a regression
+test. Test count 335 to **356**.
+
+**Patched (12).**
+
+| # | Finding | Sev / fix-risk | Evidence |
+|---|---|---|---|
+| 1 | `tools/boundary-lint.mjs` reported **OK and exit 0 over a `src/` containing no TypeScript at all** — the guard read `expected.size > 0 && totalCruised === 0`, so both being zero passed. Directly contradicts the I/O matrix's "never exit 0 over an empty graph". | med / low | Reproduced: `[boundary-lint] OK -- 0 .ts file(s) under src/ cruised`, exit 0 |
+| 2 | The tokenizer **silently blinded every textual check for the rest of a file** when it ended inside an unterminated span: a regex literal containing a backtick opened a template that never closed, and a following `new Date()` went unreported. Same class as the multi-interpolation template bug the implement-stage review already fixed, but failing silently. Now fails closed, naming the file. | med / low | Reproduced with a regex literal holding a backtick |
+| 3 | **`.mts`/`.cts` files under `src/` were invisible to all five checks and to the coverage guard**, which collected only `.ts`. The swc parser reports `.mts` as unscannable, so such a file was neither cruised nor counted missing. `check-licence-headers` already treats them as authored source, so the two gates disagreed about what exists. | med / low | A `src/sim/hidden.mts` carrying four violations produced exit 0 |
+| 4 | `MS_BINDING_PATTERN` matched **plain decimal only**, so `1_000`, `1e3`, `0x10`, `.5` and the `DEBOUNCE_MS` spelling each declared a literal millisecond inside `src/sim/**` unflagged — AD-3's rule enforced for one spelling of the number. | med / low | All five reproduced; all five now caught |
+| 5 | `extractStringLiterals()` stripped one character from **both ends of every span unconditionally**, but template chunks adjacent to an interpolation have no delimiter there: a leading-interpolation template became `_troug` and was missed entirely, while a trailing-interpolation one was reported as `"s_star"` — a device name that does not exist. | med / low | Both reproduced |
+| 6 | `resolveTuning()` **silently continued** past a `…Ms` key whose value is not a numeric `TuningEntry`, where the I/O matrix's "Tunable conversion" row requires a throw. Its comment cited `switchSettleMsByClass`, which ends in `Class` and is filtered out one branch earlier, so the guard had no legitimate live use. | med / low | I/O matrix row, verbatim |
+| 7 | **The ms-to-ticks conversion was unobservable.** At `TICK_HZ = 1000` the conversion is arithmetically the identity for every tunable, and both conversion tests recomputed the expectation with the implementation's own formula — replacing `msToTicks` with `return ms` left the whole suite green. `TICK_HZ` is explicitly PROVISIONAL ("480 on FAIL"), which is exactly when a regressed conversion starts mis-scaling every timer. `resolveTuning` now takes an injectable `tickHz`; new cases pin 500 ms to 240 ticks at 480 Hz. | med / low | Verified: `return ms` passes the pre-existing suite |
+| 8 | **`pnpm typecheck`'s three-project composition was unpinned.** The root `tsconfig.json` is now a solution file (`files: []`), so a bare `tsc --noEmit` compiles zero files and exits 0; the whole gate rests on `package.json`'s script naming all three projects, and nothing observed that. `tsconfig.app.json` is the only program covering `src/host/**`, including `build-info.ts`'s AR-34 stamp. | med / low | `tsc --noEmit --listFiles` at the root lists nothing, exit 0 |
+| 9 | **`names.ts`'s thirteen bound seam aliases had no consumer and no test.** Every contract generic is constrained `TX extends string`, so loosening a binding to `Snapshot<string>` typechecks and every gate stays green — the Integration AC was proven for `SwitchName` read directly, not for the seam types Stories 1.5/1.6 will import. | med / low | Only `test/table.test.ts` imported `table/names`, and only three bare unions |
+| 10 | `check-licence-headers` used `git ls-files` **without `-z`**, so a tracked path containing a non-ASCII byte comes back C-quoted, parses as extension `.ts"`, and was silently skipped by the check that exists to leave no source file unexamined. It also reported OK over an empty file list. | low / low | `core.quotePath` default behaviour |
+| 11 | `check-attributions` read only `dependencies`/`devDependencies`. `CLAUDE.md`'s provenance rule draws no such distinction, and a package moved to `optionalDependencies` or `peerDependencies` would silently lose its attribution requirement — the same class of miss that let `babylonjs-gltf2interface` through until Story 1.2's review caught it by hand. | low / low | An `optionalDependencies` entry returned no finding |
+| 12 | `ATTRIBUTIONS.md` had a **blank line between the `babylonjs-gltf2interface` and `vite` rows**, terminating the GFM table so the `vite` provenance row rendered as literal text rather than a row of the Code table. Pre-existing at the baseline (Story 1.2's review added the row); one-line fix, in-footprint. | low / low | `git show 19c822d:ATTRIBUTIONS.md` |
+
+Also restored `tsPreCompilationDeps: false` to `tools/dependency-cruiser.config.mjs`, which task 9
+pins explicitly and the config omitted. It is behaviourally inert (that is the default), but it is
+the setting that keeps dependency-cruiser off the TypeScript compiler API AD-16 forbids, so pinning
+it means a future default change cannot quietly switch it on.
+
+**Ledgered (13 new entries, 3 occurrences appended).** `DW-30` and `DW-31` to Story 6.7 (the
+licence-header allowlist misses `.glsl`/`.sh`/`.ps1`/`.svg`, which Epic 4's shaders will hit; and
+`check-attributions` accepts a bare name match anywhere, so a stale version or a prose mention
+satisfies a row). `DW-34` to Story 1.6, `DW-35` to Story 1.5, `DW-36` to Story 2.11 (FR-14's
+tilt-warning default of 1 is unseeded although AD-15 lists `tiltWarnings` as a table tunable).
+`DW-32`, `DW-33`, `DW-37`, `DW-38`, `DW-39` to burndown. Terminal, recorded as calibration so a
+later pass does not re-file them: `DW-40` (`no-havok`'s `^src/` scope, `wontfix-theoretical` — the
+cruise only walks `src` anyway, and widening it would subject the deliberate-violation fixtures to
+the real rules), `DW-41` (`coilRampUp` 2.5, `by-design` — AR-17 states the magnitude but no unit,
+and this spec's own Consumed-by section assigns the ported FlipperMover parameters to Story 1.6
+because their units come from the port), `DW-42` (`src/host/loop.ts` absent, `by-design` — task 8
+rules it out and the intent-contract's Never clause forbids building Story 1.5's loop, so a
+placeholder would violate it rather than satisfy it). Occurrences appended to `DW-26` (hopControl —
+the Acceptance Auditor found AR-17 and AD-15 name it too, which the spec's Block-If reasoning cites
+neither of; the disposition remains the lead's), `DW-27` and `DW-28`.
+
+**Dismissed as spec-conformant** after checking the binding artifact rather than the code:
+`ContactEvent`'s optional `ballId`/`speed`/`surface`/`pos`/`device` fields (the spine's Seam
+Contracts table specifies exactly that shape) and `FrameOutput.commands` excluding `RecoverCommand`
+(the same table defines `commands` as lamp, GI, flasher and show commands only). Also closed
+`by-design`: PR-branch pushes running the workflow twice (task 18 required widening `on.push` to
+every branch, which closes `DW-22`; push and `pull_request` carry different `github.ref` values and
+cannot dedupe), and `tsconfig.node.json`'s DOM lib plus `check-licence-headers`' three tree
+exclusions — both deviate from a task's literal text but are load-bearing and relax no boundary,
+since `tsconfig.sim.json` still carries `lib: ["ES2023"], types: []`, which is where AD-16's DOM ban
+actually lives.
+
+**Rule 3 — real-runtime test evidence: EXEMPT, noted as the rule requires.** This is a
+build-pipeline, internal-tooling and type-contract story. Its tool deliverables are all exercised by
+real `spawnSync` subprocess invocations with exit-code and message assertions against deliberately
+violating fixtures, and `test/typecheck-sim-boundary.test.ts` spawns a real `tsc`. The single
+user-facing byte is `boot.ts`'s `data-build-sha` attribute, a build-provenance marker whose consumer
+(Story 6.3's Settings panel) does not exist yet; it is covered by a source-text pin plus
+`check-dist`'s bundle assertion, verified here end-to-end (correct SHA passes, wrong SHA fails
+loudly). The project has no browser test harness at all — no jsdom, no Playwright — so a browser-MCP
+test would mean new infrastructure this story did not scope, and the lead's manual smoke is the
+separate later gate. **Rule 1 — Integration ACs: satisfied**, and now genuinely tested (patch 9).
+**Rule 5 — NFR tripwire: not triggered**; no NFR was worked around with code comments plus a ledger
+entry.
+
+**Full chain re-run green after every patch:** `pnpm typecheck` (three projects), `pnpm
+lint:boundaries` (51/51), `pnpm check:headers`, `pnpm check:attributions`, `pnpm test` (**356/356
+across 23 files**), `pnpm build`, `pnpm check:dist`, `pnpm check:size`. The working tree carries
+only this story's files: no `dist/`, no `node_modules/`, no `docs/spikes/**`, no `AGENTS.md`, and no
+planning artifact touched.
+
+**Finding checklist.** 0 `decision-needed`, 12 `patch` (all applied), 13 `defer` (all ledgered
+with an owner), 9 dismissed as noise or spec-conformant.
+
+- [x] [Review][Patch] Boundary lint reported OK and exit 0 over a `src/` holding no TypeScript [tools/boundary-lint.mjs:452]
+- [x] [Review][Patch] Tokenizer silently blinded every check after an unterminated span [tools/boundary-lint.mjs:125]
+- [x] [Review][Patch] `.mts`/`.cts` under `src/` invisible to every check and to the coverage guard [tools/boundary-lint.mjs:59]
+- [x] [Review][Patch] `MS_BINDING_PATTERN` matched plain decimal only, missing `1_000`/`1e3`/`0x10`/`.5`/`_MS` [tools/boundary-lint.mjs:333]
+- [x] [Review][Patch] `extractStringLiterals()` mis-sliced template chunks beside an interpolation [tools/boundary-lint.mjs:289]
+- [x] [Review][Patch] `resolveTuning()` skipped a non-numeric `…Ms` entry where the I/O matrix requires a throw [src/sim/table/tuning.ts:189]
+- [x] [Review][Patch] The ms-to-ticks conversion was the identity at 1000 Hz and therefore untested [src/sim/table/tuning.ts:183]
+- [x] [Review][Patch] `pnpm typecheck`'s three-project composition was unpinned [package.json:13]
+- [x] [Review][Patch] `names.ts`'s thirteen bound seam aliases had no consumer and no test [src/sim/table/names.ts:50]
+- [x] [Review][Patch] `check-licence-headers` used `git ls-files` without `-z`, silently skipping quoted paths [tools/check-licence-headers.mjs:46]
+- [x] [Review][Patch] `check-attributions` ignored `optionalDependencies`/`peerDependencies` [tools/check-attributions.mjs:46]
+- [x] [Review][Patch] A blank line split the Code table so the `vite` provenance row did not render [ATTRIBUTIONS.md:31]
+- [x] [Review][Defer] Licence-header extension allowlist misses `.glsl`/`.sh`/`.ps1`/`.svg` — ledger `DW-30`, owner Story 6.7
+- [x] [Review][Defer] `check-attributions` accepts a bare name match anywhere in the file — ledger `DW-31`, owner Story 6.7
+- [x] [Review][Defer] The three tsconfig projects do not provably cover all of `src/` — ledger `DW-32`, owner burndown
+- [x] [Review][Defer] `deepFreeze` short-circuits on an already-frozen node — ledger `DW-33`, owner burndown
+- [x] [Review][Defer] `resolveTuning` returns an unfrozen object and converts only top-level keys — ledger `DW-34`, owner Story 1.6
+- [x] [Review][Defer] `msToTicks` has no negative or rounds-to-zero guard — ledger `DW-35`, owner Story 1.5
+- [x] [Review][Defer] FR-14's tilt-warning default of 1 is unseeded — ledger `DW-36`, owner Story 2.11
+- [x] [Review][Defer] No `no-circular` rule and no intra-`sim/` layering rules — ledger `DW-37`, owner burndown
+- [x] [Review][Defer] `no-device-name-literal` has broad prefixes and no escape hatch — ledger `DW-38`, owner burndown
+- [x] [Review][Defer] Fixtures prove every rule fires but never prove its exemptions hold — ledger `DW-39`, owner burndown
+- [x] [Review][Defer] `no-havok` scoped to `^src/` — ledger `DW-40`, `wontfix-theoretical`
+- [x] [Review][Defer] `coilRampUp` 2.5 not seeded — ledger `DW-41`, `by-design` (Story 1.6 owns the port's units)
+- [x] [Review][Defer] `src/host/loop.ts` absent — ledger `DW-42`, `by-design` (task 8; Story 1.5 owns the loop)
+
 ## Spec Change Log
 
 - **2026-08-28 -- lead, spec-validation gate.** Removed task 19 (`AGENTS.md` refresh) as outside
@@ -790,6 +915,37 @@ because they are new trees.
   `VITE_BUILD_SHA=<sha> pnpm build`, `check:dist` additionally confirms the stamp.
 - `git status --short` -- expected: only the files listed in the Code Map; no `dist/`, no
   `node_modules/`, no edits to `docs/spikes/**`.
+
+**(QA) Test files added:**
+- `test/typecheck-sim-boundary.test.ts` -- persists the `pnpm typecheck` manual demonstration above
+  (`document.title;` injected into `src/sim/**`, confirmed `TS2584`, reverted) as a real subprocess
+  `tsc --noEmit` regression test, so `DW-15`'s closure is enforced by the automated suite rather
+  than re-demonstrated by hand each time. Runs `tsc` against a fixture tsconfig that `extends` the
+  real, shipped `tsconfig.sim.json` (not a hand-copied duplicate of its `lib`/`types` values) with
+  only `include` repointed at the fixture directory below, so a future edit that widens the real
+  file's `lib`/`types` back toward DOM changes what this test observes. Covers the I/O matrix's
+  "DOM/Node global in sim/" row for all eight named identifiers (`document` TS2584;
+  `window`/`navigator`/`performance`/`setTimeout`/`setInterval`/`requestAnimationFrame`/
+  `localStorage` TS2304, each verified empirically against the real tsconfig chain before writing
+  the assertions) plus two controls: `Date`/`Math.random`/`globalThis` must NOT be rejected here
+  (legal ES2023; confirms they remain `tools/boundary-lint.mjs`'s job, not double-claimed by this
+  project) and a DOM/Node-global-free file must typecheck clean (proves the fixture harness itself
+  works, isolating a real regression from a broken harness). A second describe block runs
+  `tsc -p tsconfig.sim.json` against the real `src/sim/**` tree directly, so a genuinely reintroduced
+  DOM/Node reference anywhere in the shipped source -- not just the fixture -- also fails this suite.
+  Negative-controlled by hand during QA (a throwaway config with `lib: ["ES2023","DOM"]` was cruised
+  against the same fixtures and confirmed exit 0), proving the test is not vacuous: it depends on the
+  real file's `lib`/`types` values, not a hardcoded duplicate.
+- `test/fixtures/tsc-sim-boundary/**` -- the fixture tree the test above spawns `tsc` against:
+  `tsconfig.json` (`extends: "../../../tsconfig.sim.json"`, `include: ["*.ts"]`), one `.ts` file per
+  banned identifier (`document.ts`, `window.ts`, `navigator.ts`, `performance.ts`,
+  `set-timeout.ts`, `set-interval.ts`, `request-animation-frame.ts`, `local-storage.ts`), plus
+  `legal-es2023-globals.ts` and `clean.ts` as the two negative controls above. Already excluded from
+  every real tsconfig's own `include` via `tsconfig.node.json`'s `exclude: ["test/fixtures/**"]` (the
+  same clause that excludes `test/fixtures/boundary/**`), confirmed by a clean `pnpm typecheck` run
+  with these fixtures present; every `.ts` file carries the GPL-3.0 header. Confirmed excluded from
+  `tools/boundary-lint.mjs`'s own scan too (`src/` only) -- `pnpm lint:boundaries` still reports
+  51/51 `.ts` files under `src/` with these fixtures present.
 
 **Manual checks (if no CLI):**
 - Read `.github/workflows/ci.yml`'s `deploy` job after editing: its `if:` must still read

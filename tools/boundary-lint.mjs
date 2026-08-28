@@ -48,15 +48,25 @@ const TOOL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const DEPCRUISE_BIN = path.join(TOOL_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruise.mjs');
 const DEPCRUISE_CONFIG = path.join(TOOL_ROOT, 'tools', 'dependency-cruiser.config.mjs');
 
-// Not just `.ts`: a `.js`/`.mjs`/`.cjs`/`.tsx` file dropped under src/ would
-// otherwise bypass every textual check below entirely. This is the same
-// extension set test/sim-boundary.test.ts's superseded stand-in scanned
-// (review finding, this story's own review pass: the three textual checks
-// below had narrowed to `.ts`-only, regressing that defense-in-depth). Only
-// dependency-cruiser's own coverage guard (below) stays `.ts`-only -- that
-// guard's job is specifically proving TypeScript files reach the swc parser
-// (DW-15's own failure mode), not textual scanning breadth.
-const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|js|mjs|cjs)$/;
+// Not just `.ts`: a `.js`/`.mjs`/`.cjs`/`.tsx`/`.mts`/`.cts` file dropped
+// under src/ would otherwise bypass every textual check below entirely. This
+// is the same extension set test/sim-boundary.test.ts's superseded stand-in
+// scanned (review finding, this story's own review pass: the three textual
+// checks below had narrowed to `.ts`-only, regressing that defense-in-depth),
+// widened again with `.mts`/`.cts` -- the swc parser reports those as NOT
+// scannable (`depcruise --info` prints `x .mts`, `x .cts`), and
+// tools/check-licence-headers.mjs already treats them as authored source, so
+// leaving them out here let a `src/sim/*.mts` module import upward, reference
+// `Date`, author literal milliseconds and hard-code device names while
+// `pnpm lint:boundaries` reported OK (review finding, this story's review
+// pass; reproduced against the shipped tool).
+const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+// The coverage guard's own set (check (b)). Kept to the TypeScript
+// extensions the import graph is supposed to cover: any of these that
+// dependency-cruiser did not return is a blind spot, whether because the
+// parser dropped the extension (DW-15's own failure mode, and what `.mts`
+// and `.cts` do today) or because a path filter hid the file.
+const GRAPH_COVERAGE_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts)$/;
 
 const DEVICE_NAME_PATTERN = /^(?:s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$/;
 const BANNED_TOKENS_ALWAYS = ['Date', 'Math.random', 'globalThis'];
@@ -117,12 +127,19 @@ function lineOf(source, index) {
  * `code`, brace-depth tracked via a stack so nested braces/templates inside
  * an interpolation resolve correctly). Not regex-literal aware -- no `/…/`
  * regex literal exists anywhere under `src/` today (verified by inspection
- * during this story's implementation); a future one containing `//` or `/*`
- * could confuse this tokenizer, the same class of accepted limitation
- * `test/sim-boundary.test.ts`'s superseded stand-in documented for its own
- * simpler `//`-only comment stripper.
+ * during this story's implementation); a future one containing `//`, `/*`, a
+ * quote or a backtick could confuse this tokenizer.
+ *
+ * Where the superseded stand-in merely accepted that limitation, this
+ * tokenizer FAILS CLOSED on it: if the scan reaches end-of-file still inside
+ * an unterminated comment, string or template span, every later check would
+ * silently see blanked-out text instead of code, which is precisely the
+ * "green but blind" failure this story exists to prevent ("A lint that cannot
+ * see the files is a defect, not a pass"). That state throws instead, naming
+ * the file (review finding, this story's review pass; reproduced with
+ * `const re = /[`]/;`, after which a real `new Date()` went unreported).
  */
-function tokenize(source) {
+function tokenize(source, file) {
 	const tokens = [];
 	const n = source.length;
 	let i = 0;
@@ -266,6 +283,18 @@ function tokenize(source) {
 		i += 1;
 	}
 	emit(mode, n);
+	// Fail closed (see this function's doc comment). `line-comment` is a
+	// legitimate end state (a file whose last line is `// …` with no trailing
+	// newline); the other four mean the scan lost sync and everything after
+	// that point was masked out of every check.
+	if (mode === 'template' || mode === 'block-comment' || mode === 'string-single' || mode === 'string-double') {
+		throw new BoundaryLintError(
+			`${file}: reached end-of-file still inside an unterminated ${mode} span, so the rest of the file could not be ` +
+			`classified as code and the textual checks would have silently seen nothing after that point. This scanner is ` +
+			`deliberately not regex-literal aware: a regex literal containing a quote or a backtick is the usual cause. ` +
+			`Rewrite it as new RegExp('…') so the boundary lint can see the whole file.`,
+		);
+	}
 	return tokens;
 }
 
@@ -285,6 +314,8 @@ function maskForCodeOnly(source, tokens) {
 	return chars.join('');
 }
 
+const LITERAL_DELIMITERS = '\'"`';
+
 /** Every string/template-literal span's inner text (quotes stripped), with its 1-based start line. */
 function extractStringLiterals(source, tokens) {
 	const out = [];
@@ -293,9 +324,16 @@ function extractStringLiterals(source, tokens) {
 			continue;
 		}
 		const raw = source.slice(token.start, token.end);
-		// Strip exactly one leading and one trailing quote/backtick -- `emit()`
-		// always includes both delimiters for a well-formed literal.
-		const inner = raw.length >= 2 ? raw.slice(1, -1) : '';
+		// Strip a delimiter only where one is actually present. A template
+		// literal split by `${…}` yields chunk spans that begin and/or end at
+		// the interpolation rather than at a backtick, so the previous
+		// unconditional slice(1, -1) ate a real character: `` `${p}s_start` ``
+		// became "_star" and was missed entirely, while `` `s_start${p}` ``
+		// became "s_star" and was reported under a device name that does not
+		// exist (review finding, this story's review pass; both reproduced).
+		const lead = raw.length > 0 && LITERAL_DELIMITERS.includes(raw[0]) ? 1 : 0;
+		const tail = raw.length > lead && LITERAL_DELIMITERS.includes(raw[raw.length - 1]) ? raw.length - 1 : raw.length;
+		const inner = raw.slice(lead, tail);
 		out.push({ text: inner, line: lineOf(source, token.start) });
 	}
 	return out;
@@ -312,8 +350,8 @@ function checkBannedGlobals(simRoot, relRoot) {
 	const files = listFilesRecursive(simRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
 	for (const file of files) {
 		const source = readFileSync(file, 'utf8');
-		const codeOnly = maskForCodeOnly(source, tokenize(source));
 		const relative = toPosix(path.relative(relRoot, file));
+		const codeOnly = maskForCodeOnly(source, tokenize(source, relative));
 		for (const token of BANNED_GLOBAL_TOKENS) {
 			const pattern = bannedTokenPattern(token);
 			let match;
@@ -330,7 +368,18 @@ function checkBannedGlobals(simRoot, relRoot) {
 	return violations;
 }
 
-const MS_BINDING_PATTERN = /\b([A-Za-z_$][A-Za-z0-9_$]*Ms)\b\s*(?::\s*number\s*)?[:=]\s*(-?\d+(?:\.\d+)?)\b/g;
+// A numeric literal in any legal ES2023 spelling. The original
+// `-?\d+(?:\.\d+)?\b` matched plain decimal only, so `1_000` (numeric
+// separator -- the trailing \b could not cross the `_`), `1e3` (exponent),
+// `0x10` (hex) and `.5` (leading dot) every one of them evaded AD-3's
+// literal-millisecond rule; all four were reproduced against the shipped tool
+// (review finding, this story's review pass). The `_MS` alternative catches
+// the SCREAMING_SNAKE spelling of the same thing (`DEBOUNCE_MS = 20`).
+const NUMERIC_LITERAL_SOURCE = String.raw`-?(?:0[xX][0-9a-fA-F][0-9a-fA-F_]*|0[bB][01][01_]*|0[oO][0-7][0-7_]*|(?:\d[\d_]*)?\.\d[\d_]*|\d[\d_]*(?:\.[\d_]*)?)(?:[eE][+-]?\d[\d_]*)?n?`;
+const MS_BINDING_PATTERN = new RegExp(
+	String.raw`\b([A-Za-z_$][A-Za-z0-9_$]*(?:Ms|_MS))\b\s*(?::\s*number\s*)?[:=]\s*` + NUMERIC_LITERAL_SOURCE,
+	'g',
+);
 const TICK_HZ_PATTERN = /\bTICK_HZ\b/g;
 
 /** Check (d): AD-3's tick/ms rule, textual. */
@@ -341,8 +390,8 @@ function checkTickMsRule(simRoot, relRoot) {
 	const files = listFilesRecursive(simRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
 	for (const file of files) {
 		const source = readFileSync(file, 'utf8');
-		const codeOnly = maskForCodeOnly(source, tokenize(source));
 		const relative = toPosix(path.relative(relRoot, file));
+		const codeOnly = maskForCodeOnly(source, tokenize(source, relative));
 
 		if (relative !== timeFile && relative !== tuningFile) {
 			let match;
@@ -384,7 +433,7 @@ function checkDeviceNameLiterals(srcRoot, relRoot) {
 			continue;
 		}
 		const source = readFileSync(file, 'utf8');
-		const literals = extractStringLiterals(source, tokenize(source));
+		const literals = extractStringLiterals(source, tokenize(source, relative));
 		for (const literal of literals) {
 			if (DEVICE_NAME_PATTERN.test(literal.text)) {
 				violations.push({
@@ -443,13 +492,26 @@ function runImportGraphChecks(root) {
 	// result -- "a lint that cannot see the files is a defect, not a pass."
 	const expected = new Set(
 		listFilesRecursive(srcDir)
-			.filter((f) => f.endsWith('.ts'))
+			.filter((f) => GRAPH_COVERAGE_EXTENSION_PATTERN.test(f))
 			.map((f) => toPosix(path.relative(root, f))),
 	);
 	const seen = new Set((report.modules ?? []).map((m) => toPosix(m.source)));
 	const missing = [...expected].filter((f) => !seen.has(f)).sort();
 
-	if (missing.length > 0 || (expected.size > 0 && report.summary?.totalCruised === 0)) {
+	// An empty expected set is itself a blind lint: the previous guard read
+	// `expected.size > 0 && totalCruised === 0`, so a src/ tree holding no
+	// TypeScript at all sailed through with "[boundary-lint] OK -- 0 .ts
+	// file(s) under src/ cruised" and exit 0 -- the exact thing this story's
+	// I/O matrix forbids ("never exit 0 over an empty graph") and its own
+	// Always rule calls a defect (review finding, this story's review pass).
+	if (expected.size === 0) {
+		throw new BoundaryLintError(
+			`no TypeScript file was found under ${toPosix(path.relative(TOOL_ROOT, srcDir))}, so this run inspected nothing -- ` +
+			`a lint that cannot see the files is a defect, not a pass. Never exit 0 over an empty graph.`,
+		);
+	}
+
+	if (missing.length > 0 || report.summary?.totalCruised === 0) {
 		// A best-effort, separately-invoked `--info` for the failure message --
 		// the JSON reporter's own `environment` field was found empirically not
 		// to be populated reliably across runs, so this dedicated call is the
