@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!-- DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md. -->
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'">
+	<title>DragonWar</title>
+	<link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+	<!--
+		AD-17's minimum boot gate (Story 6.1 owns the full platform gate and error
+		panel). #gate is interactive from first paint -- before any engine, asset
+		or WebGL2 check runs -- and src/host/boot.ts either leaves it showing the
+		press-to-begin button or replaces its message with the unsupported-browser
+		text, entirely before any asset is requested.
+	-->
+	<main id="gate">
+		<h1>DragonWar</h1>
+		<p id="gate-message">Press to begin.</p>
+		<button type="button" id="begin-button">Press to begin</button>
+		<p>
+			<a id="notices-link" href="./THIRD-PARTY-NOTICES.txt">Third-party notices</a>
+		</p>
+	</main>
+
+	<!-- Boot-stage failure panel (asset 404, glb parse, engine creation). Hidden
+	     until src/host/boot.ts reveals it; never white-screens. -->
+	<section id="error-panel" hidden>
+		<h1>Something went wrong</h1>
+		<p id="error-message"></p>
+	</section>
+
+	<canvas id="render-canvas" hidden></canvas>
+
+	<script type="module" src="./src/host/boot.ts"></script>
+</body>
+</html>

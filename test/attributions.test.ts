@@ -55,6 +55,43 @@ describe('ATTRIBUTIONS.md -- vpdb/vpx-js provenance record (Story 1.1 AC)', () =
 	});
 });
 
+describe('ATTRIBUTIONS.md -- Babylon.js provenance record (Story 1.2 AC)', () => {
+	// Story 1.2's hard, spec-level acceptance criterion: the two Babylon rows
+	// must record the source URL, the author, Apache-2.0 as read in license.md
+	// at the repository root -- explicitly not from package.json or npm
+	// metadata (the CLAUDE.md trap this story's Always list names again) -- and
+	// the verification date. Nothing pinned this content before this test;
+	// a future edit that trims or "corrects" it away would go undetected.
+	const normalized = normalize(readFileSync(ATTRIBUTIONS_PATH, 'utf8'));
+
+	it('names both packages at the pinned 9.22.2 version', () => {
+		expect(normalized).toContain('@babylonjs/core');
+		expect(normalized).toContain('@babylonjs/loaders');
+		expect(normalized).toContain('9.22.2');
+	});
+
+	it('names the author and the source repository', () => {
+		expect(normalized).toContain('The Babylon.js team');
+		expect(normalized).toContain('https://github.com/BabylonJS/Babylon.js/blob/master/license.md');
+	});
+
+	it('records the licence as Apache-2.0, read in license.md at source -- not from package.json or npm metadata', () => {
+		expect(normalized).toContain('Apache-2.0');
+		expect(normalized).toMatch(/as read in `?license\.md`? at (the )?(repository root|source)/);
+		expect(normalized).toMatch(/not\*{0,2} from `?package\.json`?/);
+	});
+
+	it('records the 2026-08-27 verification date for both rows', () => {
+		const matches = normalized.match(/2026-08-27/g) ?? [];
+		expect(matches.length).toBeGreaterThanOrEqual(2);
+	});
+
+	it('names NOTICE.md and where its content ships (THIRD-PARTY-NOTICES.txt)', () => {
+		expect(normalized).toContain('NOTICE.md');
+		expect(normalized).toContain('THIRD-PARTY-NOTICES.txt');
+	});
+});
+
 describe('package.json licence identifier (code review 2026-08-27, HIGH-2)', () => {
 	it("declares GPL-3.0-or-later, matching NOTICE's or-later grant", () => {
 		// NOTICE grants "either version 3 of the License, or (at your option) any

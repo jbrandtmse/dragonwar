@@ -16,7 +16,7 @@
 //    a known-correct expected value.
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { nearestRankP95, runFrames } from '../tools/spike-1/browser';
+import { median, nearestRankP95, runFrames } from '../tools/spike-1/browser';
 import { createSpikeScene } from '../tools/spike-1/scene';
 
 type RafCallback = (timestamp: number) => void;
@@ -64,10 +64,58 @@ describe('Spike 1 browser harness — background-throttle guard (I/O matrix)', (
 		const scene = createSpikeScene();
 		const restore = installFakeRaf([0, 16.7, 33.4, 50.1]);
 		try {
-			await expect(runFrames(scene, 4, null)).resolves.toBeUndefined();
+			const result = await runFrames(scene, 4, null);
+			expect(result.medianFrameDeltaMs).toBeCloseTo(16.7, 1);
 		} finally {
 			restore();
 		}
+	});
+});
+
+describe('Spike 1 browser harness — median-cadence guard (DW-16)', () => {
+	afterEach(() => {
+		delete (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+	});
+
+	it('rejects a run whose median inter-frame delta exceeds 20ms even though every delta stays under the 100ms per-frame guard', async () => {
+		const scene = createSpikeScene();
+		// Deltas 30, 30, 30ms: every one is comfortably under MAX_FRAME_DELTA_MS
+		// (100ms) so the per-frame guard never fires, but the median (30ms) is
+		// exactly the moderate-throttle case DW-16 exists to catch (the observed
+		// defect was 34.6ms/frame, reported as "visible" and "focused").
+		const restore = installFakeRaf([0, 30, 60, 90]);
+		try {
+			await expect(runFrames(scene, 4, null)).rejects.toThrow(
+				/median rAF delta 30\.0ms exceeded 20ms over 4 frames/,
+			);
+		} finally {
+			restore();
+		}
+	});
+
+	it('does not reject when the median inter-frame delta stays at or under 20ms', async () => {
+		const scene = createSpikeScene();
+		const restore = installFakeRaf([0, 16.7, 33.4, 50.1, 66.8, 83.5]);
+		try {
+			const result = await runFrames(scene, 6, null);
+			expect(result.medianFrameDeltaMs).toBeLessThanOrEqual(20);
+		} finally {
+			restore();
+		}
+	});
+});
+
+describe('Spike 1 browser harness — median()', () => {
+	it('averages the two middle values for an even-length sorted array', () => {
+		expect(median([10, 20, 30, 40])).toBe(25);
+	});
+
+	it('picks the middle value for an odd-length sorted array', () => {
+		expect(median([10, 20, 30])).toBe(20);
+	});
+
+	it('returns 0 for an empty array (no deltas observed)', () => {
+		expect(median([])).toBe(0);
 	});
 });
 

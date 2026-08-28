@@ -3,6 +3,13 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8" />
+	<!--
+		Story 1.2: this harness page is built into dist/ and deployed alongside the
+		root page (DW-11), so it carries the same pinned CSP tag and tools/check-dist.mjs
+		asserts it on every emitted page. The harness needs no directive beyond 'self':
+		it fetches nothing.
+	-->
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'">
 	<title>DragonWar — Spike 1 harness</title>
 </head>
 <body>

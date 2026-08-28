@@ -1,0 +1,106 @@
+/* DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md. */
+
+/* All page styling lives here -- default-src 'self' blocks inline <style> and
+   style= attributes, so an inline gate panel would be invisible (AD-17). */
+
+:root {
+	color-scheme: dark;
+	--dw-bg: #0b0b10;
+	--dw-fg: #e8e8ef;
+	--dw-accent: #d4443a;
+	--dw-muted: #9a9aa8;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	background: var(--dw-bg);
+	color: var(--dw-fg);
+	font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#gate {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	text-align: center;
+	padding: 2rem;
+}
+
+#gate h1 {
+	font-size: 2.5rem;
+	letter-spacing: 0.05em;
+	margin: 0;
+}
+
+#gate-message {
+	color: var(--dw-muted);
+	margin: 0;
+	max-width: 32rem;
+}
+
+#begin-button {
+	font-size: 1.25rem;
+	padding: 0.75rem 2rem;
+	background: var(--dw-accent);
+	color: #fff;
+	border: none;
+	border-radius: 0.25rem;
+	cursor: pointer;
+}
+
+#begin-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+#notices-link {
+	color: var(--dw-muted);
+	font-size: 0.85rem;
+}
+
+#error-panel {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	text-align: center;
+	padding: 2rem;
+	background: var(--dw-bg);
+	color: var(--dw-fg);
+}
+
+#error-panel[hidden] {
+	display: none;
+}
+
+#error-message {
+	max-width: 32rem;
+	color: var(--dw-accent);
+}
+
+#render-canvas {
+	position: fixed;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	touch-action: none;
+}
+
+#render-canvas[hidden] {
+	display: none;
+}

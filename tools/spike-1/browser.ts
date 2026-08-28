@@ -18,7 +18,16 @@ import { createSpikeScene, step, STEPS_PER_FRAME_60HZ, type SpikeScene } from '.
 
 const WARMUP_FRAMES = 60;
 const MEASURED_FRAMES = 600;
-const MAX_FRAME_DELTA_MS = 100; // background-throttle guard, see the I/O matrix
+const MAX_FRAME_DELTA_MS = 100; // per-frame background-throttle guard, see the I/O matrix
+// DW-16: the per-frame 100ms guard missed MODERATE throttling -- a browser
+// reporting `visible`/`focused` while actually running rAF at 28.9 fps
+// (34.6ms/frame) sailed straight through it, inflating the recorded p95 about
+// 2.7x. 20ms is authored: 60 fps is a 16.67ms delta, 20ms leaves about 20%
+// slack, and 34.6ms is rejected comfortably. Checked once per run, on the
+// MEDIAN of every inter-frame delta -- not per-frame, so one legitimate GC
+// pause mid-run doesn't fail an otherwise-healthy run the way tightening
+// MAX_FRAME_DELTA_MS itself would.
+const MEDIAN_FRAME_DELTA_MS = 20;
 
 export interface Spike1Result {
 	samples: number;
@@ -26,6 +35,8 @@ export interface Spike1Result {
 	meanMs: number;
 	warmupFrames: number;
 	stepsPerFrame: number;
+	/** DW-16: the measured window's median inter-frame rAF delta, reported beside every p95. */
+	medianFrameDeltaMs: number;
 }
 
 // Exported (not just used internally) so it can be unit-tested directly under
@@ -36,17 +47,37 @@ export function nearestRankP95(sortedAscending: number[]): number {
 	return sortedAscending[Math.ceil(0.95 * sortedAscending.length) - 1];
 }
 
+// Exported for the same reason as nearestRankP95 above: test/spike-1-browser-guard.test.ts
+// asserts it directly against a known-correct expected value rather than only
+// indirectly through a live run.
+export function median(sortedAscending: number[]): number {
+	const n = sortedAscending.length;
+	if (n === 0) {
+		return 0;
+	}
+	const mid = Math.floor(n / 2);
+	return n % 2 === 0 ? (sortedAscending[mid - 1] + sortedAscending[mid]) / 2 : sortedAscending[mid];
+}
+
+export interface RunFramesResult {
+	/** DW-16: median of every inter-frame rAF delta observed during this run, ms. */
+	medianFrameDeltaMs: number;
+}
+
 /**
  * Runs `frameCount` requestAnimationFrame-paced frames of `STEPS_PER_FRAME_60HZ`
  * physics steps each. When `collectInto` is given, each frame's step-only wall-clock
  * cost (ms) is pushed into it. Rejects if any inter-frame delta exceeds
  * `MAX_FRAME_DELTA_MS` — a backgrounded/occluded window throttles
- * requestAnimationFrame and would otherwise silently ruin the numbers.
+ * requestAnimationFrame and would otherwise silently ruin the numbers -- or if
+ * the whole run's MEDIAN inter-frame delta exceeds `MEDIAN_FRAME_DELTA_MS`
+ * (DW-16), checked once the run completes rather than per-frame.
  */
-export function runFrames(scene: SpikeScene, frameCount: number, collectInto: number[] | null): Promise<void> {
+export function runFrames(scene: SpikeScene, frameCount: number, collectInto: number[] | null): Promise<RunFramesResult> {
 	return new Promise((resolve, reject) => {
 		let framesDone = 0;
 		let lastTimestamp: number | null = null;
+		const deltas: number[] = [];
 
 		function onFrame(timestamp: number): void {
 			if (lastTimestamp !== null) {
@@ -59,6 +90,7 @@ export function runFrames(scene: SpikeScene, frameCount: number, collectInto: nu
 					));
 					return;
 				}
+				deltas.push(delta);
 			}
 			lastTimestamp = timestamp;
 
@@ -74,7 +106,16 @@ export function runFrames(scene: SpikeScene, frameCount: number, collectInto: nu
 
 			framesDone++;
 			if (framesDone >= frameCount) {
-				resolve();
+				const medianFrameDeltaMs = median([...deltas].sort((a, b) => a - b));
+				if (deltas.length > 0 && medianFrameDeltaMs > MEDIAN_FRAME_DELTA_MS) {
+					reject(new Error(
+						`median rAF delta ${medianFrameDeltaMs.toFixed(1)}ms exceeded ${MEDIAN_FRAME_DELTA_MS}ms ` +
+						`over ${framesDone} frames — the window was likely throttled below the per-frame guard's ` +
+						`${MAX_FRAME_DELTA_MS}ms threshold. Re-run foregrounded.`,
+					));
+					return;
+				}
+				resolve({ medianFrameDeltaMs });
 			} else {
 				requestAnimationFrame(onFrame);
 			}
@@ -108,7 +149,7 @@ export async function runSpike1(): Promise<Spike1Result> {
 	await runFrames(scene, WARMUP_FRAMES, null);
 
 	const samples: number[] = [];
-	await runFrames(scene, MEASURED_FRAMES, samples);
+	const { medianFrameDeltaMs } = await runFrames(scene, MEASURED_FRAMES, samples);
 
 	if (samples.length !== MEASURED_FRAMES) {
 		throw new Error(`expected ${MEASURED_FRAMES} samples, got ${samples.length}`);
@@ -124,12 +165,14 @@ export async function runSpike1(): Promise<Spike1Result> {
 		meanMs,
 		warmupFrames: WARMUP_FRAMES,
 		stepsPerFrame: STEPS_PER_FRAME_60HZ,
+		medianFrameDeltaMs,
 	};
 
 	if (resultEl) {
 		resultEl.textContent =
 			`samples=${result.samples} p95Ms=${result.p95Ms.toFixed(4)} meanMs=${result.meanMs.toFixed(4)} ` +
-			`stepsPerFrame=${result.stepsPerFrame} warmupFrames=${result.warmupFrames}`;
+			`stepsPerFrame=${result.stepsPerFrame} warmupFrames=${result.warmupFrames} ` +
+			`medianFrameDeltaMs=${result.medianFrameDeltaMs.toFixed(2)}`;
 	}
 
 	return result;

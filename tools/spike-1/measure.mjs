@@ -17,21 +17,27 @@
 // leg's verdict -- was RETRACTED on 2026-08-27: a same-session A/B found the two
 // surfaces indistinguishable on this host and that delta to be cross-session noise.
 // The rule stands; only its stated evidence was wrong. See docs/spikes/spike-1.md.)
-// `--url` still DEFAULTS to the dev server below because this repository
-// has no build/preview script yet (Story 1.2 owns `vite build`); pass the preview
-// URL explicitly for any number that is meant to gate, and see
-// docs/spikes/spike-1.md for the exact build/preview invocation.
+//
+// Story 1.2 (DW-11) scripted the production build: `pnpm build` (`vite build`,
+// this repository's own vite.config.ts) then `pnpm preview` (`vite preview`,
+// fixed and strictPort on port 4173). `--url` now DEFAULTS to that preview URL
+// rather than the dev server -- superseding the ad-hoc
+// `npx vite build tools/spike-1 --base ./ --outDir <scratch>/...` invocation
+// recorded at docs/spikes/spike-1.md lines 547-559. Every result now also
+// carries `medianFrameDeltaMs` (DW-16): a run whose measured window's median
+// requestAnimationFrame delta exceeds 20ms is rejected rather than recorded --
+// see tools/spike-1/browser.ts.
 //
 // Usage:
 //   node tools/spike-1/measure.mjs --browser chrome|edge
-//       [--url http://localhost:4174/tools/spike-1/index.html] [--exe <path>]
+//       [--url http://localhost:4173/tools/spike-1/index.html] [--exe <path>]
 
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const DEFAULT_URL = 'http://localhost:5173/tools/spike-1/index.html';
+const DEFAULT_URL = 'http://localhost:4173/tools/spike-1/index.html';
 const DEFAULT_EXE = {
 	chrome: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
 	edge: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -359,7 +365,12 @@ async function main() {
 				}
 
 				const value = result.result?.value;
-				if (!value || typeof value.samples !== 'number' || typeof value.p95Ms !== 'number') {
+				if (
+					!value ||
+					typeof value.samples !== 'number' ||
+					typeof value.p95Ms !== 'number' ||
+					typeof value.medianFrameDeltaMs !== 'number'
+				) {
 					throw new Error(`unexpected result shape from window.__spike1Run(): ${JSON.stringify(result)}`);
 				}
 

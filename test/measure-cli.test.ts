@@ -95,10 +95,23 @@ describe('tools/spike-1/measure.mjs -- the dev-page measurement-surface warning'
 	// then exits 1 cleanly, which is what makes this testable without a browser.
 	const NONEXISTENT_EXE = path.resolve(REPO_ROOT, 'no-such-browser-binary.exe');
 
-	it('warns loudly when the target is the default Vite dev page', () => {
-		const { stderr } = runMeasure(['--browser', 'chrome', '--exe', NONEXISTENT_EXE]);
+	it('warns loudly when the target is a Vite dev page URL', () => {
+		const { stderr } = runMeasure([
+			'--browser', 'chrome',
+			'--url', 'http://localhost:5173/tools/spike-1/index.html',
+			'--exe', NONEXISTENT_EXE,
+		]);
 		expect(stderr).toContain('Vite DEV page');
 		expect(stderr).toMatch(/PRODUCTION build/i);
+	});
+
+	it('does NOT warn for the default URL (Story 1.2/DW-11 re-points it at the preview port, 4173)', () => {
+		// DEFAULT_URL used to be the Vite dev server (port 5173); Story 1.2
+		// re-points it at `vite preview`'s fixed, strictPort 4173 so a careless
+		// run measures the production build by default, not the dev page.
+		const { stderr } = runMeasure(['--browser', 'chrome', '--exe', NONEXISTENT_EXE]);
+		expect(stderr).toContain('target: http://localhost:4173/tools/spike-1/index.html');
+		expect(stderr).not.toContain('Vite DEV page');
 	});
 
 	it('warns for a dev URL that is not byte-identical to the default (127.0.0.1, other port)', () => {

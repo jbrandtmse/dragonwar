@@ -36,8 +36,8 @@ The live ledger of everything third-party in this repository is
 ATTRIBUTIONS.md, and the rule governing what may be added is in
 CLAUDE.md. Nothing enters the repository without recorded provenance.
 
-Summarised below so the obligations are not discovered late. None of the
-following is yet present in this repository.
+Summarised below so the obligations are not discovered late. Babylon.js is now
+present in this repository (Story 1.2); the rest are not yet present.
 
   Visual Pinball / vpx-js
     If physics code is ported from vpdb/vpx-js, its existing copyright
@@ -58,9 +58,13 @@ following is yet present in this repository.
     naming, or event vocabulary is adopted, include its copyright notice
     and permission notice.
 
-  Babylon.js
-    Apache-2.0. Retain the licence and any NOTICE content from the
-    distribution.
+  Babylon.js (`@babylonjs/core`, `@babylonjs/loaders` @ 9.22.2)
+    Apache-2.0, verified in `license.md` at the root of
+    https://github.com/BabylonJS/Babylon.js (2026-08-27). The licence text and
+    upstream `NOTICE.md` content ("Babylon.js / Copyright 2023 The Babylon.js
+    team") ship in `public/THIRD-PARTY-NOTICES.txt`, reachable from the
+    press-to-begin panel — this repository's first distribution, so Apache-2.0
+    sections 4(a) and 4(d) attach as of Story 1.2.
 
   vbousquet/pinball-parts
     CC BY-SA, with the exception of a "Thin Film Interaction" node group

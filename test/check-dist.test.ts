@@ -1,0 +1,264 @@
+// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
+//
+// Story 1.2, Spike 3 -- real subprocess invocations of tools/check-dist.mjs
+// (the test/measure-cli.test.ts pattern: the actual shipped script, not a
+// mock) against constructed fixture dist/ directories, one per invariant the
+// I/O & Edge-Case Matrix names. Each failure case is exercised deliberately
+// (Rule 3), not only reasoned about.
+
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+
+const CHECK_DIST_SCRIPT = path.resolve(__dirname, '..', 'tools', 'check-dist.mjs');
+const RUN_TIMEOUT_MS = 10_000;
+
+const VALID_CSP_TAG =
+	'<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; connect-src \'self\'">';
+
+const createdDirs: string[] = [];
+
+function makeFixture(files: Record<string, string>): string {
+	const dir = mkdtempSync(path.join(tmpdir(), 'dragonwar-check-dist-'));
+	createdDirs.push(dir);
+	for (const [rel, content] of Object.entries(files)) {
+		const full = path.join(dir, rel);
+		mkdirSync(path.dirname(full), { recursive: true });
+		writeFileSync(full, content, 'utf8');
+	}
+	return dir;
+}
+
+function runCheckDist(distDir: string): { status: number | null; stdout: string; stderr: string } {
+	const result = spawnSync(process.execPath, [CHECK_DIST_SCRIPT, distDir], {
+		encoding: 'utf8',
+		timeout: RUN_TIMEOUT_MS,
+	});
+	return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+function validIndexHtml(extraHead = ''): string {
+	return `<!DOCTYPE html>
+<html>
+<head>
+${VALID_CSP_TAG}
+${extraHead}
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<a href="./THIRD-PARTY-NOTICES.txt">notices</a>
+<script type="module" src="./assets/main.js"></script>
+</body>
+</html>`;
+}
+
+afterEach(() => {
+	for (const dir of createdDirs.splice(0)) {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+describe('tools/check-dist.mjs -- a fully-compliant fixture', () => {
+	it('exits 0', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'styles.css': 'body { margin: 0; }',
+			'THIRD-PARTY-NOTICES.txt': 'Apache License 2.0...',
+			'assets/main.js': 'console.log("hello");',
+		});
+		const { status, stdout } = runCheckDist(dir);
+		expect(status).toBe(0);
+		expect(stdout).toMatch(/OK/);
+	});
+});
+
+describe('tools/check-dist.mjs -- missing dist directory', () => {
+	it('exits non-zero naming the missing directory', () => {
+		const { status, stderr } = runCheckDist(path.join(tmpdir(), 'dragonwar-check-dist-does-not-exist'));
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/does not exist/);
+	});
+});
+
+describe('tools/check-dist.mjs -- CSP tag', () => {
+	it('exits non-zero when the CSP meta tag is absent', () => {
+		const dir = makeFixture({
+			'index.html': `<!DOCTYPE html><html><head><link rel="stylesheet" href="./styles.css"></head>` +
+				`<body><a href="./THIRD-PARTY-NOTICES.txt">n</a></body></html>`,
+			'THIRD-PARTY-NOTICES.txt': 'x',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/missing the Content-Security-Policy/);
+	});
+
+	it('exits non-zero when the CSP directives are altered', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml().replace(VALID_CSP_TAG, '<meta http-equiv="Content-Security-Policy" content="default-src \'self\'">'),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/CSP directive mismatch/);
+	});
+});
+
+describe('tools/check-dist.mjs -- relative paths only', () => {
+	it('exits non-zero naming a root-relative href', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml('<link rel="icon" href="/favicon.ico">'),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/absolute \(root-relative\) reference "\/favicon\.ico"/);
+	});
+
+	it('exits non-zero naming a reference to an external origin', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml('<link rel="preconnect" href="https://cdn.example.com">'),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/external origin/);
+	});
+
+	it('exits non-zero naming a root-relative asset reference inside an emitted chunk', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': 'fetch("/assets/dragonwar.glb");',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/root-relative asset reference "\/assets\/dragonwar\.glb"/);
+	});
+});
+
+describe('tools/check-dist.mjs -- no inline script, style or style= attribute', () => {
+	it('exits non-zero naming an inline <script> with no src', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml().replace(
+				'<script type="module" src="./assets/main.js"></script>',
+				'<script type="module" src="./assets/main.js"></script><script>console.log(1)</script>',
+			),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/inline <script> with no src=/);
+	});
+
+	it('exits non-zero when an inline <style> block is present', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml('<style>body{color:red}</style>'),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/inline <style> block/);
+	});
+
+	it('exits non-zero when a style= attribute is present', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml().replace('<body>', '<body><div style="color:red"></div>'),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/style= attribute/);
+	});
+});
+
+describe('tools/check-dist.mjs -- external origin references in OUR OWN markup', () => {
+	// See tools/check-dist.mjs's header comment: this is deliberately scoped to
+	// href/src attributes in our own authored HTML (already covered by the
+	// "relative paths only" describe block above), not a blanket scan of every
+	// emitted chunk -- third-party library internals (e.g. Babylon's
+	// `Animation.SnippetUrl` static field) legitimately embed URL string
+	// constants for features this build never invokes, and the CSP's
+	// `connect-src 'self'` is what actually enforces no network call reaches
+	// them. This fixture is the corroborating case: a build carrying such a
+	// literal (simulated here without needing a real Babylon build) still
+	// passes, because it is not a reference WE authored.
+	it('does not fail on a URL-shaped string constant inside a third-party chunk we do not reference from our own HTML', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'Licensed under the Apache License, Version 2.0\nhttp://www.apache.org/licenses/LICENSE-2.0',
+			'assets/main.js': 'class Animation { }\nAnimation.SnippetUrl = "https://snippet.babylonjs.com";',
+		});
+		const { status } = runCheckDist(dir);
+		expect(status).toBe(0);
+	});
+});
+
+describe('tools/check-dist.mjs -- no service worker', () => {
+	it('exits non-zero naming a sw.js file', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+			'sw.js': 'self.addEventListener("install", () => {});',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/service worker/);
+	});
+
+	it('exits non-zero when a chunk registers a service worker', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': 'navigator.serviceWorker.register("/sw.js");',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/serviceWorker\.register/);
+	});
+});
+
+describe('tools/check-dist.mjs -- THIRD-PARTY-NOTICES.txt present and linked', () => {
+	it('exits non-zero when the notices file is missing', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/THIRD-PARTY-NOTICES\.txt is missing/);
+	});
+
+	it('exits non-zero when the notices file exists but is not linked from index.html', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml().replace('<a href="./THIRD-PARTY-NOTICES.txt">notices</a>', ''),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/does not link to THIRD-PARTY-NOTICES\.txt/);
+	});
+});
+
+describe('tools/check-dist.mjs -- every emitted .html page, not just index.html', () => {
+	it('checks a second HTML page (the Spike 1 harness) for the CSP tag too', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+			'tools/spike-1/index.html': '<!DOCTYPE html><html><head><title>x</title></head><body></body></html>',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/tools\/spike-1\/index\.html: missing the Content-Security-Policy/);
+	});
+});

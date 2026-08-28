@@ -2,8 +2,8 @@
 title: 'Story 1.2: Spike 3 - build size and load time measured from a link'
 type: 'feature'
 created: '2026-08-27'
-status: 'ready-for-dev'
-baseline_revision: '28554bf641334e95c07520ef44817c56753b6c63'
+status: 'in-progress'
+baseline_revision: '9ccfb53b0eb2724648257576a4c3a1b36c3db49f'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
