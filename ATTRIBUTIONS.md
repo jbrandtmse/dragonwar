@@ -21,21 +21,29 @@ establishing the provenance or removing the file.
 | `@babylonjs/loaders` @ `9.22.2` | https://github.com/BabylonJS/Babylon.js/blob/master/license.md | The Babylon.js team | Same monorepo, same licence, same verification as the `@babylonjs/core` row above — **Apache-2.0**, read in `license.md` at source, not from package metadata. | 2026-08-27 |
 | `babylonjs-gltf2interface` @ `9.22.2` | https://github.com/BabylonJS/Babylon.js/blob/master/license.md | The Babylon.js team | Transitive dependency pulled in by `@babylonjs/loaders`'s `peerDependencies` (`pnpm-lock.yaml`'s `autoInstallPeers`), not a direct `package.json` entry — flagged by review 2026-08-28 as a provenance gap the story's own careful treatment of the two direct Babylon packages had missed. Same monorepo as those two rows (`npm` registry `repository: git+https://github.com/BabylonJS/Babylon.js.git`, confirmed at source, not from that metadata) — same licence, same `license.md`, same verification. TypeScript type-declarations only (`typings: babylon.glTF2Interface.d.ts`, no runtime `.js`); contributes no bytes to the built bundle but is recorded per `CLAUDE.md`'s "no exception" provenance rule regardless. **Apache-2.0**, read in `license.md` at source, not from package metadata. | 2026-08-28 |
 
-*No other third-party code is compiled into DragonWar yet.*
+| `vite` @ `8.2.2` | https://github.com/vitejs/vite | VoidZero Inc. and Vite contributors | **MIT**, as read in `LICENSE.md` at the root of the published Vite package ("Vite is released under the MIT license", "Copyright (c) 2019-present, VoidZero Inc. and Vite contributors") — **not** from the `license` field of `package.json`. Vite is a build-time dependency, but it is listed here because its module-preload helper is **emitted into the shipped bundle** (`dist/assets/preload-helper-*.js`), so MIT's "include the copyright notice and this permission notice in all copies" obligation attaches to this story's Pages deploy. The notice ships in `public/THIRD-PARTY-NOTICES.txt`. Found by review 2026-08-28. | 2026-08-28 |
+
+*The list above is every third-party component whose code is compiled into or
+emitted alongside DragonWar's built bundle. Build- and test-time tooling that
+contributes no bytes to `dist/` (TypeScript, Vitest, `@types/node`) is not
+listed here.*
 
 ## Assets
 
-*None yet.* Art, audio, models, textures and fonts go here as they are added.
+Art, audio, models, textures and fonts go here as they are added. No
+*third-party* asset is in the repository yet; the one asset present is
+project-generated and recorded under "Generated content" below.
 
 | Asset | Source | Author | Licence | Verified |
 |---|---|---|---|---|
 
 ## Generated content
 
-*None yet.* AI-generated art, audio or code goes here with the tool and date.
+AI-generated or tool-generated art, audio or code goes here with the tool and date.
 
 | Item | Tool | Date | Notes |
 |---|---|---|---|
+| `public/assets/dragonwar.glb` (placeholder playfield box) | `tools/make-placeholder-glb.mjs` (this repository; Node built-ins only, no third-party geometry) | 2026-08-27 | Generated, not sourced — no third-party asset is involved and nothing was copied from any commercial machine. A glTF 2.0 binary holding one box mesh `vis_placeholder_box` at the AD-10 playfield dimensions (0.5144 x 1.0668 m) under the top-level node `playfield_root`, authored unpitched, Y-up. Committed alongside its generator so the asset is reproducible byte-for-byte (`test/make-placeholder-glb.test.ts` asserts that). Story 1.4 replaces it with the `tools/export.py` output behind the same path and node-name contract. Recorded per CLAUDE.md ("Generated assets are recorded too: name the tool and the date") and the spine's Assets convention ("every third-party **or generated** file in `ATTRIBUTIONS.md` first"); the omission was found by review 2026-08-28. |
 
 ---
 
@@ -47,7 +55,6 @@ properly here when they arrive.
 | Project | Licence | Obligation on use |
 |---|---|---|
 | Mission Pinball Framework | MIT (docs CC BY 4.0) | Include its copyright and permission notice if its ontology, naming, or event vocabulary is adopted. |
-| vpdb/vpx-js | GPL-2.0-**or-later** | **Preserve its copyright notices alongside ours.** We exercise the or-later clause to combine it with Apache-2.0 dependencies under GPL-3.0. |
 | vbousquet/pinball-parts | CC BY-SA, except a "Thin Film Interaction" node group under CC BY-NC-SA 4.0 | Attribute; **exclude the non-commercial node group.** |
 | vpinball/vpinball | Dual — GPLv3+ only where the first line reads `// license:GPLv3+`; otherwise MAME-derived non-commercial | Check **every file individually**. Unmarked files cannot be used. |
 | vpinball/pinmame | MAME-derived, "strictly a non-profit project" | **Do not use.** Not needed — DragonWar is an original table with no ROM emulation. |

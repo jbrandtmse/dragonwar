@@ -23,6 +23,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { median } from '../tools/spike-3/measure-load.mjs';
 
 const MEASURE_LOAD_SCRIPT = path.resolve(__dirname, '..', 'tools', 'spike-3', 'measure-load.mjs');
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -102,6 +103,27 @@ describe('tools/spike-3/measure-load.mjs -- CLI argument validation (real subpro
 		const { status, stderr } = runMeasureLoad(['--url', 'http://localhost:4173/', '--bogus-flag']);
 		expect(status).toBe(1);
 		expect(stderr).toMatch(/unrecognized argument: --bogus-flag/);
+	});
+});
+
+describe('tools/spike-3/measure-load.mjs -- median()', () => {
+	// This file's own header comment ("Exported so a direct unit test can
+	// assert this against a known-correct expected value, rather than only
+	// indirectly through a live CDP run -- mirrors tools/spike-1/browser.ts's
+	// own median()") names exactly this test as the reason the function is
+	// exported. tools/spike-1/browser.ts's median() got that direct unit test
+	// (test/spike-1-browser-guard.test.ts); this separate, duplicate
+	// implementation in tools/spike-3/measure-load.mjs did not -- until now.
+	it('averages the two middle values for an even-length sorted array', () => {
+		expect(median([10, 20, 30, 40])).toBe(25);
+	});
+
+	it('picks the middle value for an odd-length sorted array', () => {
+		expect(median([10, 20, 30])).toBe(20);
+	});
+
+	it('returns 0 for an empty array (no rAF deltas observed)', () => {
+		expect(median([])).toBe(0);
 	});
 });
 

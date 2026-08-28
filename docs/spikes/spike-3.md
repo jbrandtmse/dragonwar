@@ -63,10 +63,26 @@ downgraded with nothing surfaced to the player -- exactly what the amended
 acceptance criterion and AD-12 / AR-27 require.
 
 **Note on artifact identity:** the deployed artifact measured above is
-`2e57815`, which predates the review pass's commit (`c7ba18d`). The review
-patches changed error-path and test code, not the load path, and the local
-build's compressed `dist/` total after them is 0.725 MB, still ~27x inside the
-20 MB budget and inside the 2.75 MB CI budget.
+`2e57815`, which predates the review passes' commits. The first review pass
+changed error-path and test code only, not the load path.
+
+The second review pass (2026-08-28) did change two shipped files, and this is
+what that means for the numbers above. It added `LICENSE.txt` to the build and
+one `<a href="./LICENSE.txt">` to each of the two HTML pages, to discharge
+GPL-3.0 sections 4-6 for the code this bundle actually conveys (see
+"Provenance" below). Effects, measured not estimated:
+
+- **Whole-`dist/` CI figure: 0.725 MB -> 0.740 MB** (725,152 -> 739,702 bytes
+  gzipped), the licence text being 14,550 of those bytes. `BUDGET_BYTES` is
+  unchanged at 2.75 MB -- the baseline still rounds up to the same 0.75 MB
+  increment -- and the build stays ~27x inside NFR-4's 20 MB ceiling.
+- **Cold-load transfer figures above: unaffected in substance.** `LICENSE.txt`
+  is linked, never fetched by the page, so it adds nothing to a load; the two
+  anchors add roughly 60 bytes to `index.html`, against a 588,022-byte median
+  whose own measured run-to-run spread is 196 bytes. The recorded medians
+  therefore still describe this load path, but they were taken from `2e57815`
+  and remain provisional until the workflow reruns from `main` -- as the
+  provisional note above already states.
 
 The renderer is WebGL2 on every run (WebGPU initialises under the pinned CSP
 but fails later in this Babylon version for this scene — see "Renderer
@@ -132,12 +148,12 @@ it from pacing to the stale value at all; every accepted run below was taken
 with those flags active and reports its true, honestly-measured cadence
 (sub-millisecond — effectively unthrottled, not 60 Hz-paced). **This means the
 compressed-transfer and request-count figures below are fully representative
-or a real user's numbers, but the first-frame timing figures are a
+of a real user's numbers, but the first-frame timing figures are a
 well-measured lower bound taken without real vsync pacing, not a consumer
 figure from a normally-displayed session** — re-verification on a host with a
-real attached display is a reasonable follow-up, though at ~13-14x margin
-against the 10 s target even a several-times-larger real-vsync figure would
-still pass NFR-4 comfortably.
+real attached display is a reasonable follow-up, though at the ~5.4x margin
+the lead-verified 1.84 s median leaves against the 10 s target, even a
+several-times-larger real-vsync figure would still pass NFR-4 comfortably.
 
 ## Provenance (before `pnpm add`)
 
@@ -154,12 +170,49 @@ dragonwar/THIRD-PARTY-NOTICES.txt` returns HTTP 200 with that content.
 `test/attributions.test.ts` pins this content so a later edit cannot silently
 trim it.
 
+**What the first pass got right for Babylon and missed for everything else**
+(found and closed by review 2026-08-28). Apache-2.0 4(a)/4(d) was discharged
+properly for Babylon, but three other things this bundle actually distributes
+had no notice at all:
+
+- **DragonWar's own GPL-3.0 code, and the vpx-js port inside it.** `dist/`
+  conveys the minified physics port on the deployed Spike 1 harness page
+  (`assets/spike1-*.js`). Minification strips comments, so
+  `grep -c "Copyright\|GPL\|freezy"` on that chunk returned **0** — the exact
+  trap `CLAUDE.md` names ("Stripping them breaks the licence grant the port
+  depends on"), and AD-16's "ported and borrowed files keep their notices". The
+  build also shipped no copy of the GPL-3.0 text and no Corresponding Source
+  pointer, and the harness page linked no notices whatsoever. Now:
+  `LICENSE.txt` ships and is linked from both pages,
+  `THIRD-PARTY-NOTICES.txt` reproduces freezy's copyright and the
+  GPL-2.0-or-later grant verbatim and names the Corresponding Source URL, and
+  `check-dist.mjs` fails the build if either file goes missing or unlinked.
+- **Vite's own runtime code.** `dist/assets/preload-helper-*.js` is Vite's
+  module-preload helper, emitted into the shipped bundle, so MIT's
+  notice-retention clause attaches to this deploy. Recorded in
+  `ATTRIBUTIONS.md` (MIT, read in `LICENSE.md` at the root of the published
+  package, verified 2026-08-28) with the notice shipping in
+  `THIRD-PARTY-NOTICES.txt`. The Code table's standing claim that "no other
+  third-party code is compiled into DragonWar yet" was false once this build
+  existed, and now states its real scope.
+- **The generated placeholder glb.** `public/assets/dragonwar.glb` is a
+  committed, shipped, tool-generated asset, and `ATTRIBUTIONS.md`'s Assets and
+  Generated-content tables both still read "*None yet.*" — against CLAUDE.md's
+  "Generated assets are recorded too: name the tool and the date" and the
+  spine's "every third-party **or generated** file in `ATTRIBUTIONS.md`
+  first". Now recorded under Generated content, naming
+  `tools/make-placeholder-glb.mjs` and the date.
+
+`NOTICE` was also corrected: it read "Babylon.js is now present in this
+repository (Story 1.2); the rest are not yet present", which was false — the
+vpx-js port has been present since Story 1.1.
+
 ## Static-bundle checks
 
 `node tools/check-dist.mjs` against the real deployed build:
 
 ```
-[check-dist] OK -- 2 HTML page(s), 110 file(s) checked under dist
+[check-dist] OK -- 2 HTML page(s), 111 file(s) checked under dist
 ```
 
 Confirms, over every emitted `.html` page (the root page and the Spike 1
@@ -168,8 +221,20 @@ harness page, both deployed): the CSP meta tag
 byte-for-byte; every asset reference relative (none begins with `/`, none
 names an external origin); no inline `<script>`, `<style>` or `style=`; no
 service worker file or `serviceWorker.register` string; `THIRD-PARTY-NOTICES.txt`
-present and linked. `test/check-dist.test.ts` exercises every one of these as
-a deliberately-failing fixture case, not by inspection.
+present and linked; `LICENSE.txt` present and linked; and
+`assets/dragonwar.glb` -- the one file the shipped page fetches at runtime --
+actually present in the build. Emitted stylesheets are scanned for
+root-relative and external `url()` / `@import` references alongside the HTML.
+`test/check-dist.test.ts` exercises every one of these as a
+deliberately-failing fixture case, not by inspection.
+
+The last three of those were added by review on 2026-08-28: the glb is
+referenced by a plain runtime string (`src/host/boot.ts`), so Vite never
+resolves it and a dropped `publicDir` or a renamed asset would have passed
+typecheck, the whole suite, `check:size` and this script, deployed green, and
+handed every visitor the error panel; and stylesheets were previously not
+scanned at all, so the very `base`-misconfiguration symptom this check exists
+to catch could ship inside a `.css` file unnoticed.
 
 **A design note on scope, recorded live during this story:** the check does
 NOT blanket-scan every emitted chunk's text for the substring `https://` —
@@ -186,10 +251,26 @@ Vite `base` misconfiguration).
 ## Boot gate
 
 `src/host/boot.ts` checks WebGL2 support synchronously at module load, before
-any asset request or engine creation — confirmed by reading the module (the
-check runs before the click listener is even attached) and by the network log
-of every accepted run below: no request is issued before the press-to-begin
-gesture fires. A genuinely WebGL2-incapable browser is not available on this
+any **asset** request (the glb) or engine creation — confirmed by reading the
+module: the check runs before the click listener is even attached, and the
+listener is attached only on the supported branch, so a WebGL2-less browser
+never creates an engine and never requests `dragonwar.glb`.
+
+**What is *not* deferred, stated precisely** (corrected by review 2026-08-28 —
+this paragraph previously claimed "no request is issued before the
+press-to-begin gesture fires", which the runs below contradict): `index.html`
+loads `./src/host/boot.ts` as a module `<script>`, and that statically imports
+`create-engine.ts`, which statically imports Babylon. The engine bundle —
+`main-*.js` plus its 26 `modulepreload` links, the bulk of the ~588 KB measured
+below — is therefore fetched during page load, before the gesture and before
+the WebGL2 check runs. The runner only dispatches the gesture once
+`document.readyState === 'complete'`, so all 67 requests but the glb precede
+it. AD-17's gate invariant is satisfied for the *asset* and for engine
+creation; deferring the engine **bundle** as well would need a dynamic
+`import()` inside `onBegin()`, which would also change the load profile this
+spike exists to measure. Logged for Story 6.1, which owns the full gate.
+
+A genuinely WebGL2-incapable browser is not available on this
 host to exercise the unsupported-browser message live; the code path is
 covered by direct reading of `src/host/boot.ts` (the message names Chrome,
 Edge and Safari) rather than by an automated or live-browser test, matching
@@ -339,7 +420,8 @@ runs). All 10 runs accepted; the figure of record is the **median**.
 
 **NFR-4 targets, stated alongside:** 10 s to first playable Walk-up, <= 20 MB
 compressed initial payload. Both medians clear the 10 s target by roughly
-13-14x and the 20 MB target by roughly 34x. The renderer on every one of
+6.7x (deployed) and 7.2x (local) — and the lead-verified 1.84 s median by
+5.4x — and the 20 MB target by roughly 34x. The renderer on every one of
 these 10 runs is `webgl2-fallback` (Defect 2 above, on every run).
 
 **Reading the two paths together:** the deployed link's transfer is
@@ -392,13 +474,13 @@ close to the 10 s target.
 `node tools/size-budget.mjs`:
 
 ```
-[size-budget] measured: 0.725 MB (725,152 bytes)
+[size-budget] measured: 0.740 MB (739,702 bytes)
 [size-budget] budget:   2.750 MB (2,750,000 bytes)
 [size-budget] OK -- within budget
 ```
 
 **Arithmetic** (also recorded as a comment in `tools/size-budget.mjs`):
-baseline 0.725152 MB (every file under `dist/` — both the root page and the
+baseline 0.739702 MB (every file under `dist/` — both the root page and the
 Spike 1 harness page, gzip level 9, summed), rounded up to the next 0.25 MB
 increment (**0.75 MB**), plus **2.00 MB** authored headroom for the remainder
 of Epic 1 = **2.75 MB** (`BUDGET_BYTES = 2_750_000`). 2.75 MB sits at about
@@ -407,8 +489,8 @@ budget's own 2 MB allowance. Re-set by Story 1.4 (the real glb replaces the
 placeholder) and again by the Epic 5 art passes; must always stay below the
 20 MB ceiling.
 
-**Why 0.725 MB (CI, whole `dist/`) differs from ~0.59 MB (a real root-page
-load, measured above):** `check-dist.mjs` confirmed 110 files under `dist/`
+**Why 0.740 MB (CI, whole `dist/`) differs from ~0.59 MB (a real root-page
+load, measured above):** `check-dist.mjs` confirmed 111 files under `dist/`
 across 2 HTML pages, but a real load of the root page issues only 67
 requests — the Spike 1 harness page (`tools/spike-1/index.html` and its own
 chunk set) is deployed and counted in the CI budget (this story's own

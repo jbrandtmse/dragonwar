@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -121,5 +122,41 @@ describe('tools/size-budget.mjs -- CLI, real subprocess (Rule 3)', () => {
 		const { status, stderr } = runSizeBudget([dir, '--budget', 'not-a-number']);
 		expect(status).toBe(1);
 		expect(stderr).toMatch(/--budget must be a positive number/);
+	});
+
+	it('exits non-zero naming an unrecognized flag', () => {
+		const dir = makeFixture({ 'index.html': '<!DOCTYPE html><html></html>' });
+		const { status, stderr } = runSizeBudget([dir, '--bogus-flag']);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/unrecognized argument: --bogus-flag/);
+	});
+});
+
+// Review 2026-08-28: every case above passes an explicit `--budget`, so nothing
+// asserted that the SHIPPED default -- the number CI's `pnpm check:size` step
+// actually enforces -- is BUDGET_BYTES. Replacing `args.budgetOverride ??
+// BUDGET_BYTES` with a 20 MB literal left the whole suite green while letting a
+// ~19 MB bundle through the only gate standing in front of NFR-4's ceiling.
+describe('tools/size-budget.mjs -- the shipped default IS BUDGET_BYTES', () => {
+	it('fails a fixture just over BUDGET_BYTES when no --budget is supplied, naming the budgeted number', () => {
+		// Incompressible bytes, so the gzipped total genuinely exceeds the budget
+		// rather than deflating below it.
+		const oversized = randomBytes(BUDGET_BYTES + 250_000).toString('base64');
+		const dir = makeFixture({ 'assets/huge.bin': oversized });
+
+		const { status, stderr } = runSizeBudget([dir]);
+
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/exceeds the budget/);
+		expect(stderr).toContain(BUDGET_BYTES.toLocaleString());
+	});
+
+	it('passes a small fixture when no --budget is supplied, printing BUDGET_BYTES as the budget in force', () => {
+		const dir = makeFixture({ 'index.html': '<!DOCTYPE html><html></html>' });
+
+		const { status, stdout } = runSizeBudget([dir]);
+
+		expect(status).toBe(0);
+		expect(stdout).toContain(BUDGET_BYTES.toLocaleString());
 	});
 });

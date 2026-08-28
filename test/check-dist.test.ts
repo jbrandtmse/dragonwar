@@ -49,6 +49,7 @@ ${extraHead}
 </head>
 <body>
 <a href="./THIRD-PARTY-NOTICES.txt">notices</a>
+<a href="./LICENSE.txt">licence</a>
 <script type="module" src="./assets/main.js"></script>
 </body>
 </html>`;
@@ -66,6 +67,8 @@ describe('tools/check-dist.mjs -- a fully-compliant fixture', () => {
 			'index.html': validIndexHtml(),
 			'styles.css': 'body { margin: 0; }',
 			'THIRD-PARTY-NOTICES.txt': 'Apache License 2.0...',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glTF-binary-placeholder',
 			'assets/main.js': 'console.log("hello");',
 		});
 		const { status, stdout } = runCheckDist(dir);
@@ -79,6 +82,19 @@ describe('tools/check-dist.mjs -- missing dist directory', () => {
 		const { status, stderr } = runCheckDist(path.join(tmpdir(), 'dragonwar-check-dist-does-not-exist'));
 		expect(status).toBe(1);
 		expect(stderr).toMatch(/does not exist/);
+	});
+});
+
+describe('tools/check-dist.mjs -- dist directory exists but has no .html files', () => {
+	it('exits non-zero naming the missing build output, telling the caller to run "pnpm build"', () => {
+		const dir = makeFixture({
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/contains no \.html files/);
+		expect(stderr).toMatch(/pnpm build/);
 	});
 });
 
@@ -194,6 +210,8 @@ describe('tools/check-dist.mjs -- external origin references in OUR OWN markup',
 		const dir = makeFixture({
 			'index.html': validIndexHtml(),
 			'THIRD-PARTY-NOTICES.txt': 'Licensed under the Apache License, Version 2.0\nhttp://www.apache.org/licenses/LICENSE-2.0',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glTF-binary-placeholder',
 			'assets/main.js': 'class Animation { }\nAnimation.SnippetUrl = "https://snippet.babylonjs.com";',
 		});
 		const { status } = runCheckDist(dir);
@@ -241,6 +259,8 @@ describe('tools/check-dist.mjs -- THIRD-PARTY-NOTICES.txt present and linked', (
 		const dir = makeFixture({
 			'index.html': validIndexHtml().replace('<a href="./THIRD-PARTY-NOTICES.txt">notices</a>', ''),
 			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
 			'assets/main.js': '1',
 		});
 		const { status, stderr } = runCheckDist(dir);
@@ -260,5 +280,94 @@ describe('tools/check-dist.mjs -- every emitted .html page, not just index.html'
 		const { status, stderr } = runCheckDist(dir);
 		expect(status).toBe(1);
 		expect(stderr).toMatch(/tools\/spike-1\/index\.html: missing the Content-Security-Policy/);
+	});
+});
+
+// --- Review 2026-08-28: the distribution's own licence obligations, the
+// runtime-fetched asset, and emitted stylesheets were all ungated. ---
+
+describe('tools/check-dist.mjs -- LICENSE.txt present and linked (GPL-3.0 sections 4-6)', () => {
+	it('exits non-zero when the licence text is missing from the build', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/LICENSE\.txt is missing/);
+		expect(stderr).toMatch(/GPL-3\.0/);
+	});
+
+	it('exits non-zero when the licence ships but is not linked from index.html', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml().replace('<a href="./LICENSE.txt">licence</a>', ''),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/does not link to LICENSE\.txt/);
+	});
+});
+
+describe('tools/check-dist.mjs -- the glb the page fetches at runtime is in the build', () => {
+	it('exits non-zero when dist/assets/dragonwar.glb is absent', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/dragonwar\.glb is missing/);
+		expect(stderr).toMatch(/boot/);
+	});
+});
+
+describe('tools/check-dist.mjs -- emitted stylesheets are scanned too', () => {
+	it('exits non-zero on a root-relative url() in an emitted stylesheet', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'styles.css': 'body { background: url(/assets/bg.png); }',
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/root-relative reference "\/assets\/bg\.png" in an emitted stylesheet/);
+	});
+
+	it('exits non-zero on an external-origin url() in an emitted stylesheet', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'styles.css': "@font-face { src: url('https://fonts.example.com/x.woff2'); }",
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/external origin "https:\/\/fonts\.example\.com\/x\.woff2" in an emitted stylesheet/);
+	});
+
+	it('accepts a relative url() and an inline data: URI in a stylesheet', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'styles.css': 'body { background: url("./bg.png"); cursor: url(data:image/png;base64,AAA), auto; }',
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': '1',
+		});
+		const { status } = runCheckDist(dir);
+		expect(status).toBe(0);
 	});
 });

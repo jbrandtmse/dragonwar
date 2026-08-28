@@ -110,7 +110,7 @@ export function runFrames(scene: SpikeScene, frameCount: number, collectInto: nu
 				if (deltas.length > 0 && medianFrameDeltaMs > MEDIAN_FRAME_DELTA_MS) {
 					reject(new Error(
 						`median rAF delta ${medianFrameDeltaMs.toFixed(1)}ms exceeded ${MEDIAN_FRAME_DELTA_MS}ms ` +
-						`over ${framesDone} frames — the window was likely throttled below the per-frame guard's ` +
+						`over ${framesDone} frames \u2014 the window was likely throttled below the per-frame guard's ` +
 						`${MAX_FRAME_DELTA_MS}ms threshold. Re-run foregrounded.`,
 					));
 					return;

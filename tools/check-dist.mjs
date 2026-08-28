@@ -4,8 +4,9 @@
 // Story 1.2, Spike 3 -- asserts AD-17's static-bundle invariants over a built
 // dist/: the amended CSP meta tag on every emitted .html, only relative asset
 // references in every HTML page and no root-relative asset path regression in
-// an emitted chunk, no inline <script>/<style>/style=, no service worker, and
-// THIRD-PARTY-NOTICES.txt present and linked from the root page. Exits
+// an emitted chunk or an emitted stylesheet, no inline <script>/<style>/style=,
+// no service worker, THIRD-PARTY-NOTICES.txt and LICENSE.txt both present and
+// linked from the root page, and the runtime-fetched glb actually present. Exits
 // non-zero naming the FIRST violation found -- CI's `pnpm check:dist` step
 // (this story's AC: "a CI step greps the CSP tag and fails if it is absent",
 // widened to the sibling invariants named in the same AC). Node built-ins only.
@@ -153,6 +154,37 @@ function checkRelativePathsOnly(distDir, allFiles, htmlFiles) {
 			);
 		}
 	}
+
+	// Emitted stylesheets were previously unscanned entirely (review finding
+	// 2026-08-28): the `.js`-only filter above skipped them, so a
+	// `url(/assets/...)` -- the same `base` misconfiguration symptom -- or an
+	// external `url()`/`@import` would ship unnoticed and then be blocked at
+	// runtime by `default-src 'self'`. CSS references are unquoted as often as
+	// not, so this matches all three forms.
+	for (const file of allFiles) {
+		if (path.extname(file) !== '.css') {
+			continue;
+		}
+		const css = readFileSync(file, 'utf8');
+		const pattern = /(?:url\(\s*|@import\s+)(?:"([^"]*)"|'([^']*)'|([^)'";\s]+))/gi;
+		let match;
+		while ((match = pattern.exec(css)) !== null) {
+			const ref = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+			if (ref === '' || ref.startsWith('#') || ref.startsWith('data:')) {
+				continue;
+			}
+			if (isRootRelative(ref)) {
+				throw new CheckDistError(
+					`${relPath(distDir, file)}: root-relative reference "${ref}" in an emitted stylesheet -- must be relative`,
+				);
+			}
+			if (isExternalOrigin(ref)) {
+				throw new CheckDistError(
+					`${relPath(distDir, file)}: reference to an external origin "${ref}" in an emitted stylesheet`,
+				);
+			}
+		}
+	}
 }
 
 function checkNoServiceWorker(distDir, allFiles) {
@@ -184,14 +216,46 @@ function checkThirdPartyNotices(distDir) {
 		throw new CheckDistError('dist/THIRD-PARTY-NOTICES.txt is missing (Apache-2.0 4(a)/4(d) obligation)');
 	}
 
+	// GPL-3.0 sections 4-6 bind this deploy exactly as Apache-2.0 4(a)/4(d) do:
+	// the bundle conveys DragonWar's own GPL-3.0 code and the minified vpx-js
+	// port, whose per-file headers the minifier strips. Shipping the licence
+	// text and linking it is that obligation's other half, and it was missing
+	// entirely until review 2026-08-28 -- so it is gated here, not left to
+	// intent.
+	const licensePath = path.join(distDir, 'LICENSE.txt');
+	if (!existsSync(licensePath)) {
+		throw new CheckDistError('dist/LICENSE.txt is missing (GPL-3.0 sections 4-6 obligation)');
+	}
+
 	const indexPath = path.join(distDir, 'index.html');
 	if (!existsSync(indexPath)) {
 		throw new CheckDistError('dist/index.html is missing -- cannot verify the notices link');
 	}
 	const html = readFileSync(indexPath, 'utf8');
-	const linked = extractAttrRefs(html).some((ref) => ref.replace(/^\.\//, '') === 'THIRD-PARTY-NOTICES.txt');
-	if (!linked) {
+	const refs = extractAttrRefs(html).map((ref) => ref.replace(/^\.\//, ''));
+	if (!refs.includes('THIRD-PARTY-NOTICES.txt')) {
 		throw new CheckDistError('dist/index.html does not link to THIRD-PARTY-NOTICES.txt');
+	}
+	if (!refs.includes('LICENSE.txt')) {
+		throw new CheckDistError('dist/index.html does not link to LICENSE.txt');
+	}
+}
+
+/**
+ * The assets the shipped page actually requests at runtime must exist in the
+ * build. `src/host/boot.ts` fetches './assets/dragonwar.glb' as a plain
+ * runtime string, so Vite never resolves it and no build step fails when it
+ * goes missing: a dropped `publicDir`, a renamed file or a moved asset would
+ * pass typecheck, the whole test suite, `check:size` and the previous version
+ * of this script, deploy green, and hand every visitor the error panel
+ * (review finding 2026-08-28).
+ */
+function checkRuntimeAssets(distDir) {
+	const glbPath = path.join(distDir, 'assets', 'dragonwar.glb');
+	if (!existsSync(glbPath)) {
+		throw new CheckDistError(
+			'dist/assets/dragonwar.glb is missing -- src/host/boot.ts requests it at runtime, so the deployed page would fail to boot',
+		);
 	}
 }
 
@@ -210,6 +274,7 @@ export function checkDist(distDir) {
 	checkNoInlineScriptStyleAttr(distDir, htmlFiles);
 	checkNoServiceWorker(distDir, allFiles);
 	checkThirdPartyNotices(distDir);
+	checkRuntimeAssets(distDir);
 
 	return { htmlFilesChecked: htmlFiles.length, filesChecked: allFiles.length };
 }

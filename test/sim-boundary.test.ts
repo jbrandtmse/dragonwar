@@ -169,15 +169,26 @@ describe('DragonWar-authored source files carry the GPL-3.0 header (AD-16)', () 
 	const PORT_MARKER_TEXT = 'Ported from vpdb/vpx-js';
 	const REPO_ROOT = path.resolve(__dirname, '..');
 
+	// Story 1.2 added src/host/** and src/presentation/** -- the two largest new
+	// authored source trees in the repository -- plus a second root config file,
+	// and none of them was inside this guard's reach: deleting the header from
+	// create-engine.ts or boot.ts left the whole suite green (review finding
+	// 2026-08-28). The extension filter also missed the `.d.mts` declaration
+	// files that ship beside the `.mjs` tools.
 	const roots = [
 		path.resolve(REPO_ROOT, 'src', 'sim', 'contracts'),
+		path.resolve(REPO_ROOT, 'src', 'host'),
+		path.resolve(REPO_ROOT, 'src', 'presentation'),
 		path.resolve(REPO_ROOT, 'tools'),
 		path.resolve(REPO_ROOT, 'test'),
 	];
 	const authored = roots
 		.flatMap((root) => listFilesRecursive(root))
-		.filter((f) => /\.(ts|tsx|mjs|cjs|js)$/.test(f))
-		.concat([path.resolve(REPO_ROOT, 'vitest.config.ts')]);
+		.filter((f) => /\.(ts|tsx|mts|mjs|cjs|js)$/.test(f))
+		.concat([
+			path.resolve(REPO_ROOT, 'vitest.config.ts'),
+			path.resolve(REPO_ROOT, 'vite.config.ts'),
+		]);
 
 	it('finds the authored source files (sanity check the test itself is wired up)', () => {
 		expect(authored.length).toBeGreaterThan(5);

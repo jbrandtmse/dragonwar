@@ -69,6 +69,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: cr spec-1-1-spike-1 | severity: med | fix-risk: low | footprint: in-epic
 - evidence: package.json has only dev/typecheck/test, no vite.config.ts, and the deciding run survives only as prose with a placeholder outDir; measure.mjs still defaults --url to the dev server
 - 2026-08-27T22:33:14Z status=routed owner=1-2-spike-3-build-size-and-load-time-measured-from-a-link by=migration note=1.2 adds build and preview scripts plus Vite entry config, re-points DEFAULT_URL at the preview port, and records a reproducible command
+- 2026-08-28T03:38:42Z status=resolved-by:1-2-spike-3-build-size-and-load-time-measured-from-a-link by=adjudication note=vite.config.ts plus build/preview/check:dist/check:size scripts, tools/spike-3/measure-load.mjs and the CI workflow are all real committed scaffold; the lead's own five-run ADR measurement ran through exactly these scripts against the live Pages deploy (588,022 B median). Supersedes the ad-hoc npx invocation spike-1.md recorded.
 
 ### DW-12: measure.mjs non-Windows paths are untested and the macOS legs are its next caller
 - source: cr spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: out-of-footprint
@@ -97,6 +98,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: lead smoke 1.1 | severity: high | fix-risk: low | footprint: in-epic
 - evidence: Smoke via Chrome DevTools MCP read p95 4.8 ms vs measure.mjs 4.0 ms on the same build; the MCP browser ran rAF at 28.9 fps while reporting visible and focused, and the guard only rejects frames over 100 ms
 - 2026-08-27T22:33:15Z status=open owner=1-2-spike-3-build-size-and-load-time-measured-from-a-link by=migration note=Reject runs whose median frame delta exceeds about 20 ms and report observed cadence beside the p95; do before 4.7 or 6.6 take further numbers
+- 2026-08-28T03:38:42Z status=resolved-by:1-2-spike-3-build-size-and-load-time-measured-from-a-link by=adjudication note=median-rAF-delta guard added to both tools/spike-3/measure-load.mjs (MEDIAN_FRAME_DELTA_MS, 30-frame sample, rejects and reports) and tools/spike-1/browser.ts alongside the old 100ms per-frame guard; cadence reported beside every number and covered by test/spike-1-browser-guard.test.ts. Verified live: the lead's five runs each reported medianFrameDeltaMs 0.5-1.1ms.
 
 ### DW-17: This automated-cycle host has no display actively attached, so headed Chrome paces requestAnimationFrame to a stale 29 Hz and every first-frame timing figure taken here is a lower bound, not a consumer figure
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: med | fix-risk: med | footprint: tools/spike-3/measure-load.mjs; docs/spikes/spike-3.md
@@ -107,8 +109,39 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: GitHub repo Settings -> Environments -> github-pages -> Deployment branches
 - evidence: Deploy run 33134412545 first failed with 'Branch DW-1-epic1 is not allowed to deploy to github-pages due to environment protection rules' until the policy was widened; the workflow YAML trigger has since been narrowed back to main but this separate setting has not
 - 2026-08-28T02:53:57Z status=routed owner=burndown by=harvest note=Merge-gate item for the orchestrator, not a code change: Story 1.2's seventh AC covers only the workflow YAML trigger, which IS narrowed back and verified. This is the other half of the same grant and must be reverted to main-only when Epic 1 merges.
+- 2026-08-28T03:30:13Z occurrence=1-2-spike-3-build-size-and-load-time-measured-from-a-link by=cr note=workflow_dispatch fires from any branch; deploy job now guarded by github.ref, Environment setting still open
 
 ### DW-19: create-engine.ts's WebGPU-verification failure handling arms its error listeners only through a short post-first-frame grace window and does not scope captured failures to WebGPU-originated errors
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: src/presentation/scene/create-engine.ts:207,280-291
 - evidence: Read during review 2026-08-28: WEBGPU_VERIFY_GRACE_MS at :207 bounds the arming window so a later render-pipeline failure would crash the loop with no fallback; the unfiltered onError/onUnhandledRejection at :280-291 would discard a working WebGPU engine on an unrelated window error
 - 2026-08-28T02:53:57Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=harvest note=Narrow: this story's fixed first-frame placeholder scene demonstrates neither gap live. The spec's own Never list assigns the full platform gate and error panel to Story 6.1, which is the natural owner of deepening this surface.
+
+### DW-20: The minimal boot surface has no load timeout and no error path for failures that happen before onBegin, so several AD-17 boot-stage failures leave a dead page instead of the error panel, and the canvas is never resized
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: boot.ts awaits bootScene() with no timeout (a stalled glb fetch hides the gate, shows a blank canvas and never reveals #error-panel); byId() throws at module scope before any listener or showError() exists, so a renamed id or a 404 on any of the 66 emitted chunks leaves an enabled press-to-begin button that silently does nothing; no window.resize listener anywhere in src/, so engine.resize() is never called and the fixed inset:0 canvas stretches on any viewport change
+- 2026-08-28T03:29:46Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=cr note=Spec Never list assigns the full press-to-begin gate, platform gate and error panel to Story 6.1; found by three review layers 2026-08-28
+
+### DW-21: The Babylon engine bundle is fetched during page load, before the WebGL2 check runs, so AD-17's before-any-asset-loads gate holds for the glb but not for the engine itself
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: index.html loads src/host/boot.ts as a module script; boot.ts statically imports create-engine.ts which statically imports Babylon, so main-*.js plus its 26 modulepreload links (the bulk of the 588 KB measured) transfer before supportsWebGL2() runs; a WebGL2-incapable browser pays the whole engine download before being told it is unsupported. Deferring it needs a dynamic import() inside onBegin(), which would change the load profile this spike exists to measure
+- 2026-08-28T03:29:53Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=cr note=Found by the acceptance auditor 2026-08-28; the spike doc's contradicting sentence was corrected in this review pass
+
+### DW-22: The deploy-trigger narrow-back also removed CI from every non-main branch push, which the story's own task line requires
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: ci.yml's single on: block is shared by both jobs, so on.push.branches:[main] silences the checks job on epic-branch pushes too; the spec's task line asks for the checks job on every push and pull request (AR-34 minimum CI) and its own AC (when a commit is pushed to the epic branch, the checks job runs and passes) is no longer reproducible. Branch work now gets CI only once a PR exists. Touches the author-settled narrow-back, so not changed unilaterally at review time
+- 2026-08-28T03:30:05Z status=escalated owner=burndown by=cr note=Deploy is now separately guarded by github.ref == refs/heads/main, so re-widening on.push would not re-open the shipping rule
+
+### DW-23: check-dist's external-origin scan is narrower than the frozen I/O matrix row it implements, a disclosed deviation never ratified by the lead
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: The matrix's Relative paths only row covers every asset reference in dist/index.html AND every emitted chunk, none naming an external origin; check-dist.mjs checks href/src in HTML plus a root-relative /assets/ signal in .js chunks (and, after this review, url()/@import in .css). The narrowing is deliberate and reasoned in the tool header (Babylon embeds doc-comment and optional-CDN URL constants that are never reachable calls, and connect-src self is the real runtime enforcement) but the frozen contract cannot be edited from inside the story
+- 2026-08-28T03:30:05Z status=escalated owner=burndown by=cr note=Lead to ratify the narrowing or widen the check; no reachable failure demonstrated either way
+
+### DW-24: The CI workflow declares no default permissions block, so the checks job runs with whatever the repository default GITHUB_TOKEN scope is
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: high | footprint: out-of-footprint
+- evidence: Only the deploy job declares permissions (pages/id-token/contents); the checks job runs install, build and actions/upload-pages-artifact@v5 under the repo default, which on many repositories is still read/write. The obvious fix (a top-level permissions: contents: read) risks breaking upload-pages-artifact, which needs its own write scope, and cannot be validated from here without a real CI run
+- 2026-08-28T03:30:13Z status=escalated owner=burndown by=cr note=Supply-chain hardening, not required by any AC or AD; verify against a live run at the merge gate rather than patching blind
+
+### DW-25: Provenance ordering is no longer evidenceable from version control: ATTRIBUTIONS.md and package.json first change in the same commit, so CLAUDE.md's record-it-before-you-add-it rule rests on prose rather than on the history
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: ATTRIBUTIONS.md; package.json; .github/workflows/ci.yml
+- evidence: Both files first change together in 9595a7c, so no diff can show the attribution row predating the dependency; raised by code review 2026-08-28 as a note rather than a defect since the licences themselves were verified at source and are correct
+- 2026-08-28T03:38:55Z status=routed owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=adjudication note=Substance is satisfied - every licence was read at its source repository and recorded correctly. What is missing is the audit trail. Story 1.3 already extends CI with the per-file licence-header check and is the natural home for a convention that dependency additions land as two commits (attribution first, then the add) or for a check that fails when package.json gains a dependency with no matching ATTRIBUTIONS row.

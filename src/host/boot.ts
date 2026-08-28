@@ -18,8 +18,12 @@ declare global {
 		// Read by tools/spike-3/measure-load.mjs over CDP -- the whole reason
 		// this story records these two timestamps at all (the AC's
 		// gesture-to-first-rendered-frame and navigation-to-first-rendered-frame
-		// figures; navigation time is the CDP navigation timestamp the runner
-		// already has, gestureMs/firstFrameMs are the two this page must expose).
+		// figures). Both are page-clock `performance.now()` values, and the
+		// runner reports firstFrameMs directly as navigationToFirstFrameMs --
+		// `performance.now()`'s own origin IS the navigation start for this
+		// document, so no CDP-side timestamp is involved. (An earlier version of
+		// this comment claimed the runner combined these with a CDP navigation
+		// timestamp; it does not -- corrected by review 2026-08-28.)
 		__dragonwarBoot?: {
 			gestureMs: number;
 			firstFrameMs: number;

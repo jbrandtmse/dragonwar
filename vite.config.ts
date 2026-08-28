@@ -13,9 +13,14 @@
 // nothing here and its absence costs nothing.
 //
 // build.assetsInlineLimit: 0 -- a small asset inlined as a data: URI would defeat
-// this story's own payload measurement (and, for the glb specifically, is banned
-// outright by the spec's Never list: it inflates the payload about 33% and
-// describes a load path DragonWar does not ship).
+// this story's own payload measurement, and `default-src 'self'` does not admit
+// the data: scheme anyway (this build already hit that once, in Babylon's
+// environment-BRDF texture -- see src/presentation/scene/create-engine.ts).
+// Note this setting does NOT govern dragonwar.glb: that file lives under
+// public/ and is fetched by a runtime string URL, so Vite never processes it as
+// an asset and could not inline it whatever this were set to. The spec's Never
+// list bans inlining the glb separately, and that ban is honoured by keeping
+// the fetch, not by this option (comment corrected by review 2026-08-28).
 //
 // rollupOptions.input names both HTML entry points this build ships: the real
 // root page and the Spike 1 harness page, which DW-11 asks to stay permanently

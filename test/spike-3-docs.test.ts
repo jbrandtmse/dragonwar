@@ -170,3 +170,40 @@ describe('.github/workflows/ci.yml -- deploy trigger narrowed back (Story 1.2 se
 		expect(workflow).toMatch(/workflow_dispatch/);
 	});
 });
+
+// Review 2026-08-28: the block above pins only the workflow's TRIGGER. Nothing
+// pinned the steps that actually gate the build, so deleting the size-budget
+// step, adding `continue-on-error: true` to the static-bundle check, or dropping
+// `needs: checks` from the deploy job all left 288 tests and `pnpm typecheck`
+// green while letting an over-budget or CSP-less build deploy to Pages.
+describe('.github/workflows/ci.yml -- the checks that gate the build actually gate it', () => {
+	const gatingSteps = [
+		'pnpm typecheck',
+		'pnpm test',
+		'pnpm build',
+		'pnpm check:dist',
+		'pnpm check:size',
+	];
+
+	for (const step of gatingSteps) {
+		it(`runs "${step}" in the checks job`, () => {
+			const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+			expect(workflow).toContain(`run: ${step}`);
+		});
+	}
+
+	it('lets no step opt out of failing the job', () => {
+		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+		expect(workflow).not.toMatch(/continue-on-error/);
+	});
+
+	it('gates the deploy job on the checks job', () => {
+		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+		expect(workflow).toMatch(/needs:\s*checks/);
+	});
+
+	it('deploys only from main, so workflow_dispatch on another branch cannot ship', () => {
+		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+		expect(workflow).toMatch(/github\.ref == 'refs\/heads\/main'/);
+	});
+});

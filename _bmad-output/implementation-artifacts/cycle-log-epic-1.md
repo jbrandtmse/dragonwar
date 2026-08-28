@@ -51,3 +51,8 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T02:56:30Z	Epic 1	runtime_lock_acquired	stage=qa
 2026-08-28T03:05:05Z	Story 1.2	qa_complete	spawn_at=2026-08-28T03:05:00Z model=claude-sonnet-5 tests_added=17 test_files_added=2 total_tests=288 total_test_files=16 first_run_failures=0 clarifications=0 closing_sections_present=true
 2026-08-28T03:05:05Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-28T03:38:56Z	Story 1.2	cr_complete	spawn_at=2026-08-28T03:12:00Z model=claude-opus-5 resolved=14 deferred=5 dismissed=25 high=3 med=0 low=11 story_status=done tests=323 review_tier=full layers=blind-hunter,edge-case-hunter,verification-gap,acceptance-auditor closing_sections_present=true note=3_high_all_provenance_gpl_notices_stripped_from_dist
+2026-08-28T03:38:56Z	Story 1.2	ledger_adjudicated	owned=2 resolved=2 reowned=0 terminal=0 filed=1 model=claude-opus-5 note=DW-25_provenance_ordering_evidence_routed_to_1-3
+2026-08-28T03:39:06Z	Epic 1	runtime_lock_acquired	stage=smoke
+2026-08-28T03:39:39Z	Story 1.2	smoke_complete	method=browser result=pass iterations=1 defects_caught=0 evidence=docs/spikes/spike-3.md model=claude-opus-5 surface=local_preview_current_build renderer=webgl2-fallback console_errors=0 transfer_bytes=593008 nav_first_frame_ms=2250.6 license_txt=200 notices_txt=200 glb=200
+2026-08-28T03:39:39Z	Epic 1	runtime_lock_released	stage=smoke

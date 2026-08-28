@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader';
+import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 // The same leaner base-loader import src/presentation/scene/create-engine.ts
 // ships with (not the '@babylonjs/loaders/glTF/2.0' barrel, which also
 // registers every extension) -- this smoke test validates what actually ships.
@@ -125,7 +126,20 @@ describe('src/presentation/scene/create-engine.ts -- the real scene-construction
 			const { scene, firstFrameMs } = await loadAndRenderOnceForTests(engine, dataUrl, { pluginExtension: '.glb' });
 			try {
 				expect(scene.useRightHandedSystem, 'AD-10: scene must be right-handed').toBe(true);
-				expect(scene.environmentBRDFTexture, 'seedEnvironmentBrdfTexture() must run before any material needs a BRDF LUT').not.toBeNull();
+				// `.not.toBeNull()` alone could not detect the regression this
+				// assertion exists for (review finding 2026-08-28): Scene declares
+				// environmentBRDFTexture with no initialiser, so an unseeded scene
+				// reads `undefined`, which passes `.not.toBeNull()`; and Babylon's
+				// own GetEnvironmentBRDFTexture ASSIGNS the property when the glTF
+				// loader's PBRMaterial asks for one -- which under NullEngine in
+				// Node succeeds, because there is no CSP to block its `data:` URI.
+				// The assertion therefore passed identically with and without the
+				// seed. Pin the texture's identity instead: ours is the 1x1
+				// RawTexture built from raw bytes in memory, Babylon's is a loaded
+				// PNG, so this distinguishes them.
+				const brdf = scene.environmentBRDFTexture;
+				expect(brdf, 'seedEnvironmentBrdfTexture() must run before any material needs a BRDF LUT').toBeInstanceOf(RawTexture);
+				expect(brdf.getSize(), 'the seeded BRDF LUT is the in-memory 1x1 RawTexture, not Babylon\'s CSP-blocked data: URI default').toEqual({ width: 1, height: 1 });
 				expect(typeof firstFrameMs).toBe('number');
 				expect(Number.isFinite(firstFrameMs)).toBe(true);
 

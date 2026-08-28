@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-27'
 status: 'done'
 baseline_revision: '9ccfb53b0eb2724648257576a4c3a1b36c3db49f'
+baseline_commit: '9ccfb53b0eb2724648257576a4c3a1b36c3db49f'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -568,6 +569,67 @@ second build output directory is introduced).
   WebGPU initialised under the pinned CSP; and references by name to ledger entries `DW-1`,
   `DW-11`, `DW-13` and `DW-16` with no new entries filed for matters already adjudicated.
 
+### Review Findings
+
+**Code review 2026-08-28 (second pass, `bmad-code-review`, full mode).** Four
+layers ran in parallel from `C:/git/dragonwar/.worktrees/epic-1` (Blind Hunter,
+Edge Case Hunter, Verification Gap, Acceptance Auditor), plus the reviewer's own
+pass. 14 patch, 5 defer, 25 dismissed. All patches applied; suite 323/323 across
+16 files, `pnpm typecheck` clean, `pnpm build`, `check:dist` and `check:size` all
+green after them. The settled amendments (CSP string, silent WebGPU fallback,
+deploy-trigger narrow-back) and the lead-verified measurement numbers were out of
+scope by dispatch and were not re-litigated.
+
+- [x] [Review][Patch] **HIGH -- the deployed bundle discharged Apache-2.0 for Babylon but nothing for the GPL-3.0 code and the minified vpx-js port it actually conveys** [`public/THIRD-PARTY-NOTICES.txt`, `public/LICENSE.txt`, `index.html`, `tools/spike-1/index.html`, `NOTICE`, `tools/check-dist.mjs`] -- `dist/` ships the vpx-js-derived physics on the deployed Spike 1 harness page; minification strips comments, so a `Copyright|GPL|freezy` grep of `dist/assets/spike1-*.js` returned **0** -- precisely the trap `CLAUDE.md` names ("Stripping them breaks the licence grant the port depends on") and AD-16's "ported and borrowed files keep their notices". The build also carried no copy of the GPL-3.0 text and no Corresponding Source pointer, and the harness page linked no notices at all. Fixed: `LICENSE.txt` now ships and is linked from both emitted pages, `THIRD-PARTY-NOTICES.txt` reproduces freezy's copyright and the GPL-2.0-or-later grant verbatim and names the Corresponding Source URL, and `check-dist.mjs` fails the build if either file is missing or unlinked. Found independently by three layers.
+- [x] [Review][Patch] **HIGH -- `vite` had no `ATTRIBUTIONS.md` row although its runtime code is emitted into the shipped bundle** [`ATTRIBUTIONS.md`, `public/THIRD-PARTY-NOTICES.txt`] -- `dist/assets/preload-helper-*.js` is Vite's module-preload helper, so MIT's "include the copyright notice and this permission notice in all copies" attaches to this deploy. The Code table meanwhile asserted "*No other third-party code is compiled into DragonWar yet.*", which this build made false. Licence read at source in `LICENSE.md` at the root of the published package (MIT, "Copyright (c) 2019-present, VoidZero Inc. and Vite contributors"), not from the `license` field. Row added, notice shipped, and the table's scope sentence corrected.
+- [x] [Review][Patch] **HIGH -- the generated placeholder glb had no provenance record** [`ATTRIBUTIONS.md`] -- `public/assets/dragonwar.glb` is a committed, shipped, tool-generated asset, while the Assets and Generated-content tables both still read "*None yet.*", against CLAUDE.md ("Generated assets are recorded too: name the tool and the date") and the spine's "every third-party **or generated** file in `ATTRIBUTIONS.md` first". Recorded under Generated content naming `tools/make-placeholder-glb.mjs`, the date, and the AD-11 contract it satisfies.
+- [x] [Review][Patch] MED -- `NOTICE` stated the vpx-js port is "not yet present"; it has been since Story 1.1 [`NOTICE`, `ATTRIBUTIONS.md`] -- this story's NOTICE edit fixed one half of a sentence that was stale for two reasons and left the other half newly wrong. `ATTRIBUTIONS.md` also still listed `vpdb/vpx-js` under "Planned dependencies ... **Not yet in the repository**" while carrying a full Code-table row for it. Both corrected; the NOTICE paragraph now also records why the built bundle cannot carry the per-file headers and where they ship instead.
+- [x] [Review][Patch] MED -- the assertion guarding this story's headline CSP fix could not fail [`test/scene-smoke.test.ts`] -- `expect(scene.environmentBRDFTexture).not.toBeNull()` passes on `undefined` (Babylon declares the property with no initialiser), *and* Babylon's own `GetEnvironmentBRDFTexture` assigns it when the glTF loader's PBR material asks -- which under NullEngine in Node succeeds, there being no CSP. The assertion therefore passed identically with and without `seedEnvironmentBrdfTexture()`. Now pins the texture's identity (`RawTexture`, 1x1).
+- [x] [Review][Patch] MED -- nothing asserted that the size budget CI enforces is `BUDGET_BYTES` [`test/size-budget.test.ts`] -- every existing case passed an explicit `--budget`, so replacing `args.budgetOverride ?? BUDGET_BYTES` with a 20 MB literal left the suite green while letting a ~19 MB bundle through the only gate in front of NFR-4's ceiling. Two real-subprocess cases added that supply no `--budget`.
+- [x] [Review][Patch] MED -- nothing pinned the CI workflow's gating steps, only its trigger [`test/spike-3-docs.test.ts`] -- deleting the size-budget step, adding `continue-on-error: true` to the static-bundle check, or dropping `needs: checks` all left 288 tests and typecheck green while letting an over-budget or CSP-less build deploy. Assertions added for all five `run:` lines, the absence of `continue-on-error`, `needs: checks`, and the new deploy ref guard.
+- [x] [Review][Patch] MED -- nothing verified the one asset the shipped page fetches is in the build [`tools/check-dist.mjs`, `test/check-dist.test.ts`] -- `GLB_URL` is a plain runtime string, so Vite never resolves it; renaming the file or dropping `publicDir` passed typecheck, the suite, `check:size` and `check:dist`, deployed green, and handed every visitor the error panel. `checkRuntimeAssets()` added and gated in CI.
+- [x] [Review][Patch] MED -- the AD-16 licence-header guard did not walk the source roots this story created [`test/sim-boundary.test.ts`] -- its roots were `src/sim/contracts`, `tools`, `test`; deleting the GPL-3.0 header from `create-engine.ts`, `boot.ts` or `vite.config.ts` left the suite green. Roots extended to `src/host` and `src/presentation`, `vite.config.ts` added, and the extension filter widened to `.mts` so the three new `.d.mts` files are covered.
+- [x] [Review][Patch] MED -- AD-17's boot invariants had no regression guard at all [`test/entry-html-csp.test.ts`] -- renaming an id in `index.html` alone makes `byId()` throw at module scope *before* any listener or `showError()` exists, so the error panel that prevents a dead page is itself disabled; deleting `#gate[hidden] { display: none }` or hoisting the click listener above the WebGL2 guard were equally invisible. Source-level pins added for the id contract, the WebGL2-before-wiring ordering, the Chrome/Edge/Safari message, and the three `[hidden]` display rules.
+- [x] [Review][Patch] MED -- `workflow_dispatch` could still deploy to Pages from any branch [`.github/workflows/ci.yml`] -- the deploy job's only guard was `github.event_name != 'pull_request'`, and `workflow_dispatch` fires from any ref; this is how the spike's own deployment happened, and the trigger narrow-back did not close it. Both the deploy job and the artifact upload are now additionally guarded by `github.ref == 'refs/heads/main'`. (The `github-pages` Environment setting remains -- ledger `DW-18`, occurrence appended.)
+- [x] [Review][Patch] LOW -- emitted stylesheets were never scanned [`tools/check-dist.mjs`, `test/check-dist.test.ts`] -- the relative-path and service-worker loops both filtered to `.js`, so a root-relative or external `url()` / `@import` -- the very `base`-misconfiguration symptom the check exists to catch -- would ship inside a `.css` file and be blocked at runtime instead. CSS scanning added with three fixture cases.
+- [x] [Review][Patch] LOW -- `docs/spikes/spike-3.md` contradicted itself on the NFR-4 margin and overstated the boot gate -- it claimed a "~13-14x" margin in two places (including inside the vsync honesty caveat, where the number does the most work) against its own table's 5.4x / 6.7x / 7.1x; claimed "no request is issued before the press-to-begin gesture fires" when all 67 requests but the glb precede it; and read "fully representative **or** a real user's numbers". All three corrected, with the engine-bundle timing explained precisely and routed to Story 6.1.
+- [x] [Review][Patch] LOW -- Rule 14: a literal U+2014 in a runtime string this story added [`tools/spike-1/browser.ts`] -- now the escape form. (Pre-existing literals in Story 1.1 comments are exempt by convention and untouched.) Two code comments that described implementations which do not exist were also corrected: `boot.ts`'s `__dragonwarBoot` block (no CDP navigation timestamp is involved) and `vite.config.ts`'s `assetsInlineLimit` rationale (the setting does not govern the `public/` glb).
+- [x] [Review][Defer] Boot surface has no load timeout and no error path for pre-`onBegin` failures, and never calls `engine.resize()` -- ledger `DW-20`, routed, owner Story 6.1.
+- [x] [Review][Defer] The Babylon engine bundle is fetched before the WebGL2 check runs, so AD-17's "before any asset loads" holds for the glb but not the engine -- ledger `DW-21`, routed, owner Story 6.1.
+- [x] [Review][Defer] The narrow-back also removed CI from every non-`main` branch push, which the story's own task line requires -- ledger `DW-22`, escalated, owner `burndown`.
+- [x] [Review][Defer] `check-dist`'s external-origin scan is narrower than the frozen I/O matrix row it implements, a disclosed deviation never ratified -- ledger `DW-23`, escalated, owner `burndown`.
+- [x] [Review][Defer] The workflow declares no default `permissions:` block; the obvious fix risks breaking `upload-pages-artifact` and cannot be validated without a live run -- ledger `DW-24`, escalated, owner `burndown`.
+
+**Dismissed as noise (25).** No reachable failure against this story's shipped
+code or a named AC/AD: the workflow-level `pages` concurrency group (serialises
+CI on a solo repo; matches GitHub's own Pages pattern; `cancel-in-progress:
+false` queues rather than cancels); Actions pinned to major tags rather than
+commit SHAs, and Actions not recorded in `ATTRIBUTIONS.md` (CI services, not
+files in the repository, and nothing they contribute is compiled into `dist/`);
+the Babylon licence URL citing `master` rather than a pinned ref (source URL and
+verification date are both recorded, as CLAUDE.md requires); `median()` and the
+CDP harness duplicated between `tools/spike-1` and `tools/spike-3` (forced --
+`test/spike-1-harness-boundary.test.ts` forbids `browser.ts` any new import);
+the cadence guard applying to the warmup run (a median over 60 frames is robust
+to shader-compile spikes); test-only exports present in the production module;
+CI running `ubuntu-latest` only (no AC asks for a matrix; Story 1.8 owns browser
+parity); the WebGPU engine shipping in the main chunk and the lazy texture-codec
+chunks being emitted (payload observations, both inside a budget with 2 MB of
+headroom); `public/styles.css` unhashed; `--budget` not gated to tests (CI never
+passes it); `measure-load.mjs`'s fixed CDP port, its unchecked `Page.navigate`
+errorText, and its uncovered browser-driven body; `measure.mjs` not detecting a
+stale `dist/`; `EngineFactory` silently returning a `NullEngine`; the scene left
+undisposed when the first-frame promise rejects; `engineCreated` not reset on a
+construction failure (no in-page retry exists -- the button is `{ once: true }`
+and disabled); weak assertions in `test/spike-3-docs.test.ts`; the ~1 s blank
+canvas between gesture and first frame; and `test/scene-smoke.test.ts`'s
+un-forced renderer case pinning a label rather than the WebGPU branch (AD-15
+forbids more). One further observation is recorded for the lead rather than as a
+defect: AC 1's "rows saved to disk **before** `pnpm add`" is no longer
+evidenceable from version control, since `ATTRIBUTIONS.md` and `package.json`
+first change in the same commit (`9595a7c`) -- it is attested only by prose in
+`docs/spikes/spike-3.md`.
+
 ## Spec Change Log
 
 **2026-08-27 - plan stage HALT `intent gap` resolved by author decision; spec reset to `draft`
@@ -1036,6 +1098,50 @@ frontmatter) and `.memlog.md` are explicitly out of scope for this story's edits
   ledger entry for `DW-1`, `DW-13` or any other already-adjudicated matter.
 - `_bmad-output/implementation-artifacts/deferred-work.md` is unchanged by this story; deferred
   findings go in this spec's frontmatter `deferred:` list for the lead to harvest.
+
+**QA-generated test files (2026-08-28, `/bmad-qa-generate-e2e-tests`):** baseline was 271/14
+green (confirmed by re-running `pnpm test` before starting); closed genuine gaps in already-shipped
+code, none duplicating existing coverage. All Node-level (no browser/GPU/network), all discoverable
+by the default `pnpm test` run (Rule 8). Full suite after: 288/16 green; `pnpm typecheck` clean.
+
+- `test/make-placeholder-glb.test.ts` (QA, new file) -- `tools/make-placeholder-glb.mjs`'s exported
+  `buildPlaceholderGlb()` had no dedicated test: determinism (two calls byte-identical), a
+  byte-for-byte match against the committed `public/assets/dragonwar.glb` (the reproducibility
+  the task's own rationale names -- "commit both the generator and its output so the asset is
+  reproducible"), the glTF binary container header (magic/version/length, JSON/BIN chunk types),
+  and the AD-11 node-name grammar read directly from the JSON chunk.
+- `test/entry-html-csp.test.ts` (QA, new file) -- source-level regression pin: both real HTML
+  entry points (`index.html`, `tools/spike-1/index.html`) carry the exact pinned CSP meta tag and
+  no inline `<style>`, read directly off disk with no `pnpm build` required. `tools/check-dist.mjs`
+  and its own tests validate this invariant's logic against fixtures and the real build was
+  verified manually/in CI, but nothing in the default `pnpm test` run previously read the actual
+  committed source files, so a source edit dropping the tag would go undetected until the next
+  build.
+- `test/measure-load-cli.test.ts` (QA, extended) -- added direct unit tests for the exported
+  `median()` function in `tools/spike-3/measure-load.mjs`, which the file's own header comment
+  says was exported "so a direct unit test can assert this ... mirrors tools/spike-1/browser.ts's
+  own median()" -- that sibling function has such a test (`test/spike-1-browser-guard.test.ts`),
+  this one did not.
+- `test/check-dist.test.ts` (QA, extended) -- added the untested "dist directory exists but has
+  no `.html` files" branch of `checkDist()`.
+- `test/size-budget.test.ts` (QA, extended) -- added the untested "unrecognized CLI argument"
+  branch of `parseArgs()`.
+- `tools/make-placeholder-glb.d.mts` and `tools/spike-3/measure-load.d.mts` (QA, new ambient
+  declaration files, required for `pnpm typecheck` to pass) -- mirror the established
+  `tools/size-budget.d.mts` pattern: a plain `.mjs` has no inferred types under this project's
+  `tsconfig.json` (no `allowJs`), so a `.ts` test file importing named exports from it needs a
+  paired `.d.mts`.
+
+Considered and deliberately not added: a unit test forcing `create-engine.ts`'s
+`createEngine()` WebGPU-construction-throws catch branch (the `webgl2-fallback` path via a
+thrown, not merely internally-handled, `EngineFactory.CreateAsync` rejection) -- under Node/
+NullEngine this path is not naturally reachable (`EngineFactory`'s own WebGPU->WebGL->Null
+fallback chain succeeds without throwing), so exercising it would require mocking a Babylon
+internal, a pattern not used anywhere else in this suite and in tension with AD-15's "no
+automated presentation tests beyond a NullEngine load smoke". The real WebGPU-failure path this
+guards is already live-measured and documented in `docs/spikes/spike-3.md`, and the DOM-driven
+`host/boot.ts` half of the same defect (the stale-canvas HIGH finding) is, by this spec's own
+established precedent, verified by reading rather than by an automated harness.
 
 ## Auto Run Result
 
