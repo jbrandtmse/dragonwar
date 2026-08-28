@@ -244,3 +244,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: index.html; public/
 - evidence: Observed at Story 1.3's browser smoke against a real preview of the current dist: the only console error on load is 'Failed to load resource: 404' for http://localhost:4187/favicon.ico. index.html declares no icon link and public/ ships no favicon
 - 2026-08-28T06:46:08Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=smoke note=Cosmetic and pre-existing (index.html is Story 1.2's, untouched by 1.3), but it is a console error on every load of a public site and Story 6.1 owns the press-to-begin shell and error panel, so it is the natural place to add an icon
+
+### DW-44: docs/spikes/spike-3.md still describes public/assets/dragonwar.glb as the output of tools/make-placeholder-glb.mjs, which Story 1.4 retires
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: docs/spikes/spike-3.md
+- evidence: Lines 198-204 name the generator and the date; line 509 records the one-glb-versus-split decision against the 1560-byte placeholder. No test reads those lines, so nothing goes red. docs/** is outside Epic 1's declared footprint and Story 1.3 forbade editing either spike record
+- 2026-08-28T11:07:38Z status=open owner=1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi by=harvest note=To be adjudicated at this story's ledger gate; the plan recommends correct-as-history
