@@ -12,7 +12,31 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      This automated cycle host's session has no display actively attached
+      (distinct from DW-1's macOS/Safari gap), which defeats real-vsync
+      requestAnimationFrame cadence measurement for any headed-Chrome tool --
+      tools/spike-3/measure-load.mjs works around it, but the workaround
+      itself (disabled vsync/frame-rate-limit) means its own timing figures
+      are a lower bound, not a consumer figure. Story 4.7 (Spike 2) and
+      Story 6.6 will hit the same constraint if run in an equivalent
+      automated session.
+    evidence: |-
+      Get-CimInstance Win32_VideoController reports a fixed CurrentRefreshRate
+      of 29Hz on this session; a direct Win32 EnumDisplaySettings call
+      enumerates zero display modes at all (confirmed via P/Invoke, not
+      inferred). A headed Chrome launched here paced requestAnimationFrame to
+      that stale 29Hz value (~34.5ms/frame, matching DW-16's own defect
+      description almost exactly) regardless of every existing
+      anti-throttling launch flag; the median-cadence guard correctly
+      rejected those runs. Adding --disable-gpu-vsync and
+      --disable-frame-rate-limit to the Chrome launch fixed it -- see
+      docs/spikes/spike-3.md's "Environment" section for the full write-up
+      and the honesty caveat this leaves on the timing (not payload) figures.
+    location: >-
+      tools/spike-3/measure-load.mjs; docs/spikes/spike-3.md "Environment"
+    severity: med
 ---
 
 <intent-contract>

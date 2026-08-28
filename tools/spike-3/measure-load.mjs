@@ -320,11 +320,14 @@ async function run(args) {
 				await cdp.send('Network.enable');
 				await cdp.send('Runtime.enable');
 				// Forces the renderer to treat this page as focused regardless of the
-				// real OS window-manager focus state. On this host/session a headed
-				// launch's rAF cadence measured ~29 fps (34-35ms/frame) without this --
-				// the exact DW-16 defect signature -- even with the launch's other
-				// anti-throttling flags; this fixed it. Emulation domain, no
-				// corresponding *.disable -- harmless to leave set for the run's life.
+				// real OS window-manager focus state. Cheap insurance alongside
+				// Page.bringToFront below (input dispatch and rAF cadence can both be
+				// sensitive to a window's actual focus/foreground state on some
+				// platforms) -- the specific ~29Hz cadence defect this host/session
+				// exhibits (see the ENVIRONMENT NOTE above) turned out to be the
+				// display state, fixed by --disable-gpu-vsync/--disable-frame-rate-limit
+				// below, not this. Emulation domain, no corresponding *.disable --
+				// harmless to leave set for the run's life.
 				await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
 
 				await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
