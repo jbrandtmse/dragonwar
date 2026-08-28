@@ -39,3 +39,5 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-27T22:44:57Z	Story 1.2	story_planning	model=claude-opus-5
 2026-08-27T23:05:51Z	Story 1.2	plan_clarification_requested	spawn_at=2026-08-27T22:45:10Z model=claude-opus-5 build_status=blocked blocking=intent_gap reason=nfr7_csp_connect_src_none_vs_glb_fetch;pages_private_repo_no_site path=_bmad-output/implementation-artifacts/spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md verified_by_lead=true
 2026-08-28T00:45:54Z	Epic 1	epic_context_compiled	reason=nfr_amendment model=claude-opus-5
+2026-08-28T00:57:38Z	Story 1.2	story_created	spawn_at=2026-08-27T23:06:00Z model=claude-opus-5 path=_bmad-output/implementation-artifacts/spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md build_status=ready-for-dev epic_context=reused cycle_iteration=2 note=re_dispatch_after_intent_gap_resolved
+2026-08-28T00:57:38Z	Story 1.2	spec_validated	service_introducing=true integration_ac=present adr_constrained_acs=ad17,ad12,ad1,ad10,ad11,ad16,ad15 model=claude-opus-5 lead_edit=corrected_stale_renderer_matrix_row_in_intent_contract
