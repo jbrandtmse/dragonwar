@@ -56,3 +56,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T03:39:06Z	Epic 1	runtime_lock_acquired	stage=smoke
 2026-08-28T03:39:39Z	Story 1.2	smoke_complete	method=browser result=pass iterations=1 defects_caught=0 evidence=docs/spikes/spike-3.md model=claude-opus-5 surface=local_preview_current_build renderer=webgl2-fallback console_errors=0 transfer_bytes=593008 nav_first_frame_ms=2250.6 license_txt=200 notices_txt=200 glb=200
 2026-08-28T03:39:39Z	Epic 1	runtime_lock_released	stage=smoke
+2026-08-28T03:39:59Z	Story 1.2	committed	sha=c4d52ca submodules=
