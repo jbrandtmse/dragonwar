@@ -2,7 +2,7 @@
 title: 'Story 1.2: Spike 3 - build size and load time measured from a link'
 type: 'feature'
 created: '2026-08-27'
-status: 'blocked'
+status: 'draft'
 baseline_revision: '4034d467942c9835d7bd2f2298b6766db60653ef'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -77,29 +77,39 @@ one-glb-versus-split decision into `docs/spikes/spike-3.md`.
   in source are written as escape sequences, never literal bytes (Rule 14).
 - `pnpm typecheck` passes and the default `pnpm test` suite is green, including Story 1.1's
   187 existing tests.
+- **The CSP string is now `default-src 'self'; connect-src 'self'`** (author amendment,
+  2026-08-27, applied by the lead to NFR-7, AD-17, SOLUTION-DESIGN, review-rubric L9 and both
+  epic ACs). `index.html` carries
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'">`
+  verbatim and CI greps for that exact amended string. NFR-7's intent is unchanged and still
+  enforced: no telemetry, no third-party origin, nothing off the static origin. `'self'` admits
+  the same-origin `dragonwar.glb` fetch and nothing else.
+- **WebGPU is taken only where it initialises cleanly under that CSP** (author amendment,
+  2026-08-27). No `script-src` grant, no `'wasm-unsafe-eval'`. Babylon's WebGPU transpiler is
+  never fetched from a CDN; if it cannot be served from our own origin, or WebGPU cannot come
+  up under the CSP, the engine falls back to WebGL2 silently and WebGL2 carries the spike.
+  `?renderer=webgl2` forces WebGL2 in every case. No feature may require WebGPU (AR-27, AD-12).
+- **The measurement surface is live and public.** `jbrandtmse/dragonwar` is PUBLIC and Pages is
+  provisioned at `https://jbrandtmse.github.io/dragonwar/` (`build_type=workflow`,
+  `https_enforced=true`); no deployment has run yet, so the first workflow run populates it.
+  The gating figures are cold anonymous loads of that URL, exactly as the ACs specify.
+- **The deploy workflow may trigger on `DW-1-epic1` and `workflow_dispatch` for this spike
+  only, and MUST be narrowed back before Epic 1's merge gate.** Removing the epic-branch
+  trigger (leaving `main` + `workflow_dispatch`, restoring AD-17 / AR-34's `main`-only shipping
+  rule) is an acceptance item of this story, not a follow-up. `docs/spikes/spike-3.md` states
+  that the measured artifact was built from an unmerged branch and is provisional until it
+  reruns from `main`.
 
 **Block If:**
-- **The pinned CSP forbids loading the glb.** `connect-src 'none'` blocks every
-  `fetch`/`XMLHttpRequest`, including same-origin ones, and Babylon's glTF loader fetches
-  `dragonwar.glb` over exactly that interface. The pinned string and the runtime asset load
-  cannot both hold. Do NOT weaken the CSP unilaterally and do NOT sidestep it by inlining the
-  glb as a `data:` URL or as base64 inside the JS bundle - that would make the payload and
-  first-frame numbers unrepresentative of the shipping architecture (AD-11 fetches
-  `public/assets/dragonwar.glb` and `dragonwar.collision.json` at runtime), which is the one
-  thing this spike exists to measure. HALT with status `blocked`, blocking condition
-  `intent gap`. See `## Design Notes` -> "The CSP contradiction" for the evidence and the
-  recommended amendment.
-- **GitHub Pages cannot serve an anonymously reachable link.** Verified 2026-08-27:
-  `jbrandtmse/dragonwar` is PRIVATE and `GET /repos/jbrandtmse/dragonwar/pages` returns 404
-  (no Pages site configured). Publishing the repository, or enabling Pages on a private
-  repository, is the author's decision and never an agent's. HALT with status `blocked`,
-  blocking condition `pages deployment not authorized`.
-- **The first Pages deployment cannot reach the default branch.** The deploy job runs on
-  `main` only (AR-34, AD-17), and this story's work sits on the epic branch. If the lead has
-  not authorised a route to a live deployment before the measurement legs run, HALT with
-  status `blocked`, blocking condition `pages deployment not authorized` - do NOT substitute
-  a local `vite preview` figure for the Pages figure, and do NOT relax the deploy job's
-  branch condition to make the branch deploy itself.
+- **RESOLVED 2026-08-27 - the three halts this spec originally carried are lifted by author
+  decision.** The CSP contradiction, the private-repository/no-Pages-site blocker and the
+  `main`-only deploy restriction were all decided by the author and applied to the planning
+  artifacts by the lead; see `## Design Notes` and `## Spec Change Log`. Do NOT re-raise them.
+  The CSP is amended, Pages is live, and the epic-branch deploy trigger is authorised for this
+  spike with a mandatory narrow-back. What remains forbidden is unchanged: never weaken the
+  amended CSP further from inside this story, and never inline the glb to dodge a fetch - the
+  payload and first-frame numbers must describe the shipping load path (AD-11 fetches
+  `public/assets/dragonwar.glb` and `dragonwar.collision.json` at runtime).
 - **`@babylonjs/core` or `@babylonjs/loaders` at `9.22.2` cannot have its licence established
   by reading the licence file in its source repository.** A licence that cannot be verified at
   source means the package is not added. HALT with blocking condition
@@ -108,7 +118,11 @@ one-glb-versus-split decision into `docs/spikes/spike-3.md`.
 **Never:**
 - Never edit the CSP string, the `20 MB` NFR-4 ceiling, or any other planning-artifact wording
   from inside this story. A contradiction in a planning artifact is a HALT for the lead to
-  amend (Rule 5), never a code-side workaround.
+  amend (Rule 5), never a code-side workaround. The CSP amendment of 2026-08-27 was made that
+  way - author decision, lead edit, recorded in `## Spec Change Log` - and the implementation's
+  only job is to use the amended string verbatim. Re-setting the `20 MB` ceiling from this
+  story's own measurement IS in scope; it is what the spike exists to do, and NFR-4 marks the
+  figure `[ASSUMPTION - re-set by spike 3]`.
 - Never record a macOS or Safari number this host cannot take. The Safari/macOS legs are
   already adjudicated as author-owned under ledger entry `DW-1` ("Author-owned: macOS /
   Safari measurement legs") - mark them `PENDING - author's macOS leg`, reference `DW-1` by
@@ -392,11 +406,53 @@ one-glb-versus-split decision into `docs/spikes/spike-3.md`.
 
 ## Spec Change Log
 
+**2026-08-27 - plan stage HALT `intent gap` resolved by author decision; spec reset to `draft`
+for re-plan.** The plan stage refused to plan around a contradictory NFR (Rule 5). The author
+decided all three blockers; the lead applied them:
+
+1. **NFR-7 CSP amended.** `default-src 'self'; connect-src 'none'` ->
+   `default-src 'self'; connect-src 'self'` in all six pinned locations:
+   `epics.md:124` (NFR-7), `epics.md:373` (this story's AC 2), `epics.md:1686` (Story 6.2 AC),
+   `ARCHITECTURE-SPINE.md:214` (AD-17), `SOLUTION-DESIGN.md:149` (deployment),
+   `reviews/review-rubric.md:103` (L9). The CI grep is kept and now greps the amended string.
+   Rationale: `connect-src` does not fall back to `default-src` once set and `'none'` admits no
+   URL, same-origin included, so Babylon's glTF loader could never fetch `dragonwar.glb`;
+   `'self'` preserves everything NFR-7 protects (no telemetry, no third-party origin) while
+   admitting the same-origin asset load. `.memlog.md:68` was deliberately NOT edited - it is a
+   historical decision record and stays as-written.
+2. **WebGPU AC reworded** (`epics.md:379`): WebGPU is chosen only where it initialises under the
+   pinned CSP, with its transpiler served from our own origin and never a CDN, falling back to
+   WebGL2 silently otherwise; `?renderer=webgl2` still forces WebGL2. No `script-src` grant and
+   no `'wasm-unsafe-eval'`. This matches AD-12 / AR-27's "no feature may require WebGPU".
+3. **Measurement surface provisioned.** `jbrandtmse/dragonwar` was made PUBLIC and Pages
+   provisioned at `https://jbrandtmse.github.io/dragonwar/` (`build_type=workflow`,
+   `https_enforced=true`, no deployment yet). The story therefore measures the real cold
+   anonymous from-a-link load as originally specified, and ledger `DW-11` becomes closeable
+   within this story rather than re-owned.
+4. **Deploy trigger authorised on the epic branch, with a mandatory narrow-back.** The workflow
+   may trigger on `DW-1-epic1` and `workflow_dispatch` so the spike can measure a live
+   deployment now. A new acceptance criterion was added to `epics.md` (after this story's
+   existing ACs) requiring the epic-branch trigger to be removed - narrowing back to `main` +
+   `workflow_dispatch` - before Epic 1's merge gate, and requiring `docs/spikes/spike-3.md` to
+   record that the measured artifact came from an unmerged branch and is provisional until it
+   reruns from `main`.
+
+The `<intent-contract>` block was updated in place: the three resolved `Block If` halts are
+lifted and replaced with the corresponding `Always` constraints. The provenance `Block If`
+(licence unverifiable at source) is untouched and still binding.
+
+
 ## Review Triage Log
 
 ## Design Notes
 
-### The CSP contradiction (the blocking condition)
+### The CSP contradiction (RESOLVED 2026-08-27 - retained as the amendment's rationale)
+
+> **Status: resolved by author decision.** The CSP is now
+> `default-src 'self'; connect-src 'self'` in all six pinned locations. The analysis below is
+> kept because it is the evidence the amendment rests on and the reviewer should be able to
+> check it - it is NOT an open blocker. Do not re-raise it.
+
 
 **NFR-7 as worded cannot hold together with this story's own asset-loading AC, and the
 conflict is structural rather than incidental.**
@@ -456,7 +512,17 @@ here in `## Spec Change Log`, re-run the epic-context pre-warm (the amendment ma
 planning artifacts newer than `epic-1-context.md`), reset this spec's `status` to `draft`, and
 re-dispatch on the spec path.
 
-### Deployment prerequisites the lead owns (verified 2026-08-27)
+### Deployment prerequisites (RESOLVED 2026-08-27 - repository public, Pages live)
+
+> **Status: resolved.** `jbrandtmse/dragonwar` is PUBLIC; Pages is provisioned at
+> `https://jbrandtmse.github.io/dragonwar/` (`build_type=workflow`, `https_enforced=true`,
+> `status: null` until the first workflow run deploys). The deploy workflow is authorised to
+> trigger on `DW-1-epic1` and `workflow_dispatch` for this spike, and MUST be narrowed back to
+> `main` + `workflow_dispatch` before Epic 1's merge gate (an acceptance item, not a follow-up).
+> The artifact measured during the spike is built from an unmerged branch and is provisional
+> until it reruns from `main` - say so in `docs/spikes/spike-3.md`. The record below is the
+> pre-resolution verification, retained for the reviewer.
+
 
 Independent of the CSP question, three things must be true before the implement stage can
 satisfy the Pages ACs. None is an agent's decision.

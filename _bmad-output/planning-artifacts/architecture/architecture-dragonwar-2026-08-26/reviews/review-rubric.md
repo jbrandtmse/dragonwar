@@ -100,7 +100,7 @@ None.
 
 **L8 — AD-13:** audio sample container undecided; Safari has no Ogg Vorbis. *Fix:* `.wav` masters in `assets/src/`, `.mp3` shipped in `public/assets/`.
 
-**L9 — AD-17 / NFR-7:** "no network after load" has no enforcement; Pages sets no headers. *Fix:* `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'">` in `index.html` plus a CI grep.
+**L9 — AD-17 / NFR-7:** "no network after load" has no enforcement; Pages sets no headers. *Fix:* `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'">` in `index.html` plus a CI grep.
 
 **L10 — Capability map:** only NFR-5 has a row. *Fix:* add rows for NFR-1..4 and 6..9 (AD-12/17, AD-4, AD-4/5, AD-17, AD-17, AD-14, AD-14, AD-16).
 
