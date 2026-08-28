@@ -1,6 +1,6 @@
 # BMAD Skill Rules
 
-Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 18.
+Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 17.
 
 ## Rule 1 — Integration ACs (`bmad-build-auto` / `bmad-build` planning step)
 
@@ -167,16 +167,6 @@ Every gate that files into the ledger is matched by a **logged stage that closes
 
 Resume refuses `smoke_complete` without (2) for that story and refuses `epic_status_done` without (3) for that epic. Planning sees the load: `ledger_load` runs before sprint planning and its counts go into the sprint-planning argument and the retrospective's context. A rule that says "periodic burn-down" with no stage that executes it never runs.
 
-## Rule 18 — Containment: returned agents are finished, prohibitions reach every depth (all agents at all depths, under `/epic-cycle`)
-
-1. **A returned agent is finished.** `SendMessage` to any agent whose `Agent` call has already returned is forbidden at every depth and in every direction — supervisor→stage, stage→its own internal subagent, peer→peer (the four named cases elsewhere are examples, not the list). To give a returned subagent more work, spawn a fresh one with the work written into the durable artifact. The single sanctioned `SendMessage` in the whole system is orchestrator→runner (parallel kit). On this harness `SendMessage` is not synchronous: a "re-engage the subagent with a synchronous message" instruction (e.g. `bmad-build-auto` step-04's patch handling) MUST be treated as "it cannot be re-engaged" — apply the patches yourself or spawn a fresh subagent.
-2. **Return exactly once.** Every agent returns when its work is complete and never before; an interim or progress return while its own subagents are still working strands them as orphan writers whose supervisor has gone. If you cannot finish, HALT properly (blocked / `## Clarification Needed`) — that is a completion, not an interim.
-3. **Every prohibition propagates to every depth that can violate it**, in the same breath as the working directory (Rule 13): the git/CI/deploy prohibitions, this rule, and any `🚫` in the spawn prompt go into every internal subagent prompt. The base kit additionally writes them into `bmad-build-auto`'s `implementation_handoff` and every review layer's `instruction` via `_bmad/custom/*.toml`, so depth-3 prompts carry them by construction.
-4. **Orphan protocol** — on evidence of a live writer whose supervisor has returned (two-point mtime sampling of the tree ~45 s apart; a stop/agent listing that shows a returned agent still running): do NOT re-spawn (that adds a writer); attempt `TaskStop`; on refusal (owner-scoped — the owner has returned) wait for quiescence (three consecutive unchanged samples), reconcile the tree into a single commit, log `protocol_violation` with what was observed, and escalate to the layer above, which records it and cannot stop it either.
-5. `ListAgents` reports process liveness, not protocol state: a `SendMessage`-resumed agent shows `running` after it has returned. It is sufficient to tell whether a runner is alive or dead; it is NOT sufficient to establish that stage discipline holds — for that, ask the owning runner or sample mtimes.
-
-(Incidents 2026-08-28, twice: a prohibition stated only at supervisor level was broken one level below it — first the git prohibition by a handoff subagent, then the `SendMessage` prohibition by a stage agent following the skill's own re-engage text. Each closed list was one direction short.)
-
 ## Project-specific rules (add below as retros surface them)
 
-> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 18. Each rule should state what it applies to, the obligation, and (briefly) why.
+> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 17. Each rule should state what it applies to, the obligation, and (briefly) why.
