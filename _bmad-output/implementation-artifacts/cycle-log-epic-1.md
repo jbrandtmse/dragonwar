@@ -48,3 +48,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T02:54:45Z	Epic 1	runtime_lock_acquired	stage=adr_verifications
 2026-08-28T02:56:22Z	Story 1.2	adr_verifications_complete	tool=measure_load_mjs_cdp acs=ac3,ac5,ac6 result=pass evidence=docs/spikes/spike-3.md model=claude-opus-5 runs=5 payload_bytes_median=588022 payload_spread_bytes=196 nav_first_frame_ms_median=1844.2 nav_range_ms=1406-2246 renderer=webgl2-fallback_all_runs cadence_ms=0.5-1.1 timing_is_lower_bound=true reason=DW-17_no_display_attached note=payload_reproduced_exactly;timing_median_moved_1.49s_to_1.84s_within_DW-13_variance;verdict_pass_robust
 2026-08-28T02:56:22Z	Epic 1	runtime_lock_released	stage=adr_verifications
+2026-08-28T02:56:30Z	Epic 1	runtime_lock_acquired	stage=qa
