@@ -1,8 +1,8 @@
 # Parallel Epic Cycle — Installation Kit
 
-**Kit-Version:** 2026-08-27.1
+**Kit-Version:** 2026-08-28.1
 
-**Requires BMAD Method v6.11.0 or later and base kit ≥ 2026-08-27.1** (the v6.11 `bmad-build-auto` pipeline). Runners spawn `bmad-build-auto` stage agents, which spawn their own subagents — depth-3 nesting (orchestrator → runner → build-auto → handoff/review) verified on Claude Code 2026-08-26.
+**Requires BMAD Method v6.11.0 or later and base kit ≥ 2026-08-28.1** (the v6.11 `bmad-build-auto` pipeline). Runners spawn `bmad-build-auto` stage agents, which spawn their own subagents — depth-3 nesting (orchestrator → runner → build-auto → handoff/review) verified on Claude Code 2026-08-26.
 
 A self-contained kit that upgrades an installed `/epic-cycle` workflow with **parallel epic execution**: orchestrator/runner modes, submodule-aware git worktrees, a runtime-lock protocol, and a serialized merge queue. Run this as a Claude Code session — the session reads each step, performs the indicated file operations, and verifies the result.
 
@@ -403,7 +403,7 @@ Anchor: insert immediately **before** the line `## Task Sequence`. The block is 
 ````markdown
 ## Parallel Orchestration (Orchestrator Mode)
 
-Runs epics concurrently when the approved dependency graph allows. Verified mechanics (2026-07-09 spikes): background runner subagents with completion notifications; SendMessage-resume preserves runner context across clarification pauses; gitlink-path submodule worktrees share objects and survive teardown; MCP tools reach subagents at depth 2 (build-auto's internal handoff/review subagents sit at depth 3 from the orchestrator and are unverified for MCP reach — Rule 7 keeps tool-dependent gates lead/orchestrator-side).
+Runs epics concurrently when the approved dependency graph allows. Verified mechanics (2026-07-09 spikes): background runner subagents with completion notifications; orchestrator→runner SendMessage-resume preserves a RUNNER's context across clarification pauses (this is the only `SendMessage` in the design — runners never resume their own stage agents this way, see Anti-Patterns); gitlink-path submodule worktrees share objects and survive teardown; MCP tools reach subagents at depth 2 (build-auto's internal handoff/review subagents sit at depth 3 from the orchestrator and are unverified for MCP reach — Rule 7 keeps tool-dependent gates lead/orchestrator-side).
 
 ### Configuration and dependency graph
 
@@ -440,7 +440,7 @@ The orchestrator then WAITS on notifications. Between notifications it does noth
 6. Retro-review assignment (`own` or `skip: handled by epic {M}`).
 7. Runtime-lock table from parallel.yaml (Rule 12 applies; quote it) + Rule 10 (quote it).
 8. Clarification protocol: "If you must stop for ANY clarification, end your run with the `## Clarification Needed` section; you will be resumed with the answer in a follow-up message — your context is preserved. For a missing-tool problem, start the section body with `TOOLING:` and name the exact verification you could not run."
-9. Completion contract: "End your final message with `## Epic Runner Complete` followed by: `epic: {N}`, `stories_completed: <n>`, `ready_for_merge: true|false`, `submodules_touched: <paths or (none)>`, `unpushed_work: none` (verify with `git log --branches --not --remotes` in every repo before claiming), `ledger: open_before=<n> resolved=<n> terminal=<n> chartered=<0|1> reowned=<n> open_after=<n>` (copied from your `ledger_burndown_*` entry), and a one-line-per-story summary table. Per-story cycle-log entries must carry real `spawn_at` values captured when each stage `Agent` call is made — never backfilled equal to the completion timestamp."
+9. Completion contract: "End your final message with `## Epic Runner Complete` followed by: `epic: {N}`, `stories_completed: <n>`, `ready_for_merge: true|false`, `submodules_touched: <paths or (none)>`, `unpushed_work: none` (verify with `git log --branches --not --remotes` in every repo before claiming), `ledger: open_before=<n> resolved=<n> terminal=<n> chartered=<0|1> reowned=<n> open_after=<n>` (copied from your `ledger_burndown_*` entry), and a one-line-per-story summary table. Interim or progress messages are NOT a supported return: end your turn ONLY with this contract or with `## Clarification Needed`. Every stage `Agent` call you make is synchronous, so you cannot have 'a stage in flight' at the end of a turn — if you do, you backgrounded or `SendMessage`-resumed a stage, which is forbidden; wait for it, reconcile, and then end properly." Per-story cycle-log entries must carry real `spawn_at` values captured when each stage `Agent` call is made — never backfilled equal to the completion timestamp."
 
 ### Notification handling
 
@@ -449,7 +449,8 @@ On each runner notification, classify its final message:
 - **`## Epic Runner Complete`, ready_for_merge=true** → **write-ahead first**: append `runner_complete` and `merge_enqueued` to the parallel log BEFORE any merge-gate interaction (a missing completion entry breaks resume and cost attribution — pilot epic-2 gap); then, if the user is present, proceed to the merge gate; either way, continue dispatching unblocked epics.
 - **`## Clarification Needed`** (no `TOOLING:` prefix) → log `runner_clarification`; surface the question to the user with Epic + Story context; on answer, `SendMessage` to `epic-runner-{N}` with the answer; log `runner_resumed`. Other epics never pause.
 - **`## Clarification Needed` with `TOOLING:`** → the runner lacks an MCP/runtime tool. The orchestrator executes that one verification itself, inside the epic's worktree, using its full session tool inventory; log `runner_tooling_backstop` with evidence; `SendMessage` the result to the runner.
-- **Anything else (crash / context exhaustion / missing contract)** → run the standard per-epic resume detection against the worktree's cycle log; re-spawn a fresh `epic-runner-{N}` at the resume point; log `runner_redispatched`. Never re-run committed work (write-ahead rule).
+- **An interim / progress message (no completion contract, no `## Clarification Needed`)** → the runner is alive and either mid-pipeline or stalled behind a stage it wrongly backgrounded. Do NOT re-spawn — that risks a second (or third) writer in its worktree. Read the worktree's cycle log for an open `stage_spawned` entry, confirm the runner is alive (`ListAgents`), then `SendMessage` it: "Confirm whether the `Agent` call for `<agent_name>` has returned. If it has not, wait for it — never end a turn with a stage in flight. Then continue, and end only with the completion contract or `## Clarification Needed`." Log `runner_interim_status`. Never diagnose the worktree's in-flight state from its files (spec status + dirty tree describes a live stage as well as a dead one).
+- **Anything else (crash / context exhaustion / missing contract) — and ONLY when `ListAgents` confirms the runner is dead** → its stage agents died with it, so the worktree's artifacts are now a valid resume input: re-spawn a fresh `epic-runner-{N}` (it performs the per-epic resume detection itself, inside the worktree, including the dirty-tree reconciliation); log `runner_redispatched`. Never re-run committed work (write-ahead rule). If the runner's liveness cannot be established, HALT and surface — ambiguous liveness is a workspace-integrity error, not a judgment call.
 
 ### Runtime locks (orchestrator duties)
 
@@ -470,7 +471,7 @@ One epic at a time, in the MAIN checkout. If the IRIS/ObjectScript IDE file-sync
 
 ### Parallel state files
 
-- `_bmad-output/implementation-artifacts/cycle-log-parallel.md` (main checkout; same TAB format as per-epic logs; field 2 is `Epic <N>`): stages `lead_model_gate`, `deps_approved`, `worktree_provisioned`, `runner_dispatched`, `runner_clarification`, `runner_resumed`, `runner_tooling_backstop`, `runner_redispatched`, `runner_complete`, `merge_enqueued`, `epic_merged_to_feature`, `epic_retro_complete|skipped`, `worktree_removed`, `epic_branches_deleted`, `runtime_lock_swept`, `parallel_summary`. Include `model=` and runner token counts where available; `parallel_summary` story counts include injected X.0 stories.
+- `_bmad-output/implementation-artifacts/cycle-log-parallel.md` (main checkout; same TAB format as per-epic logs; field 2 is `Epic <N>`): stages `lead_model_gate`, `deps_approved`, `worktree_provisioned`, `runner_dispatched`, `runner_clarification`, `runner_resumed`, `runner_tooling_backstop`, `runner_interim_status`, `runner_redispatched`, `runner_complete`, `merge_enqueued`, `epic_merged_to_feature`, `epic_retro_complete|skipped`, `worktree_removed`, `epic_branches_deleted`, `runtime_lock_swept`, `parallel_summary`. Include `model=` and runner token counts where available; `parallel_summary` story counts include injected X.0 stories.
 - `<worktree_base>/.coordination/dispatch.yaml` (orchestrator-owned): per epic — `state` (`provisioning|running|awaiting_clarification|awaiting_merge|merging|merged|failed`), `worktree`, `branch`, `runner`, `submodules_modified`, `last_event`. Write-ahead before each transition.
 - Per-epic cycle logs stay INSIDE each worktree (committed on the epic branch) — per-epic resume semantics are unchanged.
 
@@ -481,6 +482,7 @@ One epic at a time, in the MAIN checkout. If the IRIS/ObjectScript IDE file-sync
 | `cycle-log-parallel.md` shows open epics; worktrees present; runners absent | For each open epic: run per-epic resume detection in its worktree; re-spawn runner at its resume point |
 | Worktree missing but epic branch exists local/remote | Re-provision (script is idempotent), then per-epic RESUME |
 | Worktree present but branch state contradicts the epic's cycle log | INTEGRITY_ERROR — halt and surface (never silently recreate) |
+| Worktree cycle log has an open `stage_spawned` (no closing entry) | The stage may be alive. `ListAgents`: runner alive → ask it (interim-status bucket above); runner dead → its stages are dead too → re-dispatch the runner and let IT reconcile the worktree. The orchestrator never touches the worktree's tree or spec on this evidence. |
 | dispatch.yaml `merging` but no `epic_merged_to_feature` | Inspect main checkout: merge commit exists → write the missing log entry; half-done conflicted merge → surface to the user |
 
 ### Status aggregation
@@ -523,7 +525,7 @@ Guard: skip if `grep -c "orchestrator→runner resume" .claude/commands/epic-cyc
 (a) Replace the bullet beginning `- **TeamCreate / SendMessage / TeamDelete / team_name / shutdown handshakes**` with:
 
 ```markdown
-- **TeamCreate / TeamDelete / team_name / shutdown handshakes / task-envelope messaging** — Team-style messaging as a completion signal is unreliable; the `Agent` tool's return value IS the completion signal. ONE sanctioned SendMessage use exists: orchestrator→runner resume — the orchestrator answering a runner's `## Clarification Needed` (or delivering tooling-backstop results) to continue it with context intact. Runners never SendMessage each other.
+- **TeamCreate / TeamDelete / team_name / shutdown handshakes / task-envelope messaging** — Team-style messaging as a completion signal is unreliable; the `Agent` tool's return value IS the completion signal. ONE sanctioned SendMessage use exists: orchestrator→runner resume — the orchestrator answering a runner's `## Clarification Needed` (or delivering tooling-backstop results, or the interim-status liveness question) to continue it with context intact. Runner→stage, orchestrator→stage, lead→stage, and runner→runner `SendMessage` are all forbidden — a stage agent's `Agent` return value IS its completion signal, and resuming one afterwards creates an agent that has "returned" yet is still running (unrepresentable in the cycle log, invisible to resume, a de-facto background stage; incident 2026-08-28). A held stage is continued only by a fresh re-spawn per the base kit's re-dispatch protocol.
 ```
 
 (b) Replace the bullet beginning `- **Backgrounding pipeline subagents**` with:
@@ -555,11 +557,11 @@ Epic-runner subagents are the one sanctioned background spawn (Orchestrator Mode
 
 Base kit ≥ 2026-08-26.1 already carries Rule 13 / Rule 14 bullets in the **Plan** and **Implement** spawn blocks and the file-list rule (spec `## Verification`) in the QA block, so only the skeleton item, the QA working-directory bullet, and the code-review bullet remain to patch. Guard each sub-edit by its own grep:
 
-(a) Guard: skip if `grep -c "The absolute working directory" .claude/commands/epic-cycle.md` ≥ 1. Replace the Spawn Prompt Skeleton's final item `8. Skill-specific context.` with:
+(a) Guard: skip if `grep -c "every \`🚫\` prohibition" .claude/commands/epic-cycle.md` ≥ 1 (a pre-2026-08-28.1 item 9 that lacks the prohibition clause is replaced, not skipped — match on `9. **The absolute working directory**` and overwrite that item). Replace the Spawn Prompt Skeleton's final item `8. Skill-specific context.` with:
 
 ```markdown
 8. Skill-specific context.
-9. **The absolute working directory** — under a parallel run this is the epic worktree root, never the main checkout. Direct the agent to run every command from it and to verify before acting (`git rev-parse --show-toplevel` must equal the stated path), and to pass the same path + verification requirement into any internal subagents the skill spawns (Rule 13) — for `bmad-build-auto` that includes its epic-context compile subagent, its implementation-handoff subagent, and its review layers. An agent operating from the wrong checkout produces invalid results (pilot 2026-07-10: an acceptance-auditor layer defaulted to the main checkout and reported a completed story as unimplemented).
+9. **The absolute working directory** — under a parallel run this is the epic worktree root, never the main checkout. Direct the agent to run every command from it and to verify before acting (`git rev-parse --show-toplevel` must equal the stated path), and to pass the same path + verification requirement **and every `🚫` prohibition in this prompt** (no `git commit` / `git push` / `git reset` / `git rebase`, nothing that mutates a remote or triggers CI or a deploy) into any internal subagents the skill spawns, in the same breath (Rule 13) — for `bmad-build-auto` that includes its epic-context compile subagent, its implementation-handoff subagent, and its review layers. An agent operating from the wrong checkout produces invalid results (pilot 2026-07-10: an acceptance-auditor layer defaulted to the main checkout and reported a completed story as unimplemented).
 ```
 
 (b) Guard: skip if `grep -c "before writing tests" .claude/commands/epic-cycle.md` ≥ 1. In the **QA spawn** rule block, append after the `File-list completeness` bullet:
@@ -596,6 +598,8 @@ grep -c "orchestrator→runner resume" .claude/commands/epic-cycle.md           
 grep -c "Rule 1[012]" _bmad/custom/skill-rules.md                               # >= 3
 grep -cE "^## Rule 1[34567]" _bmad/custom/skill-rules.md                        # 5 (working-dir, ASCII-escape, disposition bar, clean-tree, drain — base kit)
 grep -c "ledger_burndown" .claude/commands/epic-cycle.md                        # >= 6 (base kit + Runner-Mode Deltas)
+grep -c "runner_interim_status" .claude/commands/epic-cycle.md                  # >= 2 (notification bucket + state-file stage list)
+grep -c "every \`🚫\` prohibition" .claude/commands/epic-cycle.md                # >= 1 (skeleton item 9)
 test -f _bmad/scripts/ledger.sh && bash -n _bmad/scripts/ledger.sh              # base kit installed the ledger tool
 grep -c "runtime_lock_acquired" _bmad/custom/skill-rules.md                     # >= 1 (Rule 12 lock-lifecycle logging)
 grep -c "show-toplevel" .claude/commands/epic-cycle.md                          # >= 5 (skeleton item 9 + plan/implement/qa/cr bullets)
