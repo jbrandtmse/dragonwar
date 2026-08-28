@@ -145,3 +145,23 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: ATTRIBUTIONS.md; package.json; .github/workflows/ci.yml
 - evidence: Both files first change together in 9595a7c, so no diff can show the attribution row predating the dependency; raised by code review 2026-08-28 as a note rather than a defect since the licences themselves were verified at source and are correct
 - 2026-08-28T03:38:55Z status=routed owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=adjudication note=Substance is satisfied - every licence was read at its source repository and recorded correctly. What is missing is the audit trail. Story 1.3 already extends CI with the per-file licence-header check and is the natural home for a convention that dependency additions land as two commits (attribution first, then the add) or for a check that fails when package.json gains a dependency with no matching ATTRIBUTIONS row.
+
+### DW-26: Task 7 asks tuning.ts for a hopControl tunable, but FR-9 names no unit, magnitude or mechanism and the architecture spine's own Deferred section lists hopControl as undecided, so the implementation omitted it and documented the omission
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: src/sim/table/tuning.ts
+- evidence: No formal AC names hopControl; only task 7's list line does. tuning.ts's header comment and test/tuning.test.ts assert the omission with this rationale; spec Change Log 2026-08-27 'task 7 vs the Block-If rule'
+- 2026-08-28T05:59:46Z status=open owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=harvest note=Lead call at this story's ledger gate: a tunable with no unit, magnitude or mechanism cannot carry AD-15's mandatory source and confidence, so authoring one would violate AD-15 to satisfy a task line the spine itself defers
+
+### DW-27: CI applies pnpm install --frozen-lockfile --ignore-scripts to the whole dependency tree on the strength of a one-time check that @swc/core is the only package needing an install script; nothing re-validates that when a dependency is added
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: .github/workflows/ci.yml
+- evidence: Plain pnpm install --frozen-lockfile exits 1 with ERR_PNPM_IGNORED_BUILDS on @swc/core, so the flag is currently necessary and currently safe; the native binary needs no build step. Future dependencies whose install script is load-bearing would fail silently
+- 2026-08-28T05:59:46Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=harvest note=Supply-chain hygiene; natural home is the release ledger audit. Not in Story 1.3's delivered scope -- the flag is correct today
+
+### DW-28: ATTRIBUTIONS.md and check:attributions cover only package.json's direct dependencies and devDependencies, not the roughly 40 transitive packages pnpm-lock.yaml adds, and no line states that scope decision explicitly
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: ATTRIBUTIONS.md; tools/check-attributions.mjs
+- evidence: Pre-existing project convention this story did not introduce or narrow; the italic note this story replaced already scoped attribution to direct dependencies. CLAUDE.md's provenance rule reads absolute, so the scope boundary is an open policy question rather than a defect
+- 2026-08-28T05:59:46Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=harvest note=Policy question for the release audit: either state the direct-dependency scope explicitly in ATTRIBUTIONS.md or widen the check to the lockfile
+
+### DW-29: tools/boundary-lint.mjs listFilesRecursive() has no symlink-cycle guard and would stack-overflow on a directory symlink cycle instead of reporting a lint result
+- source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: tools/boundary-lint.mjs
+- evidence: Confirmed by code reading: listFilesRecursive() recurses into every directory entry with no visited-path tracking and no lstat symlink check. No symlink exists anywhere in this repository today
+- 2026-08-28T05:59:46Z status=open owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=harvest note=Theoretical today; to be dispositioned at this story's ledger gate
