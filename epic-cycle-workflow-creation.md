@@ -1,6 +1,6 @@
 # Epic Cycle Workflow — Installation Kit
 
-**Kit-Version:** 2026-08-28.1
+**Kit-Version:** 2026-08-29.1
 
 **Requires BMAD Method v6.11.0 or later** (`_bmad/_config/manifest.yaml` → `installation.version`). This kit drives the v6.11 Phase-4 chain — `bmad-sprint-planning → bmad-build-auto → bmad-code-review` — and its rendered skills need `uv` (Python 3.11+ provisioned by uv) on PATH. For BMAD ≤ 6.10 projects use the last pre-6.11 kit release; do not install this kit there.
 
@@ -103,7 +103,7 @@ Write the following content verbatim (the block is delimited by FOUR-backtick fe
 ````markdown
 # BMAD Skill Rules
 
-Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 17.
+Loaded as `persistent_facts` by every BMAD skill on activation (via `_bmad/custom/<skill>.toml`). Project-specific rules can be appended below Rule 18.
 
 ## Rule 1 — Integration ACs (`bmad-build-auto` / `bmad-build` planning step)
 
@@ -258,22 +258,114 @@ Every gate that files into the ledger is matched by a **logged stage that closes
 
 Resume refuses `smoke_complete` without (2) for that story and refuses `epic_status_done` without (3) for that epic. Planning sees the load: `ledger_load` runs before sprint planning and its counts go into the sprint-planning argument and the retrospective's context. A rule that says "periodic burn-down" with no stage that executes it never runs.
 
+## Rule 18 — Containment: returned agents are finished, prohibitions reach every depth (all agents at all depths, under `/epic-cycle`)
+
+1. **A returned agent is finished.** `SendMessage` to any agent whose `Agent` call has already returned is forbidden at every depth and in every direction — supervisor→stage, stage→its own internal subagent, peer→peer (the four named cases elsewhere are examples, not the list). To give a returned subagent more work, spawn a fresh one with the work written into the durable artifact. The single sanctioned `SendMessage` in the whole system is orchestrator→runner (parallel kit). On this harness `SendMessage` is not synchronous: a "re-engage the subagent with a synchronous message" instruction (e.g. `bmad-build-auto` step-04's patch handling) MUST be treated as "it cannot be re-engaged" — apply the patches yourself or spawn a fresh subagent.
+2. **Return exactly once.** Every agent returns when its work is complete and never before; an interim or progress return while its own subagents are still working strands them as orphan writers whose supervisor has gone. If you cannot finish, HALT properly (blocked / `## Clarification Needed`) — that is a completion, not an interim.
+3. **Every prohibition propagates to every depth that can violate it**, in the same breath as the working directory (Rule 13): the git/CI/deploy prohibitions, this rule, and any `🚫` in the spawn prompt go into every internal subagent prompt. The base kit additionally writes them into `bmad-build-auto`'s `implementation_handoff` and every review layer's `instruction` via `_bmad/custom/*.toml`, so depth-3 prompts carry them by construction.
+4. **Orphan protocol** — on evidence of a live writer whose supervisor has returned (two-point mtime sampling of the tree ~45 s apart; a stop/agent listing that shows a returned agent still running): do NOT re-spawn (that adds a writer); attempt `TaskStop`; on refusal (owner-scoped — the owner has returned) wait for quiescence (three consecutive unchanged samples), reconcile the tree into a single commit, log `protocol_violation` with what was observed, and escalate to the layer above, which records it and cannot stop it either.
+5. `ListAgents` reports process liveness, not protocol state: a `SendMessage`-resumed agent shows `running` after it has returned. It is sufficient to tell whether a runner is alive or dead; it is NOT sufficient to establish that stage discipline holds — for that, ask the owning runner or sample mtimes.
+
+(Incidents 2026-08-28, twice: a prohibition stated only at supervisor level was broken one level below it — first the git prohibition by a handoff subagent, then the `SendMessage` prohibition by a stage agent following the skill's own re-engage text. Each closed list was one direction short.)
+
 ## Project-specific rules (add below as retros surface them)
 
-> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 17. Each rule should state what it applies to, the obligation, and (briefly) why.
+> Add additional rules here as retrospectives identify durable patterns. Number sequentially after Rule 18. Each rule should state what it applies to, the obligation, and (briefly) why.
 ````
 
 The customization mechanism (BMAD ≥ 6.11): each skill ships `.claude/skills/<skill>/customize.toml` (installer-owned, overwritten on update); project overrides live in `_bmad/custom/<skill-dir-name>.toml` (team, committed) and `<skill-dir-name>.user.toml` (personal, gitignored). Scalars replace, lists append, arrays-of-tables merge by `id`/`code`. The key is the **skill directory name**. An override that fails to parse makes the renderer HALT — Step 4 verifies every file below parses.
 
 ### File 2: `_bmad/custom/bmad-build-auto.toml`
 
+Besides loading the rules registry, this override rewrites the prompts `bmad-build-auto` composes for its **depth-3 subagents** (the implementation handoff and the four review layers) so that Rule 18's containment reaches them by construction — the stage agent's diligence is no longer the only thing between a handoff subagent and `git push`. Scalars replace the skill defaults; the `[[workflow.review_layers]]` entries replace by `id`; the texts below are the skill's v6.11.0 defaults plus the containment paragraph. Re-check them against `.claude/skills/bmad-build-auto/customize.toml` after a BMAD upgrade.
+
 ```toml
-# /epic-cycle: load the cross-cutting rules registry into the unattended build skill
-# (plan + implement stages). Lists append to the skill's defaults.
+# /epic-cycle: rules registry + Rule 18 containment for the unattended build skill's internal subagents.
 [workflow]
 persistent_facts = [
   "file:{project-root}/_bmad/custom/skill-rules.md",
 ]
+
+implementation_handoff = """
+Launch a subagent with no prior conversation context, with this prompt:
+
+> Read {spec_file} fully and implement it — the spec is the sole source of truth. Load every file listed in its frontmatter `context:` before you start.
+>
+> When done, report what you changed, how you verified it, and anything left incomplete or risky.
+>
+> Containment (/epic-cycle Rule 18): work only in the working directory you were given — verify `git rev-parse --show-toplevel` matches it before acting. You may edit files. You may NOT run `git commit`, `git push`, `git reset`, `git rebase`, or anything that mutates a remote or triggers CI or a deploy — the agent that spawned you commits. You may NOT `SendMessage` any agent, and you will not be messaged after you return: return exactly once, when your work is complete, with the full report above; a partial or interim return strands your work. If you cannot finish, say exactly what is missing in the report and stop.
+"""
+
+[[workflow.review_layers]]
+id = "blind-hunter"
+name = "Blind Hunter"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Conduct a review of CONTENT.
+Look for what's missing, not only what's wrong.
+Find at least ten issues to fix or improve.
+Output a Markdown list of findings only — no severity, priority, or ranking.
+If the content is empty, stop and say so.
+If you have zero findings, re-check and keep thinking; do not stop with an empty list.
+
+CONTENT:
+{diff_output}
+
+Do not invoke any skill. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+
+"""
+
+[[workflow.review_layers]]
+id = "edge-case-hunter"
+name = "Edge Case Hunter"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read `{skill-root}/review-prompts/edge-case-hunter.md` completely and follow it as your review instructions.
+
+Review content:
+
+{diff_output}
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+
+"""
+
+[[workflow.review_layers]]
+id = "verification-gap"
+name = "Verification Gap Reviewer"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read `{skill-root}/review-prompts/verification-gap.md` completely and follow it as your review instructions.
+
+Review content:
+
+{diff_output}
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+
+"""
+
+[[workflow.review_layers]]
+id = "intent-alignment"
+name = "Intent Alignment Auditor"
+instruction = """
+Launch a subagent with this prompt:
+
+You are an intent-alignment auditor. You have no other context about how this change was produced. Here is the verbatim intent this work started from:
+
+{verbatim_intent}
+
+Here is the diff:
+
+{diff_output}
+
+Your task is strictly descriptive — do not prescribe additional work. Report: (1) the defensible readings of the intent, enumerated; (2) which reading this diff implements; (3) where the readings and the diff diverge — specifically, which surface the intent's expectations live at versus which surface the diff's changes and its tests exercise.
+
+Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+"""
 ```
 
 ### File 3: `_bmad/custom/bmad-build.toml`
@@ -300,11 +392,82 @@ persistent_facts = [
 
 ### File 5: `_bmad/custom/bmad-code-review.toml`
 
+Same pattern as File 2: the four review layers are the skill's v6.11.0 defaults plus Rule 18 containment (these layers only read, so the containment is short). Re-check against `.claude/skills/bmad-code-review/customize.toml` after a BMAD upgrade.
+
 ```toml
+# /epic-cycle: rules registry + Rule 18 containment for the code-review skill's review layers.
 [workflow]
 persistent_facts = [
   "file:{project-root}/_bmad/custom/skill-rules.md",
 ]
+
+[[workflow.review_layers]]
+id = "blind-hunter"
+name = "Blind Hunter"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Conduct a review of CONTENT.
+Look for what's missing, not only what's wrong.
+Find at least ten issues to fix or improve.
+Output a Markdown list of findings only — no severity, priority, or ranking.
+If the content is empty, stop and say so.
+If you have zero findings, re-check and keep thinking; do not stop with an empty list.
+
+CONTENT:
+{diff_output}
+
+Do not invoke any skill. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+
+"""
+
+[[workflow.review_layers]]
+id = "edge-case-hunter"
+name = "Edge Case Hunter"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read `{skill-root}/review-prompts/edge-case-hunter.md` completely and follow it as your review instructions.
+
+Review content:
+
+{diff_output}
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+
+"""
+
+[[workflow.review_layers]]
+id = "verification-gap"
+name = "Verification Gap Reviewer"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read `{skill-root}/review-prompts/verification-gap.md` completely and follow it as your review instructions.
+
+Review content:
+
+{diff_output}
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+
+"""
+
+[[workflow.review_layers]]
+id = "acceptance-auditor"
+name = "Acceptance Auditor"
+when = 'Only when {review_mode} = "full".'
+instruction = """
+Launch a subagent with this prompt:
+
+You are an Acceptance Auditor. Review the provided diff against `{spec_file}` and any loaded context docs. Check for: violations of acceptance criteria, deviations from spec intent, missing implementation of specified behavior, contradictions between spec constraints and actual code. Output findings as a Markdown list. Each finding: one-line title, which AC/constraint it violates, and evidence from the diff.
+
+Diff:
+
+{diff_output}
+
+Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+"""
 ```
 
 ### File 6: `_bmad/scripts/ledger.sh` (verbatim)
@@ -484,6 +647,8 @@ If `Agent` is a deferred tool, load its schema via `ToolSearch` with `"select:Ag
 
 **BMAD + runtime gate (second action):** read `installation.version` from `_bmad/_config/manifest.yaml` and require ≥ 6.11.0 — this command drives `bmad-build-auto`, which does not exist earlier (6.10 projects: use the pre-6.11 kit). Run `uv --version`; HALT with the install pointer (https://docs.astral.sh/uv/) if it fails — `bmad-build-auto` renders itself through `uv run _bmad/scripts/render_skill.py` and halts on activation without it. Then run `uv run --no-cache _bmad/scripts/resolve_config.py --project-root <abs-root> --key core.project_name`: exit 0 proves uv can run BMAD's scripts (Python ≥ 3.11 available or provisioned); exit 3 means no Python 3.11+ — HALT. Verify these exist: `.claude/skills/bmad-build-auto/SKILL.md`, `.claude/skills/bmad-code-review/SKILL.md`, `.claude/skills/bmad-qa-generate-e2e-tests/SKILL.md`, `.claude/skills/bmad-sprint-planning/scripts/sprint_plan.py` (on a plugin-namespaced install, the equivalent paths). Verify the durable state is tracked: `git check-ignore -q _bmad-output/implementation-artifacts` must FAIL (exit 1) — if the directory is gitignored, HALT: cycle logs, `sprint-status.yaml`, specs and the ledger must live on the epic branch (resume, bookkeeping commits, and the parallel merge queue depend on it); the user removes `_bmad-output/` from `.gitignore` (keeping `_bmad/render/`, `*.user.toml`, `.worktrees/` ignored). Log `runtime_gate bmad=<version> uv=<version>`.
 
+**Telemetry gate (third action):** scan every existing `cycle-log-epic-*.md` for `model_tier_checkpoint` entries whose `result` is `recommend_escalate` or `offer_mixed` with `applied=false`. If any exist, surface them once before starting ("Epic N's checkpoint recommended escalating `implement` to Opus (evidence …); no policy file exists / the user declined — apply now, or continue as is?") and log `telemetry_gate pending=<N>`. Accumulated telemetry that nobody acts on is the failure mode this gate exists for.
+
 **`SPRINT_PLAN` shorthand.** Throughout this command, `SPRINT_PLAN` means `uv run --no-cache <path-to>/bmad-sprint-planning/scripts/sprint_plan.py`, where `<path-to>` is `.claude/skills` (or the plugin-namespaced skills directory). Two more placeholders recur below: `<impl>` and `<planning>` (also written `<implementation_artifacts>` / `<planning_artifacts>`) are the `implementation_artifacts` / `planning_artifacts` values from `_bmad/config.toml` `[modules.bmm]` with `{project-root}` substituted — by default `_bmad-output/implementation-artifacts` and `_bmad-output/planning-artifacts`. It is BMAD's deterministic tracker script (JSON in, JSON out; `uv run` may print an `Installed N package(s)` line to stderr — ignore it). Its three subcommands replace the retired `/bmad-sprint-status mode=data|validate`:
 
 - `SPRINT_PLAN status --status-file <impl>/sprint-status.yaml` → per-status counts, `open_action_items`, `recommendation.story_key`, `all_done`.
@@ -522,7 +687,7 @@ A story therefore produces several commits on the epic branch: bookkeeping commi
 
 1. **Lead** runs the **burn-down gate** (Rule 17, see "Ledger Drain"): every non-terminal ledger entry owned by `burndown` or by one of this epic's story keys is resolved / made terminal now, chartered into ONE burn-down story `N.9` that runs the full per-story pipeline before the epic closes, or re-owned to a specific next-epic story key. Logs `ledger_burndown_complete` (or `ledger_burndown_skipped reason=empty`).
 2. **Lead** sets `epic-{N}: done` via `SPRINT_PLAN generate --set epic-{N}=done` — a transition no skill writes (see "Status Ownership") — and logs `epic_status_done`.
-3. If `_bmad/custom/model-overrides.yaml` is armed (`stack_risk: uncommon` or `review_tier: mixed`), **Lead** runs the model-tier checkpoint (see "Model Strategy") and logs `model_tier_checkpoint` — plus `model_tier_changed` if the policy file is updated.
+3. **Lead** runs the model-tier checkpoint on EVERY project (see "Model Strategy") and logs `model_tier_checkpoint` with its evaluation; a change to tiers is applied only when `_bmad/custom/model-overrides.yaml` exists and the user approves (then also `model_tier_changed`) — on a project without the policy file a met threshold is surfaced as a recommendation, never silently dropped.
 4. **Lead** pauses: "Run a retrospective?" If yes, execute `/bmad-retrospective` fully interactive — the human-in-the-middle exception; see "Retrospective Per Epic".
 5. **Lead** pauses: "Merge `{TICKET}-epic{N}` into the feature branch and delete the epic branch (local + remote)?" — per Rule SC-4. If yes, execute the merge in each affected repo (submodules-first, parent last).
 
@@ -578,7 +743,7 @@ Keys are **stages**, not skills, because `bmad-build-auto` serves two stages at 
 
 ### Model-tier checkpoint (end of epic, lead-side)
 
-Runs only when model-overrides.yaml exists with `stack_risk: uncommon` OR `review_tier: mixed`; evaluated immediately after `epic_status_done` against this epic's cycle log. (In Orchestrator Mode, the orchestrator runs it in the main checkout at the merge gate, after `epic_merged_to_feature`, against the epic's per-worktree cycle log.)
+**Evaluation is unconditional; application is gated.** The checkpoint evaluates on every project, immediately after `epic_status_done`, against this epic's cycle log, and always logs `model_tier_checkpoint` (a default project has no policy file, yet every `cr_complete` writes the telemetry the checkpoint reads — evaluating only on armed projects meant the numbers were written by everyone and read by no one; field report 2026-08-28: mean 4.75 high+med per story, 3 of 4 stories reworked, never evaluated). Applying a change requires `_bmad/custom/model-overrides.yaml` (create it on the user's approval if absent) plus the user's explicit approval; the mandatory mixed-tier rollback needs no approval but does need the file (it only exists if `mixed` was set). On a project without the file, a met threshold is surfaced with the evidence and the offer to create the file — `result=recommend_escalate armed=false`. (In Orchestrator Mode, the orchestrator runs it in the main checkout at the merge gate, after `epic_merged_to_feature`, against the epic's per-worktree cycle log.)
 
 - **Escalation (uncommon stack):** if mean `cr_complete` high+med findings ≥ 2 per story with the implement stage on a Sonnet-tier model, OR ≥ 2 stories entered the rework loop for language-semantics defects, OR ≥ 2 stories' `dev_complete` show `review_loop_iteration ≥ 3` (build-auto's own bad-spec/patch loop thrashing) → recommend re-pinning `implement` / `qa` to `opus` for this project. Surface the evidence to the user; on approval, update `overrides:` + `history:`. Rationale: two rework iterations (extra Sonnet dev + extra Opus review) cost more than Opus-dev.
 - **De-escalation offer (review layers):** after ≥ 2 consecutive epics with zero high and ≤ 1 medium finding per epic from Opus-tier review, the lead MAY offer `review_tier: mixed` (`blind-hunter` / `edge-case-hunter` / `verification-gap` → sonnet; `acceptance-auditor` stays at the parent model; never below the implementation tier).
@@ -640,7 +805,7 @@ Rules for this stage (from skill-rules.md):
 - Rule 6 (ADRs): consult the ADR registry at the path above and record the ADRs that govern this story under ## Design Notes, so the implement stage and the reviewer can check against them.
 - Rule 13 (working directory): operate from the absolute working directory stated above; verify `git rev-parse --show-toplevel` matches before reading planning artifacts; pass the same path + verification into the epic-context compile subagent.
 
-Completion contract: the spec file (its path is your final report's first line, as `SPEC: <path>`) with frontmatter `status: ready-for-dev` and a `## Auto Run Result` section that contains the two lines `Status: <final status>` and `Blocking condition: <condition or none>` verbatim (the skill's HALT protocol spells them out only for the skeleton case — emit them for the existing-spec case too). If you HALT with `status: blocked`, report the blocking condition verbatim. A valid, committed `epic-<N>-context.md` already exists — reuse it; do not recompile. 🚫 Do NOT `git commit` or `git push` — the plan stage leaves the spec uncommitted for the lead's validation gate. **Propagate this prohibition verbatim into every subagent you spawn** (investigation subagents, the epic-context compile subagent if it ever runs), in the same breath as the working directory (Rule 13): they may read, and write only the files the skill names; they may NOT run `git commit`, `git push`, `git reset`, `git rebase`, or anything that mutates a remote or triggers CI.
+Completion contract: the spec file (its path is your final report's first line, as `SPEC: <path>`) with frontmatter `status: ready-for-dev` and a `## Auto Run Result` section that contains the two lines `Status: <final status>` and `Blocking condition: <condition or none>` verbatim (the skill's HALT protocol spells them out only for the skeleton case — emit them for the existing-spec case too). If you HALT with `status: blocked`, report the blocking condition verbatim. A valid, committed `epic-<N>-context.md` already exists — reuse it; do not recompile. 🚫 Do NOT `git commit` or `git push` — the plan stage leaves the spec uncommitted for the lead's validation gate. **Propagate this prohibition verbatim into every subagent you spawn** (investigation subagents, the epic-context compile subagent if it ever runs), in the same breath as the working directory (Rule 13): they may read, and write only the files the skill names; they may NOT run `git commit`, `git push`, `git reset`, `git rebase`, or anything that mutates a remote or triggers CI; they may NOT `SendMessage` any agent, and you may NOT `SendMessage` them once they have returned (Rule 18 — spawn a fresh one instead). **Return exactly once**, when the spec is written and the skill has HALTed — never an interim message.
 ```
 
 **Implement spawn (`bmad-build-auto`, Sonnet tier) — append:**
@@ -657,7 +822,9 @@ Rules for this stage (from skill-rules.md):
 - Rule 15 (ledger): record deferred findings ONLY in the spec's frontmatter `deferred:` list exactly as the skill specifies — the lead harvests them into deferred-work.md; do not write the ledger yourself.
 - Rule 16 (clean tree): your finalize commit lands on the current branch (the epic branch); commit exactly what the skill's finalize step specifies and nothing else. 🚫 NEVER `git push`. **Propagate this prohibition verbatim into the handoff subagent and every review-layer subagent you spawn, in the same breath as the working directory (Rule 13): they may edit files, and they may NOT run `git commit`, `git push`, `git reset`, `git rebase`, or any command that mutates a remote or triggers CI or a deploy. Only you — the layer that spawned them — commit, and only at finalize.** A subagent that reports having committed or pushed is a protocol violation: verify against `git log --branches --not --remotes` and `gh run list` rather than trusting the self-report, do not force-push or roll back anything, and HALT with status `blocked` and blocking condition `subagent protocol violation: <what it did, shas>` so the lead decides.
 
-Completion contract: the spec file's frontmatter `status` (`done` on success; `blocked` + blocking condition otherwise) and its `## Auto Run Result` section, which must contain the two lines `Status: <final status>` and `Blocking condition: <condition or none>` verbatim. On `blocked`, HALT and report — do not improvise a fix by re-running steps outside the skill.
+- Rule 18 (containment) — pre-answered override of the skill's step-04 `patch` handling: the step-03 handoff subagent can NEVER be "re-engaged" (`SendMessage` is not synchronous on this harness; a message to a returned agent creates an orphan writer) — apply patch findings yourself, or spawn a FRESH subagent with the findings written into the spec's `## Tasks & Acceptance`. Never `SendMessage` any agent. While a subagent of yours is running you do not edit the tree (two writers in one worktree produce false protocol alarms); your own test authoring (Matrix Test Audit) happens after it returns. Return exactly once.
+
+Completion contract: the spec file's frontmatter `status` (`done` on success; `blocked` + blocking condition otherwise) and its `## Auto Run Result` section, which must contain the two lines `Status: <final status>` and `Blocking condition: <condition or none>` verbatim. **Return exactly once, when your work is complete** — an interim or progress return while any subagent of yours is still working strands it as an orphan writer with a dead supervisor. On `blocked`, HALT and report — do not improvise a fix by re-running steps outside the skill.
 ```
 
 **QA spawn — append:**
@@ -670,7 +837,7 @@ Rules for this stage (from skill-rules.md):
 - Rule 8 (test discoverability): generated tests MUST be discoverable by the project's default test suite — (a) correct naming convention, (b) not excluded by ignore files, (c) not tagged in a way that opts them out of the default run.
 - File-list completeness: append every test file you create to the spec's `## Verification` section (marked `(QA)`), so the spec remains the complete record of the story's files — not just your closing summary.
 
-🚫 Do NOT `git commit` or `git push`. Leave ALL changes uncommitted in the working tree — the lead commits after the per-story smoke gate. Propagate this prohibition verbatim into any subagent you spawn (`git commit` / `git push` / `git reset` / `git rebase` / anything that mutates a remote or triggers CI are all forbidden for them too), in the same breath as the working directory (Rule 13); verify a subagent's self-report against `git log --branches --not --remotes` before relying on it.
+🚫 Do NOT `git commit` or `git push`. Leave ALL changes uncommitted in the working tree — the lead commits after the per-story smoke gate. Propagate this prohibition verbatim into any subagent you spawn (`git commit` / `git push` / `git reset` / `git rebase` / anything that mutates a remote or triggers CI are all forbidden for them too), in the same breath as the working directory (Rule 13); verify a subagent's self-report against `git log --branches --not --remotes` before relying on it. Rule 18: never `SendMessage` any agent; never message a subagent after it has returned (spawn a fresh one); **return exactly once**, when your tests are written and run — never an interim message.
 
 End your final message with these sections, in order:
 
@@ -717,7 +884,7 @@ Review-layer model policy: read `_bmad/custom/model-overrides.yaml` (relative to
 
 Every ledger write follows Rule 15's grammar and goes through the tool — pre-answered override of the skill's step-04 "append to deferred-work.md": do NOT write the skill's default `## Deferred from:` bullets. Instead, for each `defer` finding: first `bash _bmad/scripts/ledger.sh <ledger> slice all` and grep the summaries — an existing root cause gets `append DW-n "occurrence=<story-key>"`, never a new entry; otherwise `new "<summary>" "<spec-basename>" <severity> <fix-risk> <footprint> "<evidence, one line>" <status> <owner> cr "<note>"` where status/owner follow Rule 15's disposition table: `escalated owner=burndown` (MED, high fix-risk or out-of-footprint), `routed owner=<story key in this epic that will touch it, else burndown>` (real, out-of-footprint), `decision-pending owner=burndown` (genuine product call), `by-design` / `wontfix-theoretical` (terminal — owner is still required; use the story key). Entries born from this review carry `by=cr`. Never open or rewrite the ledger file directly; never write `owner=none`.
 
-🚫 Do NOT `git commit` or `git push`. You MAY edit files to apply patches and update tracking docs (the spec's `### Review Findings`, deferred-work.md, sprint-status.yaml), but the lead commits everything (submodules-first) after the per-story smoke gate. **Propagate this prohibition verbatim into every review-layer subagent you launch (`blind-hunter`, `edge-case-hunter`, `verification-gap`, `acceptance-auditor`), in the same breath as the working directory (Rule 13): they read and report; they may NOT edit files, `git commit`, `git push`, `git reset`, `git rebase`, or run anything that mutates a remote or triggers CI.** A layer that reports having changed or committed anything is a protocol violation — verify with `git status --short` / `git log --branches --not --remotes`, discard that layer's findings, and note it in `## Issues Encountered`. Do NOT change the spec's frontmatter `status:` (it is bmad-build-auto's machine state; the lead re-opens the spec when rework is needed) — record your verdict in sprint-status.yaml and in your closing summary only. Do NOT write cycle-log entries — that is the lead's job.
+🚫 Do NOT `git commit` or `git push`. You MAY edit files to apply patches and update tracking docs (the spec's `### Review Findings`, deferred-work.md, sprint-status.yaml), but the lead commits everything (submodules-first) after the per-story smoke gate. **Propagate this prohibition verbatim into every review-layer subagent you launch (`blind-hunter`, `edge-case-hunter`, `verification-gap`, `acceptance-auditor`), in the same breath as the working directory (Rule 13): they read and report; they may NOT edit files, `git commit`, `git push`, `git reset`, `git rebase`, or run anything that mutates a remote or triggers CI.** A layer that reports having changed or committed anything is a protocol violation — verify with `git status --short` / `git log --branches --not --remotes`, discard that layer's findings, and note it in `## Issues Encountered`. Rule 18: never `SendMessage` any agent; a returned layer is finished (re-launch, never resume); **return exactly once**, after the skill's final menu — never an interim message. Do NOT change the spec's frontmatter `status:` (it is bmad-build-auto's machine state; the lead re-opens the spec when rework is needed) — record your verdict in sprint-status.yaml and in your closing summary only. Do NOT write cycle-log entries — that is the lead's job.
 
 The skill sets the story's final status itself: `done` when all decision-needed + patch findings are resolved and no high/medium remains unresolved (mediums dispositioned `escalated` per Rule 15 are recorded for the merge gate, not blocking); otherwise back to `in-progress`. Do not override that decision.
 
@@ -875,9 +1042,9 @@ For each epic in range:
             every entry still non-terminal → append owner=<specific next-epic story key> with the reason (never "burndown", never "none")
             logs ledger_burndown_complete open_before= resolved= terminal= chartered= reowned= open_after= cap=
   Lead: SPRINT_PLAN generate --set epic-{N}=done (no skill writes this transition); bookkeeping commit; logs epic_status_done
-  If model-overrides.yaml is armed (stack_risk=uncommon or review_tier=mixed):   # model-tier checkpoint — see Model Strategy
-    Lead evaluates this epic's cycle log against the escalation / de-escalation / rollback thresholds; logs model_tier_checkpoint
-    On approved change (or the mandatory mixed-revert): update model-overrides.yaml overrides+history; logs model_tier_changed
+  Lead evaluates this epic's cycle log against the escalation / de-escalation / rollback thresholds — EVERY project; logs model_tier_checkpoint armed=<bool> result=…
+    result=recommend_escalate|offer_mixed → surface evidence to the user; on approval (creating model-overrides.yaml if absent): update overrides+history; logs model_tier_changed
+    result=revert_required (mixed active, smoke defects) → mandatory: update the file; logs model_tier_changed
   Lead pauses: "Run a retrospective?"   # human-in-the-middle gate — never auto-answered, never times out into a default
     If yes → /bmad-retrospective via Skill tool, fully interactive (all WAITs reach the user), with the burn-down counts in its argument; logs epic_retro_complete
     If no  → logs epic_retro_skipped reason=user_declined
@@ -1232,7 +1399,7 @@ For a repo in RESUME mode:
 1. Bucket cycle-log entries by story ID; highest-stage entry per story is its resume anchor.
 2. Earliest story whose anchor is not `committed` = resume point. Work resumes at the next pipeline stage after the anchor.
 3. If a story has a `<stage>_clarification_requested` without that stage's subsequent success entry (`story_created` / `dev_complete` / `qa_complete` / `cr_complete`), the resume point is "answer the clarification + re-spawn" (re-dispatch protocol for build-auto stages). The lead surfaces the question before spawning.
-4. **Reconcile with the spec's own state** (`bmad-build-auto` writes it durably; the log can lag by one crash): spec `ready-for-dev` + no `story_created` → the plan finished, the log entry was lost — write it, continue at validation. Spec `done` + `build_sha` (the commit touching the spec) reachable on the epic branch + no `dev_complete` → write the entry, harvest `deferred:`, continue at ADR verifications; never re-spawn the implement stage over finished work. Spec `in-progress`/`in-review` + dirty tree is **ambiguous on its face**: it is what a dead build-auto leaves behind AND what a healthy, still-running one looks like (`in-review` is its mid-self-review state; a working agent's tree is dirty because it is working). Liveness is a property of sessions, not of files — a stage agent lives exactly as long as the session that spawned it — so branch on ownership: (i) **this lead is a fresh session with no orchestrator above it** → no stage of this pipeline can be alive; it died mid-run: surface the uncommitted diff to the user (keep and re-spawn per the re-dispatch protocol — its resume table continues from `in-progress` — or discard); never auto-clean. (ii) **Orchestrator mode** → the worktree belongs to a runner; the orchestrator NEVER diagnoses a worktree's in-flight state from artifacts. Check the open `stage_spawned` entry, then the runner's liveness (`ListAgents`); if the runner is alive, ASK it whether that stage's `Agent` call has returned — it is the only party that knows — and let it act; only a runner that is confirmed dead (whose stage agents are therefore dead too) makes the artifact reading valid, and then the re-spawned runner performs this step, not the orchestrator. If liveness cannot be established either way, HALT and surface — an ambiguous liveness state is a workspace-integrity error, not a judgment call. A re-spawn onto a live stage puts two agents in one worktree (incident 2026-08-28: ~30 minutes of concurrent patching). Spec `blocked` → the clarification is still open.
+4. **Reconcile with the spec's own state** (`bmad-build-auto` writes it durably; the log can lag by one crash): spec `ready-for-dev` + no `story_created` → the plan finished, the log entry was lost — write it, continue at validation. Spec `done` + `build_sha` (the commit touching the spec) reachable on the epic branch + no `dev_complete` → write the entry, harvest `deferred:`, continue at ADR verifications; never re-spawn the implement stage over finished work. Spec `in-progress`/`in-review` + dirty tree is **ambiguous on its face**: it is what a dead build-auto leaves behind AND what a healthy, still-running one looks like (`in-review` is its mid-self-review state; a working agent's tree is dirty because it is working). Liveness is a property of sessions, not of files — a stage agent lives exactly as long as the session that spawned it — so branch on ownership: (i) **this lead is a fresh session with no orchestrator above it** → no stage of this pipeline can be alive; it died mid-run: surface the uncommitted diff to the user (keep and re-spawn per the re-dispatch protocol — its resume table continues from `in-progress` — or discard); never auto-clean. (ii) **Orchestrator mode** → the worktree belongs to a runner; the orchestrator NEVER diagnoses a worktree's in-flight state from artifacts. Check the open `stage_spawned` entry, then the runner's liveness (`ListAgents` — which reports process liveness only: sufficient for runner alive/dead, NOT for whether a stage agent has returned, since a resumed agent shows `running` after returning; Rule 18); if the runner is alive, ASK it whether that stage's `Agent` call has returned — it is the only party that knows — and let it act; only a runner that is confirmed dead (whose stage agents are therefore dead too) makes the artifact reading valid, and then the re-spawned runner performs this step, not the orchestrator. If liveness cannot be established either way, HALT and surface — an ambiguous liveness state is a workspace-integrity error, not a judgment call. A re-spawn onto a live stage puts two agents in one worktree (incident 2026-08-28: ~30 minutes of concurrent patching). Spec `blocked` → the clarification is still open.
 5. `epic_context_compiled` present but `epic-{N}-context.md` missing or older than a planning artifact → re-run the pre-warm before the next plan spawn.
 
 #### Cross-stage integrity checks (before resuming any stage)
@@ -1256,7 +1423,7 @@ If Epic A is being resumed and Epic B merged to feature in the interim, Epic A's
 #### Resume across the end-of-epic gates
 
 - Last story `committed` but no `ledger_burndown_*` entry → resume at the burn-down gate (Rule 17); never write `epic_status_done` without it. A story with `cr_complete` but no `ledger_adjudicated` resumes at adjudication, never at smoke.
-- Log shows `epic_status_done` but no `epic_retro_*` entry → on an armed project (model-overrides.yaml `stack_risk: uncommon` or `review_tier: mixed`), run the model-tier checkpoint first if no `model_tier_checkpoint` entry exists for this epic (the evaluation is idempotent — re-running it is harmless); then resume at the retrospective question.
+- Log shows `epic_status_done` but no `epic_retro_*` entry → run the model-tier checkpoint first if no `model_tier_checkpoint` entry exists for this epic (every project; the evaluation is idempotent — re-running it is harmless); then resume at the retrospective question.
 - `epic_retro_*` present but no `epic_merged_to_feature` / `epic_merge_skipped` → resume at the merge question.
 - Both gates are user decision points; re-asking after a long pause is correct behavior. A run interrupted mid-retrospective resumes by re-asking the retrospective question (the skill's own output artifacts show how far it got); never auto-complete a half-finished retro.
 
@@ -1441,7 +1608,9 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
 - `epic_branch_checked_out` — Lead checked out `{TICKET}-epic{N}` (resume or after creation). Metadata: `repos=<paths>` `head=<sha>`.
 - `epic_branch_reopened` — SC-5 recreated after a prior merge. Metadata: `reason=<short>` `from=<feature-sha>`.
 - `lead_model_gate` — Pre-flight lead-tier check. Metadata: `model=<detected>` `action=proceed|user_accepted`.
-- `runtime_gate` — Pre-flight BMAD/uv check. Metadata: `bmad=<version>` `uv=<version>`. (Both pre-flight entries are written to the cycle log of the FIRST epic in the requested range, as `Epic <N>`, before any other entry.)
+- `runtime_gate` — Pre-flight BMAD/uv check. Metadata: `bmad=<version>` `uv=<version>`. (All pre-flight entries are written to the cycle log of the FIRST epic in the requested range, as `Epic <N>`, before any other entry.)
+- `telemetry_gate` — Pre-flight scan for unapplied model-tier recommendations. Metadata: `pending=<N>` `action=applied|declined|none`.
+- `protocol_violation` — Any layer observed a containment breach (Rule 18: subagent commit/push, orphan writer, interim return, `SendMessage` to a returned agent). Metadata: `stage=<name>` `depth=<N>` `agent=<name>` `violation=<short>` `consequence=<short>` `detected_by=<short>` `outcome=<short>`. Never omitted "because it was handled" — the record is the point.
 - `root_freshness_resolved` — SC-1 root freshness check needed a user decision. Metadata: `repo=<path>` `root=<origin/branch>` `choice=push_local_first|base_on_local|base_on_origin_anyway`.
 - `epic_context_compiled` — Lead-driven epic-context pre-warm wrote `epic-{N}-context.md`. Metadata: `sha=<bookkeeping-commit>` `reason=<initial|planning_artifact_newer|x0_inserted|nfr_amendment>` `model=<id>`.
 - `ledger_load` — Epic-start ledger measurement, before sprint planning (Rule 17). Metadata: `total=N open=N routed=N escalated=N decision_pending=N terminal=N burndown=N reowned_none=N`.
@@ -1450,7 +1619,7 @@ Per-stage log entries, append-only. File: `_bmad-output/implementation-artifacts
 - `retro_review_complete` / `retro_review_skipped` — Retro + Story X.0 gate done (start-of-epic CLOSE of the previous epic's retro artifacts, the ledger slice, and open action items). Metadata: `source_retro=<path-or-empty>` `resolved=<N>` `owned=<N>` `terminal=<N>` `dropped=<N>` `load_before=<N>` `load_after=<N>` `cap=<N>` for complete; `reason=<short>` for skipped.
 - `epic_retro_complete` / `epic_retro_skipped` — End-of-epic retrospective gate (the fully interactive, human-in-the-middle run of `/bmad-retrospective` — distinct from `retro_review_*` above). Metadata: `reason=<short>` for skipped.
 - `epic_status_done` — Lead set `epic-{N}: done` in sprint-status.yaml after the last story reached `done`. Metadata: `stories=<N>`.
-- `model_tier_checkpoint` — End-of-epic tier evaluation (only when model-overrides.yaml is armed). Metadata: `stack_risk=<uncommon|standard>` `review_tier=<full-opus|mixed>` `implement_model=<id>` `high_med_avg=<per-story>` `review_loop_thrash=<N>` `rework_lang_defects=<N>` `review_high=<N>` `review_med=<N>` `result=hold|recommend_escalate|offer_mixed|revert_required`.
+- `model_tier_checkpoint` — End-of-epic tier evaluation, EVERY epic on every project. Metadata: `armed=true|false` (policy file present) `stack_risk=<uncommon|standard|none>` `review_tier=<full-opus|mixed>` `implement_model=<id>` `high_med_avg=<per-story>` `rework_stories=<N>` `review_loop_thrash=<N>` `rework_lang_defects=<N>` `review_high=<N>` `review_med=<N>` `result=hold|recommend_escalate|offer_mixed|revert_required` `applied=true|false|user_declined`.
 - `model_tier_changed` — model-overrides.yaml was updated (paired with a `history:` entry in the file). Metadata: `direction=escalate|de_escalate|revert` `scope=implement_qa|review` `stages=<csv>` `from=<tier>` `to=<tier>` `reason=<short>` `evidence=<percent-encoded summary of the triggering telemetry>` `approved_by=user|mandatory_rollback`. The *why* is non-optional: an entry without `reason=` and `evidence=` is a telemetry bug.
 - `resume_local_ahead` — Resume check 2 found local ahead of remote; lead pushed. Metadata: `repo=<path>` `pushed_shas=<N>`.
 - `epic_merge_skipped` — User declined SC-4 merge. Metadata: `reason=<short>`.
@@ -1531,9 +1700,11 @@ Derivable from per-stage entries; a convenience, not a source of truth.
 ## Anti-Patterns (Do NOT Use)
 
 - **TeamCreate / SendMessage / TeamDelete / team_name / shutdown handshakes** — Inter-agent messaging is unreliable. Use plain `Agent` tool calls; the return value IS the completion signal.
-- **`SendMessage`-resuming a pipeline stage agent** — a stage agent's `Agent` return value IS its completion signal. Resuming one afterwards leaves an agent that has "returned" yet is still running: unrepresentable in the cycle log (its `stage_spawned` was already closed), invisible to resume detection, and a de-facto background stage in violation of the synchronous-stage rule — the exact setup for two agents editing one worktree. When a stage HALTs for clarification, the ONLY sanctioned continuation is a fresh re-spawn per the re-dispatch protocol, with the answer written into the durable artifact (the spec), which is also what makes it resumable after a crash. Lead→stage, runner→stage, orchestrator→stage, and runner→runner `SendMessage` are all forbidden; orchestrator→runner is the sole sanctioned use (parallel kit).
+- **`SendMessage`-resuming a pipeline stage agent** — a stage agent's `Agent` return value IS its completion signal. Resuming one afterwards leaves an agent that has "returned" yet is still running: unrepresentable in the cycle log (its `stage_spawned` was already closed), invisible to resume detection, and a de-facto background stage in violation of the synchronous-stage rule — the exact setup for two agents editing one worktree. When a stage HALTs for clarification, the ONLY sanctioned continuation is a fresh re-spawn per the re-dispatch protocol, with the answer written into the durable artifact (the spec), which is also what makes it resumable after a crash. The rule is universal (Rule 18): `SendMessage` to ANY agent whose `Agent` call has returned is forbidden at every depth and in every direction — lead→stage, runner→stage, orchestrator→stage, runner→runner, and a stage agent→its own internal subagent are examples, not the list. A returned agent is finished; spawn a fresh one. Orchestrator→runner is the sole sanctioned use (parallel kit). Beware upstream text that says "re-engage the subagent with a synchronous message" (`bmad-build-auto` step-04): on this harness that is exactly this anti-pattern — the implement block pre-answers it.
 - **Propagating the working directory but not the prohibitions** — an internal subagent (build-auto's handoff, a review layer) that receives Rule 13's path and not the `🚫` git/CI prohibitions does what any capable agent does when it finishes work in a repo with no instruction to the contrary (incident 2026-08-28: commit + push + live deploy from depth 3). Every stage block propagates its prohibitions "in the same breath" as Rule 13, and the layer above verifies self-reports against `git`/`gh` rather than trusting them.
 - **Diagnosing liveness from artifacts** — spec `in-progress`/`in-review` + dirty tree describes a live agent as well as a dead one. Liveness belongs to sessions: a fresh sequential lead owns no live stages; an orchestrator asks the runner. Re-spawning on the artifact reading alone puts two agents in one worktree (see Resume Semantics).
+- **Returning early** — an interim or progress return while your own subagents are still working strands them as orphan writers that no party can stop (`TaskStop` is owner-scoped and the owner has returned). Every agent at every depth returns exactly once, when its work is complete; a HALT is a completion, an update is not (Rule 18).
+- **Trusting `ListAgents` for stage discipline** — it reports process liveness, not protocol state; a resumed agent shows `running` after it returned. Use it to tell whether a runner is alive or dead, never to conclude "one active stage agent, which is fine" (Rule 18).
 - **TaskCreate / TaskList / TaskUpdate** — Subagents poll TaskList and grab tasks regardless of `blockedBy` or ownership. The task system isn't needed; ignore it.
 - **Dispatching `bmad-build-auto` without an explicit anchor** — Without a story key (plan) or spec path (implement) the skill scans for intent, picks the wrong story, or halts `unclear intent`. Under batches or resume that silently plans the wrong story. Always pass the anchor; never let it "find the next story".
 - **Using the interactive `bmad-build` as a pipeline stage** — Its checkpoints (`[A]/[E]`, `[S]/[K]`, resume list, push/PR offer) and its `open_spec` editor launch have no place in an unattended run. `bmad-build-auto` is the same workflow with those removed and a machine HALT contract.
@@ -1615,7 +1786,12 @@ After writing all files, run these checks:
 1b. **Finding disposition bar (Rule 15), Rule 16, and the v6.11 stage doctrine installed:**
    ```bash
    grep -c "Rule 15" .claude/commands/epic-cycle.md          # >= 3 (CR block, rework loop, X.0, SC-4)
-   grep -cE "^## Rule 1[34567]" _bmad/custom/skill-rules.md # 5 (13, 14, 15, 16, 17)
+   grep -cE "^## Rule 1[3-8]" _bmad/custom/skill-rules.md   # 6 (13, 14, 15, 16, 17, 18)
+   grep -ci "return exactly once" .claude/commands/epic-cycle.md         # >= 4 (plan, implement, QA, CR blocks)
+   grep -c "Rule 18" .claude/commands/epic-cycle.md                      # >= 5
+   grep -c "Containment (/epic-cycle Rule 18)" _bmad/custom/bmad-build-auto.toml   # 5 (handoff + 4 layers)
+   grep -c "Containment (/epic-cycle Rule 18)" _bmad/custom/bmad-code-review.toml  # 4
+   grep -c "armed=" .claude/commands/epic-cycle.md                       # >= 2 (checkpoint runs on every project)
    grep -c "ledger_adjudicated" .claude/commands/epic-cycle.md    # >= 5 (Task Sequence, Pipeline Flow, Ledger Drain, resume, stage enum)
    grep -c "ledger_burndown" .claude/commands/epic-cycle.md       # >= 5
    grep -c "LEDGER " .claude/commands/epic-cycle.md               # >= 12
@@ -1641,6 +1817,8 @@ After writing all files, run these checks:
      uv run --no-cache _bmad/scripts/resolve_customization.py --skill "$PWD/.claude/skills/$s" --key workflow.persistent_facts | grep -c "skill-rules.md"
    done
    uv run --no-cache _bmad/scripts/resolve_customization.py --skill "$PWD/.claude/skills/bmad-build" --key workflow.open_spec
+   uv run --no-cache _bmad/scripts/resolve_customization.py --skill "$PWD/.claude/skills/bmad-build-auto" --key workflow.implementation_handoff | grep -c "Rule 18"   # 1
+   uv run --no-cache _bmad/scripts/resolve_customization.py --skill "$PWD/.claude/skills/bmad-build-auto" --key workflow.review_layers | grep -c "Rule 18"           # 4 (one per layer; confirms the id-keyed replace merged)
    ```
    Expected: `1` four times (each merged `persistent_facts` list contains the rules file); the last command prints the JSON object `{"workflow.open_spec": ""}` (an empty string value). Any `ConfigError` / non-zero exit means an override does not parse — fix it before continuing; the renderer would HALT on it.
 
