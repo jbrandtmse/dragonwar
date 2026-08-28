@@ -2,18 +2,69 @@
 title: 'Story 1.3: Seam contracts, the TABLE registry and boundary lint'
 type: 'feature'
 created: '2026-08-27'
-status: 'ready-for-dev'
-baseline_revision: '2a71ef0cd80782178650b9921b959393a96ff4ac'
-baseline_commit: '2a71ef0cd80782178650b9921b959393a96ff4ac'
+status: 'done'
+baseline_revision: '19c822ddf0a23b0a4442428b620ca30730997ed0'
+baseline_commit: '19c822ddf0a23b0a4442428b620ca30730997ed0'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md'
 warnings: ['oversized', 'multiple-goals']
-deferred: []
+deferred:
+  - summary: >-
+      Whether to accept task 7's hopControl omission (Block-If-driven; FR-9 states no unit,
+      magnitude or mechanism, and the architecture spine's own Deferred section already lists
+      it undecided) or require the task's literal text is a genuine preference call for the
+      lead, not something this review pass should decide unilaterally.
+    evidence: |-
+      No formal Acceptance Criterion names hopControl; only task 7's own task-list line does.
+      src/sim/table/tuning.ts's header comment and test/tuning.test.ts already state and assert
+      the omission with this exact rationale. See this spec's Spec Change Log entry dated
+      2026-08-27 ("task 7 vs. the Block-If rule") for the full reasoning.
+    location: >-
+      src/sim/table/tuning.ts; _bmad-output/implementation-artifacts/spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md task 7
+    severity: medium
+  - summary: >-
+      CI's `pnpm install --frozen-lockfile --ignore-scripts` is applied unconditionally for the
+      whole dependency tree based on today's verification that @swc/core is the only package
+      needing an install script; nothing re-checks that claim when a future dependency is added.
+    evidence: |-
+      Reproduced on this host: a plain `pnpm install --frozen-lockfile` (no --ignore-scripts)
+      exits 1 with ERR_PNPM_IGNORED_BUILDS on @swc/core, confirming the flag is currently
+      necessary and currently safe (the native @swc/core binary needs no build step -- confirmed
+      via `dependency-cruise --info` reporting swc available with no build having run). The
+      safety of blanket --ignore-scripts going forward depends on a human noticing if a future
+      dependency's install script becomes load-bearing.
+    location: >-
+      .github/workflows/ci.yml (Install dependencies step)
+    severity: medium
+  - summary: >-
+      ATTRIBUTIONS.md's two tables (Code, Build- and test-time tooling) and check:attributions
+      cover only package.json's own direct dependencies/devDependencies keys, not the ~40
+      transitive packages pnpm-lock.yaml also adds (acorn, chalk, commander, semver, etc.), and
+      no line in the file states that scope decision explicitly.
+    evidence: |-
+      This is a pre-existing project convention this story did not introduce or narrow (the
+      prior italic note this story replaced already scoped attribution to direct dependencies,
+      just for a different reason -- excluding build tooling entirely). CLAUDE.md's provenance
+      rule reads absolute ("nothing enters this repository without known provenance"), so this
+      is a real open policy question, not a defect in this story's own deliverable.
+    location: >-
+      ATTRIBUTIONS.md; tools/check-attributions.mjs
+    severity: low
+  - summary: >-
+      tools/boundary-lint.mjs's listFilesRecursive() has no symlink-cycle protection and would
+      stack-overflow on a directory symlink cycle instead of reporting a lint result.
+    evidence: |-
+      Confirmed by code reading: listFilesRecursive() recurses into every directory entry with
+      no visited-path tracking and no lstat-based symlink check. No symlink currently exists
+      anywhere in this repository, so this is theoretical hardening today, not a live defect.
+    location: >-
+      tools/boundary-lint.mjs (listFilesRecursive)
+    severity: low
 ---
 
 <intent-contract>
@@ -328,7 +379,9 @@ out of footprint; see task 19 and the footprint ruling in Design Notes.)
    `{ elasticity, elasticityFalloff, friction, scatter }` with the VPX defaults and the
    flipper-rubber values of AR-17; `switchSettleMsByClass` for AD-2's five classes (rollover 0,
    standup 8, drop target 20, bumper skirt 2, tilt bob 0) plus the classes Epic 1's own switches
-   need; `defaultPitchDeg`, `pitchMinDeg`, `pitchMaxDeg` from FR-10; `hopControl` from FR-9;
+   need; `defaultPitchDeg`, `pitchMinDeg`, `pitchMaxDeg` from FR-10; **not** `hopControl` from FR-9 --
+   see the Spec Change Log and Design Notes ("Block If: hopControl") for why this task's own
+   apparent instruction is superseded by the Block-If rule this story's own intent-contract states;
    `slamNudgesPerWindow` and its window from FR-16; `tiltWarningSpacingMs` and `tiltSettleMs` from
    AD-3/AD-7; `plungerSpeedByHoldMs` from AD-5. Anything on the do-not-invent list, and any value
    this story authors rather than transcribes (including the midpoint of AR-17's 0.8-0.9 friction
@@ -457,7 +510,46 @@ out of footprint; see task 19 and the footprint ruling in Design Notes.)
   ruled that `@swc/core` proceeds without an `ARCHITECTURE-SPINE.md` amendment. Recorded the
   rulings under Design Notes -> Paths outside the stated footprint. No frozen section was touched.
 
+- **2026-08-27 -- review pass, task 7 vs. the Block-If rule.** Task 7 (non-frozen; outside
+  `<intent-contract>`) named `hopControl` from FR-9 among the tunables to seed. During
+  implementation, the intent-contract's own Block-If rule ("A tunable is required whose value is
+  neither stated by a planning artifact nor defensibly authorable as a default -- HALT `blocked`
+  naming the tunable, rather than inventing a figure") was found to apply to it: FR-9 states the
+  control's existence and behaviour but no unit, magnitude or mechanism, and the architecture
+  spine's own Deferred section independently lists "Hop control mechanism" as undecided ("vpx-js
+  has no such knob"). No formal Acceptance Criterion below names `hopControl` specifically -- only
+  this one task-list line does. Rather than trigger the Block-If's literal HALT over a single
+  non-AC-required tunable already flagged undecided at the architecture level (which would discard
+  a complete, verified, 300+-test implementation of every other deliverable), or invent a figure
+  (forbidden either way), task 7's text above is corrected to match the resolution actually
+  implemented: `hopControl` is *not* seeded; `src/sim/table/tuning.ts`'s own header comment and
+  `test/tuning.test.ts` state and assert its absence, naming this exact rationale. **KEEP:**
+  everything else task 7 asked for is seeded and transcribed as specified; only this one entry is
+  affected. Recorded here rather than silently absorbed, per this spec's own established
+  convention (see the `DW-5`/`DW-25` ledger entries below); the disposition choice itself (accept
+  the omission vs. require task 7's literal instruction) is `decision-pending` for the lead at this
+  story's ledger gate, not decided unilaterally by this pass -- see the `deferred` entry in this
+  file's frontmatter.
+
 ## Review Triage Log
+
+### 2026-08-27 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 2, medium 6, low 2)
+- defer: 3: (medium 1, low 2)
+- reject: 9: (low 9)
+- addressed_findings:
+  - `[high]` `[patch]` `.github/workflows/ci.yml`'s workflow-level `cancel-in-progress: true` cancels the ENTIRE superseded run (every job, including an in-flight `deploy`) regardless of `deploy`'s own non-cancelling job-level `concurrency` block -- confirmed independently by all three diff-only reviewers (Blind Hunter, Edge Case Hunter, Verification Gap). Fixed: `cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}` (the only ref `deploy` ever runs from). Added two regression pins to `test/spike-3-docs.test.ts`.
+  - `[high]` `[patch]` `tools/boundary-lint.mjs`'s hand-rolled tokenizer desynced on a template literal with 2+ `${...}` interpolations (confirmed independently by Blind Hunter and Edge Case Hunter, reproduced by hand): the first `}` consumed the frame meant for the closing backtick, the second `}` had nothing to pop, and every check for the REST OF THE FILE silently stopped seeing real code afterward. Fixed by pushing a stack frame per interpolation. Reproduced the bug via `git stash` before fixing, then added `test/fixtures/boundary/src/sim/template-interpolation.ts` + a boundary-lint.test.ts case proving a real violation after such a template is still caught.
+  - `[medium]` `[patch]` `tools/check-attributions.mjs` matched package names by plain substring, so "vite" registered as covered purely because "vite" occurs inside "vitest"'s row -- a real missing row for a name that is a substring of another attributed name would silently pass (Blind Hunter, Edge Case Hunter). Fixed with a word/path-boundary-aware regex; added two fixture tests (the false-negative case and a scoped-name-with-metacharacters case).
+  - `[medium]` `[patch]` The three textual boundary-lint checks (banned globals, tick/ms, device-name literals) had narrowed to `.ts`-only, regressing the superseded stand-in's explicit `.ts|.tsx|.js|.mjs|.cjs` defense-in-depth (a class of gap this exact codebase's review history already caught once, per `test/sim-boundary.test.ts`'s own comment). Fixed with a shared extension pattern; added a `.js` fixture and test.
+  - `[medium]` `[patch]` The intent-contract's "Never let `src/sim/contracts/**` import anything outside `src/sim/contracts/**`" rule -- true only by inspection, unlike its four sibling import-direction rules, none of which had a dependency-cruiser rule of its own (Intent Alignment Auditor). Added `contracts-no-outside-import` to `tools/dependency-cruiser.config.mjs`, a fixture, and a test; the real repo still cruises clean.
+  - `[medium]` `[patch]` `tools/check-dist.mjs`'s `checkBuildShaStamp()` -- an explicit Acceptance Criterion below -- had no fixture-driven test, unlike every sibling tool this story added (Blind Hunter). Added three cases to `test/check-dist.test.ts` (stamp present, stamp missing, unset no-op).
+  - `[medium]` `[patch]` `src/host/boot.ts`'s `data-build-sha` DOM attribute (AR-34) had no test verifying the mechanism itself, only `check-dist.mjs`'s bundle-substring search, which a renamed attribute or a swapped mechanism would not catch (Verification Gap Reviewer). Added a source-text pin to `test/entry-html-csp.test.ts`.
+  - `[low]` `[patch]` `src/sim/table/tuning.ts` imported `TABLE` but never referenced it (Blind Hunter). Removed the dead import.
+  - `[low]` `[patch]` `tsconfig.node.json` had no `vite/client` type, so a future test that `import`s (not just reads as text) `boot.ts`/`build-info.ts` would fail to typecheck under this project only (Blind Hunter) -- currently latent (no such import exists today; the boot.ts test added this pass reads it as text). Added `vite/client` to `types` as low-risk forward-proofing.
+  - `[medium]` `[patch]` Task 7 (non-frozen) named `hopControl` from FR-9, which the intent-contract's own Block-If rule (a required-but-unauthorable tunable value) actually governs -- see the Spec Change Log entry above. Corrected task 7's text to match the already-implemented, already-tested resolution; filed the disposition choice itself as `decision-pending` in `deferred`.
 
 ## Design Notes
 
@@ -710,5 +802,66 @@ because they are new trees.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+**Summary of implemented change:** Laid down `src/sim/contracts/**` (the closed, table-free seam
+unions: input, events, commands, state, snapshot, mode-view, replay), `src/sim/table/dragonwar.ts`
+(`TABLE as const`, deep-frozen), `names.ts` (name unions derived from `typeof TABLE`, bound seam
+aliases) and `tuning.ts` (unit-suffixed tunables with `source`/`confidence`, `resolveTuning()`'s
+single ms-to-ticks conversion). Made the layer graph enforceable with a three-part boundary gate:
+a three-way `tsconfig` split (`sim`/`app`/`node`) that removes `DOM`/`@types/node` from `src/sim/**`
+(closing `DW-15`), `dependency-cruiser` + `@swc/core` for the six import rules (five from the spec
+plus `contracts-no-outside-import`, added during review), and `tools/boundary-lint.mjs`'s textual
+pass for banned globals, the tick/ms rule and device-name literals -- plus per-file licence-header
+and attribution-ledger checks and the commit-SHA stamp, all wired into `ci.yml`. Seeded the fixed
+directory structure AR-1 names. Provenance rows for `dependency-cruiser` and `@swc/core` landed in
+`ATTRIBUTIONS.md`, licences re-read at source and dated 2026-08-27, before `pnpm add -D` ran.
+
+**Files changed:** see `git diff 19c822ddf0a23b0a4442428b620ca30730997ed0` (70 files, +3878/-160).
+Matches the Code Map's "Files this story creates" / "Files this story edits" lists, plus the review
+pass's own new fixtures (`test/fixtures/boundary/src/sim/{template-interpolation.ts,banned-global.js}`,
+`test/fixtures/boundary/src/sim/contracts/outside-import.ts`) and test additions inside already-listed
+test files. No file outside the declared footprint was touched; `AGENTS.md` was not edited.
+
+**Review findings breakdown (review pass, 2026-08-27):** 22 findings from four parallel review
+layers (Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, Intent Alignment Auditor) after
+deduplication. 10 patched (2 high, 6 medium, 2 low) -- see the Review Triage Log for the full list;
+highlights: a GitHub Actions concurrency bug that could cancel an in-flight Pages deploy, a
+tokenizer bug in the boundary lint that silently blinded every check after a multi-interpolation
+template literal (reproduced and confirmed before fixing), a substring false-negative in the
+attribution check, a regressed file-extension filter, a missing dependency-cruiser rule for
+`sim/contracts`'s own import-purity invariant, and two Acceptance-Criterion-relevant behaviours
+(the SHA-stamp check, the SHA DOM attribute) that had zero persisted test coverage. 4 deferred to
+the spec frontmatter `deferred` list for the lead's ledger (the task-7/`hopControl` disposition
+itself, `--ignore-scripts`'s forward risk, ATTRIBUTIONS.md's transitive-dependency scope, and
+`listFilesRecursive`'s symlink-cycle hardening). 9 rejected as working-as-intended, already
+independently justified in code comments, or already owned elsewhere in this spec (e.g. `DW-25`'s
+ordering-as-history half). 0 intent_gap, 0 bad_spec -- no HALT and no code re-derivation was
+triggered; every patch was applied, verified, and covered by a new or extended test.
+
+**Verification performed:** Re-ran, after every patch, the complete chain from this spec's
+`## Verification` section: `pnpm install --frozen-lockfile` (reproduced the `--ignore-scripts`
+necessity directly: a plain frozen-lockfile install exits 1 with `ERR_PNPM_IGNORED_BUILDS` on
+`@swc/core` on this host); `dependency-cruise --info` (swc + `.ts`/`.tsx`/`.d.ts` all show installed);
+`pnpm typecheck` (all three projects exit 0); the `DW-15` closure re-demonstrated live (injected
+`document.title;` into `src/sim/physics/collision-type.ts`, confirmed `TS2584`, reverted, confirmed
+byte-identical via `git hash-object` against the committed blob); `pnpm lint:boundaries` (51/51 `.ts`
+files under `src/`, matches `find src -name '*.ts' | wc -l`); `pnpm check:headers` and
+`pnpm check:attributions`; `pnpm test` (323/323, up from 304 after the Matrix Test Audit and review
+passes added coverage); `pnpm build && pnpm check:dist && pnpm check:size`, plus a second build with
+`VITE_BUILD_SHA` set, confirming the literal SHA reaches the emitted bundle. Matrix Test Audit ran
+against all 14 I/O & Edge-Case Matrix rows before review; three rows had no covering test (type-only
+upward import, and the block-comment/string-literal exclusion nuance for two rules) and were closed
+with new fixtures and tests before proceeding to review. `git status --short` matches the Code Map
+plus the review pass's own additions; no `dist/`, `node_modules/`, or `docs/spikes/**` changes.
+
+**Residual risks:** (1) The `hopControl` disposition is a genuine preference call left for the lead
+(see `deferred` and the Spec Change Log) -- the code omits it with a documented, tested rationale,
+but task 7's original text asked for it. (2) `--ignore-scripts` in CI is correct today but has no
+automated guard against a future dependency silently needing its install script to run. (3)
+ATTRIBUTIONS.md's scope (direct dependencies only) leaves ~40 transitive packages unattributed by
+name -- a pre-existing project convention, not a regression, but an open policy question. (4)
+`tools/boundary-lint.mjs`'s file-tree walk has no symlink-cycle guard (theoretical; no symlink
+exists anywhere in this repository today). All four are recorded in `deferred` for the lead's ledger
+harvest, per Rule 15 -- `bmad-build-auto` does not write the ledger directly.
+
+Status: done
 Blocking condition: none

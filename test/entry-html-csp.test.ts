@@ -99,6 +99,26 @@ describe('src/host/boot.ts -- WebGL2 is checked before anything is wired (AD-17)
 	});
 });
 
+// Story 1.3, AR-34 -- the commit-SHA stamp. tools/check-dist.mjs's
+// checkBuildShaStamp() (see test/check-dist.test.ts) proves the SHA string
+// ends up somewhere in the built bundle, but not that it got there via THIS
+// mechanism: a regression that renamed the attribute (e.g. "data-buildsha")
+// or replaced setAttribute() with, say, a console.log(BUILD_SHA) would still
+// leave the literal SHA substring in the compiled bundle, so that check alone
+// would keep passing. This source-level pin, in the same no-DOM-required
+// style as the two describe blocks above, guards the mechanism itself.
+describe('src/host/boot.ts -- the commit-SHA stamp is published as a DOM attribute (AR-34)', () => {
+	const bootSource = readFileSync(BOOT_TS, 'utf8');
+
+	it('imports BUILD_SHA from ./build-info', () => {
+		expect(bootSource).toMatch(/import\s*\{\s*BUILD_SHA\s*\}\s*from\s*'\.\/build-info'/);
+	});
+
+	it('publishes it as the data-build-sha attribute on the document element', () => {
+		expect(bootSource).toContain("document.documentElement.setAttribute('data-build-sha', BUILD_SHA);");
+	});
+});
+
 describe('public/styles.css -- the [hidden] panels really hide (AD-17: never white-screen)', () => {
 	const css = readFileSync(STYLES_CSS, 'utf8');
 

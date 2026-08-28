@@ -1,0 +1,118 @@
+// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
+//
+// Real `spawnSync` invocations of tools/boundary-lint.mjs, in the shape of
+// test/measure-cli.test.ts: exit code and message assertions against the
+// actual shipped tool, never a mock. Covers this story's I/O matrix rows for
+// the boundary lint, exercised against the repository as committed and
+// against test/fixtures/boundary/** (one deliberate violation per rule) and
+// test/fixtures/boundary/coverage-gap (the empty-graph/missing-file guard).
+
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const BOUNDARY_LINT_SCRIPT = path.join(REPO_ROOT, 'tools', 'boundary-lint.mjs');
+const FIXTURES_ROOT = path.join(REPO_ROOT, 'test', 'fixtures', 'boundary');
+const COVERAGE_GAP_ROOT = path.join(FIXTURES_ROOT, 'coverage-gap');
+const RUN_TIMEOUT_MS = 30_000;
+
+interface RunResult {
+	status: number | null;
+	stdout: string;
+	stderr: string;
+}
+
+function run(args: string[]): RunResult {
+	const result = spawnSync(process.execPath, [BOUNDARY_LINT_SCRIPT, ...args], {
+		cwd: REPO_ROOT,
+		encoding: 'utf8',
+		timeout: RUN_TIMEOUT_MS,
+	});
+	return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+describe('tools/boundary-lint.mjs -- the repository as committed', () => {
+	it('exits 0 and reports the number of .ts files under src/ it cruised', () => {
+		const { status, stdout, stderr } = run([]);
+		expect(stderr, `expected no stderr, got:\n${stderr}`).toBe('');
+		expect(status, `expected exit 0, stderr:\n${stderr}`).toBe(0);
+		expect(stdout).toMatch(/\[boundary-lint\] OK -- \d+ \.ts file\(s\) under src\/ cruised, no violations/);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary (one violation per rule)', () => {
+	const { status, stderr } = run([FIXTURES_ROOT]);
+
+	it('exits 2 (an import-graph rule violation is present)', () => {
+		expect(status).toBe(2);
+	});
+
+	it.each([
+		['sim-no-upward-import', 'src/sim/upward-import.ts'],
+		['sim-no-babylon', 'src/sim/babylon-import.ts'],
+		['contracts-no-outside-import', 'src/sim/contracts/outside-import.ts'],
+		['presentation-only-contracts-and-table', 'src/presentation/reaches-physics.ts'],
+		['host-no-physics-or-rules', 'src/host/reaches-physics.ts'],
+		['no-havok', 'src/presentation/havok-import.ts'],
+		['sim-no-banned-global', 'src/sim/banned-globals.ts'],
+		['sim-one-tick-constant', 'src/sim/tick-hz-misuse.ts'],
+		['sim-no-literal-ms', 'src/sim/literal-ms.ts'],
+		['no-device-name-literal', 'src/presentation/device-name-literal.ts'],
+	])('names rule "%s" and file "%s"', (rule, file) => {
+		expect(stderr).toContain(`[${rule}]`);
+		expect(stderr).toContain(file);
+	});
+
+	it('catches a type-only upward import the same as a value import (I/O matrix: "Type-only upward import")', () => {
+		expect(stderr).toContain('[sim-no-upward-import]');
+		expect(stderr).toContain('src/sim/upward-import-type-only.ts');
+	});
+
+	it('ignores banned-global mentions inside a block comment and a string literal (I/O matrix error-handling column)', () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/banned-globals.ts'));
+		expect(lines, `expected exactly one violation for banned-globals.ts, got:\n${lines.join('\n')}`).toHaveLength(1);
+		expect(lines[0]).toContain('"Date"');
+	});
+
+	it('ignores a device-name mention inside a comment (I/O matrix: "Only string literals count")', () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/presentation/device-name-literal.ts'));
+		expect(lines, `expected exactly one violation for device-name-literal.ts, got:\n${lines.join('\n')}`).toHaveLength(1);
+		expect(lines[0]).toContain('"s_start"');
+	});
+
+	it('still catches a real violation after a two-interpolation template literal (tokenizer stack does not desync)', () => {
+		expect(stderr).toContain('[sim-no-banned-global]');
+		expect(stderr).toContain('src/sim/template-interpolation.ts');
+		expect(stderr).toContain('"Date"');
+	});
+
+	it('catches a banned global in a .js file under sim/, not just .ts (I/O matrix: textual checks are not TypeScript-only)', () => {
+		expect(stderr).toContain('[sim-no-banned-global]');
+		expect(stderr).toContain('src/sim/banned-global.js');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- empty-graph / missing-file guard (test/fixtures/boundary/coverage-gap)', () => {
+	it('never exits 0 over a cruise result missing a real .ts file, and names the missing file and the installed parser', () => {
+		const { status, stderr } = run([COVERAGE_GAP_ROOT]);
+		expect(status).not.toBe(0);
+		expect(stderr).toMatch(/missing 1 of 2 \.ts file\(s\)/);
+		expect(stderr).toContain('src/vendored_node_modules_copy/orphan.ts');
+		expect(stderr).toMatch(/Installed parser:.*swc/);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- argument handling', () => {
+	it('exits non-zero naming an unrecognized extra argument', () => {
+		const { status, stderr } = run(['a', 'b']);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/unexpected extra argument/);
+	});
+
+	it('exits non-zero when the given root does not exist', () => {
+		const { status, stderr } = run([path.join(REPO_ROOT, 'no-such-root-directory')]);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/root does not exist/);
+	});
+});

@@ -1,9 +1,22 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 1.1 stand-in for Story 1.3's dependency-cruiser (AD-16), plus an AD-15
-// verbatim-constants pin (below). Plain textual checks only — no TypeScript
-// compiler API, matching AD-16's constraint that no lint may depend on one
-// (TypeScript 7.0 ships none).
+// Story 1.1's textual boundary stand-in (banned-global/`@babylonjs` scan over
+// src/sim/**, and the hand-maintained GPL-header `roots` list that review had
+// to widen twice) is superseded by Story 1.3's real tooling, each with its
+// own test suite:
+//   - tools/boundary-lint.mjs (test/boundary-lint.test.ts) -- the import
+//     rules (dependency-cruiser + @swc/core), the banned-global textual scan,
+//     the tick/ms rule and the device-name-literal rule, all over src/**,
+//     discovered from real file listings rather than this file's old
+//     hand-maintained `roots` array.
+//   - tools/check-licence-headers.mjs (test/licence-headers.test.ts) -- the
+//     per-file GPL-3.0-header check, discovered from `git ls-files`.
+//
+// What remains here is NOT superseded by either tool: the vpx-js
+// port-header describe below asserts the exact upstream VPDB copyright block
+// text is intact (stronger than "carries some header or other"), and the
+// AD-15 solver-constants pin asserts values nothing else in this suite reads
+// by name -- both stay owned by this file.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -26,83 +39,6 @@ import { listFilesRecursive } from './util/list-files';
 
 const SIM_ROOT = path.resolve(__dirname, '..', 'src', 'sim');
 const PHYSICS_ROOT = path.resolve(SIM_ROOT, 'physics');
-
-const BANNED_GLOBALS = [
-	'window',
-	'document',
-	'performance',
-	'Math.random',
-	'Date',
-	'setTimeout',
-	'setInterval',
-	'requestAnimationFrame',
-	'localStorage',
-	'navigator',
-	'globalThis',
-];
-
-/**
- * Strips `//` line comments (naive: does not understand string literals that
- * contain `//`, which none of the ported or authored sim/ files do — verified by
- * inspection). Good enough for this story's stand-in; Story 1.3's
- * dependency-cruiser replaces it with a real parse.
- */
-function stripLineComments(source: string): string {
-	return source
-		.split('\n')
-		.map((line) => {
-			const idx = line.indexOf('//');
-			return idx === -1 ? line : line.slice(0, idx);
-		})
-		.join('\n');
-}
-
-function bannedTokenPattern(token: string): RegExp {
-	// `Math.random` contains a literal dot; escape it. Every other token is a bare
-	// identifier, safe to wrap in word boundaries.
-	const escaped = token.replace(/[.]/g, '\\.');
-	return new RegExp(`\\b${escaped}\\b`);
-}
-
-describe('sim/ boundary (AD-16 stand-in)', () => {
-	// Not just `.ts`: a `.js`/`.mjs`/`.cjs`/`.tsx` file dropped under src/sim/ would
-	// otherwise bypass the boundary check entirely.
-	const simFiles = listFilesRecursive(SIM_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
-
-	it('finds at least one file under src/sim/ (sanity check the test itself is wired up)', () => {
-		expect(simFiles.length).toBeGreaterThan(0);
-	});
-
-	for (const file of simFiles) {
-		const relative = path.relative(SIM_ROOT, file);
-
-		it(`${relative} references no banned global`, () => {
-			const code = stripLineComments(readFileSync(file, 'utf8'));
-			for (const token of BANNED_GLOBALS) {
-				const pattern = bannedTokenPattern(token);
-				const match = pattern.exec(code);
-				if (match) {
-					const lineNo = code.slice(0, match.index).split('\n').length;
-					expect.fail(
-						`${relative}:${lineNo} references banned token "${token}" ` +
-						`(AD-16 forbids window/document/performance/Math.random/Date/` +
-						`setTimeout/setInterval/requestAnimationFrame/localStorage/` +
-						`navigator/globalThis inside sim/)`,
-					);
-				}
-			}
-		});
-
-		it(`${relative} does not import @babylonjs/*`, () => {
-			const code = readFileSync(file, 'utf8');
-			const match = /@babylonjs\//.exec(code);
-			if (match) {
-				const lineNo = code.slice(0, match.index).split('\n').length;
-				expect.fail(`${relative}:${lineNo} imports @babylonjs/* — banned under sim/ (AD-1, AD-16)`);
-			}
-		});
-	}
-});
 
 describe('src/sim/physics/** header provenance (AD-16)', () => {
 	const PORT_MARKER = '// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0';
@@ -157,53 +93,4 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 		expect(VELOCITY_EPSILON, 'VELOCITY_EPSILON').toBe(0.05);
 		expect(BALL_BALL_RESTITUTION, 'BALL_BALL_RESTITUTION (lib/vpt/ball/ball-hit.ts:303)').toBe(0.8);
 	});
-});
-
-describe('DragonWar-authored source files carry the GPL-3.0 header (AD-16)', () => {
-	// This story's "Always" bullet requires every NEWLY AUTHORED source file to carry
-	// the GPL-3.0 header. Two files shipped without it and both were caught by hand
-	// (vitest.config.ts in the implement stage, tools/spike-1/index.html in review) --
-	// nothing automated looked. The header check above covers only src/sim/physics/**,
-	// and it checks the UPSTREAM notice, which is the opposite requirement.
-	const AUTHORED_HEADER = 'DragonWar is licensed GPL-3.0';
-	const PORT_MARKER_TEXT = 'Ported from vpdb/vpx-js';
-	const REPO_ROOT = path.resolve(__dirname, '..');
-
-	// Story 1.2 added src/host/** and src/presentation/** -- the two largest new
-	// authored source trees in the repository -- plus a second root config file,
-	// and none of them was inside this guard's reach: deleting the header from
-	// create-engine.ts or boot.ts left the whole suite green (review finding
-	// 2026-08-28). The extension filter also missed the `.d.mts` declaration
-	// files that ship beside the `.mjs` tools.
-	const roots = [
-		path.resolve(REPO_ROOT, 'src', 'sim', 'contracts'),
-		path.resolve(REPO_ROOT, 'src', 'host'),
-		path.resolve(REPO_ROOT, 'src', 'presentation'),
-		path.resolve(REPO_ROOT, 'tools'),
-		path.resolve(REPO_ROOT, 'test'),
-	];
-	const authored = roots
-		.flatMap((root) => listFilesRecursive(root))
-		.filter((f) => /\.(ts|tsx|mts|mjs|cjs|js)$/.test(f))
-		.concat([
-			path.resolve(REPO_ROOT, 'vitest.config.ts'),
-			path.resolve(REPO_ROOT, 'vite.config.ts'),
-		]);
-
-	it('finds the authored source files (sanity check the test itself is wired up)', () => {
-		expect(authored.length).toBeGreaterThan(5);
-	});
-
-	for (const file of authored) {
-		const relative = path.relative(REPO_ROOT, file).split(path.sep).join('/');
-		it(`${relative} carries the DragonWar GPL-3.0 header`, () => {
-			const code = readFileSync(file, 'utf8');
-			// A ported file carries the upstream notice instead -- that is AD-16's other
-			// half, asserted by the describe block above, and must not be overwritten here.
-			if (code.includes(PORT_MARKER_TEXT)) {
-				return;
-			}
-			expect(code, `${relative}: missing the "${AUTHORED_HEADER}" header line`).toContain(AUTHORED_HEADER);
-		});
-	}
 });

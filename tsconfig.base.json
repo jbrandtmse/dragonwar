@@ -1,0 +1,19 @@
+// Shared strictness options for every DragonWar TypeScript project
+// (tsconfig.sim.json, tsconfig.app.json, tsconfig.node.json). Story 1.3 split
+// the single project in two to close DW-15: sim/ compiles with no DOM lib and
+// no ambient types, so a DOM global used inside sim/ is a compiler error
+// rather than a lint regex. No project here sets "types" or "lib" -- those
+// differ per project and are declared locally.
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  }
+}

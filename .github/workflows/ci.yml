@@ -17,18 +17,36 @@
 # Action versions below are each pinned to their current major release tag
 # (resolved via `gh api repos/<owner>/<repo>/releases/latest` on 2026-08-27),
 # never floating on a branch.
+#
+# Story 1.3: `on.push` is widened to every branch (checks only -- the deploy
+# job's own `if:` guard below is untouched and still restricts publishing to
+# `main`), so a push to any branch gets the full check set, not only `main`
+# and pull requests. The workflow-level `concurrency` group also moves to a
+# per-ref group so pushing again to the same branch cancels a stale in-flight
+# `checks` run instead of queuing behind it -- but `cancel-in-progress` is
+# conditional on the ref NOT being `main`: workflow-level cancellation
+# terminates the ENTIRE run it supersedes, every job in it, regardless of that
+# job's OWN concurrency settings -- so an unconditional `cancel-in-progress:
+# true` here would cancel the `deploy` job mid-Pages-publish on a second quick
+# push to `main`, defeating the very protection the `deploy` job's own
+# `group: pages, cancel-in-progress: false` block below exists to provide
+# (job-level concurrency only arbitrates between separate runs that are both
+# still alive -- it cannot save a job whose own run was just cancelled out
+# from under it). `main` is the only ref that ever reaches `deploy`, so
+# excluding it here is sufficient; every other ref still gets the dedup this
+# story's own I/O matrix asks for (review finding, this story's own review
+# pass -- confirmed independently by three reviewers).
 
 name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   checks:
@@ -48,18 +66,43 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts: @swc/core is the only package in this project's
+        # dependency tree with an install-time script (a postinstall
+        # fallback check that installs @swc/wasm if the platform's native
+        # binary cannot load) -- verified during this story's implementation.
+        # pnpm's newer supply-chain gate refuses to run ANY install script
+        # without an explicit `pnpm approve-builds`, which would need a
+        # `pnpm-workspace.yaml` outside this story's declared footprint;
+        # `--ignore-scripts` is the in-footprint fix, and it is safe here
+        # because the native `@swc/core` binary pnpm resolves as a matching
+        # platform optionalDependency needs no build step to load (confirmed:
+        # `dependency-cruise --info` reports swc available with no build
+        # having run).
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Boundary lint
+        run: pnpm lint:boundaries
+
+      - name: Licence headers
+        run: pnpm check:headers
+
+      - name: Attribution ledger
+        run: pnpm check:attributions
 
       - name: Test
         run: pnpm test
 
       - name: Build
+        env:
+          VITE_BUILD_SHA: ${{ github.sha }}
         run: pnpm build
 
-      - name: Static-bundle check (CSP, relative paths, no inline, no service worker, notices)
+      - name: Static-bundle check (CSP, relative paths, no inline, no service worker, notices, SHA stamp)
+        env:
+          VITE_BUILD_SHA: ${{ github.sha }}
         run: pnpm check:dist
 
       - name: Size budget
@@ -81,6 +124,9 @@ jobs:
     # ledger DW-18 tracks the separate `github-pages` Environment setting, which
     # is a repository setting no workflow file can close).
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       pages: write

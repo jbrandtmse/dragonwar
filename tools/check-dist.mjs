@@ -6,8 +6,10 @@
 // references in every HTML page and no root-relative asset path regression in
 // an emitted chunk or an emitted stylesheet, no inline <script>/<style>/style=,
 // no service worker, THIRD-PARTY-NOTICES.txt and LICENSE.txt both present and
-// linked from the root page, and the runtime-fetched glb actually present. Exits
-// non-zero naming the FIRST violation found -- CI's `pnpm check:dist` step
+// linked from the root page, the runtime-fetched glb actually present, and
+// (Story 1.3, AR-34, conditional on `VITE_BUILD_SHA` being set for this
+// script's own invocation) the commit-SHA stamp reaching the emitted bundle.
+// Exits non-zero naming the FIRST violation found -- CI's `pnpm check:dist` step
 // (this story's AC: "a CI step greps the CSP tag and fails if it is absent",
 // widened to the sibling invariants named in the same AC). Node built-ins only.
 //
@@ -242,6 +244,30 @@ function checkThirdPartyNotices(distDir) {
 }
 
 /**
+ * AR-34's SHA stamp (Story 1.3): `src/host/build-info.ts` bakes
+ * `import.meta.env.VITE_BUILD_SHA` into the emitted bundle as a build-time
+ * literal (Vite's own substitution, not a runtime env read). Conditional on
+ * `process.env.VITE_BUILD_SHA` being set for THIS script's own invocation --
+ * "when `VITE_BUILD_SHA` was set at build time" (this story's Acceptance
+ * Criterion); a plain `pnpm build && pnpm check:dist` with no such variable
+ * set anywhere makes this a deliberate no-op, not a failure.
+ */
+function checkBuildShaStamp(distDir, allFiles) {
+	const expectedSha = process.env.VITE_BUILD_SHA;
+	if (!expectedSha) {
+		return;
+	}
+	const jsFiles = allFiles.filter((f) => f.endsWith('.js'));
+	const found = jsFiles.some((f) => readFileSync(f, 'utf8').includes(expectedSha));
+	if (!found) {
+		throw new CheckDistError(
+			`VITE_BUILD_SHA="${expectedSha}" was set but no emitted .js file under ${path.relative(REPO_ROOT, distDir)} contains it -- ` +
+			`the build-time stamp did not reach the bundle`,
+		);
+	}
+}
+
+/**
  * The assets the shipped page actually requests at runtime must exist in the
  * build. `src/host/boot.ts` fetches './assets/dragonwar.glb' as a plain
  * runtime string, so Vite never resolves it and no build step fails when it
@@ -275,6 +301,7 @@ export function checkDist(distDir) {
 	checkNoServiceWorker(distDir, allFiles);
 	checkThirdPartyNotices(distDir);
 	checkRuntimeAssets(distDir);
+	checkBuildShaStamp(distDir, allFiles);
 
 	return { htmlFilesChecked: htmlFiles.length, filesChecked: allFiles.length };
 }

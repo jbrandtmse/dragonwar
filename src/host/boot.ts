@@ -8,10 +8,21 @@
 //
 // This is host/, not presentation/ (AD-1): it composes DOM, the gate and the
 // scene, and owns no game logic of its own.
+//
+// src/host/loop.ts (the rAF accumulator that drives sim/loop's advance(),
+// per the Structural Seed) does not exist yet -- it is Story 1.5's. This
+// file stays boot-only until then.
 
 import { bootScene } from '../presentation/scene/create-engine';
+import { BUILD_SHA } from './build-info';
 
 const GLB_URL = './assets/dragonwar.glb';
+
+// AR-34: published as a DOM attribute (rather than merely imported and left
+// unused) so the `import.meta.env.VITE_BUILD_SHA` substitution survives
+// tree-shaking, and so it is available immediately -- Story 6.3's Settings
+// panel does not need a game to have started to read it.
+document.documentElement.setAttribute('data-build-sha', BUILD_SHA);
 
 declare global {
 	interface Window {

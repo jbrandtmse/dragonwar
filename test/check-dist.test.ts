@@ -31,10 +31,14 @@ function makeFixture(files: Record<string, string>): string {
 	return dir;
 }
 
-function runCheckDist(distDir: string): { status: number | null; stdout: string; stderr: string } {
+function runCheckDist(
+	distDir: string,
+	env?: Record<string, string>,
+): { status: number | null; stdout: string; stderr: string } {
 	const result = spawnSync(process.execPath, [CHECK_DIST_SCRIPT, distDir], {
 		encoding: 'utf8',
 		timeout: RUN_TIMEOUT_MS,
+		env: env ? { ...process.env, ...env } : process.env,
 	});
 	return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
@@ -368,6 +372,45 @@ describe('tools/check-dist.mjs -- emitted stylesheets are scanned too', () => {
 			'assets/main.js': '1',
 		});
 		const { status } = runCheckDist(dir);
+		expect(status).toBe(0);
+	});
+});
+
+// Story 1.3, AR-34 -- the commit-SHA stamp assertion (this story's own
+// Acceptance Criterion: "Given a build made with VITE_BUILD_SHA set, when
+// pnpm check:dist runs, then it asserts the stamped SHA is present in the
+// emitted bundle"). checkBuildShaStamp() had no fixture-driven test of its
+// own before this -- only a real `pnpm build` + `pnpm check:dist` manual run
+// exercised it, unlike every other invariant in this file.
+describe('tools/check-dist.mjs -- the commit-SHA stamp (VITE_BUILD_SHA)', () => {
+	function distWithMainJs(mainJsContent: string): string {
+		return makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': mainJsContent,
+		});
+	}
+
+	it('exits 0 when VITE_BUILD_SHA is set and an emitted .js file contains it', () => {
+		const dir = distWithMainJs('console.log("build deadbeef1234cafe");');
+		const { status, stdout } = runCheckDist(dir, { VITE_BUILD_SHA: 'deadbeef1234cafe' });
+		expect(status).toBe(0);
+		expect(stdout).toMatch(/OK/);
+	});
+
+	it('exits non-zero naming the SHA when it was set but no emitted .js file contains it', () => {
+		const dir = distWithMainJs('console.log("no stamp here");');
+		const { status, stderr } = runCheckDist(dir, { VITE_BUILD_SHA: 'deadbeef1234cafe' });
+		expect(status).toBe(1);
+		expect(stderr).toContain('VITE_BUILD_SHA="deadbeef1234cafe" was set but no emitted .js file');
+		expect(stderr).toMatch(/did not reach the bundle/);
+	});
+
+	it('is a no-op (exits 0) when VITE_BUILD_SHA is unset, even though no .js file carries any SHA', () => {
+		const dir = distWithMainJs('console.log("no stamp here");');
+		const { status } = runCheckDist(dir, { VITE_BUILD_SHA: '' });
 		expect(status).toBe(0);
 	});
 });

@@ -10,15 +10,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.sim.json && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "build": "vite build",
     "preview": "vite preview",
     "check:dist": "node tools/check-dist.mjs",
-    "check:size": "node tools/size-budget.mjs"
+    "check:size": "node tools/size-budget.mjs",
+    "lint:boundaries": "node tools/boundary-lint.mjs",
+    "check:headers": "node tools/check-licence-headers.mjs",
+    "check:attributions": "node tools/check-attributions.mjs"
   },
   "devDependencies": {
+    "@swc/core": "1.16.1",
     "@types/node": "24.13.3",
+    "dependency-cruiser": "18.2.0",
     "typescript": "7.0.2",
     "vite": "8.2.2",
     "vitest": "4.1.11"

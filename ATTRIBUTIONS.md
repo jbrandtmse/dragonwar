@@ -9,6 +9,15 @@ provenance rule in `CLAUDE.md`.
 If something is in the repository and not in this file, that is a bug. Fix it by
 establishing the provenance or removing the file.
 
+**Ordering convention:** a dependency addition lands its row in this file
+*before* (or, where a single commit is unavoidable, in the same commit as) the
+`package.json` change that adds it. `pnpm check:attributions` enforces the
+state half of that promise in CI — every `dependencies` and `devDependencies`
+key in `package.json` must have a row somewhere below, checked whitespace-
+normalised so a markdown rewrap cannot break the match — but it cannot see
+commit order, so the *ordering* half is a convention this paragraph states and
+review enforces, not something a script can verify from a single checkout.
+
 ---
 
 ## Code
@@ -23,10 +32,24 @@ establishing the provenance or removing the file.
 
 | `vite` @ `8.2.2` | https://github.com/vitejs/vite | VoidZero Inc. and Vite contributors | **MIT**, as read in `LICENSE.md` at the root of the published Vite package ("Vite is released under the MIT license", "Copyright (c) 2019-present, VoidZero Inc. and Vite contributors") — **not** from the `license` field of `package.json`. Vite is a build-time dependency, but it is listed here because its module-preload helper is **emitted into the shipped bundle** (`dist/assets/preload-helper-*.js`), so MIT's "include the copyright notice and this permission notice in all copies" obligation attaches to this story's Pages deploy. The notice ships in `public/THIRD-PARTY-NOTICES.txt`. Found by review 2026-08-28. | 2026-08-28 |
 
-*The list above is every third-party component whose code is compiled into or
-emitted alongside DragonWar's built bundle. Build- and test-time tooling that
-contributes no bytes to `dist/` (TypeScript, Vitest, `@types/node`) is not
-listed here.*
+*The Code table above records every third-party component whose bytes are
+compiled into or emitted alongside DragonWar's built bundle — each carries a
+distribution obligation (a licence text or a notice) that
+`public/THIRD-PARTY-NOTICES.txt` discharges. The Build- and test-time tooling
+table below is a different class: dependencies that run only at build time or
+test time and contribute no bytes to `dist/`, so they carry no distribution
+obligation, but `CLAUDE.md`'s provenance rule and `pnpm check:attributions`
+still require a row for every one of them, no exception.*
+
+## Build- and test-time tooling
+
+| Component | Source | Author | Licence | Verified |
+|---|---|---|---|---|
+| `typescript` @ `7.0.2` | https://github.com/microsoft/TypeScript/blob/main/LICENSE.txt | Microsoft Corporation | **Apache-2.0**, as read in `LICENSE.txt` at source (opens directly with the Apache License, Version 2.0 header) — not from `package.json` or npm metadata. `tsc --noEmit` only; TypeScript 7.0 ships no compiler API for any lint to depend on (AD-16). Contributes no bytes to `dist/`. | 2026-08-27 |
+| `vitest` @ `4.1.11` | https://github.com/vitest-dev/vitest/blob/main/LICENSE | VoidZero Inc. and Vitest contributors | **MIT**, as read in `LICENSE` at source ("MIT License / Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors") — not from `package.json` or npm metadata. Test runner only; contributes no bytes to `dist/`. | 2026-08-27 |
+| `@types/node` @ `24.13.3` | https://github.com/DefinitelyTyped/DefinitelyTyped/blob/master/LICENSE | DefinitelyTyped contributors (per-file copyright) | **MIT**, as read in `LICENSE` at source ("This project is licensed under the MIT license") — not from `package.json` or npm metadata. Type declarations only, used by the `node` typecheck project (`tsconfig.node.json`); contributes no bytes to `dist/`. | 2026-08-27 |
+| `dependency-cruiser` @ `18.2.0` | https://github.com/sverweij/dependency-cruiser/blob/main/LICENSE | Sander Verweij | **MIT**, as read in `LICENSE` at source ("The MIT License (MIT) / Copyright (c) 2016-2026 Sander Verweij") — not from `package.json` or npm metadata. Boundary-lint devDependency (AD-16, Story 1.3): enforces the layer-graph import rules in CI (`pnpm lint:boundaries`). Contributes no bytes to `dist/`. | 2026-08-27 |
+| `@swc/core` @ `1.16.1` | https://github.com/swc-project/swc/blob/main/LICENSE | SWC contributors | **Apache-2.0**, as read in `LICENSE` at source (opens directly with the Apache License header) — not from `package.json` or npm metadata. The TypeScript-aware parser dependency-cruiser needs to read `.ts` files at all under `typescript@7.0.2` (dependency-cruiser's own bundled TypeScript support is capped at `<7.0.0` and silently scans zero files without this — see `tools/dependency-cruiser.config.mjs`'s header comment). A Rust parser with no TypeScript-compiler dependency, honouring AD-16's "no lint may depend on the TypeScript compiler API" constraint. Ships platform binaries as transitive optional dependencies from the same Apache-2.0 monorepo. Contributes no bytes to `dist/`. | 2026-08-27 |
 
 ## Assets
 

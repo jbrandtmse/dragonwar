@@ -164,10 +164,26 @@ describe('.github/workflows/ci.yml -- deploy trigger narrowed back (Story 1.2 se
 		expect(workflow).not.toMatch(/DW-1-epic1/);
 	});
 
-	it('the push trigger is main plus workflow_dispatch only', () => {
+	it('the push trigger has no epic-branch carve-out (still true after Story 1.3 widened it to every branch)', () => {
+		// Story 1.3 widens `on.push` from `branches: [main]` to every branch
+		// (checks only -- the DEPLOY job's own `if:` guard below still restricts
+		// publishing to `main`), so the narrower assertion this test made under
+		// Story 1.2 no longer holds; what it actually protects -- no epic-branch
+		// carve-out reappearing in the trigger -- still does.
 		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
-		expect(workflow).toMatch(/branches:\s*\[main\]/);
+		expect(workflow).not.toMatch(/branches:\s*\[[^\]]*DW-1-epic1[^\]]*\]/);
 		expect(workflow).toMatch(/workflow_dispatch/);
+	});
+
+	it('pushes to every branch run the checks (I/O matrix: "CI on push and pull request")', () => {
+		// Story 1.3's own I/O matrix row: a push to any branch, or a pull
+		// request, must run the checks job -- so `on.push` must carry no
+		// `branches:` filter at all (not just no DW-1-epic1 carve-out), and
+		// `on.pull_request` must still be present.
+		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+		const onBlock = /\non:\n([\s\S]*?)\nconcurrency:/.exec(workflow)?.[1] ?? '';
+		expect(onBlock).toMatch(/\bpush:\s*\n(?!\s*branches:)/);
+		expect(onBlock).toMatch(/\bpull_request:/);
 	});
 });
 
@@ -179,6 +195,9 @@ describe('.github/workflows/ci.yml -- deploy trigger narrowed back (Story 1.2 se
 describe('.github/workflows/ci.yml -- the checks that gate the build actually gate it', () => {
 	const gatingSteps = [
 		'pnpm typecheck',
+		'pnpm lint:boundaries',
+		'pnpm check:headers',
+		'pnpm check:attributions',
 		'pnpm test',
 		'pnpm build',
 		'pnpm check:dist',
@@ -205,5 +224,23 @@ describe('.github/workflows/ci.yml -- the checks that gate the build actually ga
 	it('deploys only from main, so workflow_dispatch on another branch cannot ship', () => {
 		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
 		expect(workflow).toMatch(/github\.ref == 'refs\/heads\/main'/);
+	});
+
+	// Review finding, this story's own review pass (confirmed independently by
+	// three reviewers): GitHub Actions' workflow-level `cancel-in-progress: true`
+	// cancels the ENTIRE superseded run -- every job in it, including `deploy`,
+	// regardless of `deploy`'s own job-level `concurrency` block -- so an
+	// unconditional workflow-level cancel would defeat the non-cancelling
+	// `pages` group below on a second quick push to `main`.
+	it('never cancels an in-flight run on main, where the deploy job actually runs', () => {
+		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+		expect(workflow).toMatch(/cancel-in-progress:\s*\$\{\{\s*github\.ref != 'refs\/heads\/main'\s*\}\}/);
+	});
+
+	it("the deploy job keeps its own non-cancelling 'pages' concurrency group", () => {
+		const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
+		const deployBlock = /\n {2}deploy:\n([\s\S]*)/.exec(workflow)?.[1] ?? '';
+		expect(deployBlock).toMatch(/group:\s*pages/);
+		expect(deployBlock).toMatch(/cancel-in-progress:\s*false/);
 	});
 });

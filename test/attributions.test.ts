@@ -145,6 +145,56 @@ describe('public/THIRD-PARTY-NOTICES.txt -- shipped content, not just presence (
 	});
 });
 
+describe('ATTRIBUTIONS.md -- Build- and test-time tooling table (Story 1.3 AC)', () => {
+	// Story 1.3's hard, spec-level acceptance criterion (task 1): the
+	// dependency-cruiser and @swc/core rows land BEFORE `pnpm add -D` runs,
+	// each naming the licence file URL read at its own source repository, the
+	// licence, and the date it was read -- never from package.json or npm
+	// metadata. Extended in the same normalised shape as the Code-table
+	// describes above, plus the same rows for typescript/vitest/@types/node
+	// (build tooling recorded for provenance completeness, per the rewritten
+	// italic note distinguishing the two tables).
+	const normalized = normalize(readFileSync(ATTRIBUTIONS_PATH, 'utf8'));
+
+	it('names dependency-cruiser at 18.2.0, MIT, read at source', () => {
+		expect(normalized).toContain('dependency-cruiser');
+		expect(normalized).toContain('18.2.0');
+		expect(normalized).toContain('https://github.com/sverweij/dependency-cruiser/blob/main/LICENSE');
+		expect(normalized).toContain('MIT');
+	});
+
+	it('names @swc/core at 1.16.1, Apache-2.0, read at source', () => {
+		expect(normalized).toContain('@swc/core');
+		expect(normalized).toContain('1.16.1');
+		expect(normalized).toContain('https://github.com/swc-project/swc/blob/main/LICENSE');
+		expect(normalized).toContain('Apache-2.0');
+	});
+
+	it('names typescript, vitest and @types/node with their pinned versions', () => {
+		expect(normalized).toContain('typescript');
+		expect(normalized).toContain('7.0.2');
+		expect(normalized).toContain('vitest');
+		expect(normalized).toContain('4.1.11');
+		expect(normalized).toContain('@types/node');
+		expect(normalized).toContain('24.13.3');
+	});
+
+	it('records the 2026-08-27 verification date for the new rows', () => {
+		const matches = normalized.match(/2026-08-27/g) ?? [];
+		expect(matches.length).toBeGreaterThanOrEqual(5);
+	});
+
+	it("distinguishes the Code table from the Build- and test-time tooling table (no distribution obligation) instead of saying tooling is unrecorded", () => {
+		expect(normalized).toMatch(/Build- and test-time tooling/);
+		expect(normalized).not.toMatch(/is \*not\* listed here/);
+	});
+
+	it("states the ordering convention in the file's preamble", () => {
+		expect(normalized).toMatch(/ordering convention/i);
+		expect(normalized).toMatch(/check:attributions/);
+	});
+});
+
 describe('package.json licence identifier (code review 2026-08-27, HIGH-2)', () => {
 	it("declares GPL-3.0-or-later, matching NOTICE's or-later grant", () => {
 		// NOTICE grants "either version 3 of the License, or (at your option) any
