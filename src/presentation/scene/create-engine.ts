@@ -60,6 +60,7 @@ import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader';
+import type { ImportMeshOptions } from '@babylonjs/core/Loading/sceneLoader';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 // Side-effect-only: registers .createRawTexture on the engine prototype(s),
 // which RawTexture.CreateRGBATexture calls internally. Babylon's
@@ -220,14 +221,27 @@ function seedEnvironmentBrdfTexture(scene: Scene): void {
 	scene.environmentBRDFTexture = RawTexture.CreateRGBATexture(pixel, 1, 1, scene, false, false);
 }
 
-interface LoadAndRenderResult {
+export interface LoadAndRenderResult {
 	scene: Scene;
 	/** performance.now() at the instant the first frame rendered -- the true figure, independent of any later verification. */
 	firstFrameMs: number;
 }
 
-/** One attempt: build the scene against an already-created engine, start its render loop, and capture the first-frame timestamp. */
-async function loadAndRenderOnce(engine: AbstractEngine, glbUrl: string): Promise<LoadAndRenderResult> {
+/**
+ * One attempt: build the scene against an already-created engine, start its
+ * render loop, and capture the first-frame timestamp. `importOptions` is
+ * `undefined` on every production call (bootScene()'s glbUrl is a real
+ * same-origin path, so ImportMeshAsync infers the '.glb' plugin from the URL
+ * itself); the parameter exists so test/scene-smoke.test.ts can drive this
+ * exact function with a `data:` source with no file extension, via
+ * `{ pluginExtension: '.glb' }`, without adding a test-only branch to the
+ * shipped control flow.
+ */
+async function loadAndRenderOnce(
+	engine: AbstractEngine,
+	glbUrl: string,
+	importOptions?: ImportMeshOptions,
+): Promise<LoadAndRenderResult> {
 	const scene = new Scene(engine);
 	scene.useRightHandedSystem = true; // AD-10
 	seedEnvironmentBrdfTexture(scene);
@@ -241,14 +255,61 @@ async function loadAndRenderOnce(engine: AbstractEngine, glbUrl: string): Promis
 	// eslint-disable-next-line no-new
 	new HemisphericLight('light', new Vector3(0, 1, 0), scene);
 
-	await ImportMeshAsync(glbUrl, scene);
+	await ImportMeshAsync(glbUrl, scene, importOptions);
 
-	const firstFrameMs = await new Promise<number>((resolve) => {
-		scene.onAfterRenderObservable.addOnce(() => resolve(performance.now()));
-		engine.runRenderLoop(() => scene.render());
+	// A synchronous throw from scene.render() on its FIRST call (corrupt
+	// geometry, a broken shader, GPU context loss) happens inside a scheduled
+	// rAF callback, after this promise's executor has already returned -- it
+	// does not reject this promise on its own, and the AWAIT below would hang
+	// forever, permanently disabling the press-to-begin button with no error
+	// panel shown (violates AD-17's "never white-screen" / always-report
+	// boot-stage failures). The try/catch below only covers calls BEFORE the
+	// first successful render; once firstFrameSeen is true, later throws are
+	// deliberately left to propagate as uncaught `error` events, since
+	// bootScene()'s WebGPU-verification window (see this file's header
+	// comment, "Defect 2") relies on exactly that global event to catch a
+	// delayed post-first-frame render-pipeline failure (review finding
+	// 2026-08-28).
+	const firstFrameMs = await new Promise<number>((resolve, reject) => {
+		let firstFrameSeen = false;
+		scene.onAfterRenderObservable.addOnce(() => {
+			firstFrameSeen = true;
+			resolve(performance.now());
+		});
+		engine.runRenderLoop(() => {
+			if (firstFrameSeen) {
+				scene.render();
+				return;
+			}
+			try {
+				scene.render();
+			} catch (err) {
+				engine.stopRenderLoop();
+				reject(err instanceof Error ? err : new Error(String(err)));
+			}
+		});
 	});
 
 	return { scene, firstFrameMs };
+}
+
+/**
+ * Test-only: exercises the REAL shipped scene-construction path -- camera,
+ * light, the CSP-defect BRDF-texture seed, the glb import, and the
+ * first-rendered-frame capture -- against a caller-supplied engine (a
+ * NullEngine under vitest's Node environment; see test/scene-smoke.test.ts).
+ * `bootScene()` is browser-only (reads `window.location.search`) and cannot
+ * run under Node, but the scene-construction logic it delegates to,
+ * `loadAndRenderOnce()`, has no DOM dependency and is exercised here
+ * directly rather than through a hand-rolled parallel loader sequence.
+ * Never called from boot.ts.
+ */
+export async function loadAndRenderOnceForTests(
+	engine: AbstractEngine,
+	glbUrl: string,
+	importOptions?: ImportMeshOptions,
+): Promise<LoadAndRenderResult> {
+	return loadAndRenderOnce(engine, glbUrl, importOptions);
 }
 
 /**

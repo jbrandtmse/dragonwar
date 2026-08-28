@@ -15,6 +15,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ATTRIBUTIONS_PATH = path.resolve(__dirname, '..', 'ATTRIBUTIONS.md');
+const THIRD_PARTY_NOTICES_PATH = path.resolve(__dirname, '..', 'public', 'THIRD-PARTY-NOTICES.txt');
 
 function normalize(text: string): string {
 	return text.replace(/\s+/g, ' ');
@@ -89,6 +90,58 @@ describe('ATTRIBUTIONS.md -- Babylon.js provenance record (Story 1.2 AC)', () =>
 	it('names NOTICE.md and where its content ships (THIRD-PARTY-NOTICES.txt)', () => {
 		expect(normalized).toContain('NOTICE.md');
 		expect(normalized).toContain('THIRD-PARTY-NOTICES.txt');
+	});
+});
+
+describe('ATTRIBUTIONS.md -- babylonjs-gltf2interface transitive-dependency record (review finding 2026-08-28)', () => {
+	// @babylonjs/loaders pulls this in as a peerDependency, resolved into the
+	// dependency tree by pnpm's autoInstallPeers -- a real package.json/
+	// pnpm-lock.yaml dependency this story's original pass never recorded here.
+	// Same source repository, same licence, same verification method as the
+	// two direct Babylon rows above; pinned so a future edit cannot silently
+	// drop the row this test itself added.
+	const normalized = normalize(readFileSync(ATTRIBUTIONS_PATH, 'utf8'));
+
+	it('names the package at the pinned 9.22.2 version, sourced from the same Babylon.js repository', () => {
+		expect(normalized).toContain('babylonjs-gltf2interface');
+		expect(normalized).toContain('9.22.2');
+		expect(normalized).toContain('https://github.com/BabylonJS/Babylon.js/blob/master/license.md');
+	});
+
+	it('records the licence as Apache-2.0, read in license.md at source -- not from package.json or npm metadata', () => {
+		const gltf2InterfaceRow = normalized.split('babylonjs-gltf2interface')[1] ?? '';
+		expect(gltf2InterfaceRow).toContain('Apache-2.0');
+		expect(gltf2InterfaceRow).toMatch(/read in `?license\.md`? at source/);
+	});
+});
+
+describe('public/THIRD-PARTY-NOTICES.txt -- shipped content, not just presence (review finding 2026-08-28)', () => {
+	// Review finding: tools/check-dist.mjs's checkThirdPartyNotices() and its
+	// own test only assert the file exists and is linked from dist/index.html
+	// -- neither ever reads what it actually contains. test/attributions.test.ts
+	// above only asserts that ATTRIBUTIONS.md mentions this filename, not that
+	// the shipped file itself carries real Apache-2.0 licence text and
+	// Babylon's NOTICE.md content. A future edit that truncated or corrupted
+	// public/THIRD-PARTY-NOTICES.txt would pass every other test in this repo;
+	// this is the regression guard for that Apache-2.0 4(a)/4(d) obligation.
+	const normalized = normalize(readFileSync(THIRD_PARTY_NOTICES_PATH, 'utf8'));
+
+	it('names Babylon.js as the covered third-party component, at the pinned version', () => {
+		expect(normalized).toContain('Babylon.js');
+		expect(normalized).toContain('9.22.2');
+		expect(normalized).toContain('The Babylon.js team');
+	});
+
+	it('carries Babylon NOTICE.md\'s verbatim copyright line', () => {
+		expect(normalized).toContain('Copyright 2023 The Babylon.js team');
+	});
+
+	it('carries the real Apache License, Version 2.0 grant text, not a placeholder', () => {
+		expect(normalized).toMatch(/Apache License,?\s*Version 2\.0/);
+		expect(normalized).toContain('Licensed under the Apache License, Version 2.0');
+		expect(normalized).toMatch(/http:\/\/www\.apache\.org\/licenses\/LICENSE-2\.0/);
+		expect(normalized).toMatch(/Unless required by applicable law/);
+		expect(normalized).toMatch(/AS IS.* BASIS/);
 	});
 });
 

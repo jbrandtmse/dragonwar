@@ -13,10 +13,17 @@ Both the compressed transfer size and the navigation-to-first-frame time are
 comfortably inside NFR-4's targets on every accepted run, on both the deployed
 Pages link and the local `vite preview` control:
 
-| | Compressed transfer | 10 s target | Nav-to-first-frame | Margin |
+| | Compressed transfer | 10 s target | Nav-to-first-frame\* | Margin |
 |---|---|---|---|---|
 | Deployed link | ~0.59 MB | 20 MB | 1.49 s (median) | ~13x under the time budget, ~34x under the payload budget |
 | Local preview | ~0.59 MB | 20 MB | 1.40 s (median) | ~14x under the time budget, ~34x under the payload budget |
+
+\* Taken with vsync/frame-rate-limiting disabled on this display-less
+automated session (see "Environment" below) — a well-measured lower bound,
+not a normally-displayed consumer figure. The compressed-transfer figures are
+unaffected. Re-verification on a host with a real attached display is a
+reasonable follow-up (review finding 2026-08-28, added because this table is
+what a reader skimming only the top of the document would see).
 
 The renderer is WebGL2 on every run (WebGPU initialises under the pinned CSP
 but fails later in this Babylon version for this scene — see "Renderer
@@ -320,6 +327,15 @@ close to the 10 s target.
   `DW-1-epic1` was added to that policy (temporarily, alongside `main`,
   mirroring the workflow trigger's own author-approved exception) and the
   deploy job was re-run on the same commit, after which it succeeded.
+- Review finding (2026-08-28): a second, separate real workflow run also
+  happened — `https://github.com/jbrandtmse/dragonwar/actions/runs/33135084208`
+  (id `33135084208`), a manual `workflow_dispatch` against commit `8461e15`
+  (this document's own commit, after the deploy-trigger narrow-back below was
+  already applied) — verifying that both jobs still pass and Pages still
+  redeploys correctly once the `DW-1-epic1` push trigger was gone, using
+  `workflow_dispatch`'s own always-available manual trigger. Also `success`.
+  `dist/`'s inputs are unchanged between the two commits (docs-only diff), so
+  this did not alter anything measured above.
 - `https://jbrandtmse.github.io/dragonwar/` renders the placeholder box in
   Chrome on Windows — confirmed live via screenshot, and via the cold-load
   runs above. `THIRD-PARTY-NOTICES.txt` and `assets/dragonwar.glb` both

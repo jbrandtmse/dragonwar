@@ -37,6 +37,18 @@ html, body {
 	padding: 2rem;
 }
 
+/* Without this, the author-origin `#gate { display: flex; }` rule above beats
+   the browser's own default `[hidden] { display: none }` UA style (an author
+   rule always wins over a UA rule regardless of specificity), so
+   `gate.hidden = true` in src/host/boot.ts would leave the gate's heading,
+   button and notices link in the layout and hit-testable region -- visible
+   through the still-transparent canvas until the first frame paints over it
+   (review finding 2026-08-28; mirrors the pattern #error-panel and
+   #render-canvas already use below). */
+#gate[hidden] {
+	display: none;
+}
+
 #gate h1 {
 	font-size: 2.5rem;
 	letter-spacing: 0.05em;

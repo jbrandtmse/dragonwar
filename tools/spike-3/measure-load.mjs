@@ -45,6 +45,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_EXE = {
 	chrome: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -254,7 +255,11 @@ function sweepStaleProfileDirs() {
 	}
 }
 
-function median(sortedAscending) {
+// Exported so a direct unit test can assert this against a known-correct
+// expected value, rather than only indirectly through a live CDP run --
+// mirrors tools/spike-1/browser.ts's own median(), which is exported for the
+// same reason (review finding 2026-08-28).
+export function median(sortedAscending) {
 	const n = sortedAscending.length;
 	if (n === 0) {
 		return 0;
@@ -339,7 +344,20 @@ async function run(args) {
 				});
 
 				let inFlightCount = 0;
-				cdp.on('Network.requestWillBeSent', () => {
+				const seenRequestIds = new Set();
+				cdp.on('Network.requestWillBeSent', (params) => {
+					// CDP re-fires this event for each redirect hop with the SAME
+					// requestId (params.redirectResponse is set on those refirings).
+					// Counting every hop would inflate requestCount and increment
+					// inFlightCount with no matching Network.loadingFinished /
+					// loadingFailed for the intermediate hops (only the FINAL
+					// response of a requestId's chain fires one of those), stalling
+					// the network-idle wait below forever on any redirected request
+					// (review finding 2026-08-28).
+					if (seenRequestIds.has(params.requestId)) {
+						return;
+					}
+					seenRequestIds.add(params.requestId);
 					requestCount++;
 					inFlightCount++;
 				});
@@ -548,7 +566,15 @@ async function main() {
 	process.exit(exitCode);
 }
 
-main().catch((err) => {
-	console.error(`[measure-load] FATAL: ${err instanceof Error ? err.message : String(err)}`);
-	process.exit(1);
-});
+// Guards main()'s side effects (spawning a real browser, process.exit()) from
+// firing on a plain `import` -- e.g. a future unit test importing the
+// now-exported median() above, following the same isMainModule pattern
+// tools/check-dist.mjs and tools/size-budget.mjs already use for the same
+// dual CLI-and-importable-module reason (review finding 2026-08-28).
+const isMainModule = process.argv[1] && path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]);
+if (isMainModule) {
+	main().catch((err) => {
+		console.error(`[measure-load] FATAL: ${err instanceof Error ? err.message : String(err)}`);
+		process.exit(1);
+	});
+}

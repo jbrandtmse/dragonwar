@@ -58,7 +58,22 @@ function supportsWebGL2(): boolean {
 
 function showError(message: string): void {
 	gate.hidden = true;
-	canvas.hidden = true;
+	// Re-query by id rather than closing over the module-level `canvas` const:
+	// create-engine.ts's WebGPU-fallback path (bootScene() -> a WebGPU attempt
+	// that constructs but fails to render) swaps the live canvas element for a
+	// same-id clone (replaceCanvasElement()) so the fallback WebGL2 context can
+	// bind cleanly. If bootScene() then throws AGAIN on that fallback attempt
+	// (review finding 2026-08-28), hiding the stale, already-detached `canvas`
+	// reference has no on-screen effect -- the new element stays visible and,
+	// being last in index.html's DOM order among the three fixed, inset:0
+	// panels, paints OVER #error-panel's opaque background, hiding the very
+	// message this function exists to show. AD-17 forbids white-screening on
+	// any boot-stage failure; this closes that gap for the element itself,
+	// whichever one is actually live in the DOM at the moment of failure.
+	const liveCanvas = document.getElementById('render-canvas');
+	if (liveCanvas) {
+		liveCanvas.hidden = true;
+	}
 	errorMessage.textContent = message;
 	errorPanel.hidden = false;
 }

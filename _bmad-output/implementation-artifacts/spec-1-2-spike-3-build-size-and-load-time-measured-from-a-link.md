@@ -2,10 +2,10 @@
 title: 'Story 1.2: Spike 3 - build size and load time measured from a link'
 type: 'feature'
 created: '2026-08-27'
-status: 'in-review'
+status: 'done'
 baseline_revision: '9ccfb53b0eb2724648257576a4c3a1b36c3db49f'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
@@ -37,6 +37,54 @@ deferred:
     location: >-
       tools/spike-3/measure-load.mjs; docs/spikes/spike-3.md "Environment"
     severity: med
+  - summary: >-
+      The github-pages repository Environment's deployment-branch policy was
+      widened via the GitHub UI (outside version control) to admit
+      DW-1-epic1 alongside main, so Spike 3 could deploy from the unmerged
+      epic branch before Epic 1 merges. This story's seventh acceptance
+      criterion narrows back only the workflow YAML's on.push.branches
+      trigger (verified done by this review pass); the separate repository
+      Environment setting is a distinct GitHub configuration surface this
+      story's AC never named, and it still admits DW-1-epic1.
+    evidence: |-
+      docs/spikes/spike-3.md's "CI and Pages deployment" section documents
+      the widening directly (the deploy job's first attempt, run
+      33134412545, failed with "Branch DW-1-epic1 is not allowed to deploy
+      to github-pages due to environment protection rules" until the policy
+      was widened), and its "Deploy trigger narrow-back" section states in
+      its own words that narrowing this specific repository setting back to
+      main-only is "Epic 1's merge-gate owner's to do... not a workflow-file
+      change this story makes." Confirmed still real by review 2026-08-28 --
+      it is a GitHub repository setting, not a code change, so it will never
+      surface in a diff or a grep of the workflow file.
+    location: >-
+      GitHub repository Settings -> Environments -> github-pages ->
+      Deployment branches (jbrandtmse/dragonwar); documented in
+      docs/spikes/spike-3.md "Deploy trigger narrow-back"
+    severity: low
+  - summary: >-
+      create-engine.ts's WebGPU-verification failure handling has two
+      hardening gaps beyond the stale-canvas bug this review pass fixed in
+      boot.ts: the error/unhandledrejection listeners that verify a WebGPU
+      attempt are armed only through a short grace period after the first
+      frame (WEBGPU_VERIFY_GRACE_MS), so a WebGPU render-pipeline failure
+      surfacing later would crash the render loop with no fallback; and the
+      captured-failure state is not scoped to WebGPU-originated errors, so
+      an unrelated window-level error firing during the load/verify window
+      would trigger a full WebGL2 fallback and discard a working WebGPU
+      engine.
+    evidence: |-
+      src/presentation/scene/create-engine.ts:207 (WEBGPU_VERIFY_GRACE_MS)
+      and 280-291 (onUnhandledRejection/onError, unfiltered by origin) --
+      confirmed by reading the source during review 2026-08-28. Real but
+      narrow: this story's own fixed, first-frame-only placeholder scene
+      demonstrates neither gap in its own live measurement runs, and the
+      spec's own Never list assigns "the full press-to-begin, platform gate
+      and error panel" to Story 6.1, the natural owner of deepening this
+      error-handling surface.
+    location: >-
+      src/presentation/scene/create-engine.ts:207, 280-291 (bootScene())
+    severity: low
 ---
 
 <intent-contract>
@@ -618,6 +666,125 @@ the measurement tooling and protocol (cadence guard, median-over-5-runs discipli
 interleaving), not the recorded values. Finalize proceeds as an additional commit on top of
 the existing three; those three are not amended or squashed.
 
+### 2026-08-28 — Review pass
+
+Four review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment
+Auditor) ran in parallel against `git diff 9ccfb53b..HEAD` (the full story diff since
+`baseline_revision`; the bookkeeping-only commit `e09000d` under
+`_bmad-output/implementation-artifacts/` was not treated as story content). Per the stage
+dispatch: the CSP amendment, the silent-WebGPU-fallback amendment and the deploy-trigger
+narrow-back are author-resolved and were not re-raised by any layer or by this triage; the
+recorded cold-load and payload measurements in `docs/spikes/spike-3.md` were reviewed only
+for tooling/protocol soundness (the median-cadence guard, the median-over-5-accepted-runs
+discipline, the interleaved A/B against the local-preview control, the `--latency` default
+being echoed) and were **not** ratified as correct — those numbers remain the lead's to
+verify under the runtime lock, per the process note above.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7 (high 1, medium 4, low 2)
+- defer: 2 (low 2)
+- reject: 6 (low 6)
+- addressed_findings:
+  - `high` `patch` `src/host/boot.ts`'s `showError()` hid a stale, already-detached
+    `canvas` reference: `create-engine.ts`'s WebGPU-fallback path
+    (`replaceCanvasElement()`) swaps the live `#render-canvas` element for a fresh
+    same-id clone before its WebGL2 retry; if that retry then also fails, the new
+    (never-hidden, last-in-DOM-order) canvas painted over `#error-panel`'s opaque
+    background, defeating AD-17's "render the error panel... rather than
+    white-screening" invariant. Reachable via WebGPU-attempt-then-WebGL2-retry
+    both failing (the WebGPU render-pipeline defect this story's own docs record
+    is exactly the first half of that path). Fixed by re-querying `#render-canvas`
+    by id in `showError()` instead of closing over the stale module-level binding;
+    verified by reading the DOM order in `index.html`/`public/styles.css`
+    (`#error-panel` and `#render-canvas` are both `position: fixed; inset: 0` with
+    no `z-index`, so DOM order decides stacking) since no DOM test harness exists
+    for `host/` files (AD-15/Design Notes precedent: covered by direct reading,
+    matching the unsupported-WebGL2-browser row's own established verification
+    method).
+  - `medium` `patch` The shipped scene-construction path (`bootScene` /
+    `loadAndRenderOnce` / `seedEnvironmentBrdfTexture` in `create-engine.ts` —
+    including this story's headline CSP-defect fix, the in-memory BRDF-texture
+    seed) was never exercised by any test: `test/scene-smoke.test.ts` built its
+    scene through a hand-rolled, parallel `NullEngine`/`LoadAssetContainerAsync`
+    sequence that never called into the real functions (confirmed by a
+    repo-wide symbol search). Fixed by exporting a test-only
+    `loadAndRenderOnceForTests()` from `create-engine.ts` and adding a
+    `NullEngine`-driven test in `test/scene-smoke.test.ts` that calls the real
+    function and asserts `scene.environmentBRDFTexture` is non-null and
+    `playfield_root` loads.
+  - `medium` `patch` `public/THIRD-PARTY-NOTICES.txt`'s actual content (the
+    Apache-2.0 grant text and Babylon's `NOTICE.md` copyright line) was unpinned
+    by any test — `tools/check-dist.mjs`'s own test only used placeholder
+    fixture text, and `test/attributions.test.ts` only asserted `ATTRIBUTIONS.md`
+    mentions the filename. Fixed by adding a test in `test/attributions.test.ts`
+    that reads the shipped file and asserts its real Apache-2.0 text and the
+    NOTICE copyright line.
+  - `medium` `patch` `babylonjs-gltf2interface@9.22.2`, a real transitive
+    dependency of `@babylonjs/loaders` resolved into `pnpm-lock.yaml` by pnpm's
+    `autoInstallPeers`, had no `ATTRIBUTIONS.md` provenance row despite
+    `CLAUDE.md`'s "no exception" rule — confirmed real via `pnpm-lock.yaml` and
+    the npm registry (same source repository as the two verified Babylon rows:
+    `git+https://github.com/BabylonJS/Babylon.js.git`, types-only, no runtime
+    `.js`). Fixed by adding a Code-table row (same source/licence/verification
+    method as the `@babylonjs/core`/`@babylonjs/loaders` rows) and pinning it in
+    a new `test/attributions.test.ts` block.
+  - `medium` `patch` `tools/spike-3/measure-load.mjs` — the tool that produces
+    every gating number this story records — shipped with no dedicated test
+    file, unlike its sibling scripts `tools/check-dist.mjs` and
+    `tools/size-budget.mjs`, each covered by real-subprocess tests. Fixed by
+    adding `test/measure-load-cli.test.ts`, mirroring
+    `test/measure-cli.test.ts`'s argument-validation-only pattern (throws
+    before any browser spawns), covering every `parseArgs`/`requireValue` error
+    path and the parse-before-profile-sweep ordering guarantee.
+  - `low` `patch` `tools/check-dist.mjs`'s attribute-scanning regex
+    (`extractAttrRefs`, the `style=` check) matched only double-quoted
+    attribute values, and its service-worker filename check
+    (`checkNoServiceWorker`) matched any filename merely ending in the
+    substring `sw.js`. Fixed by matching both quote styles and requiring a
+    `._-` boundary (or start-of-name) before `sw.js`; re-verified against the
+    real build and the existing `test/check-dist.test.ts` suite (unchanged,
+    still 16/16 green).
+  - `low` `patch` `docs/spikes/spike-3.md`'s "CI and Pages deployment" section
+    recorded only the first of two real GitHub Actions runs against this
+    branch (confirmed via `gh run list --branch DW-1-epic1`); a second,
+    `workflow_dispatch`-triggered run (id `33135084208`, against commit
+    `8461e15` after the deploy-trigger narrow-back, re-verifying both jobs
+    still pass) went undocumented. Fixed by adding one paragraph recording it;
+    `dist/`'s inputs are unchanged between the two commits, so nothing measured
+    above is affected.
+
+Deferred to the frontmatter `deferred:` list (2, both low, both real but outside this
+story's tight scope — see that list for full evidence): the `github-pages` repository
+Environment's deployment-branch policy still admits `DW-1-epic1` alongside `main` (a
+distinct GitHub setting from the already-narrowed workflow YAML trigger, self-disclosed in
+`docs/spikes/spike-3.md` as "Epic 1's merge-gate owner's to do"); and two further
+`create-engine.ts` WebGPU-failure-handling hardening gaps (a time-bounded verification
+window; `capturedFailure` not scoped to WebGPU-originated errors) beyond the stale-canvas
+bug fixed above — real but assigned to Story 6.1 by the spec's own Never list ("the full
+press-to-begin, platform gate and error panel").
+
+Rejected as noise (6, all low/theoretical, no reachable failure demonstrated against this
+story's actual shipped code or a named acceptance criterion): no Edge-browser measurement
+row (no AC names Edge as a measurement leg, only Chrome-gating and Safari/macOS-PENDING);
+the CI `concurrency: { group: pages }` unscoped by ref (matches GitHub's own standard
+Pages-deploy workflow pattern, not a defect); Actions pinned to major-version tags rather
+than commit SHAs (the header comment's literal claim — "never floating on a branch" — is
+accurate as worded; full SHA-pinning is a supply-chain hardening preference, not required
+by any AC/AD); `checkCspTag`'s attribute-order-sensitive regex (intentionally strict/
+fail-closed — a false negative fails CI loudly rather than shipping a broken CSP silently,
+and the actual emitted tag matches exactly); `tools/spike-1/browser.ts`'s `runFrames()`
+reporting a `0ms` median when `frameCount` is too small to collect any delta (unreachable —
+every real measurement path runs hundreds of frames, never `frameCount: 1`);
+`tools/spike-3/measure-load.mjs` waiting the full CDP timeout on an immediate browser crash
+rather than failing fast (a latency-only issue on a manual/local tool, not a correctness
+gap — the run still fails, just slower).
+
+Full re-verification after all seven patches: `pnpm typecheck` (0 diagnostics), `pnpm test`
+(271/271 passing, up from 253 before this pass), `pnpm build`, `node tools/check-dist.mjs`
+(exit 0) and `node tools/size-budget.mjs` (exit 0, 0.725 MB measured, unchanged from the
+pre-patch build to the byte) all re-run clean against the patched tree.
+
 ## Design Notes
 
 ### Corrected row inside the intent block (lead edit at the validation gate, 2026-08-27)
@@ -872,8 +1039,88 @@ frontmatter) and `.memlog.md` are explicitly out of scope for this story's edits
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+### Implement + review stage (2026-08-28)
+
+**Summary of implemented change:** Story 1.2 / Spike 3 stood up DragonWar's first
+production-build surface (root `index.html` with the amended pinned CSP and a
+press-to-begin gate, `vite.config.ts`, a minimal `host/boot` + Babylon presentation
+scene, a generated placeholder `dragonwar.glb`), a CI/CD workflow that checks and
+deploys `dist/` to GitHub Pages, and a cadence-guarded cold-load measurement runner,
+then recorded the deployed link's measured payload, load times and the one-glb-vs-split
+decision in `docs/spikes/spike-3.md`. This stage note covers the review pass only —
+implementation itself was already committed (`9595a7c`, `8461e15`, `2e57815`) before
+this run began; see the process note above (dated 2026-08-28) for the circumstances,
+and the lead's own commit `e09000d` for its disposition (no rollback, no re-verification
+of the recorded measurement numbers by this review).
+
+**Files changed by this review pass** (on top of the pre-existing three commits; full
+story file list is `git diff 9ccfb53b..HEAD --stat`):
+- `src/host/boot.ts` — `showError()` now re-queries `#render-canvas` by id instead of
+  closing over a stale, WebGPU-fallback-detached reference (HIGH patch, AD-17).
+- `src/presentation/scene/create-engine.ts` — exports a test-only
+  `loadAndRenderOnceForTests()` (and the `LoadAndRenderResult` type) so the real
+  scene-construction path is directly testable under `NullEngine`.
+- `test/scene-smoke.test.ts` — new test exercising `loadAndRenderOnceForTests()`,
+  asserting `environmentBRDFTexture` is seeded and `playfield_root` loads.
+- `test/attributions.test.ts` — new blocks pinning `public/THIRD-PARTY-NOTICES.txt`'s
+  real content and the new `babylonjs-gltf2interface` ATTRIBUTIONS.md row.
+- `ATTRIBUTIONS.md` — added the `babylonjs-gltf2interface@9.22.2` Code-table row.
+- `tools/check-dist.mjs` — attribute regexes now match single- and double-quoted
+  values; the service-worker filename check now requires a boundary before `sw.js`.
+- `docs/spikes/spike-3.md` — documents the second (`workflow_dispatch`) CI run.
+- `test/measure-load-cli.test.ts` — new file: real-subprocess argument-validation
+  coverage for `tools/spike-3/measure-load.mjs`, mirroring `test/measure-cli.test.ts`.
+- This spec file — frontmatter `status`, `followup_review_recommended`, `deferred:`
+  (two new entries), and this section.
+
+**Review findings breakdown:** 15 findings survived deduplication across four parallel
+review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment
+Auditor) plus one found during this pass's own independent verification (the boot.ts
+stale-canvas bug). 0 intent_gap, 0 bad_spec, 7 patch (1 high, 4 medium, 2 low, all
+fixed in this pass and re-verified), 2 defer (both low, added to frontmatter
+`deferred:` for the lead to harvest), 6 reject (noise — no reachable failure against
+this story's actual shipped code or a named AC). Full findings, evidence and
+disposition reasoning are in the dated `## Review Triage Log` entry above.
+
+**Follow-up review recommendation:** `true`. One patched finding was `high` severity
+(the boot.ts white-screen bug), which alone sets this `true` regardless of the
+`3×medium + 1×low` score (computed: 3×4 + 1×2 = 14, also ≥ 5).
+
+**Verification performed:** `pnpm typecheck` (`tsc --noEmit`, 0 diagnostics);
+`pnpm test` (271/271 passing — up from 253 pre-patch, +18 new; includes
+`test/sim-boundary.test.ts` and `test/spike-1-harness-boundary.test.ts`, both still
+green, confirming AD-1 layering held through every patch); `pnpm build` (clean, no
+new warnings beyond Vite's pre-existing >500kB chunk-size notice); `node
+tools/check-dist.mjs` (exit 0, 110 files across 2 HTML pages); `node
+tools/size-budget.mjs` (exit 0, 0.725 MB measured against the 2.750 MB budget — the
+same figure as before this pass's patches, confirming none of them touched build
+output); `git status --porcelain` clean before this pass's commit. Manual/reading
+verification (no automated harness exists for DOM-driven `host/` files, consistent
+with this spec's own established precedent for the WebGL2-unsupported-browser row):
+the boot.ts fix, traced against `index.html`'s DOM order and `public/styles.css`'s
+`position: fixed` stacking. The CI workflow's deploy-trigger narrow-back was verified
+genuinely present via `grep -n "DW-1-epic1" .github/workflows/ci.yml` (no match) and
+by reading the committed file directly, not by intent. `ATTRIBUTIONS.md` and
+`public/THIRD-PARTY-NOTICES.txt` were independently spot-checked against CLAUDE.md's
+provenance rule (read at source, not from `package.json`/npm metadata) — accurate for
+the two direct Babylon packages, with the one gap (the transitive dependency) found
+and fixed by this pass.
+
+**Residual risks:** The cold-load and payload numbers in `docs/spikes/spike-3.md`
+remain **provisional** by this review's own explicit non-ratification (per the stage
+dispatch) — the lead re-measures under the runtime lock. The `github-pages`
+repository Environment's deployment-branch policy still admits `DW-1-epic1` (a
+repo-setting, not a code change) and the two `create-engine.ts` WebGPU-hardening gaps
+remain open — both logged in frontmatter `deferred:` for the lead to harvest, neither
+blocking this story's `done` status. No DOM test harness exists for `host/`
+(`boot.ts`); a future regression in `showError()`'s canvas-hiding logic would again go
+uncaught by `pnpm test` — noted, not fixed, since introducing a jsdom/happy-dom
+dependency is itself an `ATTRIBUTIONS.md`-first decision this pass's scope does not
+cover (see this spec's own Design Notes on the `NullEngine` smoke's equivalent
+constraint).
 
 ### Plan stage (2026-08-27, re-plan)
 

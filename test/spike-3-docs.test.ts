@@ -10,6 +10,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { BUDGET_BYTES } from '../tools/size-budget.mjs';
+
 const DOC_PATH = path.resolve(__dirname, '..', 'docs', 'spikes', 'spike-3.md');
 const LEDGER_PATH = path.resolve(
 	__dirname, '..', '_bmad-output', 'implementation-artifacts', 'deferred-work.md',
@@ -96,10 +98,19 @@ describe('docs/spikes/spike-3.md -- results document structure (Story 1.2 AC)', 
 	});
 
 	it('records the size budget arithmetic (baseline, rounding, headroom) and the re-setting stories', () => {
-		expect(normalized).toMatch(/0\.725\d* MB/);
-		expect(normalized).toMatch(/0\.75 MB/);
-		expect(normalized).toMatch(/2\.00 MB/);
-		expect(normalized).toMatch(/2\.75 MB/);
+		// The final budget figure is cross-checked against tools/size-budget.mjs's
+		// real, exported BUDGET_BYTES rather than a value hardcoded here: this
+		// story's own measured baseline is provisional pending the lead's
+		// independent re-measurement (see this spec's Review Triage Log), so a
+		// literal MB figure here would fail the moment a legitimate
+		// re-measurement updates BUDGET_BYTES without a separate doc-only edit
+		// (review finding 2026-08-28). Cross-checking keeps the assertion
+		// meaningful -- the document and the script that actually enforces the
+		// budget in CI must agree -- without being brittle against a correction.
+		const budgetMb = (BUDGET_BYTES / 1_000_000).toFixed(2);
+		expect(normalized).toContain(`${budgetMb} MB`);
+		expect(normalized).toMatch(/rounded up/i);
+		expect(normalized).toMatch(/headroom/i);
 		expect(normalized).toMatch(/Story 1\.4/);
 		expect(normalized).toMatch(/Epic 5/);
 	});
@@ -119,12 +130,23 @@ describe('docs/spikes/spike-3.md -- results document structure (Story 1.2 AC)', 
 	});
 
 	it('records every raw sample, the median, the range and the run count for both the deployed link and the local control', () => {
-		// Deployed link raw samples (compressed transfer bytes)
-		for (const n of ['588,119', '588,089', '588,037', '588,122', '588,127']) {
-			expect(normalized).toContain(n);
-		}
-		// Local control raw samples (constant across all 5 runs)
-		expect(normalized).toContain('592,336');
+		// The exact byte-transfer figures are THIS PASS's live measurements,
+		// explicitly flagged provisional pending the lead's independent
+		// re-measurement (see this spec's Review Triage Log) -- pinning them
+		// literally would fail the moment a legitimate re-measurement updates
+		// the document. Assert the required STRUCTURE instead: at least 5
+		// distinct byte-count-shaped raw samples under the deployed-link
+		// section and at least 1 under the local-preview section, plus the
+		// median/range vocabulary the AC requires (review finding 2026-08-28).
+		const deployedStart = raw.indexOf('Deployed link');
+		const localStart = raw.indexOf('Local preview control');
+		expect(deployedStart).toBeGreaterThanOrEqual(0);
+		expect(localStart).toBeGreaterThan(deployedStart);
+		const byteCountPattern = /\b\d{1,3}(?:,\d{3})+\b/g;
+		const deployedCounts = new Set(raw.slice(deployedStart, localStart).match(byteCountPattern) ?? []);
+		const localCounts = new Set(raw.slice(localStart).match(byteCountPattern) ?? []);
+		expect(deployedCounts.size).toBeGreaterThanOrEqual(5);
+		expect(localCounts.size).toBeGreaterThanOrEqual(1);
 		expect(normalized).toMatch(/median/i);
 		expect(normalized).toMatch(/range/i);
 	});

@@ -52,13 +52,18 @@ function relPath(distDir, file) {
 	return path.relative(distDir, file).split(path.sep).join('/');
 }
 
-/** Every `href="..."` / `src="..."` attribute value in an HTML document. */
+/**
+ * Every `href="..."` / `src="..."` attribute value in an HTML document.
+ * Matches both quote styles -- Vite's own HTML output is consistently
+ * double-quoted, but a single-quoted attribute would otherwise pass every
+ * check below unexamined (review finding 2026-08-28).
+ */
 function extractAttrRefs(html) {
 	const refs = [];
-	const pattern = /\b(?:href|src)\s*=\s*"([^"]*)"/gi;
+	const pattern = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 	let match;
 	while ((match = pattern.exec(html)) !== null) {
-		refs.push(match[1]);
+		refs.push(match[1] ?? match[2]);
 	}
 	return refs;
 }
@@ -110,7 +115,7 @@ function checkNoInlineScriptStyleAttr(distDir, htmlFiles) {
 			throw new CheckDistError(`${relPath(distDir, file)}: inline <style> block found -- move it to an external stylesheet`);
 		}
 
-		const styleAttrMatch = /\sstyle\s*=\s*"/i.exec(html);
+		const styleAttrMatch = /\sstyle\s*=\s*["']/i.exec(html);
 		if (styleAttrMatch) {
 			throw new CheckDistError(`${relPath(distDir, file)}: a style= attribute was found -- default-src 'self' blocks it`);
 		}
@@ -153,7 +158,12 @@ function checkRelativePathsOnly(distDir, allFiles, htmlFiles) {
 function checkNoServiceWorker(distDir, allFiles) {
 	for (const file of allFiles) {
 		const base = path.basename(file).toLowerCase();
-		if (base === 'service-worker.js' || /sw\.js$/i.test(base)) {
+		// A word-boundary-ish separator before "sw.js" (not a bare substring
+		// match) so a legitimately-named file merely ending in that letter
+		// sequence -- there is none in this build today, but nothing stops one
+		// existing later -- is not misreported as a forbidden service worker
+		// (review finding 2026-08-28).
+		if (base === 'service-worker.js' || /(?:^|[._-])sw\.js$/i.test(base)) {
 			throw new CheckDistError(`${relPath(distDir, file)}: looks like a service worker file -- AD-17 forbids one`);
 		}
 	}

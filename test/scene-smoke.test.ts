@@ -25,7 +25,7 @@ import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader';
 // ships with (not the '@babylonjs/loaders/glTF/2.0' barrel, which also
 // registers every extension) -- this smoke test validates what actually ships.
 import '@babylonjs/loaders/glTF/2.0/glTFLoader';
-import { createEngine, resetEngineCreationGuardForTests } from '../src/presentation/scene/create-engine';
+import { createEngine, resetEngineCreationGuardForTests, loadAndRenderOnceForTests } from '../src/presentation/scene/create-engine';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 
@@ -102,5 +102,40 @@ describe('src/presentation/scene/create-engine.ts -- single engine creation (I/O
 		expect(result.engine.constructor.name).toBe('NullEngine');
 		expect(result.renderer).toBe('webgl2');
 		result.engine.dispose();
+	});
+});
+
+describe('src/presentation/scene/create-engine.ts -- the real scene-construction path (loadAndRenderOnce)', () => {
+	// Review finding (2026-08-28): the two tests above build a scene through a
+	// hand-rolled, parallel NullEngine/Scene/LoadAssetContainerAsync sequence
+	// that never calls into create-engine.ts's own loadAndRenderOnce() --
+	// meaning this story's headline CSP fix (seedEnvironmentBrdfTexture(),
+	// called only from inside loadAndRenderOnce()) had zero automated
+	// coverage of the actual shipped code path. This block drives that real
+	// function directly via the test-only loadAndRenderOnceForTests() export,
+	// with a NullEngine standing in for bootScene()'s real (WebGPU or WebGL2)
+	// engine -- loadAndRenderOnce() takes an AbstractEngine and has no DOM
+	// dependency of its own, so no window/canvas is needed here.
+	it('renders the placeholder scene and seeds a non-null environmentBRDFTexture before any material can request the CSP-blocked default', async () => {
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			const dataUrl = `data:;base64,${bytes.toString('base64')}`; // test-only, see this file's header comment
+
+			const { scene, firstFrameMs } = await loadAndRenderOnceForTests(engine, dataUrl, { pluginExtension: '.glb' });
+			try {
+				expect(scene.useRightHandedSystem, 'AD-10: scene must be right-handed').toBe(true);
+				expect(scene.environmentBRDFTexture, 'seedEnvironmentBrdfTexture() must run before any material needs a BRDF LUT').not.toBeNull();
+				expect(typeof firstFrameMs).toBe('number');
+				expect(Number.isFinite(firstFrameMs)).toBe(true);
+
+				const playfieldRoot = scene.getTransformNodeByName('playfield_root');
+				expect(playfieldRoot, 'playfield_root node not found after loading dragonwar.glb through the real path').not.toBeNull();
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
 	});
 });
