@@ -18,7 +18,8 @@
     "check:size": "node tools/size-budget.mjs",
     "lint:boundaries": "node tools/boundary-lint.mjs",
     "check:headers": "node tools/check-licence-headers.mjs",
-    "check:attributions": "node tools/check-attributions.mjs"
+    "check:attributions": "node tools/check-attributions.mjs",
+    "export:assets": "node tools/export-assets.mjs"
   },
   "devDependencies": {
     "@swc/core": "1.16.1",

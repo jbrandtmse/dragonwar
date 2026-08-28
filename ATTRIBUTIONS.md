@@ -65,7 +65,15 @@ AI-generated or tool-generated art, audio or code goes here with the tool and da
 
 | Item | Tool | Date | Notes |
 |---|---|---|---|
-| `public/assets/dragonwar.glb` (placeholder playfield box) | `tools/make-placeholder-glb.mjs` (this repository; Node built-ins only, no third-party geometry) | 2026-08-27 | Generated, not sourced — no third-party asset is involved and nothing was copied from any commercial machine. A glTF 2.0 binary holding one box mesh `vis_placeholder_box` at the AD-10 playfield dimensions (0.5144 x 1.0668 m) under the top-level node `playfield_root`, authored unpitched, Y-up. Committed alongside its generator so the asset is reproducible byte-for-byte (`test/make-placeholder-glb.test.ts` asserts that). Story 1.4 replaces it with the `tools/export.py` output behind the same path and node-name contract. Recorded per CLAUDE.md ("Generated assets are recorded too: name the tool and the date") and the spine's Assets convention ("every third-party **or generated** file in `ATTRIBUTIONS.md` first"); the omission was found by review 2026-08-28. |
+| `assets/src/dragonwar.blend` (placeholder table primitives) | Blender 5.2.1 LTS, driven by `tools/make-placeholder-blend.py` (this repository) | 2026-08-28 | Generated, not sourced — original primitives at the AD-10 reference dimensions (playfield 514.4 x 1066.8 mm, 6.5 deg pitch, ball 26.99 mm, flipper bats 3.125 in), authored unpitched, nothing copied from any commercial machine. `tools/make-placeholder-blend.py` is the one-time seeding script that built this file; from the moment this file is committed, per AD-11, **the `.blend` is the source of truth**, and the script is kept only as the reviewable record of how the placeholder was made and a way to regenerate one from scratch — it is not a build step and no npm script or CI step runs it. |
+| `public/assets/dragonwar.glb` (presentation geometry) | Blender 5.2.1 LTS, driven by `tools/export.py` (this repository) from `assets/src/dragonwar.blend` | 2026-08-28 | Generated, not sourced — exported from the `.blend` row above; same dimensions, same provenance. This closes Story 1.2's loop: `tools/make-placeholder-glb.mjs`, Story 1.2's stand-in generator, is **retired** by this story, and `tools/export.py` is now the sole owner of this path. |
+| `public/assets/dragonwar.collision.json` (physics collision data, millimetres, table frame) | Blender 5.2.1 LTS, driven by `tools/export.py` (this repository) from `assets/src/dragonwar.blend` | 2026-08-28 | Generated, not sourced — the same export run as the row above, reduced by `tools/export.py` to the ported vpx-js primitive set (`HitPlane`/`LineSeg`/`HitPoint`/`HitTriangle`) that `src/sim/physics/loader` instantiates. |
+
+Blender itself is a **GPL tool** used to author and export the three rows above.
+It is not vendored into this repository — no Blender file or code is copied into
+the tree — and therefore carries no row of its own in the Code table above; every
+export or authoring step locates it through the `BLENDER` environment variable
+or a conventional install path, never a hardcoded machine-specific path.
 
 ---
 

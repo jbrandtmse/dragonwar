@@ -42,6 +42,16 @@ const PHYSICS_ROOT = path.resolve(SIM_ROOT, 'physics');
 
 describe('src/sim/physics/** header provenance (AD-16)', () => {
 	const PORT_MARKER = '// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0';
+	// AD-16's own wording (spine line 204): "Files ported from vpx-js live
+	// under src/sim/physics/ with their original copyright headers preserved
+	// plus [the port marker] ... new files carry the GPL-3.0 header." Story
+	// 1.4's task 15 widens this test to that literal EITHER/OR: a file here
+	// carries the ported structure asserted below, OR the plain DragonWar
+	// GPL-3.0 header (src/sim/physics/loader/index.ts, Story 1.4's new,
+	// authored collision loader, is the first file that exercises the second
+	// branch). The ported branch's own structural assertion is untouched --
+	// this is an added acceptance path, not a relaxation of the existing one.
+	const AUTHORED_HEADER = 'DragonWar is licensed GPL-3.0';
 	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 
 	it('finds at least one file under src/sim/physics/ (sanity check the test itself is wired up)', () => {
@@ -51,9 +61,18 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	for (const file of physicsFiles) {
 		const relative = path.relative(PHYSICS_ROOT, file);
 
-		it(`${relative} carries an upstream copyright block immediately followed by the port-marker line`, () => {
-			const lines = readFileSync(file, 'utf8').split('\n');
+		it(`${relative} carries either the upstream copyright block + port marker, or the DragonWar GPL-3.0 header`, () => {
+			const content = readFileSync(file, 'utf8');
 
+			if (content.includes(AUTHORED_HEADER)) {
+				// The GPL-3.0 branch: an authored file, not a port. Accepted
+				// without the ported-structure checks below.
+				return;
+			}
+
+			// The ported branch: EXACTLY as strict as before this story -- no
+			// weakening, only a second, disjoint way to pass.
+			const lines = content.split('\n');
 			const blockEndIdx = lines.findIndex((line) => line.trim() === '*/');
 			expect(blockEndIdx, `${relative}: no closing "*/" of an upstream copyright block found`).toBeGreaterThanOrEqual(0);
 
@@ -68,6 +87,14 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 			expect(nextLine, `${relative}: line after the copyright block must be the exact port-marker line`).toBe(PORT_MARKER);
 		});
 	}
+
+	it('an authored file (GPL-3.0 header, no upstream block, no port marker) is accepted only via the GPL-3.0 branch -- src/sim/physics/loader/index.ts', () => {
+		const loaderPath = path.resolve(PHYSICS_ROOT, 'loader', 'index.ts');
+		const content = readFileSync(loaderPath, 'utf8');
+		expect(content, 'src/sim/physics/loader/index.ts must carry the DragonWar GPL-3.0 header (it is authored, not ported)').toContain(AUTHORED_HEADER);
+		expect(content, 'src/sim/physics/loader/index.ts must NOT carry the ported port-marker line -- it never claims to be a vpx-js port').not.toContain(PORT_MARKER);
+		expect(content, 'src/sim/physics/loader/index.ts must NOT carry the upstream VPDB copyright block either').not.toContain('VPDB - Virtual Pinball Database');
+	});
 });
 
 describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin', () => {

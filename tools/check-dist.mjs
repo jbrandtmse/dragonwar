@@ -275,12 +275,32 @@ function checkBuildShaStamp(distDir, allFiles) {
  * pass typecheck, the whole test suite, `check:size` and the previous version
  * of this script, deploy green, and hand every visitor the error panel
  * (review finding 2026-08-28).
+ *
+ * Story 1.4 -- `dragonwar.collision.json` is the second pipeline artifact
+ * `Vite` copies verbatim from `public/` (never bundled or imported by
+ * specifier, so a missing or renamed file is equally invisible to every
+ * other check): required alongside the glb so a regression here is caught
+ * the same way, naming which of the two artifacts is missing.
  */
 function checkRuntimeAssets(distDir) {
 	const glbPath = path.join(distDir, 'assets', 'dragonwar.glb');
 	if (!existsSync(glbPath)) {
 		throw new CheckDistError(
 			'dist/assets/dragonwar.glb is missing -- src/host/boot.ts requests it at runtime, so the deployed page would fail to boot',
+		);
+	}
+	const collisionPath = path.join(distDir, 'assets', 'dragonwar.collision.json');
+	if (!existsSync(collisionPath)) {
+		// Not yet a live boot-time dependency (review finding, this story's
+		// review pass): src/host/boot.ts does not fetch this file in this
+		// story's diff -- src/sim/physics/loader is only ever called from
+		// tests today. Story 1.5 is the stated runtime consumer (this
+		// story's Design Notes: "Story 1.5 ... owns the host-side fetch of
+		// dragonwar.collision.json"). It still belongs in dist/ -- and is
+		// still worth failing the build over -- as a required pipeline
+		// artifact, just not phrased as an already-live boot dependency.
+		throw new CheckDistError(
+			'dist/assets/dragonwar.collision.json is missing -- it is a required pipeline artifact for physics collision (Story 1.5 owns its runtime consumer)',
 		);
 	}
 }

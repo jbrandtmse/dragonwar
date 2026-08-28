@@ -48,6 +48,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Story 1.4: this workflow deliberately adds NO step that shells out to
+# Blender. `ubuntu-latest` has no Blender installed, and the asset export
+# pipeline (`pnpm export:assets`, tools/export.py) is a LOCAL AUTHORING STEP
+# only -- the committed `public/assets/dragonwar.glb` and
+# `public/assets/dragonwar.collision.json` are what the `checks` job below
+# actually consumes (via `pnpm build`, `pnpm test`, etc.). Every
+# Blender-dependent test (test/export-py.test.ts) resolves Blender through
+# `tools/blender.mjs` and reports itself SKIPPED, not failed, when none is
+# found -- exactly what happens here -- so this job stays green with no
+# Blender in sight. An unwritten rule here is one a later story could easily
+# break by "helpfully" adding an export step; this comment is that guard.
 jobs:
   checks:
     name: Checks

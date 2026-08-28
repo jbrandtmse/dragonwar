@@ -1,0 +1,416 @@
+{
+  "devices": [
+    {
+      "ejectPose": {
+        "dir": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "posMm": {
+          "x": 255.0,
+          "y": -60.0,
+          "z": 10.0
+        }
+      },
+      "name": "bd_trough"
+    },
+    {
+      "ejectPose": {
+        "dir": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "posMm": {
+          "x": 498.0,
+          "y": 35.0,
+          "z": 13.0
+        }
+      },
+      "name": "bd_shooter"
+    }
+  ],
+  "frame": "table",
+  "nodes": [
+    {
+      "bboxMm": {
+        "max": {
+          "x": 249.375,
+          "y": 82.5,
+          "z": 20.0
+        },
+        "min": {
+          "x": 170.0,
+          "y": 57.5,
+          "z": 0.0
+        }
+      },
+      "name": "col_flipper_l",
+      "physMaterial": "flipper_rubber",
+      "shape": "box",
+      "surface": "flipper"
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 344.4,
+          "y": 82.5,
+          "z": 20.0
+        },
+        "min": {
+          "x": 265.025,
+          "y": 57.5,
+          "z": 0.0
+        }
+      },
+      "name": "col_flipper_r",
+      "physMaterial": "flipper_rubber",
+      "shape": "box",
+      "surface": "flipper"
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 514.4,
+          "y": 1066.8,
+          "z": 410.0
+        },
+        "min": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 400.0
+        }
+      },
+      "dMm": -400.0,
+      "name": "col_glass",
+      "normal": {
+        "x": 0,
+        "y": 0,
+        "z": -1.0
+      },
+      "physMaterial": "default",
+      "shape": "plane",
+      "surface": "glass"
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 514.4,
+          "y": 1066.8,
+          "z": 0.0
+        },
+        "min": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -19.0
+        }
+      },
+      "dMm": 0.0,
+      "name": "col_playfield",
+      "normal": {
+        "x": 0,
+        "y": 0,
+        "z": 1.0
+      },
+      "physMaterial": "default",
+      "shape": "plane",
+      "surface": "wood"
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 200.0,
+          "y": 0.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": -12.0,
+          "y": -12.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": -12.0,
+          "y": -6.0
+        },
+        {
+          "x": 200.0,
+          "y": -6.0
+        }
+      ],
+      "name": "col_wall_bottom_l",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 482.4,
+          "y": 0.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 314.4,
+          "y": -12.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 314.4,
+          "y": -6.0
+        },
+        {
+          "x": 482.4,
+          "y": -6.0
+        }
+      ],
+      "name": "col_wall_bottom_r",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 494.4,
+          "y": 950.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 482.4,
+          "y": 0.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 488.4,
+          "y": 0.0
+        },
+        {
+          "x": 488.4,
+          "y": 950.0
+        }
+      ],
+      "name": "col_wall_lane",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 526.4,
+          "y": 0.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 482.4,
+          "y": -12.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 482.4,
+          "y": -6.0
+        },
+        {
+          "x": 526.4,
+          "y": -6.0
+        }
+      ],
+      "name": "col_wall_lane_bottom",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 0.0,
+          "y": 1066.8,
+          "z": 50.0
+        },
+        "min": {
+          "x": -12.0,
+          "y": 0.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": -6.0,
+          "y": 0.0
+        },
+        {
+          "x": -6.0,
+          "y": 1066.8
+        }
+      ],
+      "name": "col_wall_left",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 526.4,
+          "y": 1066.8,
+          "z": 50.0
+        },
+        "min": {
+          "x": 514.4,
+          "y": 0.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 520.4,
+          "y": 0.0
+        },
+        {
+          "x": 520.4,
+          "y": 1066.8
+        }
+      ],
+      "name": "col_wall_right",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 514.4,
+          "y": 1078.8,
+          "z": 50.0
+        },
+        "min": {
+          "x": 0.0,
+          "y": 1066.8,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 0.0,
+          "y": 1072.8
+        },
+        {
+          "x": 514.4,
+          "y": 1072.8
+        }
+      ],
+      "name": "col_wall_top",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    }
+  ],
+  "reference": {
+    "playfieldMm": {
+      "h": 1066.8,
+      "w": 514.4
+    }
+  },
+  "switchZones": [
+    {
+      "maxMm": {
+        "x": 510.4,
+        "y": 60.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 498.4,
+        "y": 10.0,
+        "z": 0.0
+      },
+      "name": "sw_shooter_lane",
+      "shape": "box",
+      "switch": "s_shooter_lane"
+    },
+    {
+      "maxMm": {
+        "x": 218.0,
+        "y": -40.0,
+        "z": 20.0
+      },
+      "minMm": {
+        "x": 202.0,
+        "y": -80.0,
+        "z": 0.0
+      },
+      "name": "sw_trough_1",
+      "shape": "box",
+      "switch": "s_trough_1"
+    },
+    {
+      "maxMm": {
+        "x": 248.0,
+        "y": -40.0,
+        "z": 20.0
+      },
+      "minMm": {
+        "x": 232.0,
+        "y": -80.0,
+        "z": 0.0
+      },
+      "name": "sw_trough_2",
+      "shape": "box",
+      "switch": "s_trough_2"
+    },
+    {
+      "maxMm": {
+        "x": 278.0,
+        "y": -40.0,
+        "z": 20.0
+      },
+      "minMm": {
+        "x": 262.0,
+        "y": -80.0,
+        "z": 0.0
+      },
+      "name": "sw_trough_3",
+      "shape": "box",
+      "switch": "s_trough_3"
+    },
+    {
+      "maxMm": {
+        "x": 308.0,
+        "y": -40.0,
+        "z": 20.0
+      },
+      "minMm": {
+        "x": 292.0,
+        "y": -80.0,
+        "z": 0.0
+      },
+      "name": "sw_trough_4",
+      "shape": "box",
+      "switch": "s_trough_4"
+    }
+  ],
+  "units": "mm",
+  "version": 1
+}

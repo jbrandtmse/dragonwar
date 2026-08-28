@@ -73,6 +73,7 @@ describe('tools/check-dist.mjs -- a fully-compliant fixture', () => {
 			'THIRD-PARTY-NOTICES.txt': 'Apache License 2.0...',
 			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
 			'assets/dragonwar.glb': 'glTF-binary-placeholder',
+			'assets/dragonwar.collision.json': '{}',
 			'assets/main.js': 'console.log("hello");',
 		});
 		const { status, stdout } = runCheckDist(dir);
@@ -216,6 +217,7 @@ describe('tools/check-dist.mjs -- external origin references in OUR OWN markup',
 			'THIRD-PARTY-NOTICES.txt': 'Licensed under the Apache License, Version 2.0\nhttp://www.apache.org/licenses/LICENSE-2.0',
 			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
 			'assets/dragonwar.glb': 'glTF-binary-placeholder',
+			'assets/dragonwar.collision.json': '{}',
 			'assets/main.js': 'class Animation { }\nAnimation.SnippetUrl = "https://snippet.babylonjs.com";',
 		});
 		const { status } = runCheckDist(dir);
@@ -324,12 +326,34 @@ describe('tools/check-dist.mjs -- the glb the page fetches at runtime is in the 
 			'index.html': validIndexHtml(),
 			'THIRD-PARTY-NOTICES.txt': 'x',
 			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.collision.json': '{}',
 			'assets/main.js': '1',
 		});
 		const { status, stderr } = runCheckDist(dir);
 		expect(status).toBe(1);
 		expect(stderr).toMatch(/dragonwar\.glb is missing/);
 		expect(stderr).toMatch(/boot/);
+	});
+});
+
+// Story 1.4 -- the second pipeline artifact this build must carry
+// (dragonwar.collision.json), gated the same way as the glb above -- not yet
+// a live boot-time fetch (src/sim/physics/loader is only called from tests
+// today; Story 1.5 owns the real host-side fetch), but still a required
+// pipeline artifact worth failing the build over.
+describe('tools/check-dist.mjs -- the collision doc, a required pipeline artifact, is in the build', () => {
+	it('exits non-zero when dist/assets/dragonwar.collision.json is absent', () => {
+		const dir = makeFixture({
+			'index.html': validIndexHtml(),
+			'THIRD-PARTY-NOTICES.txt': 'x',
+			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
+			'assets/dragonwar.glb': 'glb',
+			'assets/main.js': '1',
+		});
+		const { status, stderr } = runCheckDist(dir);
+		expect(status).toBe(1);
+		expect(stderr).toMatch(/dragonwar\.collision\.json is missing/);
+		expect(stderr).toMatch(/pipeline artifact/);
 	});
 });
 
@@ -369,6 +393,7 @@ describe('tools/check-dist.mjs -- emitted stylesheets are scanned too', () => {
 			'THIRD-PARTY-NOTICES.txt': 'x',
 			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
 			'assets/dragonwar.glb': 'glb',
+			'assets/dragonwar.collision.json': '{}',
 			'assets/main.js': '1',
 		});
 		const { status } = runCheckDist(dir);
@@ -389,6 +414,7 @@ describe('tools/check-dist.mjs -- the commit-SHA stamp (VITE_BUILD_SHA)', () => 
 			'THIRD-PARTY-NOTICES.txt': 'x',
 			'LICENSE.txt': 'GNU GENERAL PUBLIC LICENSE Version 3...',
 			'assets/dragonwar.glb': 'glb',
+			'assets/dragonwar.collision.json': '{}',
 			'assets/main.js': mainJsContent,
 		});
 	}

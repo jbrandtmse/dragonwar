@@ -76,10 +76,11 @@ export function deepFreeze<T>(value: T): DeepReadonly<T> {
  * `TABLE as const`, deep-frozen. AD-10's reference dimensions
  * (`TABLE.reference`), the eleven switches Epic 1 needs (each with a
  * `settleClass`), the four coils, the two ball devices (AD-6), the three GI
- * channels (AD-9), and the empty `lamps`/`flashers`/`shows`/`shots`/
- * `lightGroups` collections whose derived name unions are therefore `never`
- * until Epic 2+ populates them (this story's Design Notes, "Scope decisions
- * on the closed unions").
+ * channels (AD-9); Story 1.4 adds the one Epic 1 lamp (`l_insert_left`), the
+ * populated `lightGroups`, the glb/collision `nodes` names and the
+ * `physMaterials` name list. `flashers`, `shows` and `shots` stay empty, so
+ * their derived name unions are still `never` until Epic 2+ populates them
+ * (this story's Design Notes, "Scope decisions on the closed unions").
  */
 export const TABLE = deepFreeze({
 	/** AD-10, AR-16: the canonical reference dimensions, asserted by Story 1.4's loader. */
@@ -157,13 +158,62 @@ export const TABLE = deepFreeze({
 		gi_arch: {} as Record<string, never>,
 	},
 
-	// Empty on purpose (Design Notes, "Scope decisions on the closed unions"):
-	// `keyof typeof TABLE.lamps` (etc.) is `never` until Epic 2+ adds entries,
-	// so an early lamp/flasher/show/shot/light-group name is a type error
+	// Story 1.4's own AC: exactly one lamp, the `l_insert_left` insert the
+	// placeholder `.blend` carries. `flashers`, `shows` and `shots` stay
+	// empty on purpose (Design Notes, "Scope decisions on the closed
+	// unions"): `keyof typeof TABLE.flashers` (etc.) is `never` until Epic 2+
+	// adds entries, so an early flasher/show/shot name is a type error
 	// rather than a runtime string.
-	lamps: {},
+	lamps: {
+		l_insert_left: {} as Record<string, never>,
+	},
 	flashers: {},
 	shows: {},
 	shots: {},
-	lightGroups: {},
+
+	// AD-12: every static mesh the placeholder `.blend` exports carries a
+	// `lightgroup` custom property from this closed set, so the eventual
+	// per-group bake (Epic 4) needs no mesh or `TABLE` change.
+	lightGroups: {
+		lg_playfield: {} as Record<string, never>,
+		lg_inserts: {} as Record<string, never>,
+		lg_cabinet: {} as Record<string, never>,
+	},
+
+	// AD-11: the glb/collision node names `TABLE` owns -- the three top-level
+	// scene roots plus the four collision nodes the physics loader asserts
+	// against `reference` below. Keyed camelCase so a consumer writes
+	// `TABLE.nodes.colPlayfield`, never a bare string literal (`pnpm
+	// lint:boundaries` rule (e) covers the `s_/c_/l_/f_/gi_/bd_/shot_/show_`
+	// device-name prefixes; these node names deliberately fall outside that
+	// grammar -- `col_`, unlike `c_`, is not a device prefix -- but are still
+	// routed through `TABLE` per AD-11's "Blender owns placement; `TABLE`
+	// owns devices, wiring, groups and tunables" split applied to naming).
+	// `src/presentation/scene/playfield.ts` resolves the first three from the
+	// loaded glb; `src/sim/physics/loader` resolves the collision four from
+	// the collision JSON. Other collision nodes (walls, the drain, etc.) are
+	// generic geometry `tools/export.py` validates by grammar and `col_shape`
+	// alone and need no individual `TABLE` entry.
+	nodes: {
+		playfieldRoot: 'playfield_root',
+		cabinetRoot: 'cabinet_root',
+		pivotPitch: 'pivot_pitch',
+		colPlayfield: 'col_playfield',
+		colGlass: 'col_glass',
+		colFlipperL: 'col_flipper_l',
+		colFlipperR: 'col_flipper_r',
+	},
+
+	// AD-11: the `phys_material` name list `tools/export-assets.mjs` dumps
+	// for `tools/export.py` to validate every authored node's `phys_material`
+	// property against. The real per-material tunables (elasticity, friction,
+	// ...) live in `sim/table/tuning.ts`'s `TUNING.materials`, which is not
+	// Node-importable (its `'./dragonwar'` specifier is Node-ESM-extensionless
+	// -- verified, this story's Code Map); `test/asset-contract.test.ts` pins
+	// `Object.keys(TABLE.physMaterials)` against `Object.keys(TUNING.materials)`
+	// so the two name lists can never drift apart silently.
+	physMaterials: {
+		default: {} as Record<string, never>,
+		flipper_rubber: {} as Record<string, never>,
+	},
 } as const);

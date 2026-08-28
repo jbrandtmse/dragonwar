@@ -2,11 +2,11 @@
 title: 'Story 1.4: A placeholder table at real dimensions through the export pipeline'
 type: 'feature'
 created: '2026-08-28'
-status: 'ready-for-dev'
-baseline_revision: '02afed4a9dc617128ab3642d426876074c1110c5'
-baseline_commit: '02afed4a9dc617128ab3642d426876074c1110c5'
+status: 'done'
+baseline_revision: '050eb9fa925895c9a647a7b1c6e5d324c28b7c12'
+baseline_commit: '050eb9fa925895c9a647a7b1c6e5d324c28b7c12'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -534,6 +534,33 @@ re-derive):**
 
 ## Review Triage Log
 
+### 2026-08-28 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 16: (high 3, medium 6, low 7)
+- defer: 0
+- reject: 8: (high 0, medium 1, low 7)
+- addressed_findings:
+  - `[medium]` `[patch]` loader `switchZones` cast `zone.switch as SwitchName` with no runtime check -- now throws naming the zone and the unknown switch value before the cast.
+  - `[medium]` `[patch]` loader `applyMaterial()` silently defaulted to `materials.default` on an unrecognized `physMaterial` -- now throws naming the node and the bad value (an unauthored/`undefined` value still defaults, per AD-15/AD-16 convention already used elsewhere in the file).
+  - `[high]` `[patch]` AD-10 "one converter" violation: `planeToPhysics()` lived in `src/sim/physics/loader/index.ts` instead of `src/sim/table/frames.ts` -- moved verbatim (math byte-identical) into `frames.ts` as `toPhysicsPlane()`; the loader now imports and calls it.
+  - `[medium]` `[patch]` loader had no guard that `col_playfield`/`col_glass` are actually `plane`-shaped before non-null-asserting `normal!`/`dMm!` -- added `assertPlaneShaped()`, throwing a descriptive error naming the node and its actual shape on mismatch.
+  - `[low]` `[patch]` loader `findNode()` silently returned the first match on a duplicate node name -- now throws naming the duplicate.
+  - `[low]` `[patch]` `test/asset-contract.test.ts`'s `toBeDefined()` checks on `surface`/`physMaterial` didn't reject `null` -- replaced with `typeof x === 'string'` assertions.
+  - `[high]` `[patch]` no test proved a wall's FACE (not just its corner) actually blocks a ball -- `orientedEdge()`'s own header names this exact regression as having happened once already. Added a `test/collision-loader.test.ts` case firing a ball at a wall-footprint midpoint and asserting `LineSeg.prototype.collide` fires; verified it fails when `orientedEdge()`'s ternary is inverted, then restored the code.
+  - `[high]` `[patch]` same gap for a flipper box face (`outwardTriangle()`/`addBox()`) -- added a matching test against `col_flipper_l`; a bare "collide() was called" assertion proved insufficient (an inverted winding still fires `collide()`, just traps the ball oscillating -- 3164 calls vs. 1), so the test bounds the call count instead. Verified it fails under inversion, then restored the code.
+  - `[medium]` `[patch]` `runExportAssets()` (the real `pnpm export:assets` entry point) was never called by any test -- `test/export-py.test.ts` hand-rolled an equivalent but separate `spawnSync` call. Added a Blender-gated test that imports and calls `runExportAssets()` directly.
+  - `[medium]` `[patch]` `tools/export-assets.mjs`'s Blender `spawnSync` call had no timeout -- added `timeout: 90_000` (matching the test suite's own convention) plus explicit signal/timeout error handling.
+  - `[low]` `[patch]` `src/presentation/camera/fixed-camera.ts`'s header comment named `col_playfield` (collision-only, never in the glb) instead of `vis_playfield` -- corrected.
+  - `[low]` `[patch]` no test asserted `bd_trough`/`bd_shooter` are present in the exported glb by name -- added an assertion in `test/asset-contract.test.ts`, reading the expected names from `TABLE.ballDevices`.
+  - `[low]` `[patch]` `CollisionDoc`'s `devices` field is parsed by `tools/export.py` but silently dropped by the loader with no note -- added a comment explaining it's intentionally unparsed pending Story 1.5.
+  - `[medium]` `[patch]` `tools/export.py`'s `build_devices()` comment incorrectly claimed a missing `TABLE.ballDevices` object was already caught by `validate_node_presence()` (it isn't -- that function never reads `dump['ballDevices']`) -- added `validate_ball_devices_present()`, called from `run()`, and corrected the comment.
+  - `[low]` `[patch]` `tools/check-dist.mjs`'s missing-`dragonwar.collision.json` message claimed a live boot-time dependency (`src/host/boot.ts` doesn't fetch it yet -- that's Story 1.5's wiring) -- reworded to describe it as a required pipeline artifact instead.
+  - `[low]` `[patch]` `fixed-camera.ts`'s comment claimed automated verification at a 405x720 portrait resolution no test exercises -- reworded to attribute only what `scene-smoke.test.ts` actually checks (the default `NullEngine` size), noting the portrait framing was checked by hand.
+
+Rejected (real observations, not defects requiring action): the loader's `planeToPhysics`/`toPhysicsPlane` height-coupling term is unreachable given the current schema but is the correct general formula, not dead-code cruft (low); a hand-constructed `NaN` bypassing `JSON.parse` is outside `loadCollision()`'s documented "already-parsed document" contract (low); `export.py`'s `parse_args()` missing-value error message is less specific than ideal but still non-zero-exit and traceable (low); `loadCollision()` has no live caller in `src/` yet and `PlayerPhysics.setGravity()` is never invoked -- both are the spec's own deliberate Story-1.5 deferral, stated in its Design Notes and Consumed-by list, not a gap (low x2); the I/O matrix's "duplicate node name" row describes a mechanism (`export.py`'s own uniqueness check) that Blender's object-naming API makes unreachable in practice -- already candidly documented in `test/fixtures/export-py/mutate-blend.py`'s header and this spec's own Design Notes, not a hidden gap (low); the loss of `test/make-placeholder-glb.test.ts`'s unconditional (non-Blender-gated) byte-identity check is an inherent, spec-mandated consequence of moving asset generation behind Blender (which CI cannot run) -- named in the dispatch's own binding constraints, not an oversight (medium); `export.py`'s `validate_properties()` only validates property VALUES when present, never requires `surface`/`phys_material`/`switch` to be present at all -- the I/O matrix's "unknown property value" row is explicitly about values, and the committed asset already carries every required property correctly (low).
+
 ## Design Notes
 
 ### Governing ADs (Rule 6)
@@ -785,5 +812,61 @@ No change is planned to `AGENTS.md`, `CLAUDE.md`, `NOTICE`, `LICENSE`, `docs/**`
 
 ## Auto Run Result
 
-Status: ready-for-dev
+**Summary of implemented change:** Stood up the placeholder-table asset pipeline end to end, at placeholder fidelity, exactly as scoped: a Blender-authored `assets/src/dragonwar.blend` of primitives following every AD-11 node prefix; `tools/export.py` as the contract's enforcer (validates node names/uniqueness/materials/UVs/properties/required-nodes/ball-devices against a JSON dump of `TABLE` before writing anything, with every failure path an explicit `sys.exit(n)` behind `--python-exit-code`); `tools/blender.mjs`/`tools/export-assets.mjs` as the `BLENDER`-env-driven, PATH-then-conventional-location discovery and driver (`pnpm export:assets`, never run in CI); `src/sim/table/frames.ts` as the one sanctioned unit/axis converter (`glbToTable`, `toScene`, `toPhysics`, `fromPhysics`, plus `toPhysicsPlane` added during review); `src/sim/physics/loader` building one compound collision body from the ported primitive set, asserting `col_playfield` and both flipper lengths against `TABLE.reference`; and `src/presentation/scene`/`camera` loading the glb, resolving `TABLE.nodes`, applying pitch about `pivot_pitch` only, and rendering from a new authored fixed camera. `tools/make-placeholder-glb.mjs` (Story 1.2's stand-in) is retired; `tools/export.py` is now the sole owner of `public/assets/dragonwar.glb`.
+
+**Files changed (36):**
+- `.github/workflows/ci.yml` — comment documenting the deliberate no-Blender-step decision; no functional change.
+- `ATTRIBUTIONS.md` — three generated-asset rows (`.blend`, `.glb`, `.collision.json`) written before the files, plus the Blender-is-a-tool note; replaces Story 1.2's single row.
+- `_bmad-output/implementation-artifacts/spec-1-4-*.md` — this spec: status/baseline bookkeeping, Review Triage Log, this section.
+- `assets/src/dragonwar.blend` (new, binary) — the committed placeholder geometry; source of truth from commit onward (AD-11).
+- `package.json` — adds the `export:assets` script; no CI step invokes it.
+- `public/assets/dragonwar.collision.json` (new) — generated physics collision data, millimetres, table frame.
+- `public/assets/dragonwar.glb` (regenerated, binary) — presentation geometry, same path/contract as Story 1.2's placeholder.
+- `src/presentation/camera/.gitkeep` (deleted) — replaced by the real camera file below.
+- `src/presentation/camera/fixed-camera.ts` (new) — the one authored fixed camera, no controls, derived through `toScene()`.
+- `src/presentation/scene/create-engine.ts` — wires the fixed camera, resolves `TABLE.nodes`, applies pitch after `ImportMeshAsync`.
+- `src/presentation/scene/playfield.ts` (new) — `resolvePlayfieldNodes()` (throws on first missing node) and `applyPitch()`.
+- `src/sim/contracts/events.ts` — `CONTACT_SURFACES` runtime array now backs the `ContactSurface` type for the export dump.
+- `src/sim/physics/loader/index.ts` (new) — the pure collision loader; reference-dimension asserts; compound body construction; switch-name/phys-material/shape validation added in review.
+- `src/sim/table/dragonwar.ts` — `TABLE` extended with `nodes`, populated `lightGroups`, `physMaterials`, and `l_insert_left`.
+- `src/sim/table/frames.ts` (new) — the one converter; gained `toPhysicsPlane()` during review (moved from the loader, AD-10 compliance).
+- `test/asset-contract.test.ts` (new) — validates committed glb/collision.json against `TABLE`; gained null-rejection and ball-device-presence assertions in review.
+- `test/blender-resolve.test.ts` (new) — `resolveBlender()` I/O-matrix coverage; gained PATH/conventional-location tests during the Matrix Test Audit.
+- `test/check-dist.test.ts` — collision.json-in-dist fixture cases; message assertion reworded in review.
+- `test/collision-loader.test.ts` (new) — loader tests including the DW-7 corner case, plus the wall-face and flipper-face orientation regression guards added in review.
+- `test/export-py-version-gate.test.ts` (new, added during the Matrix Test Audit) — stubbed-`bpy` coverage of `tools/export.py`'s Blender-too-old gate, reachable without Blender installed.
+- `test/export-py.test.ts` (new) — Blender-gated `export.py` behavior tests; gained missing-node/missing-UV mutations (Matrix Test Audit) and a direct `runExportAssets()` call (review).
+- `test/fixtures/export-py/mutate-blend.py` (new) — mutation fixture script; gained `missing-node`/`missing-uv` mutations during the Matrix Test Audit.
+- `test/frames.test.ts` (new) — round-trip and measured-axis-mapping tests.
+- `test/make-placeholder-glb.test.ts` (deleted) — retired with its generator.
+- `test/scene-smoke.test.ts` — repointed node assertions to `TABLE.nodes`; added pitch/camera-viewport assertions.
+- `test/sim-boundary.test.ts` — widened the physics-header rule to accept the ported structure OR the GPL-3.0 header, per AD-16's own wording.
+- `test/table.test.ts` — updated empty-collections assertions for the fields task 3 populates.
+- `tools/blender.d.mts` (new), `tools/blender.mjs` (new) — `resolveBlender()`: env, then PATH, then per-platform conventional locations.
+- `tools/check-dist.mjs` — requires `dragonwar.collision.json` in `dist/assets`; message reworded in review to not overstate current runtime wiring.
+- `tools/export-assets.d.mts` (new), `tools/export-assets.mjs` (new) — `pnpm export:assets`'s driver; gained a `spawnSync` timeout in review.
+- `tools/export.py` (new) — the contract's enforcer; gained a ball-device-presence check in review.
+- `tools/make-placeholder-blend.py` (new) — one-time seeding script for the `.blend`.
+- `tools/make-placeholder-glb.d.mts` (deleted), `tools/make-placeholder-glb.mjs` (deleted) — retired.
+
+**Review findings breakdown:** 24 distinct findings from four parallel review layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment auditor) plus the implementation-step's own Matrix Test Audit (which separately found and closed 4 uncovered I/O-matrix rows before review started: Blender PATH/conventional resolution, the Blender-too-old gate, missing-required-node, and missing-lightmap-UV, each closed with a new passing test). Of the 24 review findings: **16 patched** (high 3, medium 6, low 7 — see Review Triage Log for the itemized list, including the two DW-7-style regression tests for wall/flipper collision orientation and the AD-10 "one converter" relocation), **0 deferred**, **0 rejected as intent_gap or bad_spec**, **8 rejected** as either by-design (the spec's own deliberate Story 1.5 deferral of live physics wiring and gravity), already candidly documented in-repo (the unreachable "duplicate node name" mechanism, an unreachable dead-code branch), or out of the matrix's literal scope (property-presence vs. property-value validation).
+
+**Follow-up review recommendation:** `true` — this pass patched 3 high-severity findings, which alone triggers the recommendation regardless of the numeric score (patched-severity score for the record: 3 high, 6 medium, 7 low → `3×6 + 1×7 = 25`, also over the 5-point threshold).
+
+**Verification performed:**
+- `git rev-parse --show-toplevel` — confirmed `C:/git/dragonwar/.worktrees/epic-1` throughout.
+- `node -e "import('./src/sim/table/dragonwar.ts')..."` — `TABLE`'s key list includes `nodes`, `lightGroups`, `physMaterials`.
+- `BLENDER=<host Blender> pnpm export:assets` — exit 0, both artifacts written; re-run produced no further diff (byte-deterministic).
+- `pnpm export:assets` with `BLENDER` unset and no Blender on PATH — exit 1 (non-zero), message names `BLENDER` and lists every candidate tried.
+- `pnpm typecheck && pnpm lint:boundaries && pnpm check:headers && pnpm check:attributions` — all exit 0 (lint:boundaries coverage: 55 `.ts` files under `src/`).
+- `pnpm test` — run both ways per the spec's own instruction: with `BLENDER` set, **408/408 tests pass across 28 files** (every Blender-gated test runs, none skip); with `BLENDER` unset, **398 pass / 10 skip across 27 passed + 1 skipped file** (the Blender-gated suite skips cleanly, everything else green).
+- `pnpm build && pnpm check:dist && pnpm check:size` — all exit 0; `dist/assets/` contains both `dragonwar.glb` and `dragonwar.collision.json`; measured size 0.729 MB against the 2.750 MB gzipped budget.
+- `git status --short` — 36 files, matching the Code Map's create/edit/delete lists plus two reasonable additions (`src/presentation/camera/.gitkeep` deletion, `test/fixtures/export-py/mutate-blend.py`) and the Matrix-Test-Audit/review additions itemized above.
+- Manual checks: `dragonwar.collision.json`'s coordinates confirmed plausible table-frame millimetres (not metres, not VP units, not negative-y); `tools/export.py` read in full, confirmed every failure path funnels through `sys.exit(1)` (via `ExportError`, plus a catch-all for any other exception); `.github/workflows/ci.yml` confirmed to add no Blender-invoking step, with the `deploy` job's `if:` guard and both explanatory comment blocks unchanged; `ATTRIBUTIONS.md` confirmed to carry all three generated-asset rows written before the files.
+- Matrix Test Audit: all 18 I/O & Edge-Case Matrix rows verified covered by at least one passing test (4 gaps found and closed before review: PATH/conventional Blender resolution, Blender-too-old, missing-required-node, missing-lightmap-UV).
+- The two new orientation-regression tests (wall face, flipper box face) were each verified to actually fail when their guarded function's orientation ternary was deliberately inverted, then the code was restored — confirming they are real regression guards, not tautologies.
+
+**Residual risks:** `src/sim/physics/loader`'s `loadCollision()` has no live caller yet (`src/host/boot.ts` does not fetch `dragonwar.collision.json`), and `PlayerPhysics.setGravity()` is never invoked — both are Story 1.5's explicitly-stated scope per this spec's own Design Notes/Consumed-by list, not an oversight, but worth the lead's awareness heading into that story. `test/make-placeholder-glb.test.ts`'s retirement removes the only previously-unconditional (non-Blender-gated) CI check that the committed glb matches its generator's current output; this is an inherent, spec-mandated consequence of moving generation behind Blender (which CI cannot run) rather than a regression this story introduced carelessly — a human author is now trusted to run `pnpm export:assets` and verify locally before committing, exactly as the spec's own binding constraints describe. The frontmatter `deferred` entry about `docs/spikes/spike-3.md` (pre-existing, preserved from planning) still awaits the lead's ledger-gate adjudication.
+
+Status: done
 Blocking condition: none

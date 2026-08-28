@@ -114,12 +114,48 @@ describe('TABLE.giChannels -- AD-9\'s three architectural channels', () => {
 });
 
 describe('TABLE\'s empty collections -- Design Notes "Scope decisions on the closed unions"', () => {
-	it('lamps, flashers, shows, shots, lightGroups are empty, so their name unions are never', () => {
-		expect(TABLE.lamps).toEqual({});
+	it('flashers, shows and shots are still empty, so their name unions are still never', () => {
 		expect(TABLE.flashers).toEqual({});
 		expect(TABLE.shows).toEqual({});
 		expect(TABLE.shots).toEqual({});
-		expect(TABLE.lightGroups).toEqual({});
+	});
+});
+
+describe('TABLE.lamps -- Story 1.4 adds exactly one lamp', () => {
+	it('has exactly l_insert_left', () => {
+		expect(Object.keys(TABLE.lamps)).toEqual(['l_insert_left']);
+	});
+});
+
+describe('TABLE.lightGroups -- Story 1.4 populates the placeholder\'s three groups (AD-12)', () => {
+	it('has exactly lg_playfield, lg_inserts, lg_cabinet', () => {
+		expect(Object.keys(TABLE.lightGroups).sort()).toEqual(['lg_cabinet', 'lg_inserts', 'lg_playfield']);
+	});
+});
+
+describe('TABLE.physMaterials -- Story 1.4 names the phys_material keys tuning.ts defines', () => {
+	it('has exactly default, flipper_rubber', () => {
+		expect(Object.keys(TABLE.physMaterials).sort()).toEqual(['default', 'flipper_rubber']);
+	});
+});
+
+describe('TABLE.nodes -- Story 1.4\'s glb/collision node names (AD-11)', () => {
+	it('has exactly the three top-level nodes and the four collision nodes the physics loader asserts', () => {
+		expect(TABLE.nodes).toEqual({
+			playfieldRoot: 'playfield_root',
+			cabinetRoot: 'cabinet_root',
+			pivotPitch: 'pivot_pitch',
+			colPlayfield: 'col_playfield',
+			colGlass: 'col_glass',
+			colFlipperL: 'col_flipper_l',
+			colFlipperR: 'col_flipper_r',
+		});
+	});
+
+	it('every node name matches AD-11\'s grammar ^[a-z][a-z0-9_]*$', () => {
+		for (const name of Object.values(TABLE.nodes)) {
+			expect(name, `node name "${name}" violates ^[a-z][a-z0-9_]*$`).toMatch(/^[a-z][a-z0-9_]*$/);
+		}
 	});
 });
 

@@ -56,12 +56,14 @@ import { EngineFactory } from '@babylonjs/core/Engines/engineFactory';
 import { Engine } from '@babylonjs/core/Engines/engine';
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine';
 import { Scene } from '@babylonjs/core/scene';
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader';
 import type { ImportMeshOptions } from '@babylonjs/core/Loading/sceneLoader';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
+import { createFixedCamera } from '../camera/fixed-camera';
+import { resolvePlayfieldNodes, applyPitch, type PlayfieldNodes } from './playfield';
+import { TABLE } from '../../sim/table/dragonwar';
 // Side-effect-only: registers .createRawTexture on the engine prototype(s),
 // which RawTexture.CreateRGBATexture calls internally. Babylon's
 // tree-shakeable engine extensions require this explicit import; without it,
@@ -225,6 +227,8 @@ export interface LoadAndRenderResult {
 	scene: Scene;
 	/** performance.now() at the instant the first frame rendered -- the true figure, independent of any later verification. */
 	firstFrameMs: number;
+	/** The three nodes `TABLE.nodes` names that presentation resolves from the glb (Story 1.4) -- exposed so a caller (a test, later stories) can inspect them without re-resolving. */
+	playfieldNodes: PlayfieldNodes;
 }
 
 /**
@@ -246,16 +250,25 @@ async function loadAndRenderOnce(
 	scene.useRightHandedSystem = true; // AD-10
 	seedEnvironmentBrdfTexture(scene);
 
-	// One fixed authored camera, no camera controls (UJ-4 / Structural Seed --
-	// the walk-up and attract show are later work; presentation/camera/ owns
-	// the real fixed view). This framing just needs to see the placeholder box.
-	const camera = new ArcRotateCamera('camera', -Math.PI / 2, Math.PI / 3, 1.8, Vector3.Zero(), scene);
-	camera.minZ = 0.01;
+	// One fixed authored camera, no camera controls (UJ-4 / Structural Seed).
+	// Story 1.4: presentation/camera/ now owns the real fixed view -- this
+	// call replaces the placeholder ArcRotateCamera this comment used to
+	// describe.
+	createFixedCamera(scene);
 
 	// eslint-disable-next-line no-new
 	new HemisphericLight('light', new Vector3(0, 1, 0), scene);
 
 	await ImportMeshAsync(glbUrl, scene, importOptions);
+
+	// Story 1.4: resolve the three TABLE.nodes-named nodes and apply the
+	// default reference pitch BEFORE the render loop starts -- a missing node
+	// throws here, before the first frame, so AD-17's host error panel shows
+	// instead of a silent half-scene (Story 1.5 feeds applyPitch() the
+	// snapshot's effective pitch instead of this default once the loop
+	// exists).
+	const playfieldNodes = resolvePlayfieldNodes(scene);
+	applyPitch(playfieldNodes, TABLE.reference.pitchDeg);
 
 	// A synchronous throw from scene.render() on its FIRST call (corrupt
 	// geometry, a broken shader, GPU context loss) happens inside a scheduled
@@ -290,7 +303,7 @@ async function loadAndRenderOnce(
 		});
 	});
 
-	return { scene, firstFrameMs };
+	return { scene, firstFrameMs, playfieldNodes };
 }
 
 /**

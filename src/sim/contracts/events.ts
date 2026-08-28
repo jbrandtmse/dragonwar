@@ -20,20 +20,30 @@ export interface SwitchEvent<TSwitch extends string = string> {
 /**
  * The closed material enum a `col_` collision mesh carries (AD-11). Drives
  * contact sound selection in `presentation/audio` (AD-13).
+ *
+ * A runtime value, not just a type (Story 1.4): `tools/export-assets.mjs`
+ * dumps this list into the table-contract JSON so `tools/export.py` can
+ * validate every `surface` value an authored `.blend` node carries against
+ * the real source rather than a hand-copied duplicate. `test/contracts.test.ts`
+ * still pins the twelve members and their order unchanged.
  */
-export type ContactSurface =
-	| 'wood'
-	| 'rubber_post'
-	| 'rubber_band'
-	| 'metal'
-	| 'plastic'
-	| 'ramp'
-	| 'flipper'
-	| 'target'
-	| 'bumper'
-	| 'glass'
-	| 'ball'
-	| 'dragon';
+export const CONTACT_SURFACES = [
+	'wood',
+	'rubber_post',
+	'rubber_band',
+	'metal',
+	'plastic',
+	'ramp',
+	'flipper',
+	'target',
+	'bumper',
+	'glass',
+	'ball',
+	'dragon',
+] as const;
+
+/** The closed material enum a `col_` collision mesh carries (AD-11). Drives contact sound selection in `presentation/audio` (AD-13). */
+export type ContactSurface = (typeof CONTACT_SURFACES)[number];
 
 /** The closed set of physics actuation kinds a `ContactEvent` may report (AD-2). */
 export type ContactKind =
