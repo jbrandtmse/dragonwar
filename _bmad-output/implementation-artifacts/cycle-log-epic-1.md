@@ -97,3 +97,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T11:10:42Z	Epic 1	runtime_lock_released	stage=adr_verifications
 2026-08-28T11:10:42Z	Epic 1	runtime_lock_acquired	stage=qa
 2026-08-28T11:10:42Z	Story 1.4	stage_spawned	stage=qa spawn_at=2026-08-28T11:10:42Z model=claude-sonnet-5 agent_name=1-4-placeholder-table-qa-1 cycle_iteration=1
+2026-08-28T11:23:08Z	Story 1.4	qa_complete	spawn_at=2026-08-28T11:10:42Z model=claude-sonnet-5 tests_added=14 test_files_modified=3 total_tests=422 total_test_files=28 tests_without_blender=412_pass_10_skip first_run_failures=0 clarifications=0 closing_sections_present=true footprint_audit=pass artifacts_untouched=true note=covered_toPhysicsPlane_y_flip;five_untested_loader_guards;export_py_generic_except_handler_the_exit_code_trap_guard_itself;200_point_seeded_property_roundtrip
+2026-08-28T11:23:08Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-28T11:23:08Z	Story 1.4	stage_spawned	stage=code-review spawn_at=2026-08-28T11:23:08Z model=claude-opus-5 agent_name=1-4-placeholder-table-cr-1 cycle_iteration=1
