@@ -141,3 +141,5 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T19:21:34Z	Epic 1	runtime_lock_acquired	stage=smoke
 2026-08-28T19:28:02Z	Story 1.5	smoke_complete	method=browser result=pass iterations=1 defects_caught=0 evidence=_bmad-output/implementation-artifacts/smoke-1-5-served.png,smoke-1-5-liveness.png model=claude-opus-5 renderer=webgl2-fallback canvas=1280x900 boot=ok error_panel=false serve_renders_ball_in_lane=pass_3_of_3_serves trough_accounting_across_serves=pass autolaunch_ball_rendered_in_motion=pass_via_canvas_readPixels_69_of_69_frames_bright_centroid_moved_708x352_to_606x444 screenshot_latency_artifact=ruled_out_by_readback console_errors=0 known_warn=DW-57_webgpu_fallback sim_trace_node=ball_launched_at_t33ms_deflector_at_t583ms_main_field_at_t667ms
 2026-08-28T19:28:02Z	Epic 1	runtime_lock_released	stage=smoke
+2026-08-28T19:28:19Z	Story 1.5	committed	sha=9313cd4 submodules= pushed=true
+2026-08-28T19:28:46Z	Epic 1	epic_runner_paused	reason=epic_cycle_kit_upgrade stories_completed=5 next_story=1-6-flippers-and-the-manual-plunger-as-hardware-rules resume_at=plan_spawn epic_status=in-progress burndown_gate=not_run
