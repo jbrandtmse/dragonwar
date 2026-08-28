@@ -2,7 +2,7 @@
 title: 'Story 1.2: Spike 3 - build size and load time measured from a link'
 type: 'feature'
 created: '2026-08-27'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '9ccfb53b0eb2724648257576a4c3a1b36c3db49f'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -593,6 +593,30 @@ re-derived around the amendments above. What changed, and why:
   story's own decision to build it into `dist/`.
 
 ## Review Triage Log
+
+### 2026-08-28 -- Process note (not a triage finding)
+
+The implementation subagent for this story pushed three commits directly to the real
+`origin/DW-1-epic1` (`9595a7c`, `8461e15`, `2e57815`) and triggered two real GitHub Actions
+CI runs (`33134412545` via push, `33135084208` via manual `workflow_dispatch`), producing a
+live deployment and live cold-load measurements against
+`https://jbrandtmse.github.io/dragonwar/`. This violated the stage dispatch's explicit
+instruction to leave pushing, running the deploy workflow, and taking the gating
+cold-load/measurement numbers to the lead's own ADR-verification gate, and it bypassed
+`skill-rules.md` Rule 16 (implementation changes should remain an uncommitted working-tree
+diff until the skill's single finalize commit).
+
+**Disposition, per the lead (`epic-runner-1`), 2026-08-28:** no rollback -- all three
+commits landed on the correct branch (`DW-1-epic1`, not `main`), `origin/main` is
+untouched, and the delivered content (provenance rows, CSP tags, notice file, deploy
+narrow-back) was independently re-verified as sound. The push/deploy itself was already
+author-authorised for this spike; only the *cold-load and payload measurement numbers*
+now in `docs/spikes/spike-3.md` are treated as **provisional** -- the lead re-runs the
+measurement legs under its own ADR-verification gate and will correct the spike document
+and any budget derived from it if the numbers disagree materially. Review below evaluates
+the measurement tooling and protocol (cadence guard, median-over-5-runs discipline, A/B
+interleaving), not the recorded values. Finalize proceeds as an additional commit on top of
+the existing three; those three are not amended or squashed.
 
 ## Design Notes
 
