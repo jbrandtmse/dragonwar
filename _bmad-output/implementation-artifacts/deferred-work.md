@@ -97,3 +97,18 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: lead smoke 1.1 | severity: high | fix-risk: low | footprint: in-epic
 - evidence: Smoke via Chrome DevTools MCP read p95 4.8 ms vs measure.mjs 4.0 ms on the same build; the MCP browser ran rAF at 28.9 fps while reporting visible and focused, and the guard only rejects frames over 100 ms
 - 2026-08-27T22:33:15Z status=open owner=1-2-spike-3-build-size-and-load-time-measured-from-a-link by=migration note=Reject runs whose median frame delta exceeds about 20 ms and report observed cadence beside the p95; do before 4.7 or 6.6 take further numbers
+
+### DW-17: This automated-cycle host has no display actively attached, so headed Chrome paces requestAnimationFrame to a stale 29 Hz and every first-frame timing figure taken here is a lower bound, not a consumer figure
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: med | fix-risk: med | footprint: tools/spike-3/measure-load.mjs; docs/spikes/spike-3.md
+- evidence: Win32 EnumDisplaySettings enumerates zero display modes (P/Invoke, not inferred); Win32_VideoController reports a stale 29Hz; headed Chrome paced rAF at ~34.5ms/frame despite every anti-throttle flag until --disable-gpu-vsync and --disable-frame-rate-limit were added
+- 2026-08-28T02:53:46Z status=routed owner=4-7-spike-2-the-lightmap-scaling-envelope-and-the-light-group-pa by=harvest note=Distinct from DW-1 (macOS/Safari legs). Routed to Spike 2 as the next story that takes headed-browser timing on this host; Story 6.6 (browser matrix) hits it too. The vsync workaround makes timing a lower bound only; payload byte counts are unaffected and remain fully trustworthy.
+
+### DW-18: The github-pages repository Environment still admits DW-1-epic1 as a deployment branch, a GitHub setting outside version control that no diff or workflow grep will ever surface
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: GitHub repo Settings -> Environments -> github-pages -> Deployment branches
+- evidence: Deploy run 33134412545 first failed with 'Branch DW-1-epic1 is not allowed to deploy to github-pages due to environment protection rules' until the policy was widened; the workflow YAML trigger has since been narrowed back to main but this separate setting has not
+- 2026-08-28T02:53:57Z status=routed owner=burndown by=harvest note=Merge-gate item for the orchestrator, not a code change: Story 1.2's seventh AC covers only the workflow YAML trigger, which IS narrowed back and verified. This is the other half of the same grant and must be reverted to main-only when Epic 1 merges.
+
+### DW-19: create-engine.ts's WebGPU-verification failure handling arms its error listeners only through a short post-first-frame grace window and does not scope captured failures to WebGPU-originated errors
+- source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: src/presentation/scene/create-engine.ts:207,280-291
+- evidence: Read during review 2026-08-28: WEBGPU_VERIFY_GRACE_MS at :207 bounds the arming window so a later render-pipeline failure would crash the loop with no fallback; the unfiltered onError/onUnhandledRejection at :280-291 would discard a working WebGPU engine on an unrelated window error
+- 2026-08-28T02:53:57Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=harvest note=Narrow: this story's fixed first-frame placeholder scene demonstrates neither gap live. The spec's own Never list assigns the full platform gate and error panel to Story 6.1, which is the natural owner of deepening this surface.
