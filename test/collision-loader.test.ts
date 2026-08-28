@@ -15,7 +15,8 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { loadCollision } from '../src/sim/physics/loader';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { fromPhysics, toPhysics } from '../src/sim/table/frames';
+import { MM_PER_VU, fromPhysics, toPhysics } from '../src/sim/table/frames';
+import { TUNING } from '../src/sim/table/tuning';
 import { HitPoint } from '../src/sim/physics/hit-point';
 import { LineSeg } from '../src/sim/physics/line-seg';
 import { HitTriangle } from '../src/sim/physics/hit-triangle';
@@ -274,13 +275,17 @@ describe('src/sim/physics/loader -- interior divider guards BOTH faces (Review F
 
 		expect(collideSpy).toHaveBeenCalled();
 		const finalTable = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
-		// The wall's full footprint spans table x:[468.4, 480.4] -- the ball
-		// must never reach the main-field side of it (the regression this
-		// guards against reached table x = 331.3, far past even that).
+		// The wall's full footprint spans table x:[468.4, 480.4]. Bound on the
+		// LANE-FACING face (480.4), not the far one: a ball stopped anywhere
+		// inside the 12 mm wall volume has still penetrated the geometry that
+		// is supposed to stop it, and a bound at 468.4 accepts that (re-review
+		// finding -- the paired spy is on LineSeg.prototype, so it proves SOME
+		// wall segment fired, not that this one held). The regression this
+		// guards against reached table x = 331.3, far past either bound.
 		expect(
 			finalTable.x,
-			`ball crossed col_wall_lane into the main field: table x = ${finalTable.x} (the divider's main-field face is at x = 468.4)`,
-		).toBeGreaterThan(468.4);
+			`ball penetrated col_wall_lane: table x = ${finalTable.x} (the divider's lane-facing face is at x = 480.4; its main-field face is at x = 468.4)`,
+		).toBeGreaterThanOrEqual(480.4);
 		collideSpy.mockRestore();
 	});
 });
@@ -454,5 +459,189 @@ describe('src/sim/physics/loader -- switch zones reject an unknown TABLE switch 
 			expect(message).toContain('s_nonexistent_switch');
 			expect(message).toContain('unknown switch');
 		}
+	});
+});
+
+describe('src/sim/physics/loader -- AD-15 material tunables actually reach the built statics', () => {
+	// applyMaterial() resolves TUNING.materials[physMaterial] and calls
+	// setElasticity/setFriction/setScatter on EVERY primitive it builds, but
+	// nothing read any of those values back: dropping the lookup (so every
+	// flipper resolved to `default`) or removing the setter calls entirely
+	// left the whole suite green -- measured during this story's re-review by
+	// simulating exactly that regression. AD-15 makes these the per-object
+	// feel parameters, so a silent no-op here is flipper rubber behaving like
+	// bare wood, discovered in Story 1.6 as a feel problem with no failing
+	// test pointing at its cause.
+	it('flipper boxes carry flipper_rubber and wall segments carry default, as authored in the collision document', () => {
+		const doc = loadCommittedDoc();
+
+		const applied = new Map<string, { elasticity: number; falloff: number | undefined; friction: number; scatter: number }>();
+		const track = (key: string) => {
+			const record = applied.get(key) ?? { elasticity: NaN, falloff: undefined, friction: NaN, scatter: NaN };
+			applied.set(key, record);
+			return record;
+		};
+		const spies = [
+			vi.spyOn(HitTriangle.prototype, 'setElasticity').mockImplementation(function (this: HitTriangle, e: number, f?: number) {
+				const r = track('box'); r.elasticity = e; r.falloff = f; return this;
+			}),
+			vi.spyOn(HitTriangle.prototype, 'setFriction').mockImplementation(function (this: HitTriangle, f: number) {
+				track('box').friction = f; return this;
+			}),
+			vi.spyOn(HitTriangle.prototype, 'setScatter').mockImplementation(function (this: HitTriangle, s: number) {
+				track('box').scatter = s; return this;
+			}),
+			vi.spyOn(LineSeg.prototype, 'setElasticity').mockImplementation(function (this: LineSeg, e: number, f?: number) {
+				const r = track('wall'); r.elasticity = e; r.falloff = f; return this;
+			}),
+			vi.spyOn(LineSeg.prototype, 'setFriction').mockImplementation(function (this: LineSeg, f: number) {
+				track('wall').friction = f; return this;
+			}),
+			vi.spyOn(LineSeg.prototype, 'setScatter').mockImplementation(function (this: LineSeg, s: number) {
+				track('wall').scatter = s; return this;
+			}),
+		];
+
+		try {
+			loadCollision(doc);
+		} finally {
+			for (const spy of spies) {
+				spy.mockRestore();
+			}
+		}
+
+		// The two box nodes are col_flipper_l/col_flipper_r, both
+		// physMaterial "flipper_rubber"; every wall node is "default".
+		const rubber = TUNING.materials.flipper_rubber;
+		const plain = TUNING.materials.default;
+
+		const box = applied.get('box');
+		expect(box, 'no HitTriangle was built -- the flipper boxes did not reach applyMaterial()').toBeDefined();
+		expect(box!.elasticity, 'flipper HitTriangle elasticity').toBe(rubber.elasticity.value);
+		expect(box!.falloff, 'flipper HitTriangle elasticityFalloff').toBe(rubber.elasticityFalloff.value);
+		expect(box!.friction, 'flipper HitTriangle friction').toBe(rubber.friction.value);
+		expect(box!.scatter, 'flipper HitTriangle scatter').toBe(rubber.scatter.value);
+
+		const wall = applied.get('wall');
+		expect(wall, 'no LineSeg was built -- the wall footprints did not reach applyMaterial()').toBeDefined();
+		expect(wall!.elasticity, 'wall LineSeg elasticity').toBe(plain.elasticity.value);
+		expect(wall!.falloff, 'wall LineSeg elasticityFalloff').toBe(plain.elasticityFalloff.value);
+		expect(wall!.friction, 'wall LineSeg friction').toBe(plain.friction.value);
+		expect(wall!.scatter, 'wall LineSeg scatter').toBe(plain.scatter.value);
+
+		// The two materials must actually differ, or the assertions above
+		// would hold under a regression that collapsed both to `default`.
+		expect(rubber.elasticity.value, 'the two materials must differ, or this test cannot discriminate').not.toBe(plain.elasticity.value);
+	});
+});
+
+describe('src/sim/physics/loader -- AD-10 asserts the table frame ORIGIN, not only its extents', () => {
+	it('throws naming col_playfield when the playfield is the right size but offset from the table origin', () => {
+		const doc = loadMutableCommittedDoc();
+		const playfield = doc.nodes.find((n) => n.name === TABLE.nodes.colPlayfield)!;
+		const bbox = playfield.bboxMm as { min: { x: number; y: number }; max: { x: number; y: number } };
+		// Slide the whole playfield 50 mm up the table: width and height are
+		// unchanged, so the extent-only assertions still pass -- but
+		// toPhysics() flips y about TABLE.reference.playfieldMm.h measured
+		// from the origin, so every converted coordinate is now 50 mm wrong.
+		bbox.min.y += 50;
+		bbox.max.y += 50;
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown on an offset playfield');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(TABLE.nodes.colPlayfield);
+			expect(message).toContain('origin y');
+			expect(message).toContain('50');
+		}
+	});
+});
+
+describe('src/sim/physics/loader -- the plunger lane is still TRAVERSABLE after the clearance widening', () => {
+	// The interior-divider fix and the LANE_CLEAR_MM widening (20 -> 34 mm)
+	// are both one-directional guards: every test added with them proves the
+	// divider BLOCKS. Nothing proved the lane still lets a ball through, so
+	// extending col_wall_lane to full height, narrowing the clearance back
+	// below the ball diameter, or closing the top of the lane would leave
+	// every one of those tests green while making the table unplayable and
+	// Story 1.5's serve impossible (re-review finding).
+	/** Fires a ball up the plunger lane and reports how far up-table it got
+	 * and how far it strayed across the lane. `laneFaceMm` is col_wall_lane's
+	 * lane-facing x, so the same run can be replayed against a narrower lane
+	 * to prove this test discriminates. */
+	function launchUpLane(laneFaceMm: number): { travelledMm: number; minXMm: number; maxXMm: number } {
+		const doc = loadMutableCommittedDoc();
+		if (laneFaceMm !== 480.4) {
+			const laneWall = doc.nodes.find((n) => n.name === 'col_wall_lane')!;
+			const bbox = laneWall.bboxMm as { min: { x: number }; max: { x: number } };
+			const footprint = laneWall.footprintMm as Array<{ x: number; y: number }>;
+			for (const point of footprint) {
+				if (Math.abs(point.x - bbox.max.x) < 1e-6) {
+					point.x = laneFaceMm;
+				}
+			}
+			bbox.max.x = laneFaceMm;
+		}
+		const { physics } = loadCollision(doc);
+
+		const startYMm = 60;
+		const radiusVu = TABLE.reference.ballMm / 2 / MM_PER_VU;
+		const data = new BallData(radiusVu, 1, 1);
+		// Lane centre for the committed 34 mm clearance: col_wall_lane's
+		// lane-facing face is x = 480.4 and col_wall_right's inner face is
+		// x = 514.4, so the gap is centred on x = 497.4.
+		const startPhysics = toPhysics({ x: 497.4, y: startYMm, z: 13.5 });
+		const state = new BallState('LaunchBall', new Vertex3D(startPhysics.x, startPhysics.y, startPhysics.z));
+		// Table +y is physics -y (frames.ts flips it), so "up the lane" is a
+		// negative physics-y velocity.
+		const ball = new Ball(0, data, state, new Vertex3D(0, -20, 0), TABLE_DATA);
+		physics.addBall(ball);
+
+		let minXMm = Infinity;
+		let maxXMm = -Infinity;
+		let travelledMm = 0;
+		for (let i = 0; i < 400; i++) {
+			physics.step();
+			const t = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
+			minXMm = Math.min(minXMm, t.x);
+			maxXMm = Math.max(maxXMm, t.x);
+			travelledMm = t.y - startYMm;
+		}
+		return { travelledMm, minXMm, maxXMm };
+	}
+
+	it('a ball fired up the lane runs a long way up it without touching either lane wall', () => {
+		const radiusMm = TABLE.reference.ballMm / 2;
+		const { travelledMm, minXMm, maxXMm } = launchUpLane(480.4);
+
+		// It travels: the lane is open along its length, not sealed or jammed.
+		expect(
+			travelledMm,
+			`ball barely moved up the lane (${travelledMm} mm), x in [${minXMm}, ${maxXMm}] -- the lane is blocked or too narrow for the ${TABLE.reference.ballMm} mm ball`,
+		).toBeGreaterThan(300);
+
+		// And it never penetrates either wall bounding the lane: col_wall_lane's
+		// lane-facing face at x = 480.4, col_wall_right's inner face at
+		// x = 514.4. A ball centre closer than one radius to either has entered
+		// the wall.
+		expect(minXMm, `ball penetrated col_wall_lane: minimum table x = ${minXMm}`).toBeGreaterThanOrEqual(480.4 + radiusMm);
+		expect(maxXMm, `ball penetrated col_wall_right: maximum table x = ${maxXMm}`).toBeLessThanOrEqual(514.4 - radiusMm);
+	});
+
+	it('...and the same run against the PRE-widening 20 mm lane does not, so this test discriminates', () => {
+		// The original authored clearance (LANE_CLEAR_MM = 20, lane-facing face
+		// at x = 494.4) is narrower than the 26.99 mm ball. Replaying the
+		// identical launch against that geometry must NOT satisfy the
+		// assertions above -- otherwise the test would pass whatever the lane
+		// width, which is exactly the gap this pair of cases exists to close.
+		const radiusMm = TABLE.reference.ballMm / 2;
+		const { travelledMm, minXMm } = launchUpLane(494.4);
+		const clean = travelledMm > 300 && minXMm >= 494.4 + radiusMm;
+		expect(
+			clean,
+			`the 20 mm lane produced a clean traversal (travelled ${travelledMm} mm, min x ${minXMm}) -- the widened-lane assertions above are not discriminating`,
+		).toBe(false);
 	});
 });

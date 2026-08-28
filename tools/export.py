@@ -37,6 +37,15 @@ MIN_BLENDER_VERSION = (5, 2, 0)
 NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
 COL_SHAPES = {'plane', 'wall', 'box'}
 BBOX_ROUND = 4  # decimal places -- diff-stable against float32 noise (Code Map, "Verified environment facts")
+# Largest off-diagonal world-matrix term a col_/sw_ node may carry and still
+# be treated as axis-aligned. Blender stores an identity rotation exactly, so
+# every authored node measures 0.0; this is float slack, not a tolerance for
+# "nearly axis-aligned" geometry (a 1 degree rotation measures ~0.017).
+AXIS_ALIGNED_EPSILON = 1e-9
+# Smallest extent a wall may have on an axis before its footprint collapses to
+# a zero-length edge. Well below any authorable thickness (the placeholder's
+# thinnest wall is 12 mm) and well above float32 bbox noise (~5e-6 mm).
+DEGENERATE_EXTENT_MM = 1e-3
 
 
 class ExportError(Exception):
@@ -121,6 +130,30 @@ def validate_second_uv(exported_meshes):
 			fail(f'node "{obj.name}" (exported static mesh) has {len(layers)} UV layer(s) -- needs a second UV layer for TEXCOORD_1 (AD-12)')
 
 
+def validate_exported_mesh_contract(exported_meshes):
+	"""AD-11/AD-12 state ONE asset contract for a static mesh in two halves:
+	"static meshes carry TEXCOORD_1 lightmap UVs AND a `lightgroup` from
+	TABLE.lightGroups", each mesh carrying "one material each".
+
+	`validate_second_uv()` above enforces the UV half. This enforces the other
+	two, both of which were previously value-only or one-sided:
+	`validate_properties()` checks a `lightgroup`'s VALUE but never required
+	the key to be present (the exact presence-vs-value gap this story's first
+	review pass closed for `surface`/`phys_material`/`switch`, with
+	`lightgroup` left behind -- re-review finding), and
+	`validate_material_slots()` rejects two-or-more slots but not ZERO, so a
+	mesh with no material at all shipped in the glb untextured.
+
+	Scoped to EXPORTED meshes deliberately: `col_`/`sw_` meshes are collision
+	scaffolding that never reaches the glb and correctly carries neither a
+	material nor a lightgroup, and the roots and `bd_` devices are empties."""
+	for obj in exported_meshes:
+		if 'lightgroup' not in obj.keys():
+			fail(f'node "{obj.name}" (exported static mesh) is missing required property "lightgroup" (AD-11/AD-12)')
+		if len(obj.data.materials) == 0:
+			fail(f'node "{obj.name}" (exported static mesh) has 0 material slots (AD-11: one material each)')
+
+
 def validate_properties(dump):
 	known_surfaces = set(dump['surfaces'])
 	known_phys_materials = set(dump['physMaterials'].keys())
@@ -177,6 +210,60 @@ def validate_col_shapes():
 			normal_z = obj.get('col_normal_z')
 			if normal_z not in (1, -1, 1.0, -1.0):
 				fail(f'node "{obj.name}" is a plane-shaped col_ node with invalid col_normal_z "{normal_z}" (must be 1 or -1)')
+
+
+def validate_col_geometry_reducible():
+	"""AD-11: a `col_` node "must reduce to the ported primitive set". Every
+	reduction below (`world_bbox_mm()`, and `wall_footprint_mm()` on top of
+	it) is an AXIS-ALIGNED bounding-box reduction, which faithfully represents
+	the authored mesh only when that mesh is itself axis-aligned. Nothing
+	previously checked that, so a rotated wall was silently AABB-ized into
+	collision geometry unrelated to its own mesh -- measured during this
+	story's re-review: rotating `col_wall_lane` 30 degrees about Z and
+	re-exporting exited 0 and emitted a 485 x 829 mm slab across most of the
+	playfield in place of a 12 x 950 mm divider, with `export.py`,
+	test/asset-contract.test.ts and `loadCollision()` all silent.
+
+	Every wall in the placeholder is axis-aligned, so this changes no committed
+	artifact -- it is a guard for Epic 2, which re-authors the real shot map
+	inside this same .blend behind this same validation, where the first
+	rotated wall would otherwise ship geometry the ball hits in the wrong
+	place. An enforcer that cannot represent a shape must reject it loudly
+	rather than approximate it silently.
+
+	Also rejects the two other ways a reduction can go quietly wrong: a
+	`col_`/`sw_` node that is not a MESH at all (an EMPTY's `bound_box` is all
+	zeros, so it reduces to a degenerate node), and a `wall` whose footprint
+	has no extent on an axis (two coincident corners, whose zero-length edge
+	gives `LineSeg.calcNormal()` a division by zero and therefore a NaN normal
+	-- a face that silently never collides)."""
+	for obj in bpy.data.objects:
+		if not (obj.name.startswith('col_') or obj.name.startswith('sw_')):
+			continue
+		if obj.type != 'MESH':
+			fail(f'node "{obj.name}" is a col_/sw_ node of type {obj.type}, not MESH -- only a mesh has geometry to reduce')
+
+		# Axis-aligned means the world matrix's 3x3 part is diagonal: it may
+		# scale and translate, but any rotation or shear puts a non-zero value
+		# off the diagonal.
+		m = obj.matrix_world
+		off_diagonal = max(abs(m[r][c]) for r in range(3) for c in range(3) if r != c)
+		if off_diagonal > AXIS_ALIGNED_EPSILON:
+			fail(
+				f'node "{obj.name}" is rotated or sheared (largest off-diagonal world-matrix term '
+				f'{off_diagonal:.6g} > {AXIS_ALIGNED_EPSILON}) -- col_/sw_ nodes reduce through an '
+				f'axis-aligned bounding box, which cannot represent a rotated shape (AD-11)',
+			)
+
+		if obj.get('col_shape') == 'wall':
+			bbox_min, bbox_max = world_bbox_mm(obj)
+			for axis in ('x', 'y'):
+				if abs(bbox_max[axis] - bbox_min[axis]) <= DEGENERATE_EXTENT_MM:
+					fail(
+						f'node "{obj.name}" is a wall with no {axis} extent '
+						f'({bbox_min[axis]} .. {bbox_max[axis]} mm) -- its footprint would collapse to a '
+						f'zero-length edge with an undefined normal (AD-11: walls have real thickness)',
+					)
 
 
 def validate_node_presence(dump):
@@ -363,6 +450,7 @@ def run(argv):
 	validate_names_and_uniqueness()
 	validate_material_slots()
 	validate_col_shapes()
+	validate_col_geometry_reducible()
 	validate_properties(dump)
 	validate_node_presence(dump)
 	validate_ball_devices_present(dump)
@@ -370,6 +458,7 @@ def run(argv):
 	export_objects = [obj for obj in bpy.data.objects if is_presentation_object(obj)]
 	exported_meshes = [obj for obj in export_objects if obj.type == 'MESH']
 	validate_second_uv(exported_meshes)
+	validate_exported_mesh_contract(exported_meshes)
 
 	os.makedirs(out_dir, exist_ok=True)
 	out_glb_path = os.path.join(out_dir, 'dragonwar.glb')
@@ -417,9 +506,16 @@ def run(argv):
 		# -- `out_dir` is `public/assets`, a TRACKED directory, so a stray
 		# `.tmp` file is not merely clutter, it is something `git status`
 		# would notice.
+		# Each removal is individually guarded: an OSError raised INSIDE a
+		# `finally` replaces the exception that is already propagating, so a
+		# locked or read-only temp file would otherwise hide the real reason
+		# the export failed behind a cleanup error (re-review finding).
 		for tmp_path in (tmp_glb_path, tmp_collision_path):
-			if os.path.exists(tmp_path):
-				os.remove(tmp_path)
+			try:
+				if os.path.exists(tmp_path):
+					os.remove(tmp_path)
+			except OSError as cleanup_error:
+				print(f'[export.py] warning: could not remove temp file {tmp_path}: {cleanup_error}', file=sys.stderr)
 
 	print(f'[export.py] wrote {out_glb_path}')
 	print(f'[export.py] wrote {out_collision_path}')

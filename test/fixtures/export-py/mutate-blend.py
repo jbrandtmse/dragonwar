@@ -17,9 +17,10 @@
 #
 # Usage: blender --background --factory-startup assets/src/dragonwar.blend \
 #   --python test/fixtures/export-py/mutate-blend.py -- \
-#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property>
+#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|degenerate-wall|col-node-not-a-mesh>
 
 import argparse
+import math
 import sys
 
 import bpy
@@ -95,6 +96,55 @@ def mutate_missing_phys_material_property():
 	del obj['phys_material']
 
 
+def mutate_missing_lightgroup():
+	# An EXPORTED static mesh authored without a "lightgroup" property.
+	# validate_properties() checked a lightgroup's VALUE but never required the
+	# key, so this shipped a glb node with no `extras` at all -- the half of
+	# AD-11/AD-12's static-mesh contract the presence-check rework left behind
+	# after closing surface/phys_material/switch (re-review finding).
+	obj = bpy.data.objects['vis_playfield']
+	del obj['lightgroup']
+
+
+def mutate_no_material():
+	# The other one-sided check: validate_material_slots() rejected TWO-or-more
+	# slots but not ZERO, so an exported mesh with no material at all shipped
+	# untextured against AD-11's "one material each" (re-review finding).
+	obj = bpy.data.objects['vis_playfield']
+	obj.data.materials.clear()
+
+
+def mutate_rotated_wall():
+	# A rotated wall. Every col_ reduction below world_bbox_mm() is an
+	# AXIS-ALIGNED bounding-box reduction, so a rotated mesh is silently
+	# AABB-ized into collision geometry unrelated to itself: measured during
+	# this story's re-review, a 30-degree col_wall_lane exported exit 0 as a
+	# 485 x 829 mm slab across most of the playfield in place of a 12 x 950 mm
+	# divider. Epic 2 re-authors this same .blend behind this same validation,
+	# which is where an unguarded rotation would first ship (re-review finding).
+	obj = bpy.data.objects['col_wall_lane']
+	obj.rotation_euler = (0.0, 0.0, math.radians(30.0))
+
+
+def mutate_degenerate_wall():
+	# A wall with no thickness: two of its four footprint corners coincide, so
+	# the closed polygon gets a zero-length edge whose LineSeg normal is a
+	# division by zero -- a NaN-normalled face that silently never collides.
+	obj = bpy.data.objects['col_wall_lane']
+	obj.scale = (0.0, 1.0, 1.0)
+
+
+def mutate_col_node_not_a_mesh():
+	# A col_ node that is not a MESH. An EMPTY's bound_box is all zeros, so it
+	# reduces to a degenerate collision node rather than failing.
+	bpy.data.objects.remove(bpy.data.objects['col_wall_top'], do_unlink=True)
+	empty = bpy.data.objects.new('col_wall_top', None)
+	empty['col_shape'] = 'wall'
+	empty['surface'] = 'wood'
+	empty['phys_material'] = 'default'
+	bpy.context.scene.collection.objects.link(empty)
+
+
 MUTATIONS = {
 	'bad-name': mutate_bad_name,
 	'two-materials': mutate_two_materials,
@@ -105,6 +155,11 @@ MUTATIONS = {
 	'missing-switch-property': mutate_missing_switch_property,
 	'missing-surface-property': mutate_missing_surface_property,
 	'missing-phys-material-property': mutate_missing_phys_material_property,
+	'missing-lightgroup': mutate_missing_lightgroup,
+	'no-material': mutate_no_material,
+	'rotated-wall': mutate_rotated_wall,
+	'degenerate-wall': mutate_degenerate_wall,
+	'col-node-not-a-mesh': mutate_col_node_not_a_mesh,
 }
 
 

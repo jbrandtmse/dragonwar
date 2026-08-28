@@ -24,11 +24,23 @@ export interface PlayfieldNodes {
 }
 
 function getRequiredNode(scene: Scene, name: string): TransformNode {
-	const node = scene.getTransformNodeByName(name) ?? scene.getMeshByName(name);
-	if (!node) {
+	// Counted rather than fetched by name: Babylon's getXByName() returns the
+	// FIRST match, so a glb carrying two nodes under one name would silently
+	// pitch one of them and leave the other behind. `src/sim/physics/loader`'s
+	// own findNode() already rejects that case for the collision document;
+	// this is the same rule on the presentation side of the same asset
+	// contract (re-review finding -- the two halves disagreed).
+	const matches: TransformNode[] = [
+		...scene.transformNodes.filter((n) => n.name === name),
+		...scene.meshes.filter((m) => m.name === name),
+	];
+	if (matches.length === 0) {
 		throw new Error(`playfield.ts: required node "${name}" (TABLE.nodes) was not found in the loaded scene`);
 	}
-	return node as TransformNode;
+	if (matches.length > 1) {
+		throw new Error(`playfield.ts: the loaded scene has ${matches.length} nodes named "${name}" (TABLE.nodes) -- node names must be unique`);
+	}
+	return matches[0];
 }
 
 /**

@@ -74,8 +74,13 @@ describe('sim/contracts -- ContactSurface / ContactEvent', () => {
 		// adding a thirteenth member or reordering the array broke nothing
 		// (review finding, Story 1.4's code-review pass). Since Story 1.4 that
 		// array is serialised into the table-contract dump `tools/export.py`
-		// validates every authored `surface` property against, so its ORDER and
-		// membership are a runtime contract with a real downstream consumer.
+		// validates every authored `surface` property against, so its
+		// MEMBERSHIP is a runtime contract with a real downstream consumer.
+		// Its ORDER is pinned here too, but as a deliberate belt-and-braces
+		// against a silent edit -- not because a consumer depends on it:
+		// export.py reads the dump as `set(dump['surfaces'])` and discards the
+		// order entirely (re-review finding -- the justification originally
+		// written here claimed otherwise).
 		expect(CONTACT_SURFACES).toEqual([
 			'wood', 'rubber_post', 'rubber_band', 'metal', 'plastic', 'ramp',
 			'flipper', 'target', 'bumper', 'glass', 'ball', 'dragon',

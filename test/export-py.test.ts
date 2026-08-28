@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolveBlender } from '../tools/blender.mjs';
-import { buildTableDump, runExportAssets } from '../tools/export-assets.mjs';
+import { buildBlenderArgs, buildTableDump, runExportAssets } from '../tools/export-assets.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const BLEND_PATH = path.join(REPO_ROOT, 'assets', 'src', 'dragonwar.blend');
@@ -207,6 +207,72 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		expect(stderr).toContain('surface');
 	});
 
+	it('an exported static mesh with NO lightgroup property exits non-zero naming the node and the property', () => {
+		// The presence-vs-value gap the first rework closed for
+		// surface/phys_material/switch, with `lightgroup` left behind:
+		// validate_properties() checked its VALUE but never required the key, so
+		// a mesh with no lightgroup at all exported cleanly -- producing a glb
+		// that test/asset-contract.test.ts would then reject, from the very tool
+		// whose job is to catch that first (re-review finding). AD-11/AD-12 pair
+		// TEXCOORD_1 and `lightgroup` as one static-mesh contract; only the UV
+		// half was enforced.
+		const mutated = mutateBlend('missing-lightgroup');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('vis_playfield');
+		expect(stderr).toContain('lightgroup');
+	});
+
+	it('an exported static mesh with ZERO material slots exits non-zero naming the node', () => {
+		// validate_material_slots() rejected two-or-more slots but not zero, so a
+		// mesh with no material shipped in the glb untextured against AD-11's
+		// "one material each" (re-review finding).
+		const mutated = mutateBlend('no-material');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('vis_playfield');
+		expect(stderr).toContain('material');
+	});
+
+	it('a ROTATED wall exits non-zero naming the node, instead of silently AABB-izing it into unrelated collision geometry', () => {
+		// The latent Epic 2 defect this re-review was pointed at: every col_
+		// reduction (world_bbox_mm(), and wall_footprint_mm() on top of it) is an
+		// axis-aligned bounding-box reduction, faithful only for an axis-aligned
+		// mesh. Measured before the guard: a 30-degree col_wall_lane exported
+		// exit 0 and emitted a 485 x 829 mm slab across most of the playfield in
+		// place of a 12 x 950 mm divider, with export.py, asset-contract and
+		// loadCollision() all silent. Story 2.1 re-authors this same .blend
+		// behind this same validation.
+		const mutated = mutateBlend('rotated-wall');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('col_wall_lane');
+		expect(stderr.toLowerCase()).toMatch(/rotated|sheared/);
+	});
+
+	it('a wall with no extent on an axis exits non-zero naming the node, instead of emitting a zero-length edge with a NaN normal', () => {
+		const mutated = mutateBlend('degenerate-wall');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('col_wall_lane');
+		expect(stderr).toContain('extent');
+	});
+
+	it('a col_ node that is not a MESH exits non-zero naming the node and its type', () => {
+		// An EMPTY's bound_box is all zeros, so it reduces to a degenerate
+		// collision node rather than failing anywhere in the pipeline.
+		const mutated = mutateBlend('col-node-not-a-mesh');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('col_wall_top');
+		expect(stderr).toContain('MESH');
+	});
+
 	it('a col_ node authored without a "phys_material" property exits non-zero naming the node and the property (Review Findings, MED: the other switch-sibling half of the same presence-check gap)', () => {
 		const mutated = mutateBlend('missing-phys-material-property');
 		const outDir = freshTmpDir();
@@ -283,5 +349,45 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		const { status } = runExportPy(mutated, outDir);
 		expect(status).not.toBe(0);
 		expect(status).not.toBeNull();
+	});
+});
+
+describe('tools/export-assets.mjs -- the --python-exit-code backstop is in the argv (runs WITHOUT Blender)', () => {
+	// Deliberately NOT Blender-gated: this is the one line of defence against
+	// the measured trap that had no test of its own. The mutation cases above
+	// each build their own argv (they call export.py directly and supply
+	// `--python-exit-code` themselves), and the happy-path case asserts only
+	// `status === 0`, so deleting the flag from the production driver left the
+	// entire suite green -- while reopening the trap on `pnpm export:assets`,
+	// the only path a human actually uses (re-review finding).
+	it('buildBlenderArgs() passes --python-exit-code with a NON-ZERO value, before --python and before the -- separator', () => {
+		const args = buildBlenderArgs({
+			blendPath: '/tmp/x.blend',
+			tableJsonPath: '/tmp/table.json',
+			outDir: '/tmp/out',
+		});
+
+		const flagIndex = args.indexOf('--python-exit-code');
+		expect(flagIndex, 'the --python-exit-code backstop is missing from the argv handed to Blender').toBeGreaterThanOrEqual(0);
+
+		// A zero exit code would make the flag a no-op: Blender already exits 0
+		// on an uncaught exception, which is the whole trap.
+		const exitCode = Number(args[flagIndex + 1]);
+		expect(Number.isInteger(exitCode), `--python-exit-code's value must be an integer, got "${args[flagIndex + 1]}"`).toBe(true);
+		expect(exitCode, '--python-exit-code must be non-zero, or it cannot signal a raised exception').not.toBe(0);
+
+		// Order matters: Blender's own flags must precede `--`, after which
+		// everything belongs to export.py's own argv.
+		const separatorIndex = args.indexOf('--');
+		const pythonIndex = args.indexOf('--python');
+		expect(separatorIndex, 'the -- separator is missing').toBeGreaterThanOrEqual(0);
+		expect(flagIndex, '--python-exit-code must come before --python').toBeLessThan(pythonIndex);
+		expect(pythonIndex, '--python must come before the -- separator').toBeLessThan(separatorIndex);
+
+		// And the export.py side of the separator carries what it parses.
+		const afterSeparator = args.slice(separatorIndex + 1);
+		expect(afterSeparator).toContain('--table-json');
+		expect(afterSeparator).toContain('--out');
+		expect(args[pythonIndex + 1], '--python must point at tools/export.py').toBe(EXPORT_PY);
 	});
 });

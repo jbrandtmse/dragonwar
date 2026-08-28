@@ -12,11 +12,17 @@ import { TABLE } from '../src/sim/table/dragonwar';
 
 const EPSILON = 1e-9;
 
+// `epsilon` is an absolute bound, honoured -- not `toBeCloseTo`'s decimal
+// digits with the parameter discarded via `void epsilon`, which silently
+// ignored any tolerance a caller passed and left both the parameter and
+// EPSILON dead (re-review finding).
 function expectClose(actual: Vec3, expected: Vec3, epsilon = EPSILON): void {
-	expect(actual.x, `x: ${actual.x} !~ ${expected.x}`).toBeCloseTo(expected.x, 9);
-	expect(actual.y, `y: ${actual.y} !~ ${expected.y}`).toBeCloseTo(expected.y, 9);
-	expect(actual.z, `z: ${actual.z} !~ ${expected.z}`).toBeCloseTo(expected.z, 9);
-	void epsilon;
+	for (const axis of ['x', 'y', 'z'] as const) {
+		expect(
+			Math.abs(actual[axis] - expected[axis]),
+			`${axis}: ${actual[axis]} !~ ${expected[axis]} (tolerance ${epsilon})`,
+		).toBeLessThanOrEqual(epsilon);
+	}
 }
 
 describe('sim/table/frames.ts -- the measured axis mapping (Code Map, "Verified environment facts")', () => {

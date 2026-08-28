@@ -255,6 +255,17 @@ function assertReferenceDimensions(doc: CollisionDoc): void {
 	const measuredH = playfield.bboxMm.max.y - playfield.bboxMm.min.y;
 	assertClose(TABLE.nodes.colPlayfield, 'width', measuredW, TABLE.reference.playfieldMm.w);
 	assertClose(TABLE.nodes.colPlayfield, 'height', measuredH, TABLE.reference.playfieldMm.h);
+	// AD-10 fixes the table frame's ORIGIN as well as its extents: "origin at
+	// the playfield's bottom-left corner nearest the player". Asserting only
+	// the extents leaves a correctly-sized but offset playfield undetected,
+	// and the offset is not cosmetic -- `toPhysics()` flips y about
+	// `TABLE.reference.playfieldMm.h` measured from that origin, so every
+	// converted coordinate in the whole compound body (and every ball
+	// position Story 1.5 publishes back through `fromPhysics()`) is silently
+	// wrong by the offset, in the axis where a sign error mirrors the table
+	// (re-review finding).
+	assertClose(TABLE.nodes.colPlayfield, 'origin x (AD-10: the table frame starts at the playfield corner)', playfield.bboxMm.min.x, 0);
+	assertClose(TABLE.nodes.colPlayfield, 'origin y (AD-10: the table frame starts at the playfield corner)', playfield.bboxMm.min.y, 0);
 
 	const expectedBatMm = TABLE.reference.flipperBatIn * MM_PER_IN;
 	for (const nodeName of [TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR]) {

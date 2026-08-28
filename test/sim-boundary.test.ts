@@ -55,22 +55,33 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	const AUTHORED_HEADER = 'DragonWar is licensed GPL-3.0';
 
 	// The two branches must be DISJOINT, or the ported branch is not "exactly
-	// as strict as before" (this story's task 15). Keying the authored branch
-	// on the mere PRESENCE of the GPL-3.0 string anywhere in the file would let
-	// a PORTED file that happens to contain it -- in a comment, in an error
-	// message, or because its upstream copyright block was stripped and the
-	// DragonWar header pasted on in its place -- skip the structural check
-	// entirely. That last case is exactly the failure Story 1.2's review caught
-	// three times, and it is the one this test exists to prevent. So: any file
-	// carrying evidence of being a port takes the ported branch, whatever else
-	// it contains; and the authored branch additionally requires the header at
-	// the TOP of the file, where a licence header actually has to be, rather
-	// than merely somewhere inside it.
-	const takesAuthoredBranch = (content: string): boolean => {
-		const looksPorted = content.includes(PORT_MARKER) || content.includes(UPSTREAM_PROJECT);
-		const headOfFile = content.split('\n').slice(0, 5).join('\n');
-		return !looksPorted && headOfFile.includes(AUTHORED_HEADER);
-	};
+	// as strict as before" (this story's task 15).
+	//
+	// The authored branch is earned BY DECLARATION, never by the file's own
+	// text. A content-based rule -- "does this file carry the GPL-3.0 header
+	// and no evidence of being a port?" -- cannot distinguish a genuinely
+	// authored file from a port whose upstream copyright block AND port-marker
+	// line were BOTH stripped and the DragonWar header pasted on in their
+	// place: that file has no port evidence left to detect, so every
+	// content-based rule accepts it and the ported structural check below is
+	// bypassed in exactly the case it exists to catch (the Story 1.2
+	// regression, caught three times by that story's review; re-found by this
+	// story's re-review as the residual of the first fix, which keyed the
+	// branch on `!content.includes(PORT_MARKER) && ...` and so still let a
+	// fully-stripped port through with ZERO assertions executed).
+	//
+	// A declared allowlist has no such blind spot. Every file under
+	// src/sim/physics/** that is not named here MUST satisfy the ported
+	// structure, so stripping a port's provenance turns that file RED rather
+	// than green, and adding a genuinely authored file is a deliberate,
+	// reviewable one-line edit in this list. Membership is necessary but not
+	// sufficient -- a declared file must still positively carry the GPL-3.0
+	// header at the TOP and must NOT carry either port signal (asserted, not
+	// returned past, so the authored branch can never report as a pass while
+	// checking nothing).
+	const AUTHORED_FILES = new Set(['loader/index.ts']);
+	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
+	const isDeclaredAuthored = (relative: string): boolean => AUTHORED_FILES.has(toPosix(relative));
 	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 
 	it('finds at least one file under src/sim/physics/ (sanity check the test itself is wired up)', () => {
@@ -83,9 +94,16 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 		it(`${relative} carries either the upstream copyright block + port marker, or the DragonWar GPL-3.0 header`, () => {
 			const content = readFileSync(file, 'utf8');
 
-			if (takesAuthoredBranch(content)) {
-				// The GPL-3.0 branch: an authored file, not a port. Accepted
-				// without the ported-structure checks below.
+			if (isDeclaredAuthored(relative)) {
+				// The GPL-3.0 branch: a DECLARED authored file, not a port.
+				// Asserts positively rather than returning early -- a branch
+				// that returns without an `expect` reports as a passing test
+				// while checking nothing (the same pattern this story replaced
+				// with `it.skipIf` in test/blender-resolve.test.ts).
+				const headOfFile = content.split('\n').slice(0, 5).join('\n');
+				expect(headOfFile, `${relative}: declared authored, so it must carry "${AUTHORED_HEADER}" in its first 5 lines`).toContain(AUTHORED_HEADER);
+				expect(content, `${relative}: declared authored, so it must NOT carry the vpx-js port marker`).not.toContain(PORT_MARKER);
+				expect(content, `${relative}: declared authored, so it must NOT carry the upstream VPDB copyright block`).not.toContain(UPSTREAM_PROJECT);
 				return;
 			}
 
@@ -107,32 +125,37 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 		});
 	}
 
-	it('the ported and authored branches are disjoint -- carrying the GPL-3.0 header can never bypass the ported structural check', () => {
-		// A port whose upstream copyright block was stripped and replaced with
-		// the DragonWar header: the exact Story 1.2 regression. It must still
-		// be routed to the ported branch, where the missing block fails it.
-		const strippedPort = [
+	it('the ported and authored branches are disjoint -- an UNDECLARED file can never reach the authored branch, however its header reads', () => {
+		// THE case a content-based rule cannot catch, and the reason the branch
+		// is keyed on a declared list: a port whose upstream copyright block
+		// AND port-marker line were both stripped and the DragonWar header
+		// pasted on in their place. Nothing in such a file's text says "port"
+		// any more, so no textual test can route it correctly -- but it is not
+		// on the list, so it takes the ported branch and fails there.
+		const fullyStrippedPort = [
 			'// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.',
-			PORT_MARKER,
-			'export const x = 1;',
+			'export class HitCircle { }',
 		].join('\n');
-		expect(takesAuthoredBranch(strippedPort), 'a file carrying the port marker must ALWAYS take the ported branch').toBe(false);
+		expect(
+			isDeclaredAuthored(path.join('hit-circle.ts')),
+			'a file that is not on AUTHORED_FILES must take the ported branch even when its text carries no port evidence at all',
+		).toBe(false);
+		// ...and the ported branch genuinely rejects it (no closing "*/").
+		expect(fullyStrippedPort.split('\n').findIndex((line) => line.trim() === '*/')).toBe(-1);
 
-		// Likewise if only the upstream project name survives.
-		const mentionsUpstream = [
-			'// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.',
-			`// adapted from ${UPSTREAM_PROJECT}`,
-			'export const y = 2;',
-		].join('\n');
-		expect(takesAuthoredBranch(mentionsUpstream), 'a file naming the upstream project must take the ported branch').toBe(false);
+		// A declared authored file takes the authored branch.
+		expect(isDeclaredAuthored(path.join('loader', 'index.ts')), 'the declared authored file takes the GPL-3.0 branch').toBe(true);
 
-		// The header has to be at the top of the file, not buried in it.
-		const buriedHeader = ['// a', '// b', '// c', '// d', '// e', '// f', `// ${AUTHORED_HEADER}`].join('\n');
-		expect(takesAuthoredBranch(buriedHeader), 'the authored header must sit at the TOP of the file').toBe(false);
-
-		// A genuinely authored file still passes.
-		const authored = ['// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.', 'export const z = 3;'].join('\n');
-		expect(takesAuthoredBranch(authored), 'a genuinely authored file takes the GPL-3.0 branch').toBe(true);
+		// The list is deliberately tiny, and every entry must be a real file --
+		// a stale entry would silently exempt a path that no longer exists, and
+		// a typo would silently exempt nothing while looking like it did.
+		for (const declared of AUTHORED_FILES) {
+			const absolute = path.resolve(PHYSICS_ROOT, declared);
+			expect(
+				physicsFiles.map((f) => toPosix(path.relative(PHYSICS_ROOT, f))),
+				`AUTHORED_FILES entry "${declared}" does not name a real file under src/sim/physics/`,
+			).toContain(toPosix(path.relative(PHYSICS_ROOT, absolute)));
+		}
 	});
 
 	it('an authored file (GPL-3.0 header, no upstream block, no port marker) is accepted only via the GPL-3.0 branch -- src/sim/physics/loader/index.ts', () => {

@@ -19,6 +19,14 @@ export interface TableDump {
 
 export declare function buildTableDump(table?: unknown, surfaces?: readonly string[]): TableDump;
 
+export interface BuildBlenderArgsOptions {
+	readonly blendPath: string;
+	readonly tableJsonPath: string;
+	readonly outDir: string;
+}
+
+export declare function buildBlenderArgs(options: BuildBlenderArgsOptions): string[];
+
 export interface RunExportAssetsOptions {
 	readonly blendPath?: string;
 	readonly outDir?: string;

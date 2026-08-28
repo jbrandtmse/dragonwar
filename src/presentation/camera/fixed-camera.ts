@@ -5,8 +5,20 @@
 // directly"). Position and target are authored in the TABLE frame
 // (millimetres) and converted to scene metres through `sim/table/frames.ts`'s
 // `toScene()` -- the only sanctioned conversion (AD-10) -- rather than
-// hand-picked in scene units, so a future reference-dimension change moves
-// the camera with the table instead of leaving it stale.
+// hand-picked in scene units.
+//
+// How much of the framing actually tracks `TABLE.reference` (stated precisely,
+// because the original wording here over-claimed it -- re-review finding):
+// the ACROSS-table placement does, on both the position and the target, and
+// the target's up-table component does. The camera's own standoff (`y = -700`
+// behind the near edge) and height (`z = 1300`) are hand-picked absolutes, so
+// a change to `playfieldMm.h` re-aims the camera but does NOT pull it back to
+// keep the longer table in frame. test/scene-smoke.test.ts's corner-projection
+// assertion is what would catch that, not this file.
+//
+// Story 4.6 (the walk-up and the Attract show) adds its moving view beside
+// this one in `src/presentation/camera/` -- the note that used to live in this
+// directory's `.gitkeep`, which this file replaced.
 //
 // `create-engine.ts`'s previous inline `ArcRotateCamera` comment already
 // assigned this file the job ("presentation/camera/ owns the real fixed

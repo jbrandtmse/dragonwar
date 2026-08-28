@@ -62,6 +62,33 @@ export function buildTableDump(table = TABLE, surfaces = CONTACT_SURFACES) {
 }
 
 /**
+ * The exact argument vector handed to Blender. Extracted from
+ * `runExportAssets()` so it can be asserted WITHOUT a Blender install: the
+ * `--python-exit-code` flag is the third and outermost line of defence
+ * against this story's measured trap (an uncaught Python exception under
+ * `blender --python` exits 0), and it was the only one of the three with no
+ * test at all -- deleting it left every mutation test green, because each of
+ * those supplies the flag itself in its own argv, and left the happy-path
+ * test green too, because a successful export exits 0 either way. A failure
+ * that `main()`'s try/except cannot catch -- a syntax error, or a
+ * module-scope `from mathutils import Vector` failing -- would then have
+ * returned 0 and the author would have committed unchanged artifacts
+ * believing the export had succeeded (re-review finding).
+ */
+export function buildBlenderArgs({ blendPath, tableJsonPath, outDir }) {
+	return [
+		'--background',
+		'--factory-startup',
+		blendPath,
+		'--python-exit-code', String(PYTHON_EXIT_CODE),
+		'--python', EXPORT_PY,
+		'--',
+		'--table-json', tableJsonPath,
+		'--out', outDir,
+	];
+}
+
+/**
  * Runs the export end to end and returns the process exit code that should
  * be used -- never calls `process.exit()` itself, so tests can drive it and
  * inspect the result. Options exist for tests only; every production call
@@ -87,16 +114,7 @@ export function runExportAssets({ blendPath = DEFAULT_BLEND_PATH, outDir = DEFAU
 	try {
 		const result = spawnSync(
 			blenderPath,
-			[
-				'--background',
-				'--factory-startup',
-				blendPath,
-				'--python-exit-code', String(PYTHON_EXIT_CODE),
-				'--python', EXPORT_PY,
-				'--',
-				'--table-json', tmpJson,
-				'--out', outDir,
-			],
+			buildBlenderArgs({ blendPath, tableJsonPath: tmpJson, outDir }),
 			{ cwd: REPO_ROOT, stdio: 'inherit', timeout: BLENDER_TIMEOUT_MS },
 		);
 		if (result.error) {

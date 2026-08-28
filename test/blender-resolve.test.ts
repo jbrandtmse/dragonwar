@@ -2,10 +2,21 @@
 //
 // Story 1.4's I/O & Edge-Case Matrix: Blender discovery (tools/blender.mjs).
 // Every case here runs with an EXPLICIT, isolated `env` object -- never
-// `process.env` -- so all three are reachable and deterministic WITHOUT
-// Blender installed on the host running this suite (the story's own
-// requirement: "this is the failure path; it must be reachable without
-// Blender installed").
+// `process.env` -- so all are reachable WITHOUT Blender installed on the host
+// running this suite (the story's own requirement: "this is the failure path;
+// it must be reachable without Blender installed").
+//
+// ONE CAVEAT, stated because it was originally claimed away: `env` isolation
+// does not make the "nothing resolvable" case host-INDEPENDENT. Resolution
+// step 3 (`conventionalCandidates()`) probes absolute system locations --
+// `C:\Program Files\Blender Foundation\*`, `/usr/bin/blender`,
+// `/snap/bin/blender` -- that it reads from the real filesystem and not from
+// `env` at all, so on a host with Blender installed at a CONVENTIONAL
+// location that case resolves a path instead of throwing, and goes red. It
+// passes on ubuntu-latest (no Blender) and on this project's own authoring
+// host (a portable build outside every conventional location). Making step 3
+// injectable is ledger DW-46; until then this file is honest about the
+// dependency rather than asserting it away (re-review finding).
 
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
