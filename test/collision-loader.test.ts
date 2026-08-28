@@ -31,6 +31,33 @@ function loadCommittedDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
 }
 
+/** A loosely-typed view of the committed document, for the mutation tests
+ * below -- narrower than `any`, wide enough to reshape a node into an
+ * intentionally-broken one without fighting the strict `CollisionNodeDoc`
+ * shape that only `src/sim/physics/loader/index.ts` (out of footprint) sees. */
+interface MutableNode {
+	name: string;
+	shape: string;
+	physMaterial?: string;
+	[key: string]: unknown;
+}
+
+interface MutableSwitchZone {
+	name: string;
+	switch: string;
+	[key: string]: unknown;
+}
+
+interface MutableDoc {
+	nodes: MutableNode[];
+	switchZones: MutableSwitchZone[];
+	[key: string]: unknown;
+}
+
+function loadMutableCommittedDoc(): MutableDoc {
+	return loadCommittedDoc() as MutableDoc;
+}
+
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
 
 describe('src/sim/physics/loader -- loadCollision() over the committed dragonwar.collision.json', () => {
@@ -101,6 +128,22 @@ describe('src/sim/physics/loader -- document shape validation (load-time paths t
 		const doc = loadCommittedDoc() as { nodes: Array<{ name: string }> };
 		doc.nodes = doc.nodes.filter((n) => n.name !== TABLE.nodes.colGlass);
 		expect(() => loadCollision(doc)).toThrowError(new RegExp(TABLE.nodes.colGlass));
+	});
+
+	it('rejects a non-finite coordinate reached through JSON.parse -- an overflowing literal, not a hand-built object', () => {
+		// `1e999` is valid JSON and `JSON.parse` turns it into `Infinity`, so this
+		// arrives through loadCollision()'s DOCUMENTED "already-parsed document"
+		// contract rather than around it. Left unguarded, `Infinity - Infinity`
+		// is `NaN`, and `NaN <= TOLERANCE_MM` is false in a way that made the
+		// mis-sized-document assertion pass while a compound body of NaN geometry
+		// loaded (review finding, this story's code-review pass).
+		const raw = readFileSync(COLLISION_PATH, 'utf8');
+		const overflowed = raw.replace('"w": 514.4', '"w": 1e999');
+		expect(overflowed, 'the fixture substitution must actually have applied').not.toBe(raw);
+		expect(JSON.parse(overflowed).reference.playfieldMm.w, 'JSON.parse must yield Infinity, or this test proves nothing').toBe(Infinity);
+
+		const bboxOverflowed = JSON.parse(raw.replace('"x": 514.4', '"x": 1e999')) as unknown;
+		expect(() => loadCollision(bboxOverflowed)).toThrowError(/finite/);
 	});
 });
 
@@ -219,5 +262,128 @@ describe('src/sim/physics/loader -- HitTriangle regression guard (outwardTriangl
 			'the box must cleanly deflect the ball, not trap it oscillating between inward-facing triangles',
 		).toBeLessThanOrEqual(3);
 		collideSpy.mockRestore();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The loader's own defensive guards -- review findings this story's Review
+// Triage Log records as patched, but which no existing test in this suite
+// (nor test/asset-contract.test.ts, which only ever validates the committed,
+// already-correct document) drives with input engineered to actually reach
+// them. A malformed or hand-edited dragonwar.collision.json is exactly the
+// input each of these exists to reject; a silent pass here would mean the
+// physics world quietly built itself wrong instead of refusing to load.
+// ---------------------------------------------------------------------------
+
+describe('src/sim/physics/loader -- assertPlaneShaped() guard (col_playfield/col_glass must actually be plane-shaped)', () => {
+	it('throws naming col_playfield and its actual shape when it is not plane-shaped', () => {
+		const doc = loadMutableCommittedDoc();
+		const playfieldNode = doc.nodes.find((n) => n.name === TABLE.nodes.colPlayfield)!;
+		// 'box' is deliberate: the loader's own document parser needs no extra
+		// fields for a box-shaped node, so parsing itself succeeds and it is
+		// assertPlaneShaped() -- not an earlier shape-parsing failure -- that
+		// must be what throws here.
+		playfieldNode.shape = 'box';
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(TABLE.nodes.colPlayfield);
+			expect(message).toContain('plane-shaped');
+			expect(message).toContain('box');
+		}
+	});
+
+	it('throws naming col_glass and its actual shape when it is not plane-shaped', () => {
+		const doc = loadMutableCommittedDoc();
+		const glassNode = doc.nodes.find((n) => n.name === TABLE.nodes.colGlass)!;
+		glassNode.shape = 'box';
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(TABLE.nodes.colGlass);
+			expect(message).toContain('plane-shaped');
+			expect(message).toContain('box');
+		}
+	});
+});
+
+describe('src/sim/physics/loader -- only col_playfield/col_glass may be plane-shaped', () => {
+	it('throws naming a third node that claims shape "plane"', () => {
+		const doc = loadMutableCommittedDoc();
+		const playfieldNode = doc.nodes.find((n) => n.name === TABLE.nodes.colPlayfield)!;
+		// A full, validly-shaped clone of col_playfield under a different name:
+		// every field parseCollisionDoc()'s 'plane' branch needs is already
+		// present (copied), so parsing succeeds and it is loadCollision()'s own
+		// node loop -- not document parsing -- that must reject the second plane.
+		doc.nodes.push({ ...playfieldNode, name: 'col_extra_plane' });
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain('col_extra_plane');
+			expect(message).toContain('unexpected plane-shaped');
+		}
+	});
+});
+
+describe('src/sim/physics/loader -- findNode() rejects a duplicated node name (review finding: no silent first-match)', () => {
+	it('throws naming the duplicated node when two nodes share col_flipper_l\'s name', () => {
+		const doc = loadMutableCommittedDoc();
+		const flipperNode = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperL)!;
+		doc.nodes.push({ ...flipperNode });
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(TABLE.nodes.colFlipperL);
+			expect(message).toContain('2 nodes named');
+			expect(message).toContain('must be unique');
+		}
+	});
+});
+
+describe('src/sim/physics/loader -- applyMaterial() rejects an unrecognized phys_material (review finding: no silent default)', () => {
+	it('throws naming the node and the bad value rather than silently falling back to materials.default', () => {
+		const doc = loadMutableCommittedDoc();
+		const wallNode = doc.nodes.find((n) => n.name === 'col_wall_left')!;
+		wallNode.physMaterial = 'unobtainium';
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain('col_wall_left');
+			expect(message).toContain('unobtainium');
+			expect(message).toContain('unknown phys_material');
+		}
+	});
+});
+
+describe('src/sim/physics/loader -- switch zones reject an unknown TABLE switch name (review finding: no silent cast)', () => {
+	it('throws naming the zone and the unrecognized switch value', () => {
+		const doc = loadMutableCommittedDoc();
+		const zone = doc.switchZones[0];
+		zone.switch = 's_nonexistent_switch';
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(zone.name);
+			expect(message).toContain('s_nonexistent_switch');
+			expect(message).toContain('unknown switch');
+		}
 	});
 });

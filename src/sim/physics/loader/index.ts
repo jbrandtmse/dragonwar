@@ -43,12 +43,11 @@ import { LineSeg } from '../line-seg';
 import { Vertex2D } from '../math/vertex2d';
 import { Vertex3D } from '../math/vertex3d';
 import { TABLE } from '../../table/dragonwar';
-import { toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
+import { MM_PER_IN, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
 import { TUNING } from '../../table/tuning';
 import type { SwitchName } from '../../table/names';
 
 const TOLERANCE_MM = 0.1;
-const IN_TO_MM = 25.4;
 
 // ---------------------------------------------------------------------------
 // Document shape (runtime-validated; the file on disk is `unknown` to this
@@ -121,11 +120,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === 'object' && v !== null;
 }
 
+// `Number.isFinite`, not `typeof === 'number'`: `JSON.parse('1e999')` yields
+// `Infinity`, so a corrupted-but-syntactically-valid collision document reaches
+// this function -- through its DOCUMENTED "already-parsed document" input, not
+// only through a hand-built object -- and would otherwise put `Infinity` into a
+// bbox, a plane normal or a footprint. `Infinity - Infinity` is `NaN`, and NaN
+// silently satisfies every `<= TOLERANCE_MM` comparison in the reference
+// assertions below, so the mis-sized-document guard would pass and a compound
+// body of NaN geometry would load. `requireNumber()` already rejects non-finite
+// values; these two did not (review finding, this story's code-review pass).
 function asVec3Mm(v: unknown, context: string): Vec3 {
-	if (!isRecord(v) || typeof v.x !== 'number' || typeof v.y !== 'number' || typeof v.z !== 'number') {
-		throw new Error(`loadCollision(): ${context} is not a {x,y,z} number triple`);
+	if (!isRecord(v) || !Number.isFinite(v.x) || !Number.isFinite(v.y) || !Number.isFinite(v.z)) {
+		throw new Error(`loadCollision(): ${context} is not a {x,y,z} finite number triple`);
 	}
-	return { x: v.x, y: v.y, z: v.z };
+	return { x: v.x as number, y: v.y as number, z: v.z as number };
 }
 
 function asBBoxMm(v: unknown, context: string): BBoxMm {
@@ -170,10 +178,11 @@ function parseCollisionDoc(doc: unknown): CollisionDoc {
 				throw new Error(`loadCollision(): wall node "${raw.name}" needs a footprintMm array of at least 2 points`);
 			}
 			const footprintMm = raw.footprintMm.map((p: unknown, j: number) => {
-				if (!isRecord(p) || typeof p.x !== 'number' || typeof p.y !== 'number') {
-					throw new Error(`loadCollision(): wall node "${raw.name}".footprintMm[${j}] is not a {x,y} number pair`);
+				// Finite, not merely `number` -- see asVec3Mm()'s comment above.
+				if (!isRecord(p) || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+					throw new Error(`loadCollision(): wall node "${raw.name}".footprintMm[${j}] is not a {x,y} finite number pair`);
 				}
-				return { x: p.x, y: p.y };
+				return { x: p.x as number, y: p.y as number };
 			});
 			return {
 				...node,
@@ -241,7 +250,7 @@ function assertReferenceDimensions(doc: CollisionDoc): void {
 	assertClose(TABLE.nodes.colPlayfield, 'width', measuredW, TABLE.reference.playfieldMm.w);
 	assertClose(TABLE.nodes.colPlayfield, 'height', measuredH, TABLE.reference.playfieldMm.h);
 
-	const expectedBatMm = TABLE.reference.flipperBatIn * IN_TO_MM;
+	const expectedBatMm = TABLE.reference.flipperBatIn * MM_PER_IN;
 	for (const nodeName of [TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR]) {
 		const flipper = findNode(doc, nodeName);
 		const b = flipper.bboxMm;

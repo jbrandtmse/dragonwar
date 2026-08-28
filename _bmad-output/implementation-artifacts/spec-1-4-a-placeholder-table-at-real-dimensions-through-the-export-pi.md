@@ -2,7 +2,7 @@
 title: 'Story 1.4: A placeholder table at real dimensions through the export pipeline'
 type: 'feature'
 created: '2026-08-28'
-status: 'done'
+status: 'in-progress'
 baseline_revision: '050eb9fa925895c9a647a7b1c6e5d324c28b7c12'
 baseline_commit: '050eb9fa925895c9a647a7b1c6e5d324c28b7c12'
 review_loop_iteration: 0
@@ -530,7 +530,58 @@ re-derive):**
   Blender-dependent suites report **skipped** rather than failed, every other suite runs against the
   committed artifacts, and `.github/workflows/ci.yml` gained no step that shells out to Blender.
 
+### Review Findings
+
+Code review, 2026-08-28 (`bmad-code-review`, full-opus tier; layers: blind-hunter, edge-case-hunter,
+verification-gap, acceptance-auditor). 26 raw findings triaged to 20 after dedupe and dismissal:
+2 high, 7 medium, 11 low, plus 6 dismissed.
+9 patched and verified here, 4 left as rework action items, 7 routed to the ledger. Suite after
+patches: **426 passed** with `BLENDER` set / **416 passed + 10 skipped** without; `typecheck`,
+`lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size` all exit 0.
+The three committed assets are byte-identical to `HEAD` — this review regenerated nothing.
+
+**Blocking (must be fixed before this story is `done`):**
+
+- [ ] [Review][Patch] **HIGH — `wall` reduction discards thickness, so interior walls are one-sided and the plunger lane leaks.** `tools/export.py`'s `wall_footprint_mm()` collapses each authored 12 mm-thick wall box to a single zero-thickness centreline, and `src/sim/physics/loader/index.ts`'s `orientedEdge()` then orients every segment's normal toward the **table centre**. `LineSeg` is one-sided (`line-seg.ts` returns `-1` when `lateral && bcpd < 0`), so this is correct only for perimeter walls. `col_wall_lane` is an *interior divider* at table x = 488.4 with the table centre to its left, so its normal faces the main field and the **lane side is unguarded** — measured: a ball at table (504, 300, 13.5) moving −x ends at x = 331.3, straight through; the mirror shot from the main field correctly bounces. `bd_shooter` ejects at table x = 498.0, inside that lane, so the ball Story 1.5 serves passes through the divider on its first deflection. Violates **AD-11** ("`col_` … the only thing the ball hits"; "walls and floor have real thickness") and the story's own authored intent. Second-order: because the reduction gives back 6 mm per side, the authored lane clearance (494.4 → 514.4 = **20 mm**) is *narrower than the 26.99 mm reference ball* and only traversable by virtue of this same error — the two defects currently mask each other. Not patched here: the correct fix changes `wall_footprint_mm()` and **requires regenerating the byte-verified `dragonwar.collision.json`**, which this review is forbidden to do. [`tools/export.py:198`, `src/sim/physics/loader/index.ts:302`]
+- [ ] [Review][Patch] MED — `tools/export.py` writes `dragonwar.glb` *before* it builds the collision document, so a failure in between leaves `public/assets/` holding a new glb beside a stale, mismatched collision file. Measured with a real Blender 5.2.1 run against a mutated copy: every `validate_*()` passed, the glb was written, then the run exited 1 with no collision JSON. Task 9 requires validation "before it writes". Fix shape: build both documents in memory, then write, or write to `.tmp` and `os.replace()` both. [`tools/export.py:341-352`]
+- [ ] [Review][Patch] MED — `validate_properties()` validates a property's *value* only when the key is present and never requires presence, so an `sw_` node authored without a `switch` escapes the enforcer entirely and surfaces from `build_switch_zones()`'s bare `obj['switch']` as an "unexpected exception" KeyError — measured verbatim, **with no node named**, contradicting the AC's "exits non-zero naming the offending node and property". Same gap for absent `surface`/`phys_material`, which serialise as JSON `null`. [`tools/export.py:124-141`, `:248`]
+- [ ] [Review][Patch] LOW — `export_glb()` hardcodes the string `playfield_root` — the one node name in the enforcer not read from `dump['nodes']` — in the file that enforces the no-literals contract for everything else, and `.get()` returns `None` silently if it is ever renamed. `boundary-lint`'s rule (e) scans only `src/**`, so nothing catches it. [`tools/export.py:292`]
+
+**Patched and verified in this review:**
+
+- [x] [Review][Patch] **HIGH — the widened AD-16 header rule let any `src/sim/physics/**` file bypass the ported-structure check.** `if (content.includes(AUTHORED_HEADER)) return;` matched the whole file, so a *ported* file containing `DragonWar is licensed GPL-3.0` anywhere — including one whose upstream copyright block was stripped and replaced with it — skipped the upstream-block and port-marker assertions entirely. That is precisely the failure mode Story 1.2's review caught three times, and task 15 explicitly required the ported branch stay "exactly as strict as it is today" (its Block-If clause says HALT rather than weaken it). Fixed: the branches are now disjoint — any file carrying the port marker or the upstream project name takes the ported branch whatever else it contains, and the authored branch additionally requires the header in the file's first five lines. Added a regression test pinning the disjointness against a stripped-port fixture. [`test/sim-boundary.test.ts:44`]
+- [x] [Review][Patch] MED — the Blender-gated reproducibility test byte-compared only the glb; `dragonwar.collision.json` was existence-checked only, so a regression in `wall_footprint_mm()`, the `dMm` plane constant, a switch-zone bound or the devices' mm scaling would leave the committed document stale with nothing going red **on any machine** — and that document is the input every physics test reads. Fixed: both artifacts are now byte-compared. Verified against a real fresh Blender export (both identical). [`test/export-py.test.ts:109`]
+- [x] [Review][Patch] MED — the pitch AC had no discriminating test. `pivot_pitch` is authored at scene (0.2572, 0, 0), which lies **on** `applyPitch()`'s `Vector3.Right()` rotation axis, so its `P − R·P` correction is identically zero and the "maps back to the same world position" assertion held for *any* rotation about *any* axis through the origin. Mutation-verified: negated `pitchDeg`, `Vector3.Up()`/`Forward()`, and deleting the correction line all passed. Fixed with two assertions: the far edge must rise by `sin(6.5°)·h` while the drain edge stays on the deck (catches sign and axis), and a new off-axis-pivot unit test (catches the dropped correction). Both re-verified to go red under those exact mutations. [`test/scene-smoke.test.ts:196`]
+- [x] [Review][Patch] MED — the camera AC checked only that the eight corners land inside the viewport, which a camera placed behind the **far** edge (table rendered end-for-end) or **below** the playfield (looking up through its underside) also satisfies — measured. `fixed-camera.ts`'s own header claims the drain sits nearest the viewer (UJ-4, AD-10). Fixed: the drain edge must project below the far edge in NDC; mutation-verified. [`test/scene-smoke.test.ts:231`]
+- [x] [Review][Patch] LOW — `asVec3Mm()` and the footprint parser accepted non-finite numbers while `requireNumber()` rejected them. Reachable through the loader's **documented** "already-parsed document" contract, not around it: `JSON.parse('1e999')` yields `Infinity`, and `Infinity − Infinity` is `NaN`, which silently satisfies every `<= TOLERANCE_MM` comparison — so the mis-sized-document guard would pass while a compound body of NaN geometry loaded. Fixed with `Number.isFinite` on both, plus a test driving the `1e999` path. [`src/sim/physics/loader/index.ts:124`, `:181`]
+- [x] [Review][Patch] LOW — `IN_TO_MM = 25.4` performed a unit conversion outside `frames.ts`, against AD-10's "no other file converts units or axes" — the same reasoning that relocated `toPhysicsPlane()` during the implement pass. Moved to `frames.ts` as `MM_PER_IN`. [`src/sim/table/frames.ts:51`, `src/sim/physics/loader/index.ts:46`]
+- [x] [Review][Patch] LOW — `test/blender-resolve.test.ts`'s conventional-install case used a bare `return` on non-Windows, so on `ubuntu-latest` — the only automated environment — it executed no `expect` and reported as a **passing** test. Changed to `it.skipIf`, which reports the truth. [`test/blender-resolve.test.ts:99`]
+- [x] [Review][Patch] LOW — `src/sim/contracts/events.ts`'s comment claimed `test/contracts.test.ts` "still pins the twelve members and their order", but that test never imported `CONTACT_SURFACES` — it asserted `toHaveLength(12)` on its own literal, so adding a thirteenth member or reordering broke nothing. Since Story 1.4 the array is serialised into the dump `export.py` validates every `surface` against, making it a runtime contract. Added a real runtime pin on membership and order. [`test/contracts.test.ts:65`]
+- [x] [Review][Patch] LOW — `ATTRIBUTIONS.md`'s Assets-section prose still read "the one asset present is project-generated" after three generated assets were listed. Corrected. (The three provenance rows themselves were audited and are correct: each names Blender 5.2.1 LTS, the in-repo script and the date, each states the content is author-made with nothing from a commercial machine, Story 1.2's retired generator no longer competes for `dragonwar.glb`, and Blender correctly has no Code-table row.) [`ATTRIBUTIONS.md:56`]
+
+**Deferred to the ledger** (`_bmad-output/implementation-artifacts/deferred-work.md`; filed with `by=cr`):
+
+- [x] [Review][Defer] MED — the DW-7 closure is geometrically vacuous: every corner `HitPoint` sits at `zLowVu` (physics z = 0), while a ball resting on the playfield has its centre at z = radius ≈ 25 VU, so contact is a pure tangency condition. The closing test has to start the ball at z = 0 — a full radius *inside* the playfield slab — and its own comment concedes this; a 96-trajectory sweep of realistic rolling balls produced **zero** `HitPoint.collide()` calls. Separately, each placeholder wall is an independent 2-point footprint sharing no endpoint with any other, so there are no wall *corners* in the sense the AC and `tools/spike-1/scene.ts` describe — only capped free segment ends. Occurrence appended to **DW-7** (owned by this story; the lead adjudicates at the ledger gate). [`src/sim/physics/loader/index.ts:334`, `test/collision-loader.test.ts:156`]
+- [x] [Review][Defer] MED — the loader ignores the collision document's own `version`/`units`/`frame` handshake that `export.py` writes, so a `units: "m"` or `version: 2` document loads without complaint at 1000× scale. Filed as **DW-45**, owner `1-5` (which owns the host-side fetch). [`src/sim/physics/loader/index.ts:97`]
+- [x] [Review][Defer] LOW — `resolveBlender()`'s conventional-location step hardcodes the `C:` drive and the English `Program Files` folder in the file whose own header forbids machine-specific paths, while its sibling per-user branch correctly reads `env.LOCALAPPDATA`; and its macOS/Linux candidates are absolute paths unreachable through the `env` parameter, so those branches are covered on no platform. Filed as **DW-46**, owner `burndown`. [`tools/blender.mjs:84-104`]
+- [x] [Review][Defer] LOW — `l_insert_left`'s lens spans z −1.0 → **+0.5** mm against a playfield surface at z = 0, so it sits 0.5 mm proud, against AD-11's "lens **and** cup geometry below the surface". No physics effect (`l_` is visual; only `col_` is hit). Needs the `.blend` regenerated, which this review may not do. Filed as **DW-47**, owner `burndown` for re-owning to Epic 2. [`tools/make-placeholder-blend.py:268`]
+- [x] [Review][Defer] LOW — the flipper-length assertion takes `Math.max` over all three bbox extents, so a bat with the right extent on the **wrong axis** passes; the `col_playfield` assertion beside it is correctly per-axis. Filed as **DW-48**, owner `1-6`. [`src/sim/physics/loader/index.ts:248`]
+- [x] [Review][Defer] LOW — the loader parses each node's `surface` and then discards it (`applyMaterial()` keys only on `physMaterial`), so no hit object carries a `ContactSurface` and AD-13's contact-sound selection has no carrier. The sibling `devices` field got an explicit deferral comment; `surface` is dropped silently. Filed as **DW-49**, owner `burndown`. [`src/sim/physics/loader/index.ts:71`]
+- [x] [Review][Defer] LOW — nothing automated covers `ATTRIBUTIONS.md`'s generated-asset rows: `check-attributions.mjs` maps only `package.json` dependency keys and has no concept of asset files, and `test/attributions.test.ts` pins every earlier story's code rows but adds nothing for the three assets this story commits. Given CLAUDE.md treats provenance as a hard gate, a future asset can land with no row and every check stays green. Filed as **DW-50**, owner `6-7`. [`tools/check-attributions.mjs:54-60`]
+
+**Dismissed** (6): the QA stage's tests being uncommitted (by design — the lead commits them at the rework/smoke gate, Rule 16); `frames.ts` exporting five conversions against AD-10's "exactly three" (by design — the spec's Design Notes read this as three *conversions*, `fromPhysics()` is the inverse the AC's own round-trip demands and `toPhysicsPlane()` is the plane form of the same physics conversion; the protected invariant "no other file converts units or axes" is intact and was strengthened above); prototype-pollution guards on switch/material lookups (`wontfix-theoretical` — the document is generated by `export.py` from a validated `.blend`, never user input; would become real if a hand-authored collision document were ever loaded); `addWall()` not closing a 3+-point footprint polyline (`wontfix-theoretical` — `wall_footprint_mm()` emits exactly two points; would become real the first time a multi-point footprint is authored, and the blocking finding above is the natural place to handle it); asserting the glb's `asset.generator` string (`wontfix-theoretical` — proves provenance, not correctness, and both artifacts are now byte-compared against a fresh export on any Blender machine); and `test/asset-contract.test.ts`'s "exactly the three top-level names" title over-promising its body (cosmetic).
+
 ## Spec Change Log
+
+- **2026-08-28 -- lead, rework iteration 1 (cycle_iteration 2).** Code review returned the story
+  `in-progress` with one blocking HIGH and three further unresolved items, all in `tools/export.py`'s
+  wall reduction and validation ordering. Re-opened the spec (`status: in-progress`) so
+  `bmad-build-auto` resumes at its implement step against the unchecked `### Review Findings` items.
+  The reviewer's nine applied patches and QA's tests are committed in the rework commit that precedes
+  this re-spawn, so they are part of the new baseline rather than being absorbed silently into the
+  next finalize diff. **Regenerating `public/assets/dragonwar.collision.json` is expected and
+  authorised in this iteration** -- the blocking fix changes `wall_footprint_mm()`, so the byte-verified
+  artifact must change; the lead re-verifies export round-trip byte-identity afterwards.
 
 ## Review Triage Log
 
@@ -809,6 +860,26 @@ No change is planned to `AGENTS.md`, `CLAUDE.md`, `NOTICE`, `LICENSE`, `docs/**`
   blocks are intact.
 - Read `ATTRIBUTIONS.md` and confirm the three generated-asset rows were written before the assets, name the
   tool and the date, and that no row was added for Blender itself.
+
+**Test files extended (QA, this stage):** `pnpm test` — 412 passed / 10 skipped with `BLENDER` unset (was
+398/10); 422 passed / 0 skipped with `BLENDER` set (was 408). Every command above re-verified green after
+these additions.
+- `test/frames.test.ts` (QA) — a direct unit-test suite for `toPhysicsPlane()` (relocated into `frames.ts`
+  during review; previously exercised only indirectly, and only with the committed doc's two horizontal
+  planes, which never exercise its y-flip), plus a property-style round-trip pass (200 pseudo-random points,
+  fixed seed) over `glbToTable()->toScene()` and `toPhysics()->fromPhysics()` beside the existing hand-picked
+  cases.
+- `test/collision-loader.test.ts` (QA) — six new cases driving `src/sim/physics/loader`'s previously-untested
+  defensive branches with engineered-bad documents: `assertPlaneShaped()` on a non-plane `col_playfield`/
+  `col_glass`, a third node illegally claiming `shape: "plane"`, `findNode()`'s duplicate-name rejection,
+  `applyMaterial()`'s unknown-`phys_material` rejection, and the switch-zone loader's unknown-switch
+  rejection — five review-triaged guards with no prior test reaching them.
+- `test/export-py-version-gate.test.ts` (QA) — one new case proving `tools/export.py`'s outer
+  `except Exception` handler (the second line of defence behind `--python-exit-code` against "an uncaught
+  exception exits 0 under `blender --python`") actually fires for a genuinely unanticipated exception, not
+  only for `fail()`/`ExportError` paths every existing mutation-driven test already covered. Verified
+  discriminating by patching a throwaway copy outside the repo to drop that handler and confirming the
+  test's message assertion (not just its exit-code assertion) goes red.
 
 ## Auto Run Result
 

@@ -9,6 +9,7 @@
 // anyway (TypeScript types have no runtime representation).
 
 import { describe, expect, it } from 'vitest';
+import { CONTACT_SURFACES } from '../src/sim/contracts';
 import type {
 	ContactEvent,
 	ContactSurface,
@@ -65,6 +66,20 @@ describe('sim/contracts -- ContactSurface / ContactEvent', () => {
 	it('ContactSurface is the closed material enum', () => {
 		const surfaces: ContactSurface[] = ['wood', 'rubber_post', 'rubber_band', 'metal', 'plastic', 'ramp', 'flipper', 'target', 'bumper', 'glass', 'ball', 'dragon'];
 		expect(surfaces).toHaveLength(12);
+	});
+
+	it('CONTACT_SURFACES pins the twelve members AND their order at runtime, not just at the type level', () => {
+		// The literal above is typed `ContactSurface[]`, so it is a COMPILE-time
+		// check over the test's own text: it never reads CONTACT_SURFACES, and
+		// adding a thirteenth member or reordering the array broke nothing
+		// (review finding, Story 1.4's code-review pass). Since Story 1.4 that
+		// array is serialised into the table-contract dump `tools/export.py`
+		// validates every authored `surface` property against, so its ORDER and
+		// membership are a runtime contract with a real downstream consumer.
+		expect(CONTACT_SURFACES).toEqual([
+			'wood', 'rubber_post', 'rubber_band', 'metal', 'plastic', 'ramp',
+			'flipper', 'target', 'bumper', 'glass', 'ball', 'dragon',
+		]);
 	});
 
 	it('ContactEvent is discriminated on type "contact" and carries tick', () => {

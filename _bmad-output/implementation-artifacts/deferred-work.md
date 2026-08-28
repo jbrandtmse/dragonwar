@@ -47,6 +47,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-1-spike-1 | severity: low | fix-risk: med | footprint: in-epic
 - evidence: Six mid-field ball poses may never contact a corner HitPoint in the 10000-tick or 600-frame runs; tools/spike-1/scene.ts
 - 2026-08-27T22:32:55Z status=open owner=1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi by=migration note=Cover in 1.4 when real placeholder geometry lands; do NOT redesign the spike scene and invalidate the baseline
+- 2026-08-28T11:55:55Z occurrence=1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi
+- 2026-08-28T11:55:55Z status=open owner=1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi by=cr note=cr: closing test fires HitPoint only with ball centre at z=0, inside the playfield slab; 96-trajectory sweep of rolling balls = 0 collide() calls
 
 ### DW-8: The terminates-every-step test does not construct a genuinely non-convergent input
 - source: spec-1-1-spike-1 | severity: med | fix-risk: med | footprint: in-epic
@@ -249,3 +251,33 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: docs/spikes/spike-3.md
 - evidence: Lines 198-204 name the generator and the date; line 509 records the one-glb-versus-split decision against the 1560-byte placeholder. No test reads those lines, so nothing goes red. docs/** is outside Epic 1's declared footprint and Story 1.3 forbade editing either spike record
 - 2026-08-28T11:07:38Z status=open owner=1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi by=harvest note=To be adjudicated at this story's ledger gate; the plan recommends correct-as-history
+
+### DW-45: The collision loader ignores the document's own version/units/frame handshake that export.py writes, so a units:m or version:2 document loads silently at 1000x scale
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: tools/export.py writes version:1 units:mm frame:table; src/sim/physics/loader/index.ts's CollisionDoc interface declares only nodes and switchZones and reads none of them; test/asset-contract.test.ts does not check them either
+- 2026-08-28T11:56:05Z status=routed owner=1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop by=cr note=1.5 owns the host-side fetch that hands the loader its parsed document; assert the handshake there
+
+### DW-46: resolveBlender()'s conventional-location step hardcodes the C: drive and English Program Files, and its macOS/Linux candidates are absolute paths no test can inject
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: tools/blender.mjs expandBlenderFoundationDir('C:\Program Files\Blender Foundation') while the sibling per-user branch correctly reads env.LOCALAPPDATA; the darwin and Linux candidate lists are unreachable through the env parameter, so they are covered on no platform
+- 2026-08-28T11:56:05Z status=routed owner=burndown by=cr note=env.ProgramFiles / env['ProgramFiles(x86)'] is the portable form; a base-dir env hook would also make the POSIX branches testable
+
+### DW-47: l_insert_left's lens protrudes 0.5 mm above the playfield surface, against AD-11's 'lens and cup geometry below the surface'
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: tools/make-placeholder-blend.py builds the lens box from z -1.0 to +0.5 while vis_playfield spans z -1.0 to 0.0; the cup (z -7 to -1) is correct. No physics effect (l_ is visual; only col_ is hit), but it is a lip in the authored surface
+- 2026-08-28T11:56:20Z status=routed owner=burndown by=cr note=Fix needs the .blend regenerated, which this review is forbidden to do; Epic 2 re-authors this geometry -- lead to re-own to the 2.1 key
+
+### DW-48: The collision loader's flipper-length assertion is axis-agnostic, so a bat with the right extent on the WRONG axis passes
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: src/sim/physics/loader/index.ts takes Math.max over the bbox's x, y and z extents and compares that to TABLE.reference.flipperBatIn * MM_PER_IN; the col_playfield assertion beside it is correctly per-axis
+- 2026-08-28T11:56:20Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=cr note=1.6 replaces the placeholder flipper collision behind the same node names and the same asserted 3.125 in length -- pin the axis there
+
+### DW-49: The collision loader parses each node's surface property and then discards it, so AD-13's contact-sound selection has no carrier
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: src/sim/physics/loader/index.ts reads surface into CollisionNodeDoc but applyMaterial() keys only on physMaterial; no hit object ends up carrying a ContactSurface. The sibling 'devices' field got an explicit comment explaining its deferral; surface is dropped silently
+- 2026-08-28T11:56:20Z status=routed owner=burndown by=cr note=AD-13 drives contact sound from ContactEvent.surface; the first audio consumer needs this wired -- lead to re-own to that story
+
+### DW-50: Nothing automated covers ATTRIBUTIONS.md's generated-asset provenance rows, so a future asset can land with no row and every check stays green
+- source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: tools/check-attributions.mjs maps only package.json dependency keys onto ATTRIBUTIONS.md and has no concept of asset files; test/attributions.test.ts pins every earlier story's code rows in detail but adds nothing for the three assets Story 1.4 commits
+- 2026-08-28T11:56:20Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=cr note=CLAUDE.md treats provenance as a hard gate and this is the first story to commit binary assets; the release-audit story already owns check-attributions scope

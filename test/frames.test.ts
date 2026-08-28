@@ -7,7 +7,7 @@
 // floating-point tolerance.
 
 import { describe, expect, it } from 'vitest';
-import { MM_PER_VU, fromPhysics, glbToTable, toPhysics, toScene, type Vec3 } from '../src/sim/table/frames';
+import { MM_PER_VU, fromPhysics, glbToTable, toPhysics, toPhysicsPlane, toScene, type Vec3 } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 
 const EPSILON = 1e-9;
@@ -90,5 +90,147 @@ describe('sim/table/frames.ts -- negative control: the permutation is not the id
 describe('sim/table/frames.ts -- MM_PER_VU lives here (AD-10)', () => {
 	it('matches the harness-local constant tools/spike-1/scene.ts also carries (this story\'s Code Map)', () => {
 		expect(MM_PER_VU).toBeCloseTo(0.53975, 10);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Property-style round-trips over many generated points, not one or two
+// hand-picked ones (an axis-permutation or sign error can hide behind a
+// coordinate that happens to be symmetric, e.g. x === y, or a component that
+// happens to be zero -- exactly the failure class AD-10 exists to prevent).
+// A fixed seed keeps the run deterministic and reproducible on failure.
+// ---------------------------------------------------------------------------
+
+/** A tiny, deterministic, dependency-free PRNG (mulberry32) -- reproducible test data, no third-party code. */
+function mulberry32(seed: number): () => number {
+	let a = seed >>> 0;
+	return () => {
+		a = (a + 0x6d2b79f5) >>> 0;
+		let t = a;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+function randomRange(rng: () => number, min: number, max: number): number {
+	return min + rng() * (max - min);
+}
+
+const PROPERTY_SAMPLE_COUNT = 200;
+
+describe('sim/table/frames.ts -- property-style round-trips over many generated points', () => {
+	it('glbToTable() -> toScene() returns the original glb-frame point for 200 pseudo-random vectors spanning well beyond the playfield', () => {
+		const rng = mulberry32(0xd914a);
+		for (let i = 0; i < PROPERTY_SAMPLE_COUNT; i++) {
+			const glbPoint: Vec3 = {
+				x: randomRange(rng, -5, 5),
+				y: randomRange(rng, -5, 5),
+				z: randomRange(rng, -5, 5),
+			};
+			const table = glbToTable(glbPoint);
+			const scene = toScene(table);
+			expectClose(scene, glbPoint);
+		}
+	});
+
+	it('toPhysics() -> fromPhysics() returns the original table-frame point for 200 pseudo-random millimetre vectors spanning well beyond the playfield', () => {
+		const rng = mulberry32(0xd914b);
+		for (let i = 0; i < PROPERTY_SAMPLE_COUNT; i++) {
+			const point: Vec3 = {
+				x: randomRange(rng, -2000, 2000),
+				y: randomRange(rng, -2000, 2000),
+				z: randomRange(rng, -2000, 2000),
+			};
+			const physics = toPhysics(point);
+			const table = fromPhysics(physics);
+			expectClose(table, point);
+		}
+	});
+
+	it('every sampled point in both round-trips is genuinely distinct (the sample is not degenerate, e.g. all zeros)', () => {
+		// Guards the property tests above against a broken RNG silently
+		// generating the same point (or all zeros) every iteration, which
+		// would make "200 samples" pass even though only one point was ever
+		// actually exercised.
+		const rng = mulberry32(0xd914a);
+		const seen = new Set<string>();
+		for (let i = 0; i < PROPERTY_SAMPLE_COUNT; i++) {
+			const p = { x: randomRange(rng, -5, 5), y: randomRange(rng, -5, 5), z: randomRange(rng, -5, 5) };
+			seen.add(`${p.x},${p.y},${p.z}`);
+		}
+		expect(seen.size).toBe(PROPERTY_SAMPLE_COUNT);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// toPhysicsPlane() -- relocated here from src/sim/physics/loader/index.ts
+// during this story's review pass (AD-10 "one converter"). It had no direct
+// unit test of its own: the collision loader only ever calls it with the two
+// planes the committed collision document happens to carry (col_playfield,
+// col_glass -- both horizontal, normal {x:0,y:0,z:*}), which never exercises
+// the y-flip the function's whole reason for existing is to apply. These
+// tests drive the function directly with an oblique/vertical normal.
+// ---------------------------------------------------------------------------
+
+describe('sim/table/frames.ts -- toPhysicsPlane()', () => {
+	it('flips the normal\'s y component and leaves x/z unchanged', () => {
+		const { normal } = toPhysicsPlane({ x: 0.3, y: 0.4, z: 0.5 }, 100);
+		expect(normal.x).toBeCloseTo(0.3, 9);
+		expect(normal.y).toBeCloseTo(-0.4, 9);
+		expect(normal.z).toBeCloseTo(0.5, 9);
+	});
+
+	it('a horizontal table-frame plane (col_playfield-shaped: normal {0,0,1}) maps to an unrotated physics plane at the same (scaled) height', () => {
+		const { normal, d } = toPhysicsPlane({ x: 0, y: 0, z: 1 }, -19);
+		expect(normal.x).toBeCloseTo(0, 9);
+		expect(normal.y).toBeCloseTo(0, 9);
+		expect(normal.z).toBeCloseTo(1, 9);
+		expect(d).toBeCloseTo(-19 / MM_PER_VU, 9);
+	});
+
+	it('preserves the plane equation for every point actually on the plane, across oblique and vertical normals -- the invariant toPhysicsPlane() exists to protect', () => {
+		// For each (normal, point) pair below, point lies ON the table-frame
+		// plane by construction (dMm := normal . point). toPhysicsPlane() must
+		// return a physics-frame (normal, d) that the SAME point, independently
+		// converted through toPhysics(), still satisfies -- proving the two
+		// conversions (point and plane) agree with each other, not just that
+		// each looks individually plausible.
+		const rng = mulberry32(0xd914c);
+		for (let i = 0; i < 50; i++) {
+			// A random unit-ish normal (not normalised -- toPhysicsPlane() makes
+			// no normalisation claim, only a linear map) and a random point.
+			const normal: Vec3 = {
+				x: randomRange(rng, -1, 1),
+				y: randomRange(rng, -1, 1),
+				z: randomRange(rng, -1, 1),
+			};
+			const point: Vec3 = {
+				x: randomRange(rng, 0, TABLE.reference.playfieldMm.w),
+				y: randomRange(rng, 0, TABLE.reference.playfieldMm.h),
+				z: randomRange(rng, -50, 400),
+			};
+			const dMm = normal.x * point.x + normal.y * point.y + normal.z * point.z;
+
+			const { normal: physicsNormal, d } = toPhysicsPlane(normal, dMm);
+			const physicsPoint = toPhysics(point);
+			const lhs = physicsNormal.x * physicsPoint.x + physicsNormal.y * physicsPoint.y + physicsNormal.z * physicsPoint.z;
+
+			expect(lhs, `sample ${i}: physicsNormal . toPhysics(point) should equal d`).toBeCloseTo(d, 6);
+		}
+	});
+
+	it('negative control: naively reusing the table-frame normal unconverted (no y-flip) does NOT satisfy the plane equation for an oblique normal', () => {
+		// Proves the property test above is discriminating, not vacuously true
+		// for any returned normal -- the y-flip specifically matters.
+		const normal: Vec3 = { x: 0.2, y: 0.9, z: 0.1 };
+		const point: Vec3 = { x: 200, y: 400, z: 10 };
+		const dMm = normal.x * point.x + normal.y * point.y + normal.z * point.z;
+
+		const physicsPoint = toPhysics(point);
+		const naiveLhs = normal.x * physicsPoint.x + normal.y * physicsPoint.y + normal.z * physicsPoint.z;
+		const { d } = toPhysicsPlane(normal, dMm);
+
+		expect(naiveLhs).not.toBeCloseTo(d, 3);
 	});
 });

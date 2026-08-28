@@ -112,3 +112,56 @@ describe.skipIf(!pythonCmd)('tools/export.py -- version gate (stubbed bpy; no Bl
 		expect(result.stderr).not.toContain('too old');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// This story's own signature hazard (Code Map, "THE MEASURED TRAP"): inside
+// `blender --python script.py`, an uncaught Python exception exits 0 by
+// default. `tools/export.py`'s `main()` guards this with a broad
+// `except Exception` clause -- the SECOND line of defence beside
+// `--python-exit-code` -- but every existing mutation-driven test in
+// test/export-py.test.ts reaches its failure by calling `fail()`, which
+// raises `ExportError` and is caught by the NARROWER `except ExportError`
+// branch a few lines above it. None of them actually exercise the broad
+// catch-all: if it were ever narrowed to `except ExportError` only (removing
+// the generic branch), every one of those tests would still pass unchanged,
+// because ExportError is still caught -- exactly the "silent pass" this
+// story's own hazard warning is about.
+//
+// This test reaches `run()` past the version gate (a stubbed bpy at exactly
+// 5.2.0, same technique as above) with a `--table-json` path that does not
+// exist, so `open()` raises a plain `FileNotFoundError` -- an exception no
+// `validate_*()` call anticipates or wraps in `fail()`/`ExportError`. Only
+// the broad `except Exception` clause stands between that and a bare,
+// uncaught Python exception. Runs under plain Python (no Blender needed),
+// so it is never skipped, but it is still discriminating: CPython itself
+// exits non-zero on an uncaught exception too, so the message assertion
+// below (not just the exit code) is what would actually fail if the
+// catch-all were removed or narrowed -- an uncaught exception's traceback
+// never contains this file's own "(unexpected exception)" wording.
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!pythonCmd)('tools/export.py -- the outer exception trap (stubbed bpy; no Blender required)', () => {
+	it('an unanticipated exception (not a validate_*() failure) still exits non-zero with the "(unexpected exception)" message from the broad except-Exception handler', () => {
+		const stubDir = freshTmpDir();
+		writeBpyStub(stubDir, [5, 2, 0]); // pass the version gate so run() reaches json.load()
+		const outDir = freshTmpDir();
+		const missingTableJson = path.join(outDir, 'does-not-exist.json');
+
+		const result = spawnSync(
+			pythonCmd!,
+			[EXPORT_PY, '--', '--table-json', missingTableJson, '--out', outDir],
+			{
+				cwd: REPO_ROOT,
+				encoding: 'utf8',
+				env: { ...process.env, PYTHONPATH: stubDir },
+			},
+		);
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain('(unexpected exception)');
+		// Discriminates this path from an ExportError/fail() validation
+		// failure (e.g. the version gate's own 'too old' message above), whose
+		// branch never prints this wording.
+		expect(result.stderr).not.toContain('too old');
+	});
+});

@@ -50,6 +50,17 @@ import { TABLE } from './dragonwar';
 /** One VP length unit in millimetres (AD-10; matches `tools/spike-1/scene.ts`'s harness-local constant of the same value). Lives here and nowhere else in `src/`. */
 export const MM_PER_VU = 0.53975;
 
+/**
+ * One inch in millimetres. Not a FRAME conversion -- it rescales a scalar that
+ * is already in the table frame (`TABLE.reference.flipperBatIn`, the only
+ * imperial figure in the contract) -- but AD-10's rule is "no other file
+ * converts units or axes", without an exemption for scalars, so it lives here
+ * beside `MM_PER_VU` rather than as a private constant in whichever consumer
+ * happened to need it first (review finding, this story's code-review pass;
+ * the same reasoning relocated `toPhysicsPlane()` out of the collision loader).
+ */
+export const MM_PER_IN = 25.4;
+
 /** A plain, structured-cloneable 3-vector -- no frame of its own; the function name says which frame it is read as. */
 export interface Vec3 {
 	readonly x: number;

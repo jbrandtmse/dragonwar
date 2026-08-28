@@ -21,6 +21,7 @@ const BLEND_PATH = path.join(REPO_ROOT, 'assets', 'src', 'dragonwar.blend');
 const EXPORT_PY = path.join(REPO_ROOT, 'tools', 'export.py');
 const MUTATOR_PY = path.join(REPO_ROOT, 'test', 'fixtures', 'export-py', 'mutate-blend.py');
 const COMMITTED_GLB = path.join(REPO_ROOT, 'public', 'assets', 'dragonwar.glb');
+const COMMITTED_COLLISION = path.join(REPO_ROOT, 'public', 'assets', 'dragonwar.collision.json');
 const RUN_TIMEOUT_MS = 90_000;
 
 let blenderPath: string | undefined;
@@ -106,13 +107,30 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		expect(existsSync(path.join(outDir, 'dragonwar.collision.json'))).toBe(true);
 	});
 
-	it('re-exporting the committed .blend reproduces the committed glb byte-for-byte (verified byte-deterministic, Code Map)', () => {
+	it('re-exporting the committed .blend reproduces BOTH committed artifacts byte-for-byte (verified byte-deterministic, Code Map)', () => {
 		const outDir = freshTmpDir();
 		const { status, stderr } = runExportPy(BLEND_PATH, outDir);
 		expect(status, `stderr: ${stderr}`).toBe(0);
+
 		const fresh = readFileSync(path.join(outDir, 'dragonwar.glb'));
 		const committed = readFileSync(COMMITTED_GLB);
-		expect(Buffer.compare(fresh, committed)).toBe(0);
+		expect(Buffer.compare(fresh, committed), 'public/assets/dragonwar.glb is stale: re-exporting the committed .blend produced different bytes').toBe(0);
+
+		// The collision document was previously checked for EXISTENCE only, so a
+		// regression in export.py's collision maths -- wall_footprint_mm()'s
+		// dominant-axis choice, the dMm plane constant, a switch-zone bound, the
+		// devices' millimetre scaling -- would leave the committed document stale
+		// with nothing going red, on any machine, ever. That document is the input
+		// every physics test reads, so the whole collision suite would keep passing
+		// against outdated geometry (review finding, this story's code-review pass).
+		// export.py writes it with sort_keys=True and indent=2, so it is
+		// byte-deterministic exactly as the glb is.
+		const freshDoc = readFileSync(path.join(outDir, 'dragonwar.collision.json'));
+		const committedDoc = readFileSync(COMMITTED_COLLISION);
+		expect(
+			Buffer.compare(freshDoc, committedDoc),
+			'public/assets/dragonwar.collision.json is stale: re-exporting the committed .blend produced a different collision document. Re-run `pnpm export:assets` and commit both artifacts together.',
+		).toBe(0);
 	});
 
 	it('the real pnpm export:assets entry point (runExportAssets(), not just this file’s own hand-rolled spawnSync helper) succeeds end to end', () => {

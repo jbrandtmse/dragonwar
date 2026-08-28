@@ -96,10 +96,14 @@ describe('tools/blender.mjs -- resolveBlender()', () => {
 		expect(resolved).toBe(path.resolve(stubPath));
 	});
 
-	it('BLENDER unset, no PATH hit, resolves via the conventional per-user install location (resolution order step 3; win32 -- the LOCALAPPDATA-based path is the only conventional candidate this suite can inject without touching real system directories)', () => {
-		if (process.platform !== 'win32') {
-			return;
-		}
+	// `skipIf`, not a bare `return`: a body that returns early still reports as a
+	// PASSING test, so on ubuntu-latest -- the only automated environment there
+	// is -- this read as coverage of step 3 while asserting nothing at all
+	// (review finding, this story's code-review pass). Skipping says the true
+	// thing: step 3's non-Windows candidates are hardcoded absolute system paths
+	// that cannot be injected through `env`, so they are covered on no platform.
+	// See the ledger entry this review files against that residual gap.
+	it.skipIf(process.platform !== 'win32')('BLENDER unset, no PATH hit, resolves via the conventional per-user install location (resolution order step 3; win32 -- the LOCALAPPDATA-based path is the only conventional candidate this suite can inject without touching real system directories)', () => {
 		const dir = freshTmpDir();
 		const stubPath = path.join(dir, 'Programs', 'Blender Foundation', 'Blender 5.2', 'blender.exe');
 		writeStubExecutable(stubPath);

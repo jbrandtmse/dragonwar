@@ -53,7 +53,7 @@ still require a row for every one of them, no exception.*
 ## Assets
 
 Art, audio, models, textures and fonts go here as they are added. No
-*third-party* asset is in the repository yet; the one asset present is
+*third-party* asset is in the repository yet; every asset present is
 project-generated and recorded under "Generated content" below.
 
 | Asset | Source | Author | Licence | Verified |
