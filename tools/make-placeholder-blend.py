@@ -52,6 +52,7 @@ MM = 1.0 / 1000.0  # table millimetres -> Blender metres (this file's own, one-s
 PLAYFIELD_W_MM = 514.4
 PLAYFIELD_H_MM = 1066.8
 FLIPPER_BAT_MM = 79.375  # 3.125 in
+BALL_MM = 26.99  # TABLE.reference.ballMm -- Story 1.5's bd_trough eject-pose relocation
 
 WALL_T_MM = 12.0
 WALL_H_MM = 50.0
@@ -72,6 +73,18 @@ LANE_WALL_TOP_Y_MM = 950.0  # gap above this lets a launched ball cross into the
 
 DRAIN_X0_MM = 200.0
 DRAIN_X1_MM = 314.4
+
+# col_lane_deflector -- Story 1.5, provisional placeholder geometry not
+# derived from any acceptance criterion (DW-58): the plunger lane has no
+# deflector at the top, so a launched ball runs to the top wall and returns
+# straight down the lane rather than entering the main field. A triangular
+# prism whose hypotenuse runs from low-right to high-left turns a ball
+# travelling up the lane toward -x, above LANE_WALL_TOP_Y_MM. Authored with
+# an IDENTITY object transform and ANGLED MESH VERTICES (never a rotated
+# object) so tools/export.py's validate_col_geometry_reducible() rotation
+# guard -- which inspects only the object's world matrix -- still passes.
+DEFLECTOR_BASE_Y_MM = 976.0
+DEFLECTOR_TOP_Y_MM = 1010.0
 
 
 def clear_scene():
@@ -114,6 +127,49 @@ def _box_bmesh(min_mm, max_mm):
 		bm.faces.new(f)
 	bm.normal_update()
 	return bm
+
+
+def _prism_bmesh(plan_points_mm, z0_mm, z1_mm):
+	"""Extrudes an arbitrary plan-view polygon (`plan_points_mm`, a list of
+	`(x, y)` millimetre tuples of any length >= 3, wound in either order --
+	`bm.normal_update()` below resolves the final face winding, and the
+	physics loader orients every wall edge outward for itself regardless of
+	source winding) between two z heights. The angled-footprint counterpart
+	to `_box_bmesh()`'s fixed six-sided box: a bottom face, a top face and one
+	side quad per polygon edge, built the same low-level bmesh + `bpy.data.*`
+	way -- no `bpy.ops.*`, for the same headless-context reason `_box_bmesh()`
+	documents."""
+	bm = bmesh.new()
+	z0 = z0_mm * MM
+	z1 = z1_mm * MM
+	bottom = [bm.verts.new((x * MM, y * MM, z0)) for x, y in plan_points_mm]
+	top = [bm.verts.new((x * MM, y * MM, z1)) for x, y in plan_points_mm]
+	bm.faces.new(bottom)
+	bm.faces.new(reversed(top))
+	count = len(plan_points_mm)
+	for i in range(count):
+		j = (i + 1) % count
+		bm.faces.new((bottom[i], bottom[j], top[j], top[i]))
+	bm.normal_update()
+	return bm
+
+
+def new_prism_mesh(name, plan_points_mm, z0_mm, z1_mm, parent=None):
+	"""A prism mesh extruded from an arbitrary plan-view polygon -- the
+	angled-footprint counterpart to `new_box_mesh()` below, sharing its
+	object/mesh-datablock naming convention and creating the same `uv_base`
+	UV layer so the two mesh-building paths stay consistent."""
+	bm = _prism_bmesh(plan_points_mm, z0_mm, z1_mm)
+	mesh = bpy.data.meshes.new(name)
+	bm.to_mesh(mesh)
+	bm.free()
+	mesh.uv_layers.new(name='uv_base')
+	obj = bpy.data.objects.new(name, mesh)
+	obj.data.name = name
+	bpy.context.scene.collection.objects.link(obj)
+	if parent is not None:
+		obj.parent = parent
+	return obj
 
 
 def new_box_mesh(name, min_mm, max_mm, parent=None, material=None, second_uv=False):
@@ -221,6 +277,29 @@ def main():
 		wall = new_box_mesh(name, min_mm, max_mm, parent=playfield_root)
 		set_props(wall, col_shape='wall', surface='wood', phys_material='default')
 
+	# ---- col_lane_deflector: angled triangular prism at the top of the
+	# plunger lane (Story 1.5, provisional placeholder geometry not derived
+	# from any acceptance criterion -- DW-58). Identity transform, angled MESH
+	# vertices -- see this file's constants block above for why. The
+	# hypotenuse runs from high-left (LANE_X0_MM + WALL_T_MM, DEFLECTOR_TOP_Y_MM
+	# -- the lower x, higher y point) to low-right (PLAYFIELD_W_MM,
+	# DEFLECTOR_BASE_Y_MM -- the higher x, lower y point; review finding
+	# 2026-08-28 corrected this comment's labels, which had both points
+	# backwards -- the constants block above already had it right: "low-right
+	# to high-left"), turning a ball travelling up the lane (+Y) toward -X,
+	# into the main field. ----
+	col_lane_deflector = new_prism_mesh(
+		'col_lane_deflector',
+		[
+			(LANE_X0_MM + WALL_T_MM, DEFLECTOR_TOP_Y_MM),
+			(PLAYFIELD_W_MM, DEFLECTOR_BASE_Y_MM),
+			(PLAYFIELD_W_MM, DEFLECTOR_TOP_Y_MM),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_lane_deflector, col_shape='wall', surface='wood', phys_material='default')
+
 	# ---- Flippers: box shape, axis-aligned so their bounding box is exactly
 	# the authored bat length (unpitched, no rotation) ----
 	flipper_y0, flipper_y1 = 57.5, 82.5
@@ -247,17 +326,44 @@ def main():
 	)
 	set_props(sw_shooter_lane, col_shape='box', switch='s_shooter_lane', surface='metal', phys_material='default')
 
-	trough_slot_xs = [210.0, 240.0, 270.0, 300.0]
+	# Story 1.5 (DW-58): retiled as four CONTIGUOUS boxes spanning the full
+	# drain aperture (DRAIN_X0_MM..DRAIN_X1_MM), rather than four narrower
+	# islands with gaps between them -- the original tiling covered only 64 mm
+	# of the 114.4 mm aperture in four disconnected 16 mm-wide islands, and a
+	# measured sweep of drain crossings missed three of five. The y extent
+	# also widened, from -80..-40 to -80..0 (review finding 2026-08-28 asked
+	# for this to be explained here, not only in the spec's own planning
+	# notes): the upper bound now sits exactly at y = 0, the drain wall's own
+	# inner face (col_wall_bottom_l/_r span y in [-12, 0]), so a ball crossing
+	# the aperture at y = 0 is caught immediately rather than only after
+	# falling a further 40 mm past the wall -- this is the same "zero misses
+	# across a 0.5 mm sweep" figure the x-retiling above was measured against.
+	# Provisional placeholder geometry, not derived from any acceptance
+	# criterion.
 	trough_switch_names = ['s_trough_1', 's_trough_2', 's_trough_3', 's_trough_4']
-	for i, (slot_x, switch_name) in enumerate(zip(trough_slot_xs, trough_switch_names), start=1):
+	trough_slot_w_mm = (DRAIN_X1_MM - DRAIN_X0_MM) / len(trough_switch_names)  # 28.6 mm
+	for i, switch_name in enumerate(trough_switch_names):
+		slot_x0 = DRAIN_X0_MM + i * trough_slot_w_mm
+		slot_x1 = DRAIN_X0_MM + (i + 1) * trough_slot_w_mm
 		sw = new_box_mesh(
-			f'sw_trough_{i}', (slot_x - 8, -80, 0), (slot_x + 8, -40, 20),
+			f'sw_trough_{i + 1}', (slot_x0, -80, 0), (slot_x1, 0, 20),
 			parent=playfield_root,
 		)
 		set_props(sw, col_shape='box', switch=switch_name, surface='metal', phys_material='default')
 
 	# ---- Ball devices: empties at their authored eject pose ----
-	bd_trough = new_empty('bd_trough', (255.0, -60.0, 10.0), parent=playfield_root)
+	# bd_trough -- Story 1.5 (DW-51, DW-58): relocated from the original
+	# (255, -60, 10) -- squarely inside the drain gap, where the ejected ball
+	# could never reach sw_shooter_lane at any speed (measured during
+	# planning) -- to the shooter-lane foot, the same resting pose a served
+	# ball settles at. Provisional placeholder geometry, not derived from any
+	# acceptance criterion; expressed from the existing named constants.
+	BD_TROUGH_EJECT_X_MM = LANE_X0_MM + WALL_T_MM + LANE_CLEAR_MM / 2  # 497.4
+	BD_TROUGH_EJECT_Y_MM = 20.0
+	BD_TROUGH_EJECT_Z_MM = BALL_MM / 2  # 13.495
+	bd_trough = new_empty(
+		'bd_trough', (BD_TROUGH_EJECT_X_MM, BD_TROUGH_EJECT_Y_MM, BD_TROUGH_EJECT_Z_MM), parent=playfield_root,
+	)
 	bd_trough.rotation_euler = (0.0, 0.0, 0.0)  # local +Y is the eject direction: (0, 1, 0)
 
 	bd_shooter = new_empty('bd_shooter', (498.0, 35.0, 13.0), parent=playfield_root)

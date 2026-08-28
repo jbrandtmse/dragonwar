@@ -2,9 +2,10 @@
 title: 'Story 1.5: A ball rolls, drains and is served on the fixed-step loop'
 type: 'feature'
 created: '2026-08-28'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '784d94a4c9192813df90d0c2b43213ce434b73ff'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -41,6 +42,105 @@ deferred:
     location: >-
       tools/make-placeholder-blend.py:210-241
     severity: low
+  - summary: >-
+      The swept-segment/box intersection test is duplicated verbatim rather than shared: segmentIntersectsBox
+      in src/sim/physics/switches.ts and segmentIntersectsBoxLocal in src/sim/physics/devices.ts are the same
+      slab-method algorithm, copy-pasted. A future correctness fix or epsilon tweak applied to one copy could
+      silently diverge from the other. Similarly, the physics-velocity<->table-mm/s conversion is derived
+      twice: tableSpeedToPhysicsVelocity (devices.ts) and physicsVelocityToTableMmPerS (loop/index.ts) each
+      independently difference two toPhysics()/fromPhysics() calls and scale by the same VP time-unit factor,
+      with each file's own comment acknowledging the duplication rather than sharing it.
+    evidence: |-
+      Code review 2026-08-28 (blind-hunter and intent-alignment layers, independently). Confirmed by direct
+      reading: both intersection functions implement the identical slab method over the same box-corner
+      shape; both velocity-conversion functions perform the identical difference-two-calls-and-scale
+      derivation. Neither is currently incorrect -- both are independently exercised by the full test suite
+      -- this is a maintainability/DRY concern, not a functional defect.
+    location: >-
+      src/sim/physics/switches.ts, src/sim/physics/devices.ts, src/sim/loop/index.ts
+    severity: low
+  - summary: >-
+      src/presentation/scene/create-engine.ts's render loop only wraps its onFrame callback (plus
+      scene.render()) in try/catch on the FIRST frame, where a thrown error correctly rejects the boot
+      promise and reaches the AD-17 error panel. On every frame AFTER the first -- the branch a real play
+      session runs on for its entire duration -- there is no try/catch: if the caller-supplied onFrame ever
+      throws (e.g. a future presentation bug inside syncBalls()/applyPitch()), Babylon's render loop would
+      silently stop with no error surfaced to the user, unlike the guarantee the first-frame branch provides.
+    evidence: |-
+      Edge-case-hunter review 2026-08-28, confirmed by direct reading of create-engine.ts's
+      engine.runRenderLoop() callback: the `if (firstFrameSeen) { onFrame?.(...); scene.render(); return; }`
+      branch has no surrounding try/catch, while the branch below it (before the first frame) does. Fixing
+      this requires threading a persistent error-surfacing path through the boot pipeline (not just a local
+      try/catch, since the boot promise has already resolved by the time a later frame could throw) --
+      out of scope for a same-pass patch.
+    location: >-
+      src/presentation/scene/create-engine.ts:304-317
+    severity: medium
+  - summary: >-
+      Eject ContactEvent payloads are inconsistent between the two device paths in
+      src/sim/physics/devices.ts: the parking-device (trough) eject attaches `pos: pose`, where `pose`'s
+      value type is `Vec3 & { dir: Vec3 }` -- so the event's `pos` field structurally carries an extra `dir`
+      property never intended for ContactEventLike.pos. The non-parking (autolaunch) eject omits `pos`
+      entirely even though the resting ball's position is trivially available. No current consumer reads
+      ContactEvent.pos (there is no working collision callback in this port yet; Epic 4 owns contact-driven
+      sound), so this has zero present impact.
+    evidence: |-
+      Blind-hunter review 2026-08-28, confirmed by direct reading of devices.ts's two eject sites (the
+      parking-device branch pushes `pos: pose`; the non-parking branch's contactEvents.push omits `pos`).
+    location: >-
+      src/sim/physics/devices.ts
+    severity: low
+  - summary: >-
+      tools/export.py's convex-hull wall-footprint reduction (Story 1.5's own rewrite of wall_footprint_mm())
+      is pinned by two new tests in test/export-py.test.ts, but both are Blender-gated
+      (describe.skipIf(!blenderPath)) per the project-wide "CI has no Blender" convention this story must
+      follow -- so neither runs in CI. test/asset-contract.test.ts's ungated checks only inspect the
+      already-committed JSON output, not the reduction algorithm itself, so a subtly-wrong future edit to the
+      hull/rotation logic that still happens to satisfy those output-shape checks would stay green in CI
+      until a contributor with Blender installed locally regenerates the asset and inspects it by hand.
+    evidence: |-
+      Verification-gap review 2026-08-28. This is the same CI-coverage blind spot every Blender-dependent
+      test in this project already has (an explicit, accepted "Always" constraint this story itself must
+      honour), not something introduced by this story; noted because this story's rewrite is the specific
+      new logic most exposed to it. A pure-Python unit test of the hull/rotation math against synthetic
+      vertex lists, needing no Blender, would close it without requiring Blender in CI.
+    location: >-
+      tools/export.py (wall_footprint_mm, _convex_hull_2d), test/export-py.test.ts
+    severity: low
+  - summary: >-
+      test/machine-serve-drain.test.ts's "the ball reaches the main field" integration assertion hardcodes
+      the plunger-lane divider's main-field-face x boundary as a bare numeric literal (`ball.pos.x < 468.4`),
+      with only a code comment noting it corresponds to LANE_X0_MM, rather than importing the real constant.
+      If that boundary is ever retuned in TABLE/tools/make-placeholder-blend.py, this test's pass/fail
+      behaviour would silently drift out of sync rather than fail loudly or update automatically.
+    evidence: |-
+      Blind-hunter review 2026-08-28, confirmed by direct reading of the test file. LANE_X0_MM itself is a
+      tools/make-placeholder-blend.py-local constant not currently exported anywhere a test could import it
+      from; sourcing this cleanly would need either a shared constants module or reading the value from the
+      committed collision document at test time.
+    location: >-
+      test/machine-serve-drain.test.ts
+    severity: low
+  - summary: >-
+      "s_shooter_lane closes exactly once and the ball rests inside sw_shooter_lane" (this story's own
+      acceptance criterion) cannot be proven as ONE observation against the real committed geometry: by
+      Story 1.3's own frozen design (AD-2/AD-19), FrameOutput never carries raw SwitchEvents -- only
+      ball_launched crosses that boundary -- so no integration-level test against the real loop can observe
+      "s_shooter_lane closes exactly once" directly. The single-edge/0ms-settle-class debounce MECHANISM is
+      proven generically in test/switch-zones.test.ts, but against a synthetic zone (chosen only because its
+      switch name is valid, not because it is the real device); the REAL-geometry half is proven separately
+      in test/machine-serve-drain.test.ts by checking the served ball's resting position falls inside
+      sw_shooter_lane's bounds -- a position check, not an edge-count check. The two halves of the one AC are
+      never verified together against the real device.
+    evidence: |-
+      Intent-alignment audit 2026-08-28, confirmed by direct reading: sim/rules/devices.ts's own header
+      states device-internal SwitchEvents are "never returned in FrameOutput.events"; this is inherited from
+      Story 1.3's committed contract (sim/contracts/snapshot.ts's own header: "FrameOutput carries no switch
+      events... by design"), not something this story introduced or could change without reopening that
+      contract.
+    location: >-
+      src/sim/rules/devices.ts, test/switch-zones.test.ts, test/machine-serve-drain.test.ts
+    severity: medium
 ---
 
 <intent-contract>
@@ -746,6 +846,23 @@ that consumes the regenerated artifacts):
 
 ## Review Triage Log
 
+### 2026-08-28 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9 (high 0, medium 5, low 4)
+- defer: 6 (high 0, medium 2, low 4)
+- reject: 10 (high 0, medium 0, low 10)
+- addressed_findings:
+  - `medium` `patch` boot.ts: bootScene() throwing after hostLoop.start() left the host loop's rAF chain running forever with the error panel showing and nothing reading its output -- hostLoop is now declared before the try block and stopped in the catch handler.
+  - `medium` `patch` player-physics.ts removeBall(): only the `balls` lookup was guarded; an indexOf(-1) on `movers`/`hitObjectsDynamic` would have silently spliced the LAST element of the wrong array instead of throwing -- both lookups are now guarded identically, matching the method's own "throws rather than silently no-op'ing" contract.
+  - `medium` `patch` test/ball-render.test.ts never asserted the ball mesh has a material -- this story's own browser smoke found exactly that regression (geometrically correct, invisible mesh) live; added the missing assertion.
+  - `medium` `patch` eject_failed/device_overflow were only verified against createDeviceMechanics() directly, never through machine.ts's semanticEvents wiring or the real loop -- added test/machine-serve-drain.test.ts's "eject_failed reaches FrameOutput.events through the REAL loop" case (confirmed discriminating by temporarily reverting the wiring and watching it fail); device_overflow's own trigger (a 5th ball) is unreachable under Epic 1's single-ball rules, so that half stays at the existing unit-level coverage, appropriately.
+  - `medium` `patch` create-engine.ts's onFrame wiring (the mechanism connecting sim/loop to what Babylon draws) had zero executed test coverage -- every existing test called syncBalls()/applyPitch() directly, bypassing it. Added two test/ball-render.test.ts cases proving onFrame is actually invoked, including on frames AFTER the first (the steady-state branch a real play session runs on); both confirmed discriminating by temporarily breaking each render-loop branch's onFrame call and watching the corresponding assertion fail.
+  - `low` `patch` sim/loop/index.ts advance(): a non-finite elapsedMs silently poisoned owedRemainderTicks with NaN forever (every future call would then also owe zero ticks, freezing the sim with no thrown error) -- added an explicit finite check plus a regression test.
+  - `low` `patch` ATTRIBUTIONS.md's collision.json row still listed HitPoint among the primitives src/sim/physics/loader instantiates, though this story's own DW-7 fix (HitPoint -> HitLineZ) removed it from that site -- corrected.
+  - `low` `patch` tools/make-placeholder-blend.py's col_lane_deflector construction-site comment had the hypotenuse's two endpoints' compass labels backwards ("low-right" for the high-left point and vice versa), contradicting the correct constants-block comment above it -- corrected to match the real coordinates.
+  - `low` `patch` tools/make-placeholder-blend.py's trough-zone retiling comment explained the x-axis contiguous retiling but not the y-axis widening (-80..-40 to -80..0) alongside it -- added the rationale (the new upper bound sits exactly at the drain wall's inner face, y = 0).
+
 ## Design Notes
 
 ### Governing ADs (Rule 6)
@@ -1063,5 +1180,44 @@ No change is planned to `AGENTS.md`, `CLAUDE.md`, `NOTICE`, `LICENSE`, `vite.con
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**DW-14 steady-state re-characterisation (task 25, `test/sim-cost.test.ts`), measured on the real placeholder geometry via `sim/physics/machine.ts`, four balls in genuine motion (via four real trough ejects), 600 frames of 17 ticks each:**
+mean 1.6952 ms/frame, p95 2.9131 ms/frame — comfortably inside the 4 ms p95 bar. (Compare Spike 1's own floor, six balls in a near-quiescent harness scene, `docs/spikes/spike-1.md`: this story's own Node-leg re-run during implementation measured mean ~0.10 ms/tick, p95 ~0.24 ms/tick, i.e. p95 x 17 ~4.0-4.5 ms — both figures are Node-only; the browser legs remain the author's per the epic's own gating rule.)
+
+**troughEjectSpeedMmPerS revised from the spec's own planning figure:** task 10(b) as originally planned would have shipped `troughEjectSpeedMmPerS: 500` (the value the spec's "Verified facts" section measured, reproduced exactly here too: peak y ~105.6 mm). Driving the real loop end to end during implementation showed that speed sends the served ball's arc OUT of `sw_shooter_lane`'s own y <= 60 mm zone ceiling before it falls back and settles — producing a spurious `s_shooter_lane` open/close pair and, per AD-6's "the opening of s_shooter_lane is the one event that means plunged" rule, a spurious `ball_launched` during an ordinary trough eject, before autolaunch is ever pulsed. Shipped `troughEjectSpeedMmPerS: 300` instead (peak y ~50.6 mm, ~9.4 mm of margin inside the zone ceiling; the resting position is unchanged at y ~13.5 mm, set by `col_wall_lane_bottom`, not by launch speed — verified at every tested speed). `test/tuning.test.ts` and `test/machine-serve-drain.test.ts` both pin the corrected value and the resulting single-edge/single-`ball_launched` behaviour. Flagged here for the lead rather than silently substituted, since it departs from the spec's own stated figure.
+
+**Browser smoke (this story's own outermost AC) run during implementation, not merely left for the lead:** `pnpm build` + `pnpm preview`, driven with `chrome-devtools-mcp` on both the default (WebGPU-attempt-then-fallback) and `?renderer=webgl2` (forced) paths. Both: press-to-begin -> `pulseCoil('c_trough_eject')` -> a ball becomes visible at the shooter-lane foot -> `pulseCoil('c_autolaunch')` -> the ball is visible crossing the main field -> the ball disappears on drain. Console carried no CSP violation and no unhandled error on either path (only the pre-existing, already-routed WebGPU-alpha-material fallback warning on the default path, and the browser's own unrelated `favicon.ico` 404). One implementation fix came directly out of this pass: `src/presentation/scene/balls.ts`'s sphere had no material, so it was geometrically correct (right position, right parent, `isVisible: true`) but not actually rendered against the placeholder playfield -- confirmed by projecting its world position through the camera's own view/projection matrices and finding nothing at the resulting screen pixel. Fixed by giving every ball mesh a shared placeholder `StandardMaterial` (steel-grey); re-verified visible on both renderer paths after the fix.
+
+### Review pass summary (2026-08-28)
+
+**Summary of implemented change:** the whole Story 1.5 vertical slice -- `sim/loop` (fixed-step conductor), `sim/physics/{switches,devices,machine}.ts` (AD-2/AD-6 cabinet mechanics), `sim/rules/{index,devices,ball-controller}.ts` (AD-19 devices layer + ballsInPlay accounting), `host/loop.ts` (rAF driver) and `presentation/scene/balls.ts` (ball rendering), wired end to end through `host/boot.ts`; plus the three planned `.blend` geometry fixes (relocated `bd_trough` eject pose, the new `col_lane_deflector`, retiled `sw_trough_1..4`) via a generalised convex-hull wall reduction in `tools/export.py`. See the implementation notes above this section for full detail; this section covers the review pass only.
+
+**Files changed** (full list also in `git status --short`; `(new)` = created by this story):
+- `ATTRIBUTIONS.md` -- re-dated/re-described the three generated-asset rows (task 1); review pass corrected a stale `HitPoint` mention.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json` -- regenerated (relocated `bd_trough` pose, new `col_lane_deflector`, retiled trough zones).
+- `src/host/boot.ts` -- wires the collision fetch, `createHostLoop()` and the `syncBalls()`/`applyPitch()` per-frame callback; review pass added `hostLoop.stop()` on boot failure.
+- `src/host/loop.ts` (new) -- the rAF driver (`createHostLoop()`).
+- `src/presentation/scene/balls.ts` (new) -- `syncBalls()`, with a shared placeholder ball material.
+- `src/presentation/scene/create-engine.ts` -- surfaces `playfieldNodes` and the `onFrame` per-render-iteration hook.
+- `src/sim/contracts/time.ts` -- `msToTicksExact()`, `ticksToMs()`, `MAX_OWED_TICKS`.
+- `src/sim/loop/index.ts` (new) -- `createLoop()`/`advance()`, the fixed-step conductor; review pass added a non-finite-`elapsedMs` guard.
+- `src/sim/physics/devices.ts`, `src/sim/physics/machine.ts`, `src/sim/physics/switches.ts` (all new) -- AD-6 device mechanics, the cabinet facade, and the AD-2 zone-edge tracker.
+- `src/sim/physics/game/player-physics.ts` -- `removeBall()`; review pass guarded its two previously-unguarded `indexOf` lookups.
+- `src/sim/physics/loader/index.ts` -- DW-45 handshake, DW-7 `HitLineZ` fix, `devices` array parsing.
+- `src/sim/rules/ball-controller.ts`, `src/sim/rules/devices.ts`, `src/sim/rules/index.ts` (all new) -- AD-19 devices layer and ballsInPlay accounting.
+- `src/sim/table/dragonwar.ts` -- `servesInto` field on `bd_trough`/`bd_shooter`.
+- `src/sim/table/tuning.ts` -- DW-35 guards, `troughEjectSpeedMmPerS`/`autolaunchSpeedMmPerS`.
+- `test/asset-contract.test.ts`, `test/collision-loader.test.ts`, `test/export-py.test.ts`, `test/fixtures/export-py/mutate-blend.py`, `test/player-physics-guards.test.ts`, `test/sim-boundary.test.ts` (`AUTHORED_FILES` only), `test/table.test.ts`, `test/tuning.test.ts` -- extended for this story's new surfaces.
+- `test/ball-render.test.ts`, `test/device-eject-pose.test.ts`, `test/fixtures/solver-termination/*`, `test/loop-determinism.test.ts`, `test/loop.test.ts`, `test/machine-serve-drain.test.ts`, `test/sim-cost.test.ts`, `test/solver-termination.test.ts`, `test/switch-zones.test.ts` (all new) -- the story's I/O-matrix coverage; review pass added the material assertion and two `onFrame`-wiring cases to `ball-render.test.ts`, the capacity-mismatch throw and the no-ball autolaunch-failure cases to `machine-serve-drain.test.ts` (closing two Matrix Test Audit gaps found before code review even started), plus the `eject_failed`-through-the-real-loop case (closing a review-pass verification gap) and a non-finite-`elapsedMs` case in `loop.test.ts`.
+- `tools/export.py` -- convex-hull wall-footprint reduction, replacing the AABB reduction (byte-neutral for the seven pre-existing walls, verified).
+- `tools/make-placeholder-blend.py` -- the three geometry changes; review pass corrected one self-contradictory comment and added a missing rationale note, both comment-only (no geometry change, no re-export needed).
+
+**Review findings breakdown:** four review layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment) ran in parallel against the full diff since `baseline_revision`. After dedup and independent severity assignment: **9 patched** (0 high, 5 medium, 4 low -- all fixed in this pass, each verified individually and, where the fix was a test, confirmed genuinely discriminating by temporarily reintroducing the bug and watching the new test fail); **6 deferred** (0 high, 2 medium, 4 low -- recorded in this spec's frontmatter `deferred:` list for the lead to route: two are pre-existing architectural constraints inherited from Story 1.3/this project's own "CI has no Blender" convention, not caused by this story; the rest are real-but-low-urgency maintainability items with no current functional impact); **10 rejected** (0 high, 0 medium, 10 low -- by-design behaviour already justified in this spec's own Design Notes, findings that don't survive contact with how the automated boundary-lint tool is actually scoped, or genuinely unreachable/theoretical scenarios under Epic 1's own single-ball rules). No `intent_gap` and no `bad_spec` findings -- every patch was a same-file, same-story fix; `review_loop_iteration` stays at 0, no spec-amendment loopback was needed.
+
+**Follow-up review recommendation:** counting only this pass's 9 `patch` findings (never defer or reject) -- 0 high, 5 medium, 4 low. Score = 3 x 5 + 1 x 4 = **19** (>= 5, and independently: 0 high findings). **`followup_review_recommended: true`** (set in frontmatter) -- not because any single finding was high-severity, but because the total patched volume crossed the threshold; the lead may want a fresh review pass focused specifically on the 9 patched sites before this story is treated as fully closed out.
+
+**Verification performed (review pass, on top of the implementation subagent's own run):** independently re-ran, after every patch: `pnpm typecheck` (clean, all 3 projects); `pnpm lint:boundaries` (`OK -- 64 .ts file(s) under src/ cruised, no violations`); `pnpm check:headers` / `pnpm check:attributions` (both `OK`, after staging the new files so `git ls-files`-based checks could see them); `pnpm test` **both ways** -- **518 passed** with `BLENDER` set, **497 passed + 21 skipped** without (both counts up from the 511/492+21 baseline the implementation subagent left, itself up from the story's 442/423+19 baseline; nothing regressed or newly skipped); `pnpm build && pnpm check:dist && pnpm check:size` (all exit 0, 0.812 MB vs the 2.75 MB budget); `git status --short` matches the spec's declared Code Map file list exactly, both before and after every patch. Also independently verified: the collision-document handshake fields, `bd_trough`/`bd_shooter` eject poses and `col_lane_deflector`'s footprint via the spec's own `node --input-type=module` inspection command; the seven pre-existing walls' `footprintMm` are still 4-point rectangles (byte-neutral hull reduction, corroborated against the diff); the full `public/assets/dragonwar.collision.json` diff against `baseline_revision` contains only the three documented changes (`bd_trough` pose, `col_lane_deflector`, four retiled `sw_trough_*` zones) and nothing else.
+
+**Residual risks:** the 6 deferred findings above (frontmatter `deferred:` list, for the lead to adjudicate at this epic's burn-down gate per Rule 17); `device_overflow`'s wiring through the real loop stays covered only at the `devices.ts` unit level, since Epic 1's own single-ball rules make the real trigger (a 5th ball) unreachable through legitimate gameplay until Epic 2's multiball; the `onFrame` render-loop's post-first-frame branch still has no error-surfacing path if a future presentation bug throws mid-session (deferred, medium severity, needs cross-file plumbing beyond a same-pass patch). None of these block this story's own acceptance criteria, all of which pass.

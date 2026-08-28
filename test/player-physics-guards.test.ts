@@ -17,6 +17,10 @@ import { PlayerPhysics } from '../src/sim/physics/game/player-physics';
 import { HitPlane } from '../src/sim/physics/hit-plane';
 import { HitPoint } from '../src/sim/physics/hit-point';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
+import { Ball } from '../src/sim/physics/ball/ball';
+import { BallData } from '../src/sim/physics/ball/ball-data';
+import { BallState } from '../src/sim/physics/ball/ball-state';
+import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
 
 function playfield(): HitPlane {
 	return new HitPlane(new Vertex3D(0, 0, 1), 0);
@@ -70,5 +74,58 @@ describe('PlayerPhysics setup guards (DragonWar hardening around the ported solv
 		physics.setPlayfieldHit(playfield());
 
 		expect(() => physics.step()).toThrow(/setTopGlassHit/);
+	});
+});
+
+const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
+
+function buildBall(id: number, x: number, y: number, vx: number): Ball {
+	const data = new BallData(25, 1, 1);
+	const state = new BallState(`Ball${id}`, new Vertex3D(x, y, data.radius));
+	return new Ball(id, data, state, new Vertex3D(vx, 0, 0), TABLE_DATA);
+}
+
+describe('PlayerPhysics.removeBall() -- Story 1.5, the authored inverse of addBall()', () => {
+	function scene(): PlayerPhysics {
+		const physics = new PlayerPhysics();
+		physics.setPlayfieldHit(playfield());
+		physics.setTopGlassHit(topGlass());
+		physics.finalizeStatics();
+		return physics;
+	}
+
+	it('a removed ball no longer moves and no longer collides', () => {
+		const physics = scene();
+		const removed = buildBall(0, 100, 100, 5);
+		const stationary = buildBall(1, 300, 300, 0);
+		physics.addBall(removed);
+		physics.addBall(stationary);
+
+		physics.removeBall(removed);
+		expect(physics.balls).toEqual([stationary]);
+
+		const removedXBefore = removed.state.pos.x;
+		for (let i = 0; i < 20; i++) {
+			physics.step();
+		}
+
+		// No longer stepped: its position is frozen exactly where it was.
+		expect(removed.state.pos.x).toBe(removedXBefore);
+		// And no longer collidable: stepping never throws reaching into a torn-down mover/hit shape.
+		expect(() => physics.step()).not.toThrow();
+	});
+
+	it('throws when removing a ball that was never added', () => {
+		const physics = scene();
+		const notAdded = buildBall(0, 100, 100, 0);
+		expect(() => physics.removeBall(notAdded)).toThrow(/not registered/);
+	});
+
+	it('throws when removing the same ball twice', () => {
+		const physics = scene();
+		const ball = buildBall(0, 100, 100, 0);
+		physics.addBall(ball);
+		physics.removeBall(ball);
+		expect(() => physics.removeBall(ball)).toThrow(/not registered/);
 	});
 });

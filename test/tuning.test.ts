@@ -36,6 +36,8 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'plungerMaxHoldMs',
 			'plungerMinSpeedScale',
 			'plungerMaxSpeedScale',
+			'troughEjectSpeedMmPerS',
+			'autolaunchSpeedMmPerS',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
@@ -107,6 +109,26 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 
 	it('has no hopControl entry -- FR-9 states no unit or magnitude, so none is invented (this story\'s own Block-If rule)', () => {
 		expect('hopControl' in TUNING).toBe(false);
+	});
+
+	// Story 1.5, task 10(b): the two eject-speed tunables.
+	it('troughEjectSpeedMmPerS is 300, unverified, sourced to AD-6\'s eject-speed requirement', () => {
+		const t = TUNING.troughEjectSpeedMmPerS;
+		expect(t.value).toBe(300);
+		expect(t.confidence).toBe('unverified');
+		expect(t.source).toMatch(/AD-6/);
+	});
+
+	it('autolaunchSpeedMmPerS is 2500, unverified, sourced to AD-6\'s eject-speed requirement', () => {
+		const t = TUNING.autolaunchSpeedMmPerS;
+		expect(t.value).toBe(2500);
+		expect(t.confidence).toBe('unverified');
+		expect(t.source).toMatch(/AD-6/);
+	});
+
+	it('neither new speed tunable\'s name ends in "Ms" -- both are mm/s speeds, not durations', () => {
+		expect('troughEjectSpeedMmPerS'.endsWith('Ms')).toBe(false);
+		expect('autolaunchSpeedMmPerS'.endsWith('Ms')).toBe(false);
 	});
 });
 
@@ -200,5 +222,50 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		// dropped from the conversion with no counterpart and no complaint.
 		const broken = { ...TUNING, brokenMs: { source: 'test fixture', confidence: 'unverified' as const } };
 		expect(() => resolveTuning(broken as unknown as typeof TUNING)).toThrow(/brokenMs/);
+	});
+
+	// Story 1.5, task 10(a): closes DW-35.
+	describe('DW-35 -- negative and rounds-to-zero …Ms values throw', () => {
+		it('throws naming the tunable and its ms value when a …Ms tunable is negative', () => {
+			const broken = {
+				...TUNING,
+				tiltSettleMs: { value: -10, source: 'test fixture', confidence: 'unverified' as const },
+			};
+			expect(() => resolveTuning(broken)).toThrow(/tiltSettleMs/);
+			expect(() => resolveTuning(broken)).toThrow(/-10/);
+		});
+
+		it('throws naming the tunable when a strictly positive …Ms value rounds to 0 ticks at the live tick rate', () => {
+			// At tickHz = 1, 400 ms -> round(400 * 1 / 1000) = round(0.4) = 0 ticks
+			// -- a nonzero duration that would silently become a no-op wait.
+			const broken = {
+				...TUNING,
+				tiltSettleMs: { value: 400, source: 'test fixture', confidence: 'unverified' as const },
+			};
+			expect(() => resolveTuning(broken, 1)).toThrow(/tiltSettleMs/);
+		});
+
+		it('an authored 0 ms still converts to 0 ticks with no throw', () => {
+			// At the DEFAULT tick rate deliberately (not the degenerate tickHz = 1
+			// used above): every real switchSettleMsByClass entry still converts
+			// cleanly there, so only the tunable under test is exercised.
+			const zeroed = {
+				...TUNING,
+				tiltSettleMs: { value: 0, source: 'test fixture', confidence: 'unverified' as const },
+			};
+			const resolved = resolveTuning(zeroed);
+			expect(resolved.tiltSettleTicks.value).toBe(0);
+		});
+
+		it('switchSettleMsByClass entries are guarded by the same rule (negative throws, naming the class)', () => {
+			const broken = {
+				...TUNING,
+				switchSettleMsByClass: {
+					...TUNING.switchSettleMsByClass,
+					standup: { value: -1, source: 'test fixture', confidence: 'unverified' as const },
+				},
+			};
+			expect(() => resolveTuning(broken)).toThrow(/switchSettleMsByClass\.standup/);
+		});
 	});
 });

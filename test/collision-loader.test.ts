@@ -18,11 +18,15 @@ import { TABLE } from '../src/sim/table/dragonwar';
 import { MM_PER_VU, fromPhysics, toPhysics } from '../src/sim/table/frames';
 import { TUNING } from '../src/sim/table/tuning';
 import { HitPoint } from '../src/sim/physics/hit-point';
+import { HitLineZ } from '../src/sim/physics/hit-line-z';
 import { LineSeg } from '../src/sim/physics/line-seg';
 import { HitTriangle } from '../src/sim/physics/hit-triangle';
+import { PlayerPhysics } from '../src/sim/physics/game/player-physics';
+import { HitPlane } from '../src/sim/physics/hit-plane';
 import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
+import { Vertex2D } from '../src/sim/physics/math/vertex2d';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
 
@@ -166,8 +170,71 @@ describe('src/sim/physics/loader -- document shape validation (load-time paths t
 	});
 });
 
-describe('src/sim/physics/loader -- ledger DW-7: a corner HitPoint primitive is exercised by this story\'s own geometry', () => {
-	it('firing a ball into a wall corner of the loaded compound body runs HitPoint.collide()', () => {
+describe('src/sim/physics/loader -- DW-45: the version/units/frame load-time handshake', () => {
+	it('throws naming "units" when it is "m" instead of "mm" -- must never load silently at 1000x scale', () => {
+		const doc = loadMutableCommittedDoc() as unknown as { units: string };
+		doc.units = 'm';
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain('units');
+			expect(message).toContain('"m"');
+			expect(message).toContain('"mm"');
+		}
+	});
+
+	it('throws naming "version" when it is 2 instead of 1', () => {
+		const doc = loadMutableCommittedDoc() as unknown as { version: number };
+		doc.version = 2;
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain('version');
+			expect(message).toContain('2');
+			expect(message).toContain('1');
+		}
+	});
+
+	it('throws naming "frame" when it is absent entirely', () => {
+		const doc = loadMutableCommittedDoc() as unknown as { frame?: string };
+		delete doc.frame;
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain('frame');
+			expect(message).toContain('"table"');
+		}
+	});
+});
+
+describe('src/sim/physics/loader -- devices parsing (Story 1.5, first reader of document.devices)', () => {
+	it('parses every device into LoadedCollision.devices, each with its eject pose', () => {
+		const doc = loadCommittedDoc();
+		const { devices } = loadCollision(doc);
+		expect(devices.length).toBeGreaterThan(0);
+		const names = devices.map((d) => d.name).sort();
+		expect(names).toEqual([...Object.keys(TABLE.ballDevices)].sort());
+		for (const device of devices) {
+			expect(typeof device.ejectPose.posMm.x).toBe('number');
+			expect(typeof device.ejectPose.dir.x).toBe('number');
+		}
+	});
+
+	it('throws naming an unknown device name rather than silently casting it', () => {
+		const doc = loadMutableCommittedDoc() as unknown as { devices: Array<{ name: string }> };
+		doc.devices[0].name = 'bd_not_a_real_device';
+		expect(() => loadCollision(doc)).toThrowError(/bd_not_a_real_device/);
+	});
+});
+
+describe('src/sim/physics/loader -- ledger DW-7 (answered and closed): a rolling ball reaches a wall corner through HitLineZ', () => {
+	it('firing a ball ROLLING AT DECK HEIGHT (centre z = ball radius, not z = 0) into a wall corner of the loaded compound body runs HitLineZ.collide()', () => {
 		const doc = loadCommittedDoc();
 		const { physics } = loadCollision(doc);
 
@@ -176,26 +243,28 @@ describe('src/sim/physics/loader -- ledger DW-7: a corner HitPoint primitive is 
 		// simply ends there so a launched ball can cross into the main field)
 		// is a real, literal corner of THIS story's own placeholder geometry
 		// (not tools/spike-1/scene.ts, which stays untouched -- the reason this
-		// closes ledger DW-7 from here). Since the Review Findings HIGH fix
-		// (wall_footprint_mm() now preserves real thickness as a closed
-		// four-corner polygon), col_wall_lane's footprint has genuine
-		// rectangular corners of its own, not merely the capped ends of an
-		// open segment.
-		const collideSpy = vi.spyOn(HitPoint.prototype, 'collide');
+		// closes ledger DW-7 from here).
+		const collideSpy = vi.spyOn(HitLineZ.prototype, 'collide');
 
 		const data = new BallData(26.99 / 2 / 0.53975, 1, 1);
 		const cornerPhysics = toPhysics({ x: 480.4, y: 950, z: 0 });
 
-		// A ball resting exactly at the corner's own z (0 -- floor level, where
-		// the wall's rounded corner point sits) fired directly at it from a
-		// short distance: the deliberately engineered "shot at the primitive"
-		// this story's own phrasing describes, not organic rolling (a ball
-		// resting at z = ball radius on the playfield only ever comes within
-		// radius of a z=0 point when its horizontal offset is a fraction of a
-		// millimetre -- exactly the reachability DW-7 questioned).
-		const start = new Vertex3D(cornerPhysics.x + 5, cornerPhysics.y, 0);
-		const state = new BallState('CornerBall', start);
-		const velocity = new Vertex3D(-8, 0, 0);
+		// DECK HEIGHT: centre z = one ball radius -- exactly where a rolling
+		// ball actually sits, and exactly what the SUPERSEDED HitPoint
+		// construction (z = zLow) could not reach except at a near-zero
+		// horizontal offset (this loader's own header: "a HitPoint at z = 0 is
+		// tangent to a deck-rolling ball's surface by construction"). Approached
+		// DIAGONALLY from OUTSIDE both adjacent edges' own segment extent
+		// (table x > 480.4 AND y > 950 -- past both the lane-facing edge's and
+		// the top edge's own endpoint): a rolling ball is tall enough to touch
+		// the flat wall FACES near the corner, so aiming straight along either
+		// edge's own line hits that edge's LineSeg, not the corner -- only this
+		// diagonal "outside both segments" approach isolates the corner
+		// primitive itself, the actual DW-7 gap between two perpendicular
+		// LineSegs.
+		const start = new Vertex3D(cornerPhysics.x + 6, cornerPhysics.y - 6, data.radius);
+		const state = new BallState('CornerBallDeckHeight', start);
+		const velocity = new Vertex3D(-6, 6, 0);
 		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
 		physics.addBall(ball);
 
@@ -205,6 +274,69 @@ describe('src/sim/physics/loader -- ledger DW-7: a corner HitPoint primitive is 
 
 		expect(collideSpy).toHaveBeenCalled();
 		collideSpy.mockRestore();
+	});
+
+	it('the SAME rolling-ball approach produces ZERO collisions against the pre-change construction (a bare HitPoint at z = zLow) -- proving the defect was real, not merely that HitLineZ happens to fire', () => {
+		// A minimal side-by-side scene (not the committed geometry, whose
+		// corner already has real walls around it that would confound a
+		// direct comparison): a floor, a glass ceiling, and ONE corner
+		// primitive of each kind at the identical (x, y) position, each fired
+		// at by the identical deck-height trajectory with a horizontal
+		// closest-approach offset comfortably inside the ball's radius (so a
+		// HitLineZ, which tests horizontal distance only, is guaranteed to
+		// register a hit if reachable at all) but with the ball's centre at
+		// z = radius against a point at z = 0 -- a 3D distance of
+		// sqrt(offsetHorizontal^2 + radius^2), which EXCEEDS the ball's radius
+		// for any nonzero horizontal offset, so the point can mathematically
+		// never be touched. This is DW-7's own answer, reproduced directly
+		// rather than merely asserted.
+		const radiusVu = 26.99 / 2 / MM_PER_VU;
+		const cornerX = 100;
+		const cornerY = 100;
+		// A closest-approach horizontal offset of half a radius: well inside
+		// range for HitLineZ, but -- combined with the z = radius vs z = 0
+		// height difference -- geometrically unreachable for a single point.
+		const offset = radiusVu / 2;
+
+		function buildBall(): Ball {
+			const data = new BallData(radiusVu, 1, 1);
+			const start = new Vertex3D(cornerX + 40, cornerY + offset, radiusVu);
+			const state = new BallState('SideBySideBall', start);
+			const velocity = new Vertex3D(-8, 0, 0);
+			return new Ball(0, data, state, velocity, TABLE_DATA);
+		}
+
+		function buildScene(corner: HitLineZ | HitPoint): PlayerPhysics {
+			const physics = new PlayerPhysics();
+			const playfield = new HitPlane(new Vertex3D(0, 0, 1), 0);
+			playfield.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
+			physics.setPlayfieldHit(playfield);
+			const topGlass = new HitPlane(new Vertex3D(0, 0, -1), -500);
+			topGlass.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
+			physics.setTopGlassHit(topGlass);
+			corner.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
+			physics.addStaticHitObject(corner);
+			physics.finalizeStatics();
+			return physics;
+		}
+
+		const lineZSpy = vi.spyOn(HitLineZ.prototype, 'collide');
+		const lineZScene = buildScene(new HitLineZ(new Vertex2D(cornerX, cornerY), 0, 50));
+		lineZScene.addBall(buildBall());
+		for (let i = 0; i < 50; i++) {
+			lineZScene.step();
+		}
+		expect(lineZSpy, 'HitLineZ must catch a rolling ball offset by less than its radius').toHaveBeenCalled();
+		lineZSpy.mockRestore();
+
+		const pointSpy = vi.spyOn(HitPoint.prototype, 'collide');
+		const pointScene = buildScene(new HitPoint(new Vertex3D(cornerX, cornerY, 0)));
+		pointScene.addBall(buildBall());
+		for (let i = 0; i < 50; i++) {
+			pointScene.step();
+		}
+		expect(pointSpy, 'the pre-change HitPoint(z = zLow) construction must NOT catch the identical rolling-ball approach -- this is the DW-7 defect').not.toHaveBeenCalled();
+		pointSpy.mockRestore();
 	});
 });
 

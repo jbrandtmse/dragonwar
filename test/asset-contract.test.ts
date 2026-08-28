@@ -52,11 +52,31 @@ function readGlbJson(): GltfDocument {
 	return JSON.parse(json) as GltfDocument;
 }
 
-function readCollisionDoc(): {
-	nodes: Array<{ name: string; shape: string; surface?: string; physMaterial?: string; bboxMm: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } }>;
-	switchZones: Array<{ name: string; switch: string }>;
-} {
+interface CollisionDocForTest {
+	nodes: Array<{
+		name: string;
+		shape: string;
+		surface?: string;
+		physMaterial?: string;
+		bboxMm: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
+		footprintMm?: Array<{ x: number; y: number }>;
+	}>;
+	switchZones: Array<{ name: string; switch: string; minMm: { x: number; y: number; z: number }; maxMm: { x: number; y: number; z: number } }>;
+}
+
+function readCollisionDoc(): CollisionDocForTest {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
+}
+
+/** The shoelace formula's signed area, over a closed polygon (no repeated closing point). */
+function polygonArea(points: Array<{ x: number; y: number }>): number {
+	let area = 0;
+	for (let i = 0; i < points.length; i++) {
+		const a = points[i];
+		const b = points[(i + 1) % points.length];
+		area += a.x * b.y - b.x * a.y;
+	}
+	return Math.abs(area) / 2;
 }
 
 describe('asset contract -- public/assets/dragonwar.glb, node grammar and structure (AD-11)', () => {
@@ -175,6 +195,66 @@ describe('asset contract -- public/assets/dragonwar.collision.json, node grammar
 			const b = node.bboxMm;
 			const measured = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
 			expect(measured).toBeCloseTo(expectedMm, 1);
+		}
+	});
+});
+
+describe('asset contract -- Story 1.5: the drain aperture is tiled with no gap (DW-58)', () => {
+	it('the four sw_trough_* zones tile x in [200, 314.4] contiguously, with no gap and no overlap', () => {
+		const doc = readCollisionDoc();
+		const zones = ['sw_trough_1', 'sw_trough_2', 'sw_trough_3', 'sw_trough_4']
+			.map((name) => doc.switchZones.find((z) => z.name === name))
+			.filter((z): z is NonNullable<typeof z> => z !== undefined);
+		expect(zones.length, 'all four sw_trough_* zones must be present').toBe(4);
+
+		const sorted = [...zones].sort((a, b) => a.minMm.x - b.minMm.x);
+		expect(sorted[0].minMm.x, 'the aperture must start at x = 200 with no gap before the first slot').toBeCloseTo(200, 6);
+		expect(sorted.at(-1)!.maxMm.x, 'the aperture must end at x = 314.4 with no gap after the last slot').toBeCloseTo(314.4, 6);
+		for (let i = 0; i < sorted.length - 1; i++) {
+			expect(
+				sorted[i].maxMm.x,
+				`sw_trough zone gap/overlap between "${sorted[i].name}" (ends ${sorted[i].maxMm.x}) and "${sorted[i + 1].name}" (starts ${sorted[i + 1].minMm.x})`,
+			).toBeCloseTo(sorted[i + 1].minMm.x, 6);
+		}
+	});
+});
+
+describe('asset contract -- Story 1.5: col_lane_deflector is present with a real, angled footprint (DW-58)', () => {
+	it('col_lane_deflector exists, is wall-shaped, and its footprint is a non-axis-aligned three-point polygon', () => {
+		const doc = readCollisionDoc();
+		const node = doc.nodes.find((n) => n.name === 'col_lane_deflector');
+		expect(node, 'col_lane_deflector missing from the collision document').toBeDefined();
+		expect(node!.shape).toBe('wall');
+		expect(node!.footprintMm, 'col_lane_deflector must carry a footprintMm polygon').toBeDefined();
+		const footprint = node!.footprintMm!;
+		expect(footprint.length, 'the deflector is a triangular prism -- its plan-view footprint must have exactly 3 points').toBe(3);
+
+		// "Not axis-aligned": at least one edge is neither horizontal nor
+		// vertical -- the property an axis-aligned bounding-box reduction
+		// could never produce, and the reason task 2's hull reduction exists.
+		let hasDiagonalEdge = false;
+		for (let i = 0; i < footprint.length; i++) {
+			const a = footprint[i];
+			const b = footprint[(i + 1) % footprint.length];
+			const dx = Math.abs(a.x - b.x);
+			const dy = Math.abs(a.y - b.y);
+			if (dx > 1e-6 && dy > 1e-6) {
+				hasDiagonalEdge = true;
+			}
+		}
+		expect(hasDiagonalEdge, `footprint ${JSON.stringify(footprint)} has no diagonal edge -- it reduces to an axis-aligned shape`).toBe(true);
+	});
+});
+
+describe('asset contract -- Story 1.5: every wall footprint has at least 3 points and a non-zero enclosed area', () => {
+	it('every wall-shaped node\'s footprintMm encloses a real area', () => {
+		const doc = readCollisionDoc();
+		const walls = doc.nodes.filter((n) => n.shape === 'wall');
+		expect(walls.length, 'sanity: there must be at least one wall node').toBeGreaterThan(0);
+		for (const wall of walls) {
+			expect(wall.footprintMm, `${wall.name}: wall node missing footprintMm`).toBeDefined();
+			expect(wall.footprintMm!.length, `${wall.name}: footprintMm has fewer than 3 points`).toBeGreaterThanOrEqual(3);
+			expect(polygonArea(wall.footprintMm!), `${wall.name}: footprintMm encloses zero area`).toBeGreaterThan(0);
 		}
 	});
 });

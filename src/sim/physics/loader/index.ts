@@ -5,22 +5,26 @@
 // file or does I/O (AD-1, AD-11); the caller (host/presentation, Story 1.5)
 // owns fetching and `JSON.parse`-ing the document and hands the plain value
 // here. This file is authored, not ported -- it sits beside the vpx-js
-// primitive set (`HitPlane`, `LineSeg`, `HitPoint`, `HitTriangle`,
+// primitive set (`HitPlane`, `LineSeg`, `HitLineZ`, `HitTriangle`,
 // `PlayerPhysics`) and instantiates them from data, carrying the GPL-3.0
 // header rather than the port marker (AD-16 -- the clause task 15 of this
 // story's spec aligns `test/sim-boundary.test.ts` with).
 //
-// Two responsibilities, exactly:
+// Three responsibilities:
 //   1. Assert `col_playfield`'s bounds and both flipper nodes' lengths
 //      against `TABLE.reference` within 0.1 mm -- AD-10's "the reference
 //      dimensions are asserted, not assumed". A load-time path; it throws
 //      (AD-16 Conventions), naming the node, the measured value and the
 //      expected value.
 //   2. Build ONE compound collision body -- `HitPlane` for the playfield and
-//      the glass, `LineSeg` (+ a `HitPoint` at every footprint corner) for
-//      `wall` nodes, `HitTriangle` (12 per box, 2 per face) for `box` nodes
-//      (the two flippers) -- converting every coordinate through
+//      the glass, `LineSeg` (+ a `HitLineZ` at every footprint corner,
+//      spanning the wall's own zLow..zHigh -- DW-7, see `addWall()` below)
+//      for `wall` nodes, `HitTriangle` (12 per box, 2 per face) for `box`
+//      nodes (the two flippers) -- converting every coordinate through
 //      `sim/table/frames.ts`'s `toPhysics()` and nothing else (AD-10).
+//   3. Validate the document's `version`/`units`/`frame` handshake (DW-45)
+//      and parse its `devices` array (Story 1.5's `bd_trough`/`bd_shooter`
+//      eject poses) into the returned `LoadedCollision`.
 //
 // `toPhysics()` is an ORIENTATION-REVERSING transform (its y axis is
 // flipped, per `frames.ts`'s own header): a winding/normal direction that is
@@ -39,8 +43,8 @@
 // pass).
 
 import { PlayerPhysics } from '../game/player-physics';
+import { HitLineZ } from '../hit-line-z';
 import { HitPlane } from '../hit-plane';
-import { HitPoint } from '../hit-point';
 import { HitTriangle } from '../hit-triangle';
 import { LineSeg } from '../line-seg';
 import { Vertex2D } from '../math/vertex2d';
@@ -48,7 +52,7 @@ import { Vertex3D } from '../math/vertex3d';
 import { TABLE } from '../../table/dragonwar';
 import { MM_PER_IN, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
 import { TUNING } from '../../table/tuning';
-import type { SwitchName } from '../../table/names';
+import type { BallDeviceName, SwitchName } from '../../table/names';
 
 const TOLERANCE_MM = 0.1;
 
@@ -87,18 +91,23 @@ interface SwitchZoneDoc {
 	readonly maxMm: Vec3;
 }
 
+interface DeviceDoc {
+	readonly name: string;
+	readonly ejectPose: { readonly posMm: Vec3; readonly dir: Vec3 };
+}
+
 /**
- * `tools/export.py` also writes a top-level `devices` array into
- * `dragonwar.collision.json` (`bd_trough`/`bd_shooter` eject poses --
- * position and direction, computed from world matrices the same way every
- * other field here is). This loader intentionally does not parse it: nothing
- * in this story ejects a ball, so there is no consumer yet -- Story 1.5,
- * which actually performs the eject, is the first reader of that data (this
- * story's spec, "What this story does not author").
+ * `tools/export.py` writes `version`/`units`/`frame` as a load-time
+ * handshake (DW-45: "a `units: \"m\"` document must never load silently at
+ * 1000x scale") and a top-level `devices` array (`bd_trough`/`bd_shooter`
+ * eject poses -- position and direction, computed from world matrices the
+ * same way every other field here is). Story 1.5 is the first reader of
+ * `devices`: it performs the eject Story 1.4 deferred.
  */
 interface CollisionDoc {
 	readonly nodes: readonly CollisionNodeDoc[];
 	readonly switchZones: readonly SwitchZoneDoc[];
+	readonly devices: readonly DeviceDoc[];
 }
 
 export interface LoadedSwitchZone {
@@ -108,10 +117,17 @@ export interface LoadedSwitchZone {
 	readonly maxMm: Vec3;
 }
 
+export interface LoadedDevice {
+	readonly name: BallDeviceName;
+	readonly ejectPose: { readonly posMm: Vec3; readonly dir: Vec3 };
+}
+
 export interface LoadedCollision {
 	/** A fully populated `PlayerPhysics` -- playfield/glass planes set, every static hit object added, `finalizeStatics()` already called. The caller only needs to `addBall()`. */
 	readonly physics: PlayerPhysics;
 	readonly switchZones: readonly LoadedSwitchZone[];
+	/** Every ball device's authored eject pose, validated against `TABLE.ballDevices` (Story 1.5, DW-45's sibling: the first reader of this array). */
+	readonly devices: readonly LoadedDevice[];
 }
 
 // ---------------------------------------------------------------------------
@@ -146,15 +162,41 @@ function asBBoxMm(v: unknown, context: string): BBoxMm {
 	return { min: asVec3Mm(v.min, `${context}.min`), max: asVec3Mm(v.max, `${context}.max`) };
 }
 
+/**
+ * DW-45's load-time handshake: `version`/`units`/`frame` must be present and
+ * exactly `1`/`"mm"`/`"table"` -- a document authored at a different scale or
+ * frame (e.g. `units: "m"`) must never load silently at 1000x scale. Throws
+ * naming the field, the value found and the value expected.
+ */
+function assertHandshake(doc: Record<string, unknown>): void {
+	const checks: ReadonlyArray<readonly [field: string, expected: unknown]> = [
+		['version', 1],
+		['units', 'mm'],
+		['frame', 'table'],
+	];
+	for (const [field, expected] of checks) {
+		const found = doc[field];
+		if (found !== expected) {
+			throw new Error(
+				`loadCollision(): document.${field} is ${JSON.stringify(found)}, expected ${JSON.stringify(expected)} (DW-45)`,
+			);
+		}
+	}
+}
+
 function parseCollisionDoc(doc: unknown): CollisionDoc {
 	if (!isRecord(doc)) {
 		throw new Error('loadCollision(): document is not an object');
 	}
+	assertHandshake(doc);
 	if (!Array.isArray(doc.nodes)) {
 		throw new Error('loadCollision(): document.nodes is not an array');
 	}
 	if (!Array.isArray(doc.switchZones)) {
 		throw new Error('loadCollision(): document.switchZones is not an array');
+	}
+	if (!Array.isArray(doc.devices)) {
+		throw new Error('loadCollision(): document.devices is not an array');
 	}
 
 	const nodes: CollisionNodeDoc[] = doc.nodes.map((raw, i) => {
@@ -212,7 +254,23 @@ function parseCollisionDoc(doc: unknown): CollisionDoc {
 		};
 	});
 
-	return { nodes, switchZones };
+	const devices: DeviceDoc[] = doc.devices.map((raw, i) => {
+		if (!isRecord(raw) || typeof raw.name !== 'string') {
+			throw new Error(`loadCollision(): document.devices[${i}] has no string "name"`);
+		}
+		if (!isRecord(raw.ejectPose)) {
+			throw new Error(`loadCollision(): device "${raw.name}".ejectPose is not an object`);
+		}
+		return {
+			name: raw.name,
+			ejectPose: {
+				posMm: asVec3Mm(raw.ejectPose.posMm, `device "${raw.name}".ejectPose.posMm`),
+				dir: asVec3Mm(raw.ejectPose.dir, `device "${raw.name}".ejectPose.dir`),
+			},
+		};
+	});
+
+	return { nodes, switchZones, devices };
 }
 
 function requireNumber(v: unknown, context: string): number {
@@ -306,9 +364,10 @@ function applyMaterial<T extends { setElasticity(e: number, f?: number): unknown
 // ---------------------------------------------------------------------------
 // Wall construction: a LineSeg per footprint edge of a CLOSED polygon,
 // oriented outward from the wall's OWN local centroid in PHYSICS space (see
-// this file's header), plus a HitPoint at every footprint vertex (matches
-// `tools/spike-1/scene.ts`'s own corner construction -- the reason ledger
-// DW-7 closes from this loader).
+// this file's header), plus a HitLineZ at every footprint vertex, spanning
+// the wall's own zLow..zHigh (Story 1.5: superseded a z = 0 HitPoint, which
+// this loader's own header explains was tangent to a deck-rolling ball by
+// construction -- the reason ledger DW-7 closes from this loader).
 //
 // Every side is real collision geometry now, not just the one side facing an
 // assumed "interior": `tools/export.py`'s `wall_footprint_mm()` used to
@@ -382,10 +441,20 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc): void {
 		physics.addStaticHitObject(lineSeg);
 	}
 
+	// DW-7 (answered and closed): a corner `HitPoint` sits at physics z = 0,
+	// which is TANGENT to a deck-rolling ball's surface by construction -- the
+	// ball's centre rides at exactly one radius above the deck, so it only
+	// ever comes within radius of a z = 0 point when its horizontal offset is
+	// a fraction of a millimetre. A 36-trajectory sweep of balls rolling at
+	// deck height into wall corners of the committed body measured this
+	// directly: 0 `HitPoint.collide()` calls. `HitLineZ` -- a vertical line
+	// segment already ported (src/sim/physics/hit-line-z.ts) but with no
+	// caller until now -- spans the wall's own zLow..zHigh instead of sitting
+	// at a single z, so a rolling ball's surface actually reaches it.
 	for (const point of physicsPoints) {
-		const hitPoint = new HitPoint(new Vertex3D(point.x, point.y, zLowVu));
-		applyMaterial(hitPoint, node.physMaterial, node.name);
-		physics.addStaticHitObject(hitPoint);
+		const hitLineZ = new HitLineZ(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
+		applyMaterial(hitLineZ, node.physMaterial, node.name);
+		physics.addStaticHitObject(hitLineZ);
 	}
 }
 
@@ -519,5 +588,18 @@ export function loadCollision(doc: unknown): LoadedCollision {
 		};
 	});
 
-	return { physics, switchZones };
+	const devices: LoadedDevice[] = parsed.devices.map((device) => {
+		if (!(device.name in TABLE.ballDevices)) {
+			// AD-16 Conventions: load-time paths throw -- an unknown device name
+			// must not be silently cast and handed to the caller, the same
+			// discipline the switch-zone guard above already applies.
+			throw new Error(`loadCollision(): document.devices names an unknown ball device "${device.name}"`);
+		}
+		return {
+			name: device.name as BallDeviceName,
+			ejectPose: device.ejectPose,
+		};
+	});
+
+	return { physics, switchZones, devices };
 }

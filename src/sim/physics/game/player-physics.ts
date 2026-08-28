@@ -63,6 +63,11 @@
 //    (`balls`/`movers`/`hitObjectsDynamic`/`hitOcTreeDynamic`) without the
 //    ball-creator abstraction. The harness never removes a ball, so `destroyBall()`
 //    has no caller and is not ported.
+//    Story 1.5 gives ball removal its first caller (AD-6: physics parks a
+//    draining ball "unconditionally into the lowest empty slot, removes it
+//    from the simulated set"). `removeBall()` below is the authored inverse
+//    of THIS PROJECT'S OWN `addBall()` -- not a port of upstream's
+//    `destroyBall()`, which was never brought over and has no analogue here.
 //  - Replaced both `Math.random() < 0.5` calls inside `physicsSimulateCycle`
 //    ("swap order of dynamic and static obj checks randomly" and "swap order of
 //    contact handling randomly") with reads of `swapBallCollisionHandling` — a
@@ -123,6 +128,44 @@ export class PlayerPhysics {
 		this.balls.push(ball);
 		this.movers.push(ball.getMover());
 		this.hitObjectsDynamic.push(ball.hit);
+		this.hitOcTreeDynamic.fillFromVector(this.hitObjectsDynamic);
+	}
+
+	/**
+	 * Removes `ball` from the simulated set: `balls`, its mover from `movers`
+	 * and its hit shape from `hitObjectsDynamic`, then rebuilds
+	 * `hitOcTreeDynamic` -- the exact inverse of `addBall()` above, authored
+	 * for this project (see the file header's deviation list; not a port of
+	 * upstream's `destroyBall()`). AD-6: a parking device removes a draining
+	 * ball from the simulated set when it parks. Throws if `ball` is not
+	 * currently registered, rather than silently no-op'ing -- a caller asking
+	 * to remove a ball that was never added (or already removed) is a defect,
+	 * not a no-op.
+	 */
+	public removeBall(ball: Ball): void {
+		const index = this.balls.indexOf(ball);
+		if (index === -1) {
+			throw new Error(`PlayerPhysics.removeBall: ball ${ball.getName()} is not registered -- addBall() was never called for it, or it was already removed.`);
+		}
+		// Every lookup is guarded, not only the first (review finding
+		// 2026-08-28): addBall() always pushes to all three arrays together,
+		// so these should never desync from `balls` -- but an unguarded
+		// indexOf() returning -1 would make splice(-1, 1) silently delete the
+		// LAST element of that array instead of throwing, corrupting an
+		// unrelated ball's state rather than failing loudly (which is exactly
+		// what this method's own contract promises: "throws ... rather than
+		// silently no-op'ing").
+		const moverIndex = this.movers.indexOf(ball.getMover());
+		if (moverIndex === -1) {
+			throw new Error(`PlayerPhysics.removeBall: ball ${ball.getName()} is registered in balls but its mover is not in movers -- internal state desync.`);
+		}
+		const hitIndex = this.hitObjectsDynamic.indexOf(ball.hit);
+		if (hitIndex === -1) {
+			throw new Error(`PlayerPhysics.removeBall: ball ${ball.getName()} is registered in balls but its hit shape is not in hitObjectsDynamic -- internal state desync.`);
+		}
+		this.balls.splice(index, 1);
+		this.movers.splice(moverIndex, 1);
+		this.hitObjectsDynamic.splice(hitIndex, 1);
 		this.hitOcTreeDynamic.fillFromVector(this.hitObjectsDynamic);
 	}
 

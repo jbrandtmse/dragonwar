@@ -253,6 +253,45 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		expect(stderr.toLowerCase()).toMatch(/rotated|sheared/);
 	});
 
+	it('Story 1.5: a wall with a genuinely angled mesh footprint exports a three-point footprintMm, not a four-corner bounding box', () => {
+		// wall_footprint_mm()'s reduction changed from the object's AXIS-ALIGNED
+		// bounding box to the convex hull of its own mesh vertices -- see
+		// tools/export.py's own doc comment on the function. An AABB reduction
+		// of a triangular footprint would still report a 4-corner rectangle
+		// (the bbox of the triangle); the hull reduction must report the true
+		// 3-point shape.
+		const mutated = mutateBlend('angled-wall-footprint');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status, `stderr: ${stderr}`).toBe(0);
+
+		const doc = JSON.parse(readFileSync(path.join(outDir, 'dragonwar.collision.json'), 'utf8')) as {
+			nodes: Array<{ name: string; footprintMm?: Array<{ x: number; y: number }> }>;
+		};
+		const node = doc.nodes.find((n) => n.name === 'col_wall_bottom_l');
+		expect(node, 'col_wall_bottom_l missing from the mutated export').toBeDefined();
+		expect(node!.footprintMm, 'col_wall_bottom_l must still carry a footprintMm').toBeDefined();
+		expect(
+			node!.footprintMm!.length,
+			`expected a 3-point triangular footprint, got ${node!.footprintMm!.length} points -- the hull reduction is not representing the mesh's true (angled) shape`,
+		).toBe(3);
+	});
+
+	it('Story 1.5: a ROTATED col_ node (not a wall) is still rejected non-zero, naming the node and the numeric off-diagonal world-matrix term', () => {
+		// Regression guard for the wall_footprint_mm() rewrite: the rotation
+		// guard (validate_col_geometry_reducible()) must still catch a rotated
+		// OBJECT transform after the reduction changed to read mesh vertices --
+		// and its failure message must still name the actual measured
+		// off-diagonal term, not just the words "rotated"/"sheared" (the
+		// existing 'rotated-wall' case above only pins the words).
+		const mutated = mutateBlend('rotated-wall');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status).not.toBe(0);
+		expect(stderr).toContain('col_wall_lane');
+		expect(stderr).toMatch(/off-diagonal world-matrix term [0-9.]+/);
+	});
+
 	it('a wall with no extent on an axis exits non-zero naming the node, instead of emitting a zero-length edge with a NaN normal', () => {
 		const mutated = mutateBlend('degenerate-wall');
 		const outDir = freshTmpDir();

@@ -35,3 +35,40 @@
 // ratified. Ledger: "Author-owned: TICK_HZ ratification from Spike 1".
 // Changing it re-records every golden replay (AD-3, AD-15).
 export const TICK_HZ = 1000; // 1000 on PASS, 480 on FAIL
+
+// Story 1.5 -- the loop's own TICK_HZ arithmetic (AD-3: "TICK_HZ may be named
+// only here and in sim/table/tuning.ts"; the accumulator's helpers therefore
+// live beside the constant they use, and sim/loop imports them from here
+// rather than naming TICK_HZ itself). Every phrase above this comment block
+// -- PROVISIONAL, NOT ratified, the ledger entry name, PENDING, macOS -- is
+// pinned verbatim by test/time-contract.test.ts and is left untouched.
+//
+// AD-4's 200 ms owed-time cap is expressed here in TICKS, not as a
+// millisecond constant in sim/loop: `pnpm lint:boundaries`'s tick/ms rule
+// forbids a `…Ms`/`…_MS` binding assigned a numeric literal anywhere under
+// sim/** other than tuning.ts, and the cap is a LOOP-CONTRACT invariant (AD-4
+// itself, not a feel tunable an author might want to retune) -- it has no
+// business living in tuning.ts's `…Ms` tunable registry either. Expressing it
+// from a SECONDS-valued constant (never named `…Ms`) keeps the 200 ms figure
+// traceable to AD-4's own wording while never tripping that rule.
+const MAX_OWED_SECONDS = 0.2; // AD-4: "owed time beyond 200 ms is discarded"
+
+/**
+ * `elapsed` (milliseconds) -> ticks owed, UNROUNDED -- the accumulator's own
+ * `owed = elapsed * TICK_HZ` (AD-4), kept as a fraction so `sim/loop` can
+ * carry the remainder across frames without ever rounding away sub-tick time.
+ * Contrast `sim/table/tuning.ts`'s `resolveTuning()`, which rounds once at
+ * load because a tunable's tick count is fixed at boot; the loop's owed-ticks
+ * figure changes every frame and must never lose its fractional part.
+ */
+export function msToTicksExact(elapsed: number): number {
+	return (elapsed * TICK_HZ) / 1000;
+}
+
+/** The exact inverse of `msToTicksExact()` -- ticks -> milliseconds, for reporting a discarded amount (`sim_time_discarded { ms }`) in the units that event's own contract documents. */
+export function ticksToMs(ticks: number): number {
+	return (ticks * 1000) / TICK_HZ;
+}
+
+/** AD-4's 200 ms owed-time cap, in ticks at the live `TICK_HZ` -- `sim/loop` never names `TICK_HZ` itself (AD-3), so it imports this instead of computing it. */
+export const MAX_OWED_TICKS = Math.round(MAX_OWED_SECONDS * TICK_HZ);

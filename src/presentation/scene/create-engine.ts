@@ -180,6 +180,8 @@ export interface BootSceneResult {
 	/** performance.now() at the moment the first frame actually rendered -- captured once, never delayed by WebGPU verification (see below). */
 	firstFrameMs: number;
 	webgpuFallbackReason?: string;
+	/** Story 1.5: the three `TABLE.nodes`-named nodes `src/host/loop.ts`'s per-frame callback needs (`applyPitch()`'s target) -- `bootScene()` previously resolved these internally and discarded them. */
+	playfieldNodes: PlayfieldNodes;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -240,11 +242,21 @@ export interface LoadAndRenderResult {
  * exact function with a `data:` source with no file extension, via
  * `{ pluginExtension: '.glb' }`, without adding a test-only branch to the
  * shipped control flow.
+ *
+ * `onFrame`, if given, is invoked on every iteration of the render loop
+ * below (292-303), including the first -- before `scene.render()` for that
+ * iteration -- without disturbing the first-frame promise the render loop
+ * already resolves. Story 1.5: `src/host/boot.ts` passes a callback here
+ * that syncs ball meshes and the effective pitch from `src/host/loop.ts`'s
+ * latest `FrameOutput`, so presentation always renders the newest snapshot
+ * (AD-4: "without interpolation") right before each frame Babylon actually
+ * draws.
  */
 async function loadAndRenderOnce(
 	engine: AbstractEngine,
 	glbUrl: string,
 	importOptions?: ImportMeshOptions,
+	onFrame?: (scene: Scene, playfieldNodes: PlayfieldNodes) => void,
 ): Promise<LoadAndRenderResult> {
 	const scene = new Scene(engine);
 	scene.useRightHandedSystem = true; // AD-10
@@ -291,10 +303,12 @@ async function loadAndRenderOnce(
 		});
 		engine.runRenderLoop(() => {
 			if (firstFrameSeen) {
+				onFrame?.(scene, playfieldNodes);
 				scene.render();
 				return;
 			}
 			try {
+				onFrame?.(scene, playfieldNodes);
 				scene.render();
 			} catch (err) {
 				engine.stopRenderLoop();
@@ -321,8 +335,9 @@ export async function loadAndRenderOnceForTests(
 	engine: AbstractEngine,
 	glbUrl: string,
 	importOptions?: ImportMeshOptions,
+	onFrame?: (scene: Scene, playfieldNodes: PlayfieldNodes) => void,
 ): Promise<LoadAndRenderResult> {
-	return loadAndRenderOnce(engine, glbUrl, importOptions);
+	return loadAndRenderOnce(engine, glbUrl, importOptions, onFrame);
 }
 
 /**
@@ -330,9 +345,15 @@ export async function loadAndRenderOnceForTests(
  * the engine, builds the minimal placeholder scene, and resolves once the
  * first frame has rendered. Not exercised by any automated test (AD-15) --
  * `window`/`location` access here is exactly the DOM boundary sim/ must never
- * cross, and presentation/ is where it belongs.
+ * cross, and presentation/ is where it belongs. `onFrame`, if given, is
+ * threaded through to `loadAndRenderOnce()` on every attempt (see that
+ * function's own doc comment).
  */
-export async function bootScene(canvas: HTMLCanvasElement, glbUrl: string): Promise<BootSceneResult> {
+export async function bootScene(
+	canvas: HTMLCanvasElement,
+	glbUrl: string,
+	onFrame?: (scene: Scene, playfieldNodes: PlayfieldNodes) => void,
+): Promise<BootSceneResult> {
 	const forceWebGL2 = new URLSearchParams(window.location.search).get('renderer') === 'webgl2';
 	const first = await createEngine(canvas, forceWebGL2);
 
@@ -340,8 +361,8 @@ export async function bootScene(canvas: HTMLCanvasElement, glbUrl: string): Prom
 		// Not attempting WebGPU at all (forced, unsupported, or engine
 		// construction already fell back) -- WebGL2 is the floor and is expected
 		// to just work; no extra monitoring needed.
-		const { scene, firstFrameMs } = await loadAndRenderOnce(first.engine, glbUrl);
-		return { engine: first.engine, scene, renderer: first.renderer, firstFrameMs, webgpuFallbackReason: first.webgpuFallbackReason };
+		const { scene, firstFrameMs, playfieldNodes } = await loadAndRenderOnce(first.engine, glbUrl, undefined, onFrame);
+		return { engine: first.engine, scene, renderer: first.renderer, firstFrameMs, webgpuFallbackReason: first.webgpuFallbackReason, playfieldNodes };
 	}
 
 	// WebGPU engine constructed successfully. Verify it can actually load and
@@ -366,7 +387,7 @@ export async function bootScene(canvas: HTMLCanvasElement, glbUrl: string): Prom
 	let loaded: LoadAndRenderResult | undefined;
 	let thrown: unknown;
 	try {
-		loaded = await loadAndRenderOnce(first.engine, glbUrl);
+		loaded = await loadAndRenderOnce(first.engine, glbUrl, undefined, onFrame);
 		if (capturedFailure === undefined) {
 			await sleep(WEBGPU_VERIFY_GRACE_MS);
 		}
@@ -383,7 +404,7 @@ export async function bootScene(canvas: HTMLCanvasElement, glbUrl: string): Prom
 
 	if (webgpuReason === undefined && loaded) {
 		// The WebGPU path genuinely worked, verified past the grace period.
-		return { engine: first.engine, scene: loaded.scene, renderer: 'webgpu', firstFrameMs: loaded.firstFrameMs };
+		return { engine: first.engine, scene: loaded.scene, renderer: 'webgpu', firstFrameMs: loaded.firstFrameMs, playfieldNodes: loaded.playfieldNodes };
 	}
 
 	// eslint-disable-next-line no-console
@@ -408,12 +429,13 @@ export async function bootScene(canvas: HTMLCanvasElement, glbUrl: string): Prom
 	// that function's guard comment above). Constructed directly, bypassing
 	// EngineFactory's WebGPU probe entirely, matching the forced-WebGL2 path.
 	const fallbackEngine = new Engine(freshCanvas, true, ENGINE_OPTIONS);
-	const fallback = await loadAndRenderOnce(fallbackEngine, glbUrl);
+	const fallback = await loadAndRenderOnce(fallbackEngine, glbUrl, undefined, onFrame);
 	return {
 		engine: fallbackEngine,
 		scene: fallback.scene,
 		renderer: 'webgl2-fallback',
 		firstFrameMs: fallback.firstFrameMs,
 		webgpuFallbackReason: webgpuReason,
+		playfieldNodes: fallback.playfieldNodes,
 	};
 }

@@ -147,6 +147,48 @@ export const TUNING = deepFreeze({
 	plungerMaxHoldMs: entry(500, 'authored: AD-5 states the mapping exists, not its curve; the ramp\'s upper bound before the plunge is full power', 'unverified'),
 	plungerMinSpeedScale: entry(0.3, 'authored: fraction of full plunger power at plungerMinHoldMs', 'unverified'),
 	plungerMaxSpeedScale: entry(1.0, 'authored: fraction of full plunger power at plungerMaxHoldMs and beyond', 'unverified'),
+
+	/**
+	 * Story 1.5, task 10(b): the two eject-speed tunables AD-6's own rule text
+	 * requires ("spawns the ball ... at the device's authored eject pose AND
+	 * SPEED") and Story 1.4 explicitly deferred authoring. Neither name ends
+	 * in `Ms` -- these are mm/s speeds, not durations -- so neither trips
+	 * `pnpm lint:boundaries`' literal-millisecond rule; a later reader must
+	 * not "fix" that by renaming them.
+	 *
+	 * `troughEjectSpeedMmPerS` is measured against the REAL running loop, not
+	 * only against a standalone physics probe: an earlier planning figure of
+	 * 500 mm/s reproduces exactly (peak y = 105.6 mm, verified here too) but
+	 * OVERSHOOTS `sw_shooter_lane`'s own y <= 60 mm zone ceiling before
+	 * falling back -- which fires a spurious `s_shooter_lane` open/close pair
+	 * (and, per AD-6's own "the opening of s_shooter_lane is the one event
+	 * that means plunged" rule, a spurious `ball_launched`) during an
+	 * ORDINARY serve, before autolaunch is ever pulsed. 300 mm/s peaks at
+	 * y ~= 50.6 mm -- comfortably inside the zone the whole arc, ~9.4 mm of
+	 * margin below its ceiling -- and settles at the same y ~= 13.5 mm every
+	 * speed does (the resting position is set by `col_wall_lane_bottom`, not
+	 * by launch speed): the "served ball closes the lane switch with exactly
+	 * one edge" behaviour this story's I/O matrix names, actually achieved
+	 * rather than merely approximated. No planning artifact states a
+	 * trough-kicker speed, so the figure itself is `unverified`.
+	 */
+	troughEjectSpeedMmPerS: entry(
+		300,
+		"authored: AD-6 requires an eject speed, no artifact states one -- measured against the real loop (not just a standalone physics probe) to stay inside sw_shooter_lane's own y <= 60 mm zone ceiling for its whole arc (peak y ~50.6 mm), avoiding the spurious ball_launched a higher speed (500 mm/s, peak y ~105.6 mm) produces by overshooting the zone before settling",
+		'unverified',
+	),
+
+	/**
+	 * `autolaunchSpeedMmPerS` clears `col_lane_deflector` (Story 1.5's own new
+	 * geometry) at every measured speed >= 1800 mm/s; 1600 mm/s falls short
+	 * and returns down the lane. 2500 mm/s carries a deliberate margin above
+	 * that measured threshold.
+	 */
+	autolaunchSpeedMmPerS: entry(
+		2500,
+		"authored: AD-6 requires an eject speed, no artifact states one -- measured during Story 1.5 planning against col_lane_deflector, whose clearance threshold sits between 1600 and 1800 mm/s; this carries margin above it",
+		'unverified',
+	),
 } as const);
 
 type TuningMsKey<T> = {
@@ -170,7 +212,25 @@ function msToTicks(ms: number, label: string, tickHz: number): number {
 	if (!Number.isFinite(ms)) {
 		throw new Error(`resolveTuning(): "${label}" is not a finite number (got ${String(ms)})`);
 	}
-	return Math.round((ms * tickHz) / 1000);
+	// DW-35: a negative duration is never meaningful, and a strictly positive
+	// one that rounds to 0 ticks at the live tick rate would silently become a
+	// no-op wait -- both throw, naming the tunable, its ms value, the tick
+	// rate and the resulting tick count. An authored `0` still converts to `0`
+	// ticks with no throw (I/O matrix: "A tunable authored as exactly 0 ms
+	// still converts to 0 ticks without throwing").
+	if (ms < 0) {
+		throw new Error(
+			`resolveTuning(): "${label}" is negative (ms=${ms}, tickHz=${tickHz}) -- a tunable duration cannot be negative (DW-35).`,
+		);
+	}
+	const ticks = Math.round((ms * tickHz) / 1000);
+	if (ms > 0 && ticks === 0) {
+		throw new Error(
+			`resolveTuning(): "${label}" (ms=${ms}, tickHz=${tickHz}) rounds to 0 ticks -- a nonzero duration must not silently ` +
+			`collapse to a no-op tick count (DW-35).`,
+		);
+	}
+	return ticks;
 }
 
 /**

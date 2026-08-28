@@ -79,7 +79,7 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	// header at the TOP and must NOT carry either port signal (asserted, not
 	// returned past, so the authored branch can never report as a pass while
 	// checking nothing).
-	const AUTHORED_FILES = new Set(['loader/index.ts']);
+	const AUTHORED_FILES = new Set(['loader/index.ts', 'switches.ts', 'devices.ts', 'machine.ts']);
 	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
 	const isDeclaredAuthored = (relative: string): boolean => AUTHORED_FILES.has(toPosix(relative));
 	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));

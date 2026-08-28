@@ -301,31 +301,89 @@ def world_bbox_mm(obj):
 	)
 
 
-def wall_footprint_mm(bbox_min, bbox_max):
-	"""A wall's full horizontal footprint: the four corners of its bounding
-	box, wound counter-clockwise from bbox_min -- preserving BOTH long faces
-	(AD-11: "walls ... have real thickness"). The loader treats this as a
-	CLOSED polygon (an edge between every consecutive pair, plus one closing
-	the last point back to the first), so every face -- both long sides and
-	both short ends -- becomes real collision geometry.
+def _convex_hull_2d(points):
+	"""Andrew's monotone chain convex hull over `points` (a list of distinct
+	`(x, y)` tuples). Returns the hull vertices wound COUNTER-CLOCKWISE, with
+	no repeated closing point -- the exact shape `build_collision_nodes()`
+	needs for a `footprintMm` entry. `points` must already be de-duplicated;
+	fewer than 3 points cannot form a polygon and is the caller's job to
+	reject with a named `fail()`, not this helper's."""
+	pts = sorted(points)
 
-	Previously this collapsed each wall to a single zero-thickness centreline
-	along its dominant axis, oriented toward the table's own centre point.
-	That is correct only for a PERIMETER wall, whose uncovered side always
-	faces away from the table; it is wrong for an INTERIOR divider such as
-	`col_wall_lane`, whose lane-facing side was left completely unguarded
-	(Review Findings, HIGH -- measured: a ball fired into the lane from the
-	main field crossed the divider's centreline and kept going, straight
-	through). A full four-corner footprint has no such asymmetry: the loader
-	orients each face outward from the wall's OWN local centroid rather than
-	from any assumed "interior" direction, which is correct for a perimeter
-	wall and an interior divider alike."""
-	return [
-		{'x': bbox_min['x'], 'y': bbox_min['y']},
-		{'x': bbox_max['x'], 'y': bbox_min['y']},
-		{'x': bbox_max['x'], 'y': bbox_max['y']},
-		{'x': bbox_min['x'], 'y': bbox_max['y']},
-	]
+	def cross(o, a, b):
+		return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+	lower = []
+	for p in pts:
+		while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+			lower.pop()
+		lower.append(p)
+
+	upper = []
+	for p in reversed(pts):
+		while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+			upper.pop()
+		upper.append(p)
+
+	return lower[:-1] + upper[:-1]
+
+
+def _rotate_to_lexicographic_first(ring):
+	"""Rotates a closed ring (no repeated closing point) so its
+	lexicographically smallest `(x, y)` point comes first, without changing
+	its winding order -- a diff-stable, deterministic starting point
+	independent of which mesh vertex Blender happened to enumerate first."""
+	start = min(range(len(ring)), key=lambda i: ring[i])
+	return ring[start:] + ring[:start]
+
+
+def wall_footprint_mm(obj):
+	"""A wall's true plan-view footprint: the convex hull of its OWN
+	world-space mesh vertices, projected to (x, y) millimetres, rounded to
+	`BBOX_ROUND` (diff-stable against float32 noise), de-duplicated, wound
+	counter-clockwise and rotated so the lexicographically smallest point
+	comes first. The loader treats this as a CLOSED polygon (an edge between
+	every consecutive pair, plus one closing the last point back to the
+	first), so every face becomes real collision geometry.
+
+	This replaced an axis-aligned-bounding-box reduction (the four corners of
+	`world_bbox_mm()`) for one reason: an angled wall -- `col_lane_deflector`,
+	Story 1.5's triangular lane deflector, authored with an IDENTITY object
+	transform and angled MESH VERTICES so `validate_col_geometry_reducible()`'s
+	rotation guard still passes -- has a real, non-rectangular footprint that
+	an AABB silently discards, turning a deflecting triangle into a
+	lane-blocking rectangular slab. Reducing over the mesh's own vertices
+	instead of its bounding box represents that shape exactly, and needs no
+	change to `src/sim/physics/loader`'s `addWall()`, which already treats
+	`footprintMm` as a closed polygon of any length >= 3.
+
+	Byte-neutral for every rectangular wall (verified for all seven walls
+	committed before this story, and re-derivable by hand): a box's 8 mesh
+	vertices project to exactly 4 distinct (x, y) points, whose convex hull is
+	the same 4-corner counter-clockwise ring the old AABB reduction produced,
+	already starting at the lexicographically smallest corner -- so this
+	change reproduces the committed `dragonwar.collision.json` unchanged for
+	every wall that has not itself changed shape."""
+	world_points = set()
+	for vertex in obj.data.vertices:
+		world = obj.matrix_world @ vertex.co
+		world_points.add((round(world.x * 1000, BBOX_ROUND), round(world.y * 1000, BBOX_ROUND)))
+
+	if len(world_points) < 3:
+		fail(
+			f'node "{obj.name}" is a wall whose mesh reduces to {len(world_points)} distinct plan-view '
+			f'point(s) after rounding -- a wall footprint needs at least 3 distinct points to enclose any area',
+		)
+
+	hull = _convex_hull_2d(world_points)
+	if len(hull) < 3:
+		fail(
+			f'node "{obj.name}" is a wall whose convex hull has {len(hull)} point(s) -- '
+			f'at least 3 are required to enclose any area',
+		)
+
+	hull = _rotate_to_lexicographic_first(hull)
+	return [{'x': x, 'y': y} for x, y in hull]
 
 
 def build_collision_nodes(dump):
@@ -350,7 +408,7 @@ def build_collision_nodes(dump):
 		elif shape == 'wall':
 			entry['zLowMm'] = bbox_min['z']
 			entry['zHighMm'] = bbox_max['z']
-			entry['footprintMm'] = wall_footprint_mm(bbox_min, bbox_max)
+			entry['footprintMm'] = wall_footprint_mm(obj)
 		nodes.append(entry)
 	return nodes
 

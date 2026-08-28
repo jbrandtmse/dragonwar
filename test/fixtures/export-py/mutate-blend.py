@@ -17,7 +17,7 @@
 #
 # Usage: blender --background --factory-startup assets/src/dragonwar.blend \
 #   --python test/fixtures/export-py/mutate-blend.py -- \
-#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|degenerate-wall|col-node-not-a-mesh>
+#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|angled-wall-footprint|degenerate-wall|col-node-not-a-mesh>
 
 import argparse
 import math
@@ -134,6 +134,31 @@ def mutate_degenerate_wall():
 	obj.scale = (0.0, 1.0, 1.0)
 
 
+def mutate_angled_wall_footprint():
+	# A wall whose MESH footprint is a genuine (non-rectangular) polygon,
+	# authored with an IDENTITY object transform -- exactly Story 1.5's
+	# col_lane_deflector technique, so validate_col_geometry_reducible()'s
+	# axis-aligned guard (which inspects only the object's world matrix)
+	# passes trivially while the true footprint is a triangle.
+	# wall_footprint_mm()'s convex-hull-of-mesh-vertices reduction must report
+	# that triangle; the OLD bounding-box reduction reported the same 4-corner
+	# rectangle as any other box-shaped mesh, silently discarding the angle.
+	# Index-independent (matches by POSITION, not bmesh vertex-creation
+	# order): every vertex sitting at (x_max, y_min) -- at both z_low and
+	# z_high -- is moved onto (x_max, y_max), collapsing the "x = x_max" face
+	# onto the "x = x_max, y = y_max" edge and leaving three distinct
+	# footprint corners instead of four.
+	obj = bpy.data.objects['col_wall_bottom_l']
+	mesh = obj.data
+	xs = sorted({round(v.co.x, 6) for v in mesh.vertices})
+	ys = sorted({round(v.co.y, 6) for v in mesh.vertices})
+	x_max, y_min, y_max = xs[-1], ys[0], ys[-1]
+	for v in mesh.vertices:
+		if abs(v.co.x - x_max) < 1e-6 and abs(v.co.y - y_min) < 1e-6:
+			v.co.y = y_max
+	mesh.update()
+
+
 def mutate_col_node_not_a_mesh():
 	# A col_ node that is not a MESH. An EMPTY's bound_box is all zeros, so it
 	# reduces to a degenerate collision node rather than failing.
@@ -158,6 +183,7 @@ MUTATIONS = {
 	'missing-lightgroup': mutate_missing_lightgroup,
 	'no-material': mutate_no_material,
 	'rotated-wall': mutate_rotated_wall,
+	'angled-wall-footprint': mutate_angled_wall_footprint,
 	'degenerate-wall': mutate_degenerate_wall,
 	'col-node-not-a-mesh': mutate_col_node_not_a_mesh,
 }

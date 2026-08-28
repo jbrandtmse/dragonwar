@@ -133,6 +133,14 @@ export const TABLE = deepFreeze({
 				{ action: 'pulse', coil: 'c_trough_eject' },
 				{ action: 'recover' },
 			],
+			// Story 1.5: the `SwitchName` whose `sw_` zone the device's authored
+			// eject pose must lie inside (`test/device-eject-pose.test.ts`'s
+			// standing gate). bd_trough's eject kicks the ball into the shooter
+			// lane, where it comes to rest before autolaunch/the manual plunge
+			// sends it into the main field. A device with no zone-bounded
+			// destination -- a future Mouth aimed loosely at the flippers, say --
+			// simply omits this field.
+			servesInto: 's_shooter_lane',
 		},
 		// AD-6: non-parking mechanical-eject device. The served ball stays
 		// simulated on the plunger tip; the manual plunge (AD-5) or a pulse of
@@ -148,6 +156,9 @@ export const TABLE = deepFreeze({
 				{ action: 'pulse', coil: 'c_autolaunch' },
 				{ action: 'recover' },
 			],
+			// Story 1.5: bd_shooter's served ball rests in its own lane -- the
+			// same `s_shooter_lane` zone it enters through.
+			servesInto: 's_shooter_lane',
 		},
 	},
 

@@ -9,14 +9,20 @@
 // This is host/, not presentation/ (AD-1): it composes DOM, the gate and the
 // scene, and owns no game logic of its own.
 //
-// src/host/loop.ts (the rAF accumulator that drives sim/loop's advance(),
-// per the Structural Seed) does not exist yet -- it is Story 1.5's. This
-// file stays boot-only until then.
+// Story 1.5: fetches and parses `dragonwar.collision.json` (sim/ never does
+// I/O -- AD-1), creates `src/host/loop.ts`'s rAF driver over it, and wires
+// its per-frame `FrameOutput` into presentation on every render-loop tick
+// (`syncBalls()` + `applyPitch()`), via `bootScene()`'s new `onFrame` hook.
 
 import { bootScene } from '../presentation/scene/create-engine';
+import { syncBalls } from '../presentation/scene/balls';
+import { applyPitch } from '../presentation/scene/playfield';
+import { createHostLoop } from './loop';
 import { BUILD_SHA } from './build-info';
+import type { CoilName, Snapshot } from '../sim/table/names';
 
 const GLB_URL = './assets/dragonwar.glb';
+const COLLISION_URL = './assets/dragonwar.collision.json';
 
 // AR-34: published as a DOM attribute (rather than merely imported and left
 // unused) so the `import.meta.env.VITE_BUILD_SHA` substitution survives
@@ -39,6 +45,13 @@ declare global {
 			gestureMs: number;
 			firstFrameMs: number;
 			renderer: string;
+			/**
+			 * Dev-only, for the lead's manual per-story smoke (this story's own
+			 * integration AC: "issues the two dev pulses"). Not read by any
+			 * automated test; console-only, e.g.
+			 * `window.__dragonwarBoot.pulseCoil('c_trough_eject')`.
+			 */
+			pulseCoil: (coil: CoilName) => void;
 		};
 	}
 }
@@ -97,18 +110,55 @@ async function onBegin(): Promise<void> {
 	const gestureMs = performance.now();
 	beginButton.disabled = true;
 
+	// Declared outside the try block (review finding 2026-08-28): if
+	// bootScene() below throws AFTER hostLoop.start() has already begun its
+	// own independent requestAnimationFrame chain, the catch block must be
+	// able to reach it and stop it -- otherwise the sim loop keeps ticking
+	// forever in the background (wasted CPU/battery, a live rAF handle) even
+	// though the error panel is now showing and canvas/gate are no longer
+	// wired to anything that reads its output.
+	let hostLoop: ReturnType<typeof createHostLoop> | undefined;
+
 	try {
 		gate.hidden = true;
 		canvas.hidden = false;
+
+		// sim/ never does I/O (AD-1) -- the host fetches and JSON.parses the
+		// already-exported collision document and hands the plain value to
+		// sim/loop's createLoop(). A 404 or malformed document throws here and
+		// lands in the same showError() path as every other boot-stage failure
+		// (AD-17).
+		const collisionResponse = await fetch(COLLISION_URL);
+		if (!collisionResponse.ok) {
+			throw new Error(`Failed to fetch ${COLLISION_URL}: ${collisionResponse.status} ${collisionResponse.statusText}`);
+		}
+		const collisionDoc: unknown = await collisionResponse.json();
+
+		let latestSnapshot: Snapshot | undefined;
+		hostLoop = createHostLoop(collisionDoc, (output) => {
+			latestSnapshot = output.snapshot;
+		});
+		hostLoop.start();
 
 		// firstFrameMs comes from bootScene()'s own result, not a fresh
 		// performance.now() here: a WebGPU attempt runs a verification grace
 		// period AFTER its first frame renders (create-engine.ts), and using the
 		// timestamp captured at the true first-render moment keeps that
 		// verification latency out of the reported figure.
-		const { renderer, firstFrameMs, webgpuFallbackReason } = await bootScene(canvas, GLB_URL);
+		const { renderer, firstFrameMs, webgpuFallbackReason } = await bootScene(canvas, GLB_URL, (scene, nodes) => {
+			// The host loop's own rAF and Babylon's render loop are two separate
+			// requestAnimationFrame chains driven by the same browser scheduler --
+			// this callback simply re-syncs presentation to whatever FrameOutput
+			// the host loop most recently produced, every time Babylon is about
+			// to draw a frame (AD-4: render the latest snapshot, no interpolation).
+			if (!latestSnapshot) {
+				return;
+			}
+			syncBalls(scene, nodes.playfieldRoot, latestSnapshot);
+			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
+		});
 
-		window.__dragonwarBoot = { gestureMs, firstFrameMs, renderer };
+		window.__dragonwarBoot = { gestureMs, firstFrameMs, renderer, pulseCoil: hostLoop.pulseCoil };
 
 		// eslint-disable-next-line no-console
 		console.info(
@@ -119,7 +169,11 @@ async function onBegin(): Promise<void> {
 	} catch (err) {
 		// Load-time paths throw and boot reports them in the error panel rather
 		// than white-screening (AD-17, Conventions/Errors) -- asset 404, glb
-		// parse failure and engine-creation failure all land here.
+		// parse failure and engine-creation failure all land here. Stop the
+		// host loop's own rAF chain if it was already started (review finding
+		// 2026-08-28, see the declaration above) -- otherwise it survives this
+		// failure and keeps advancing the simulation with nothing reading it.
+		hostLoop?.stop();
 		const reason = err instanceof Error ? err.message : String(err);
 		showError(`Failed to start: ${reason}`);
 	}

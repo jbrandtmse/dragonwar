@@ -105,6 +105,27 @@ describe('TABLE.ballDevices -- bd_trough (parking) and bd_shooter (non-parking)'
 			expect(Object.keys(TABLE.switches)).toContain(slot);
 		}
 	});
+
+	// Story 1.5, task 7: `servesInto` -- the `sw_` zone every device's
+	// authored eject pose must lie inside (test/device-eject-pose.test.ts is
+	// the standing gate that actually checks the pose; this pins the field's
+	// value and that it names a real switch).
+	it('bd_trough.servesInto is s_shooter_lane (its eject kicks the ball into the shooter lane)', () => {
+		expect(TABLE.ballDevices.bd_trough.servesInto).toBe('s_shooter_lane');
+	});
+
+	it('bd_shooter.servesInto is s_shooter_lane (its served ball rests in its own lane)', () => {
+		expect(TABLE.ballDevices.bd_shooter.servesInto).toBe('s_shooter_lane');
+	});
+
+	it('every declared servesInto names a real TABLE.switches key', () => {
+		for (const [name, device] of Object.entries(TABLE.ballDevices)) {
+			const servesInto: string | undefined = (device as { servesInto?: string }).servesInto;
+			if (servesInto !== undefined) {
+				expect(Object.keys(TABLE.switches), `${name}.servesInto names an unknown switch "${servesInto}"`).toContain(servesInto);
+			}
+		}
+	});
 });
 
 describe('TABLE.giChannels -- AD-9\'s three architectural channels', () => {
