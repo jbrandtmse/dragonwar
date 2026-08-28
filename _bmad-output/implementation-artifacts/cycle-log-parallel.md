@@ -20,3 +20,6 @@ Per-epic cycle logs live inside each epic's worktree and are committed on that e
 2026-08-27T22:42:57Z	Epic 1	lead_model_gate	model=claude-opus-5 action=proceed
 2026-08-27T22:42:57Z	Epic 1	runtime_gate	bmad=6.11.0 uv=0.12.5 python=ok skills=present artifacts_tracked=true
 2026-08-27T22:42:57Z	Epic 1	runner_redispatched	runner=epic-runner-1 resume_at=plan_spawn story=1.2 reason=fresh_session_after_kit_upgrade worktree_clean=true local_eq_remote=true integrity_checks=pass ledger_open=14
+2026-08-27T23:07:19Z	Epic 1	runner_clarification	runner=epic-runner-1 story=1.2 topics=nfr7_csp_connect_src,webgpu_script_src,pages_deploy_absent blocks=plan_stage verified_by_orchestrator=csp_pins_6,repo_private,pages_404 spec_status=blocked commit=a1da6a7
+2026-08-28T00:39:17Z	Epic 1	runner_tooling_backstop	orchestrator_initiated=true story=1.2 action=repo_published_and_pages_provisioned visibility=public secret_scan=clean pages_url=https://jbrandtmse.github.io/dragonwar/ build_type=workflow https_enforced=true authorized_by=user
+2026-08-28T00:39:17Z	Epic 1	runner_resumed	runner=epic-runner-1 story=1.2 decisions=csp_connect_src_self,webgpu_ac_reworded,repo_public_pages_live,deploy_epic_branch_allowed resume_at=plan_redispatch
