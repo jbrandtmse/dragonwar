@@ -328,3 +328,43 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: med | fix-risk: low | footprint: assets/src/dragonwar.blend; tools/make-placeholder-blend.py; public/assets/dragonwar.collision.json
 - evidence: Story 1.4 authored bd_trough's eject empty at the trough centre (255,-60), which lead probes proved can never reach the shooter lane at x 484.4-510.4; Story 1.5 relocates it to the lane foot and adds an angled deflector at the lane top because col_wall_lane ends at y=950 with nothing to turn a launched ball into the field. Neither the relocated pose nor the deflector angle is described by any AC -- both are invented to satisfy 1.5's serve and autolaunch criteria
 - 2026-08-28T15:28:06Z status=routed owner=2-1-the-playfield-geometry-and-the-full-switch-set by=lead note=Filed at the orchestrator's direction during Story 1.5 rather than at the burn-down gate, because placeholder geometry that no AC describes is exactly what survives silently into a finished table once nothing asks about it again. Story 2.1 owns the real playfield geometry and the full switch set; it must either derive these two from the real shot map or delete them
+
+### DW-59: addBox() emits 12 HitTriangles and no edge or vertex primitives, so a box's EDGES are uncovered exactly the way a wall's corners were in DW-7
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: src/sim/physics/loader/index.ts:409-444
+- evidence: Measured: a ball centred on a box edge passes through. Same primitive-completeness class as DW-7, which this story closed with HitLineZ for wall corners
+- 2026-08-28T18:24:32Z status=routed owner=2-1-the-playfield-geometry-and-the-full-switch-set by=harvest note=Joins the 2.1 geometry slice with DW-52/53/58; the real playfield is where primitive coverage must be complete
+
+### DW-60: The two static placeholder flipper boxes block most of the drain aperture, so a ball rolling straight down rests against a flipper up-slope face at y=96 for most x rather than draining
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: tools/make-placeholder-blend.py:210-241
+- evidence: Story 1.5 planning and review measurements; the drain narrative works only for x values that miss the static boxes
+- 2026-08-28T18:24:33Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=harvest note=Story 1.6 replaces the static boxes with the ported FlipperMover, which is when this stops being placeholder-shaped
+
+### DW-61: The swept-segment/box intersection test is duplicated verbatim as segmentIntersectsBox in switches.ts and segmentIntersectsBoxLocal in devices.ts
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: src/sim/physics/switches.ts; src/sim/physics/devices.ts
+- evidence: Two byte-equivalent implementations of the same slab test; a fix applied to one will silently miss the other
+- 2026-08-28T18:24:33Z status=routed owner=burndown by=harvest note=Pure refactor, no behaviour change; safe to batch at the burn-down gate
+
+### DW-62: create-engine.ts's render loop wraps onFrame in try/catch only on the FIRST frame, so a later presentation throw stops Babylon's render loop silently with nothing surfaced to the user
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: med | fix-risk: med | footprint: src/presentation/scene/create-engine.ts:304-317
+- evidence: Confirmed by direct reading: the firstFrameSeen branch returns without a surrounding try/catch while the pre-first-frame branch has one. Fixing it needs a persistent error-surfacing path threaded through boot, since the boot promise has already resolved
+- 2026-08-28T18:24:33Z status=routed owner=6-1-press-to-begin-the-platform-gate-and-the-error-panel by=harvest note=Story 6.1 owns the AD-17 error panel and boot UX, so it owns the after-boot failure path too
+
+### DW-63: Eject ContactEvent payloads are inconsistent between the parking and non-parking device paths in devices.ts
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: src/sim/physics/devices.ts
+- evidence: The trough eject attaches pos: pose while the shooter path does not, so a consumer reading ContactEvent.pos gets a value from one device and undefined from the other
+- 2026-08-28T18:24:33Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=harvest note=Story 1.6 is the next story to touch coil-driven device events and can normalise both paths
+
+### DW-64: export.py's new convex-hull wall-footprint reduction is pinned only by Blender-gated tests, so CI -- which has no Blender -- never exercises it
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: tools/export.py; test/export-py.test.ts
+- evidence: Both new pins are describe.skipIf(no Blender); on ubuntu-latest they skip, so a regression in _convex_hull_2d reaches main with a green CI
+- 2026-08-28T18:24:33Z status=routed owner=1-8-replays-golden-state-hashes-and-ci-parity by=harvest note=Story 1.8 owns CI parity and is the right place to decide whether hull reduction gets a Blender-free unit test over fixture polygons
+
+### DW-65: machine-serve-drain.test.ts hardcodes the lane divider's main-field-face x as a bare numeric literal instead of deriving it from the collision document
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: test/machine-serve-drain.test.ts
+- evidence: ball.pos.x < 468.4 written as a literal; a geometry change moves the boundary and the assertion silently stops meaning what it says
+- 2026-08-28T18:24:33Z status=routed owner=burndown by=harvest note=Trivial test-hygiene fix, safe to batch
+
+### DW-66: Story 1.5's s_shooter_lane acceptance criterion is verified in two halves that are never checked together against the real device
+- source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: med | fix-risk: low | footprint: src/sim/rules/devices.ts; test/switch-zones.test.ts; test/machine-serve-drain.test.ts
+- evidence: By Story 1.3's frozen contract FrameOutput carries no raw SwitchEvents, so no integration test on the real loop can observe 's_shooter_lane closes exactly once'. The debounce mechanism is proven against a synthetic zone; the real-geometry half is proven as a resting-position check. Not a defect -- a verification-shape consequence of a deliberate contract
+- 2026-08-28T18:24:33Z status=routed owner=1-8-replays-golden-state-hashes-and-ci-parity by=harvest note=Story 1.8's golden replays hash whole-run state, which is the natural way to pin the serve narrative end to end and cover both halves at once
