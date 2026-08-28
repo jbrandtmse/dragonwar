@@ -57,3 +57,5 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T03:39:39Z	Story 1.2	smoke_complete	method=browser result=pass iterations=1 defects_caught=0 evidence=docs/spikes/spike-3.md model=claude-opus-5 surface=local_preview_current_build renderer=webgl2-fallback console_errors=0 transfer_bytes=593008 nav_first_frame_ms=2250.6 license_txt=200 notices_txt=200 glb=200
 2026-08-28T03:39:39Z	Epic 1	runtime_lock_released	stage=smoke
 2026-08-28T03:39:59Z	Story 1.2	committed	sha=c4d52ca submodules=
+2026-08-28T03:40:44Z	Story 1.2	provenance_verified	method=clean_rebuild result=pass model=claude-opus-5 license_txt_bytes=35823 notices_bytes=16273 vpxjs_freezy_matches=6 babylon_vite_matches=13 both_pages_link=true guard_negative_test=fails_build_exit_1 note=coordinator_requested_reverification_after_3_high_findings
+2026-08-28T03:40:44Z	Epic 1	epic_runner_paused	reason=orchestrator_requested_halt_after_story_1_2 stories_completed=2 next_story=1-3-seam-contracts-the-table-registry-and-boundary-lint resume_at=plan_spawn epic_status=in-progress burndown_gate=not_run
