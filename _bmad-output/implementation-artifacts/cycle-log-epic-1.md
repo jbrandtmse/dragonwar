@@ -73,3 +73,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T06:02:40Z	Epic 1	runtime_lock_released	stage=adr_verifications
 2026-08-28T06:02:49Z	Epic 1	runtime_lock_acquired	stage=qa
 2026-08-28T06:02:49Z	Story 1.3	stage_spawned	stage=qa spawn_at=2026-08-28T06:02:49Z model=claude-sonnet-5 agent_name=1-3-seam-contracts-qa-1 cycle_iteration=1
+2026-08-28T06:12:35Z	Story 1.3	qa_complete	spawn_at=2026-08-28T06:02:49Z model=claude-sonnet-5 tests_added=12 test_files_added=1 fixture_files_added=11 total_tests=335 total_test_files=23 first_run_failures=0 clarifications=0 closing_sections_present=true footprint_audit=pass note=persisted_regression_test_for_DW15_tsconfig_sim_lib_narrowing;fixture_extends_shipped_tsconfig_and_proven_non_vacuous
+2026-08-28T06:12:35Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-28T06:12:35Z	Story 1.3	stage_spawned	stage=code-review spawn_at=2026-08-28T06:12:35Z model=claude-opus-5 agent_name=1-3-seam-contracts-cr-1 cycle_iteration=1
