@@ -133,3 +133,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-28T18:28:06Z	Epic 1	runtime_lock_released	stage=adr_verifications
 2026-08-28T18:28:06Z	Epic 1	runtime_lock_acquired	stage=qa
 2026-08-28T18:28:07Z	Story 1.5	stage_spawned	stage=qa spawn_at=2026-08-28T18:28:07Z model=claude-sonnet-5 agent_name=1-5-ball-rolls-qa-1 cycle_iteration=1
+2026-08-28T18:47:52Z	Story 1.5	qa_complete	spawn_at=2026-08-28T18:28:07Z model=claude-sonnet-5 tests_added=6 test_files_modified=4 total_tests=524 total_test_files=36 tests_without_blender=503_pass_21_skip first_run_failures=0 clarifications=0 closing_sections_present=true footprint_audit=pass artifacts_untouched=true note=closed_3_vacuous_pass_gaps;switch_tracker_multitick_hysteresis_never_exercised;device_overflow_never_driven_through_machine.step;determinism_test_ball_position_half_was_vacuous_no_ball_spawned all_verified_discriminating=true
+2026-08-28T18:47:52Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-28T18:47:53Z	Story 1.5	stage_spawned	stage=code-review spawn_at=2026-08-28T18:47:53Z model=claude-opus-5 agent_name=1-5-ball-rolls-cr-1 cycle_iteration=1
