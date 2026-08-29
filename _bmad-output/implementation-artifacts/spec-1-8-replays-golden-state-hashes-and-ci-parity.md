@@ -2,7 +2,7 @@
 title: 'Story 1.8: Replays, golden state hashes and CI parity'
 type: 'feature'
 created: '2026-08-29'
-status: 'blocked'
+status: 'draft'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -59,9 +59,13 @@ vacuous assertion promotes the masked defect to specification.
   ported file is edited.
 
 **Block If:**
-- **[FIRED — see `## Auto Run Result`] AC 4's goldens cannot be expressed as `ReplayHeader +
-  InputTransition[]`.** No input transition can put a ball in play in Epic 1, so none of the five named
-  goldens is reachable from a replay body alone. Evidence and recommended amendment below.
+- ~~AC 4's goldens cannot be expressed as `ReplayHeader + InputTransition[]`~~ — **RESOLVED 2026-08-29 by
+  the user-authorized amendment; this Block-If no longer fires.** `epics.md` AC 4 now states that each
+  golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]`, recorded as
+  data in the golden file and re-asserted on replay, with **Story 2.5** named as the owner that removes it
+  and re-records. The same edit renamed `cradle-and-release` to **`hold-and-release`**. **Do not re-halt on
+  this**, and do NOT resolve it instead by pre-building Story 2.5's ball lifecycle inside a determinism
+  story. See `## Design Notes` -> "The AC 4 amendment (2026-08-29)".
 - A new npm package would be required. `tools/check-attributions.mjs:54-60` merges `dependencies`,
   `devDependencies`, `optionalDependencies`, `peerDependencies` and `bundledDependencies`; `:75-80` matches
   each name against `ATTRIBUTIONS.md` and `:102-106` exits 1 on a miss. `ATTRIBUTIONS.md` is out of
@@ -348,6 +352,19 @@ vacuous assertion promotes the masked defect to specification.
 
 ## Spec Change Log
 
+- 2026-08-29 (lead, re-dispatch after the user's decision): the plan's `intent gap` is resolved by a
+  user-authorized `epics.md` amendment (the fourth one-time widening, this amendment only). AC 4 now names
+  a **declared coil prologue** carried alongside each golden's `ReplayHeader + InputTransition[]`, recorded
+  as data and re-asserted on replay, with Story 2.5 owning its removal; and `cradle-and-release` is renamed
+  **`hold-and-release`** with the hold kept inside the ~1 s stable window. Amended here: the fired Block-If
+  in `## Boundaries & Constraints` (struck through so it cannot re-fire) and a new `## Design Notes`
+  subsection carrying the amendment, the registry direction for the four-call seam, and the `never[]`
+  vacuous-proof template. Frontmatter `status` reset `blocked` -> `draft` so the plan re-derives the spec
+  around the preserved intent block. **`DW-82`'s shipped-notice half is already fixed** (the vpinball block
+  is in `public/THIRD-PARTY-NOTICES.txt`); its residual — `NOTICE` still calling vpinball not-yet-present —
+  is re-owned to this story with a named observable, but `NOTICE` is **not** in any authorization, so it is
+  a `blocked` HALT if it turns out to be required. The burn-down story is **1.10**, not 1.9.
+
 _Empty — no review loopback has occurred._
 
 ## Review Triage Log
@@ -355,6 +372,62 @@ _Empty — no review loopback has occurred._
 _Empty — no review pass has occurred._
 
 ## Design Notes
+
+### The AC 4 amendment (2026-08-29)
+
+The plan stage HALTed `intent gap` and was right to: AC 1 and AD-4 define a replay as
+`ReplayHeader + InputTransition[]`, but nothing in that body can put a ball in play, so all five goldens
+would have replayed against an empty playfield. The constraint is **type-level, not behavioural** — verified
+in the worktree by both the plan and the lead:
+
+- `src/sim/rules/index.ts:30` types `RulesStepResult.commands` as `readonly never[]`, so the rules layer
+  **cannot** issue a `CoilCommand` — not "does not yet".
+- `InputAction` is closed at eight members (`flipper_l`, `flipper_r`, `plunger`, `nudge_l`, `nudge_r`,
+  `nudge_up`, `start`, `menu`); none reaches a coil, and `start` reaches no serving path.
+- `loop.pulseCoil()` is documented in-file as a dev-only escape hatch and is the only path a ball reaches
+  the playfield; `src/host/loop.ts:36` already names Story 2.5 as its replacement.
+
+**The user authorized amending `epics.md` AC 4** (the fourth one-time widening this epic, this amendment
+only — it does not carry forward). Each golden now carries a **declared coil prologue** alongside its
+`ReplayHeader + InputTransition[]`: the `pulseCoil` sequence that puts a ball in play, recorded **as data in
+the golden file** and **re-asserted on replay**. **Story 2.5** removes the prologue when Start serves
+through the rules layer, and re-records the goldens.
+
+The rejected alternative is recorded so it is not revisited: having Story 1.8 implement the minimal
+Start-to-serve rules path. That pre-builds Story 2.5's ball lifecycle inside a determinism story, and the
+epic context states this epic's rules layer is "only the minimal step that runs after every physics step".
+
+**The `cradle-and-release` -> `hold-and-release` rename rides on the same amendment.** Epic 1's placeholder
+table cannot hold a cradle (`DW-72`, owned by Story 2.1, which authors the pocket): with no geometry beside
+either flipper, a ball on a raised bat departs after roughly 1.2-1.9 s. A golden named "cradle" would freeze
+roll-off *as* the cradle reference, and when Story 2.1 lands the pocket its breakage would read as
+"re-record me" rather than "ask why". Keep the hold **well inside** the ~1 s window where behaviour is
+stable, so this golden survives Story 2.1 intact. **A golden must not claim behaviour the table cannot
+produce.**
+
+### Build the hardware-rule registry rather than a fourth hand-written pin
+
+The lead's briefing to the first plan said the `machine.ts` seam had three pre-`physics.step()` calls. **It
+has four** — `flipperMechanics.applyFrame()`, `plungerMechanics.applyFrame()`, `cabinetMechanics.applyFrame()`
+and `deviceMechanics.applyCommands()` — and the fourth has no ordering pin. That is the third recurrence of
+"pinning an invariant once does not keep it pinned" (Story 1.6 pinned the flipper and plunger; Story 1.7
+added the cabinet rule unpinned; now the device-command call).
+
+**At three recurrences a structural fix beats a fourth hand-written test, and the user has endorsed it.**
+Introduce a registry of the pre-`physics.step()` participants and pin the seam **table-driven**: one test
+that fails when *any* participant moves after the step. Keep it proportionate — a list plus one test, not a
+general-purpose framework. The value is that the **next** hardware rule someone adds is pinned by
+construction rather than by remembering. This is in footprint (`src/**`, `test/**`).
+
+### A vacuous proof this epic has been relying on
+
+`RulesStepResult.commands` is asserted `toEqual([])` in four tests **as the proof of AD-5's "no rules round
+trip"**. That assertion is vacuous by its own `readonly never[]` type — it can never fail. The lead's own
+Story 1.6 ADR verification cited it too (`ad5_no_rules_round_trip=pass_commands_empty`) and has logged the
+correction. The real pin is the ordering mutation test. Treat this as the template for the sweep: **a
+runtime assertion whose type makes the outcome impossible is vacuous**, and this epic has at least one
+shipped example.
+
 
 ### Governing ADs (Rule 6), read from the spine text
 
