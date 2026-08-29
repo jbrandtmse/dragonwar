@@ -169,3 +169,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-29T05:09:22Z	Epic 1	runtime_lock_released	stage=qa
 2026-08-29T05:09:22Z	Story 1.6	stage_spawned	stage=code-review spawn_at=2026-08-29T05:09:22Z model=claude-opus-5 agent_name=1-6-flippers-plunger-cr-1 cycle_iteration=1
 2026-08-29T05:09:35Z	Story 1.6	baseline_reset_for_review	baseline_commit=8006390_iteration_1_original from=83add20_rework_baseline reason=reviewer_must_see_whole_story_not_just_rework model=claude-opus-5
+2026-08-29T05:09:53Z	Story 1.6	lead_error_corrected	fault=lead error=frontmatter_space_after_colon_stripped_by_my_own_replace_in_baseline_commit_reset detected_by=self_verification_of_edit_output impact=none_uncommitted_window_only_next_stage_had_not_read_it correction=restored_baseline_commit:_SPACE_value_yaml_reparsed_ok lesson=verify_the_rendered_line_not_just_the_replace_return model=claude-opus-5
