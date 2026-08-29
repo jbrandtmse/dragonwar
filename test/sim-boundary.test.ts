@@ -231,9 +231,18 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 
 		// A declared vpinball port takes the vpinball branch, never the
 		// authored one -- isDeclaredAuthored() must not also fire for it.
+		//
+		// Code review 2026-08-29: this loop previously also asserted
+		// `isDeclaredVpinballPort(declared)).toBe(true)`, which is
+		// `VPINBALL_PORTED_FILES.has(x)` for x drawn from VPINBALL_PORTED_FILES
+		// -- self-referential, and true for any possible content. It is
+		// replaced with the claim that actually matters and can actually fail:
+		// each declared port's real file carries the vpinball marker, so the
+		// declaration and the file's own content agree.
 		for (const declared of VPINBALL_PORTED_FILES) {
-			expect(isDeclaredVpinballPort(declared), `"${declared}" must take the vpinball branch`).toBe(true);
 			expect(isDeclaredAuthored(declared), `"${declared}" must NOT also take the authored branch`).toBe(false);
+			const content = readFileSync(path.resolve(PHYSICS_ROOT, declared), 'utf8');
+			expect(content, `"${declared}" is declared a vpinball port but its own header does not carry the vpinball port marker`).toContain(VPINBALL_PORT_MARKER);
 		}
 	});
 

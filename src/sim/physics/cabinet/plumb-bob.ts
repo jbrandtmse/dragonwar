@@ -45,12 +45,26 @@
 // future consumer reads.
 // Deviation: `f32` upstream, `number` (f64) here, uniform with the rest of
 // this port.
+// Deviation (recorded at code review 2026-08-29): three groups of upstream
+// accessors are NOT ported, none of them physics. (a) `m_plumbTiltIndex` and
+// `GetPlumbTiltIndex()` (PlumbHandler.h:25,40) -- upstream's running count of
+// tilt crossings, incremented at PlumbHandler.cpp:130. DragonWar counts
+// nothing here: AD-2 makes the crossing a switch EDGE on `s_tilt_bob`, and
+// whatever wants to count them is Story 2.11's rules-side concern, not
+// physics state. (b) `GetPlumbDamping()`/`SetPlumbDamping()` and
+// `GetPlumbTiltThreshold()`/`SetPlumbTiltThreshold()` (PlumbHandler.h:18-21,
+// .cpp:29-37) -- upstream's runtime setters over its Settings object. Every
+// parameter here is captured from `ResolvedTuning` at construction, which is
+// this project's own convention (AD-15); Story 1.9's tuning panel rebuilds
+// the machine rather than mutating live physics. (c) `IsPlumbSimulated()`/
+// `EnablePlumbSimulation()` (PlumbHandler.h:15-16), the accessors for the
+// already-recorded dropped `m_enablePlumbTilt` toggle.
 
 import { CABINET_SUBSTEP_SECONDS } from './oscillator';
 import { degToRad } from '../math/float';
 import type { ResolvedTuning } from '../../table/tuning';
 
-/** Verbatim, PlumbHandler.cpp:62 `-9.80665f // Gravity (m/s^2)` -- standard gravity in SI, never tunable (AD-15). Same physical constant as nudge-impulse.ts's `G_SI`, kept file-local rather than shared: each ported file transcribes its own upstream literal independently, exactly as the two upstream C++ files each declare their own. */
+/** Verbatim, PlumbHandler.cpp:61 `-9.80665f // Gravity (m/s^2)` -- standard gravity in SI, never tunable (AD-15). Same physical constant as nudge-impulse.ts's `G_SI`, kept file-local rather than shared: each ported file transcribes its own upstream literal independently, exactly as the two upstream C++ files each declare their own. */
 const G_SI = 9.80665;
 
 interface Vec3M {

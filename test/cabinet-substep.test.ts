@@ -23,7 +23,8 @@
 // ever affected.
 
 import { describe, expect, it, vi } from 'vitest';
-import { cabinetSubstepsPerTick } from '../src/sim/physics/cabinet/oscillator';
+import { cabinetSubstepsPerTick, CABINET_SUBSTEP_SECONDS } from '../src/sim/physics/cabinet/oscillator';
+import { PHYS_FACTOR } from '../src/sim/physics/constants';
 
 describe('sim/physics/cabinet/oscillator.ts -- cabinetSubstepsPerTick() construction-time guard', () => {
 	it('the REAL, unmocked, production SECONDS_PER_TICK (TICK_HZ=1000) does not throw and yields substepsPerTick=1 -- the guard is a no-op today, exactly as the spec states', () => {
@@ -100,5 +101,36 @@ describe('sim/physics/cabinet/oscillator.ts -- cabinetSubstepsPerTick() construc
 			vi.doUnmock('../src/sim/contracts/time');
 			vi.resetModules();
 		}
+	});
+});
+
+describe('sim/physics/cabinet -- the cabinet integrates exactly as much time per tick as the ball solver does', () => {
+	// Code review 2026-08-29. The ball coupling in
+	// `sim/physics/cabinet/index.ts` accumulates `substepsPerTick` sub-steps
+	// of cabinet acceleration into ONE velocity delta, then hands it to a ball
+	// that `machine.ts` advances with exactly ONE `physics.step()` per tick.
+	// That is only correct while the cabinet's integrated time per tick equals
+	// the solver's own step, and today the two agree by coincidence:
+	//
+	//   cabinet: substepsPerTick (1) * CABINET_SUBSTEP_SECONDS (0.001 s) * 100 T/s = 0.1 T
+	//   solver:  PHYS_FACTOR = PHYSICS_STEPTIME_S / DEFAULT_STEPTIME_S       = 0.1 T
+	//
+	// Nothing imported or asserted that equality, and the two constants live
+	// in different files with no link between them: `TICK_HZ`
+	// (`sim/contracts/time.ts`) and `PHYSICS_STEPTIME`
+	// (`sim/physics/constants.ts`) are independent. `cabinetSubstepsPerTick()`'s
+	// own error message actively recommends "Lower TICK_HZ to a value whose
+	// tick period is an exact multiple of 1 ms (e.g. 500 Hz)" -- and at 500 Hz
+	// with `PHYSICS_STEPTIME` unchanged the cabinet would integrate 2 ms of
+	// acceleration per tick and subtract that much velocity from a ball the
+	// solver only advanced 1 ms, silently. This pins the invariant so that a
+	// future tick-rate change fails here, loudly, instead of quietly
+	// desynchronising the cabinet from the solver.
+	it('substepsPerTick * CABINET_SUBSTEP_SECONDS, in physics T units, equals the solver\'s own PHYS_FACTOR step', () => {
+		const cabinetTPerTick = cabinetSubstepsPerTick() * CABINET_SUBSTEP_SECONDS * 100;
+		expect(
+			cabinetTPerTick,
+			'the cabinet must advance exactly one physics step worth of time per tick -- if TICK_HZ changes, PHYSICS_STEPTIME must change with it (a physics-version bump that re-records every golden, AD-3/AD-15)',
+		).toBeCloseTo(PHYS_FACTOR, 12);
 	});
 });

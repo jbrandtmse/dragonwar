@@ -147,6 +147,36 @@ describe('src/host/input -- createKeyboardInput() (AD-4)', () => {
 		expect(transitions[0]!.frame).toMatchObject({ flipper_l: false, flipper_r: false, plunger: false, start: false });
 	});
 
+	it('Story 1.7 I/O matrix "Blur mid-nudge": a blur while nudge_up is held by BOTH of its codes releases it in one transition, and the held-code tracking is left clean enough to nudge again afterwards', () => {
+		// Code review 2026-08-29: the I/O matrix row names `nudge_up` held
+		// across a blur, but the blur test above holds only ShiftLeft + Enter
+		// and asserts on no nudge action at all. This story added
+		// `heldCodesByAction.clear()` to onBlur precisely because an action can
+		// now be held by TWO codes -- so the case that most needs covering is a
+		// blur with both of nudge_up's codes down, and what the map looks like
+		// afterwards (a stale entry would swallow the next ArrowUp press as
+		// "already held" and the nudge would never fire again).
+		const input = createKeyboardInput({ tickAt: (ms) => ms });
+		const { target, dispatch } = installStubTarget();
+		input.attach(target);
+
+		dispatch(markPreventDefault(keyEvent('keydown', 'ArrowUp', 1)));
+		dispatch(markPreventDefault(keyEvent('keydown', 'Space', 2))); // second code, same action
+		expect(input.drainTransitions().map((t) => t.frame.nudge_up), 'only the FIRST code raises the action').toEqual([true]);
+
+		dispatch({ type: 'blur', timeStamp: 3, defaultPrevented: false });
+		const released = input.drainTransitions();
+		expect(released, 'the blur must emit exactly one releasing transition').toHaveLength(1);
+		expect(released[0]!.frame).toMatchObject({ nudge_up: false, nudge_l: false, nudge_r: false });
+
+		// The real regression risk: stale held-codes surviving the blur.
+		dispatch(markPreventDefault(keyEvent('keydown', 'ArrowUp', 4)));
+		expect(
+			input.drainTransitions().map((t) => t.frame.nudge_up),
+			'after the blur, pressing ArrowUp again must raise nudge_up -- a stale held-code entry would swallow it as auto-repeat',
+		).toEqual([true]);
+	});
+
 	it('Enter maps to plunger and Digit1 maps to start', () => {
 		const input = createKeyboardInput({ tickAt: (ms) => ms });
 		const { target, dispatch } = installStubTarget();
@@ -385,14 +415,24 @@ describe('AD-4 -- no key code, KeyboardEvent reference or "code" string exists a
 		// code this AC's grep half never checked. Word-boundary matching keeps
 		// the identifier-shaped tokens precise; '.code' stays a substring
 		// because '.' is not a word character.
-		// 'Space' is deliberately NOT in this list: unlike the other mapped
+		// 'Space' is deliberately NOT in `bannedWords`: unlike the other mapped
 		// codes (all clearly code-shaped identifiers unlikely to appear in
 		// ordinary prose), 'Space' is a common English word -- a blanket
 		// word-boundary grep for it would false-positive on legitimate prose
 		// (found during this story's implementation: "Space/arrow keys to
 		// Nudge", quoting the PRD, in this file's own header comment).
+		//
+		// Code review 2026-08-29: that omission left `Space` -- one of the
+		// eight mapped codes AC 7 names -- as the ONE code this guard could no
+		// longer detect leaking into src/sim/**. It is restored below as a
+		// QUOTED token instead. A key code reaching src/sim/ would have to be
+		// written as a string literal to be usable, so the quoted forms catch
+		// the real leak while the prose that disabled the bare word (which
+		// quotes "Space/arrow keys to Nudge", never the bare token `'Space'`)
+		// stays clean. Verified at review time: neither quoted form appears
+		// anywhere under src/sim/ today.
 		const bannedWords = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', 'Enter', 'Digit1', 'keydown', 'keyup', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
-		const bannedSubstrings = ['.code'];
+		const bannedSubstrings = ['.code', "'Space'", '"Space"'];
 		const offenders: string[] = [];
 		for (const file of listFiles(SIM_ROOT)) {
 			const content = readFileSync(file, 'utf8');

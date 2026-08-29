@@ -483,6 +483,161 @@ units, 12-18 the tests.
   `test/sim-boundary.test.ts`'s third branch, which asserts each of those elements positively and asserts the
   other two provenance classes' markers absent.
 
+### Review Findings
+
+Code review 2026-08-29 (Tier 1, `review_mode` full; layers: blind-hunter, edge-case-hunter,
+verification-gap, acceptance-auditor — all four returned, all four verified operating from
+`C:/git/dragonwar/.worktrees/epic-1` with a clean tree and no commits). 11 patch, 2 defer,
+16 dismissed. Every patch below was applied in this pass; suite green after
+(**659 passed / 21 skipped across 48 files**, up from 654), with `pnpm typecheck`,
+`pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` and `pnpm build` all clean.
+
+Provenance re-verified independently at review time and found **correct**: the GPLv3+ grant in all
+three ported files is verbatim against upstream `LICENSE:78-91` (only a line re-wrap; no word trimmed
+or paraphrased), the holder / `// Source:` paths / pin are present, all three live under
+`src/sim/physics/cabinet/**`, every transcribed constant matches its cited upstream line
+(`CabinetPhysics.h:24`, `.cpp:12-13`, `KeyboardNudge.cpp:169`, `PlumbHandler.h:30,33,45,46`,
+`.cpp:118`), and a repo-wide grep for identifiers unique to the excluded `NudgeHandler.h`
+(`NudgeSensor`, `NudgeSource`, `ApplyKeyboardImpulse`, `VPX_CAB_MODEL`, `m_sensors`, …) returns
+**nothing** — the only two hits for the name are the deviation note and the attribution pin, both
+explanations of the exclusion.
+
+- [x] [Review][Patch] **`high` — AD-5's central ordering invariant was unpinned for the cabinet rule**
+  [`src/sim/physics/machine.ts`:145 → pinned in `test/cabinet-integration.test.ts`]. Moving ONLY
+  `cabinetMechanics.applyFrame(tick, frame)` to after `physics.step()` — making every nudge one tick
+  late, the exact latency AD-5 forbids and AC 1 rules out ("inside tick *t*'s own step, before
+  `physics.step()`") — left the **entire suite green: 654 passed, typecheck clean** (mutation run and
+  red observed at review time, then reverted). This is the epic's own named central invariant, and the
+  identical hole was found and closed for the flipper and the plunger in Story 1.6
+  (`test/plunger.test.ts:41-48` records it at 594 passed); Story 1.7 added the third rule at the same
+  seam without the equivalent pin. Fixed by the twin of that pin, observing **position** rather than
+  velocity (in both orderings the velocity is changed by the tick's end; only the position says whether
+  it was applied before the step that integrates it). Measured: 6.59e-5 mm at the nudge tick under the
+  correct ordering, **exactly 0** under the reversed one. Mutation re-run against the new test: red
+  ("expected 0 to be greater than 0").
+- [x] [Review][Patch] **`medium` — `NUDGE_DIRECTIONS`' absolute directions had no test at all**
+  [`src/sim/physics/cabinet/index.ts`:80-84 → pinned in `test/cabinet-nudge.test.ts`]. The one part of
+  the module its own header calls out as authored rather than transcribed. Every pre-existing X-axis
+  assertion compares the ball's delta against the cabinet's own velocity — both from the same
+  oscillator run — so a sign flip moves both sides together. Flipping `nudge_r` to `{ x: -1, y: 0 }`
+  left the **whole suite green (654 passed)**; verified by mutation at review time. Fixed with an
+  absolute, collision-free pin on the cabinet's own SI velocity per action (`nudge_l` → −X,
+  `nudge_r` → +X, equal and opposite, `nudge_up` → −Y, each with an exactly zero cross-axis
+  component). Mutation re-run against the new test: red.
+- [x] [Review][Patch] **`medium` — AC 4's settle assertion was satisfiable by a bob that never moved**
+  [`test/cabinet-bob.test.ts`:205-217]. `lastOverTick` starts at `-1`, so a bob that never crossed the
+  threshold left it at `-1` and passed `toBeLessThan(SETTLE_BY_TICK)` — "it settled" proven by "it
+  never rose". The adjacent `expect(overThreshold[0]).toBe(false)`, commented as proving `s_tilt_bob`
+  re-opens, reads the level on tick 1 before the burst does anything and is false by construction.
+  Fixed: the crossing is now asserted before the settling, and the re-opening is asserted as a genuine
+  true→false transition. Verified by raising `thresholdDeg` to 99° so the bob cannot cross — the new
+  guard fires ("expected -1 to be greater than 0"); reverted.
+- [x] [Review][Patch] **`medium` — the cabinet's per-tick integrated time equalled the ball solver's
+  step only by coincidence** [`src/sim/physics/cabinet/index.ts`:105 → pinned in
+  `test/cabinet-substep.test.ts`]. `TICK_HZ` (`sim/contracts/time.ts`) and `PHYSICS_STEPTIME`
+  (`sim/physics/constants.ts`) are independent constants; the coupling is correct only while
+  `substepsPerTick × CABINET_SUBSTEP_SECONDS × 100 === PHYS_FACTOR` (both `0.1` T today), and nothing
+  imported or asserted that. `cabinetSubstepsPerTick()`'s own error message actively recommends
+  "Lower TICK_HZ to … (e.g. 500 Hz)" — at which, with `PHYSICS_STEPTIME` unchanged, the cabinet would
+  integrate 2 ms of acceleration per tick and subtract it from a ball the solver advanced 1 ms.
+  Fixed with an explicit invariant pin so a future tick-rate change fails loudly. This also closes the
+  related 25 ms → 26 ms impulse-length drift at 500 Hz, which the same configuration would have caused.
+- [x] [Review][Patch] **`medium` — AC 9 requires a `// Deviation:` note per departure; four departures
+  had none** [`src/sim/physics/cabinet/oscillator.ts`, `plumb-bob.ts`, `nudge-impulse.ts`].
+  `DampedHarmonicOscillator::Reset()` (`DampedHarmonicOscillator.h:30-35`); `m_plumbTiltIndex` /
+  `GetPlumbTiltIndex()` (`PlumbHandler.h:25,40`); the `Get`/`SetPlumbDamping`,
+  `Get`/`SetPlumbTiltThreshold` and `IsPlumbSimulated`/`EnablePlumbSimulation` accessors
+  (`PlumbHandler.h:15-21`); and — the one that actually changes a ported number — the routing of
+  upstream's 25 ms impulse length through `nudgeImpulseMs → nudgeImpulseTicks × substepsPerTick`.
+  Notes added; comment-only, no transcribed physics touched.
+- [x] [Review][Patch] **`low` — the AD-4 key-code guard could no longer see `Space`**
+  [`test/host-input.test.ts`:388-395]. `'Space'` was excluded from the word-boundary grep because the
+  bare word false-positives on prose — leaving the single mapped code most likely to be pasted into
+  `src/sim/**` as the one the guard could not catch, disabled by this story's own header comment.
+  Restored as the quoted tokens `'Space'` / `"Space"`: a key code must be a string literal to be
+  usable, so the real leak is caught while the prose stays clean. Verified: neither form appears
+  under `src/sim/` today.
+- [x] [Review][Patch] **`low` — AC 1's "no command is issued" was asserted by a tautology**
+  [`test/cabinet-nudge.test.ts`:99]. `expect(Array.isArray(result.switchEvents)).toBe(true)` is
+  guaranteed by the interface's own type and cannot fail. Replaced with the falsifiable claim for that
+  tick: a lone nudge rising edge reaches neither sensor, so it emits **no** switch edge.
+  (`CabinetMechanicsResult` has no command field at all, so "issues no command" is structural.)
+- [x] [Review][Patch] **`low` — the I/O matrix's "Blur mid-nudge" row had no test**
+  [`test/host-input.test.ts`]. The only blur test holds `ShiftLeft` + `Enter` and asserts on no nudge
+  action. This story added `heldCodesByAction.clear()` to `onBlur` specifically because an action can
+  now be held by two codes, so the uncovered case was the one that most needed covering. Added: blur
+  with both `ArrowUp` and `Space` down, asserting the single releasing transition **and** that a
+  later `ArrowUp` press still raises `nudge_up` (a stale held-code entry would swallow it as
+  auto-repeat).
+- [x] [Review][Patch] **`low` — a self-referential assertion in the new provenance branch**
+  [`test/sim-boundary.test.ts`:235]. `expect(isDeclaredVpinballPort(declared)).toBe(true)` is
+  `Set.has(x)` for `x` drawn from that same set — true for any possible file content. Replaced with the
+  claim that can fail: each declared port's real file carries the vpinball marker, so the declaration
+  and the file's own content must agree.
+- [x] [Review][Patch] **`low` — AC 8's bit-identical precondition was unguarded against an empty ball
+  array** [`test/cabinet-integration.test.ts`:90]. Two empty arrays compare equal — this epic's own
+  recorded failure mode (a determinism test that asserted a ball position with no ball spawned). A
+  ball-existence assertion now precedes the comparison.
+- [x] [Review][Patch] **`low` — two provenance citations were inaccurate**
+  [`src/sim/physics/cabinet/plumb-bob.ts`:53, `oscillator.ts`:50]. The gravity literal is at
+  `PlumbHandler.cpp:61`, not `:62`; and `CabinetPhysics.cpp:21` / `PlumbHandler.cpp:54` declare the
+  same `0.001f` under **different** identifiers (`deltaTime` and `dt`), not a shared `deltaTime`.
+  Corrected — in a repository where CLAUDE.md makes these notes the licence record, the citations
+  should be exact.
+- [x] [Review][Defer] **`medium` — nothing pins the ported files' bodies, only their headers**
+  [`test/sim-boundary.test.ts`] — appended as an `occurrence` to **`DW-79`** (same root cause, already
+  routed to Story 1.8): the third provenance branch checks the header block and the declaration split,
+  never the transcribed code, so a later edit to a port passes every gate. This story adds three more
+  files to that exposure (five in total). Partially mitigated here — every transcribed constant is now
+  pinned by value in `test/tuning.test.ts`, and the Y-axis dynamics by `MEASURED_K = 15` — but the
+  X-axis stiffness and damping (`freqXHz`, `zetaX`) contribute to no asserted quantity, so a
+  copy-paste error between the two axes would ship undetected.
+- [x] [Review][Defer] **`medium` — the multi-sub-step path is constructed and guarded but never
+  executed** [`src/sim/physics/cabinet/index.ts`:195, `nudge-impulse.ts`:85] — filed as **`DW-84`**
+  (routed, `owner=burndown`, alongside `DW-2`'s TICK_HZ ratification). Deleting `* substepsPerTick`
+  from `nudge-impulse.ts:85` leaves the suite green today. The new `PHYS_FACTOR` pin makes a bare
+  tick-rate change fail loudly, but the sub-step *behaviour* would still land unverified on whichever
+  story changes the tick rate.
+
+**Already filed, deliberately not re-filed:** `DW-82` (the shipped bundle carries vpinball GPLv3+ code
+while `public/THIRD-PARTY-NOTICES.txt` and `NOTICE` carry no vpinball block — confirmed still true and
+still out of footprint; high, escalated, awaiting user authorization at the merge gate) and `DW-83`
+(same-tick multi-nudge, routed to 1.8, partially closed by QA). `DW-70` was checked and is untouched by
+this story.
+
+**Dismissed (16), with the reasoning, so a later review need not re-litigate them.** Theoretical
+hardening on inputs that cannot vary: NaN/zero/negative guards on `massKg`, `rodLengthM`,
+`thresholdDeg`, `slamNudgesPerWindow`, `slamNudgeWindowTicks` — every one is a deep-frozen
+compile-time literal with no runtime path; these become real only if Story 1.9's tuning panel makes
+them live. Same class: `detach()` not clearing held codes, `KEY_MAP` not `Object.freeze`d, and
+`stepLevel()`'s settle window being untested at `settleTicks > 0` (both classes resolve to 0 today;
+real the moment a story gives `tilt_bob` or `slam` a non-zero settle class). Spec-bound / by-design:
+`MEASURED_K`'s exact literal (Hazard 3 mandates the pinned literal over a bare `>= 10`); the nudge
+naming convention reading differently for L/R than for Up (nudge direction ships `unverified`, owned
+by Story 1.9's feel ritual); AC 6 observed through `createMachine()` and AC 8's second clause through a
+parallel machine (`FrameOutput` deliberately carries no `SwitchEvent`s, so switch edges *cannot* be
+observed through `createLoop()` — the ACs' literal wording is unreachable, and both tests disclose the
+substitution); a diagonal nudge summing to √2 × peak and `nudge_l`+`nudge_r` cancelling (both match
+upstream's per-call impulse queue exactly); the cabinet rule running before `applyCommands`, so a ball
+ejected on the same tick misses that tick's coupling (the spec mandates the hardware-rule block's
+position); `G_SI` duplicated file-locally rather than hoisted into `constants.ts` (each ported file
+deliberately transcribes its own upstream literal). No measured problem: per-tick allocation churn in
+the coupling (the frame budget passes) and test-fixture duplication across the cabinet suite.
+Noted for Story 1.8 rather than filed: extending `test/loop-determinism.test.ts`'s scripted
+transitions with a nudge burst — worthwhile, but the new physics is deterministic by construction
+(no wall-clock, no randomness, integer tick arithmetic).
+
+**Rule 3 (real-runtime test evidence) — noted, not filed.** The library half of this story has genuine
+real-runtime evidence: AC 8 drives the real `createLoop()` and asserts on its `FrameOutput`, and the
+new AD-5 ordering pin does the same. The DOM half (`host/input`'s `preventDefault()` stopping the page
+scrolling under Space and the arrows) is exercised only through synthetic events on a stub target —
+the repository has no browser test tier at all (no Playwright, no puppeteer, no jsdom; `pnpm test` is
+Vitest in Node). That is the epic's recorded, deliberate arrangement — "a headless engine never
+decodes images, so the automated suite cannot see renderer-level breakage; a per-story smoke in a real
+browser is what catches it" — and the browser smoke remains correctly logged as the lead's outstanding
+gate. Building a browser tier is Story-sized and out of this story's footprint, so this is recorded as
+a known exemption rather than a finding.
+
 ## Spec Change Log
 
 - 2026-08-29 (lead, re-dispatch after the user's decision): the plan's `intent gap` HALT is resolved by

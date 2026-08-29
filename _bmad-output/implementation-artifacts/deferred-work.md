@@ -446,6 +446,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: Verified by hand once per review; no checksum, vendored copy or deviation-count test exists. story-1-8-sweep-mandate.md's AD-16 mutation covers header/glob moves only and its AD-15 mutation covers tunables, neither covers port body drift. A guard needs the upstream bytes vendored, which this story's Never list and the ATTRIBUTIONS gate put out of footprint.
 - 2026-08-29T08:02:47Z status=routed owner=1-8-replays-golden-state-hashes-and-ci-parity by=cr note=AD-15/AD-16 rely on a manual diff; fold a body-drift guard into Story 1.8's invariant sweep
+- 2026-08-29T13:32:46Z occurrence=1-7-nudge-the-tilt-bob-and-the-slam-sensor
 
 ### DW-80: A 30 ms flipper tap peaks at 90.04 deg against a 90 deg end-of-stroke stop, so epics.md's 'the tap rises only partially' criterion is met by 0.04 deg and any flipper tuning change will silently cross it
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: low | fix-risk: low | footprint: in-epic
@@ -466,3 +467,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-7-nudge-the-tilt-bob-and-the-slam-sensor.md | severity: med | fix-risk: low | footprint: test/cabinet-*.test.ts
 - evidence: Story 1.7 harvest 2026-08-29, review layer finding. The slam counter counts nudge edges within a tick window; the coverage gap is the same-tick case specifically
 - 2026-08-29T12:49:32Z status=routed owner=1-8-replays-golden-state-hashes-and-ci-parity by=harvest note=CLOSE ON EVIDENCE: a test that drives two nudge edges in one tick and asserts both are counted by the slam window and both reach the oscillator. Fits the Story 1.8 sweep, which is already auditing this epic for paths never driven
+
+### DW-84: The cabinet's multi-sub-step path (substepsPerTick > 1) is constructed and guarded but never executed, so every tick-rate-dependent scaling in the cabinet port is unverified behaviour
+- source: spec-1-7-nudge-the-tilt-bob-and-the-slam-sensor.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: test/cabinet-substep.test.ts covers cabinetSubstepsPerTick()'s arithmetic and its two throw branches, but never drives applyFrame() or stepSubstep() at substepsPerTick > 1. Deleting '* substepsPerTick' from nudge-impulse.ts:85 leaves the suite green today. Code review added a pin that the cabinet's integrated time per tick equals the solver's PHYS_FACTOR, which makes a bare TICK_HZ change fail loudly; the sub-step BEHAVIOUR (impulse length scaling, delta accumulation, bob cadence) is still unexercised and would land unverified on whichever story changes the tick rate.
+- 2026-08-29T13:32:54Z status=routed owner=burndown by=cr note=Owned with DW-2 (TICK_HZ ratification); exercise a mocked SECONDS_PER_TICK=0.002 through applyFrame before any tick-rate change lands

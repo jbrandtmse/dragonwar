@@ -95,8 +95,15 @@ describe('sim/physics/cabinet -- AC 1: nudge is cabinet motion, not a force', ()
 		expect(cabinetMechanics.state.oscillator.x.accelerationMPerS2, 'the rising edge must move the oscillator inside the SAME tick').not.toBe(0);
 		// This module's own result carries switchEvents only -- it never
 		// issues a command of any kind (AD-5: the hardware rules never round
-		// trip through sim/rules).
-		expect(Array.isArray(result.switchEvents)).toBe(true);
+		// trip through sim/rules), which `CabinetMechanicsResult` enforces
+		// structurally by having no command field at all.
+		// Code review 2026-08-29: this previously asserted
+		// `Array.isArray(result.switchEvents)`, which the interface's own type
+		// already guarantees -- it could not fail for any implementation. The
+		// real, falsifiable claim on this tick is that a single nudge rising
+		// edge emits NO switch edge: one ordinary nudge does not reach the
+		// bob's threshold, and one edge is short of slamNudgesPerWindow.
+		expect(result.switchEvents, 'a lone nudge rising edge crosses neither sensor, so this tick emits no switch edge').toEqual([]);
 	});
 
 	it('held nudge_l (500 ticks straight) queues exactly one impulse, not one per tick -- identical oscillator trajectory to a single-tick press', () => {
@@ -301,5 +308,56 @@ describe('sim/physics/cabinet -- DW-83 partial coverage: Y-axis end-to-end coupl
 		expect(osc.y.displacementM, 'Y axis must have moved (nudge_up\'s impulse)').not.toBe(0);
 		expect(controlBall.hit.vel.x).toBe(preNudgeVelX);
 		expect(controlBall.hit.vel.y).toBe(preNudgeVelY);
+	});
+});
+
+describe('sim/physics/cabinet -- NUDGE_DIRECTIONS: which action pushes the cabinet which way (absolute, not self-consistent)', () => {
+	// Code review 2026-08-29: `NUDGE_DIRECTIONS` is the one part of this
+	// module its own header calls out as AUTHORED rather than transcribed --
+	// "no authorized vpinball/vpinball file states its own core-script
+	// angle-to-action mapping" -- and before this test it had no test at all.
+	//
+	// Every pre-existing X-axis assertion in this file compares the ball's
+	// velocity delta against the cabinet's OWN velocity, both derived from the
+	// same oscillator run, so a sign flip moves both sides together and the
+	// equality still holds. Measured: flipping `nudge_r` to { x: -1, y: 0 },
+	// or swapping `nudge_l` and `nudge_r` outright -- a left nudge that shoves
+	// the cabinet right -- left the entire suite green (654 passed). Inverted
+	// nudge keys would have reached the browser with only the lead's manual
+	// smoke standing between them and the player.
+	//
+	// The observable here is ABSOLUTE: the cabinet's own SI, table-aligned
+	// velocity after one rising edge, read off `state.oscillator`. It is
+	// collision-free (no ball is involved), so nothing can mask a sign.
+	// Per AC 1 the ball's table-frame velocity moves OPPOSITE to this, which
+	// the paired-run tests above already pin -- so pinning the cabinet's
+	// absolute direction closes the loop on the ball's absolute direction too.
+	function cabinetVelocityAfterOneNudge(action: 'nudge_l' | 'nudge_r' | 'nudge_up') {
+		const { cabinetMechanics } = buildHarness();
+		cabinetMechanics.applyFrame(1, { ...NO_FRAME, [action]: true } as InputFrame);
+		for (let tick = 2; tick <= 12; tick++) {
+			cabinetMechanics.applyFrame(tick, NO_FRAME);
+		}
+		return { x: cabinetMechanics.state.oscillator.x.velocityMPerS, y: cabinetMechanics.state.oscillator.y.velocityMPerS };
+	}
+
+	it('nudge_l drives the cabinet along table -X and nudge_r along +X, each with an exactly zero Y component', () => {
+		const left = cabinetVelocityAfterOneNudge('nudge_l');
+		const right = cabinetVelocityAfterOneNudge('nudge_r');
+
+		expect(left.x, 'nudge_l must push the cabinet along table -X (the ball then drifts +X, to the right)').toBeLessThan(0);
+		expect(right.x, 'nudge_r must push the cabinet along table +X (the ball then drifts -X, to the left)').toBeGreaterThan(0);
+		// Equal and opposite: the two directions are mirror images, so neither
+		// can be silently scaled differently from the other.
+		expect(right.x, 'nudge_l and nudge_r must be equal and opposite').toBeCloseTo(-left.x, 12);
+		// Axis purity -- an X nudge must not leak into the Y oscillator.
+		expect(left.y, 'nudge_l must not move the Y axis at all').toBe(0);
+		expect(right.y, 'nudge_r must not move the Y axis at all').toBe(0);
+	});
+
+	it('nudge_up drives the cabinet along table -Y, with an exactly zero X component', () => {
+		const up = cabinetVelocityAfterOneNudge('nudge_up');
+		expect(up.y, "nudge_up must push the cabinet along table -Y (toward the player), so the ball's relative motion shifts +Y, up the playfield").toBeLessThan(0);
+		expect(up.x, 'nudge_up must not move the X axis at all').toBe(0);
 	});
 });

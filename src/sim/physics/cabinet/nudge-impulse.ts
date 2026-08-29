@@ -51,6 +51,20 @@
 // oscillator.ts.
 // Deviation: `f32` upstream, `number` (f64) here, uniform with the rest of
 // this port and the existing vpx-js port under src/sim/physics/**.
+// Deviation (recorded at code review 2026-08-29): upstream's impulse LENGTH
+// is a count of 1 ms sub-steps taken straight from the source
+// (`m_impulses.emplace_back(25, ...)`, KeyboardNudge.cpp:169 -- exactly
+// 25 ms). Here it is routed through DragonWar's tuning pipeline as
+// `nudgeImpulseMs` -> `resolveTuning()` -> `nudgeImpulseTicks` -> x
+// `substepsPerTick`, so the transcribed 25 ms survives EXACTLY only while a
+// tick is a whole number of milliseconds. At TICK_HZ 1000 it is exactly 25
+// sub-steps and this is an identity. At a hypothetical TICK_HZ 500,
+// `msToTicks()` rounds 25 ms to 13 ticks and x 2 sub-steps gives 26 -- a
+// 1 ms drift from the ported figure. That configuration is currently
+// unreachable: `test/cabinet-substep.test.ts` pins the cabinet's integrated
+// time per tick to the ball solver's own `PHYS_FACTOR` step, which fails for
+// any tick rate that does not change `PHYSICS_STEPTIME` with it. Author the
+// length directly in sub-steps if that pin is ever deliberately relaxed.
 
 import type { ResolvedTuning } from '../../table/tuning';
 

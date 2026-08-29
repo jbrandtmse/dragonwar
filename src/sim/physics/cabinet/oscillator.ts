@@ -43,11 +43,17 @@
 // than assuming a 1:1 tick match, and throws a descriptive load-time error
 // if `SECONDS_PER_TICK` is not an exact positive integer multiple of it --
 // see "Sub-stepping and the provisional tick rate" in this story's spec.
+// Deviation (recorded at code review 2026-08-29): `DampedHarmonicOscillator::
+// Reset()` (DampedHarmonicOscillator.h:30-35, zeroing displacement, velocity
+// and acceleration) is NOT ported. Nothing in this project resets the cabinet
+// -- AD-7's "the bob is never reset by command" applies to the whole cabinet
+// hardware rule, whose only settle is physical decay -- so exposing a reset
+// hook would create the very API the ADR forbids.
 
 import { SECONDS_PER_TICK } from '../../contracts/time';
 import type { ResolvedTuning } from '../../table/tuning';
 
-/** Verbatim, CabinetPhysics.cpp:21 / PlumbHandler.cpp:54's shared `constexpr float deltaTime = 0.001f;` -- never tunable (AD-15). Every cabinet/bob port integrates at this fixed sub-step, looped `substepsPerTick` times per simulation tick. */
+/** Verbatim, the same `0.001f` fixed sub-step both upstream cabinet files hard-code: `constexpr float deltaTime = 0.001f;` (CabinetPhysics.cpp:21) and `constexpr float dt = 0.001f;` (PlumbHandler.cpp:54) -- same value, different local identifier. Never tunable (AD-15). Every cabinet/bob port integrates at this fixed sub-step, looped `substepsPerTick` times per simulation tick. */
 export const CABINET_SUBSTEP_SECONDS = 0.001;
 
 /** One axis's damped-harmonic-oscillator state, in SI (m, m/s, m/s^2) -- `DampedHarmonicOscillator`'s own three public getters. */

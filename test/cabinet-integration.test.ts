@@ -86,7 +86,11 @@ describe('sim/physics/cabinet -- AC 8 (Integration AC, Rule 1): observed through
 
 		let controlOut = control.advance(1, []);
 		let nudgedOut = nudged.advance(1, []);
-		// Bit-identical immediately after the shared serve pulse.
+		// Bit-identical immediately after the shared serve pulse. Guarded on a
+		// ball actually existing first: two EMPTY ball arrays also compare
+		// equal, which is this epic's own recorded failure mode (a determinism
+		// test that asserted a ball position with no ball ever spawned).
+		expect(controlOut.snapshot.balls.length, 'the shared serve pulse must have produced a ball, or this comparison is vacuous').toBeGreaterThan(0);
 		expect(nudgedOut.snapshot.balls).toEqual(controlOut.snapshot.balls);
 
 		controlOut = control.advance(100, []);
@@ -131,5 +135,62 @@ describe('sim/physics/cabinet -- AC 8 (Integration AC, Rule 1): observed through
 			}
 		}
 		expect(sawBobEdge, "machine.step()'s switchEvents must carry the bob's edges at this seam").toBe(true);
+	});
+});
+
+describe('sim/physics/cabinet -- AD-5 ordering: the cabinet rule runs BEFORE physics.step()', () => {
+	// Code review 2026-08-29: the twin of test/plunger.test.ts:55-78's and
+	// test/flipper-mover.test.ts's ordering pins, for the THIRD hardware rule
+	// AD-5 names -- the one Story 1.7 added at the same
+	// src/sim/physics/machine.ts seam.
+	//
+	// Before this test, moving ONLY `cabinetMechanics.applyFrame(tick, frame)`
+	// in machine.ts to after `physics.step()` -- making every nudge one tick
+	// late, the exact latency AD-5 forbids and AC 1 explicitly rules out
+	// ("the oscillator receives exactly one impulse inside tick t's OWN step,
+	// before physics.step()") -- left the entire suite green (measured: 654
+	// passed, typecheck clean). That is the same hole Story 1.6 had to close
+	// for the flipper and the plunger, and the epic context names this
+	// ordering its central invariant, to be pinned by a test that fails when
+	// the hardware rules move after the step.
+	//
+	// The discriminating observable is POSITION, not velocity: in BOTH
+	// orderings the coupling has changed the ball's velocity by the time the
+	// tick ends, so velocity looks nudged either way. Only the position says
+	// whether the velocity change was applied BEFORE the step that was
+	// supposed to integrate it. Measured: the nudged ball is 6.59e-5 mm from
+	// the control at the end of the nudge tick under the correct ordering,
+	// and EXACTLY 0 (bit-identical) under the reversed one.
+	it('the nudge tick\'s own velocity change is integrated by that same tick\'s physics step -- the ball has already moved on the nudge tick itself', () => {
+		const control = createLoop({ collisionDoc: loadDoc() });
+		const nudged = createLoop({ collisionDoc: loadDoc() });
+		control.pulseCoil('c_trough_eject');
+		nudged.pulseCoil('c_trough_eject');
+
+		let controlOut = control.advance(1, []);
+		let nudgedOut = nudged.advance(1, []);
+		for (let i = 0; i < 200; i++) {
+			controlOut = control.advance(1, []);
+			nudgedOut = nudged.advance(1, []);
+		}
+
+		// Precondition: a ball exists and the two runs are bit-identical, so
+		// any difference below is the nudge and nothing else.
+		expect(controlOut.snapshot.balls.length, 'a ball must be in play, or this proves nothing').toBeGreaterThan(0);
+		expect(nudgedOut.snapshot.balls[0]!.pos, 'the paired runs must be bit-identical before the nudge').toEqual(controlOut.snapshot.balls[0]!.pos);
+
+		// The nudge tick itself -- one single tick, one single rising edge.
+		const nudgeTransition: InputTransition = { tick: nudgedOut.snapshot.tick + 1, frame: { ...NO_FRAME, nudge_l: true } };
+		controlOut = control.advance(1, []);
+		nudgedOut = nudged.advance(1, [nudgeTransition]);
+
+		const nudgedPos = nudgedOut.snapshot.balls[0]!.pos;
+		const controlPos = controlOut.snapshot.balls[0]!.pos;
+		const movedOnNudgeTick = Math.hypot(nudgedPos.x - controlPos.x, nudgedPos.y - controlPos.y, nudgedPos.z - controlPos.z);
+
+		expect(
+			movedOnNudgeTick,
+			'the coupling must be applied BEFORE physics.step() on the nudge tick, so the ball has already been carried this tick -- a hardware rule running after the step moves it for the first time only on the NEXT tick, leaving this difference exactly 0',
+		).toBeGreaterThan(0);
 	});
 });

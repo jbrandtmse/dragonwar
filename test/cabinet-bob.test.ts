@@ -207,13 +207,25 @@ describe('sim/physics/cabinet -- AC 4: the bob decays physically; no command res
 		for (let i = 0; i < overThreshold.length; i++) {
 			if (overThreshold[i]) lastOverTick = i + 1;
 		}
+		// Code review 2026-08-29: `lastOverTick` starts at -1, so WITHOUT this
+		// guard a bob that never crossed the threshold at all would leave it
+		// at -1 and satisfy `toBeLessThan(SETTLE_BY_TICK)` vacuously -- "it
+		// settled" would be proven by "it never moved". The crossing must be
+		// asserted before the settling can mean anything.
+		expect(lastOverTick, 'the burst must actually drive the bob OVER the threshold, or "it settles below threshold" proves nothing').toBeGreaterThan(0);
 		expect(lastOverTick, `the bob must permanently settle below threshold by tick ${SETTLE_BY_TICK} (measured last crossing: ${lastOverTick})`).toBeLessThan(SETTLE_BY_TICK);
 		for (let i = SETTLE_BY_TICK; i < overThreshold.length; i++) {
 			expect(overThreshold[i], `tick ${i + 1}: must stay below threshold once settled`).toBe(false);
 		}
 		// s_tilt_bob re-opens (closed:false) with no external reset -- the
 		// isOverThreshold level itself IS the source AC 3's edge-collapser
-		// reads; its own re-opening here is exactly that.
-		expect(overThreshold[0]).toBe(false);
+		// reads, so a true->false transition in that level IS the re-opening.
+		// Code review 2026-08-29: this previously asserted `overThreshold[0]`
+		// -- the level on tick 1, before the burst had done anything, which is
+		// false by construction and said nothing about re-opening. The real
+		// claim is the transition: over threshold at some point, below it at
+		// the end, with no reset of any kind having been issued.
+		expect(overThreshold[lastOverTick - 1], `tick ${lastOverTick}: the bob's last recorded crossing must genuinely be over threshold`).toBe(true);
+		expect(overThreshold[overThreshold.length - 1], 'the bob must have re-opened by the end of the run -- its physical decay is the only settle').toBe(false);
 	});
 });

@@ -100,6 +100,21 @@ clean. The story would have closed green with its central invariant unprotected.
 a *comment* at `test/flipper-mover.test.ts:40-46` explaining the timing, and documented reasoning
 is not a test.
 
+## Pinning an invariant once does not keep it pinned
+
+**Story 1.7 proved this the hard way, one story after Story 1.6 fixed the same invariant.** Story 1.6 closed
+AD-5's ordering hole for the flipper and the plunger. Story 1.7 then added a *third* hardware rule
+(`cabinetMechanics.applyFrame()`) at the very same seam — and moving only that call after `physics.step()`,
+making every nudge one tick late, left all **654 tests green with a clean typecheck**. The invariant had a
+pin; the new instance did not.
+
+So the sweep must, for each invariant, **enumerate every current instance** rather than confirming that
+"a" test exists — and should prefer a pin whose shape makes a new unpinned instance visible (a table-driven
+test over the registry of hardware rules, say, rather than one hand-written test per rule). The same story
+also found `NUDGE_DIRECTIONS` had no test at all: flipping `nudge_r` to `-X` left 654 green, because every
+existing assertion compared the ball's delta against the same oscillator run that produced it. Inverted
+nudge keys would have reached the browser. Watch for assertions that compare a value against itself.
+
 ## Method — identical, applied to invariants
 
 For each `AD-*` in scope: **state the mutation** that would violate it, **run it**, **confirm
