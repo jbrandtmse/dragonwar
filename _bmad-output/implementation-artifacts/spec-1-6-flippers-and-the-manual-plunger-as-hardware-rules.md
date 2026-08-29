@@ -2,7 +2,7 @@
 title: 'Story 1.6: Flippers and the manual plunger as hardware rules'
 type: 'feature'
 created: '2026-08-28'
-status: 'done'
+status: 'in-progress'
 baseline_revision: '83add20f249d3179b707247a43def3a1da5b7bbc'
 baseline_commit: '800639036077650abe4452ef59244ab8ed69106b'
 review_loop_iteration: 0
@@ -199,7 +199,7 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
 | Key auto-repeat | `keydown ShiftLeft` repeated by the OS while held | Exactly one transition — a repeat produces an identical frame and identical frames emit nothing | A `keyup`/`keydown` pair still emits two transitions |
 | Window loses focus while a flipper is held | `blur` with `flipper_l` true | One transition releasing **every** mapped action, so no coil is left energised | `blur` with nothing held emits nothing |
 | Tick stamping | A `keydown` whose `timeStamp` falls between the previous rAF callback and this one | `transition.tick` lies in the half-open range of ticks this `advance()` will run, and two presses in one frame are stamped in non-decreasing tick order | A `timeStamp` before the accumulator origin clamps to the frame's first tick; one after the last clamps to it, and `frameInForceAt` carries it forward |
-| Flipper energises on the same tick | `s_flipper_l` closes at tick *t* in the `InputFrame` | `c_flipper_l`'s mover is solenoided on inside the physics step for tick *t*; the snapshot's `mechanisms.flippers.l.angleDeg` differs at tick *t* from tick *t−1* | No rules round trip occurs: `RulesStepResult.commands` is still empty |
+| Flipper energises on the same tick | `s_flipper_l` closes at tick *t* in the `InputFrame` | `c_flipper_l`'s mover is solenoided on inside the physics step for tick *t*, with no rules round trip (`RulesStepResult.commands` still empty), **and** the snapshot's `mechanisms.flippers.l.angleDeg` has moved by tick *t+1* | **The ordering is pinned by mutation, not by inspection:** the test MUST fail when `machine.ts`'s `applyFrame` calls are moved to run after `physics.step()`. Amended 2026-08-29 — the angle CANNOT differ at tick *t* itself: the ported mover ramps `curTorque` from an at-rest return torque, so the torque sign flips on the second step for any positive `rampUp`. Angle is a lagging indicator of torque; asserting it at *t* is impossible without deviating from the verbatim port (AD-5/AD-15) |
 | Flipper held | The flipper key held for 5 simulated seconds with a ball resting on the bat | The bat reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the whole 5 s; **and** the ball is held on the bat — at rest, its position on the bat unchanged within tolerance — for at least the first 1 s of that hold | A bat that oscillates or drifts at the stop fails; end-of-stroke torque damping is what holds it. The ball half is bounded to 1 s because this epic's placeholder table has no geometry beside either flipper to form a cradle pocket (`epics.md` amended 2026-08-29; the full 5 s cradle is Story 2.1's, ledger `DW-72`). The bounded assertion MUST carry a discriminating negative — a window the ball would survive anyway is vacuous and will be rejected |
 | Flipper tapped | The flipper key held for exactly 30 ms then released | The bat's **peak** angle lies strictly between the rest and end angles, and it returns to the rest angle afterwards | A tap that reaches the end angle fails the "rises partially" half; a bat that does not return fails the other |
 | Coil disabled | `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` at tick *t*, then the key pressed at *t+1* | The bat's angle does not change; after `{ action: 'enable' }` the same press moves it | An unknown coil name is impossible (`CoilName` is a closed union); a `disable` while the bat is raised lets it return under its spring, it is not frozen mid-stroke |
@@ -383,6 +383,18 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
   - [x] **(b) The ball half, bounded to the first 1 s (1000 ticks).** Assert the ball is still on the bat, at rest, its position unchanged within tolerance, through tick 1000. **Discriminating negative (required — this is the whole point of the rework):** the previous run's version was rejected precisely because a window the ball would survive anyway asserts nothing. Pin the real measured behaviour in BOTH directions — e.g. still on the bat at 1 s AND measurably departed by 5 s — or run the same placement with the flipper NOT raised and assert the ball leaves well inside the 1 s window. State in a comment which negative was chosen and what it would catch.
   - [x] **(c)** Add a one- or two-line comment pointing at `DW-72` and Story 2.1 for the deferred full cradle, referring to `epics.md`'s Story 1.6 change log rather than restating the argument.
 
+**Rework — iteration 3 (added by the lead 2026-08-29 after the AC 2 amendment):**
+
+- [ ] **26. [Amendment] `test/flipper-mover.test.ts` (or a sibling) — pin AD-5's same-tick ordering with a test that can fail.** This is the criterion's own requirement, not diligence: the test MUST go red when `machine.ts`'s two `applyFrame` calls are moved to run after `physics.step()`.
+  - [ ] (a) Assert the coil is energised inside tick *t*'s own physics step with `RulesStepResult.commands` empty, and that the angle has moved by tick *t+1*. Do NOT assert an angle change AT tick *t* — that is impossible with the verbatim port and is exactly what this amendment removed. `test/flipper-mover.test.ts:40-46` currently *explains* this in a comment; replace the comment with an assertion.
+  - [ ] (b) **Demonstrate the red.** Apply the mutation (move both `applyFrame` calls below `physics.step()` in `src/sim/physics/machine.ts`), run the suite, confirm THIS test fails, then restore. Record in `## Verification` what you mutated and what failed. A test nobody has seen fail does not satisfy this criterion.
+  - [ ] (c) Reach the ordering through a real seam — `createMachine()`/`createFlipperMechanics()` or `createLoop()` — not by inspecting source text. `FlipperMechanismState` carries only `angleDeg` and `angularVelDegPerSec`, so the observable is the solenoid/torque state or the *t+1* angle, not a *t* angle.
+
+- [ ] **27. [Fix Pack] Close the three verification gaps the code review returned.** All three are the same vacuity class the amendment is about; each needs a demonstrated red, recorded in `## Verification`.
+  - [ ] (a) The flipper's collision material is entirely unverified — deleting `flippers.ts`'s three material calls leaves the suite green, and the comment claiming it is pinned elsewhere is false. Pin it, delete the comment's claim, and demonstrate the red by removing one material assignment.
+  - [ ] (b) `angularVelDegPerSec` is only ever asserted as `0`, so a 100x unit error ships green. Assert it at a non-default value during a stroke; demonstrate the red by scaling the value.
+  - [ ] (c) `addBox()` / `outwardTriangle()` lost their only coverage when the winding regression guard was deleted — the two flippers were the only box-shaped nodes in the committed document. Restore coverage; demonstrate the red by inverting a winding.
+
 **Acceptance Criteria:**
 
 - Given the built app running in a browser, when the player presses left Shift, right Shift, Enter or `1`,
@@ -391,8 +403,11 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
   and no key code, `KeyboardEvent` reference or `code` string exists anywhere under `src/sim/` (proven by
   `pnpm lint:boundaries` plus a grep assertion in the test suite).
 - Given `s_flipper_l` closes at tick *t*, when physics steps tick *t*, then `c_flipper_l`'s ported mover is
-  energised inside that same physics step and `snapshot.mechanisms.flippers.l.angleDeg` at tick *t* differs
-  from its value at tick *t−1*, with `RulesStepResult.commands` still empty — no rules round trip occurred.
+  energised inside that same physics step with `RulesStepResult.commands` still empty (no rules round trip),
+  and `snapshot.mechanisms.flippers.l.angleDeg` has moved by tick *t+1*; **and** the same-tick ordering is
+  pinned by a test that FAILS when `machine.ts`'s `applyFrame` calls are moved to run after `physics.step()`,
+  with that red observed and recorded in this spec.
+  *(Amended 2026-08-29 — see `## Design Notes` → "The AC 2 amendment (2026-08-29)".)*
 - Given the four button switches, when an `InputFrame` transition changes any of them, then `sim/loop` emits
   `s_flipper_l`, `s_flipper_r`, `s_start` and `s_plunger` as `SwitchEvent` edges from
   `buttonSwitchEdges()` — the existing implementation, unchanged and not duplicated in physics.
@@ -588,6 +603,18 @@ getters (inaccurate wording - both return freshly-built objects, which is the su
 
 ## Spec Change Log
 
+- 2026-08-29 (lead, second re-dispatch after the user's decision): AC 2's observable amended with
+  the user's one-time authorization to edit `epics.md`. "The angle changes on tick *t*" is
+  impossible with the mandated verbatim port; it becomes "the coil energises inside tick *t*'s own
+  step with no rules round trip, and the angle has moved by *t+1*". **A mutation requirement was
+  added to the criterion itself**: the pinning test must fail when the hardware rules are moved
+  after `physics.step()`, because AD-5's central invariant had no test at all and the story would
+  otherwise have closed green. Amended here: the `## I/O & Edge-Case Matrix` "Flipper energises on
+  the same tick" row (frozen-block edit, lead-authored under that authorization, so the spec cannot
+  contradict the amended `epics.md`) and the matching `## Tasks & Acceptance` criterion. Added
+  task 26 (the AD-5 pinning test with a demonstrated red) and task 27 (the code review's three-item
+  Fix Pack, all the same vacuity class). Frontmatter `status` reset `done` -> `in-progress`.
+
 - 2026-08-29 (lead, re-dispatch after the user's decision): the cradle AC was narrowed with the user's
   explicit, one-time authorization to edit `_bmad-output/planning-artifacts/epics.md`. The bat's half of the
   "Flipper held" claim is kept over the full 5 s; the ball's half is bounded to the first 1 s; the full
@@ -619,6 +646,42 @@ getters (inaccurate wording - both return freshly-built objects, which is the su
 - Rejected as noise or not-a-defect (10): a claim that `tick`/`i` are redundant counters in test (b) (false on inspection -- `tick` is deliberately offset by the 60-tick raise phase, not equal to `i`); `review_loop_iteration` "staleness" (the field counts `bad_spec` loopbacks only, and this pass had none, so 0 is correct); `baseline_revision`/`baseline_commit` carrying the same value (a pre-existing spec-template convention predating this diff, out of scope for the rework); the Acceptance Criteria section not appearing changed in this diff (it was already amended in the baseline commit `83add20`, confirmed by reading the current spec); the negative test's construction not being a literal replay of "the same assertion" against an "identical harness" (the operative intent -- proving release does not converge to end-of-stroke -- is met, and is now closer to literal after the patch above); the probe's "harness artifact" caveat not being carried into test (b)'s "left the bat" wording (the assertion only claims positional/speed departure, which is accurate regardless of trough absence, and does not claim draining); test (a)'s "exactly like (b)" comment wording (cosmetic, both setups keep a ball in contact with the raised bat for the claim's duration); unquantified AC prose versus concrete test thresholds (expected under this project's do-not-invent-a-number discipline -- thresholds are measured and cited, not invented); frontmatter bookkeeping (status transition, `baseline_revision` bump) falling outside the three rework checklist bullets (expected orchestration behavior mandated by the build-auto workflow itself); the 35 mm first-second drift tolerance exceeding the ball's own diameter (an explicit, documented margin over a ~27.5 mm measurement, not a realistic failure).
 
 ## Design Notes
+
+### The AC 2 amendment (2026-08-29)
+
+Story 1.6's code review raised a HIGH finding the lead verified independently: `epics.md` AC 2's
+observable — "a test asserts the flipper angle changes on tick *t*" — is **unreachable with the
+`FlipperMover` port that AD-5 and AD-15 mandate**.
+
+Measured one tick at a time through the real `createLoop()`:
+
+```
+tick=5  angle=141      (before press)
+tick=6  angle=141      <-- tick t, the press tick: UNCHANGED
+tick=7  angle=140.995  <-- first movement, t+1
+```
+
+The ported mover ramps `curTorque` by `strength / rampUp x PHYS_FACTOR` = 88 per step from an
+at-rest return torque of 127.6, so the torque sign flips on the *second* step — for any positive
+`rampUp`. **Angle is a lagging indicator of torque:** the coil genuinely energises on tick *t*,
+and only its visible effect arrives a tick later. `PlayerPhysics.step()`'s
+`updateVelocities()`-then-`physicsSimulateCycle()` ordering is upstream-faithful. Correcting the
+code would mean deviating from the verbatim port, so the criterion was wrong, not the
+implementation. `FlipperMechanismState` carries only `angleDeg` and `angularVelDegPerSec`, both
+unchanged at *t*, so no snapshot observable could have satisfied the original wording.
+
+**The mutation requirement is the more important half.** AD-5's central invariant — the reason the
+flipper is a hardware rule and not a command — had *no* test pinning it. Moving `machine.ts`'s two
+`applyFrame` calls to after `physics.step()`, making the flipper genuinely one tick late, left the
+whole suite green: 590 passed, 42 files, typecheck clean. What existed was a *comment* at
+`test/flipper-mover.test.ts:40-46` explaining the timing, and documented reasoning is not a test.
+The amended criterion therefore requires a test that fails under that mutation, with the red
+observed and recorded — the mutation is part of acceptance, not of the author's diligence.
+
+The user authorized a **one-time** widening to `_bmad-output/planning-artifacts/epics.md` for this
+amendment only; it does not carry forward. `epics.md` carries an inline `[AMENDED 2026-08-29 …]`
+marker and a Story 1.6 change log entry with this reasoning.
+
 
 ### The cradle amendment (2026-08-29)
 
