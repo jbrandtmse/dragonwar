@@ -22,10 +22,10 @@ Launch a context-free subagent with this prompt:
 
 Conduct a review of CONTENT.
 Look for what's missing, not only what's wrong.
-Find at least ten issues to fix or improve.
+Find every real issue to fix or improve — there are usually many; if you find fewer than ten, say so rather than pad the list.
 Output a Markdown list of findings only — no severity, priority, or ranking.
 If the content is empty, stop and say so.
-If you have zero findings, re-check and keep thinking; do not stop with an empty list.
+If you have zero findings, re-check once; an empty list after a second pass is a valid result — report it as such, do not manufacture findings.
 
 CONTENT:
 {diff_output}
@@ -56,7 +56,7 @@ name = "Verification Gap Reviewer"
 instruction = """
 Launch a context-free subagent with this prompt:
 
-Read `{skill-root}/review-prompts/verification-gap.md` completely and follow it as your review instructions.
+Read `{skill-root}/review-prompts/verification-gap.md` completely and follow it as your review instructions. Additionally (/epic-cycle Rule 19, falsifiability): flag every assertion that cannot fail — an expected value the type system makes the only possible value (e.g. `toEqual([])` against a `never[]`), a subject that was never constructed, two runs compared that both produce nothing, a test whose green depends on the defect it guards against, a module with no executed test host — and every acceptance criterion whose pinning test has no `mutation:` line in the spec's `## Verification`.
 
 Review content:
 
