@@ -72,7 +72,21 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 		expect(count, 'blender-resolve.test.ts\'s win32-only skipIf count changed -- update this pin deliberately').toBe(1);
 	});
 
-	it('a nested vitest run over exactly these two files reports the LIVE expected skip count for this platform and this machine\'s Blender resolvability', () => {
+	// Review finding 2026-08-29: this file was written to close "coverage
+	// lost to a skipIf is invisible", but it scoped itself to the two
+	// PRE-EXISTING gated groups and never covered the python-gated block THIS
+	// SAME STORY added -- test/export-py-hull.test.ts's four cases, which are
+	// the entire DW-64 deliverable. On a machine with no plain python3/python
+	// all four skip silently and every assertion here still passed, which is
+	// exactly the condition this file exists to make impossible.
+	it('structural pin: test/export-py-hull.test.ts\'s ONE python-gated describe.skipIf block holds EXACTLY 4 it() cases (DW-64\'s whole deliverable)', () => {
+		const source = readFileSync(path.join(REPO_ROOT, 'test', 'export-py-hull.test.ts'), 'utf8');
+		const block = extractDescribeBlock(source, "describe.skipIf(!pythonCmd)(");
+		const count = countOccurrences(block, /\n\tit\(/g);
+		expect(count, 'the python-gated hull block\'s own it() count changed -- update this pin AND the expectedSkips formula below deliberately, not silently').toBe(4);
+	});
+
+	it('a nested vitest run over exactly these three files reports the LIVE expected skip count for this platform, this machine\'s Blender resolvability and its plain-Python availability', () => {
 		let blenderResolvable: boolean;
 		try {
 			resolveBlender();
@@ -80,24 +94,44 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 		} catch {
 			blenderResolvable = false;
 		}
+		// The same two-candidate probe test/export-py-hull.test.ts's own
+		// resolvePlainPython() uses -- duplicated deliberately, per this
+		// suite's own "each file that spawns a real subprocess stays
+		// independently reviewable" convention.
+		let pythonAvailable = false;
+		for (const candidate of ['python3', 'python']) {
+			if (spawnSync(candidate, ['--version'], { encoding: 'utf8' }).status === 0) {
+				pythonAvailable = true;
+				break;
+			}
+		}
 		const isWin32 = process.platform === 'win32';
-		const expectedSkips = (blenderResolvable ? 0 : 21) + (isWin32 ? 0 : 1);
+		const expectedSkips = (blenderResolvable ? 0 : 21) + (isWin32 ? 0 : 1) + (pythonAvailable ? 0 : 4);
 
 		// eslint-disable-next-line no-console
 		console.log(
-			`[export-py-skip-visibility] this run: platform=${process.platform} blenderResolvable=${blenderResolvable} -- expected skip count = ${expectedSkips} ` +
-			`(${blenderResolvable ? 0 : 21} Blender-gated + ${isWin32 ? 0 : 1} win32-only)`,
+			`[export-py-skip-visibility] this run: platform=${process.platform} blenderResolvable=${blenderResolvable} pythonAvailable=${pythonAvailable} -- expected skip count = ${expectedSkips} ` +
+			`(${blenderResolvable ? 0 : 21} Blender-gated + ${isWin32 ? 0 : 1} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
 		);
 
 		const result = spawnSync(
 			process.execPath,
-			[path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'), 'run', 'test/export-py.test.ts', 'test/blender-resolve.test.ts'],
+			[path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'), 'run', 'test/export-py.test.ts', 'test/blender-resolve.test.ts', 'test/export-py-hull.test.ts'],
 			{ cwd: REPO_ROOT, encoding: 'utf8', timeout: RUN_TIMEOUT_MS },
 		);
 		expect(result.status, `the nested run itself must succeed. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
 
-		const summaryMatch = /Tests\s+(\d+)\s+passed(?:\s*\|\s*(\d+)\s+skipped)?/.exec(result.stdout ?? '');
-		expect(summaryMatch, `could not find a "Tests N passed | M skipped" summary line in the nested run's output:\n${result.stdout}`).not.toBeNull();
+		// Review finding 2026-08-29: this pattern used to REQUIRE an `N passed`
+		// segment, so a run in which every case skipped (all three gates
+		// closed at once) matched nothing and failed for a formatting reason
+		// rather than for the skip arithmetic it exists to pin. Both segments
+		// are optional now, and at least one must be present.
+		const summaryMatch = /Tests\s+(?:(\d+)\s+passed)?\s*\|?\s*(?:(\d+)\s+skipped)?/.exec(result.stdout ?? '');
+		expect(summaryMatch, `could not find a "Tests ..." summary line in the nested run's output:\n${result.stdout}`).not.toBeNull();
+		expect(
+			summaryMatch![1] !== undefined || summaryMatch![2] !== undefined,
+			`the "Tests ..." summary line named neither a passed nor a skipped count -- the pattern no longer matches vitest's output format:\n${result.stdout}`,
+		).toBe(true);
 		const reportedSkipped = summaryMatch![2] ? Number(summaryMatch![2]) : 0;
 
 		expect(

@@ -20,6 +20,7 @@
 //      EVERY reachable configuration, and 0 > 1.0e-5 is false.
 
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '../src/sim/table/tuning';
@@ -68,12 +69,37 @@ describe('AC 6 (amended): scatter is 0 on every material, and the physics PRNG i
 		for (const name of Object.keys(materials)) {
 			const value = materials[name]!.scatter.value;
 			expect(value, `TUNING.materials.${name}.scatter.value must be 0 (both scatterAngle inputs are checked in this test, independently of claim 1's own test)`).toBe(0);
-			// scatterAngle's own formula, applied here for every real
-			// globalDifficulty a scene could plausibly carry: 0 for every value.
-			for (const globalDifficulty of [0, 0.5, 1, 2, 100]) {
-				const scatterAngle = value * globalDifficulty;
-				expect(scatterAngle, `scatterAngle for material "${name}" at globalDifficulty ${globalDifficulty} must never exceed 1.0e-5`).toBeLessThanOrEqual(1.0e-5);
-			}
+			// Review finding 2026-08-29: a `const scatterAngle = value *
+			// globalDifficulty; expect(scatterAngle).toBeLessThanOrEqual(1e-5)`
+			// loop sat here. With `value` asserted `toBe(0)` on the line above,
+			// that is `0 * g <= 1e-5` for a fixed list of g -- arithmetically
+			// incapable of failing. Worse, it RE-IMPLEMENTED ball-hit.ts's
+			// formula in the test rather than observing it, so changing the real
+			// one (e.g. `scatterAngle += 0.5`) made the branch reachable while
+			// this stayed green. Removed; the source-text pin after this loop
+			// observes the production arithmetic instead.
 		}
+
+		// The arithmetic itself, OBSERVED rather than re-implemented: a
+		// source-text pin on ball-hit.ts's own lines, the same technique
+		// test/hardware-rule-seam.test.ts uses on machine.ts. Its honest limit
+		// is the same too -- it catches a changed formula, not a changed
+		// meaning. Its complement is this story's own DW-79 port-body freeze
+		// (test/sim-boundary.test.ts), which fails loudly and by name on ANY
+		// edit to ball-hit.ts; together they mean the claim above cannot go
+		// stale silently.
+		const ballHitSource = readFileSync(path.join(REPO_ROOT, 'src', 'sim', 'physics', 'ball', 'ball-hit.ts'), 'utf8');
+		expect(
+			ballHitSource,
+			'ball-hit.ts must still derive scatterAngle by MULTIPLYING the material value by globalDifficulty -- if that changed, scatterAngle no longer reduces to 0 for a 0-scatter material and this whole claim needs re-deriving',
+		).toContain('scatterAngle *= this.tableData.globalDifficulty');
+		expect(
+			ballHitSource,
+			'ball-hit.ts must still gate the scatter branch on `scatterAngle > 1.0e-5` -- the exact threshold this claim reasons about',
+		).toContain('scatterAngle > 1.0e-5');
+		expect(
+			ballHitSource,
+			"ball-hit.ts must still substitute HARD_SCATTER only for a NEGATIVE material scatter -- the other of scatterAngle's two sources, asserted 0 above",
+		).toContain('HARD_SCATTER');
 	});
 });

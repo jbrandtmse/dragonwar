@@ -207,6 +207,9 @@ export class StaleReplayHeaderError extends Error {}
 /** Thrown by `runReplay()` when a `coilPrologue` entry's `tick` falls outside `[1, durationTicks]` -- named, and thrown BEFORE any hashing/replay work runs (same "Always" rule as `StaleReplayHeaderError`). An out-of-range tick would otherwise never fire, silently, since the main tick loop only runs `1..durationTicks`. */
 export class InvalidCoilPrologueError extends Error {}
 
+/** Thrown by `runReplay()` when `durationTicks`, a `replay.transitions` tick, or a `checkpointTicks` entry falls outside the range the tick loop actually runs (`[1, durationTicks]`, integers) -- named, and thrown BEFORE any replay work runs. Review finding 2026-08-29 (code review): `coilPrologue` already had this guard and its own rationale ("an out-of-range tick would otherwise silently never fire"), but the SAME hazard was unguarded on the other three inputs. `sim/loop`'s `frameInForceAt()` applies a pending transition as soon as `transition.tick <= tick`, so a transition stamped at or below 1 silently fires EARLIER than the golden declares, and one stamped above `durationTicks` never fires at all -- either way the recorded hash stops describing the scenario the golden's own data claims, with no error. */
+export class InvalidReplayRangeError extends Error {}
+
 function assertHeaderMatchesLiveEnvironment(header: ReplayHeader, collisionDoc: unknown): void {
 	if (header.tickHz !== LIVE_TICK_HZ) {
 		throw new StaleReplayHeaderError(
@@ -300,9 +303,39 @@ export function runReplay(options: RunReplayOptions): RunReplayResult {
 
 	assertHeaderMatchesLiveEnvironment(replay.header, collisionDoc);
 
+	// Range validation, all of it BEFORE any replay work (this story's own
+	// "Always" rule: a golden that breaks must say why). `durationTicks` is
+	// checked first because every other range message quotes it.
+	if (!Number.isInteger(durationTicks) || durationTicks < 1) {
+		throw new InvalidReplayRangeError(
+			`runReplay(): durationTicks must be a positive integer, got ${String(durationTicks)} -- ` +
+			`the tick loop runs 1..durationTicks, so anything else replays nothing and hashes the un-advanced initial state.`,
+		);
+	}
+	for (let i = 0; i < replay.transitions.length; i++) {
+		const tick = replay.transitions[i]!.tick;
+		if (!Number.isInteger(tick) || tick < 1 || tick > durationTicks) {
+			throw new InvalidReplayRangeError(
+				`runReplay(): replay.transitions[${i}] has tick ${String(tick)}, outside the valid range [1, ${durationTicks}] -- ` +
+				`sim/loop applies a pending transition as soon as its tick is REACHED, so a tick below 1 fires earlier than declared ` +
+				`and a tick above durationTicks never fires at all. Fix the replay's transitions or its durationTicks.`,
+			);
+		}
+	}
+	for (let i = 0; i < checkpointTicks.length; i++) {
+		const tick = checkpointTicks[i]!;
+		if (!Number.isInteger(tick) || tick < 1 || tick > durationTicks) {
+			throw new InvalidReplayRangeError(
+				`runReplay(): checkpointTicks[${i}] is ${String(tick)}, outside the valid range [1, ${durationTicks}] -- ` +
+				`it would silently be absent from the returned checkpoints map, and the caller's own lookup would fail as an ` +
+				`unexplained undefined instead of naming the real mistake here.`,
+			);
+		}
+	}
+
 	for (let i = 0; i < coilPrologue.length; i++) {
 		const entry = coilPrologue[i];
-		if (entry.tick < 1 || entry.tick > durationTicks) {
+		if (!Number.isInteger(entry.tick) || entry.tick < 1 || entry.tick > durationTicks) {
 			throw new InvalidCoilPrologueError(
 				`runReplay(): coilPrologue[${i}] has tick ${entry.tick}, outside the valid range [1, ${durationTicks}] -- ` +
 				`an out-of-range tick would otherwise silently never fire. Fix the golden's coilPrologue or its durationTicks.`,

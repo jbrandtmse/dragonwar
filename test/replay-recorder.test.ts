@@ -46,6 +46,24 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 		if (!result.ok) throw new Error('unreachable');
 		expect(result.replay.transitions).toEqual([]);
 		expect(result.replay.header).toEqual(buildHeader({ gameStart, physicsSeed: 42, collisionDoc }));
+
+		// Review finding 2026-08-29: the assertion above compares
+		// buildHeader(...) against buildHeader(...) with the same arguments --
+		// the mandate's own named vacuity shape ("an assertion that compares a
+		// value against itself"). It pins argument PLUMBING and nothing else:
+		// hard-coding `physicsSeed: 0` or stripping fields out of `gameStart`
+		// inside buildHeader() leaves both sides equally wrong and this test
+		// green, while AC 1 ("the header embeds the WHOLE GameStart,
+		// physicsSeed, tickHz, tableHash, assetHash and physicsVersion")
+		// silently stops holding -- nothing else in the repository reads
+		// header.physicsSeed or header.gameStart.seed/adjustments/highscores.
+		// These assert the concrete values instead.
+		expect(result.replay.header.physicsSeed, 'AC 1: the header must carry the physicsSeed it was started with, not a default').toBe(42);
+		expect(result.replay.header.gameStart, 'AC 1: the header must embed the WHOLE GameStart handed to start(), field for field').toEqual(gameStart);
+		expect(result.replay.header.gameStart.seed, 'AC 1: GameStart.seed specifically -- the rules-side seed, distinct from physicsSeed').toBe(gameStart.seed);
+		expect(result.replay.header.gameStart.adjustments, 'AC 1: the player-chosen adjustments must survive into the header').toEqual(gameStart.adjustments);
+		expect(result.replay.header.tickHz, 'AC 1: tickHz must be the live tick rate, computed by buildHeader() rather than passed in').toBeGreaterThan(0);
+		expect(result.replay.header.physicsVersion, 'AC 1: physicsVersion must be the derived, non-empty solver-constant identity').toMatch(/^v1-[0-9a-f]+$/);
 		expect(recorder.isRecording, 'not recording after save()').toBe(false);
 	});
 

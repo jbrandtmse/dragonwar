@@ -33,12 +33,13 @@
 // Story 2.5 removes the prologue once Start serves through the rules layer,
 // and re-records every golden then -- do not widen this mechanism further.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
 	canonicalize,
 	InvalidCoilPrologueError,
+	InvalidReplayRangeError,
 	NonCanonicalValueError,
 	runReplay,
 	StaleReplayHeaderError,
@@ -84,7 +85,37 @@ function toReplay(golden: GoldenFile): Replay {
 	return { header: golden.header, transitions: golden.transitions };
 }
 
+// NAMING DEVIATION FROM AD-15, RECORDED WHERE THE ARTIFACT LIVES (review
+// finding 2026-08-29): AD-15's rule text, and the spine's own repo-layout
+// tree, both name these files `test/replays/*.replay.json`. They ship as
+// `*.golden.json` because the file is deliberately a SUPERSET of the
+// `Replay` type AD-15 points at (`sim/contracts/replay.ts`): it also carries
+// this story's declared `coilPrologue`, `durationTicks`, the two expected
+// hashes and the DW-70 provenance `notes`. Naming it `*.replay.json` would
+// claim it matches that schema, which it does not. The distinction is also
+// load-bearing forward: `epics.md`'s Epic 6 playtest story lands
+// `test/replays/playtest-*.replay.json` in this SAME directory, and neither
+// GOLDEN_NAMES below nor tools/replay-parity/serve.mjs's index route picks
+// those up -- correct, because they are not goldens, but only safe if the
+// distinction is written down rather than rediscovered.
 describe('test/replays/*.golden.json -- every golden replays to its recorded hash', () => {
+	// Review finding 2026-08-29: GOLDEN_NAMES is a hardcoded five-element
+	// tuple while tools/replay-parity/serve.mjs enumerates the directory, so a
+	// SIXTH golden added under test/replays/ would be replayed and judged by
+	// the browser parity page while being silently untested in Node and in CI
+	// -- the authoritative leg (AD-15: "goldens are recorded in Node in CI").
+	it('GOLDEN_NAMES covers every *.golden.json on disk -- a golden added to test/replays/ can never be silently untested in Node', () => {
+		const onDisk = readdirSync(REPLAYS_DIR)
+			.filter((f) => f.endsWith('.golden.json'))
+			.map((f) => f.slice(0, -'.golden.json'.length))
+			.sort();
+		expect(onDisk.length, 'sanity: there must actually be golden files on disk, or this check is vacuous').toBeGreaterThan(0);
+		expect(
+			onDisk,
+			'every *.golden.json under test/replays/ must appear in GOLDEN_NAMES (and vice versa) -- a golden the Node runner does not know about is invisible to CI while still being judged by tools/replay-parity/',
+		).toEqual([...GOLDEN_NAMES].sort());
+	});
+
 	it.each(GOLDEN_NAMES)('%s: finalHash and finalGameStateHash match the recorded goldens', (name) => {
 		const golden = loadGolden(name);
 		const result = runReplay({
@@ -113,7 +144,21 @@ describe('test/replays/*.golden.json -- every golden replays to its recorded has
 	});
 
 	it.each(GOLDEN_NAMES)('%s: golden checked out with CRLF line endings hashes IDENTICALLY to LF -- goldens are JSON-parsed, never byte-compared', (name) => {
-		const lfRaw = readFileSync(path.join(REPLAYS_DIR, `${name}.golden.json`), 'utf8');
+		// Review finding 2026-08-29: this used to read the file raw and call it
+		// "lf". On a Windows checkout with `core.autocrlf=true` -- the exact
+		// configuration this test exists for -- the bytes on disk are already
+		// CRLF, so `.replace(/\n/g, '\r\n')` produced CR-CRLF and the test
+		// compared CRLF against CR-CRLF, never LF against CRLF at all.
+		// Normalising FIRST makes the two sides genuinely LF and CRLF on every
+		// checkout. HONEST LIMIT, stated rather than implied: because
+		// `runReplay()` takes an already-PARSED `Replay` and no code path in
+		// this repository ever byte-compares a golden, this asserts a property
+		// the DESIGN makes structural -- it is a regression guard against a
+		// future byte comparison being introduced, not a discriminating check
+		// against today's code.
+		const rawOnDisk = readFileSync(path.join(REPLAYS_DIR, `${name}.golden.json`), 'utf8');
+		const lfRaw = rawOnDisk.replace(/\r\n/g, '\n');
+		expect(lfRaw, 'sanity: the LF side must genuinely contain no CRLF, whatever the checkout did').not.toContain('\r\n');
 		const crlfRaw = lfRaw.replace(/\n/g, '\r\n');
 		expect(crlfRaw, 'sanity: the CRLF conversion must have actually changed the raw bytes, or this test proves nothing').not.toBe(lfRaw);
 
@@ -125,6 +170,76 @@ describe('test/replays/*.golden.json -- every golden replays to its recorded has
 		const crlfResult = runReplay({ replay: toReplay(crlfGolden), collisionDoc, durationTicks: crlfGolden.durationTicks, coilPrologue: crlfGolden.coilPrologue });
 
 		expect(crlfResult.finalHash, `${name}: CRLF-checked-out hash must equal the LF one`).toBe(lfResult.finalHash);
+	});
+});
+
+// AC 5's browser-parity leg judges PASS/FAIL on `finalGameStateHash` alone
+// (AD-15's own Prevents entry: "a golden that fails because Safari's Math.sin
+// differs from V8's"). Review finding 2026-08-29: nothing measured how much
+// that hash actually depends on each golden's own body, and the answer is
+// "for three of the five, not at all" -- Epic 1's `GameState` is tick/phase/
+// machine bookkeeping only, so a flipper press or a nudge, which move the
+// BALL, leave it untouched. That is a property of AD-15's deliberate design,
+// not a defect, and re-recording a golden to change it is forbidden by this
+// story's own Never rule. What was missing is that the property was
+// INVISIBLE: the parity page can report "5/5 PASS" while a browser applies no
+// input at all. This makes it explicit, enforced, and impossible to drift
+// silently -- a golden that gains parity sensitivity must be taken off the
+// allowlist, and one that loses it must be added with a reason.
+describe('AC 5 parity-hash falsifiability: which goldens\' GameState-only hash actually depends on their own body', () => {
+	/** Goldens whose `finalGameStateHash` is provably INSENSITIVE to their own `transitions`, each with the reason. Measured 2026-08-29. */
+	const PARITY_INERT: Readonly<Record<string, string>> = {
+		'hold-and-release':
+			'the flipper press/release moves the BALL and the bat; neither is part of GameState (flipper angle lives in Snapshot.mechanisms), and the ball neither launches nor drains within this golden, so tick/ballsInPlay/deviceSlots are identical with and without the body.',
+		'nudge-coupling':
+			'the nudge moves the cabinet and hence the ball, but Epic 1 has no tilt bob wired into GameState.machine.tilt for a single sub-threshold nudge, so nothing the nudge touches reaches GameState.',
+		'two-ball-collision':
+			'its `transitions` array is empty by design -- the whole scenario is driven by the declared coilPrologue, so there is no body for the parity hash to be sensitive to.',
+	};
+
+	it.each(GOLDEN_NAMES)('%s: parity-hash sensitivity to its own transitions matches its declared status', (name) => {
+		const golden = loadGolden(name);
+		const collisionDoc = loadCollisionDoc();
+		const withBody = runReplay({ replay: toReplay(golden), collisionDoc, durationTicks: golden.durationTicks, coilPrologue: golden.coilPrologue });
+		const withoutBody = runReplay({ replay: { header: golden.header, transitions: [] }, collisionDoc, durationTicks: golden.durationTicks, coilPrologue: golden.coilPrologue });
+
+		const inertReason = PARITY_INERT[name];
+		if (golden.transitions.length === 0) {
+			// No body at all, so "with body" and "without body" are the SAME
+			// run and neither hash can differ -- there is nothing to falsify.
+			// Such a golden must say so on PARITY_INERT rather than quietly
+			// benefiting from the weaker branch below.
+			expect(
+				inertReason,
+				`${name} has an EMPTY transitions array, so neither hash can depend on its body -- it must be declared on PARITY_INERT with that reason, never left to look like a body-sensitive golden`,
+			).toBeDefined();
+			expect(withoutBody.finalHash, `${name}: sanity -- an empty body replayed twice must be identical`).toBe(withBody.finalHash);
+			return;
+		}
+		if (inertReason === undefined) {
+			expect(
+				withoutBody.finalGameStateHash,
+				`${name} is NOT on PARITY_INERT, so its browser-parity hash must be falsifiable by its own body: replaying it with transitions removed must change finalGameStateHash. If this golden has genuinely become parity-inert, add it to PARITY_INERT with the reason -- never silently.`,
+			).not.toBe(withBody.finalGameStateHash);
+		} else {
+			expect(
+				withoutBody.finalGameStateHash,
+				`${name} is declared PARITY_INERT (${inertReason}) but its GameState-only hash now DOES depend on its body -- good news: remove it from PARITY_INERT so the stronger check applies.`,
+			).toBe(withBody.finalGameStateHash);
+			// The full Node-side hash must still discriminate, or the golden
+			// carries no signal at all in either leg.
+			expect(
+				withoutBody.finalHash,
+				`${name} is parity-inert, which is tolerable ONLY because the FULL Node hash (GameState + quantised ball positions, AD-15) still depends on its body. If this also matches, the golden pins nothing about its own input.`,
+			).not.toBe(withBody.finalHash);
+		}
+	});
+
+	it('PARITY_INERT names only real goldens -- a renamed or removed golden must not leave a stale exemption standing', () => {
+		for (const name of Object.keys(PARITY_INERT)) {
+			expect(GOLDEN_NAMES as readonly string[], `PARITY_INERT entry "${name}" is not a known golden`).toContain(name);
+		}
+		expect(Object.keys(PARITY_INERT).length, 'sanity: if this ever empties, delete the allowlist rather than leaving an empty one').toBeGreaterThan(0);
 	});
 });
 
@@ -208,6 +323,51 @@ describe('runReplay() -- a stale header fails BEFORE hashing, naming the changed
 			expect(String(err), 'must name the offending tick').toContain(String(overshootTick));
 			expect(String(err), 'must name the valid range').toContain(String(golden.durationTicks));
 		}
+	});
+
+	// Review finding 2026-08-29: the coilPrologue guard above existed and
+	// carried its own rationale ("an out-of-range tick would otherwise
+	// silently never fire"), but the SAME hazard on transitions,
+	// checkpointTicks and durationTicks was unguarded. sim/loop's
+	// frameInForceAt() applies a pending transition as soon as its tick is
+	// REACHED, so a tick below 1 fires earlier than the golden declares and
+	// one above durationTicks never fires -- either way the recorded hash
+	// stops describing the scenario the golden's own data claims.
+	it('a transition whose tick exceeds durationTicks fails naming the index and the valid range, before any replay work', () => {
+		const overshoot = golden.durationTicks + 1;
+		const mutated: Replay = { header: golden.header, transitions: [{ tick: overshoot, frame: golden.transitions[0]!.frame }] };
+		try {
+			runReplay({ replay: mutated, collisionDoc, durationTicks: golden.durationTicks, coilPrologue: golden.coilPrologue });
+			expect.unreachable();
+		} catch (err) {
+			expect(err).toBeInstanceOf(InvalidReplayRangeError);
+			expect(String(err), 'must name the offending tick').toContain(String(overshoot));
+			expect(String(err), 'must name transitions specifically, not the prologue').toContain('replay.transitions[0]');
+		}
+	});
+
+	it('a checkpointTick outside [1, durationTicks] fails naming it, rather than being silently absent from the returned map', () => {
+		try {
+			runReplay({ replay: toReplay(golden), collisionDoc, durationTicks: golden.durationTicks, coilPrologue: golden.coilPrologue, checkpointTicks: [0] });
+			expect.unreachable();
+		} catch (err) {
+			expect(err).toBeInstanceOf(InvalidReplayRangeError);
+			expect(String(err)).toContain('checkpointTicks[0]');
+		}
+	});
+
+	it('a durationTicks of 0 fails naming it, rather than hashing the un-advanced initial state as if it were a replay result', () => {
+		try {
+			runReplay({ replay: toReplay(golden), collisionDoc, durationTicks: 0, coilPrologue: [] });
+			expect.unreachable();
+		} catch (err) {
+			expect(err).toBeInstanceOf(InvalidReplayRangeError);
+			expect(String(err)).toContain('durationTicks');
+		}
+	});
+
+	it('this golden\'s OWN transitions and a checkpoint-free run pass every guard above -- they are discriminating, not vacuously always-throw', () => {
+		expect(() => runReplay({ replay: toReplay(golden), collisionDoc, durationTicks: golden.durationTicks, coilPrologue: golden.coilPrologue })).not.toThrow();
 	});
 });
 
@@ -305,7 +465,7 @@ describe('roll-and-drain golden: the ball genuinely returns to bd_trough', () =>
 });
 
 describe('hold-and-release golden: the coil hardware rule genuinely energises, holds, and the ball genuinely contacts the raised bat -- within the declared prologue+transitions, never re-derived from a value this same run produced', () => {
-	it('the flipper reaches end-of-stroke shortly after the press, is STILL held at the release tick, and the ball visibly hops (a real contact) while the flipper is up', () => {
+	it('the flipper reaches end-of-stroke shortly after the press, is STILL held at the release tick, and the raised bat measurably deflects the ball (a real contact, against a no-flipper control run)', () => {
 		const golden = loadGolden('hold-and-release');
 		const pressTick = golden.transitions[0]!.tick; // 7300, declared in the golden's own data
 		const releaseTick = golden.transitions[1]!.tick; // 8100
@@ -337,12 +497,45 @@ describe('hold-and-release golden: the coil hardware rule genuinely energises, h
 		expect(shortlyAfterPress.mechanisms.flippers.l.angleDeg, 'sanity: the mover must actually have MOVED off rest by this point').not.toBe(atRest.mechanisms.flippers.l.angleDeg);
 		expect(atRelease.mechanisms.flippers.l.angleDeg, 'the flipper must STILL be held at end-of-stroke at the release tick itself -- it has not yet begun returning').toBeCloseTo(90, 0);
 
-		// The ball genuinely contacted the raised bat: a real, physical hop off
-		// the playfield surface (z rising measurably above the resting height)
-		// somewhere between the press and the release -- independent evidence
-		// of contact, not inferred from the hash. Scanned via a second run's
-		// onTick hook (every tick, not just the sampled checkpoints above).
-		let sawHop = false;
+		// The ball genuinely contacted the raised bat -- proved against a PAIRED
+		// CONTROL RUN of this identical golden with its transitions removed
+		// (the same idiom test/cabinet-integration.test.ts and the DW-83 tests
+		// in test/cabinet-nudge.test.ts use), never against a value this same
+		// run produced.
+		//
+		// Review finding 2026-08-29: this block used to assert `ball.pos.z > 15`
+		// ("a measurable z-height hop ... real contact, not a miss"). That
+		// assertion is VACUOUS -- precisely the shape this whole story's sweep
+		// exists to hunt. Measured this pass: replaying this golden with NO
+		// flipper input at all still reaches z = 20.63 mm (against 19.62 mm
+		// WITH the flipper), because the ball hops off the bottom wall on its
+		// own; the flag was true either way and could never fail for the state
+		// its own message denied. The control comparison below IS
+		// discriminating: across the hold window the two trajectories diverge
+		// by up to 48.30 mm (first exceeding 1 mm at tick 7394, 94 ticks after
+		// the press), while the control's bat never leaves its 141 deg rest
+		// angle. The 5 mm bound sits ~10x below the measured divergence and far
+		// above any float noise.
+		const controlPositions = new Map<number, { x: number; y: number; z: number }>();
+		const controlAngles = new Map<number, number>();
+		runReplay({
+			replay: { header: golden.header, transitions: [] },
+			collisionDoc: loadCollisionDoc(),
+			durationTicks: golden.durationTicks,
+			coilPrologue: golden.coilPrologue,
+			onTick: (tick, snapshot) => {
+				if (tick < pressTick || tick > releaseTick) {
+					return;
+				}
+				const ball = snapshot.balls[0];
+				if (ball) {
+					controlPositions.set(tick, { ...ball.pos });
+				}
+				controlAngles.set(tick, snapshot.mechanisms.flippers.l.angleDeg);
+			},
+		});
+
+		let maxDivergenceMm = 0;
 		const hopResult = runReplay({
 			replay: toReplay(golden),
 			collisionDoc: loadCollisionDoc(),
@@ -350,13 +543,25 @@ describe('hold-and-release golden: the coil hardware rule genuinely energises, h
 			coilPrologue: golden.coilPrologue,
 			onTick: (tick, snapshot) => {
 				const ball = snapshot.balls[0];
-				if (tick >= pressTick && tick <= releaseTick && ball && ball.pos.z > 15) {
-					sawHop = true;
+				const control = controlPositions.get(tick);
+				if (ball && control) {
+					const divergence = Math.hypot(ball.pos.x - control.x, ball.pos.y - control.y, ball.pos.z - control.z);
+					if (divergence > maxDivergenceMm) {
+						maxDivergenceMm = divergence;
+					}
 				}
 			},
 		});
 		expect(hopResult.finalHash, 'sanity: the second run must reproduce the same hash as the first (determinism)').toBe(result.finalHash);
-		expect(sawHop, 'the ball must show a measurable z-height hop (> 15 mm, resting height is ~13.5 mm) while the flipper is held up -- real contact, not a miss; if this golden\'s own coilPrologue no longer serves and autolaunches a ball, there is nothing to hop').toBe(true);
+		expect(controlPositions.size, 'sanity: the control run must have had a ball in play across the hold window, or the comparison below is vacuous').toBeGreaterThan(0);
+		expect(
+			controlAngles.get(pressTick + 60),
+			'sanity: the CONTROL run must genuinely carry no flipper input -- its bat must still sit at the independently-captured rest angle exactly where the golden\'s reached 90 deg, or the two runs are not actually different',
+		).toBe(atRest.mechanisms.flippers.l.angleDeg);
+		expect(
+			maxDivergenceMm,
+			`the raised bat must have measurably deflected the ball: the golden's trajectory must diverge from the identical no-flipper control run by more than 5 mm somewhere in the hold window (measured this pass: 48.30 mm). Observed maximum divergence: ${maxDivergenceMm.toFixed(4)} mm`,
+		).toBeGreaterThan(5);
 	});
 });
 

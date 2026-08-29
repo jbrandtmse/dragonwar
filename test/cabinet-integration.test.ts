@@ -216,6 +216,9 @@ describe('sim/physics/cabinet -- AD-5 ordering: the cabinet rule runs BEFORE phy
 			movedOnNudgeTick,
 			`the coupling must be applied BEFORE physics.step() on the nudge tick, so the ball has already been carried this tick by roughly one tick's worth of the measured velocity divergence (expected ~${expectedMm.toExponential(3)} mm, got ${movedOnNudgeTick.toExponential(3)} mm) -- a hardware rule running after the step moves it for the first time only on the NEXT tick, leaving this difference exactly 0`,
 		).toBeGreaterThanOrEqual(expectedMm * 0.25);
-		expect(movedOnNudgeTick).toBeLessThanOrEqual(expectedMm * 4);
+		expect(
+			movedOnNudgeTick,
+			`the displacement must also stay WITHIN 4x that same derived expectation (expected ~${expectedMm.toExponential(3)} mm, got ${movedOnNudgeTick.toExponential(3)} mm) -- a value far above one tick's worth of the measured velocity divergence means something other than this tick's coupling moved the ball, which the lower bound alone cannot catch`,
+		).toBeLessThanOrEqual(expectedMm * 4);
 	});
 });

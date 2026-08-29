@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 08-29-2026 15:09
+last_updated: 08-29-2026 15:47
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -43,7 +43,7 @@ development_status:
   1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop: done
   1-6-flippers-and-the-manual-plunger-as-hardware-rules: done
   1-7-nudge-the-tilt-bob-and-the-slam-sensor: done
-  1-8-replays-golden-state-hashes-and-ci-parity: in-progress
+  1-8-replays-golden-state-hashes-and-ci-parity: done
   1-9-dev-tuning-panel-and-the-first-feel-ritual: backlog
   epic-1-retrospective: optional
 

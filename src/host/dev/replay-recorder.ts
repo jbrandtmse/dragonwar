@@ -51,7 +51,13 @@ export interface ReplayRecorder {
 	 * Called once per `src/host/loop.ts` `onAdvance` invocation while
 	 * recording -- appends this call's transitions (already tick-stamped by
 	 * `src/host/input/`) to the in-progress recording. A no-op if `start()`
-	 * was never called, or after `save()`/`invalidate()`.
+	 * was never called, or after `save()`. NOT a no-op after `invalidate()`:
+	 * invalidation marks the recording unsaveable but does not stop it,
+	 * because `src/host/loop.ts`'s `onAdvance` seam keeps firing every frame
+	 * and cannot be detached mid-recording -- `save()` is what refuses,
+	 * naming the reason. `test/replay-recorder-invalidation.test.ts` pins
+	 * exactly that (review finding 2026-08-29: this comment claimed the
+	 * opposite of the implemented, test-pinned behaviour).
 	 */
 	recordTransitions(transitions: readonly InputTransition[]): void;
 	/**

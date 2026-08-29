@@ -24,8 +24,10 @@ export interface GameAdjustments {
 /**
  * `{ seed, tuning, adjustments, highscores }` (Seam Contracts table): the one
  * bundle the host hands `sim/loop` at game start (AD-14). `TTuning` is the
- * resolved tuning set's type, bound to `sim/table/tuning.ts`'s
- * `ResolveTuningResult` by `sim/table/names.ts`.
+ * resolved tuning set's type, bound by `sim/table/names.ts` to
+ * `sim/table/tuning.ts`'s `ResolvedTuning` (Story 1.8 made this claim true;
+ * the name written here before that was `ResolveTuningResult`, which has
+ * never existed in this repository -- review finding 2026-08-29).
  */
 export interface GameStart<TTuning = unknown> {
 	readonly seed: number;

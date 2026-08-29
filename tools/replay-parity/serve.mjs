@@ -29,7 +29,7 @@
 import { createServer } from 'vite';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const TOOL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const REPO_ROOT = path.resolve(TOOL_ROOT, '..', '..');
@@ -142,7 +142,23 @@ async function main() {
 	console.log('[replay-parity] press Ctrl+C to stop.');
 }
 
-main().catch((err) => {
-	console.error(`[replay-parity] FAILED: ${err instanceof Error ? err.message : String(err)}`);
-	process.exitCode = 1;
-});
+// Review finding 2026-08-29 (code review): `main()` used to run
+// UNCONDITIONALLY at module scope, and `test/replay-parity-logic.test.ts`
+// imports this module for its two exported regexes -- so every `pnpm test`
+// run booted a real Vite dev server inside a Vitest worker (measured: the
+// worker logged Vite's own "(client) Re-optimizing dependencies" and left a
+// listening socket behind), and any throw out of `main()` -- an unrecognized
+// argv entry the worker happened to carry, or a `server.listen()` refused by
+// a sandboxed runner -- set `process.exitCode = 1`, turning a fully GREEN
+// suite red for a reason no test reports. The standard entry-point guard
+// keeps `node tools/replay-parity/serve.mjs` behaving exactly as before while
+// making the import side-effect-free.
+const invokedPath = process.argv[1];
+const isDirectRun = invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href;
+
+if (isDirectRun) {
+	main().catch((err) => {
+		console.error(`[replay-parity] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+		process.exitCode = 1;
+	});
+}

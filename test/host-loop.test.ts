@@ -337,10 +337,19 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 	describe('createHostLoop()\'s third argument, onAdvance -- the record/play seam (AC 3)', () => {
 		it('is called once per frame with that frame\'s elapsedMs and transitions, AFTER advance() but before onFrame observes anything new', () => {
 			const calls: Array<{ elapsedMs: number; transitions: unknown }> = [];
+			// Review finding 2026-08-29: this test's title claimed an ORDERING
+			// ("AFTER advance() but before onFrame") that its body never
+			// asserted -- onFrame was an empty callback and no relative order
+			// was recorded. `order` makes the title's claim a real,
+			// failing-capable check.
+			const order: string[] = [];
 			const host = createHostLoop(
 				loadDoc(),
-				() => {},
+				() => {
+					order.push('onFrame');
+				},
 				(elapsedMs, transitions) => {
+					order.push('onAdvance');
 					calls.push({ elapsedMs, transitions });
 				},
 			);
@@ -348,6 +357,7 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 
 			raf.fire(0);
 			raf.fire(16.667);
+			expect(order, 'onAdvance must run BEFORE onFrame within each frame, exactly as this test\'s own name claims').toEqual(['onAdvance', 'onFrame', 'onAdvance', 'onFrame']);
 			expect(calls, 'onAdvance must fire once per rAF frame, same as onFrame').toHaveLength(2);
 			expect(calls[0]!.elapsedMs, 'the FIRST frame owes 0 elapsed ms (it establishes the origin)').toBe(0);
 			expect(calls[1]!.elapsedMs, 'the second frame owes the DELTA since the first, not the raw timestamp').toBeCloseTo(16.667, 5);
@@ -371,6 +381,37 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 			const lastCall = calls[calls.length - 1]!;
 			expect(lastCall.length, 'the frame carrying the synthetic keydown must have handed onAdvance a non-empty transitions array').toBeGreaterThan(0);
 			expect(lastCall.some((t) => t.frame.flipper_l === true), 'the transition onAdvance received must be the SAME ShiftLeft -> flipper_l transition advance() applied').toBe(true);
+		});
+
+		// Review finding 2026-08-29: the inner try/catch around onAdvance was
+		// itself added by an earlier review pass ("a throw from a dev-only
+		// recording tap must not stop live gameplay"), but no test made
+		// onAdvance throw -- deleting the guard left all three onAdvance tests
+		// green, because none of their callbacks throws. This drives the guard
+		// directly, and is the deliberate mirror image of "a throw out of
+		// onFrame stops the chain cleanly" above: onFrame kills the loop, a
+		// dev-only tap must not.
+		it('a THROWING onAdvance is swallowed -- onFrame still runs that frame and the loop stays armed (unlike a throw out of onFrame)', () => {
+			const outputs: FrameOutput[] = [];
+			let advanceCalls = 0;
+			const host = createHostLoop(
+				loadDoc(),
+				(output) => outputs.push(output),
+				() => {
+					advanceCalls += 1;
+					throw new Error('the dev recording tap blew up');
+				},
+			);
+			host.start();
+
+			expect(() => raf.fire(0), 'a throwing recording tap must not escape the frame').not.toThrow();
+			expect(advanceCalls, 'the tap must actually have been called and actually have thrown, or this proves nothing').toBe(1);
+			expect(outputs, 'onFrame must still have run for that same frame -- presentation is unaffected by the tap').toHaveLength(1);
+			expect(raf.pending(), 'the loop must still be armed: a dev-only tap has no power to stop live gameplay').toBe(1);
+
+			expect(() => raf.fire(16.667), 'and the next frame must still run').not.toThrow();
+			expect(outputs).toHaveLength(2);
+			expect(advanceCalls).toBe(2);
 		});
 
 		it('omitting onAdvance entirely (the two-argument call every OTHER test in this file uses) behaves exactly as before this story -- optional, never required', () => {

@@ -34,12 +34,13 @@
 // reformat that changes that exact text surfaces as a clear failure here,
 // not a silent pass.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PRE_STEP_HARDWARE_RULES } from '../src/sim/physics/machine';
 
-const MACHINE_TS_PATH = path.resolve(__dirname, '..', 'src', 'sim', 'physics', 'machine.ts');
+const REPO_ROOT = path.resolve(__dirname, '..');
+const MACHINE_TS_PATH = path.resolve(REPO_ROOT, 'src', 'sim', 'physics', 'machine.ts');
 
 /** Every `const X = create…(...)` name `createMachine()` builds internally, but is NOT itself a pre-step hardware rule -- `switchTracker` runs its own `.step()` AFTER `physics.step()` (it consumes ball MOVEMENTS the step produces, not `frame`), so it is deliberately excluded from PRE_STEP_HARDWARE_RULES rather than silently unlisted. */
 const NOT_A_HARDWARE_RULE = new Set(['switchTracker']);
@@ -80,11 +81,29 @@ describe('src/sim/physics/machine.ts -- PRE_STEP_HARDWARE_RULES is a real (never
 
 	it.each(PRE_STEP_HARDWARE_RULES.map((rule) => [rule.receiver, rule.method, rule.pinnedBy] as const))(
 		'%s.%s(...) is called BEFORE physics.step() and never after it (pinned behaviourally by %s)',
-		(receiver, method) => {
+		(receiver, method, pinnedBy) => {
 			const { pre, post } = splitAtPhysicsStep(stripComments(loadMachineSource()));
 			const callSite = `${receiver}.${method}(`;
 			expect(pre, `"${callSite}" must appear before "physics.step();" in machine.ts's step()`).toContain(callSite);
 			expect(post, `"${callSite}" must NOT appear after "physics.step();" in machine.ts's step() -- AD-5 forbids a hardware rule running one tick late`).not.toContain(callSite);
+
+			// Review finding 2026-08-29: `pinnedBy` was destructured only to be
+			// interpolated into this test's title -- the one field in each
+			// manifest row carried at its declared value and never verified,
+			// while `receiver` and `method` are both checked against the real
+			// source. A renamed or deleted behavioural pin would leave the
+			// manifest advertising coverage that no longer exists. Same
+			// "no stale manifest entry" discipline PORT_BODY_HASHES and
+			// ALLOWLIST_REASONS already apply to themselves.
+			const pinnedByPath = path.resolve(REPO_ROOT, pinnedBy);
+			expect(existsSync(pinnedByPath), `PRE_STEP_HARDWARE_RULES names "${pinnedBy}" as ${receiver}'s behavioural pin, but that file does not exist -- a stale manifest row advertising coverage that is gone`).toBe(true);
+			// Deliberately EXISTENCE only, not content. A first attempt also
+			// asserted the cited file mentions `receiver` by name; it failed,
+			// correctly -- the four behavioural pins drive the seam through
+			// `createLoop()`/`createMachine()`'s PUBLIC surface and never name
+			// the internal `…Mechanics` const, which is the right way to write
+			// them. Requiring the identifier would have pushed those tests
+			// toward naming internals purely to satisfy this check.
 		},
 	);
 

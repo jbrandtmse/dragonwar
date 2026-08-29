@@ -206,8 +206,14 @@ async function onBegin(): Promise<void> {
 					// the first real caller with player-chosen adjustments; this
 					// story's own recorder seam needs SOME valid GameStart to build
 					// a header from (AC 1), so it uses the table's own reference
-					// pitch and authored defaults, matching the same values the
-					// golden-recording script under test/replays/ uses.
+					// pitch and authored defaults -- the same values every
+					// checked-in golden's header carries
+					// (test/replays/*.golden.json). There is deliberately NO
+					// golden-recording script in this repository: the five
+					// goldens were recorded once, and re-recording is a
+					// deliberate act, never a routine one (review finding
+					// 2026-08-29: this comment used to cite a script that does
+					// not exist).
 					replayRecorder.start(
 						{
 							seed: 0,
