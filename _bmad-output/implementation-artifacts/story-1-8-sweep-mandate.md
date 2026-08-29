@@ -72,9 +72,18 @@ patterns to the checklist:
 - **Assert the arrange.** Where a missing precondition is the problem, assert it explicitly
   (`ballsInPlay === 1` before asserting position). That converts the whole "nothing arranged"
   class into a loud failure instead of a silent pass.
-- **Check coverage instrumentation.** "Two modules with no executed test host" is exactly what
-  coverage catches for free. If none is configured, propose adding it — in-footprint via
-  `package.json` and the CI workflow.
+- **~~Check coverage instrumentation~~ — BLOCKED, recorded rather than silently replaced.** The original
+  idea was: "two modules with no executed test host" is exactly what a coverage tool catches for free, so
+  propose adding one via `package.json` and the CI workflow. **This cannot be done in this epic.**
+  `tools/check-attributions.mjs` fails CI *and* `pnpm test` for any dependency lacking an
+  `ATTRIBUTIONS.md` row, and `ATTRIBUTIONS.md` is out of footprint with its one-time widening spent — so
+  no new npm package can be added. (The same constraint closes AC 5's "Vitest browser run" branch.) A
+  future epic with an `ATTRIBUTIONS.md` widening should revisit it: the tool is the right answer, it is
+  merely unreachable from here.
+  **In-footprint substitutes that reach the same finding without a dependency:** an import-reachability
+  check (which modules are never executed from any test entry point, with a visible allowlist), and — for
+  the browser half — AC 5's own "browser test page" branch driven through Vite's *programmatic* API under
+  `tools/**`, since `vite.config.ts` is also out of footprint.
 - Findings the sweep cannot fix in place become **ledger entries with named observables**, never
   silent carry-forward.
 

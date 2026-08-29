@@ -45,6 +45,65 @@ headers at that commit -- not from package.json. DragonWar exercises that
 or-later clause to distribute the combined work under GPL-3.0.
 
 
+The vpinball/vpinball cabinet-physics port
+--------------------------------------------------------------
+
+src/sim/physics/cabinet/** is a port of vpinball/vpinball, and the deployed
+JavaScript in this bundle contains that ported code in minified form. As with
+the vpx-js port above, the minifier strips comments, so the upstream per-file
+headers are not readable in the emitted chunks; they are preserved in full in
+the Corresponding Source at the URL above, and are reproduced here so that
+this distribution carries them (CLAUDE.md's provenance rule; AD-16).
+
+The ported files carry no per-file copyright line, so the holder below is
+taken from the root LICENSE of the upstream repository:
+
+    Visual Pinball
+    Copyright (C) 2000-2026 Visual Pinball development team and contributors
+    (unless specifically noted differently in a respective source file)
+
+    Visual Pinball is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or (at
+    your option) any later version.
+
+    Visual Pinball is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details: <https://www.gnu.org/licenses/>.
+
+Source: https://github.com/vpinball/vpinball @ commit
+3f838c14bd2e37fb49a0b5aa6a9d76d421846bef. Verified 2026-08-29.
+
+Licence established PER FILE, from each file's own "// license:GPLv3+" first
+line -- NOT from repository metadata, the README, or the root LICENSE alone.
+That distinction is load-bearing: vpinball/vpinball is dual-licensed
+mid-migration. Its root LICENSE does grant GPLv3+, but it also states the
+migration is incomplete, so the root file tells you nothing about whether any
+particular source file is usable. Only a file whose literal first line reads
+"// license:GPLv3+" has completed the migration; every other file remains
+under the inherited 'old MAME'-like NON-COMMERCIAL terms, which GPL-3.0
+cannot absorb and this project cannot distribute.
+
+The following seven files were each fetched at the pinned commit and their
+first lines read individually on 2026-08-29. All seven begin
+"// license:GPLv3+":
+
+    src/physics/cabinet/DampedHarmonicOscillator.h
+    src/physics/cabinet/CabinetPhysics.h
+    src/physics/cabinet/CabinetPhysics.cpp
+    src/physics/cabinet/KeyboardNudge.h
+    src/physics/cabinet/KeyboardNudge.cpp
+    src/physics/cabinet/PlumbHandler.h
+    src/physics/cabinet/PlumbHandler.cpp
+
+src/physics/cabinet/NudgeHandler.h is EXCLUDED and is NOT part of this
+distribution: its first line is "#pragma once", so it carries no marker and
+remains under the non-commercial terms. No code, interface or constant from
+it was ported, transcribed, quoted or paraphrased.
+
+DragonWar distributes the combined work under GPL-3.0.
+
 Vite (build tool) -- code emitted into this bundle
 ----------------------------------------------------
 

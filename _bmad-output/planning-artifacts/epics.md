@@ -628,8 +628,9 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 
 **Given** `test/replays/`
 **When** CI runs Vitest in Node
-**Then** goldens for roll-and-drain, cradle-and-release, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes
+**Then** goldens for roll-and-drain, **hold-and-release**, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the two-ball golden also asserts the balls' separation never drops below one diameter
+**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Story 2.5** removes the prologue when Start serves through the rules layer, and re-records the goldens
 
 **Given** a browser test page or Vitest browser run
 **When** each golden is replayed in Chrome and Safari
@@ -638,6 +639,25 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 **Given** physics materials
 **When** any replay runs
 **Then** `scatter` is 0 on every material and the physics PRNG is never drawn, asserted by a test
+
+**Change log**
+
+- **2026-08-29 — AC 4 gains a declared coil prologue, and `cradle-and-release` is renamed
+  `hold-and-release`.**
+  *The prologue.* AC 1 and AD-4 define a replay as `ReplayHeader + InputTransition[]`, but nothing in that
+  body can put a ball in play, so all five goldens would have replayed against an empty playfield. This is
+  type-level, not a gap in today's behaviour: `src/sim/rules/index.ts:30` types `RulesStepResult.commands`
+  as `readonly never[]`, so the rules layer **cannot** issue a `CoilCommand`; `InputAction` is closed at
+  eight members and none reaches a coil; and `loop.pulseCoil()` — the only path a ball reaches the
+  playfield — is documented in-file as a dev-only escape hatch that `src/host/loop.ts:36` already names
+  Story 2.5's to replace. Rather than pre-build Story 2.5's ball lifecycle inside a determinism story, each
+  golden declares its prologue as data and re-asserts it on replay, and Story 2.5 removes it and re-records.
+  *The rename.* Epic 1's placeholder table **cannot hold a cradle**: with no geometry beside either flipper,
+  a ball on a raised bat departs after roughly 1.2–1.9 s (`DW-72`, owned by Story 2.1, which authors the
+  pocket). A golden named "cradle" would freeze roll-off *as* the cradle reference, and when Story 2.1 lands
+  the pocket its breakage would read as "re-record me" rather than "ask why". The hold is kept well inside
+  the ~1 s window where behaviour is stable and will not change when the pocket arrives, so this golden
+  survives Story 2.1 intact. A golden must not claim behaviour the table cannot produce.
 
 ### Story 1.9: Dev tuning panel and the first feel ritual
 
