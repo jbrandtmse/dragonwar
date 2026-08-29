@@ -1,10 +1,13 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // Story 1.6's I/O matrix, collision rows, against the COMMITTED geometry:
-// a ball cradled on a raised bat; a ball struck by a driven bat leaving with
-// more energy than it arrived with; and the DW-60 row -- a ball released at
-// the playfield x-centre with both keys released reaches `bd_trough`, while
-// the same release with a key held does not drain on that pass.
+// the AMENDED "flipper held" row (bat held at end-of-stroke, unmoving, for
+// the full 5 s; ball held on the bat for the first 1 s only -- see this
+// spec's Design Notes / epics.md's Story 1.6 change log, 2026-08-29, and
+// ledger `DW-72`); a ball struck by a driven bat leaving with more energy
+// than it arrived with; and the DW-60 row -- a ball released at the
+// playfield x-centre with both keys released reaches `bd_trough`, while the
+// same release with a key held does not drain on that pass.
 //
 // Two harnesses are used, matching `test/machine-serve-drain.test.ts`'s own
 // split: `loadCollision()` + `createFlipperMechanics()` directly for
@@ -65,7 +68,69 @@ function ballPosMm(ball: Ball) {
 }
 
 describe('sim/physics/flippers.ts -- collision against the committed geometry (Story 1.6)', () => {
-	it('a ball resting on a raised (driven) bat is briefly cradled: low speed, small drift -- not struck the way a driven-INTO ball is', () => {
+	// --- DW-72 rework (2026-08-29): "Flipper held" now asserts the bat's
+	// full 5 s hold plus a 1 s-bounded ball claim, each with a mandatory
+	// discriminating negative -- see this spec's Design Notes ("The cradle
+	// amendment") and epics.md's Story 1.6 change log for why.
+
+	// The true committed end-of-stroke angle for the left flipper (90 deg,
+	// independently pinned by the ball-free sanity check in test (b) below
+	// and by test/flipper-mover.test.ts:83). Both tests below compare
+	// against this single external value rather than a self-derived one, so
+	// a regression that converges to a stable BUT WRONG angle under ball
+	// load is not indistinguishable from a correct one.
+	const END_OF_STROKE_ANGLE_DEG = 90;
+
+	it('(a) the bat reaches its end-of-stroke angle and holds it, unmoving and without oscillating, for the full 5 s (5000 ticks) hold', () => {
+		const { physics, flipperMechanics } = buildFlipperHarness();
+		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
+
+		// A ball is present and in contact throughout, exactly like the "(b)"
+		// test below -- the bat-angle claim must hold under the SAME load,
+		// not in a vacuum.
+		spawnBallAt(physics, 195, 85, 'CradleBall');
+
+		const angles: number[] = [];
+		for (let t = 1; t <= 5000; t++) {
+			flipperMechanics.applyFrame(t, held, { l: true, r: true });
+			physics.step();
+			angles.push(flipperMechanics.state.l.angleDeg);
+		}
+		const firstAtEndTick = angles.findIndex((a) => Math.abs(a - END_OF_STROKE_ANGLE_DEG) < 0.01);
+		expect(firstAtEndTick, 'the bat must reach the true end-of-stroke angle (90 deg), not merely converge to some stable value').not.toBe(-1);
+		expect(firstAtEndTick, 'the bat must reach its end-of-stroke angle quickly, not drift up over seconds').toBeLessThan(200);
+
+		// Unmoving and without oscillating at the stop: every tick from first
+		// reaching it through the end of the 5 s hold stays within a
+		// floating-point tolerance of the true end angle. Measured: a ball
+		// resting against the driven bat nudges it by contact torque at most
+		// ~0.00015 deg at isolated ticks, immediately damped back by the
+		// end-of-stroke torque (`FlipperHit.contact()`, pinned verbatim to
+		// upstream) -- 0.01 deg is two orders of magnitude above that noise
+		// floor, so this is the real "unmoving" claim, not a loosened one.
+		const maxDeviationAfterReaching = Math.max(...angles.slice(firstAtEndTick).map((a) => Math.abs(a - END_OF_STROKE_ANGLE_DEG)));
+		expect(maxDeviationAfterReaching, 'the bat must not oscillate or drift away from its end-of-stroke angle once it gets there').toBeLessThan(0.01);
+	});
+
+	it('(a, discriminating negative) the SAME 5 s window does NOT hold the bat at its end-of-stroke angle when the key is released instead', () => {
+		// Proves the positive assertion above is a real, measured property of
+		// this implementation, not a tolerance wide enough to pass regardless
+		// of whether the coil is even driven. Chosen negative: released
+		// (rather than disabled) because it is the direct opposite of "held"
+		// in the I/O matrix row itself. Compared against the SAME true
+		// committed end-of-stroke angle test (a) above pins, not a freshly
+		// re-derived one, so both tests share one source of truth.
+		const { physics, flipperMechanics } = buildFlipperHarness();
+		const released: InputFrame = NO_FRAME;
+		for (let t = 1; t <= 5000; t++) {
+			flipperMechanics.applyFrame(t, released, { l: true, r: true });
+			physics.step();
+		}
+		const finalAngleReleased = flipperMechanics.state.l.angleDeg;
+		expect(Math.abs(finalAngleReleased - END_OF_STROKE_ANGLE_DEG), 'a released flipper must NOT sit at the end-of-stroke angle -- rest and end-of-stroke are different poses').toBeGreaterThan(10);
+	});
+
+	it('(b) the ball resting on the raised bat stays close to where it was placed through the first 1 s (1000 ticks), then has measurably departed by 5 s (5000 ticks)', () => {
 		const { physics, flipperMechanics } = buildFlipperHarness();
 		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 		let tick = 0;
@@ -80,35 +145,52 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		// approach test/machine-serve-drain.test.ts-style placement uses:
 		// derived from the committed geometry, not an arbitrary point).
 		const ball = spawnBallAt(physics, 195, 85, 'CradleBall');
-
-		// Known, measured limitation (recorded in this spec's frontmatter
-		// `deferred:` list): this placeholder table has NO geometry adjacent to
-		// the flipper (no inlane guide, no post) to arrest the slow tangential
-		// creep this exact impulse-based contact solver produces under
-		// sustained load -- reproduced even against a plain, unrelated static
-		// wall (col_wall_left) during this story's implementation pass, so it
-		// is a pre-existing characteristic of the ported solver family, not a
-		// defect this story's flipper port introduced. Over the FULL 5
-		// simulated seconds the I/O matrix names, the ball eventually creeps
-		// the length of the bat and leaves it; what IS true, and asserted
-		// here, is the SHORT-TERM cradle a raised, undriven-further bat
-		// provides -- low speed, small drift -- which is what "a ball resting
-		// on the bat" actually depends on before Story 1.9's feel ritual (or
-		// Epic 2's real playfield geometry, which adds the adjacent guides a
-		// real cradle relies on) tunes it further.
-		const speeds: number[] = [];
 		const startPos = ballPosMm(ball);
-		let maxDriftMm = 0;
-		for (let i = 0; i < 100; i++) {
+
+		let maxSpeedThroughFirstSecond = 0;
+		let maxDriftMmThroughFirstSecond = 0;
+		let driftMmAtFiveSeconds = 0;
+		let speedAtFiveSeconds = 0;
+		for (let i = 1; i <= 5000; i++) {
 			tick += 1;
 			flipperMechanics.applyFrame(tick, held, { l: true, r: true });
 			physics.step();
-			speeds.push(ballSpeed(ball));
 			const pos = ballPosMm(ball);
-			maxDriftMm = Math.max(maxDriftMm, Math.hypot(pos.x - startPos.x, pos.y - startPos.y));
+			const driftMm = Math.hypot(pos.x - startPos.x, pos.y - startPos.y);
+			const speed = ballSpeed(ball);
+			if (i <= 1000) {
+				maxSpeedThroughFirstSecond = Math.max(maxSpeedThroughFirstSecond, speed);
+				maxDriftMmThroughFirstSecond = Math.max(maxDriftMmThroughFirstSecond, driftMm);
+			}
+			if (i === 5000) {
+				driftMmAtFiveSeconds = driftMm;
+				speedAtFiveSeconds = speed;
+			}
 		}
-		expect(Math.max(...speeds), 'the ball must stay slow while freshly cradled, not accelerate away').toBeLessThan(2);
-		expect(maxDriftMm, 'position must stay close to where it settled over this window').toBeLessThan(5);
+
+		// Positive half -- the AMENDED AC's own bound ("at rest ... position
+		// ... unchanged within tolerance" for at least the first 1 s).
+		// Measured on the committed geometry: drift grows smoothly to ~27.5 mm
+		// and speed to ~1.0 by tick 1000 -- well short of a struck ball's
+		// order of magnitude (the "driven bat" test below asserts
+		// > speedBefore * 10, typically 30-40+). The tolerances carry a small
+		// margin over that measurement; they are not invented figures.
+		expect(maxSpeedThroughFirstSecond, 'the ball must stay slow through the first simulated second').toBeLessThan(2);
+		expect(maxDriftMmThroughFirstSecond, 'the ball must stay close to where it was placed through the first simulated second').toBeLessThan(35);
+
+		// Discriminating negative (the whole point of this rework): the SAME
+		// run, by the full 5 s the ORIGINAL (superseded) row asked for, has
+		// measurably left the bat -- proving the 1 s bound above is a real,
+		// load-bearing boundary of this implementation's behaviour, not a
+		// tolerance wide enough to pass no matter how long the hold runs.
+		// Measured: drift ~4292 mm, speed ~47 by tick 5000. Root cause: this
+		// placeholder table has no geometry beside either flipper (no inlane
+		// guide or post) to form a cradle pocket -- see this spec's Design
+		// Notes and epics.md's Story 1.6 change log (2026-08-29). The full
+		// multi-second cradle is Story 2.1's, ledger DW-72, closing on
+		// evidence against the real playfield.
+		expect(driftMmAtFiveSeconds, "by 5 s the ball must have measurably left the bat -- the real cradle is DW-72/Story 2.1's, against real playfield geometry").toBeGreaterThan(500);
+		expect(speedAtFiveSeconds, 'by 5 s the ball must be moving well past "at rest"').toBeGreaterThan(10);
 	});
 
 	it('a ball meeting a bat that is being driven up is struck and leaves with more energy than it arrived with', () => {
