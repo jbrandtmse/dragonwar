@@ -2,7 +2,7 @@
 title: 'Story 1.7: Nudge, the tilt bob and the slam sensor'
 type: 'feature'
 created: '2026-08-29'
-status: 'draft'
+status: 'ready-for-dev'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -105,143 +105,272 @@ ball. Extend `host/input`'s existing map with Space and the arrow keys.
   AD-15 line 202, AD-16, AD-19 line 222.
 - `_bmad-output/planning-artifacts/epics.md:580-607` — this story's acceptance criteria verbatim; `:500-578` is
   Story 1.6 with the cradle and AC-2 change log the two hazards rest on.
-- `_bmad-output/specs/spec-dragonwar/physics-tuning.md:62-63` — "Nudge as a damped-harmonic cabinet oscillator —
-  **ported** — with the ball coupling re-derived as table-frame motion"; `:63` "Tilt bob as an actual pendulum"
-  (note: **no** "ported" claim for the bob); `:45-54` the do-not-invent list (it does **not** name any nudge, bob
-  or slam quantity); `:41-43` scopes "verbatim solver constants" to `vpdb/vpx-js @ e8a6d6f` only.
-- `_bmad-output/planning-artifacts/prds/prd-dragonwar-2026-08-26/extract-research.md:199` and
-  `research/technical-…-2026-08-26/research.md:102` — the oscillator/bob claim, cited to source **[3]**, which
-  `research.md:223` resolves to **`https://github.com/vpinball/vpinball/tree/master/src/physics`** (C++), *not* to
-  vpx-js. `research.md:182`: "Copying vpinball code requires checking each file's first line."
-- `ATTRIBUTIONS.md:28` (the vpx-js row, `Component` = the glob `src/sim/physics/**`) and **`:89`** — vpinball is
-  listed only under *"Planned dependencies… Not yet in the repository — record them properly here when they
-  arrive"*, "Dual — GPLv3+ only where the first line reads `// license:GPLv3+`".
+- `_bmad-output/specs/spec-dragonwar/physics-tuning.md:62-63` (the ported oscillator, the bob-as-pendulum),
+  `:45-54` (the do-not-invent list — it names no nudge, bob or slam quantity), `:41-43` (verbatim solver constants
+  scoped to `vpdb/vpx-js @ e8a6d6f` only).
+- `ATTRIBUTIONS.md:28` (vpx-js row, `Component` glob `src/sim/physics/**`) and **`:29`** (the vpinball row,
+  committed `38e51cd`, `Component` glob **`src/sim/physics/cabinet/**`**). **Never edit this file** — the one-time
+  widening that allowed the row is spent. `:90` records vpinball as no longer merely planned.
 - `_bmad-output/implementation-artifacts/probe-1-6-cradle-energy.txt` — Story 1.6's cradle measurements.
+
+**Verified environment facts (measured this planning pass — do not re-derive):**
+- **`TICK_HZ = 1000`** (`src/sim/contracts/time.ts:38`), so **one sim tick is exactly 1 ms** — bit-for-bit the
+  cadence every upstream cabinet file integrates at (`CabinetPhysics.cpp:21` and `PlumbHandler.cpp:54` are both
+  `constexpr float … = 0.001f`). The port needs no resampling at the current tick rate. `TICK_HZ` is PROVISIONAL
+  (`time.ts:9-37`; "1000 on PASS, 480 on FAIL"), which is why task 3 adds a construction-time guard rather than
+  silently assuming it.
+- **VP units** (`src/sim/physics/constants.ts:55-67`): `1 U = 0.53975 mm`, `1 T = 10 ms`, and
+  `GRAVITYCONST = 1.81751` U/T² is `9.81 m/s²` expressed in them. So `1 m/s²` = `1000 / MM_PER_VU / 10000` U/T²
+  = `0.185271…` U/T², and `9.81 ×` that reproduces `GRAVITYCONST` — the arithmetic pin task 10 asserts.
+- **The frame/time-unit split is an already-adjudicated convention, not a new decision.**
+  `src/sim/loop/index.ts:157-172` (`physicsVelocityToTableMmPerS`) and `src/sim/physics/devices.ts:126-141`
+  (`tableSpeedToPhysicsVelocity`) both state it verbatim: the axis flip and length scale go through
+  `toPhysics()`/`fromPhysics()` by **differencing two calls** (which cancels the affine playfield-height
+  translation, leaving the linear part), while "the remaining `/100` is physics's own VP TIME-UNIT convention
+  … a time-domain scaling, not a table/physics FRAME conversion, **so it is not part of `frames.ts`'s
+  contract**". The cabinet's m/s² → U/T² crossing follows that same split. **`src/sim/table/frames.ts` needs no
+  edit**, and moving a time-unit scaling into it would contradict a recorded review decision.
+- **`createLoop()` takes no tuning** — `src/sim/loop/index.ts:192` calls `resolveTuning()` with no arguments. A
+  test that needs modified tunables must use the direct harness (`createMachine(doc, resolveTuning(modified))`, or
+  `loadCollision()` plus the mechanics factories, as `test/flipper-collision.test.ts:47-64` does).
+- **Both settle classes are unique keys.** `TABLE.switches` (`src/sim/table/dragonwar.ts:104-105`) has exactly one
+  `settleClass: 'tilt_bob'` and exactly one `settleClass: 'slam'` (grep-counted: 1 and 1), so both switch names are
+  derivable structurally, exactly as `loop/index.ts:95-112` and `plunger.ts:49-56` derive theirs. `'tilt_bob'` and
+  `'slam'` are **not** device-name literals (`tools/boundary-lint.mjs:71`'s pattern requires an
+  `s_|c_|l_|f_|gi_|bd_|shot_|show_` prefix), so naming a settle class is legal anywhere; naming `s_tilt_bob` or
+  `s_slam_tilt` as a string literal is legal **only** in `src/sim/table/dragonwar.ts`.
+- **`tools/boundary-lint.mjs` rule (d) is name-shaped, not value-shaped** (`:378-382`): it fires only on an
+  identifier ending `Ms`/`_MS` bound to a numeric literal. Ordinary float constants (`9.3`, `0.052`, `0.001`) are
+  free anywhere under `src/sim/**`; a `…Ms` binding is legal only in `src/sim/table/tuning.ts`, and the `TICK_HZ`
+  NAME only in `contracts/time.ts` and `table/tuning.ts` (`:396`, `:409`). Rule (c) bans `Date`/`Math.random`
+  (`:72-87`) — the cabinet must be fully deterministic and draws no randomness.
 
 **The seam this story extends:**
 - `src/sim/physics/machine.ts:112-161` `step()`. `:124-129` is the hardware-rule block (the two `applyFrame()`
-  calls, before `physics.step()` at `:138`); `:105-110` `coilEnabled`; `:113-122` the command partition;
-  `:153` `switchTracker.step()`; `:156-160` the result assembly — `switchEvents` is where the two new switch edges
-  join. `:183-189` the `mechanisms` getter is the pattern a `cabinet` getter follows. `:60-69` the `Machine`
-  interface. Authored, not ported (`test/sim-boundary.test.ts:82` `AUTHORED_FILES`).
-- `src/sim/physics/flippers.ts:35-46` / `src/sim/physics/plunger.ts:27-38` — the two existing hardware-rule module
-  shapes to mirror: a `create…Mechanics(options)` factory returning `applyFrame(tick, frame, enabled)` plus a
-  per-tick `state` getter. `flippers.ts:48-67` shows how a coil is named without a device-name string literal.
-- `src/sim/physics/switches.ts:124-178` `createSwitchTracker()` — **zone-driven; not reusable here.** It tests a
-  *ball's* swept segment against `LoadedSwitchZone`s (`:146-148`); the bob and the slam counter have no ball and
-  no zone, so they are a separate emitter. Its `TrackedSwitch` debounce shape (`:101-110`, `:150-171`) is the
-  reference for "one edge per genuine transition"; both new switches settle at 0 ticks, so the debounce reduces to
-  a plain state-change test — the edge-collapsing logic must still exist, since that is the AC-3 mutation target.
-- `src/sim/physics/ball/ball-mover.ts:66-89` `updateVelocities()` — **`:82-85` is upstream's `// todo nudge`**, the
-  exact three commented-out lines that ARE the defect AD-5 names (`vel.x += nudgeX; vel.y += nudgeY;
-  vel.sub(tableVelDelta)`). This file is ported and must stay verbatim: the re-derived coupling does **not** go
-  here. `:79` is the gravity application, the only per-step velocity write.
-- `src/sim/physics/game/player-physics.ts:448-452` `setGravity(slopeDeg, strength)` — the pitch-as-gravity-vector
-  site (AD-10); `:106` `public gravity`. `:35-40` documents the port's own deviation convention. Grepped: the word
-  `nudge` appears **nowhere** in this file — the original port dropped nothing here, because upstream has nothing.
+  calls, before `physics.step()` at `:138`); `:105-110` `coilEnabled`; `:113-122` the command partition; `:157`
+  the `switchEvents` concatenation the two new edges join; `:183-189` the `mechanisms` getter — the exact shape a
+  `cabinet` getter copies, including its "frozen per-tick, never a live reference a later tick could mutate"
+  reasoning at `:184-188`; `:60-69` the `Machine` interface. Authored (`test/sim-boundary.test.ts:87`).
+- `src/sim/physics/flippers.ts:32-46` / `src/sim/physics/plunger.ts:25-38` — the two hardware-rule module shapes to
+  mirror: `create…Mechanics(options)` returning `applyFrame(tick, frame, …)` plus a per-tick `state` getter.
+  `flippers.ts:48-68` and `plunger.ts:40-56` are the two worked examples of naming a device **structurally**
+  rather than with a literal.
+- `src/sim/physics/switches.ts:101-110` + `:143-174` — `TrackedSwitch`'s debounce (`reported` / `pendingSince` /
+  `pendingValue`, and `:150-158`'s "back to the last reported value cancels the window, it does not pause it").
+  **Its zone machinery is not reusable** (`:146-148` tests a *ball's* swept segment against `LoadedSwitchZone`s;
+  the bob and the slam counter have neither ball nor zone), but this **edge-collapsing shape is the AC-3 mutation
+  target and must exist**. At `settleTicks` 0 it reduces to a plain state-change test — that is correct, and not a
+  reason to omit it.
+- `src/sim/physics/ball/ball-mover.ts:66-89` `updateVelocities()`. **`:82-85` is upstream's `// todo nudge`** — the
+  three commented-out lines `vel.x += nudgeX; vel.y += nudgeY; vel.sub(tableVelDelta)`. The first two ARE the
+  defect AD-5 names; the third is the frame term this story re-derives. **This file is ported and stays verbatim** —
+  the coupling does not go here. `:79` is the gravity application, the only per-step velocity write.
+- `src/sim/physics/game/player-physics.ts:448-452` `setGravity()` (AD-10); the word `nudge` appears nowhere in it.
+- `src/sim/physics/ball/ball.ts:40-55` and `ball-state.ts:40-43` — ball velocity is `ball.hit.vel` (`Vertex3D`,
+  U/T); position is `ball.state.pos`. `physics.balls` is the live set the coupling iterates.
 
 **Table, tuning and contracts:**
-- `src/sim/table/dragonwar.ts:104-105` — `s_tilt_bob` (`settleClass: 'tilt_bob'`) and `s_slam_tilt`
-  (`settleClass: 'slam'`) **already exist**; `:36-43` the `SettleClass` union with both classes and their
-  rationale. No `TABLE` edit is needed for the switches themselves.
-- `src/sim/table/tuning.ts:165-181` `switchSettleMsByClass` — `tilt_bob: 0` and `slam: 0` **already authored**, so
-  AC "settleTicks 0" is satisfied by `resolveTuning().switchSettleTicksByClass`. `:188-196`
-  **`slamNudgesPerWindow: 3`** and **`slamNudgeWindowMs: 500`** already exist, both `unverified`, with FR-16 in
-  their `source`. `:198-206` `tiltWarningSpacingMs` / `tiltSettleMs` are **rules-side (Story 2.11)** — this story
-  must not read them. `:342-360` `assertNoNestedMsKeys` — a `…Ms` key below the top level **throws**; `:362-415`
-  `resolveTuning()`; `:79` `TUNING` is `deepFreeze`d. `:108-155` `TUNING.flipper` is the model for a new
-  transcribed-parameter group (each entry carrying the pinned upstream file in `source`).
+- `src/sim/table/dragonwar.ts:104-105` — `s_tilt_bob` / `s_slam_tilt` **already exist**; `:36-43` the `SettleClass`
+  union. No `TABLE` edit is needed.
+- `src/sim/table/tuning.ts` — `:27-34` `Confidence` / `TuningEntry<T>`; `:36-38` the `entry()` helper; `:79`
+  `TUNING = deepFreeze({…} as const)`; **`:108-155` `TUNING.flipper`, the model for a transcribed group** (every
+  value wrapped by `entry(value, source, confidence)`, each `source` naming the pinned upstream file and symbol);
+  `:165-181` `switchSettleMsByClass` with `tilt_bob: 0` (`:170`, confidence `high`) and `slam: 0` (`:176-180`);
+  `:195-196` `slamNudgesPerWindow: 3` / `slamNudgeWindowMs: 500` (both `unverified`, already top-level);
+  `:205-206` `tiltWarningSpacingMs` / `tiltSettleMs` — **rules-side (Story 2.11); this story must not read them**;
+  `:267-282` the `ResolvedScalarTicks` mapped type (a new top-level `…Ms` entry gets its `…Ticks` sibling typed
+  automatically, with no type edit); `:342-360` `assertNoNestedMsKeys` — **throws** on any `…Ms` key below depth 0
+  (ledger `DW-34`); `:362-410` `resolveTuning()`, which also `deepFreeze`s its result.
 - `src/sim/contracts/input.ts:12-20` — `nudge_l` / `nudge_r` / `nudge_up` are **already** in the closed
-  `InputAction` union; `:27` `InputFrame`; `:34-37` `InputTransition`. No contract edit needed.
-- `src/sim/contracts/snapshot.ts:73-79` `MechanismsSnapshot` — five keys, no cabinet slot (see Design Notes).
-- `src/sim/contracts/replay.ts:41-54` — `ReplayHeader` / `Replay` types exist; **no runner, no hash, no goldens**
-  (`test/replays/.gitkeep`: "Filled by Story 1.8").
+  `InputAction` union. No contract edit needed.
+- `src/sim/contracts/snapshot.ts:73-79` `MechanismsSnapshot` — five keys, deliberately not widened (Design Notes).
+- `src/sim/physics/devices.ts:41-46` `SwitchEdgeLike` — the `{ type, switch, closed, tick }` shape the cabinet
+  emitter returns and `machine.ts:157` concatenates.
 
 **Loop and host:**
-- `src/sim/loop/index.ts:95-114` `buttonSwitchByAction()` — derives button switches from `TABLE.switches` by
-  `settleClass === 'button'`; its doc at `:91-93` already records that "`nudge_l`/`nudge_r`/`nudge_up`/`menu` have
-  no button switch in Epic 1 and are correctly excluded". **That stays true** — the nudge actions must not gain
-  button switches. `:123-131` `buttonSwitchEdges()`; `:149-155` `frameInForceAt()`; `:307-334` the per-tick body;
-  `:322` `machine.step()`; `:73-82` `NO_FRAME` (the test-only all-false frame, and the key set
-  `buttonSwitchByAction()` iterates).
-- `src/host/input/index.ts:74-79` `KEY_MAP` — **the one edit**: add Space and the arrow keys. `:62-71`
-  `EMPTY_FRAME` already lists all eight actions; `:93-115` the keydown/keyup handlers are action-generic and need
-  no change; `:117-123` `onBlur`.
-- `src/host/loop.ts:50-53` — already wires `input.drainTransitions()` into `loop.advance()` (Story 1.6).
+- `src/sim/loop/index.ts:73-82` `NO_FRAME`; `:84-114` `buttonSwitchByAction()`, whose doc at `:91-93` records that
+  the three nudge actions correctly have no button switch — **that must stay true**; `:307-334` the per-tick body;
+  `:322` `machine.step()`.
+- `src/host/input/index.ts:74-79` `KEY_MAP` — **the one host edit**. `:62-71` `EMPTY_FRAME` already lists all eight
+  actions; `:93-115` the keydown/keyup handlers are action-generic (`:98` / `:110` call `preventDefault()` for
+  mapped codes only, which is what stops Space and the arrows scrolling the page); `:99-101` is the auto-repeat
+  absorption; `:117-123` `onBlur`.
+
+**Provenance machinery (the third branch this story adds):**
+- `test/sim-boundary.test.ts` — `:45` `PORT_MARKER` (the full vpx-js line), `:46` `UPSTREAM_PROJECT`, `:56`
+  `AUTHORED_HEADER`, `:83-91` `AUTHORED_FILES`, `:92-94` the recursive walk via `test/util/list-files.ts`
+  (**a new `src/sim/physics/cabinet/` directory is discovered automatically — no config change**), `:100-135`
+  the two-way check, `:137-168` the disjointness and "every declared file exists" guards, `:179-205` the AD-15
+  solver-constant pin. **Branch selection is BY DECLARATION** (`:93` `isDeclaredAuthored`, set membership), never
+  by content — so an undeclared file falls through to the **vpx-js branch by default**, which a vpinball-derived
+  file cannot pass. That default is why task 12 must *declare* the ported files, not merely add a branch.
+- `tools/check-licence-headers.mjs:41-42` (`AUTHORED_HEADER`, `PORT_MARKER = 'Ported from vpdb/vpx-js'`) and `:90`
+  — a flat two-way OR of substring tests with no structural check. One `const` plus one disjunct is the change.
+  Run by `pnpm check:headers` (`package.json:20`).
+- `test/licence-headers.test.ts:22-33` (a real subprocess run of the shipped tool) and `:35-93` (fixture cases,
+  one per marker class).
+- `tools/check-attributions.mjs:28-84` — **package.json → ATTRIBUTIONS.md only**; it has no notion of globs or of
+  ported files, so it is unaffected by this story. `test/attributions.test.ts` pins the **vpx-js row only**.
+- Verbatim reference headers: `src/sim/physics/machine.ts:1` (authored) and
+  `src/sim/physics/ball/ball-mover.ts:1-20` (the C-style upstream block, its closing `*/` at `:18`, the exact
+  marker line at `:19`, the `// Source:` line at `:20`). Note the vpx-js ports do **not** carry `AUTHORED_HEADER`:
+  the marker line's own "distributed with DragonWar under GPL-3.0" is how a port carries our licence. The three
+  classes are mutually exclusive by design, and the vpinball branch must preserve that.
 
 **Tests (shapes to reuse):**
-- `test/loop-determinism.test.ts:1-60` — **the Hazard-2 precedent**: a *test-local* FNV-1a state hash over
-  canonical JSON + 0.01 mm-quantised ball positions, with an explicit header note that "Story 1.8 owns it as a
-  SHIPPED, production artifact; this story only needs a working implementation of AD-15's stated definition".
-  `:29-31` `loadDoc()`, `:36-60` `canonicalize()` / `quantize001Mm()` / `fnv1aHex()`.
-- `test/flipper-collision.test.ts` — the ball-on-raised-bat rig (**do not re-place its ball**); `test/plunger.test.ts`
-  and `test/flipper-mover.test.ts` — the tick-by-tick `createLoop()` driving pattern and the recorded-mutation
-  convention from Story 1.6's rework.
-- `test/host-input.test.ts:68-170` — the synthetic `KeyboardEventLike` harness (no jsdom) plus the `src/sim/**`
-  key-code grep at `:12`; `:150` `'Enter maps to plunger and Digit1 maps to start'` is the row the new keys extend.
-- `test/sim-boundary.test.ts:44` `PORT_MARKER`, `:82` `AUTHORED_FILES`, `:105-135` — the **disjoint two-branch**
-  provenance regime for `src/sim/physics/**`: either the DragonWar GPL-3.0 header *and no* VPDB block/port marker,
-  or a VPDB copyright block whose closing `*/` is immediately followed by the exact vpx-js port-marker line.
-  `:170-192` the AD-15 solver-constant pin.
-- `test/licence-headers.test.ts:38-72` and `tools/check-licence-headers.mjs` — the checker knows exactly two
-  markers: the DragonWar GPL-3.0 header and the vpx-js port marker.
-- `test/tuning.test.ts:27-41` (top-level scalar allowlist), `:103-108` (frozen), `:159-174` (the `…Ms`→`…Ticks` pin).
-- `tools/boundary-lint.mjs` — rule (c) bans `Date`/`Math.random` under `src/sim/**`; rule (d) the `TICK_HZ`/ms-literal
-  rule; rule (e) the device-name-literal rule over `src/**` except `src/sim/table/dragonwar.ts`.
+- `test/loop-determinism.test.ts:1-60` — **the Hazard-2 precedent**: a test-local FNV-1a hash with an explicit
+  header note that "Story 1.8 … owns it as a SHIPPED, production artifact; this story only needs a working
+  implementation of AD-15's stated definition".
+- `test/flipper-collision.test.ts:20-70` — the two-harness split, `buildFlipperHarness()`, `spawnBallAt()`,
+  `ballSpeed()`, `ballPosMm()`, `RADIUS_VU`. **Do not re-place its ball or change its shape** (ledger `DW-72`).
+- `test/plunger.test.ts` and `test/flipper-mover.test.ts` — the tick-by-tick `createLoop()` driving pattern and
+  Story 1.6's recorded-mutation convention.
+- `test/host-input.test.ts:12` (the `src/sim/**` key-code grep), `:150-160` (`'Enter maps to plunger and Digit1
+  maps to start'` — the row the new keys extend).
+- `test/tuning.test.ts:26-50` (the hand-maintained top-level scalar allowlist), `:159-174` (the hand-maintained
+  `…Ms`→`…Ticks` pair list), **`:319-333`** (the `FLIPPER_KEYS`-equals-`Object.keys()` exhaustiveness pattern that
+  makes an unlisted new key fail loudly — the pattern a new group must copy, and the reason the two hand-maintained
+  lists above are the weaker option and need explicit additions).
 
-**Upstream, read for provenance (nothing copied):** `vpdb/vpx-js @ e8a6d6f` — `lib/vpt/ball/ball-mover.ts:80-83`
-`// todo nudge`, `lib/vpt/global-api.ts:124-142` `// TODO implement nudge`, and no file anywhere in the repository
-whose path or contents implement a cabinet oscillator, a plumb bob or a tilt sensor (whole-tree grep).
-`vpinball/vpinball @ 3f838c14bd2e37fb49a0b5aa6a9d76d421846bef` — `src/physics/cabinet/DampedHarmonicOscillator.h`,
-`CabinetPhysics.{h,cpp}`, `KeyboardNudge.{h,cpp}`, `PlumbHandler.{h,cpp}`, `NudgeIntentHandler.{h,cpp}`,
-`NudgeHandler.cpp` and `src/physics/hitball.cpp` each carry `// license:GPLv3+` as their exact first line;
-**`src/physics/cabinet/NudgeHandler.h` does not** (its first line is `#pragma once`) and is therefore unusable.
+**Upstream, fetched and read at the pin (`vpinball/vpinball @ 3f838c14bd2e37fb49a0b5aa6a9d76d421846bef`):**
+all seven authorized files were re-fetched this planning pass and verified to have the literal first line
+`// license:GPLv3+` and **no per-file copyright line**; `NudgeHandler.h`'s first line is `#pragma once` (excluded).
+The root `LICENSE` supplies the holder: `Copyright (C) 2000-2026 Visual Pinball development team and contributors`,
+granting GPLv3-or-later.
+- `DampedHarmonicOscillator.h` (53 lines) — state `{displacement, velocity, acceleration}`; ctor `(mass, freq,
+  zeta)` deriving `ω0 = 2π·freq`, `k = m·ω0²`, `c = 2·zeta·m·ω0`; `StepOneMillisecond(F, dt)` at `:23-28` is
+  semi-implicit (symplectic) Euler — `a = (F − c·v − k·x)/m; v += a·dt; x += v·dt`. Force is the argument; there
+  is no separate impulse API.
+- `CabinetPhysics.{h,cpp}` — two oscillators, default `mass = 113.f` (`.h:24`), `X(mass, 9.3f, 0.052f)` and
+  `Y(mass, 5.8f, 0.055f)` (`.cpp:12-13`, comment `:11` "Oscillation and damping calibrated on real cabinets (from
+  CFTBL to King Kong)"); fixed `deltaTime = 0.001f` (`.cpp:21`); exposes acceleration (raw) and offset
+  (displacement × the `3.5f` / `2.0f` "magic" factors at `.cpp:38-39`, whose own comment `:28-37` says they exist
+  only "to match reference videos and 'look good'"). Velocity is **not** exposed at this level. `.h:19-20` records
+  the calibration target: "a firm nudge should result in around 3 to 5mm cabinet displacement".
+- `KeyboardNudge.{h,cpp}` — three models. Only **`CabModelKeyboardNudge`** (the current one, "used by the intent
+  nudge system") works in SI and is free of the `PHYS_FACTOR` / `VPUTOM` / `ANGTORAD` macros, which are **used but
+  never defined in any authorized file**. `.cpp:162-164`: `g = 9.80665f`, `coreScriptStrength = 2.f`,
+  `baseScale = 0.5f * g / coreScriptStrength`, with the comment "0.5g max peak accel on strong nudge"; `.cpp:169`
+  `m_impulses.emplace_back(25, …)` — a **25 ms** impulse; `.cpp:184` the envelope `impulse * 0.5f * (1 − cos(2π·t))`
+  with `t = elapsed/length` (a raised cosine / Hann window, peak 1.0 at `t = 0.5`); fed to the cabinet as a
+  **force** via `GetMass() * impulse`.
+- `PlumbHandler.{h,cpp}` — an angular pendulum in which **mass cancels** (`.cpp:64-69`); rod `0.10f` m (`.h:30`);
+  `m_plumbCabAccelScale = 1.0f` (`.h:33`); damping `c0 + c1·|ω|` with `c0 = 1.25f·D` and `c1 = 0.75f·D`
+  (`.h:45-46` times `.cpp:18-19`'s `settings.GetPlayer_PlumbDamping()`); threshold
+  `ANGTORAD(settings.GetPlayer_PlumbThresholdAngle())` (`.cpp:20`); driven by **cabinet acceleration**
+  (`.cpp:58-62` — `−a_cab·scale` on x and y, `−9.80665f` on z, comment "change of reference frame"); integration
+  `.cpp:54-91`; the **ring clamp plus bounce** at `.cpp:94-120`; edge-collapsed dispatch at `.cpp:126-134`.
 
 ## Tasks & Acceptance
 
 **Execution:**
 
-> **This story is HALTed at planning (`status: blocked`, `intent gap`) and the task list below is provisional
-> beyond task 0.** Tasks 1-3 change shape depending on which amendment the lead chooses; tasks 4-12 hold either way.
+Tasks are ordered by dependency. Tasks 1-2 are the provenance gate and must land before any ported file
+(CLAUDE.md's ordering rule is already satisfied for `ATTRIBUTIONS.md` by commit `38e51cd`; these two are its
+in-repository half). Tasks 3-6 are the ported physics, 7-9 the authored physics and wiring, 10-11 the host and
+units, 12-18 the tests.
 
-- `_bmad-output/planning-artifacts/**` and `ATTRIBUTIONS.md` -- **task 0 (LEAD, out of footprint)** -- resolve the
-  intent gap in `## Auto Run Result` before this spec is re-dispatched.
-- `src/sim/physics/cabinet/oscillator.ts` -- create the damped-harmonic cabinet oscillator: state
-  `{ displacement, velocity }` per horizontal axis, a per-step semi-implicit integration, and `impulse(axis, magnitude)`.
-  Provenance (header, marker, tunable `source` fields) follows task 0's outcome.
-- `src/sim/table/tuning.ts` -- add the cabinet and bob parameters as a group, with every duration kept as a
-  **top-level** `…Ms` scalar (`assertNoNestedMsKeys` throws otherwise). Values and `confidence` follow task 0.
-- `src/sim/physics/cabinet/plumb-bob.ts` -- create the pendulum bob driven by the cabinet's acceleration, with the
-  threshold crossing collapsed to single edges and a purely physical decay.
-- `src/sim/physics/cabinet/slam.ts` -- create the tick-windowed nudge counter: a ring of nudge-edge ticks, closing
-  `s_slam_tilt` at `slamNudgesPerWindow` inside `slamNudgeWindowTicks`. It takes the nudge **edge stream** as its
-  only input and holds **no reference** to the bob (structural independence, not merely a different number).
-- `src/sim/physics/cabinet/index.ts` -- the hardware-rule facade mirroring `flippers.ts` / `plunger.ts`:
-  `applyFrame(tick, frame)` returning the tick's `SwitchEdge`s, plus a `state` getter for the oscillator and bob.
-- `src/sim/physics/machine.ts` -- construct the cabinet mechanics in `createMachine()`; call `cabinet.applyFrame()`
-  in the `:124-129` block **before** `physics.step()`; fold its switch edges into `MachineStepResult.switchEvents`;
-  add a read-only `cabinet` getter shaped like the existing `mechanisms` getter.
-- `src/sim/physics/machine.ts` (same file, distinct change) -- apply the cabinet's per-tick table-frame
-  displacement/velocity to the ball set as a **frame** transformation, never as a force on any ball, and never by
-  editing the ported `ball-mover.ts`.
-- `src/host/input/index.ts` -- extend `KEY_MAP` with `Space`, `ArrowLeft`, `ArrowRight`, `ArrowUp` (see Design
-  Notes for the mapping and why `ArrowDown` is left unmapped).
-- `test/cabinet-nudge.test.ts` -- AC 1 and its mutation; the inertial-velocity conservation observable.
-- `test/cabinet-bob.test.ts` -- AC 3 and AC 4 and their two mutations.
-- `test/cabinet-slam.test.ts` -- AC 5 and its mutation, in **both** directions.
-- `test/cabinet-nudge-cradle.test.ts` -- AC 2, with its arrange-time on-the-bat assertion and its no-nudge control run.
-- `test/host-input.test.ts` -- extend with the four new key rows and the "nothing else" assertion.
-- `test/tuning.test.ts` -- extend the top-level scalar allowlist and the `…Ms`→`…Ticks` pin for any new duration.
+- `test/sim-boundary.test.ts` -- add the **third provenance branch** and its declaration set, before any ported
+  file exists so the guard is never retrofitted to code it already passed. Add `VPINBALL_PORT_MARKER` (the exact
+  line ported files carry), `VPINBALL_HOLDER` (`Visual Pinball development team and contributors`),
+  `VPINBALL_PIN` (`3f838c14bd2e37fb49a0b5aa6a9d76d421846bef`) and a `VPINBALL_PORTED_FILES` set beside
+  `AUTHORED_FILES`. Branch order: declared-authored, then declared-vpinball, then the existing vpx-js default.
+  The new branch must be **exactly as strict** as the other two -- see Design Notes, "The third provenance
+  branch", for the required assertion list. **Do not loosen either existing branch.** Extend `:137-168`'s guards
+  so every `VPINBALL_PORTED_FILES` entry resolves to a real file and the three sets are mutually disjoint.
+- `tools/check-licence-headers.mjs` + `test/licence-headers.test.ts` -- add the third marker constant and a third
+  disjunct at `:90`; add a fixture case for it mirroring the existing port-marker case. Without this
+  `pnpm check:headers` rejects every ported file, because it knows only two markers.
+- `src/sim/contracts/time.ts` -- export `SECONDS_PER_TICK` (`1 / TICK_HZ`), mirroring the existing `MAX_OWED_TICKS`
+  pattern: `sim/physics` may not name `TICK_HZ` (boundary-lint rule (d)), and the cabinet integrator needs seconds
+  per tick. **Additive only** -- `test/time-contract.test.ts` pins phrases in the existing comment block verbatim;
+  leave every existing line untouched.
+- `src/sim/physics/cabinet/oscillator.ts` -- **vpinball port.** Transcribe `DampedHarmonicOscillator` and
+  `CabinetPhysics`: two axes, semi-implicit Euler, constructed from the `TUNING.cabinet` tunables. Integrate in
+  fixed sub-steps of the ported `0.001` s **regardless of `TICK_HZ`**, and throw a descriptive load-time error at
+  construction if `SECONDS_PER_TICK` is not an exact positive integer multiple of that sub-step (see Design
+  Notes, "Sub-stepping and the provisional tick rate"). Expose displacement, velocity and acceleration per axis.
+  **Do not port the `3.5` / `2.0` display-correction factors** -- record that as a `// Deviation:` with its reason.
+- `src/sim/physics/cabinet/nudge-impulse.ts` -- **vpinball port.** Transcribe `CabModelKeyboardNudge`'s impulse
+  queue and its raised-cosine envelope `0.5·(1 − cos(2π·t))` over `nudgeImpulseTicks`, scaled to a peak
+  acceleration of `TUNING.cabinet.nudgePeakAccelG` g and converted to a force by the cabinet mass. Port **only**
+  the `CabModel` path; the `PushRetract` and `BoxModel` models depend on macros defined in no authorized file --
+  record that as a `// Deviation:`.
+- `src/sim/physics/cabinet/plumb-bob.ts` -- **vpinball port.** Transcribe `PlumbHandler`'s angular pendulum:
+  driven by the cabinet's **acceleration** (never its velocity or displacement), integrated at the same ported
+  sub-step, with the nonlinear damping `c0 + c1·|ω|`, the rod-length renormalisation, the ring clamp and the
+  bounce. Expose the bob's position, angular velocity, its angle from vertical, and the **level** `isOverThreshold`
+  -- but emit no edge of its own: edge collapsing is task 8's, because AD-2 makes edge emission the physics
+  layer's contract, not a module's private dispatch. Drop the diagnostic and script-visibility writes
+  (`.cpp:122-147`) -- they reach through `g_pplayer` into the excluded `NudgeHandler.h` and carry no physics.
+  Record each departure as a `// Deviation:`.
+- `src/sim/table/tuning.ts` -- add the `cabinet` and `tiltBob` groups plus the one new top-level duration. **Every
+  entry carries `source` and `confidence`** in the `TUNING.flipper` style, with the transcribed ones naming the
+  pinned vpinball file and symbol and the authored ones saying plainly that no authorized file supplies a value.
+  The full table, including which figures are genuinely transcribable and which are not, is in Design Notes,
+  "The tunables, and which are honestly transcribed". **Trap `DW-34`:** `nudgeImpulseMs` must be **top-level**;
+  a `…Ms` key inside `cabinet` or `tiltBob` makes `resolveTuning()` throw.
+- `src/sim/physics/cabinet/slam.ts` -- **DragonWar-authored** (no upstream equivalent exists; confirmed by reading
+  all seven authorized files). A ring of nudge-edge ticks closing `s_slam_tilt` at `slamNudgesPerWindow` inside
+  `slamNudgeWindowTicks`. It takes the nudge **edge stream** as its only input and holds **no reference** to the
+  bob, the bob's threshold, or any bob state -- structural independence, not merely a different number.
+- `src/sim/physics/cabinet/index.ts` -- **DragonWar-authored** facade mirroring `flippers.ts` / `plunger.ts`:
+  `createCabinetMechanics({ physics, tuning })` returning `applyFrame(tick, frame)` and a `state` getter. It owns,
+  in this order per tick: (1) detect nudge rising edges off `frame`; (2) queue one impulse per rising edge;
+  (3) step the oscillator; (4) step the bob with this tick's cabinet acceleration; (5) apply the **table-frame**
+  coupling to every ball in `physics.balls`; (6) feed the slam counter the same edge stream; (7) collapse both
+  switch levels to edges through the `switches.ts` debounce shape, reading `settleTicks` from
+  `resolvedTuning.switchSettleTicksByClass`, and return them as `SwitchEdgeLike[]`. Derive both switch names
+  structurally from their unique settle classes -- never as string literals. The ball coupling lives here (not in
+  `machine.ts`) so the direct test harness exercises the real coupling code rather than a copy.
+- `src/sim/physics/cabinet/index.ts` (same file, the load-bearing change) -- the **table-frame coupling**: each
+  tick every ball's velocity changes by exactly `−a_cabinet · dt`, converted m/s² → U/T² by differencing two
+  `toPhysics()` calls for the axis/length part and applying the VP time-unit scaling locally (the
+  `devices.ts:126-141` convention). **No force, impulse or velocity delta is ever added to a ball on account of a
+  nudge**, and `ball-mover.ts` is not touched. See Design Notes, "Why this conserves inertial velocity".
+- `src/sim/physics/machine.ts` -- construct the cabinet mechanics in `createMachine()`; call
+  `cabinet.applyFrame(tick, frame)` inside the `:124-129` hardware-rule block **before** `physics.step()`;
+  concatenate its edges into `MachineStepResult.switchEvents` at `:157`; add a read-only `cabinet` getter shaped
+  exactly like the `mechanisms` getter at `:183-189` (a fresh frozen object per read, never a live reference).
+- `src/host/input/index.ts` -- extend `KEY_MAP` with `ArrowLeft` → `nudge_l`, `ArrowRight` → `nudge_r`,
+  `ArrowUp` → `nudge_up`, `Space` → `nudge_up`. Update the file's header comment, which enumerates the map.
+  `ArrowDown` stays unmapped (Design Notes, "The key map").
+- `test/cabinet-nudge.test.ts` -- AC 1 and its mutation; the inertial-velocity-conservation observable; the
+  held-key single-impulse row and the auto-repeat row from the I/O matrix.
+- `test/cabinet-bob.test.ts` -- AC 3 and AC 4 and their two mutations, including the measured maximum
+  over-threshold run length pinned as a literal.
+- `test/cabinet-slam.test.ts` -- AC 5 and its mutation, in **both** directions, plus the window-expiry row.
+- `test/cabinet-nudge-cradle.test.ts` -- AC 2, with its arrange-time on-the-bat assertion and its paired no-nudge
+  control run, built on `test/flipper-collision.test.ts`'s harness shape **without importing from or modifying
+  that file**.
+- `test/host-input.test.ts` -- extend with the four new key rows, the `ArrowDown`-emits-nothing row, and the
+  "and nothing else" assertion over `KEY_MAP`'s full key set.
+- `test/tuning.test.ts` -- add `nudgeImpulseMs` to the top-level scalar allowlist (`:27-41`) and the
+  `…Ms`→`…Ticks` pair list (`:160-166`), and add `CABINET_KEYS` / `TILT_BOB_KEYS` exhaustiveness blocks copying
+  `:319-333`'s `FLIPPER_KEYS` pattern, so an unlisted new tunable fails loudly instead of silently escaping the
+  source/confidence checks.
+- `test/attributions.test.ts` -- add a vpinball-row guard mirroring the existing vpx-js block: the pinned commit,
+  the holder, `GPL-3.0-or-later`, the per-file `// license:GPLv3+` verification wording, and the explicit
+  `NudgeHandler.h` exclusion. This pins a hard provenance record against a future "tidy-up" edit, exactly as
+  Story 1.1 did for vpx-js. **It reads `ATTRIBUTIONS.md`; it does not edit it.**
+- `test/frames.test.ts` -- pin the m/s² → U/T² arithmetic: converting `9.81 m/s²` through the cabinet's own
+  crossing reproduces `GRAVITYCONST` (`1.81751`) to within float tolerance, and the y axis flips sign. This is the
+  one assertion that catches a units error in the coupling, which would otherwise present only as "the nudge feels
+  wrong".
 
 **Acceptance Criteria:**
 
 - **AC 1 (nudge is cabinet motion, not a force).** Given a free ball rolling on the playfield and the cabinet at
-  rest, when `nudge_l` has a rising edge at tick *t*, then the oscillator receives exactly one impulse inside tick
-  *t*'s own physics step (before `physics.step()`, `RulesStepResult.commands` still empty), and across that tick
-  the ball's **inertial** velocity — its table-frame velocity plus the cabinet's velocity — is unchanged within
-  tolerance, while its table-frame velocity changes by exactly the negative of the cabinet's velocity delta.
-  **And** the test **fails when the nudge is applied instead as a force or velocity delta on the ball** (upstream's
-  own `ball-mover.ts:82-85` shape); that red must be observed and recorded in this spec.
+  rest, and given a paired control run identical in every respect except that no nudge occurs, when `nudge_l` has
+  a rising edge at tick *t*, then the oscillator receives exactly one impulse inside tick *t*'s own step (before
+  `physics.step()`, with `RulesStepResult.commands` still empty), and across that tick the nudged ball's
+  table-frame velocity differs from the control ball's by **exactly the negative of the cabinet's velocity delta**,
+  so that its **inertial** velocity — table-frame velocity plus cabinet velocity — is unchanged within float
+  tolerance. Pairing against the control is what removes gravity from the comparison; a single-run assertion
+  cannot separate the two.
+  **And** the test **fails when the nudge is applied instead as a force or velocity delta on the ball**
+  (upstream's own `ball-mover.ts:82-85` shape). That red must be observed and recorded in this spec.
+
 - **AC 2 (a nudge frees a ball resting on a raised bat).** Given a ball placed on a raised left bat exactly as
   `test/flipper-collision.test.ts` places it, and given the test **asserts at the nudge tick that the ball is
   genuinely still on the bat** (in contact, within tolerance of its placement, and not already departing), with
@@ -249,36 +378,62 @@ whose path or contents implement a cabinet oscillator, a plumb bob or a tilt sen
   a stated number of ticks the ball has left the bat by a stated observable — **and a control run identical in
   every respect except that no nudge occurs still has the ball on the bat at the same tick.** The control run is
   the discriminating negative: without it the criterion is satisfied by a ball that was leaving anyway.
-  Verified by a deterministic replay assertion (see Design Notes, "Hazard 2").
-- **AC 3 (`s_tilt_bob` closes as one edge and opens as one edge).** Given the bob at rest, when a nudge drives its
-  displacement past the closure threshold and it stays past the threshold for at least 200 consecutive ticks,
-  then `MachineStepResult.switchEvents` contains exactly **one** `s_tilt_bob` `closed: true` and, on the return,
-  exactly **one** `closed: false` — never one per tick.
-  **And** the test **fails when the bob emits an edge on every tick it is over the threshold**; red observed and recorded.
+  Verified by a deterministic replay assertion (Design Notes, "Hazard 2").
+
+- **AC 3 (`s_tilt_bob` closes as one edge and opens as one edge).** Given the bob at rest, when a nudge drives it
+  past its closure threshold, then across the whole recorded run: (a) the per-tick `isOverThreshold` level series
+  has a longest consecutive-high run of **K** ticks, where **K is measured during implementation and pinned in the
+  test as a literal**, and `K >= 10`; (b) the emitted `s_tilt_bob` edge sequence equals, in order, the edge
+  sequence derived from that level series; (c) the sequence strictly alternates, beginning `closed: true`, with no
+  two consecutive edges of the same polarity; and (d) the first `closed: true` / `closed: false` pair brackets
+  that run of K ticks — one edge in, one edge out, never one per tick.
+  **And** the test **fails when the bob emits an edge on every tick it is over the threshold**; red observed and
+  recorded. (The literal K, rather than a bare `>= 2`, is what stops a later regression that collapses the hold to
+  a single tick from passing silently. See Design Notes, "Hazard 3", for why "200 ticks" is not the arrange.)
+
 - **AC 4 (the bob decays physically; no command resets it).** Given the bob swinging after a nudge, when a
-  `CoilCommand` (`enable`, `disable` and `pulse`, each exercised) is issued on a later tick, then the bob's
-  per-tick displacement sequence is identical to a run in which no command was issued; and with no further input
-  its amplitude envelope decays monotonically below the threshold and `s_tilt_bob` re-opens without any external reset.
+  `CoilCommand` — `enable`, `disable` and `pulse`, each exercised — is issued on a later tick, then the bob's
+  per-tick position and angular-velocity sequence is **identical** to a run in which no command was issued; and
+  with no further input, each successive swing's peak angle is strictly smaller than the previous one, within a
+  stated number of ticks the bob is below the threshold and stays there, and `s_tilt_bob` re-opens with no
+  external reset of any kind (AD-7: "The bob is never reset by command").
   **And** the test **fails when a command resets the bob**; red observed and recorded.
-- **AC 5 (the slam sensor is independent of the bob).** Given `slamNudgesPerWindow` and the tick window, when that
-  many nudge rising edges occur inside the window **and each is small enough that the bob never crosses its own
-  threshold**, then `s_slam_tilt` closes and `s_tilt_bob` never does; and when the bob is held past its threshold
-  for the whole window but fewer than `slamNudgesPerWindow` edges occur, `s_slam_tilt` does not close.
-  **And** the test **fails when the slam detector is coupled to the bob's threshold or state** — both directions
-  are required, because a detector that silently shares the bob's threshold passes a one-directional test; red
+
+- **AC 5 (the slam sensor is independent of the bob).** Given `slamNudgesPerWindow` and `slamNudgeWindowTicks`,
+  **both** directions must hold. (a) Given a bob threshold arranged so the bob never crosses it, when
+  `slamNudgesPerWindow` nudge rising edges occur inside the window, then `s_slam_tilt` closes and `s_tilt_bob`
+  never does. (b) Given the bob held past its threshold for the whole window, when **fewer** than
+  `slamNudgesPerWindow` edges occur, then `s_slam_tilt` does not close. Both runs assert the bob's actual level,
+  so neither is vacuous.
+  **And** the test **fails when the slam detector is coupled to the bob's threshold or state** — the mutation is
+  required in **both** directions (couple slam to the bob; and separately hold the bob below threshold while slam
+  fires), because a detector that silently shares the bob's threshold passes a one-directional test. Both reds
   observed and recorded.
+
 - **AC 6 (both switches are table-declared and reproduce in a replay).** Given `TABLE.switches`, when tuning is
   resolved, then `s_tilt_bob` and `s_slam_tilt` are both present and both resolve to `settleTicks` **0**; and
   replaying the same `InputTransition[]` through a fresh `createLoop()` twice produces the identical ordered
   sequence of both switches' edges.
+
 - **AC 7 (the nudge keys).** Given `src/host/input`, when `Space`, `ArrowLeft`, `ArrowRight` and `ArrowUp`
   transition, then each maps to one of the three nudge actions and to **nothing else**, no other action becomes
-  reachable from them, `ArrowDown` stays unmapped and emits nothing, and no key code appears anywhere under
-  `src/sim/` (the existing grep in `test/host-input.test.ts` still passes).
-- **AC 8 (Integration AC, Rule 1).** Driving the **real** `createLoop()` — not the cabinet module directly — with an
-  `InputTransition` that raises `nudge_l` produces a `FrameOutput` whose ball trajectory diverges from an
-  otherwise-identical no-nudge run, and a `machine.step()` whose `switchEvents` carry the bob's edges. The seam,
-  not the module's internals, is what is observed.
+  reachable from them, `ArrowDown` stays unmapped and emits neither a transition nor a `preventDefault()`, and no
+  key code appears anywhere under `src/sim/` (the existing grep in `test/host-input.test.ts:12` still passes).
+
+- **AC 8 (Integration AC, Rule 1).** Given a ball in play in the **real** `createLoop()` — not the cabinet module
+  driven directly — when an `InputTransition` raising `nudge_l` is fed to `advance()`, then the resulting
+  `FrameOutput`'s ball trajectory diverges from an otherwise-identical no-nudge run, and the same run's
+  `machine.step()` returns `switchEvents` carrying the bob's edges. The seam, not the module's internals, is what
+  is observed.
+
+- **AC 9 (provenance, Rule 6 / AD-16 / CLAUDE.md).** Given the ported files under `src/sim/physics/cabinet/`, when
+  `pnpm check:headers` and `pnpm test` are run, then both pass and every ported file is shown to carry the
+  upstream holder line, the GPL-3.0-or-later grant, the exact upstream source path, the pin
+  `3f838c14bd2e37fb49a0b5aa6a9d76d421846bef`, and a `// Deviation:` note for each departure; that **no file
+  anywhere in the repository contains text derived from `NudgeHandler.h`**; and that every ported file lives under
+  `src/sim/physics/cabinet/**`, inside the glob `ATTRIBUTIONS.md:29` is scoped to. Enforced by
+  `test/sim-boundary.test.ts`'s third branch, which asserts each of those elements positively and asserts the
+  other two provenance classes' markers absent.
 
 ## Spec Change Log
 
@@ -292,6 +447,41 @@ whose path or contents implement a cabinet oscillator, a plumb bob or a tilt sen
   carrying the authorization's terms, the authorship-preservation requirement, the third `sim-boundary` header
   branch, and the `source`/`confidence` requirement for transcribed constants. Frontmatter `status` reset
   `blocked` -> `draft` so the plan stage re-derives the spec around the preserved intent block.
+
+- 2026-08-29 (plan, re-derivation under the authorization). The `<intent-contract>` block is preserved verbatim;
+  everything below it was re-derived from a fresh read of the seven authorized upstream files at the pin and of
+  the repository's own seams. **KEEP** from the previous pass, all re-verified and carried forward: Hazard 1's
+  resolution (nudge inside Story 1.6's measured 1 s bound, paired with a no-nudge control run — the control is
+  what makes AC 2 non-vacuous); Hazard 2's resolution (a test-local deterministic replay assertion, the golden
+  *file* deferred to Story 1.8, following `test/loop-determinism.test.ts:13-17`); the `MechanismsSnapshot`
+  no-widening decision; the key map and its `ArrowDown` reasoning; the decision that the coupling belongs at the
+  hardware-rule seam and never in the ported `ball-mover.ts`. Four substantive changes, each from evidence found
+  this pass:
+  1. **AC 3's arrange changed from "stays over the threshold for 200 consecutive ticks" to a measured, pinned
+     run length K (>= 10).** Evidence: `PlumbHandler.cpp:94-120` clamps the bob back inside the ring and damps its
+     angular velocity by `0.8` on every tick it is over the threshold, so a 200-tick sustained crossing is not
+     physically reachable under the ported model after a 25 ms impulse. The I/O matrix row's *behavioural* claim
+     (one edge in, one edge out, never one per tick) is unchanged and is exactly what AC 3 now asserts, with the
+     alternation and ordered-equality assertions added so the mutation still goes red. The "200 ticks" figure in
+     the preserved matrix is an illustration of the intent, not a reachable arrange; it is not amended because the
+     intent block is frozen and its behavioural claim is correct.
+  2. **The constant inventory is smaller and more honest than the Auto Run Result of 2026-08-29 estimated.** The
+     bob's **tilt threshold** and the **absolute scale of its damping** are NOT constants in any authorized file:
+     `PlumbHandler.cpp:18-20` reads both from `settings.GetPlayer_PlumbDamping()` and
+     `settings.GetPlayer_PlumbThresholdAngle()`. Only the damping *ratio* coefficients `1.25` / `0.75`
+     (`PlumbHandler.h:45-46`) are transcribable. Those two figures are therefore authored and ship `unverified`,
+     with a `source` that says so plainly. Nine transcribed figures remain (Design Notes table), including all
+     five that the oscillator — the one thing AC 1 calls "ported" — is built from, so the authorization's premise
+     holds and this is **not** a re-opening of the resolved Block-If. Recorded because the lead's decision cited a
+     figure count, and a transcribed constant that turns out to be invented is exactly what AD-15 forbids.
+  3. **`TICK_HZ = 1000` makes the port a 1:1 cadence match**, and a construction-time guard was added (task 3) so
+     that a change to the PROVISIONAL tick rate fails loudly rather than silently altering ported physics.
+  4. **`src/sim/table/frames.ts` is NOT edited.** The m/s² → U/T² crossing follows the already-adjudicated split
+     recorded verbatim at `devices.ts:126-141` and `loop/index.ts:157-172`: the frame part routes through
+     `toPhysics()`, the time-unit part is explicitly "not part of `frames.ts`'s contract". An earlier draft of
+     this plan would have widened `frames.ts`; that would have contradicted a recorded review decision.
+  Also added: AC 9 (provenance as an explicit, testable criterion rather than an implicit gate), and tasks for
+  `test/attributions.test.ts` and `test/frames.test.ts`.
 
 ## Review Triage Log
 
@@ -309,120 +499,160 @@ The oscillator the planning artifacts describe is `vpinball/vpinball`'s. The use
 - **Pin:** `vpinball/vpinball @ 3f838c14bd2e37fb49a0b5aa6a9d76d421846bef`.
 - **Exactly seven files may be ported**, all under `src/physics/cabinet/`: `DampedHarmonicOscillator.h`,
   `CabinetPhysics.h`, `CabinetPhysics.cpp`, `KeyboardNudge.h`, `KeyboardNudge.cpp`, `PlumbHandler.h`,
-  `PlumbHandler.cpp`. Each was fetched at the pin and its literal first line read: all seven are
-  `// license:GPLv3+`.
-- **`src/physics/cabinet/NudgeHandler.h` is EXCLUDED and must stay excluded.** Its first line is
-  `#pragma once`, so it never completed vpinball's licence migration and remains under the inherited
-  'old MAME'-like **non-commercial** terms, which GPL-3.0 cannot absorb and this project cannot distribute.
-  Do not port, transcribe, quote or paraphrase it. It is dispatch-only (no physics), so nothing is lost.
-  If the implementation appears to need it, that is a HALT, not a judgement call.
+  `PlumbHandler.cpp`. Each was re-fetched at the pin this planning pass and its literal first line read: all
+  seven are `// license:GPLv3+`.
+- **`src/physics/cabinet/NudgeHandler.h` is EXCLUDED and must stay excluded.** Its first line is `#pragma once`,
+  so it never completed vpinball's licence migration and remains under the inherited 'old MAME'-like
+  **non-commercial** terms, which GPL-3.0 cannot absorb and this project cannot distribute. Do not port,
+  transcribe, quote or paraphrase it. **This was re-checked against the real dependency graph this pass, because
+  two of the authorized files do `#include` it:** `KeyboardNudge.h:7` (the three concrete nudge classes derive
+  from a base declared there) and `PlumbHandler.cpp:9`. Neither is a genuine blocker. The base class is pure
+  dispatch — the port implements no class hierarchy at all, only `CabModelKeyboardNudge`'s impulse arithmetic,
+  which is entirely within `KeyboardNudge.cpp`. `PlumbHandler`'s two uses (`.cpp:122-123` and `:140-143`) are a
+  disabled debug log and script-visibility diagnostics, and both re-read a cabinet acceleration the function
+  already received as its own parameter at `.cpp:40`. Both are dropped as deviations. **If the implementation
+  nonetheless finds it needs anything from `NudgeHandler.h`, that is a HALT, not a judgement call.**
 - **The attribution is already committed** (`38e51cd`), deliberately **before** any ported file, per CLAUDE.md's
   "the entry goes in before the file does". Do not edit `ATTRIBUTIONS.md` again — the one-time widening that
-  allowed it is spent.
-- **Ported files live under `src/sim/physics/cabinet/**`**, inside the `src/sim/physics/**` glob the
-  `ATTRIBUTIONS.md` row is scoped to. Placing them anywhere else silently breaks the attribution and is a HALT.
+  allowed it is spent. Task 18 *pins* that row with a test; it does not change it.
+- **Ported files live under `src/sim/physics/cabinet/**`**, inside the `src/sim/physics/cabinet/**` glob the
+  `ATTRIBUTIONS.md:29` row is scoped to. Placing them anywhere else silently breaks the attribution and is a HALT.
 
-**Preserving authorship (CLAUDE.md, hard gate).** These files carry **no per-file copyright line**, so the
-holder comes from the root `LICENSE`: *"Visual Pinball development team and contributors"* (2000-2026,
-"unless specifically noted differently in a respective source file"). Each ported file must carry, above our
-own header and never replacing it: that holder, the GPL-3.0-or-later grant, the exact upstream source path,
-the pin, and `// Deviation:` notes for every departure. Paraphrasing or trimming the grant breaks the licence
-the port depends on.
+**Preserving authorship (CLAUDE.md, hard gate).** These files carry **no per-file copyright line**, so the holder
+comes from the root `LICENSE`: *"Copyright (C) 2000-2026 Visual Pinball development team and contributors"*
+("unless specifically noted differently in a respective source file"), granting GPLv3-or-later. Each ported file
+must carry that holder, the grant **quoted in full and not paraphrased or trimmed**, the exact upstream source
+path, the pin, and `// Deviation:` notes for every departure.
 
-**`test/sim-boundary.test.ts` needs a third header branch — this is in footprint and is this story's job.**
-Its licence-header check is currently a strict two-way XOR: a file under `src/sim/` is *either* a vpx-js port
-(VPDB copyright block + the exact port marker + freezy's line) *or* DragonWar-authored (GPL-3.0 header and no
-VPDB markers). A vpinball port is legitimately neither and would fail as though it were a licence violation.
-Add a third, disjoint branch that is exactly as strict as the other two — assert the vpinball holder line, the
-GPLv3+ grant, its own port marker and the pin — rather than loosening the existing ones. (This guard is
-itself an instance of the pattern this epic keeps finding: correct while there was one upstream, wrong on the
-first legitimate exception. It is recorded as shape 8 in the Story 1.8 sweep mandate.)
+### Which cabinet files are ports and which are authored
 
-**Transcribed constants must carry `source` and `confidence` in `tuning.ts`,** exactly as Story 1.6 did for
-`TUNING.flipper`. Unlocking ~10 real, sourced figures — cabinet mass, both axes' frequency and damping, the
-impulse shape, the bob's geometry and threshold — is the main reason this option was chosen over authoring our
-own, so each one's provenance must be legible. A transcribed constant with no recorded source is no better
-than an invented one. **Trap (`DW-34`):** any new `…Ms` tunable must be **top-level** — `resolveTuning()`'s
-`assertNoNestedMsKeys` throws on a nested one.
+This split is the point of the module layout, and it is what makes AD-5's "the oscillator is **ported**, but the
+**ball coupling is re-derived**" legible in the file tree rather than only in a comment:
 
+| File | Provenance | Upstream source |
+|---|---|---|
+| `cabinet/oscillator.ts` | **vpinball port** | `DampedHarmonicOscillator.h`, `CabinetPhysics.{h,cpp}` |
+| `cabinet/nudge-impulse.ts` | **vpinball port** | `KeyboardNudge.{h,cpp}` (`CabModelKeyboardNudge` only) |
+| `cabinet/plumb-bob.ts` | **vpinball port** | `PlumbHandler.{h,cpp}` |
+| `cabinet/slam.ts` | **DragonWar-authored** | none — no slam/nudge-window detector exists in any authorized file |
+| `cabinet/index.ts` | **DragonWar-authored** | none — the facade, the edge collapsing, and the re-derived coupling |
 
-### Governing ADs (Rule 6)
+The two authored files go in `test/sim-boundary.test.ts`'s `AUTHORED_FILES`; the three ported ones go in the new
+`VPINBALL_PORTED_FILES`. Every ported file contains transcribed physics and nothing else; everything this project
+decided differently from upstream lives in an authored file. A reviewer can then check the port against upstream
+line by line without having to disentangle our changes from theirs.
 
-There is no `docs/adr/` in this project; the ADR registry is **AD-1..AD-19** in
-`_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md`. Each was
-read in the spine text itself, not from a list or a prior spec's summary.
+### The third provenance branch
 
-- **AD-5 (line 112) — the governing decision.** Verbatim: "Nudge is an impulse to the cabinet oscillator; the
-  oscillator is **ported**, but the **ball coupling is re-derived as table-frame motion** (the ball keeps its
-  inertia while the cabinet moves — VPX's nudge-as-ball-force is a known open defect) and pinned by a golden
-  replay. The tilt bob is a pendulum whose closure is `s_tilt_bob`. The slam detector is a tick-windowed nudge
-  count in physics **beside** the oscillator, threshold `slamNudgesPerWindow` in `tuning.ts`, closure
-  `s_slam_tilt`." Its "Prevents" list names this story's three failure modes exactly: "nudge as a force on the
-  ball; slam tilt sharing the bob's threshold or living outside the replay". The same rule makes hardware rules
-  "inside the physics step — switch or button → coil on the same tick", which is why the cabinet runs at
-  `machine.ts:124-129` and not through rules. **The word "ported" in this AD is what fires the Block If.**
-- **AD-2 (line 79) — which layer owns which switch.** Verbatim: "Physics emits **playfield and cabinet-mechanism**
-  `SwitchEvent`s (`s_tilt_bob`, `s_slam_tilt` included) as edges only … with per-switch hysteresis and
-  `settleTicks` from `TABLE.switches` (defaults by class: … tilt bob 0). `sim/loop` emits only the **button**
-  switches … Rules never debounce a switch." So both new switches are physics-emitted, both settle at 0, and the
-  three nudge actions must **not** acquire button switches in `sim/loop` (`loop/index.ts:91-93` already records this).
-- **AD-7 (line 128).** Verbatim: "The bob is never reset by command — its physical decay plus `tiltSettleMs` is
-  the settle." `tiltSettleMs` is a **rules-side** timer (Story 2.11); this story delivers only the physical decay.
-- **AD-4 (line 87).** The host stamps transitions from the DOM `timeStamp`; key codes never enter `sim/`; a
-  *command* lands next tick but a *hardware rule* reads the frame in the same step — the asymmetry the seam depends on.
-- **AD-3 (line 85).** One clock; no literal ms inside `sim/`; durations authored in ms in `tuning.ts` and converted
-  once. No wall clock and no unseeded randomness — the oscillator and bob must be fully deterministic.
-- **AD-15 (line 202).** Two constant classes. Solver constants are ported verbatim and never tunable; **table
-  tunables** — the spine names "slam threshold" among them — each carry `source` and `confidence`, with
-  do-not-invent numbers shipped `unverified`. Also the source of the golden-replay testing shape.
-- **AD-1 (line 69), AD-10 (line 172), AD-16, AD-19 (line 222)** constrain the wiring: linted layering and no table
-  API; the table frame as canonical with exactly one conversion file; ported files keeping their upstream headers
-  plus the port marker; the devices layer as the only switch consumer.
-- **AD-6, AD-9, AD-11, AD-17** are untouched — no device, command-union, geometry, CSP, bundle or deploy change.
+`test/sim-boundary.test.ts` selects its branch **by declaration**, not by content (`:93`, `:106`), and an
+undeclared file falls through to the **vpx-js branch by default**. A vpinball-derived file is legitimately
+neither class and would fail as though it were a licence violation. Add a third, disjoint branch that is exactly
+as strict as the other two — never loosen the existing ones. The new branch must assert, positively:
 
-### The intent gap: the oscillator AC 1 calls "ported" is not in this project's pinned upstream
+1. a closing `*/` exists (same `blockEndIdx` search as the vpx-js branch);
+2. the block above it contains `VPINBALL_HOLDER`;
+3. the block above it contains the GPL-3-or-later grant phrase
+   (`either version 3 of the License, or (at your option) any later version`);
+4. the line **immediately** after the closing `*/` is exactly `VPINBALL_PORT_MARKER` (`toBe`, not `toContain` —
+   matching `:133`);
+5. the file contains `VPINBALL_PIN` and an upstream `// Source: src/physics/cabinet/…` path;
+6. the file contains **neither** the vpx-js `PORT_MARKER` nor `UPSTREAM_PROJECT` nor `AUTHORED_HEADER` — the three
+   classes stay mutually exclusive, which is what makes "exactly as strict" mean something.
 
-This is the blocking condition; the full statement and the recommended amendment are in `## Auto Run Result`. The
-evidence, in short:
+Point 6 deserves a word, because it is counter-intuitive: a ported file does **not** carry the DragonWar
+`AUTHORED_HEADER` line. That is the existing convention, not a new one — `src/sim/physics/ball/ball-mover.ts` does
+not carry it either. A port carries our licence through the marker line's own "distributed with DragonWar under
+GPL-3.0", and `tools/check-licence-headers.mjs` is satisfied by the marker (once task 2 teaches it the third one).
+Pasting the authored header onto a port would make the classes overlap and weaken all three branches.
 
-1. **`vpdb/vpx-js @ e8a6d6f` does not implement nudge.** Verified against the downloaded tree at the pinned commit,
-   not from memory: `lib/vpt/ball/ball-mover.ts:80-83` is `// todo nudge` with the three intended lines commented
-   out; `lib/vpt/global-api.ts:124-142` is `// TODO implement nudge`; `lib/game/player-physics.ts` mentions nudge
-   only in a comment at `:377`; a whole-tree grep for `tableVel` / `nudgeSpring` / `nudgeDamping` /
-   `tableDisplacement` returns exactly one hit, the commented-out line above. No file's path contains `nudge`,
-   `plumb`, `tilt`, `slam`, `cabinet` or `oscill`. **Our own port faithfully carries that hole** —
-   `src/sim/physics/ball/ball-mover.ts:82-85` is the same `// todo nudge`.
-2. **The real source is `vpinball/vpinball` (C++).** The research's own citation `[3]`
-   (`research.md:223`) points at `https://github.com/vpinball/vpinball/tree/master/src/physics`, and
-   `src/physics/cabinet/` there holds `DampedHarmonicOscillator.h`, `CabinetPhysics.*`, `KeyboardNudge.*` and
-   `PlumbHandler.*` — literally the damped-harmonic cabinet oscillator and the plumb-bob pendulum.
-3. **It is legally usable, but it is not in the repository.** Every file needed carries `// license:GPLv3+` as its
-   exact first line (`DampedHarmonicOscillator.h`, `CabinetPhysics.{h,cpp}`, `KeyboardNudge.{h,cpp}`,
-   `PlumbHandler.{h,cpp}`, `NudgeIntentHandler.{h,cpp}`, `NudgeHandler.cpp`, `hitball.cpp`) — **except
-   `NudgeHandler.h`, whose first line is `#pragma once`**, which therefore falls under the repository's
-   "old MAME"-like non-commercial default and must not be used (it is dispatch-only and contains no physics, so
-   nothing is lost). No source file carries a copyright line; the root `LICENSE` supplies it —
-   "Copyright (C) 2000-2026 Visual Pinball development team and contributors", GPLv3-or-later.
-   But `ATTRIBUTIONS.md:89` lists vpinball under **"Planned dependencies … Not yet in the repository — record them
-   properly here when they arrive"**, and CLAUDE.md's hard gate is "**Record it in `ATTRIBUTIONS.md` first.** …
-   The entry goes in before the file does." `ATTRIBUTIONS.md` is a root file, **outside this epic's footprint**.
-4. **The header regime is a closed two-way choice.** `test/sim-boundary.test.ts:105-135` requires every file under
-   `src/sim/physics/**` to be *either* declared-authored with the DragonWar GPL-3.0 header **and** to contain
-   neither the VPDB copyright block nor the vpx-js port marker, *or* to carry a VPDB block followed by that exact
-   marker line. `tools/check-licence-headers.mjs` knows the same two markers and no others. A file derived from
-   vpinball fits neither branch, and declaring it "authored" would be a false provenance claim — precisely what
-   CLAUDE.md forbids.
+This guard is itself an instance of the pattern this epic keeps finding: correct while there was one upstream,
+wrong on the first legitimate exception. It is recorded as shape 8 in the Story 1.8 sweep mandate.
 
-So both readings of AC 1 terminate outside the footprint: porting needs an `ATTRIBUTIONS.md` row, and authoring
-instead contradicts AD-5, `physics-tuning.md:62` and AC 1's own word "ported" (a planning-artifact amendment).
-Per Rule 5 this is an `intent gap` HALT, never something to plan around; per the dispatch, Story 1.6's two
-one-time widenings are spent and neither carries forward.
+### The tunables, and which are honestly transcribed
 
-**Note the bob is a smaller problem than the oscillator.** AD-5 says only "The tilt bob is a pendulum whose closure
-is `s_tilt_bob`" and `physics-tuning.md:63` says only "Tilt bob as an actual pendulum" — **neither says "ported"**.
-A rigid-rod angular pendulum is authorable without a provenance decision. The slam counter likewise: AD-5
-describes it as "a tick-windowed nudge count", with its threshold already authored in `tuning.ts:195-196`. Only the
-oscillator carries the explicit "ported" claim, which is what makes the gap narrow and cheap for the lead to close.
+AD-15 splits constants two ways: solver constants are ported verbatim and never tunable; table tunables carry
+`source` and `confidence`, with do-not-invent figures shipped `unverified`. The cabinet and bob parameters are
+**tunables** (Story 1.9's feel ritual retunes them against the Reference machine), exactly as Story 1.6 treated
+`TUNING.flipper`. `physics-tuning.md:45-54`'s do-not-invent list names no nudge, bob or slam quantity, so the two
+authored figures below are permitted — but they ship `unverified` and say so.
+
+| Tunable | Value | Confidence | Provenance |
+|---|---|---|---|
+| `cabinet.massKg` | 113 | medium | `CabinetPhysics.h:24` default ctor argument |
+| `cabinet.freqXHz` | 9.3 | medium | `CabinetPhysics.cpp:12` |
+| `cabinet.zetaX` | 0.052 | medium | `CabinetPhysics.cpp:12` |
+| `cabinet.freqYHz` | 5.8 | medium | `CabinetPhysics.cpp:13` |
+| `cabinet.zetaY` | 0.055 | medium | `CabinetPhysics.cpp:13` |
+| `cabinet.nudgePeakAccelG` | 0.5 | medium | `KeyboardNudge.cpp:162-164`, comment "0.5g max peak accel on strong nudge" |
+| `nudgeImpulseMs` (**top-level**) | 25 | medium | `KeyboardNudge.cpp:169` `emplace_back(25, …)` |
+| `tiltBob.rodLengthM` | 0.10 | medium | `PlumbHandler.h:30` |
+| `tiltBob.cabAccelScale` | 1.0 | medium | `PlumbHandler.h:33` |
+| `tiltBob.dampingCoef0` | 1.25 | medium | `PlumbHandler.h:45` |
+| `tiltBob.dampingCoef1` | 0.75 | medium | `PlumbHandler.h:46` |
+| `tiltBob.ringBounceDamping` | 0.8 | medium | `PlumbHandler.cpp:118` "magic damping factor" |
+| `tiltBob.dampingScale` | **authored** | **unverified** | upstream multiplies both coefficients by `settings.GetPlayer_PlumbDamping()` (`PlumbHandler.cpp:18-19`) — a user setting with no value in any authorized file |
+| `tiltBob.thresholdDeg` | **authored** | **unverified** | upstream reads `settings.GetPlayer_PlumbThresholdAngle()` (`PlumbHandler.cpp:20`) — likewise no value in any authorized file |
+| `slamNudgesPerWindow`, `slamNudgeWindowMs` | 3, 500 | unverified | **already in `tuning.ts:195-196`** — do not re-add |
+
+The two authored figures must be chosen so that a firm nudge tilts the bob and an ordinary one does not, and the
+values actually chosen (with how they were chosen) go into their `source` strings and into this spec's
+Verification section. Do **not** go outside the seven authorized files to look up VPX's shipped defaults for
+them — that is the licence boundary, and a value read from an unauthorized file would be exactly the kind of
+laundered provenance CLAUDE.md forbids.
+
+**Trap `DW-34`:** `nudgeImpulseMs` is the only new duration and must be **top-level** in `TUNING`.
+`resolveTuning()`'s `assertNoNestedMsKeys` (`tuning.ts:342-360`) **throws** on a `…Ms` key at any depth below
+the top level. Non-duration parameters (Hz, damping ratios, masses, lengths, angles in degrees) carry no `Ms`
+suffix and live in the nested groups, exactly as `TUNING.flipper` does.
+
+### Why this conserves inertial velocity, and what the mutation breaks
+
+The table frame **is** the cabinet frame: the playfield, the walls and the bats are rigidly attached to the
+cabinet, so in that frame the collision geometry is correctly static. What a nudge does is make that frame
+non-inertial. The exact and only consequence is a uniform pseudo-acceleration `−a_cabinet` on every free body in
+it. So each tick, every ball's table-frame velocity changes by `−a_cabinet · dt`, and its **inertial** velocity —
+table-frame velocity plus cabinet velocity — is unchanged. No energy enters the ball; the cabinet moves under it.
+
+That is precisely the third of upstream's three commented-out lines (`ball-mover.ts:85`,
+`vel.sub(player.tableVelDelta)`). The **defect** AD-5 names is the first two (`vel.x += nudgeX; vel.y += nudgeY`),
+which add the cabinet's acceleration to the ball *on top of* the frame term — injecting energy that has no
+physical source. AC 1's mutation is exactly that: apply the impulse as a force on the ball. Under it, the
+inertial velocity changes and the nudged-minus-control difference is `+impulse` instead of `−Δv_cabinet`, so the
+assertion goes red.
+
+This is also why the `3.5` / `2.0` display-correction factors are **not** ported. Upstream needs them because its
+cabinet displacement is consumed only by rendering while the ball response is applied separately and tuned
+separately (`hitball.cpp` subtracts cabinet acceleration straight from the ball's velocity, and no collision
+geometry moves) — so the picture and the ball had to be reconciled by hand. Treating the whole thing as one
+change of reference frame removes the mismatch, and with it the need for either factor. Epic 1 renders no cabinet
+shake, so nothing consumes the displacement at all; if Epic 4 adds shake, that story decides whether a visual
+correction belongs in the renderer.
+
+**Units.** The cabinet is in SI (m, s, m/s²); physics is in VP units (U/T, `1 U = 0.53975 mm`, `1 T = 10 ms`).
+Cross it the way the codebase already crosses velocities: difference two `toPhysics()` calls to get the axis flip
+and length scale (which cancels the affine playfield-height translation), then apply the VP time-unit scaling
+locally — `devices.ts:126-141` states verbatim that the time-unit part "is not part of `frames.ts`'s contract".
+`test/frames.test.ts` pins the arithmetic by round-tripping `9.81 m/s²` to `GRAVITYCONST`.
+
+### Sub-stepping and the provisional tick rate
+
+Upstream integrates the cabinet and the bob at a hard-wired `dt = 0.001 s` (`CabinetPhysics.cpp:21`,
+`PlumbHandler.cpp:54`), and its integrator is semi-implicit Euler, whose accuracy degrades with `dt` — most on the
+9.3 Hz X oscillator and on the bob's clamp logic, which assumes small angular steps. `TICK_HZ` is currently 1000,
+so one tick is exactly one upstream sub-step and the port is a 1:1 cadence match. But `time.ts:9-37` marks the
+tick rate **PROVISIONAL** ("1000 on PASS, 480 on FAIL") and the epic context says later stories must not treat
+1000 Hz as final.
+
+So: keep the ported `0.001 s` as a sub-step constant (verbatim, never tunable — AD-15), run
+`SECONDS_PER_TICK / 0.001` sub-steps per tick, and **throw a descriptive error at construction** if that is not an
+exact positive integer. At 1000 Hz it is 1 and nothing changes. At 480 Hz it is 2.083…, and the build fails at
+load with a message telling the story that lowers the tick rate to add a sub-step accumulator — instead of
+silently running ported physics at a `dt` its integrator was never validated at. Load-time paths throw; step paths
+never do (the project's error policy), and this is a load-time path.
+
+Note also that upstream is `float` (f32) throughout while this port is `number` (f64), like every other file in
+`src/sim/physics/`. Results will differ from upstream in the last few digits. That is a deviation to record in
+each ported file's header, not a defect, and it is uniform with the existing vpx-js port.
 
 ### Hazard 1 — AC 2's cradle window, and why the control run is the whole test
 
@@ -439,7 +669,8 @@ The nudged ball must have left; the control ball must still be on the bat. That 
 discipline Story 1.6's replacement cradle test was forced into after its first version was rejected for narrowing
 the window until it passed. This story must not widen the 1 s bound, alter the port, or re-place
 `test/flipper-collision.test.ts`'s ball (Story 2.1 re-asserts the full 5 s cradle against that exact placement and
-its measured tolerances).
+its measured tolerances). Build the new test's rig by copying that file's harness *shape* into
+`test/cabinet-nudge-cradle.test.ts`; do not import from it and do not edit it.
 
 ### Hazard 2 — "verified by a golden replay" when goldens are Story 1.8's deliverable
 
@@ -454,8 +685,7 @@ same way**: `test/loop-determinism.test.ts:13-17` implements AD-15's hash defini
 its header — "Story 1.8 … owns it as a SHIPPED, production artifact; this story only needs a working
 implementation of AD-15's stated definition to prove the property holds, not to pre-empt where Story 1.8 places
 the reusable version." Following that precedent keeps the epic consistent, keeps 1.8's deliverable intact, and
-still gives AC 1 and AC 2 a replay-shaped, deterministic observable today: a fixed `InputTransition[]` driven
-through the real `createLoop()`, asserted to reproduce identically across two fresh loops.
+still gives AC 1 and AC 2 a replay-shaped, deterministic observable today.
 
 **Rejected alternative:** building a real `*.replay.json` golden here. It would require inventing the header
 (`tableHash`, `assetHash`, `physicsVersion`) and the shipped hash ahead of the story that owns them, and every one
@@ -463,10 +693,37 @@ of those figures would be re-decided in 1.8 — leaving a golden recorded agains
 exactly the "re-record every golden" cost AD-15 warns about. Story 1.8's AC already names "nudge coupling" as one
 of its five goldens, so the durable golden has an owner and a home.
 
+### Hazard 3 — the bob cannot be held over its threshold for 200 ticks
+
+The preserved I/O matrix illustrates AC 3's intent with "crosses threshold and stays over it for 200 ticks". Read
+literally as an arrange, that is unreachable under the ported model, and discovering this only at implementation
+time would push a developer toward one of two bad fixes: dropping the ring clamp (deviating from the port for no
+physical reason) or widening the tolerance until the test passes.
+
+`PlumbHandler.cpp:94-120` computes `tilted` from the **pre-clamp** angle, then, when over the threshold, clamps
+the bob back to just inside the ring (`limitAngle = tiltAngle − 1e-3`) and damps its angular velocity by `0.8`.
+Because the bob's linear velocity `ω × r` is tangential, `v · poleAxis` is ~0 and the "reflection" at `:115` is
+effectively a no-op — so the whole bounce reduces to `ω *= 0.8` per over-threshold tick, killing the swing within
+a few tens of ticks. Meanwhile the cabinet's Y oscillator reverses sign every ~86 ms (5.8 Hz) while the bob's own
+period is ~634 ms (a 0.10 m pendulum), so the bob receives one net kick and swings once; it does not get pressed
+outward continuously. The result is a crossing lasting on the order of tens of ticks, not 200.
+
+That is physically right — a real plumb bob touches the ring, bounces and swings back, and the contact is brief
+and repeated. So the matrix row's **behavioural** claim is exactly correct and is what AC 3 asserts: one edge in,
+one edge out, never one per tick. Only the arrange changes, to a run length **measured during implementation and
+pinned in the test as a literal** (`K >= 10`). The literal matters: a bare `>= 2` would let a later regression
+that collapses the hold to a single tick pass silently, which is the same class of never-failing assertion this
+epic has repeatedly had to fix. AC 3 additionally asserts ordered equality between the emitted edge sequence and
+the edge sequence of the recorded level series, which is what actually kills the "one edge per tick" mutation.
+
+If the measured K comes out below 10, that is a real finding: record the measurement, and either the threshold
+tunable is set so high that the crossing is marginal (retune it — it is authored and `unverified` anyway) or
+something in the port is wrong. Do not lower the pin to match a marginal number.
+
 ### Integration ACs, Consumed-by and Consumes (Rules 1 and 2)
 
-This story introduces one module tree, `src/sim/physics/cabinet/**` (oscillator, bob, slam counter, facade), plus
-one edit to the existing `src/host/input/**`.
+This story introduces one module tree, `src/sim/physics/cabinet/**` (oscillator, impulse, bob, slam counter,
+facade), plus one edit to the existing `src/host/input/**`.
 
 - `src/sim/physics/cabinet/**` → consumed **inside this story** by `src/sim/physics/machine.ts` and, transitively,
   by `src/sim/loop/index.ts`. **Integration AC: AC 8 above** — exercised through the real `createLoop()`'s own
@@ -476,17 +733,17 @@ one edit to the existing `src/host/input/**`.
   warnings and slam's game-ending behaviour are explicitly Epic 2's (epic context: "the bob and the slam sensor
   here are sensors closing switches inside physics, and the rules that consume them are Epic 2's").
   **No consumers in this story; the first consumer will be Story 2.11 (Tilt warnings, Tilt and slam tilt.)**
-  They are still asserted at the emitting seam's own output (AC 3, AC 5, AC 6), so neither is unverified.
+  They are still asserted at the emitting seam's own output (AC 3, AC 5, AC 6, AC 8), so neither is unverified.
 
 **Consumed-by:** Story 1.8 (the nudge-coupling golden and the cradle-and-release golden replay this story's
 deterministic assertion is the seed for) · Story 1.9 (the dev tuning panel hot-applies the cabinet and bob
-tunables; the feel ritual tunes the nudge against the Reference machine) · Story 2.1 (re-asserts the real cradle,
-ledger `DW-72`, against the geometry that makes a nudge-frees-the-cradle test meaningful) · **Story 2.11 (Tilt
-warnings, Tilt and slam tilt — the first and only consumer of both switches)** · Story 6.4 (rebindable keys re-use
-`host/input`'s map).
+tunables; the feel ritual ratifies `tiltBob.thresholdDeg` and `tiltBob.dampingScale`, the two figures that ship
+`unverified` here) · Story 2.1 (re-asserts the real cradle, ledger `DW-72`, against the geometry that makes a
+nudge-frees-the-cradle test meaningful) · **Story 2.11 (Tilt warnings, Tilt and slam tilt — the first and only
+consumer of both switches)** · Story 6.4 (rebindable keys re-use `host/input`'s map).
 
-**Consumes:** `src/sim/contracts/{input,events,snapshot,commands}.ts` · `src/sim/table/{dragonwar,names,tuning,
-frames}.ts` · `src/sim/physics/{machine,switches,constants}.ts`, `game/player-physics.ts`, `ball/ball.ts`,
+**Consumes:** `src/sim/contracts/{input,events,snapshot,commands,time}.ts` · `src/sim/table/{dragonwar,names,
+tuning,frames}.ts` · `src/sim/physics/{machine,switches,constants}.ts`, `game/player-physics.ts`, `ball/ball.ts`,
 `math/**` · `src/sim/loop/index.ts` (test side) · `src/host/loop.ts` (host side).
 
 ### The key map: which key becomes which nudge
@@ -497,22 +754,13 @@ forbids inventing one. Space as the centre/forward nudge is the convention the r
 (`vpx-js`'s own `lib/game/pin-input.ts:59-61` maps `CenterTiltKey` to `DIK_SPACE`, with left/right tilt on separate
 keys), and the PRD's wording is "Space/arrow keys to Nudge" (`prd.md:281`) — a set of keys for a set of actions,
 not a one-to-one list. Two keys for one action costs nothing: `host/input`'s frame accumulator already collapses a
-second keydown for an already-held action into no transition (`input/index.ts:99-101`).
+second keydown for an already-held action into no transition (`input/index.ts:99-101`). Both Space and the arrows
+already get `preventDefault()` from the existing handlers (`:98`, `:110`) because they are now mapped codes, which
+is what stops the page scrolling under them.
 
-### Where the coupling goes, and where it must not
-
-`src/sim/physics/ball/ball-mover.ts` is **ported and stays verbatim** — its `// todo nudge` at `:82-85` is
-upstream's own hole, and filling it with `vel.x += nudgeX` would be implementing the exact defect AD-5 names. The
-re-derived coupling belongs at the `machine.ts` seam, where the cabinet's per-tick table-frame displacement and
-velocity are applied to the ball set as a change of reference frame. The discriminating property to hold onto:
-under table-frame motion the ball's **inertial** velocity is conserved across a nudge tick and no energy enters
-the ball; under a force on the ball it is not. That is what AC 1 asserts and what its mutation breaks.
-
-The reference implementation is worth reading precisely because it shows the defect: in `vpinball/vpinball`,
-`src/physics/hitball.cpp` subtracts the cabinet acceleration straight from the ball's velocity, while the
-cabinet's actual displacement is consumed only by rendering — **no collision geometry moves**. That mismatch is
-why its cabinet model needs 3.5×/2.0× "magic correction factors" to make the picture agree with a ball response
-tuned separately. Re-deriving the coupling as genuine table-frame motion removes the need for both.
+The three nudge actions must **not** acquire button switches: `loop/index.ts:91-93` records that they correctly
+have none, and AD-2 puts both cabinet sensors in physics precisely so they are inside the replay. A host-side
+detector could not be reproduced.
 
 ### `MechanismsSnapshot` is deliberately not widened
 
@@ -523,20 +771,13 @@ through a read-only `machine.cabinet` getter shaped exactly like the existing `m
 (`machine.ts:183-189`) — enough for the tests and for Story 1.9's tuning panel, with no contract change. If Epic 4
 adds cabinet shake, that story adds the snapshot key alongside its renderer.
 
-### Tunables: the `…Ms` nesting trap
-
-Any duration this story authors (the impulse length, the slam window) must be a **top-level** `…Ms` scalar in
-`TUNING`. `resolveTuning()`'s `assertNoNestedMsKeys` (`tuning.ts:342-360`, ledger `DW-34`) **throws** on a `…Ms`
-key at any depth below the top level, because only top-level ones are converted. `slamNudgeWindowMs` is already
-top-level and correct (`:196`). Non-duration parameters (frequencies in Hz, damping ratios, masses, lengths,
-threshold angles) carry no `Ms` suffix and may live in a nested group, exactly as `TUNING.flipper` does.
-
 ### Ledger
 
 `LEDGER slice 1-7-nudge-the-tilt-bob-and-the-slam-sensor` is **empty** — this story owns no entries. `DW-72` (the
-full 5 s cradle) is Story 2.1's and constrains Hazard 1 only. `DW-70` (`machine.deviceSlots` written by `sim/loop`
-rather than derived per AD-7) is a standing escalation owned by `burndown` and surfaced at the Epic 1 merge gate;
-nothing here touches `deviceSlots`, so it is left alone.
+full 5 s cradle) is Story 2.1's and constrains Hazard 1 only. `DW-34` (the nested-`…Ms` trap) is a standing trap
+this story must not trip, not an entry to write. `DW-70` (`machine.deviceSlots` written by `sim/loop` rather than
+derived per AD-7) is a standing escalation owned by `burndown` and surfaced at the Epic 1 merge gate; nothing here
+touches `deviceSlots`, so it is left alone.
 
 ### Multi-goal warning
 
@@ -551,92 +792,57 @@ the slam counter consumes the same nudge edge stream — splitting them would tr
 **Commands:**
 - `pnpm typecheck` — expected: clean across all three projects.
 - `pnpm lint:boundaries` — expected: clean; in particular no `Date`/`Math.random` under `src/sim/**` (rule (c)),
-  no literal ms or `TICK_HZ` outside the two permitted sites (rule (d)), and no device-name literal (rule (e)).
+  no `…Ms` binding or `TICK_HZ` name outside the permitted sites (rule (d)), and no device-name literal (rule (e)).
 - `pnpm test` — expected: all green, including the new cabinet tests and the unchanged Story 1.5/1.6 suites.
-- `pnpm check:headers` and `pnpm check:attributions` — expected: clean. **These two are the gate task 0 must clear
-  first**: the header checker knows only the DragonWar GPL-3.0 header and the vpx-js port marker.
+  `test/flipper-collision.test.ts`, `test/switch-zones.test.ts` and `test/time-contract.test.ts` must pass
+  **unmodified** — each guards something this story edits around.
+- `pnpm check:headers` and `pnpm check:attributions` — expected: clean. `check:headers` cannot pass until task 2
+  lands, so run it immediately after the first ported file.
 - `pnpm build` — expected: succeeds; no CSP, bundle-budget or deploy change is intended.
 
+**Recorded measurements (fill in during implementation — an empty row is an incomplete story):**
+- `tiltBob.thresholdDeg` and `tiltBob.dampingScale`: the values chosen, and the evidence that a firm nudge tilts
+  the bob while an ordinary one does not.
+- **K**, AC 3's longest consecutive over-threshold run, and the tick count AC 4's decay needs.
+- AC 2's nudge tick, the departure observable and its tick budget, and the control run's on-the-bat assertion.
+
 **Manual checks:**
-- **Each mutation must be run and its red recorded in this spec**, per AC 1, AC 3, AC 4 and AC 5: apply the
-  mutation, run `pnpm test`, record the failing test name and message, revert. A mutation asserted but not run is
-  not evidence (epic context; Story 1.6's AD-5 incident, where moving the hardware rules after `physics.step()`
-  left 590 tests green).
-- Per-story browser smoke (lead-side): with a ball in play, the nudge keys visibly disturb the ball's path and the
-  build still renders — a headless suite cannot see renderer breakage.
+- **Each mutation must be run and its red recorded in this spec**, per AC 1, AC 3, AC 4 and AC 5 (five reds in
+  total — AC 5 requires both directions): apply the mutation, run `pnpm test`, record the failing test name and
+  message, revert. A mutation asserted but not run is not evidence (epic context; Story 1.6's AD-5 incident, where
+  moving the hardware rules after `physics.step()` left 590 tests green).
+- **Provenance, by eye as well as by test:** open each ported file and confirm the holder line, the full unmodified
+  grant, the upstream path, the pin and the `// Deviation:` notes; confirm no file anywhere contains text derived
+  from `NudgeHandler.h`.
+- Per-story browser smoke (lead-side): with a ball in play, the nudge keys visibly disturb the ball's path, the
+  arrow keys and Space do not scroll the page, and the build still renders — a headless suite cannot see renderer
+  breakage.
 
 ## Auto Run Result
 
-Status: blocked
-Blocking condition: intent gap
+Status: ready-for-dev
+Blocking condition: none
 
-**The gap.** `epics.md:585-588` (Story 1.7, AC 1) reads "**Given** the ported damped-harmonic cabinet oscillator",
-and AD-5 (spine line 116) says "the oscillator is **ported**". No such oscillator exists in this project's pinned,
-attributed upstream. Verified against the downloaded tree at the pinned commit: `vpdb/vpx-js @ e8a6d6f` implements
-no nudge at all — `lib/vpt/ball/ball-mover.ts:80-83` is `// todo nudge`, `lib/vpt/global-api.ts:124-142` is
-`// TODO implement nudge`, and no file in the repository implements a cabinet oscillator, a plumb bob or a tilt
-sensor. Our own port carries that hole faithfully at `src/sim/physics/ball/ball-mover.ts:82-85`.
+The `intent gap` that blocked the previous pass is resolved by the user's authorization of `vpinball/vpinball` at
+pin `3f838c14bd2e37fb49a0b5aa6a9d76d421846bef`, restricted to seven `// license:GPLv3+` files, with
+`NudgeHandler.h` excluded and the `ATTRIBUTIONS.md` row committed first (`38e51cd`). The struck-through Block-If
+in the preserved intent block cannot re-fire. All seven authorized files were re-fetched at the pin and re-read
+this pass; the oscillator AC 1 calls "ported" exists, is legally usable, and supplies every constant it is built
+from, so the authorization's premise holds.
 
-The oscillator the planning artifacts describe is `vpinball/vpinball`'s — which is what the research actually
-cited: `research.md:102`'s claim carries source `[3]`, and `research.md:223` resolves `[3]` to
-`https://github.com/vpinball/vpinball/tree/master/src/physics`. `src/physics/cabinet/` there holds
-`DampedHarmonicOscillator.h`, `CabinetPhysics.*`, `KeyboardNudge.*` and `PlumbHandler.*`. That code is legally
-usable — every file needed carries `// license:GPLv3+` as its exact first line, verified in the fetched headers
-themselves (the one exception, `NudgeHandler.h`, is unmarked and therefore unusable; it is dispatch-only and
-contains no physics) — but **`vpinball/vpinball` is not in this repository**: `ATTRIBUTIONS.md:89` lists it under
-"Planned dependencies … Not yet in the repository — record them properly here when they arrive."
+Two findings from this pass are recorded rather than escalated, because neither changes what the story must build:
 
-Both readings of AC 1 therefore land outside this epic's footprint, so neither is a judgement call this stage may
-make:
+1. **The bob's tilt threshold and the absolute scale of its damping are not constants in any authorized file** —
+   `PlumbHandler.cpp:18-20` reads both from user settings. They are authored and ship `unverified`, with a
+   `source` that says so, and Story 1.9's feel ritual ratifies them. Nine transcribed figures remain, including
+   all five the oscillator needs. This narrows the constant inventory the authorization cited but does not
+   undermine it: the "ported" claim attaches to the oscillator, which is fully transcribable.
+2. **AC 3's "200 consecutive ticks" is an illustration of intent, not a reachable arrange** — the ported ring
+   clamp and bounce (`PlumbHandler.cpp:94-120`) make a sustained 200-tick crossing physically impossible. The
+   preserved I/O matrix is frozen and its behavioural claim is correct; AC 3 asserts that claim with a measured,
+   pinned run length instead. See Design Notes, "Hazard 3".
 
-- **Port it** ⇒ a new third-party source enters the repository, which CLAUDE.md gates absolutely ("Record it in
-  `ATTRIBUTIONS.md` first … The entry goes in before the file does"). `ATTRIBUTIONS.md` is a root file, outside the
-  footprint. It also needs a pinned commit (none exists) and a third provenance branch in the header regime that
-  `test/sim-boundary.test.ts:105-135` and `tools/check-licence-headers.mjs` currently enforce as a closed two-way
-  choice — vpx-js port marker XOR DragonWar authored header. Declaring a vpinball-derived file "authored" to avoid
-  this would be a false provenance claim.
-- **Author it instead** ⇒ contradicts AD-5 (spine line 116), `physics-tuning.md:62` and AC 1's own word "ported",
-  i.e. a planning-artifact amendment — also outside the footprint, and Story 1.6's two one-time widenings are
-  spent and do not carry forward.
-
-**Recommended amendment (preferred): authorize the vpinball port.** Add one `ATTRIBUTIONS.md` Code-table row
-before any file lands —
-
-- Component: `vpinball/vpinball` cabinet-physics port (`src/sim/physics/cabinet/**`)
-- Source: `https://github.com/vpinball/vpinball` @ commit `3f838c14bd2e37fb49a0b5aa6a9d76d421846bef` (2026-08-29)
-- Author: Visual Pinball development team and contributors, © 2000-2026 (no source file carries a copyright line;
-  the root `LICENSE` supplies the holder)
-- Licence: **GPL-3.0-or-later**, verified from the `// license:GPLv3+` first line of each file used — not from the
-  root `LICENSE` and not from metadata. Files used: `src/physics/cabinet/DampedHarmonicOscillator.h`,
-  `CabinetPhysics.{h,cpp}`, `KeyboardNudge.{h,cpp}`, `PlumbHandler.{h,cpp}`. **Excluding `NudgeHandler.h`**, whose
-  first line is `#pragma once` and which therefore remains under the repository's non-commercial "old MAME"-like
-  default and must not be used.
-- Verified: 2026-08-29
-
-…then widen this story's footprint to `ATTRIBUTIONS.md` for that row alone, and let the story add a third
-provenance branch (a vpinball port marker) to `test/sim-boundary.test.ts` and `tools/check-licence-headers.mjs` —
-both in-footprint. `epics.md` AC 1 needs no wording change under this option, because the oscillator really is
-ported; a change-log entry recording *which* upstream and why is still worth adding, since the epic context and
-`physics-tuning.md:41-43` currently imply vpx-js is the only port source.
-
-**Why this is preferred over authoring:** it is the option AD-5, `physics-tuning.md:62` and the PRD addendum's
-"Port; do not derive" (`addendum.md:150`) all already select, and it converts roughly ten invented physical
-constants into transcribed ones with a real `source` and `medium` confidence — cabinet mass 113 kg, X-axis 9.3 Hz
-at ζ 0.052, Y-axis 5.8 Hz at ζ 0.055, a 25 ms raised-cosine impulse peaking near 0.5 g, and for the bob a 0.10 m
-rod with damping 1.25 + 0.75·|ω| and a 1.0° threshold. Authoring instead would ship all of them `unverified`, in a
-story whose whole point is that "nudging without tilt risk is not nudging" — the feel this epic exists to get right.
-
-**The rejected alternative, stated so the lead can weigh it:** amend AD-5, `physics-tuning.md:62` and `epics.md`
-AC 1 to drop "ported" and author a damped-harmonic oscillator from first principles, shipping every constant
-`unverified` pending Story 1.9's feel ritual. This needs no new third-party source and no attribution row, and it
-touches three planning artifacts instead of one root file. It was not chosen because it discards a legally clean,
-directly applicable, already-cited reference implementation and contradicts three separate artifacts' explicit
-"port; do not derive" instruction.
-
-**Not blocking, decided in this spec (recorded so the lead need not re-litigate them):** Hazard 1 (AC 2's cradle
-window) is resolved by nudging well inside Story 1.6's measured 1 s bound and pairing the test with a no-nudge
-control run — see `## Design Notes` → "Hazard 1". Hazard 2 (goldens are Story 1.8's) is resolved by building the
-minimal test-local deterministic replay assertion and deferring the golden *file* to Story 1.8, following
-`test/loop-determinism.test.ts:13-17`'s in-epic precedent — see `## Design Notes` → "Hazard 2". Neither needed an
-amendment. The rest of the story (bob, slam counter, key map, both switches) is fully planned above and is
-unaffected by the gap: only the oscillator carries the "ported" claim.
+Neither the third `sim-boundary` provenance branch, the `NudgeHandler.h` include chain, nor the tick-rate
+sub-stepping question required an amendment; each is resolved in-footprint and carried as a task. Hazard 1 (the
+cradle window) and Hazard 2 (goldens are Story 1.8's) remain resolved exactly as the previous pass resolved them.
+Halted after planning as directed.
