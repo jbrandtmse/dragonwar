@@ -190,3 +190,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-29T08:15:13Z	Epic 1	runtime_lock_released	stage=smoke
 2026-08-29T08:16:10Z	Story 1.6	committed	sha=6895c0a submodules= pushed=true tests=597_pass_21_skip
 2026-08-29T08:20:11Z	Epic 1	epic_context_compiled	sha=3f166f0 reason=nfr_amendment model=claude-opus-5 bytes=22628 trigger=epics_md_amended_twice_cradle_and_ac2 verified=header_ok_and_only_context_file_written
+2026-08-29T08:20:34Z	Story 1.7	stage_spawned	stage=plan spawn_at=2026-08-29T08:20:34Z model=claude-opus-5 agent_name=1-7-nudge-tilt-slam-plan-1 cycle_iteration=1
