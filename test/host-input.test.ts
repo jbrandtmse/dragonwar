@@ -184,16 +184,28 @@ describe('src/host/input -- createKeyboardInput() (AD-4)', () => {
 	});
 
 	it('two presses in one drain window are stamped in non-decreasing tick order', () => {
-		let counter = 0;
-		const input = createKeyboardInput({ tickAt: () => counter++ });
+		// Code review 2026-08-29: this test used `tickAt: () => counter++` and
+		// then asserted `ticks` equalled a SORTED COPY OF ITSELF. Both halves
+		// were vacuous -- an ascending counter cannot produce an unsorted
+		// array, and comparing an array to its own sorted copy can only fail
+		// if the module reorders pushes relative to its own tickAt() calls,
+		// which `push()` makes structurally impossible. It asserted nothing
+		// about stamping. Now stamped from the EVENT TIMESTAMPS through the
+		// same `(ms) => ms` tickAt the rest of this file uses, and compared
+		// against externally chosen values: a regression that stamped in
+		// arrival order, reused one tick, or dropped the timestamp fails here.
+		const input = createKeyboardInput({ tickAt: (ms) => ms });
 		const { target, dispatch } = installStubTarget();
 		input.attach(target);
-		dispatch(markPreventDefault(keyEvent('keydown', 'ShiftLeft', 1)));
-		dispatch(markPreventDefault(keyEvent('keydown', 'ShiftRight', 2)));
-		dispatch(markPreventDefault(keyEvent('keydown', 'Enter', 3)));
+		dispatch(markPreventDefault(keyEvent('keydown', 'ShiftLeft', 4)));
+		dispatch(markPreventDefault(keyEvent('keydown', 'ShiftRight', 9)));
+		dispatch(markPreventDefault(keyEvent('keydown', 'Enter', 9)));
 		const transitions: InputTransition[] = input.drainTransitions();
 		const ticks = transitions.map((t) => t.tick);
-		expect(ticks).toEqual([...ticks].sort((a, b) => a - b));
+		expect(ticks, 'each transition carries the tick its OWN event timestamp maps to').toEqual([4, 9, 9]);
+		for (let i = 1; i < ticks.length; i++) {
+			expect(ticks[i]!, 'ticks must be non-decreasing in emission order').toBeGreaterThanOrEqual(ticks[i - 1]!);
+		}
 	});
 });
 
@@ -214,7 +226,11 @@ describe('AD-4 -- no key code, KeyboardEvent reference or "code" string exists a
 	}
 
 	it('no file under src/sim/** mentions KeyboardEvent, a host/input key code, or reads event.code', () => {
-		const bannedTokens = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', '.code', 'keydown', 'keyup'];
+		// 'Digit1' added by code review 2026-08-29: the list covered only two of
+		// the four codes host/input maps. ('Enter' cannot join it as a bare
+		// token -- it is a substring of sim/rules/devices.ts's own
+		// DeviceBallEnteredEvent -- so the plunger key stays uncovered here.)
+		const bannedTokens = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', 'Digit1', '.code', 'keydown', 'keyup'];
 		const offenders: string[] = [];
 		for (const file of listFiles(SIM_ROOT)) {
 			const content = readFileSync(file, 'utf8');

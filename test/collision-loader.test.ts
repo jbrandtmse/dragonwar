@@ -144,7 +144,12 @@ describe('src/sim/physics/loader -- reference-dimension assertion (AD-10)', () =
 			const message = (err as Error).message;
 			expect(message).toContain(TABLE.nodes.colFlipperL);
 			expect(message, 'the throw must name the AXIS it measured, not just the node').toMatch(/x axis/);
-			expect(message).toContain('5');
+			// Code review 2026-08-29: this was `toContain('5')`, which cannot
+			// fail -- the expected value 79.375 is in the same message and
+			// contains a '5' regardless of what was measured. Anchored to the
+			// measured value's own phrase instead, so a throw that reported the
+			// wrong number now fails.
+			expect(message, 'the throw must report the value it actually measured').toContain('is 5 mm');
 			expect(message).toContain(String(expectedMm));
 		}
 	});

@@ -40,6 +40,19 @@
 // Deviation: the `@deprecated applyImpulse()` alias is dropped; only
 // `applyImpulseAndRelease()` (upstream's own recommended replacement, and the
 // only one `flipper-hit.ts` calls) is kept.
+// Deviation (recorded by code review 2026-08-29, previously undocumented):
+// `setStartAngle()`/`setEndAngle()` are dropped. Upstream exposes them for the
+// VPX table editor's live angle sliders (the same scripting/UI concern as the
+// dropped `getMass()`/`setMass()`, out of scope per AD-1); DragonWar derives
+// both angles once in `flipper-config.ts` from the committed collision
+// geometry (AD-11), and nothing in this port's own closure calls either.
+// Deviation (recorded by code review 2026-08-29, previously undocumented):
+// upstream's degenerate-sweep guard MUTATES its caller's config
+// (`config.angleEnd += 0.0001`); this port copies into a local `angleEnd`
+// instead, so `FlipperConfig` stays the readonly value `flipper-config.ts`
+// declares it to be and the caller's object is never written through. Behaviour
+// differs only when `angleEnd === angleStart`, which the committed geometry
+// cannot produce (pivot and tip are 79.375 mm apart).
 
 import { Event } from '../game/event';
 import { EventProxy } from '../game/event-proxy';

@@ -433,6 +433,159 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
   with no new skips, and `git status --short` shows changes only under `src/**`, `test/**` — with nothing
   under `public/**`, `assets/**`, `ATTRIBUTIONS.md`, `docs/**` or `_bmad-output/planning-artifacts/**`.
 
+### Review Findings
+
+**Code review 2026-08-29 (`bmad-code-review`, full mode, four layers: Blind Hunter, Edge Case
+Hunter, Verification Gap, Acceptance Auditor).** Suite after this pass: **590 passed / 21 skipped**
+(unchanged; the 21 are the pre-existing Blender-gated skips in `test/export-py.test.ts`).
+`pnpm typecheck` / `lint:boundaries` / `check:headers` / `check:attributions` all exit 0.
+
+**HALTED — one HIGH finding cannot be closed inside this story's footprint. See `## Clarification
+Needed` in the review's return. The story status was deliberately NOT advanced.**
+
+#### HIGH — unresolved (needs a lead/user decision)
+
+- **The "flipper angle changes on tick *t*" acceptance criterion is not met, and the test was
+  weakened rather than HALTing.** `epics.md` Story 1.6 AC 2 requires *"a test asserts the flipper
+  angle changes on tick t"*; this spec's I/O matrix ("Flipper energises on the same tick") and
+  Acceptance Criteria bullet 2 restate it as `snapshot.mechanisms.flippers.l.angleDeg` differing at
+  tick *t* from tick *t-1*. **Measured through the real `createLoop()`:** at tick *t* neither
+  `angleDeg` (141) nor `angularVelDegPerSec` (0) differs from tick *t-1*; the first change is at
+  *t+1*. Root cause is the correctly-ported mover: `updateVelocities()` ramps `curTorque` by
+  `strength/rampUp x PHYS_FACTOR` = 88 per step from an at-rest `strength x returnRatio` = 127.6, so
+  the sign flips on the second step. This holds for **any** positive `rampUp`, so the observable is
+  unreachable without deviating from the verbatim port that AD-5 and AD-15 mandate.
+  `test/flipper-mover.test.ts` substitutes `expect(movedByTick).toBeLessThan(5)` with a comment
+  arguing the point, and its loop starts one tick after the press, so it is structurally incapable
+  of observing tick *t*. The spec's own Block-If required a Rule 5 `intent gap` HALT here - the same
+  route the cradle claim took. **Compounding (Verification Gap layer, demonstrated):** moving the two
+  `applyFrame` calls in `machine.ts` to *after* `physics.step()` - making the hardware rule genuinely
+  one tick late, the exact latency AD-5 forbids - leaves the entire suite green. AD-5's substance
+  *is* delivered (the solenoid is commanded inside the same `machine.step()`, before `physics.step()`,
+  and `RulesStepResult.commands` stays `[]`); only the observable is unmet and the ordering unpinned.
+
+#### Patched in this review (5)
+
+- `test/host-input.test.ts` - **the tick-ordering assertion could not fail.** It injected
+  `tickAt: () => counter++` and asserted `ticks` equalled a *sorted copy of itself*; both halves were
+  vacuous. Now stamps from the event timestamps through `(ms) => ms` and compares against externally
+  chosen values `[4, 9, 9]`, plus an explicit non-decreasing check.
+- `test/collision-loader.test.ts` - **the DW-48 message assertion could not fail.**
+  `expect(message).toContain('5')` is satisfied by the expected value `79.375` in the same string
+  regardless of what was measured. Anchored to `'is 5 mm'`.
+- `test/host-input.test.ts` - the AD-4 grep's `bannedTokens` covered only two of the four mapped key
+  codes; added `'Digit1'`. (`'Enter'` cannot join as a bare token - it is a substring of
+  `sim/rules/devices.ts`'s `DeviceBallEnteredEvent` - so the plunger key stays uncovered.)
+- `src/sim/physics/flipper/flipper-hit.ts` - removed the unused `degToRad` import (both upstream call
+  sites, `getInstance()` and `updatePhysicsFromFlipper()`, were dropped by the port).
+- `src/sim/physics/flipper/flipper-mover.ts` - recorded two previously undocumented port deviations
+  (`setStartAngle()`/`setEndAngle()` dropped; upstream's `config.angleEnd += 0.0001` caller-mutation
+  replaced by a local copy). The spec's "Always" requires every deviation carry a `// Deviation:`
+  block; the header recorded the other four drops but not these.
+
+#### Noted, deliberately not patched
+
+- **Rule 14 (non-ASCII in source): two new instances, left alone on purpose.** This diff introduces
+  U+00A7 into `TUNING.flipper.rampUp`'s `source` string and U+2026 into `assertNoNestedMsKeys()`'s
+  runtime throw string - both string literals, i.e. code, not the exempt prose/comment case. They are
+  genuine Rule 14 instances. They were NOT patched because `src/sim/table/tuning.ts` already carries
+  a dozen pre-existing literals of the same two characters (lines 87-104, 184-186, 380), and escaping
+  two of fourteen in one file is worse than either consistent extreme. A consistent fix is a
+  file-wide change reaching lines this story did not author. (The new non-ASCII in
+  `flipper-config.ts` - U+03B8, U+00B0 - is comment-only and exempt.)
+
+#### Fix Pack - three verification gaps, one bounded dev iteration
+
+1. **The flipper's collision material is entirely unverified, and the comment claiming otherwise is
+   false.** `test/collision-loader.test.ts` removed both flipper-box material assertions *and* the
+   discriminating `rubber.elasticity !== plain.elasticity` guard, pointing at
+   `test/flipper-collision.test.ts` as the replacement pin - which contains no assertion on
+   elasticity, falloff, friction, scatter or `flipper_rubber` (grepped). Deleting `flippers.ts`'s
+   three `setElasticity()`/`setFriction()`/`setScatter()` calls leaves the suite green, against an AC
+   that reads *"using `TUNING.materials.flipper_rubber`'s elasticity, falloff and friction"*.
+   Add the spy assertion the surrounding describe block already exists to make.
+2. **`angularVelDegPerSec` is only ever asserted as `0`.** The single assertion against a real run
+   (`test/flipper-mover.test.ts`) is taken after a 5 s hold, where the true value is zero. Deleting
+   `/ DEFAULT_STEPTIME_S` (100x off), swapping `radToDeg` for raw radians (57x off), or returning a
+   literal `0` all leave the suite green. Assert a mid-stroke value against the per-tick change in
+   `angleDeg` (verified correct: -0.0046997 deg/tick corresponds to -4.699 deg/s).
+3. **`addBox()`/`outwardTriangle()` lost their only coverage.** The two flipper nodes were the *only*
+   box-shaped nodes in the committed document; with both diverted, the winding regression guard
+   (which caught an inverted ternary as 3164 `collide()` calls vs 1) was deleted rather than
+   re-pointed. ~60 lines of geometry construction now have no executed test, and Epic 2's first box
+   node inherits it unguarded. Re-point at a synthetic box node via the existing
+   `loadMutableCommittedDoc()`.
+
+#### Routed / escalated to the ledger (5)
+
+- `DW-74` **routed/burndown** - the coil enable/disable map gates only the two button-driven hardware
+  rules; `coilEnabled.c_trough_eject` is written and never read, and the same `c_autolaunch` coil
+  answers a manual plunge and a coil pulse differently.
+- `DW-75` **routed/burndown** - `tickAt()` stamps against wall-clock with no bound, so a transition
+  made during a frame longer than `MAX_OWED_TICKS` lands past that frame's last tick; it also ignores
+  `advance()`'s `owedRemainderTicks`. The I/O matrix row is self-contradictory, so the correct
+  behaviour is a spec question.
+- `DW-76` **routed/4-4-mechanical-sounds-from-contacts** - `flipper_eos` discards the ported
+  `anglespd` and is stamped one tick after the stop.
+- `DW-77` **escalated/burndown** - the reworked cradle test spawns its ball ~9 mm *inside* the raised
+  bat, so the amended ball-half AC's measured figures characterise embedded-ball ejection plus free
+  travel, not a resting contact; the 35 mm tolerance admits more than one ball diameter of roll.
+- `DW-78` **escalated/burndown** - `flipper-config.ts` models a collision body ~12.5 mm longer than
+  the committed box the per-axis DW-48 assertion pins, because the pivot is not inset by
+  `baseRadius`. The spec's Design Notes prescribe this derivation.
+
+#### Ledger verdicts - the four entries this story owns
+
+| Entry | Closed by the delivered code? | Basis |
+|---|---|---|
+| **DW-34** | **Yes** | `resolveTuning()` returns `deepFreeze({...})` (frozen at every depth, assignment throws); `assertNoNestedMsKeys()` throws naming the dotted path, checked *before* the `TuningEntry` leaf short-circuit so a nested entry named `...Ms` still throws, and correctly leaves top-level `...Ms` alone at depth 0; the `...Ticks` collision throws via `hasOwnProperty`. All three pinned in `test/tuning.test.ts`. |
+| **DW-48** | **Yes** | Per-axis `b.max.x - b.min.x` with `assertClose(nodeName, 'length (x axis)', ...)` names node, axis, measured and expected. Twin closed in `test/asset-contract.test.ts`. `test/collision-loader.test.ts` adds the discriminating case (x shrunk to 5 mm, y widened to exactly the reference length) that the old `Math.max` form would have passed. |
+| **DW-60** | **Yes** | Both flipper nodes skipped before the `addBox()` dispatch and surfaced as `LoadedCollision.flippers`; the identical trajectory the old static-box test used now asserts `collide()` is never called. The aperture observable passes both directions (released gives parked, `parkingSlots.bd_trough === [true,true,true,true]`; held gives not drained). *Caveat: the held case asserts only `drained === false`, so any failure that stops the ball reaching the aperture satisfies it; the released case carries the pair's discriminating power.* |
+| **DW-63** | **Yes** | Both branches push `{ type, kind, ballId, device, pos, tick }`; parking no longer passes `pose` itself (whose type is `Vec3 & { dir: Vec3 }`). Pinned in `test/machine-serve-drain.test.ts` by a sorted-key comparison of both events plus `Object.keys(pos) === ['x','y','z']`. |
+
+**DW-70 is not made worse.** Nothing in `src/**` writes `deviceSlots` from rules. The rewritten
+`test/machine-serve-drain.test.ts` harness does reproduce the pattern in *test* code, giving the
+eventual fix one more call site to update.
+
+#### Constraints verified clean
+
+Provenance holds: both ported files carry the upstream copyright block verbatim followed immediately
+by the exact port marker, neither is in `AUTHORED_FILES`, and both stay under `src/sim/physics/**`
+where `ATTRIBUTIONS.md`'s glob covers them - no root-file edit. A byte-level diff of both ported
+bodies against `vpdb/vpx-js @ e8a6d6f` shows the entire physics core (`updateDisplacements`,
+`updateVelocities`, `getHitTime`, `applyImpulseAndRelease`, `surfaceAcceleration`, `hitTest`,
+`collide`, `contact`, both face/end hit tests) **byte-identical**; every difference is a recorded
+deviation. `crossZ()` matches upstream exactly and `getRotatedAxis()` is correctly left dropped. The
+restored `flipperMovers` end-of-stroke clamp in `player-physics.ts` matches upstream line for line.
+`Never` list clean: `public/assets/**`, `assets/src/**`, `tools/export.py`,
+`tools/make-placeholder-blend.py`, `ATTRIBUTIONS.md`, `index.html`, `docs/**`,
+`src/sim/physics/constants.ts` and `src/sim/rules/**` all untouched; `RulesStepResult.commands` stays
+`readonly never[]`; `buttonSwitchEdges()` unchanged and not duplicated in physics; no device-name
+string literal outside `dragonwar.ts`/`test/**`; `finalizeStatics()`'s guards unweakened
+(`addFlipper()` uses `hitObjectsDynamic` + `hitOcTreeDynamic.fillFromVector()`).
+
+**Rule 3 (real-runtime evidence): satisfied.** QA's browser-MCP pass (2026-08-29, `chrome-devtools-mcp`
+against `pnpm build` + `pnpm preview`) dispatched real DOM `KeyboardEvent`s on `window` and drove the
+full `host/input` to `host/loop` to `sim/loop` to `machine.step` to plunger rule to `devices.launch`
+stack end to end, with screenshots and an unchanged console baseline. Recorded in `## Verification`.
+
+**Rule 13 (working directory): verified.** This review and all four layers ran from
+`C:/git/dragonwar/.worktrees/epic-1`. No layer edited, committed or pushed anything - confirmed by
+`git status --short` and `git log --branches --not --remotes` after all four returned.
+
+#### Dismissed as noise or not-a-defect (7)
+
+`hitTestFlipperFace` being `public` (the byte-level diff against `e8a6d6f` shows it is public upstream
+too); `expect(out.commands).toEqual([])` "cannot fail" (compiler-enforced - folded into the HIGH as
+supporting evidence rather than filed separately); `flipper_eos` firing at the *rest* stop when armed
+(upstream-verbatim behaviour - deviating would violate AD-15); `KEY_MAP['constructor']` prototype hits
+(no real `KeyboardEvent.code` takes those values); `DeviceMechanics.launch()`'s unchecked cast to a
+non-parking device (both callers resolve the device structurally; degrades to `eject_failed`);
+`start()`-after-`stop()` reusing a stale origin and the `catch` path not detaching input (`boot.ts`
+calls `start()` exactly once); the "frozen per-tick" comments on `machine.ts`'s and `flippers.ts`'s
+getters (inaccurate wording - both return freshly-built objects, which is the substantive protection).
+
+
 ## Spec Change Log
 
 - 2026-08-29 (lead, re-dispatch after the user's decision): the cradle AC was narrowed with the user's

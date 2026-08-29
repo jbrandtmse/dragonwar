@@ -42,7 +42,6 @@
 import { Event } from '../game/event';
 import { EventProxy } from '../game/event-proxy';
 import { PlayerPhysics } from '../game/player-physics';
-import { degToRad } from '../math/float';
 import { FRect3D } from '../math/frect3d';
 import { clamp } from '../math/functions';
 import { Vertex2D } from '../math/vertex2d';
