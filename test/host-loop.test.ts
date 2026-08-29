@@ -230,18 +230,78 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 	});
 
 	it('setCoilEnabled() reaches the sim loop -- the dev hatch src/host/boot.ts publishes', () => {
+		// Code review 2026-08-29 (iteration 2): this test used to assert only
+		// `not.toThrow()` twice plus `outputs.length > 0`, all three of which an
+		// EMPTY setCoilEnabled() body in src/host/loop.ts satisfies -- so the
+		// one thing its own name claims ("reaches the sim loop") was the one
+		// thing it did not observe, and the dev hatch boot.ts publishes had no
+		// failing test anywhere. It now drives the disabled coil through the
+		// real host -> sim stack and watches the bat.
 		const outputs: FrameOutput[] = [];
 		const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
 		host.start();
 		raf.fire(0);
 
-		// A disabled c_flipper_l must not throw and must be queryable via the
-		// same real stack a browser smoke would exercise -- this is the "no
-		// throw, reaches machine.step()" half; test/flipper-mover.test.ts pins
-		// the flipper-side observable behaviour directly.
-		expect(() => host.setCoilEnabled('c_flipper_l', false)).not.toThrow();
-		expect(() => raf.fire(16.667)).not.toThrow();
-		expect(outputs.length).toBeGreaterThan(0);
+		host.setCoilEnabled('c_flipper_l', false);
+		raf.fire(16.667); // the disable command lands
+		const angleBefore = outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg;
+
+		keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: 20, preventDefault: () => {} });
+		for (let i = 2; i < 12; i++) {
+			raf.fire(16.667 * i);
+		}
+		expect(
+			outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg,
+			'a coil disabled through the host dev hatch must leave the bat unmoved even while the key is held',
+		).toBe(angleBefore);
+
+		// ...and re-enabling it through the same hatch, with the key STILL
+		// held, must let the bat move -- so the test fails in both directions.
+		host.setCoilEnabled('c_flipper_l', true);
+		for (let i = 12; i < 24; i++) {
+			raf.fire(16.667 * i);
+		}
+		expect(
+			outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg,
+			're-enabling the coil through the host dev hatch must let the same held press move the bat',
+		).not.toBe(angleBefore);
+	});
+
+	// Code review 2026-08-29 (iteration 2): src/host/loop.ts's tickAt() -- the
+	// whole of AD-4's accumulator-origin arithmetic, and the only new host code
+	// that decides WHEN a keypress reaches the sim -- had no test that observed
+	// the tick it produces. test/host-input.test.ts always injects a stub
+	// tickAt, and the integration test below runs the real one only with the
+	// origin still at zero (raf.fire(0)), where `domTimeStampMs - originMs` and
+	// `originTick + n` are both identities. Demonstrated: deleting `- originMs`
+	// from tickAt() left the whole suite green at 594 passed -- in a browser
+	// that stamps every keypress tens of thousands of ticks into the future and
+	// no flipper ever responds. This test moves the origin off zero first.
+	it('tickAt() stamps against the CURRENT accumulator origin, not the epoch -- a keypress after several frames still lands in the frame that follows it', () => {
+		const outputs: FrameOutput[] = [];
+		const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+		host.start();
+		// Four frames, so originMs and originTick are both well away from 0.
+		for (let i = 0; i < 4; i++) {
+			raf.fire(16.667 * i);
+		}
+		const originTick = outputs[outputs.length - 1]!.snapshot.tick;
+		const angleBefore = outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg;
+		expect(originTick, 'sanity: the origin must be off zero for this test to mean anything').toBeGreaterThan(0);
+
+		// A keypress 8 ms into the next frame. Stamped correctly it lands ~8
+		// ticks after the origin, i.e. inside the frame raf.fire below runs;
+		// stamped against the epoch it lands ~originTick ticks too far ahead
+		// and sits in pendingTransitions instead.
+		keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: 16.667 * 3 + 8, preventDefault: () => {} });
+		raf.fire(16.667 * 4);
+
+		const after = outputs[outputs.length - 1]!.snapshot;
+		expect(after.tick, 'the frame carrying the keypress must have run past the stamped tick').toBeGreaterThan(originTick);
+		expect(
+			after.mechanisms.flippers.l.angleDeg,
+			'a keypress stamped against a NON-ZERO origin must still be applied inside the very next frame -- if tickAt() ignores originMs the transition is stamped thousands of ticks ahead and the bat never moves',
+		).not.toBe(angleBefore);
 	});
 
 	// Story 1.6, Integration AC: "with the installRaf() harness, a synthetic

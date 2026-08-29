@@ -226,15 +226,25 @@ describe('AD-4 -- no key code, KeyboardEvent reference or "code" string exists a
 	}
 
 	it('no file under src/sim/** mentions KeyboardEvent, a host/input key code, or reads event.code', () => {
-		// 'Digit1' added by code review 2026-08-29: the list covered only two of
-		// the four codes host/input maps. ('Enter' cannot join it as a bare
-		// token -- it is a substring of sim/rules/devices.ts's own
-		// DeviceBallEnteredEvent -- so the plunger key stays uncovered here.)
-		const bannedTokens = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', 'Digit1', '.code', 'keydown', 'keyup'];
+		// Code review 2026-08-29 (iteration 2): all FOUR mapped codes are now
+		// covered. The previous list omitted 'Enter' on the grounds that it is
+		// a substring of sim/rules/devices.ts's DeviceBallEnteredEvent -- true
+		// for a substring test, but not for a word-boundary one ('Entered'
+		// gives no \b after 'Enter'), so the plunger key was the one mapped
+		// code this AC's grep half never checked. Word-boundary matching keeps
+		// the identifier-shaped tokens precise; '.code' stays a substring
+		// because '.' is not a word character.
+		const bannedWords = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', 'Enter', 'Digit1', 'keydown', 'keyup'];
+		const bannedSubstrings = ['.code'];
 		const offenders: string[] = [];
 		for (const file of listFiles(SIM_ROOT)) {
 			const content = readFileSync(file, 'utf8');
-			for (const token of bannedTokens) {
+			for (const word of bannedWords) {
+				if (new RegExp(`\\b${word}\\b`).test(content)) {
+					offenders.push(`${path.relative(SIM_ROOT, file)}: "${word}"`);
+				}
+			}
+			for (const token of bannedSubstrings) {
 				if (content.includes(token)) {
 					offenders.push(`${path.relative(SIM_ROOT, file)}: "${token}"`);
 				}

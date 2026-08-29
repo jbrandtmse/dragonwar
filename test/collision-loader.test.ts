@@ -519,12 +519,21 @@ describe('src/sim/physics/loader -- flippers are surfaced, not registered as sta
 		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
 		physics.addBall(ball);
 
-		for (let i = 0; i < 300; i++) {
-			physics.step();
+		// Code review 2026-08-29 (iteration 2): try/finally, matching the Fix
+		// Pack 27c guard below. This spy is on the SHARED HitTriangle.prototype
+		// and the assertion can throw, so a bare trailing mockRestore() would
+		// leak the spy into every later test in this file -- including 27c,
+		// which depends on that prototype's own call counts.
+		let callCount = -1;
+		try {
+			for (let i = 0; i < 300; i++) {
+				physics.step();
+			}
+			callCount = collideSpy.mock.calls.length;
+		} finally {
+			collideSpy.mockRestore();
 		}
-
-		expect(collideSpy, 'no HitTriangle exists at the old flipper box location any more').not.toHaveBeenCalled();
-		collideSpy.mockRestore();
+		expect(callCount, 'no HitTriangle exists at the old flipper box location any more').toBe(0);
 	});
 });
 
@@ -825,12 +834,21 @@ describe('src/sim/physics/loader -- AD-15 material tunables actually reach the b
 	it('no HitTriangle reaches applyMaterial() any more -- the only box-shaped nodes in the committed document are the two flippers, now excluded (DW-60)', () => {
 		const doc = loadCommittedDoc();
 		const setElasticitySpy = vi.spyOn(HitTriangle.prototype, 'setElasticity');
+		// Code review 2026-08-29 (iteration 2): the call COUNT must be read out
+		// inside the try, BEFORE mockRestore() -- restoring a spy also clears
+		// its recorded `.mock.calls` (measured: 1 call before restore, 0 after).
+		// The previous form asserted `not.toHaveBeenCalled()` AFTER the finally
+		// block, so it reported zero calls no matter what the loader did and
+		// could not fail. This is the same hazard the sibling Fix Pack 27a test
+		// in test/flipper-collision.test.ts documents in its own comment.
+		let callCount = -1;
 		try {
 			loadCollision(doc);
+			callCount = setElasticitySpy.mock.calls.length;
 		} finally {
 			setElasticitySpy.mockRestore();
 		}
-		expect(setElasticitySpy).not.toHaveBeenCalled();
+		expect(callCount, 'no HitTriangle may be built from the committed document any more -- both flipper boxes are diverted to LoadedCollision.flippers').toBe(0);
 	});
 });
 

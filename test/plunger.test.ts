@@ -36,6 +36,47 @@ function serveAndSettle(loop: ReturnType<typeof createLoop>) {
 }
 
 describe('sim/physics/plunger.ts -- the manual-plunger hardware rule (AD-5, AD-6)', () => {
+	// Code review 2026-08-29 (iteration 2): the twin of
+	// test/flipper-mover.test.ts's task-26 ordering pin, for the OTHER hardware
+	// rule AD-5 names. Before this test, moving ONLY
+	// `plungerMechanics.applyFrame(...)` in src/sim/physics/machine.ts to after
+	// `physics.step()` -- making the manual plunge genuinely one tick late,
+	// the exact latency AD-5 forbids -- left the entire suite green (measured:
+	// 594 passed), because every other plunger assertion is an event count, a
+	// speed band, or a position sampled tens of ticks later. AC 2's mutation
+	// clause is satisfied by moving BOTH calls, so this closes the residual
+	// half rather than an unmet criterion.
+	//
+	// The discriminating observable is POSITION, not speed: the snapshot reads
+	// the ball's velocity after applyFrame either way, so `speed` looks
+	// launched in both orderings. Only the position says whether the impulse
+	// was applied BEFORE the step that was supposed to integrate it.
+	it('AD-5: the plunge impulse is integrated by the SAME tick physics step -- the ball has already moved on the release tick itself', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		let out = serveAndSettle(loop);
+
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+		for (let i = 0; i < 600; i++) {
+			out = loop.advance(1, []); // past plungerMaxHoldTicks -- full strength
+		}
+		const beforeRelease = out.snapshot.balls[0]!.pos;
+		expect(out.snapshot.balls[0]!.speed, 'sanity: the ball must still be resting in the lane just before the release').toBeLessThan(50);
+
+		// The release tick itself.
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
+		const atRelease = out.snapshot.balls[0]!.pos;
+		const movedOnReleaseTick = Math.hypot(atRelease.x - beforeRelease.x, atRelease.y - beforeRelease.y, atRelease.z - beforeRelease.z);
+
+		// A full-strength plunge is autolaunchSpeedMmPerS (2500 mm/s) = 2.5 mm
+		// per tick at TICK_HZ 1000; a still-resting ball drifts by far less
+		// than 1 mm in one tick. The 1 mm threshold sits between the two with
+		// room to spare in both directions.
+		expect(
+			movedOnReleaseTick,
+			'the plunge must be applied BEFORE physics.step() on the release tick, so the ball has already been carried this tick -- a hardware rule running after the step moves it for the first time only on the NEXT tick',
+		).toBeGreaterThan(1);
+	});
+
 	it('holding s_plunger and releasing launches the served ball at the mapped speed, opens s_shooter_lane exactly once, and fires ball_launched exactly once', () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		let out = serveAndSettle(loop);
@@ -157,6 +198,12 @@ describe('sim/physics/plunger.ts -- the manual-plunger hardware rule (AD-5, AD-6
 			}
 		}
 		expect(reachedMainField, `the ball never crossed the plunger-lane divider's main-field face; last pos: ${JSON.stringify(out.snapshot.balls[0]?.pos)}`).toBe(true);
+		// Code review 2026-08-29 (iteration 2): sawLaneTop must be pinned, or
+		// the re-entry assertion below cannot fail. `reenteredLane` is only
+		// ever set while `sawLaneTop` is true, so if the ~16 ms sampling stride
+		// never happened to observe y >= 950, `reenteredLane` would stay false
+		// for that reason alone and `toBe(false)` would pass vacuously.
+		expect(sawLaneTop, 'the ball must actually have been SEEN clearing the lane wall top (y >= 950) -- otherwise the re-entry assertion below asserts nothing').toBe(true);
 		expect(reenteredLane, 'the ball must never fall back into sw_shooter_lane after clearing the lane top').toBe(false);
 	});
 

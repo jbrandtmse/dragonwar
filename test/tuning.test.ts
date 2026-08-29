@@ -309,8 +309,19 @@ describe('TUNING.flipper -- the ported FlipperMover parameters (Story 1.6, AD-5,
 		'endRadiusRatio',
 	] as const;
 
+	// Code review 2026-08-29 (iteration 2): the two tests below used to iterate
+	// the FLIPPER_KEYS literal, so a NEW TUNING.flipper entry -- exactly the
+	// "add a tunable with no source" mutation the Story 1.8 invariant sweep
+	// names as its AD-15 proof case -- shipped with both of them green. They
+	// now iterate the group itself; FLIPPER_KEYS is asserted to be the group's
+	// real key set, so an added or removed parameter is a deliberate edit here
+	// rather than a silent gap.
+	it('FLIPPER_KEYS is the actual key set of TUNING.flipper, so the per-key checks below cover every entry', () => {
+		expect([...Object.keys(TUNING.flipper)].sort()).toEqual([...FLIPPER_KEYS].sort());
+	});
+
 	it('every entry is a TuningEntry with a source naming the pinned upstream file (or physics-tuning.md) and an honest confidence', () => {
-		for (const key of FLIPPER_KEYS) {
+		for (const key of Object.keys(TUNING.flipper) as Array<keyof typeof TUNING.flipper>) {
 			const entry = TUNING.flipper[key];
 			expect(isTuningEntry(entry), `TUNING.flipper.${key} is not a TuningEntry`).toBe(true);
 			expect(typeof entry.source).toBe('string');
@@ -327,7 +338,7 @@ describe('TUNING.flipper -- the ported FlipperMover parameters (Story 1.6, AD-5,
 	});
 
 	it('no key in the group ends in "Ms" -- none of these are durations resolveTuning() converts', () => {
-		for (const key of FLIPPER_KEYS) {
+		for (const key of Object.keys(TUNING.flipper)) {
 			expect(key.endsWith('Ms'), `TUNING.flipper.${key} must not end in "Ms"`).toBe(false);
 		}
 	});
@@ -396,7 +407,11 @@ describe('resolveTuning() -- DW-34 guards (Story 1.6)', () => {
 	it('a nested key NOT ending in "Ms" passes through untouched', () => {
 		expect(() => resolveTuning()).not.toThrow();
 		const resolved = resolveTuning();
-		expect(resolved.flipper.strength.value).toBe(TUNING.flipper.strength.value);
+		// Code review 2026-08-29 (iteration 2): compared against the external
+		// literal, not against TUNING.flipper.strength.value -- resolveTuning()
+		// shallow-spreads `tuning`, so `resolved.flipper` IS `TUNING.flipper`
+		// and the previous form compared the same object to itself.
+		expect(resolved.flipper.strength.value).toBe(2200);
 	});
 
 	it('a hand-authored top-level "…Ticks" key colliding with a derived one throws naming the key, rather than being silently overwritten', () => {

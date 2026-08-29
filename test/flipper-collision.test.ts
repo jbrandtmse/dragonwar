@@ -358,7 +358,15 @@ describe('sim/loop -- DW-60: the drain aperture at rest vs. held (Story 1.6)', (
 			const beforeMm = ballPosMm(ball);
 			physics.step();
 			if (!physics.balls.includes(ball)) {
-				// Already parked by an earlier tick's detectEntries() call.
+				// Parked (i.e. drained) by an earlier tick's detectEntries().
+				// Code review 2026-08-29 (iteration 2): this used to `break`
+				// WITHOUT setting `drained`, so had it ever fired it would have
+				// reported a genuine drain as "not drained" -- silently
+				// satisfying the held-flipper assertion below and failing the
+				// released one. Unreachable today (the loop's own `!drained`
+				// condition exits first), but a latent inversion in the pair
+				// that closes DW-60.
+				drained = true;
 				break;
 			}
 			const afterMm = ballPosMm(ball);

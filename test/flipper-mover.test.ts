@@ -44,19 +44,17 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		out = loop.advance(1, transitions); // exactly one more tick
 		expect(out.commands, 'RulesStepResult.commands stays readonly never[] -- AD-5, no rules round trip').toEqual([]);
 
-		// AD-5's "same tick" claim is about the SOLENOID COMMAND -- the mover
-		// is energised inside machine.step() for this exact tick, so the very
-		// NEXT few ticks already show movement, with no extra tick of latency
-		// waiting on a rules round trip. The VISIBLE angle takes a couple of
-		// ticks to move measurably: the ported mover holds the rest position
-		// under its return spring's own torque (`curTorque`, ramped, verified
-		// against the pinned source), so a fresh press must first ramp curTorque
-		// back through zero before the bat accelerates away from the stop --
-		// a real, ported mechanical characteristic (VPX flippers have this same
-		// brief "reversing the spring" lag), not a rules round trip. Contrast a
-		// ROUND-TRIPPED design, which would show no movement for many MORE ticks
-		// (a whole rules.step() + next-tick command cycle) rather than this one
-		// short physics-internal ramp.
+		// A loose upper bound only: the bat starts moving within a handful of
+		// ticks of the press. The PRECISE boundary AC 2 states is pinned by the
+		// task-26 test immediately below, which is what actually goes red when
+		// the hardware rule is moved after physics.step().
+		//
+		// Code review 2026-08-29 (iteration 2): the previous comment here
+		// argued that a round-tripped design "would show no movement for many
+		// MORE ticks". The demonstrated mutation shows it is exactly ONE more
+		// tick -- which is precisely why this test stayed green under it and
+		// why the task-26 test had to be added. The claim was removed rather
+		// than left standing as a disproved rationale.
 		let movedByTick = -1;
 		for (let i = 0; i < 10 && movedByTick === -1; i++) {
 			out = loop.advance(1, []);
@@ -204,23 +202,44 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		const restAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
 		const endAngle = 90; // left flipper's end-of-stroke angle, measured (see this file's header)
 
+		// Code review 2026-08-29 (iteration 2): the PEAK excursion is tracked
+		// across the hold AND the post-release coast, not sampled once at the
+		// moment of release. The bat is still accelerating when the key comes
+		// up, so it coasts well past the release angle under its own momentum:
+		// measured on the committed geometry, release is at 104.4 deg but the
+		// true peak is 90.04 deg -- only 0.04 deg short of the 90 deg stop.
+		// The previous form sampled the release angle and called it `peak`,
+		// which passed with a comfortable 14 deg margin while the observable
+		// the AC actually names ("the bat's PEAK angle lies strictly between
+		// the rest and end angles") was never measured. NOTE how tight the real
+		// margin is: a 30 ms tap on this tuning very nearly completes the
+		// stroke, so this assertion is genuinely load-bearing and any flipper
+		// tuning change should expect to have to re-measure it (ledger DW-79).
 		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }]);
-		let peakAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
-		for (let i = 0; i < 29; i++) {
-			out = loop.advance(1, []);
-			peakAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
-		}
-		// 30 ms held = 30 ticks at TICK_HZ = 1000.
 		const angleMin = Math.min(restAngle, endAngle);
 		const angleMax = Math.max(restAngle, endAngle);
-		expect(peakAngle, 'a 30 ms tap must NOT reach the end angle').toBeGreaterThan(angleMin);
-		expect(peakAngle).toBeLessThan(angleMax);
-		expect(peakAngle, 'a 30 ms tap must have moved AT ALL, not stayed at rest').not.toBe(restAngle);
-
+		// The bat travels from rest (141) DOWN toward the end angle (90), so
+		// its peak excursion is the MINIMUM angle it reaches.
+		let peakAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
+		const trackPeak = (): void => {
+			peakAngle = Math.min(peakAngle, out.snapshot.mechanisms.flippers.l.angleDeg);
+		};
+		for (let i = 0; i < 29; i++) {
+			out = loop.advance(1, []); // 30 ms held = 30 ticks at TICK_HZ = 1000.
+			trackPeak();
+		}
+		const angleAtRelease = out.snapshot.mechanisms.flippers.l.angleDeg;
 		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
+		trackPeak();
 		for (let i = 0; i < 500; i++) {
 			out = loop.advance(1, []);
+			trackPeak();
 		}
+
+		expect(peakAngle, 'a 30 ms tap must NOT reach the end angle, counting the post-release coast').toBeGreaterThan(angleMin);
+		expect(peakAngle).toBeLessThan(angleMax);
+		expect(peakAngle, 'a 30 ms tap must have moved AT ALL, not stayed at rest').not.toBe(restAngle);
+		expect(peakAngle, 'the peak must be past the release angle -- the bat coasts on after the key comes up, which is the whole reason this is tracked rather than sampled').toBeLessThan(angleAtRelease);
 		expect(out.snapshot.mechanisms.flippers.l.angleDeg, 'the bat must return fully to rest after release').toBe(restAngle);
 	});
 
@@ -324,7 +343,14 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		for (let i = 0; i < 60; i++) {
 			out = loop.advance(1, []);
 		}
-		expect(out.snapshot.mechanisms.flippers.r.angleDeg, 'the right flipper must reach its own end-of-stroke angle').not.toBe(restAngleR);
+		// Code review 2026-08-29 (iteration 2): asserts the right bat's real
+		// mirrored angles, not merely "it moved". The previous form was
+		// `not.toBe(restAngleR)`, which any movement at all satisfied while its
+		// message claimed the end-of-stroke angle had been reached -- and no
+		// test in the suite pinned ANY right-flipper angle value. Measured on
+		// the committed geometry, mirroring the left bat's 141 -> 90 exactly.
+		expect(restAngleR, 'the right flipper rests at the mirror of the left bat (141 deg)').toBeCloseTo(-141, 1);
+		expect(out.snapshot.mechanisms.flippers.r.angleDeg, "the right flipper must reach its own end-of-stroke angle (the mirror of the left bat's 90 deg)").toBeCloseTo(-90, 1);
 		// The left flipper must be completely unaffected by driving the right one.
 		expect(out.snapshot.mechanisms.flippers.l.angleDeg).toBeCloseTo(141, 0);
 	});

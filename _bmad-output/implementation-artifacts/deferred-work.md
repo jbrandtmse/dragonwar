@@ -205,6 +205,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
 - evidence: The {...tuning, ...scalarTicks} spread is a fresh mutable object, unlike the frozen TUNING it derives from; the loop walks Object.entries(tuning) one level deep and switchSettleMsByClass is special-cased by name. Story 1.6 adds the ported FlipperMover parameters, which is where nested ...Ms first becomes real.
 - 2026-08-28T06:36:49Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=cr note=freeze the result and throw on a ...Ticks key collision when the nested case lands
+- 2026-08-29T08:09:14Z status=resolved-by:1-6-flippers-and-the-manual-plunger-as-hardware-rules by=adjudication note=tuning.ts deepFreezes the resolved result and throws on a nested-Ms key and on a Ticks collision; pinned by 7 assertions in test/tuning.test.ts; lead mutation-checked the sibling clamp and zero-width guard (both red); CR-2 further replaced the hardcoded key list with FLIPPER_KEYS derived from the actual key set
 
 ### DW-35: msToTicks has no negative-value and no rounds-to-zero guard, so a sub-millisecond or negative tunable silently becomes 0 or a negative tick count
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
@@ -280,6 +281,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: src/sim/physics/loader/index.ts takes Math.max over the bbox's x, y and z extents and compares that to TABLE.reference.flipperBatIn * MM_PER_IN; the col_playfield assertion beside it is correctly per-axis
 - 2026-08-28T11:56:20Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=cr note=1.6 replaces the placeholder flipper collision behind the same node names and the same asserted 3.125 in length -- pin the axis there
+- 2026-08-29T08:09:15Z status=resolved-by:1-6-flippers-and-the-manual-plunger-as-hardware-rules by=adjudication note=loader asserts flipper length PER AXIS and names the axis on failure; closed in BOTH places (test/collision-loader.test.ts and the twin at test/asset-contract.test.ts); CR-1 verified the discriminating case shrinks x to 5mm while widening y to exactly the reference length, which the old axis-agnostic Math.max would have passed
 
 ### DW-49: The collision loader parses each node's surface property and then discards it, so AD-13's contact-sound selection has no carrier
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
@@ -344,6 +346,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: tools/make-placeholder-blend.py:210-241
 - evidence: Story 1.5 planning and review measurements; the drain narrative works only for x values that miss the static boxes
 - 2026-08-28T18:24:33Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=harvest note=Story 1.6 replaces the static boxes with the ported FlipperMover, which is when this stops being placeholder-shaped
+- 2026-08-29T08:09:15Z status=resolved-by:1-6-flippers-and-the-manual-plunger-as-hardware-rules by=adjudication note=static flipper boxes replaced by real FlipperHit shapes; test/flipper-collision.test.ts:316 drives the real createLoop so a ball released at the playfield x-centre reaches bd_trough with both keys released and does not drain on that pass with a key held; the drain aperture is now the acceptance observable
 
 ### DW-61: The swept-segment/box intersection test is duplicated verbatim as segmentIntersectsBox in switches.ts and segmentIntersectsBoxLocal in devices.ts
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: src/sim/physics/switches.ts; src/sim/physics/devices.ts
@@ -360,6 +363,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: src/sim/physics/devices.ts
 - evidence: The trough eject attaches pos: pose while the shooter path does not, so a consumer reading ContactEvent.pos gets a value from one device and undefined from the other
 - 2026-08-28T18:24:33Z status=routed owner=1-6-flippers-and-the-manual-plunger-as-hardware-rules by=harvest note=Story 1.6 is the next story to touch coil-driven device events and can normalise both paths
+- 2026-08-29T08:09:15Z status=resolved-by:1-6-flippers-and-the-manual-plunger-as-hardware-rules by=adjudication note=both eject paths now emit the same plain x,y,z payload shape (devices.ts:233 parking and :268 non-parking); pinned by test/machine-serve-drain.test.ts:164 which asserts the two payloads agree
 
 ### DW-64: export.py's new convex-hull wall-footprint reduction is pinned only by Blender-gated tests, so CI -- which has no Blender -- never exercises it
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: tools/export.py; test/export-py.test.ts
@@ -421,6 +425,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: med | footprint: in-epic
 - evidence: Code review 2026-08-29. tickAt returns Math.max(originTick+1, originTick+floor(msToTicksExact(now-originMs))) with no cap; sim/loop's advance() caps owedTicks at MAX_OWED_TICKS and DISCARDS the excess (sim_time_discarded), so after a >200 ms stall the two diverge and a keypress made inside the stall applies seconds late. tickAt also ignores advance()'s owedRemainderTicks, so it can be one tick off on any frame whose elapsed time is not a whole number of ticks. The I/O matrix row is self-contradictory here ('one after the last clamps to it, AND frameInForceAt carries it forward'), so the correct behaviour is a spec question, not a code one.
 - 2026-08-29T05:29:26Z status=routed owner=burndown by=cr note=Settle the matrix row's wording first (clamp to the frame's last tick, or carry forward), then implement one of them. The verification half is in this review's Fix Pack -- tickAt has no test of its own today.
+- 2026-08-29T08:03:03Z occurrence=1-6-flippers-and-the-manual-plunger-as-hardware-rules
 
 ### DW-76: The flipper_eos ContactEvent discards the ported mover's own end-of-stroke angular speed and is stamped one tick after the stop was reached, so Story 4.4 has nothing to modulate gain and pitch with and the sound lands a tick late
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: low | fix-risk: low | footprint: in-epic
@@ -436,3 +441,18 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: high | footprint: in-story
 - evidence: Code review 2026-08-29. buildFlipperConfig() sets center = pivot (the box end farther from the playfield x-centre) and flipperRadius = lengthMm - endRadiusMm; upstream's body spans pivot-baseRadius to pivot+flipperRadius+endRadius, so total modelled length is 12.5 + 71.8 + 7.56 = 91.9 mm against the committed 79.375 mm the per-axis DW-48 assertion pins, with the base circle protruding behind the authored box. The spec's Design Notes prescribe exactly this derivation ('the pivot as the end farther from the playfield x-centre ... the length as the x extent'), so the code follows the spec and the spec is what is arguably wrong.
 - 2026-08-29T05:29:49Z status=escalated owner=burndown by=cr note=Surface at the Epic 1 merge gate. Fix-risk high: insetting the pivot by baseRadius moves every measured angle, the DW-60 drain observable and the cradle figures. Settle before Story 2-1 authors real bat geometry.
+
+### DW-79: The two ported flipper files must stay byte-identical to vpdb/vpx-js @ e8a6d6f apart from recorded deviations, but nothing automated pins their bodies -- sim-boundary.test.ts checks only the header and the AUTHORED_FILES split, so a later edit to the port passes every gate
+- source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: Verified by hand once per review; no checksum, vendored copy or deviation-count test exists. story-1-8-sweep-mandate.md's AD-16 mutation covers header/glob moves only and its AD-15 mutation covers tunables, neither covers port body drift. A guard needs the upstream bytes vendored, which this story's Never list and the ATTRIBUTIONS gate put out of footprint.
+- 2026-08-29T08:02:47Z status=routed owner=1-8-replays-golden-state-hashes-and-ci-parity by=cr note=AD-15/AD-16 rely on a manual diff; fold a body-drift guard into Story 1.8's invariant sweep
+
+### DW-80: A 30 ms flipper tap peaks at 90.04 deg against a 90 deg end-of-stroke stop, so epics.md's 'the tap rises only partially' criterion is met by 0.04 deg and any flipper tuning change will silently cross it
+- source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: Measured through the real createLoop() during this review: release angle 104.4 deg, true peak (tracking the post-release coast) 90.0416 deg, stop at 90 deg. The test was sampling the release angle and calling it the peak, which hid the real margin; it now tracks the peak and passes by 0.04 deg.
+- 2026-08-29T08:02:59Z status=routed owner=1-9-dev-tuning-panel-and-the-first-feel-ritual by=cr note=Feel calibration must re-measure this bound; a 30 ms tap effectively completes the stroke on this tuning
+
+### DW-81: Rule 14 (non-ASCII authored as escape sequences) is violated by fourteen literal U+00A7/U+2026 bytes in string literals in src/sim/table/tuning.ts, two of them added by Story 1.6, and no entry owns the file-wide fix
+- source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: TUNING.flipper.rampUp's source string (U+00A7) and assertNoNestedMsKeys()'s throw string (U+2026) are new; twelve more predate this story at tuning.ts lines 87-104, 184-186, 380. Escaping two of fourteen is worse than either consistent extreme, so review iteration 1 deliberately left them and iteration 2 agrees -- but the eventual consistent fix had no owner until now.
+- 2026-08-29T08:02:59Z status=routed owner=burndown by=cr note=Fix file-wide in one pass, not per-story; comments and prose stay exempt

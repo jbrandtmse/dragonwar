@@ -458,6 +458,11 @@ Hunter, Verification Gap, Acceptance Auditor).** Suite after this pass: **590 pa
 **HALTED — one HIGH finding cannot be closed inside this story's footprint. See `## Clarification
 Needed` in the review's return. The story status was deliberately NOT advanced.**
 
+> **SUPERSEDED (2026-08-29, code review iteration 2).** Everything in this iteration-1 subsection is
+> historical. The HIGH below was closed by the AC 2 amendment plus task 26, and the three-item Fix
+> Pack by task 27 — all four independently re-verified by mutation in the iteration-2 pass. Read
+> `#### Code review 2026-08-29 (iteration 2)` further down for the story's current state.
+
 #### HIGH — unresolved (needs a lead/user decision)
 
 - **The "flipper angle changes on tick *t*" acceptance criterion is not met, and the test was
@@ -599,6 +604,207 @@ non-parking device (both callers resolve the device structurally; degrades to `e
 `start()`-after-`stop()` reusing a stale origin and the `catch` path not detaching input (`boot.ts`
 calls `start()` exactly once); the "frozen per-tick" comments on `machine.ts`'s and `flippers.ts`'s
 getters (inaccurate wording - both return freshly-built objects, which is the substantive protection).
+
+#### Code review 2026-08-29 (iteration 2) -- re-review after the AC 2 amendment and the Fix Pack
+
+**`bmad-code-review`, full mode, four layers (Blind Hunter, Edge Case Hunter, Verification Gap,
+Acceptance Auditor), all four launched with no model override and all four run from
+`C:/git/dragonwar/.worktrees/epic-1`.** Baseline `8006390` -- the story's ORIGINAL iteration-1
+baseline, so the whole story was re-reviewed, not just the rework. Suite before this pass: 594
+passed / 21 skipped / 42 files. **After: 597 passed / 21 skipped / 42 files.** `pnpm typecheck`,
+`lint:boundaries`, `check:headers` (empty stderr), `check:attributions` and `pnpm build` all exit 0.
+`git status --short` shows changes only under `test/**` plus this spec file.
+
+**Verdict: the rework holds. All four new tests are genuinely discriminating** -- established not by
+reading them but by re-running the mutations independently, including five the previous pass never
+tried:
+
+| Mutation (applied by this review, then reverted) | Result |
+|---|---|
+| Both `applyFrame` calls moved after `physics.step()` | **RED** -- exactly one test, task 26's, out of 615 |
+| `flippers.ts`: drop `/ DEFAULT_STEPTIME_S` (the 100x error) | **RED** -- Fix Pack 27b, `-1.56` vs `-156.36` |
+| `flippers.ts`: drop `radToDeg` (the 57x error) | **RED** -- Fix Pack 27b |
+| `flippers.ts`: return a literal `0` for `angularVelDegPerSec` | **RED** -- Fix Pack 27b |
+| `flippers.ts`: remove `hit.setScatter(...)` | **RED** -- Fix Pack 27a |
+| `flippers.ts`: resolve `materials.default` instead of `flipper_rubber` | **RED** -- Fix Pack 27a, `0.3` vs `0.88` |
+| `loader/index.ts`: invert `outwardTriangle()`'s ternary | **RED** -- Fix Pack 27c, 355 calls vs a ceiling of 20 |
+| `player-physics.ts`: delete the restored end-of-stroke clamp | **RED** -- `flipper-collision.test.ts` (a) |
+
+Task 26's test asserts the right thing, for the right reason: `commands` empty and the angle
+UNCHANGED at tick *t*, then moved at *t+1*, reached through the real `createLoop()` seam. It is a
+two-sided bracket -- a frame applied one tick EARLY fails the first assertion; a rules round trip or
+a one-tick-late rule fails the second -- and no layer found a way for it to pass while the ordering
+invariant is broken. Fix Pack 27b is an exact algebraic identity rather than an empirical
+coincidence (`PHYS_FACTOR = PHYSICS_STEPTIME_S / DEFAULT_STEPTIME_S`, so `deltaPerTick x TICK_HZ` and
+`radToDeg(angleSpeed) / DEFAULT_STEPTIME_S` both reduce to `radToDeg(angleSpeed) x 100`), which is
+why a 0.5 tolerance against ~156 deg/s is a 0.3% assertion and not a loose one.
+
+**No regression.** `git diff 3ca05c3 -- src/` is empty: the rework touched no source file, removed no
+assertion, and the only test-side deletions were three comment lines and two import lines. DW-34,
+DW-48, DW-60 and DW-63 are therefore still closed exactly as iteration 1 recorded, and DW-70 is not
+made worse. Provenance, the `Never` list and the AD-15 constants pin were re-confirmed unchanged.
+
+#### Patched in this review (11) -- each demonstrated red by mutation
+
+The four rework tests were sound; **the vacuity this epic keeps producing had simply moved to the
+tests around them.** Every patch below was verified green, then verified red under a named mutation.
+
+1. **`test/collision-loader.test.ts` -- an assertion that could not fail, added by the rework itself.**
+   `expect(setElasticitySpy).not.toHaveBeenCalled()` ran AFTER `mockRestore()`, which clears
+   `.mock.calls` (proved in isolation: 1 call before restore, 0 after). It passed no matter what the
+   loader did -- the exact hazard the sibling Fix Pack 27a test documents in its own comment. Now
+   captures the count inside the `try`. *Red:* stop diverting the flipper nodes -> `expected 24 to be 0`.
+2. **`test/host-loop.test.ts` -- `tickAt()` had no test that observed the tick it produces.**
+   `test/host-input.test.ts` always injects a stub `tickAt`; the only test running the real one did so
+   with the origin still at zero, where `domTimeStampMs - originMs` and `originTick + n` are both
+   identities. *Demonstrated:* deleting `- originMs` left the whole suite green at 594 -- in a browser
+   that stamps every keypress tens of thousands of ticks ahead and no flipper ever responds. Added a
+   test that moves the origin off zero across four frames first. *Red:* the same deletion now fails it.
+3. **`test/host-loop.test.ts` -- the `setCoilEnabled()` test asserted nothing about the coil.** Its
+   three assertions were `not.toThrow()` twice plus `outputs.length > 0`; an EMPTY `setCoilEnabled()`
+   body in `src/host/loop.ts` satisfied all three, so the dev hatch `boot.ts` publishes -- and the
+   lead's browser smoke leans on -- had no failing test anywhere. It now drives a disabled coil
+   through the real host -> sim stack, holds ShiftLeft, asserts the bat does not move, then re-enables
+   and asserts it does. *Red:* no-op the passthrough.
+4. **`test/plunger.test.ts` -- the plunger half of AD-5's ordering was unpinned.** Moving ONLY
+   `plungerMechanics.applyFrame(...)` after `physics.step()` left all 594 green. AC 2's clause names
+   the calls plural and moving both does go red, so this was a residual gap rather than an unmet
+   criterion -- but AD-5 governs both hardware rules, and Story 1.8's sweep would reasonably have read
+   the AD-5 pin as complete. Added the twin of task 26's pin. The discriminating observable is
+   POSITION, not speed: the snapshot reads velocity after `applyFrame` either way, so only the
+   position says whether the impulse preceded the step meant to integrate it.
+   *Red:* `expected 0.007 to be greater than 1`.
+5. **`test/flipper-mover.test.ts` -- the 30 ms tap measured the release angle, not the peak.** The
+   variable was named `peakAngle` but was reassigned every tick, so only its last value survived and
+   the bat's true maximum excursion -- which happens AFTER release, under residual momentum -- was
+   never observed. Measured: release 104.4 deg, **true peak 90.0416 deg against a 90 deg stop**. The AC
+   ("the peak lies strictly between the rest and end angles") is met by 0.04 deg, not by the 14 deg the
+   old form implied. Now tracks the peak across the hold and the coast, and says so. Ledgered `DW-80`.
+6. **`test/tuning.test.ts` -- the flipper-group checks iterated a hardcoded key list.** A new
+   `TUNING.flipper` entry -- precisely the "add a tunable with no `source`" mutation
+   `story-1-8-sweep-mandate.md` names as its AD-15 proof case -- shipped with both tests green. They
+   now iterate `Object.keys(TUNING.flipper)`, and `FLIPPER_KEYS` is asserted to be the real key set.
+   *Red:* adding `bogusNew` now fails two tests.
+7. **`test/tuning.test.ts` -- a value compared to itself.** `expect(resolved.flipper.strength.value)
+   .toBe(TUNING.flipper.strength.value)`: `resolveTuning()` shallow-spreads `tuning`, so
+   `resolved.flipper` IS `TUNING.flipper`. Anchored to the external literal `2200`.
+8. **`test/host-input.test.ts` -- the AD-4 grep left one of the four mapped key codes unchecked.**
+   `'Enter'` was excluded because it is a substring of `DeviceBallEnteredEvent` -- true for
+   `includes()`, false for a word boundary (`'Entered'` leaves no boundary after `Enter`). The
+   identifier-shaped tokens are now word-boundary regexes and `'Enter'` has joined them; verified no
+   legitimate bare `Enter` exists under `src/sim/`. `'.code'` stays a substring test.
+9. **`test/plunger.test.ts` -- `reenteredLane` could not fail.** It is only ever set while `sawLaneTop`
+   is true, so had the ~16 ms sampling stride never observed `y >= 950`, `toBe(false)` would have
+   passed for that reason alone. `sawLaneTop` is now pinned true (it genuinely is).
+10. **`test/flipper-collision.test.ts` -- a dead branch that would invert the DW-60 pair.**
+    `runFromCentre()`'s mid-loop `break` exited WITHOUT setting `drained`, so had it ever fired it
+    would have reported a genuine drain as "not drained": silently satisfying the held-flipper
+    assertion while failing the released one. Unreachable today; now sets `drained = true`.
+11. **`test/collision-loader.test.ts` -- asymmetric spy restore on a shared prototype.** The DW-60
+    test ended with a bare `collideSpy.mockRestore()` after an assertion that can throw, while its Fix
+    Pack 27c sibling in the same file wraps the same `HitTriangle.prototype` spy in `try/finally` for
+    exactly that reason -- and 27c depends on that prototype's call counts. Now symmetric.
+
+Also corrected, spec-side: the `### Integration ACs` bullet still carried the **pre-amendment**
+"`angleDeg` has changed at tick *t*" wording, so the spec contradicted both its own amended criterion
+and the delivered test; and the iteration-1 `### Review Findings` HIGH now carries a SUPERSEDED banner
+so a reader does not mistake a closed finding for the current state.
+
+#### Routed to the ledger (3 new, 1 occurrence)
+
+- **`DW-79`** *routed / `1-8-...ci-parity`* -- nothing automated pins the two ported files' BODIES to
+  `e8a6d6f`. `sim-boundary.test.ts` checks the header and the `AUTHORED_FILES` split only, and the
+  Story 1.8 sweep mandate's AD-16 mutation covers header/glob moves. A future edit to the port -- the
+  exact risk AD-15 exists to prevent -- passes every gate. Out of footprint: a guard needs the
+  upstream bytes vendored, which this story's `Never` list and the ATTRIBUTIONS gate forbid.
+- **`DW-80`** *routed / `1-9-dev-tuning-panel-...`* -- the 30 ms tap's 0.04 deg margin (patch 5).
+- **`DW-81`** *routed / `burndown`* -- Rule 14: fourteen literal U+00A7 / U+2026 bytes in string
+  literals in `tuning.ts`, two of them this story's. Iteration 1 deliberately left them (escaping two
+  of fourteen is worse than either consistent extreme) but nothing owned the file-wide fix. Now
+  something does.
+- **`DW-75`** -- `occurrence` appended. Its own note claimed "the verification half is in this
+  review's Fix Pack", but no Fix Pack item covered `tickAt`; whoever picked it off the burndown would
+  have read that as "the test already landed". Patch 2 supplies the verification; the
+  unbounded-stamp root cause itself remains open and owned by `burndown`.
+
+#### Closed at emission, not ledgered
+
+- **`wontfix-theoretical`** -- `machine.ts`'s bare `else` for `disable` (`CoilAction` is a closed
+  three-member union); `plunger.ts`'s shared `EMPTY_RESULT` arrays (only `machine.ts` reads them, and
+  it spreads); NaN/Infinity guards on `plungerSpeedByHoldMs` and `transition.tick`; `KEY_MAP`
+  prototype-key hits (no real `KeyboardEvent.code` takes those values); `resolveTuning()` freezing a
+  caller-supplied object in place (the only non-test caller passes `TUNING`); the exact-tie cases in
+  `loadFlipper()`'s pivot pick and `buildFlipperConfig()`'s `angleStart` pick. *What would make any of
+  these real:* a second non-parking device, a fourth `CoilAction`, or Story 2.1 re-authoring the bat
+  boxes symmetrically.
+- **`by-design`** -- `plungerSpeedByHoldMs(holdTicks, ...)` is named for milliseconds but takes ticks.
+  The name is prescribed verbatim by AD-5 and by this spec's own task 5(b); reopens only via amendment.
+- **Fix Pack 27a's `scatter` row pins nothing.** `materials.default.scatter` and
+  `flipper_rubber.scatter` are both `entry(0, ...)`, so that one row passes for either material or for
+  a literal `0`. No discriminating negative is possible without changing an authored tuning value
+  (spec-bound). The block as a whole still discriminates through elasticity (0.88 vs 0.3) and friction
+  (0.85 vs 0.3), both of which carry real negatives. Recorded so a later reader does not count that
+  row as coverage.
+- **`expect(out.commands).toEqual([])`** (in both same-tick tests) is compiler-enforced by
+  `RulesStepResult.commands: readonly never[]` and can never go red. AC 2's "no rules round trip"
+  clause is guaranteed by the type system, not by a test -- worth stating plainly wherever the AC is
+  reported as mutation-pinned, since the mutation requirement exists precisely because a documented
+  claim is not a test.
+
+#### Dismissed (11)
+
+The end-of-stroke clamp being unpinned (**disproved by running it**: deleting the restored
+`flipperMovers` loop fails `flipper-collision.test.ts` (a); the layer that raised it said it had not
+run the mutation); the cradle negative not using a literally identical harness, the DW-60 held case
+asserting only `drained === false`, the 0.01 deg stability window, and the cradle probe's control
+placement (all adjudicated in earlier passes -- and the amendments themselves are settled, not
+reviewable here); `hitTestFlipperFace` visibility and `launch()`'s unchecked cast (adjudicated
+iteration 1); `start()`-after-`stop()` reusing a stale origin (adjudicated iteration 1; `boot.ts`
+calls `start()` once); the "no further `flipper_eos`" assertion sitting inside a possibly-zero-
+iteration loop (**not** vacuous -- the failure mode it guards necessarily populates `contactEvents`,
+so the loop runs exactly when it must); `sprint-status.yaml` reading `review` while the spec reads
+`done` (the correct mid-review state); `test/loop.test.ts:113`'s `findIndex(...) > 0` (pre-existing
+from Story 1.5, outside this story's footprint); the winding guard covering one box face rather than
+six (adjudicated iteration 3 -- task 27(c) says restore coverage, not expand it).
+
+#### Constraints re-verified clean
+
+Rule 1 (Integration ACs): present for all four introduced modules; the flipper one's stale observable
+is corrected above. Rule 3 (real-runtime evidence): satisfied -- QA's `chrome-devtools-mcp` pass drove
+real DOM `KeyboardEvent`s through the full `host/input` -> `devices.launch()` stack; unchanged by this
+pass. Rule 5: both live tripwires were amended through the planning artifact rather than worked
+around, and no new tripwire fired. Rule 6 (ADRs): AD-1..AD-19 re-checked against the delivered code;
+AD-5's same-tick invariant is now pinned for BOTH hardware rules, not one. Rule 13: this review and
+all four layers ran from `C:/git/dragonwar/.worktrees/epic-1`, and no layer edited, committed or
+pushed anything -- confirmed by `git status --short` and `git log --branches --not --remotes` after
+all four returned. Rule 14: no NEW instances beyond the two iteration 1 recorded, now owned by `DW-81`.
+
+#### Iteration-2 finding checklist
+
+Patch findings -- all applied in this review, each verified green then red by mutation:
+
+- [x] [Review][Patch] Spy read after `mockRestore()`, so the assertion could not fail [test/collision-loader.test.ts:825]
+- [x] [Review][Patch] `tickAt()`'s accumulator-origin arithmetic had no test that observed its output [test/host-loop.test.ts]
+- [x] [Review][Patch] The `setCoilEnabled()` test asserted nothing about the coil [test/host-loop.test.ts:232]
+- [x] [Review][Patch] The plunger half of AD-5's same-tick ordering was unpinned [test/plunger.test.ts]
+- [x] [Review][Patch] The 30 ms tap sampled the release angle and called it the peak [test/flipper-mover.test.ts:201]
+- [x] [Review][Patch] TUNING.flipper checks iterated a hardcoded key list, not the group [test/tuning.test.ts:301]
+- [x] [Review][Patch] resolved.flipper.strength.value compared to itself [test/tuning.test.ts:396]
+- [x] [Review][Patch] The AD-4 grep left `Enter` unchecked on a false substring premise [test/host-input.test.ts:233]
+- [x] [Review][Patch] `reenteredLane` could not fail while `sawLaneTop` was unpinned [test/plunger.test.ts:141]
+- [x] [Review][Patch] Dead `break` would report a genuine drain as not-drained [test/flipper-collision.test.ts:359]
+- [x] [Review][Patch] Asymmetric spy restore on the shared HitTriangle.prototype [test/collision-loader.test.ts:526]
+- [x] [Review][Patch] The Integration AC still carried the pre-amendment tick-*t* observable [this spec]
+
+Deferred findings -- routed through `ledger.sh`, not written as inline bullets (per the epic-cycle
+override); see `_bmad-output/implementation-artifacts/deferred-work.md`:
+
+- [x] [Review][Defer] No automated guard pins the ported files' bodies to `e8a6d6f` -- `DW-79`, routed to Story 1.8
+- [x] [Review][Defer] The 30 ms tap clears its own AC by 0.04 deg -- `DW-80`, routed to Story 1.9
+- [x] [Review][Defer] Rule 14: fourteen literal non-ASCII bytes in `tuning.ts` string literals -- `DW-81`, routed to burndown
+- [x] [Review][Defer] `tickAt()`'s unbounded stamp -- `DW-75` occurrence appended; verification half now closed by patch 2
+
+
 
 
 ## Spec Change Log
@@ -893,7 +1099,13 @@ internal state.
 - `src/sim/physics/flipper/**` + `flippers.ts` → consumed by `src/sim/physics/machine.ts` (task 12) and,
   transitively, by `src/sim/loop/index.ts` (task 13a). **Integration AC:** driving the real `createLoop()`
   with an `InputTransition` that closes `s_flipper_l` at tick *t* produces a `FrameOutput` whose
-  `snapshot.mechanisms.flippers.l.angleDeg` has changed at tick *t* — the consumer's own observable output.
+  `snapshot.mechanisms.flippers.l.angleDeg` has moved by tick *t+1*, with `RulesStepResult.commands` still
+  empty at tick *t* — the consumer's own observable output.
+  *(Corrected 2026-08-29 by the code review, iteration 2: this bullet still carried the pre-amendment
+  "changed at tick* t*" wording after the AC 2 amendment updated the I/O matrix row and the `## Tasks &
+  Acceptance` criterion, so the spec contradicted both its own amended criterion and the delivered test
+  — `test/flipper-mover.test.ts` asserts the angle is UNCHANGED at tick* t*. Consistency edit only, in the
+  non-frozen Design Notes; see `## Design Notes` → "The AC 2 amendment (2026-08-29)".)*
 - `src/sim/physics/plunger.ts` → consumed by `src/sim/physics/machine.ts`, and its effect is read by
   `src/sim/rules/devices.ts` (unchanged). **Integration AC:** through the real `createLoop()`, holding and
   releasing `s_plunger` with a served ball yields exactly one `ball_launched` in `FrameOutput.events` and a
