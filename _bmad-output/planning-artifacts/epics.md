@@ -521,7 +521,9 @@ So that I can play the ball rather than watch it.
 
 **Given** a ball resting on a raised flipper
 **When** the flipper key is held for 5 s
-**Then** the flipper stays up and the ball stays cradled; **and** when the key is tapped for 30 ms, the flipper rises partially and returns
+**Then** the flipper reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the whole 5 s `[AMENDED 2026-08-29 — see the story change log below]`
+**And** the ball is held on the bat — at rest, its position on the bat unchanged within tolerance — for at least the first 1 s of that hold, which is what this epic's placeholder geometry can support; the full multi-second cradle is **Story 2.1's** (ledger `DW-72`), once the playfield carries the inlane guides and posts that form the pocket a real cradle needs
+**And** when the key is tapped for 30 ms, the flipper rises partially and returns
 
 **Given** `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` has been issued
 **When** the flipper key is pressed
@@ -531,6 +533,29 @@ So that I can play the ball rather than watch it.
 **When** physics applies `plungerSpeedByHoldMs`
 **Then** the ball leaves the shooter lane at the mapped speed, `s_shooter_lane` opens once and `ball_launched` fires once
 **And** a full-strength plunge replay shows the ball reaching the top of the placeholder playfield without rebounding back into the lane
+
+**Change log**
+
+- **2026-08-29 — the 5 s cradle claim split: the bat's half kept in full, the ball's half bounded
+  to 1 s, and the real cradle moved to Story 2.1.**
+  The original criterion asked that a ball resting on a raised flipper "stays cradled" for a 5 s
+  hold. That is not satisfiable on this epic's placeholder table, and the reason is **geometry,
+  not the flipper**. The committed collision document has twelve `col_*` nodes — the playfield,
+  the glass, five outer walls, two lane walls, the lane deflector and the two bats — and
+  **nothing beside either flipper**. A real cradle is a pocket formed by the raised bat together
+  with the inlane guide or post next to it; with no such adjacent geometry the ball rolls along
+  the bat under the 6.5° pitch and leaves it after roughly 1.2–1.9 simulated seconds.
+  The ported `FlipperMover` / `FlipperHit` are **not** at fault, and were not altered to
+  accommodate this: the bat is provably static while held, `FlipperHit.contact()` matches the
+  pinned upstream `vpdb/vpx-js @ e8a6d6f` byte-for-byte, total mechanical energy is dissipated
+  rather than injected, and a control ball that never touches a flipper runs away *faster* than
+  the held-flipper ball — so the departure is not flipper-specific. Measurements are recorded in
+  `_bmad-output/implementation-artifacts/probe-1-6-cradle-energy.txt`.
+  What Story 1.6 owns — the coil as a hardware rule that reaches its stop and holds it under a
+  sustained hold — is still asserted in full, and the bounded ball claim is tested with a
+  discriminating negative rather than a window the ball would survive anyway. The part that needs
+  geometry which does not exist yet is deferred to **Story 2.1**, tracked as ledger `DW-72`,
+  where the original 5 s cradle is re-asserted against the real playfield.
 
 ### Story 1.7: Nudge, the tilt bob and the slam sensor
 

@@ -2,7 +2,7 @@
 title: 'Story 1.6: Flippers and the manual plunger as hardware rules'
 type: 'feature'
 created: '2026-08-28'
-status: 'blocked'
+status: 'in-progress'
 baseline_revision: '800639036077650abe4452ef59244ab8ed69106b'
 baseline_commit: '800639036077650abe4452ef59244ab8ed69106b'
 review_loop_iteration: 0
@@ -149,9 +149,13 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
   second-call guard (`player-physics.ts:181-216`) — HALT. (Not expected: a flipper hit is **dynamic**, and
   `hitObjectsDynamic` + `hitOcTreeDynamic.fillFromVector()` (`:130`, `:170`) is not gated by
   `finalizeStatics()`.)
-- Satisfying "a 30 ms tap rises partially and returns" and "a 5 s hold stays up and keeps the ball cradled"
-  proves impossible for **every** flipper-strength value transcribable from the port or defensible as a
-  calibration of it — HALT `blocked` with the measured angles rather than inventing a mechanism.
+- Satisfying "a 30 ms tap rises partially and returns", or the AMENDED hold claim — "the bat reaches its
+  end-of-stroke angle and holds it for the whole 5 s, and the ball is held on the bat for at least the
+  first 1 s" — proves impossible for **every** flipper-strength value transcribable from the port or
+  defensible as a calibration of it — HALT `blocked` with the measured angles rather than inventing a
+  mechanism. **Do NOT re-halt on the ORIGINAL full-5 s ball-cradle claim**: it was found impossible on this
+  placeholder geometry on 2026-08-28, and `epics.md` was amended on 2026-08-29 under the user's explicit
+  authorization to narrow it. See `## Design Notes` → "The cradle amendment (2026-08-29)".
 - A change outside `src/**`, `test/**`, `tools/**`, `assets/src/**`, `.github/workflows/**` or
   `package.json` turns out to be genuinely required — in particular any edit to `ATTRIBUTIONS.md`,
   `public/assets/**`, `index.html`, `docs/**` or anything under `_bmad-output/planning-artifacts/`. That is a
@@ -196,7 +200,7 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
 | Window loses focus while a flipper is held | `blur` with `flipper_l` true | One transition releasing **every** mapped action, so no coil is left energised | `blur` with nothing held emits nothing |
 | Tick stamping | A `keydown` whose `timeStamp` falls between the previous rAF callback and this one | `transition.tick` lies in the half-open range of ticks this `advance()` will run, and two presses in one frame are stamped in non-decreasing tick order | A `timeStamp` before the accumulator origin clamps to the frame's first tick; one after the last clamps to it, and `frameInForceAt` carries it forward |
 | Flipper energises on the same tick | `s_flipper_l` closes at tick *t* in the `InputFrame` | `c_flipper_l`'s mover is solenoided on inside the physics step for tick *t*; the snapshot's `mechanisms.flippers.l.angleDeg` differs at tick *t* from tick *t−1* | No rules round trip occurs: `RulesStepResult.commands` is still empty |
-| Flipper held | The flipper key held for 5 simulated seconds with a ball resting on the bat | The bat reaches and holds its end-of-stroke angle, and the ball's speed stays at rest (cradled) with its position above the bat unchanged within tolerance | A bat that oscillates or drifts at the stop fails; end-of-stroke torque damping is what holds it |
+| Flipper held | The flipper key held for 5 simulated seconds with a ball resting on the bat | The bat reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the whole 5 s; **and** the ball is held on the bat — at rest, its position on the bat unchanged within tolerance — for at least the first 1 s of that hold | A bat that oscillates or drifts at the stop fails; end-of-stroke torque damping is what holds it. The ball half is bounded to 1 s because this epic's placeholder table has no geometry beside either flipper to form a cradle pocket (`epics.md` amended 2026-08-29; the full 5 s cradle is Story 2.1's, ledger `DW-72`). The bounded assertion MUST carry a discriminating negative — a window the ball would survive anyway is vacuous and will be rejected |
 | Flipper tapped | The flipper key held for exactly 30 ms then released | The bat's **peak** angle lies strictly between the rest and end angles, and it returns to the rest angle afterwards | A tap that reaches the end angle fails the "rises partially" half; a bat that does not return fails the other |
 | Coil disabled | `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` at tick *t*, then the key pressed at *t+1* | The bat's angle does not change; after `{ action: 'enable' }` the same press moves it | An unknown coil name is impossible (`CoilName` is a closed union); a `disable` while the bat is raised lets it return under its spring, it is not frozen mid-stroke |
 | End of stroke | The bat reaches its end angle under power | Exactly one `ContactEvent { kind: 'flipper_eos', surface: 'flipper', device: <coil> }` per stroke | Holding past the stop emits no further event until the bat has returned and been driven again |
@@ -372,6 +376,13 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
 23. `test/tuning.test.ts` — **modify**. Pin the three `DW-34` rows (frozen result at every depth, nested-`…Ms` throw, `…Ticks`-collision throw), the presence/`source`/`confidence` of every new `TUNING.flipper` entry, that no key in that group ends in `Ms`, and `plungerSpeedByHoldMs`'s two clamps, its interior interpolation and its zero-width-window guard.
 24. `test/loop.test.ts` and `test/host-loop.test.ts` — **modify**. Pin that `FrameOutput.snapshot.mechanisms` now reports real flipper and plunger state, that `setCoilEnabled` reaches physics, and that transitions produced by `host/input` arrive at `advance()` with ticks inside the frame's range.
 
+**Rework — iteration 2 (added by the lead 2026-08-29 after the amended AC):**
+
+- [ ] [Amendment] `test/flipper-collision.test.ts` — rewrite the cradle test to the AMENDED "Flipper held" matrix row as **two separate assertions**, and delete the previous run's loosened one-second-window test together with its apologetic comment block (the amendment now lives in `epics.md` and in this spec; the test must not re-argue it):
+  - [ ] **(a) The bat half, over the FULL 5 s (5000 ticks).** With the key held, assert the bat reaches its end-of-stroke angle and holds it for all 5000 ticks — unmoving, without oscillation. This half is NOT bounded and must be asserted over the whole hold. **Discriminating negative (required):** the same assertion must fail against a bat whose angle is not held — drive the identical harness with the key RELEASED (or with `c_flipper_l` disabled) and assert the angle does NOT remain at the end-of-stroke value. An assertion that passes in both directions proves nothing.
+  - [ ] **(b) The ball half, bounded to the first 1 s (1000 ticks).** Assert the ball is still on the bat, at rest, its position unchanged within tolerance, through tick 1000. **Discriminating negative (required — this is the whole point of the rework):** the previous run's version was rejected precisely because a window the ball would survive anyway asserts nothing. Pin the real measured behaviour in BOTH directions — e.g. still on the bat at 1 s AND measurably departed by 5 s — or run the same placement with the flipper NOT raised and assert the ball leaves well inside the 1 s window. State in a comment which negative was chosen and what it would catch.
+  - [ ] **(c)** Add a one- or two-line comment pointing at `DW-72` and Story 2.1 for the deferred full cradle, referring to `epics.md`'s Story 1.6 change log rather than restating the argument.
+
 **Acceptance Criteria:**
 
 - Given the built app running in a browser, when the player presses left Shift, right Shift, Enter or `1`,
@@ -392,9 +403,11 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
   falloff 0.15, friction 0.85); and MPF's pulse/hold figures appear only as a comment marked calibration
   reference.
 - Given a ball resting on a raised flipper, when the flipper key is held for 5 simulated seconds, then the
-  bat holds its end-of-stroke angle and the ball stays cradled (speed at rest, position stable within
-  tolerance); and when the key is instead tapped for 30 ms, the bat's peak angle lies strictly between the
-  rest and end angles and it then returns to rest.
+  bat reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the
+  whole 5 s; **and** the ball is held on the bat (at rest, its position on the bat unchanged within
+  tolerance) for at least the first 1 s of that hold; and when the key is instead tapped for 30 ms, the
+  bat's peak angle lies strictly between the rest and end angles and it then returns to rest.
+  *(Amended 2026-08-29 — see `## Design Notes` → "The cradle amendment (2026-08-29)".)*
 - Given `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` has been issued, when the flipper key is
   pressed, then the bat's angle does not change; and after `{ action: 'enable' }` the same press moves it.
 - Given `s_plunger` is held for *N* ticks and released with a ball resting in `sw_shooter_lane`, when
@@ -422,12 +435,58 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
 
 ## Spec Change Log
 
+- 2026-08-29 (lead, re-dispatch after the user's decision): the cradle AC was narrowed with the user's
+  explicit, one-time authorization to edit `_bmad-output/planning-artifacts/epics.md`. The bat's half of the
+  "Flipper held" claim is kept over the full 5 s; the ball's half is bounded to the first 1 s; the full
+  cradle is deferred to Story 2.1 as ledger `DW-72`. Amended here: the `## Boundaries & Constraints`
+  Block-If (which otherwise instructed a re-halt on the superseded claim), the `## I/O & Edge-Case Matrix`
+  "Flipper held" row, and the matching `## Tasks & Acceptance` criterion — the two frozen-block edits are
+  the lead's, made under that authorization, so the spec's machine contract cannot contradict the amended
+  `epics.md`. Added task 25 (the rework, with mandatory discriminating negatives) and a `## Design Notes`
+  subsection carrying the evidence. Frontmatter `status` reset `blocked` → `in-progress` for re-dispatch.
+
 - 2026-08-28 (lead, spec-validation gate): recorded under Design Notes that the upstream-source Block-If does not fire - all three pinned vpx-js files fetch at e8a6d6f with the GPL-2.0-or-later header grant - plus the pinned URLs and two spot-checked plan claims. No AC, task, boundary or frontmatter field changed.
 - 2026-08-28 (bmad-build-auto, implement step, Matrix Test Audit): HALTed `blocked` -- see `## Auto Run Result`. The "Flipper held" I/O-matrix row's 5-simulated-second cradle claim does not hold under the delivered (verbatim-ported, boundary-compliant) implementation; the implementation subagent's own test weakened the assertion to a ~1 s window instead of fixing the code or halting, which this step's own rules forbid accepting. No AC, task or boundary changed by this run; frontmatter `status` set to `blocked` and the subagent's `deferred:` entry documenting this exact finding was folded into the blocking condition instead of left as an accepted deferral.
 
 ## Review Triage Log
 
 ## Design Notes
+
+### The cradle amendment (2026-08-29)
+
+The 2026-08-28 implement run HALTed `blocked` on the Matrix Test Audit: the original "Flipper held" row and
+its `epics.md` acceptance criterion required a ball to stay cradled on a raised bat for a 5 s hold, and that
+does not hold on this epic's placeholder table. The lead investigated before escalating, and the finding is
+that **the geometry is missing, not that the port is wrong**:
+
+- Total mechanical energy is **dissipated, not injected** — there is no energy-injecting contact instability.
+- A **control ball that never touches a flipper**, placed on the bare playfield, runs away on the same
+  trajectory shape and reaches a *higher* speed (56.3) than the held-flipper ball (47.3), so the departure
+  is not flipper-specific.
+- The extreme displacement in the first report was a harness artifact: that diagnostic harness has no
+  `createDeviceMechanics()`, so a drained ball is never caught by `bd_trough` and free-falls indefinitely.
+- The bat itself is provably static while held, and `FlipperHit.contact()` matches the pinned upstream
+  byte-for-byte.
+
+Measurements: `_bmad-output/implementation-artifacts/probe-1-6-cradle-energy.txt`. Root cause: the committed
+collision document has twelve `col_*` nodes — playfield, glass, five outer walls, two lane walls, the lane
+deflector and the two bats — and **nothing beside either flipper**. A cradle is a pocket formed by the raised
+bat plus the inlane guide or post next to it; with none, the ball rolls along the bat under the 6.5° pitch
+and leaves after roughly 1.2–1.9 s.
+
+The user authorized a **one-time** widening of this story's footprint to
+`_bmad-output/planning-artifacts/epics.md` **only**, to narrow the AC: the bat's half is kept in full over
+the whole 5 s, the ball's half is bounded to the first 1 s, and the full multi-second cradle moves to
+**Story 2.1** as ledger **`DW-72`**, which closes on evidence (a 5 s hold keeping the ball in the pocket
+against the real playfield), not on inspection. That authorization covers this amendment and nothing else;
+it does **not** carry forward to Stories 1.7, 1.8 or 1.9. The `epics.md` edit carries a visible
+`[AMENDED 2026-08-29 …]` marker and a Story 1.6 change log entry, so a reader who never saw this exchange
+can tell the claim was deliberately scoped rather than quietly dropped.
+
+**The replacement test must be able to fail.** The previous run's version was rejected for weakening the
+assertion to a window the ball would survive anyway; a bounded test without a discriminating negative
+repeats that mistake in a more presentable form. Task 25 states the required negatives explicitly.
+
 
 ### Governing ADs (Rule 6)
 
@@ -705,6 +764,8 @@ story replaces.
   `true` restores it. A headless suite cannot see renderer-level breakage, so this pass is not optional.
 
 ## Auto Run Result
+
+> **SUPERSEDED — this section records the 2026-08-28 run.** Its blocking condition was resolved by the 2026-08-29 AC amendment (see `## Spec Change Log` and `## Design Notes` → "The cradle amendment"). The frontmatter `status` is now `in-progress`; this section is rewritten by the next finalize.
 
 Status: blocked
 Blocking condition: matrix test audit failed -- I/O matrix row "Flipper held" (and its mirrored Acceptance
