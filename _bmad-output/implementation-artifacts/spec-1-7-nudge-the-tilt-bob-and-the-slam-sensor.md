@@ -2,7 +2,7 @@
 title: 'Story 1.7: Nudge, the tilt bob and the slam sensor'
 type: 'feature'
 created: '2026-08-29'
-status: 'blocked'
+status: 'draft'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -56,8 +56,12 @@ ball. Extend `host/input`'s existing map with Space and the arrow keys.
   the fetched file header itself, and ported files keep their upstream notice alongside ours.
 
 **Block If:**
-- **[FIRED — see `## Auto Run Result`]** The damped-harmonic cabinet oscillator AC 1 names as *ported* does not
-  exist in this project's pinned, attributed upstream, and the source that does have it is not in the repository.
+- ~~The damped-harmonic cabinet oscillator AC 1 names as *ported* does not exist in this project's pinned,
+  attributed upstream~~ — **RESOLVED 2026-08-29 by user authorization; this Block-If no longer fires.**
+  `vpinball/vpinball` is now an attributed dependency of this repository, restricted to seven files. See
+  `## Design Notes` -> "The vpinball authorization (2026-08-29)" for the exact terms, and `ATTRIBUTIONS.md`'s
+  Code table for the recorded provenance. **Do not re-halt on this.** AC 1's word "ported" is now true and
+  `epics.md` needs no amendment.
 - The `col_*` geometry needed to hold a ball on a raised bat for longer than ~1 s is required by any test
   (it does not exist in Epic 1 — ledger `DW-72`, owned by Story 2.1).
 - A tunable would have to be invented for a quantity on `physics-tuning.md:45-54`'s do-not-invent list.
@@ -278,9 +282,69 @@ whose path or contents implement a cabinet oscillator, a plumb bob or a tilt sen
 
 ## Spec Change Log
 
+- 2026-08-29 (lead, re-dispatch after the user's decision): the plan's `intent gap` HALT is resolved by
+  authorization rather than by amendment. `vpinball/vpinball` may now enter the repository at pin `3f838c14`,
+  restricted to the seven `// license:GPLv3+`-marked files under `src/physics/cabinet/`, with `NudgeHandler.h`
+  excluded. The `ATTRIBUTIONS.md` row was committed first (`38e51cd`), with no ported code in that commit, per
+  CLAUDE.md's ordering rule; the planned-dependencies table was corrected in the same commit. `epics.md` is
+  **not** amended — AC 1's word "ported" becomes true. Amended here: the fired Block-If in
+  `## Boundaries & Constraints` (struck through, so it cannot re-fire) and a new `## Design Notes` subsection
+  carrying the authorization's terms, the authorship-preservation requirement, the third `sim-boundary` header
+  branch, and the `source`/`confidence` requirement for transcribed constants. Frontmatter `status` reset
+  `blocked` -> `draft` so the plan stage re-derives the spec around the preserved intent block.
+
 ## Review Triage Log
 
 ## Design Notes
+
+### The vpinball authorization (2026-08-29)
+
+The plan stage correctly HALTed `intent gap`: AC 1 says *"the ported damped-harmonic cabinet oscillator"*, but
+`vpdb/vpx-js @ e8a6d6f` implements no nudge at all (`lib/vpt/ball/ball-mover.ts:80` is `// todo nudge`;
+`lib/vpt/global-api.ts:124` is `// TODO implement nudge`) — verified at source by both the plan and the lead.
+The oscillator the planning artifacts describe is `vpinball/vpinball`'s. The user has now **authorized adding it**.
+
+**Terms of the authorization — these are binding and narrow:**
+
+- **Pin:** `vpinball/vpinball @ 3f838c14bd2e37fb49a0b5aa6a9d76d421846bef`.
+- **Exactly seven files may be ported**, all under `src/physics/cabinet/`: `DampedHarmonicOscillator.h`,
+  `CabinetPhysics.h`, `CabinetPhysics.cpp`, `KeyboardNudge.h`, `KeyboardNudge.cpp`, `PlumbHandler.h`,
+  `PlumbHandler.cpp`. Each was fetched at the pin and its literal first line read: all seven are
+  `// license:GPLv3+`.
+- **`src/physics/cabinet/NudgeHandler.h` is EXCLUDED and must stay excluded.** Its first line is
+  `#pragma once`, so it never completed vpinball's licence migration and remains under the inherited
+  'old MAME'-like **non-commercial** terms, which GPL-3.0 cannot absorb and this project cannot distribute.
+  Do not port, transcribe, quote or paraphrase it. It is dispatch-only (no physics), so nothing is lost.
+  If the implementation appears to need it, that is a HALT, not a judgement call.
+- **The attribution is already committed** (`38e51cd`), deliberately **before** any ported file, per CLAUDE.md's
+  "the entry goes in before the file does". Do not edit `ATTRIBUTIONS.md` again — the one-time widening that
+  allowed it is spent.
+- **Ported files live under `src/sim/physics/cabinet/**`**, inside the `src/sim/physics/**` glob the
+  `ATTRIBUTIONS.md` row is scoped to. Placing them anywhere else silently breaks the attribution and is a HALT.
+
+**Preserving authorship (CLAUDE.md, hard gate).** These files carry **no per-file copyright line**, so the
+holder comes from the root `LICENSE`: *"Visual Pinball development team and contributors"* (2000-2026,
+"unless specifically noted differently in a respective source file"). Each ported file must carry, above our
+own header and never replacing it: that holder, the GPL-3.0-or-later grant, the exact upstream source path,
+the pin, and `// Deviation:` notes for every departure. Paraphrasing or trimming the grant breaks the licence
+the port depends on.
+
+**`test/sim-boundary.test.ts` needs a third header branch — this is in footprint and is this story's job.**
+Its licence-header check is currently a strict two-way XOR: a file under `src/sim/` is *either* a vpx-js port
+(VPDB copyright block + the exact port marker + freezy's line) *or* DragonWar-authored (GPL-3.0 header and no
+VPDB markers). A vpinball port is legitimately neither and would fail as though it were a licence violation.
+Add a third, disjoint branch that is exactly as strict as the other two — assert the vpinball holder line, the
+GPLv3+ grant, its own port marker and the pin — rather than loosening the existing ones. (This guard is
+itself an instance of the pattern this epic keeps finding: correct while there was one upstream, wrong on the
+first legitimate exception. It is recorded as shape 8 in the Story 1.8 sweep mandate.)
+
+**Transcribed constants must carry `source` and `confidence` in `tuning.ts`,** exactly as Story 1.6 did for
+`TUNING.flipper`. Unlocking ~10 real, sourced figures — cabinet mass, both axes' frequency and damping, the
+impulse shape, the bob's geometry and threshold — is the main reason this option was chosen over authoring our
+own, so each one's provenance must be legible. A transcribed constant with no recorded source is no better
+than an invented one. **Trap (`DW-34`):** any new `…Ms` tunable must be **top-level** — `resolveTuning()`'s
+`assertNoNestedMsKeys` throws on a nested one.
+
 
 ### Governing ADs (Rule 6)
 

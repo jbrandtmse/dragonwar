@@ -40,7 +40,7 @@ All five are from Epic 1's own logs, not hypotheses:
 5. **Test fitted to the code** — Story 1.6's first implement subagent narrowing its cradle window
    until it passed (caught and rejected by the Matrix Test Audit).
 
-## Three more shapes, added 2026-08-29 from Story 1.6's Fix Pack
+## Four more shapes, added 2026-08-29 (Story 1.6's Fix Pack, and Story 1.7's licence guard)
 
 The code review's Fix Pack is the same vacuity class and is a **preview of this sweep**. Add its
 patterns to the checklist:
@@ -51,7 +51,16 @@ patterns to the checklist:
 7. **A field only ever asserted at its zero/default value** — `angularVelDegPerSec` is only ever
    asserted as `0`, so a 100x unit error ships green. Probe: scale the value, expect red. Any
    field whose every assertion uses the default is unpinned.
-8. **Coverage silently lost when a guard is deleted** — `addBox()`/`outwardTriangle()` lost their
+8. **A guard that encodes an assumption — correct today, wrong on the first exception.** Story 1.7 hit this:
+   `test/sim-boundary.test.ts`'s licence-header check was a strict two-way XOR — every file under `src/sim/`
+   is *either* a vpx-js port *or* DragonWar-authored. That was exactly right while vpx-js was the only
+   upstream, and it failed the moment a second one (vpinball) was authorized, because a correct-but-narrow
+   guard has no way to express "a third legitimate case". Probe: for each guard that enumerates cases, ask
+   what a legitimate new case would look like and whether the guard would reject it *as a licence
+   violation* rather than as an unknown. Prefer guards that fail open with a named error over guards that
+   fail closed on an unenumerated-but-valid input.
+
+9. **Coverage silently lost when a guard is deleted** — `addBox()`/`outwardTriangle()` lost their
    only coverage when the winding regression guard was removed, because the two flippers were the
    only box-shaped nodes in the committed document. Probe: ask what *else* a deleted test was the
    sole cover for.
