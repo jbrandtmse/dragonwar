@@ -235,3 +235,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-29T16:59:07Z	Epic 1	runtime_lock_released	stage=adr_verifications
 2026-08-29T16:59:07Z	Epic 1	runtime_lock_acquired	stage=qa
 2026-08-29T16:59:07Z	Story 1.8	stage_spawned	stage=qa spawn_at=2026-08-29T16:59:07Z model=claude-sonnet-5 agent_name=1-8-replays-goldens-qa-1 cycle_iteration=1
+2026-08-29T17:13:45Z	Story 1.8	qa_complete	spawn_at=2026-08-29T16:24:40Z model=claude-sonnet-5 tests_added=3_files total_tests=810_pass_21_skip_61_files first_run_failures=0 clarifications=0 closing_sections_present=true no_commit_verified=true src_clean_all_mutations_reverted=verified_by_lead areas=ad15_hash_canonicalisation_and_quantisation_boundary,ac3_recorder_invalidation,ac5_parity_orchestration all_mutation_verified=true best_finding=roll-and-drain_golden_is_SILENTLY_INSENSITIVE_its_terminal_state_equals_its_start_state_so_the_fourth_participant_mutation_reddens_4_of_5_goldens_but_not_that_one filed=DW-85_routed_to_2-5 note=not_an_uncaught_defect_two_dedicated_tests_catch_that_mutation_directly_it_is_a_gap_in_the_GOLDEN_mechanism_for_that_scenario
+2026-08-29T17:13:45Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-29T17:13:45Z	Story 1.8	stage_spawned	stage=code-review spawn_at=2026-08-29T17:13:45Z model=claude-opus-5 agent_name=1-8-replays-goldens-cr-1 cycle_iteration=1

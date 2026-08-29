@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-29'
 status: 'done'
 baseline_revision: '0607eebef58986b0054b8dc918072781a0cd1aa3'
+baseline_commit: '0607eebef58986b0054b8dc918072781a0cd1aa3'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -888,6 +889,58 @@ risk rather than an intent gap because the leg is measurable — just not by thi
   the one command in this repo whose success criterion is a failure; it is deliberate.
 - `node tools/replay-parity/serve.mjs` then open the printed URL in Chrome — expected: every golden reports
   PASS on the `GameState` portion.
+
+**QA pass (2026-08-29) — new test files, appended per the file-list completeness rule:**
+- `test/replay-hash-invariants.test.ts` (QA) — direct unit coverage of `src/sim/loop/replay.ts`'s
+  `canonicalize()`/`quantize001Mm()`/`stateHash()`/`gameStateHash()`/`fnv1aHex()`, three properties nothing
+  else in the suite pins directly: object-key order-independence (with an array-order-preserved control),
+  quantisation-boundary stability (idempotency, same-bucket jitter hashing identically, cross-boundary jitter
+  hashing differently), and discriminating power (a one-field `GameState`/ball-position difference changes
+  the hash; content-based, not reference-based).
+- `test/replay-recorder-invalidation.test.ts` (QA) — `src/host/dev/replay-recorder.ts` AC 3: the invalidated
+  flag survives continued `recordTransitions()` calls after `invalidate()` (the recording is not stopped by
+  invalidation — `src/host/loop.ts`'s `onAdvance` seam keeps calling it every tick), a second `invalidate()`
+  still keeps the first reason across intervening recording activity, and a fresh `start()` after an
+  invalidated (not merely saved) recording does not leak the old reason forward.
+- `test/replay-parity-orchestration.test.ts` (QA) — `tools/replay-parity/browser.ts`'s `runReplayParity()`
+  orchestration itself (not just `judgeGoldenResult()`, already covered by `test/replay-parity-logic.test.ts`),
+  stubbing `globalThis.fetch` in Node: a genuinely passing golden (a real `runReplay()` call against the real
+  `roll-and-drain` golden) and a genuinely throwing one (a deliberately staled `tableHash`, or a 404) both
+  appear in the returned report — never silently dropped — and an empty golden index throws rather than
+  reporting zero results as a clean run.
+
+All three were mutation-verified (break the code, confirm red, restore) against the running suite: removing
+`canonicalize()`'s `.sort()` on `Object.keys()` reddened the two order-independence tests; bypassing
+`quantize001Mm()` inside `stateHash()`'s ball-position reduction reddened the same-bucket-jitter test;
+injecting `invalidReason = undefined` into `recordTransitions()` reddened both invalidation-persistence tests;
+and flipping `runOneGolden()`'s catch block to `pass: true` reddened both "never silently dropped" tests in
+the orchestration file. Each mutation was reverted immediately after its red was observed and independently
+confirmed clean via `git diff`/`git status` before continuing to the next.
+
+**QA finding (2026-08-29) — the `roll-and-drain` golden is silently insensitive to the one AD-5 mutation most
+relevant to its own scenario, recorded here per "Do not re-record any golden. If a golden looks wrong, report
+it in `## Issues Encountered`":** moving `deviceMechanics.applyCommands(tick, pulses)` to after
+`physics.step()` in `src/sim/physics/machine.ts` (the exact, already-established fourth-participant mutation)
+was run against all five goldens' `finalHash`/`finalGameStateHash` assertions in
+`test/replay-goldens.test.ts`. Four goldens (`hold-and-release`, `full-plunge`, `nudge-coupling`,
+`two-ball-collision`) went red immediately. **`roll-and-drain` alone stayed green** — reverted and re-run
+twice to confirm, not a flake. Root cause (read from the golden's own shape, not guessed): `roll-and-drain`'s
+final `GameState` is a served ball fully drained back to its STARTING configuration (`balls: []`,
+`ballsInPlay: 0`, `deviceSlots.bd_trough` back to all-`true`) — the same terminal state the run began in
+before the coil pulse. The ~0.29 mm eject-pose displacement this mutation produces (the same displacement
+`test/machine-serve-drain.test.ts`'s dedicated fourth-participant behavioural pin catches directly) is fully
+absorbed by the ball's own roll-to-drain trajectory converging on that same closed-loop terminal state, so the
+hashed `GameState` at `durationTicks` carries no trace of it. **No regression escapes `pnpm test` as a whole**
+— `test/hardware-rule-seam.test.ts`'s structural manifest check and `test/machine-serve-drain.test.ts`'s own
+behavioural pin both catch this exact mutation directly (confirmed already verified by the lead before this
+QA pass) — but the golden mechanism specifically contributes zero unique discriminating signal for this
+defect class on this golden. A control mutation (`cabinetMechanics.applyFrame` moved after `physics.step()`)
+was also run against all five: only `nudge-coupling` (the one golden that actually issues nudge input) went
+red, `roll-and-drain` stayed green there too — consistent with cabinet's per-tick effect on a ball under no
+nudge/tilt being negligible, not evidence of a broader insensitivity. This is a property of the scenario's own
+closed-loop terminus, not a defect in `runReplay()`/`stateHash()` (both proved discriminating in
+`test/replay-hash-invariants.test.ts` above) and not something this pass fixes — re-recording or altering the
+golden is out of scope by this story's own "Never" rule.
 
 **Manual checks (if no CLI):**
 - Each mutation in the sweep's invariant table: apply, run `pnpm test`, **observe the red**, restore, record
