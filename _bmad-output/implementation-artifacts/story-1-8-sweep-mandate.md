@@ -12,7 +12,7 @@ while vacuous assertions are masking defects **promotes those defects to specifi
 masked bug becomes the expected output, and the next person to see the golden break re-records it
 rather than questioning it.
 
-The sweep currently sits in burn-down Story 1.9, which runs *after* 1.8. That ordering is
+The sweep currently sits in burn-down Story 1.10, which runs *after* 1.8. That ordering is
 backwards. The user approved fixing it.
 
 ## Mechanism (preferred)
@@ -187,8 +187,8 @@ If at plan time this reads as a genuine product call rather than a scoping one, 
   1 merge gate. Relevant here as a live, uncaught invariant violation.
 - **`DW-74`..`DW-78`** — filed by Story 1.6's code review; several are invariant-adjacent.
 
-## Note on Story 1.9
+## Note on Story 1.10
 
-Burn-down Story 1.9 still runs, and still charters against `owner:burndown` (28 as of 2026-08-29)
-versus a cap of 8. Moving the sweep ahead of the goldens does not fold 1.9 into 1.8 — it only
-takes the golden-poisoning risk off 1.9's plate.
+Burn-down Story 1.10 still runs (numbered 1.10, not 1.9 -- Story 1.9 is already "Dev tuning panel and the first feel ritual"), and still charters against `owner:burndown` (28 as of 2026-08-29)
+versus a cap of 8. Moving the sweep ahead of the goldens does not fold 1.10 into 1.8 — it only
+takes the golden-poisoning risk off 1.10's plate.
