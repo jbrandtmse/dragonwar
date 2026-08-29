@@ -18,12 +18,13 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadCollision } from '../src/sim/physics/loader';
 import { createFlipperMechanics } from '../src/sim/physics/flippers';
+import { FlipperHit } from '../src/sim/physics/flipper/flipper-hit';
 import { createDeviceMechanics, type BallStepMovement } from '../src/sim/physics/devices';
 import { NO_FRAME } from '../src/sim/loop';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { TUNING, resolveTuning } from '../src/sim/table/tuning';
 import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from '../src/sim/physics/constants';
 import { fromPhysics, toPhysics } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -245,6 +246,70 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		// gravity/contact settling, nowhere near the struck case's order of
 		// magnitude (asserted above as > speedBefore*10, typically 30-40 VU/T).
 		expect(maxSpeed, 'a bat at rest must never inject the kind of energy a driven strike does').toBeLessThan(5);
+	});
+});
+
+describe('sim/physics/flippers.ts -- TUNING.materials.flipper_rubber actually reaches both FlipperHit shapes (Fix Pack 27a)', () => {
+	// Code review finding: `test/collision-loader.test.ts` removed both
+	// flipper-box material assertions AND the discriminating
+	// `rubber.elasticity !== plain.elasticity` guard, pointing at THIS file
+	// as the replacement pin -- which, until this test, contained no
+	// assertion on elasticity, falloff, friction or scatter at all. Deleting
+	// `flippers.ts`'s `setElasticity()`/`setFriction()`/`setScatter()` calls
+	// left the whole suite green. This test spies on `FlipperHit.prototype`
+	// directly -- the exact object `buildSideRig()` calls the three setters
+	// on -- so removing any one of them fails it.
+	it('applies flipper_rubber elasticity/falloff/friction/scatter to BOTH sides, not the VPX default material', () => {
+		const elasticitySpy = vi.spyOn(FlipperHit.prototype, 'setElasticity');
+		const frictionSpy = vi.spyOn(FlipperHit.prototype, 'setFriction');
+		const scatterSpy = vi.spyOn(FlipperHit.prototype, 'setScatter');
+
+		// Captured BEFORE mockRestore() -- restoring a spy also clears its
+		// recorded `.mock.calls` (the same reset mockClear()/mockReset() do),
+		// so the calls must be read out first, not after the finally below.
+		let elasticityCalls: Array<readonly [number, number | undefined]> = [];
+		let frictionCalls: Array<readonly [number]> = [];
+		let scatterCalls: Array<readonly [number]> = [];
+		try {
+			buildFlipperHarness();
+			elasticityCalls = elasticitySpy.mock.calls as Array<[number, number | undefined]>;
+			frictionCalls = frictionSpy.mock.calls as Array<[number]>;
+			scatterCalls = scatterSpy.mock.calls as Array<[number]>;
+		} finally {
+			elasticitySpy.mockRestore();
+			frictionSpy.mockRestore();
+			scatterSpy.mockRestore();
+		}
+
+		const rubber = TUNING.materials.flipper_rubber;
+		const plain = TUNING.materials.default;
+
+		// One call per side (left + right) -- proves BOTH FlipperHits, not
+		// just one, were configured.
+		expect(elasticityCalls, 'setElasticity() must be called once per flipper side').toHaveLength(2);
+		expect(frictionCalls, 'setFriction() must be called once per flipper side').toHaveLength(2);
+		expect(scatterCalls, 'setScatter() must be called once per flipper side').toHaveLength(2);
+
+		for (const call of elasticityCalls) {
+			expect(call[0]).toBeCloseTo(rubber.elasticity.value, 6);
+			expect(call[1]).toBeCloseTo(rubber.elasticityFalloff.value, 6);
+		}
+		for (const call of frictionCalls) {
+			expect(call[0]).toBeCloseTo(rubber.friction.value, 6);
+		}
+		for (const call of scatterCalls) {
+			expect(call[0]).toBeCloseTo(rubber.scatter.value, 6);
+		}
+
+		// Discriminating negative: flipper_rubber's elasticity and friction
+		// are NOT the plain VPX default's -- a regression that accidentally
+		// resolved the flipper's material through the generic
+		// `resolveMaterial()`/`materials.default` path instead of the
+		// deliberate `TUNING.materials.flipper_rubber` constant would still
+		// call the three setters (passing the calls-count checks above) but
+		// with the WRONG numbers, which this catches.
+		expect(rubber.elasticity.value, 'sanity: flipper_rubber and default must actually differ for this to discriminate anything').not.toBe(plain.elasticity.value);
+		expect(rubber.friction.value).not.toBe(plain.friction.value);
 	});
 });
 

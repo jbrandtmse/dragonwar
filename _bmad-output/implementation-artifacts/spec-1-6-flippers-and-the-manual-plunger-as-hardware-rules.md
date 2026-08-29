@@ -2,9 +2,9 @@
 title: 'Story 1.6: Flippers and the manual plunger as hardware rules'
 type: 'feature'
 created: '2026-08-28'
-status: 'in-progress'
-baseline_revision: '83add20f249d3179b707247a43def3a1da5b7bbc'
-baseline_commit: '800639036077650abe4452ef59244ab8ed69106b'
+status: 'done'
+baseline_revision: '1586cb8a329feec349327d2d5646b86842e1269e'
+baseline_commit: '1586cb8a329feec349327d2d5646b86842e1269e'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -385,15 +385,15 @@ regenerated: the flipper's pivot, bat length and material come from the **alread
 
 **Rework — iteration 3 (added by the lead 2026-08-29 after the AC 2 amendment):**
 
-- [ ] **26. [Amendment] `test/flipper-mover.test.ts` (or a sibling) — pin AD-5's same-tick ordering with a test that can fail.** This is the criterion's own requirement, not diligence: the test MUST go red when `machine.ts`'s two `applyFrame` calls are moved to run after `physics.step()`.
-  - [ ] (a) Assert the coil is energised inside tick *t*'s own physics step with `RulesStepResult.commands` empty, and that the angle has moved by tick *t+1*. Do NOT assert an angle change AT tick *t* — that is impossible with the verbatim port and is exactly what this amendment removed. `test/flipper-mover.test.ts:40-46` currently *explains* this in a comment; replace the comment with an assertion.
-  - [ ] (b) **Demonstrate the red.** Apply the mutation (move both `applyFrame` calls below `physics.step()` in `src/sim/physics/machine.ts`), run the suite, confirm THIS test fails, then restore. Record in `## Verification` what you mutated and what failed. A test nobody has seen fail does not satisfy this criterion.
-  - [ ] (c) Reach the ordering through a real seam — `createMachine()`/`createFlipperMechanics()` or `createLoop()` — not by inspecting source text. `FlipperMechanismState` carries only `angleDeg` and `angularVelDegPerSec`, so the observable is the solenoid/torque state or the *t+1* angle, not a *t* angle.
+- [x] **26. [Amendment] `test/flipper-mover.test.ts` (or a sibling) — pin AD-5's same-tick ordering with a test that can fail.** This is the criterion's own requirement, not diligence: the test MUST go red when `machine.ts`'s two `applyFrame` calls are moved to run after `physics.step()`.
+  - [x] (a) Assert the coil is energised inside tick *t*'s own physics step with `RulesStepResult.commands` empty, and that the angle has moved by tick *t+1*. Do NOT assert an angle change AT tick *t* — that is impossible with the verbatim port and is exactly what this amendment removed. `test/flipper-mover.test.ts:40-46` currently *explains* this in a comment; replace the comment with an assertion.
+  - [x] (b) **Demonstrate the red.** Apply the mutation (move both `applyFrame` calls below `physics.step()` in `src/sim/physics/machine.ts`), run the suite, confirm THIS test fails, then restore. Record in `## Verification` what you mutated and what failed. A test nobody has seen fail does not satisfy this criterion.
+  - [x] (c) Reach the ordering through a real seam — `createMachine()`/`createFlipperMechanics()` or `createLoop()` — not by inspecting source text. `FlipperMechanismState` carries only `angleDeg` and `angularVelDegPerSec`, so the observable is the solenoid/torque state or the *t+1* angle, not a *t* angle.
 
-- [ ] **27. [Fix Pack] Close the three verification gaps the code review returned.** All three are the same vacuity class the amendment is about; each needs a demonstrated red, recorded in `## Verification`.
-  - [ ] (a) The flipper's collision material is entirely unverified — deleting `flippers.ts`'s three material calls leaves the suite green, and the comment claiming it is pinned elsewhere is false. Pin it, delete the comment's claim, and demonstrate the red by removing one material assignment.
-  - [ ] (b) `angularVelDegPerSec` is only ever asserted as `0`, so a 100x unit error ships green. Assert it at a non-default value during a stroke; demonstrate the red by scaling the value.
-  - [ ] (c) `addBox()` / `outwardTriangle()` lost their only coverage when the winding regression guard was deleted — the two flippers were the only box-shaped nodes in the committed document. Restore coverage; demonstrate the red by inverting a winding.
+- [x] **27. [Fix Pack] Close the three verification gaps the code review returned.** All three are the same vacuity class the amendment is about; each needs a demonstrated red, recorded in `## Verification`.
+  - [x] (a) The flipper's collision material is entirely unverified — deleting `flippers.ts`'s three material calls leaves the suite green, and the comment claiming it is pinned elsewhere is false. Pin it, delete the comment's claim, and demonstrate the red by removing one material assignment.
+  - [x] (b) `angularVelDegPerSec` is only ever asserted as `0`, so a 100x unit error ships green. Assert it at a non-default value during a stroke; demonstrate the red by scaling the value.
+  - [x] (c) `addBox()` / `outwardTriangle()` lost their only coverage when the winding regression guard was deleted — the two flippers were the only box-shaped nodes in the committed document. Restore coverage; demonstrate the red by inverting a winding.
 
 **Acceptance Criteria:**
 
@@ -644,6 +644,23 @@ getters (inaccurate wording - both return freshly-built objects, which is the su
   - `low` `patch` The describe-block header comment (13 lines) restated the cradle amendment's rationale rather than briefly pointing at it, exceeding task 25(c)'s "one or two line comment ... rather than restating the argument" -- trimmed to 4 lines pointing at the Design Notes and `epics.md`'s change log.
   - `low` `patch` An escaped apostrophe inside a single-quoted string in test (b)'s discriminating-negative message -- switched to a double-quoted string.
 - Rejected as noise or not-a-defect (10): a claim that `tick`/`i` are redundant counters in test (b) (false on inspection -- `tick` is deliberately offset by the 60-tick raise phase, not equal to `i`); `review_loop_iteration` "staleness" (the field counts `bad_spec` loopbacks only, and this pass had none, so 0 is correct); `baseline_revision`/`baseline_commit` carrying the same value (a pre-existing spec-template convention predating this diff, out of scope for the rework); the Acceptance Criteria section not appearing changed in this diff (it was already amended in the baseline commit `83add20`, confirmed by reading the current spec); the negative test's construction not being a literal replay of "the same assertion" against an "identical harness" (the operative intent -- proving release does not converge to end-of-stroke -- is met, and is now closer to literal after the patch above); the probe's "harness artifact" caveat not being carried into test (b)'s "left the bat" wording (the assertion only claims positional/speed departure, which is accurate regardless of trough absence, and does not claim draining); test (a)'s "exactly like (b)" comment wording (cosmetic, both setups keep a ball in contact with the raised bat for the claim's duration); unquantified AC prose versus concrete test thresholds (expected under this project's do-not-invent-a-number discipline -- thresholds are measured and cited, not invented); frontmatter bookkeeping (status transition, `baseline_revision` bump) falling outside the three rework checklist bullets (expected orchestration behavior mandated by the build-auto workflow itself); the 35 mm first-second drift tolerance exceeding the ball's own diameter (an explicit, documented margin over a ~27.5 mm measurement, not a realistic failure).
+
+### 2026-08-29 -- Review pass (Rework, iteration 3: tasks 26/27)
+
+Four layers ran in parallel over the diff since `baseline_revision` `1586cb8` -- the three test files task 26/27 added to (`test/flipper-mover.test.ts`, `test/flipper-collision.test.ts`, `test/collision-loader.test.ts`): Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment Auditor. Verification Gap returned "No verification gaps found." Intent Alignment Auditor's brief is strictly descriptive (no prescribed findings); its observations were reviewed and none rose to an actionable defect beyond what Blind Hunter/Edge Case Hunter already found independently.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 1, low 4)
+- defer: 0
+- reject: 6
+- addressed_findings:
+  - `medium` `patch` The new Fix Pack 27c test (`test/collision-loader.test.ts`) left `vi.spyOn(HitTriangle.prototype, 'collide')` restored only as a bare trailing statement after two `expect()` calls (found independently by both Blind Hunter and Edge Case Hunter) -- if either assertion threw, the spy would leak onto the SHARED `HitTriangle.prototype` and corrupt every later test in the file. Wrapped the loop and both assertions in `try { ... } finally { collideSpy.mockRestore(); }`, matching the discipline the sibling Fix Pack 27a test already used.
+  - `low` `patch` The new Fix Pack 27c test hardcoded the ball radius as `26.99 / 2 / 0.53975` although `test/collision-loader.test.ts` already imports `TABLE` and `MM_PER_VU` for exactly this purpose (and the sibling Fix Pack 27a/27b file derives it the same way) -- replaced with `TABLE.reference.ballMm / 2 / MM_PER_VU`.
+  - `low` `patch` The new `angularVelDegPerSec` test (Fix Pack 27b) was labelled only "Task 27 (Fix Pack, item b)" in its comment, unlike 27a/27c which both carry an explicit "(Fix Pack 27a/27c)" label in their describe/comment text -- added the matching "(Fix Pack 27b)" label to the comment and the test name.
+  - `low` `patch` `test/flipper-mover.test.ts`'s file-header comment (which enumerates the I/O-matrix rows this file covers) was not updated for the two rows this rework added (task 26's same-tick-ordering pin, Fix Pack 27b's mid-stroke velocity check) -- appended a paragraph naming both.
+  - `low` `patch` The new Fix Pack 27b test derives its expected velocity as `deltaPerTick * TICK_HZ` while `flippers.ts`'s own conversion is `radToDeg(angleSpeed) / DEFAULT_STEPTIME_S` -- two visibly different constants (1000 vs. 1/0.01=100) with no comment explaining why they should agree, which both the Blind Hunter and the Intent Alignment Auditor flagged and which I independently re-verified numerically converges (not vacuous: `toBeCloseTo(x, 0)`'s 0.5 tolerance at the ~4-10 deg/s magnitudes involved would still catch a real 10x conversion error) -- added a comment naming the reconciling mechanism (`PHYS_FACTOR`, one tick = one `physics.step()` call) so a future reader does not have to re-derive it from scratch.
+- Rejected as noise or not-a-defect (6): the new Fix Pack 27c test duplicating ~12 lines of ball-firing setup from the pre-existing "OLD static-box face location" test immediately above it (cosmetic DRY concern, no functional risk, matches an existing duplication pattern already present elsewhere in this file); the new winding guard exercising only the synthetic box's +Y face rather than all six `addBox()` faces (restores the SAME single-face coverage the superseded pre-Story-1.6 guard provided -- task 27(c) says "restore coverage," not "expand coverage," and 6-face coverage is unrequested hardening with no realistic reachable regression this diff introduces); the new mid-stroke `angularVelDegPerSec` test covering only the left flipper, not the right (the conversion is shared, non-branching code exercised for both sides elsewhere in the same file's "the right flipper mirrors the left" test -- a side-specific regression in shared code is theoretical, not realistic); the Fix Pack 27a material-spy assertion message "must be called once per flipper side" not proving per-instance attribution (the test still discriminates the real defect classes named in its own rationale -- exactly 2 calls with the correct material values -- so the message is imprecise but not a functional gap; matches this spec's own prior-pass precedent of rejecting wording-only nitpicks); duplicated boilerplate and an identical assertion-message string between the pre-existing "same tick" test and the new task 26 test in `flipper-mover.test.ts` (cosmetic, same rationale as the box-test duplication above); the synthetic node Fix Pack 27c adds carrying no `physMaterial` (immaterial to the winding check itself, which is what the guard actually verifies).
 
 ## Design Notes
 
@@ -1008,71 +1025,199 @@ story replaces.
   no new console error or warning was introduced. The preview server was stopped afterward; `dist/` is
   gitignored, so this pass left no footprint changes.
 
+### Rework, iteration 3 (2026-08-29): tasks 26 and 27, with demonstrated reds
+
+This pass closed the two outstanding checklist items from the code review's HIGH finding and Fix Pack: task
+26 (an AD-5 same-tick-ordering test that can fail) and task 27 (the three verification-gap fixes). Every new
+test below was written, confirmed green against the unmutated code, then a targeted mutation was applied by
+hand, the specific test file re-run to confirm THAT test (and only that class of test) went red, and the
+mutation was reverted and re-verified clean (`git diff --stat` on the mutated source file showed no residual
+change after each revert). All four mutations are recorded here as required by tasks 26(b) and 27's own
+"demonstrated red" requirement.
+
+**Task 26 — `test/flipper-mover.test.ts`, new test "AD-5: the mover is UNCHANGED at the press tick t itself,
+but has ALREADY moved by tick t+1 -- no extra tick of latency".** Reached through the real `createLoop()`
+(task 26(c)'s required real seam), asserting `RulesStepResult.commands` is empty and
+`angleDeg` is unchanged AT the press tick, then asserting it has moved by the very next tick with no gap.
+This is strictly tighter than the pre-existing "movedByTick < 5" test (which a one-tick-late hardware rule
+also satisfies, since t+2 is still "within a handful of ticks").
+- **Mutation:** in `src/sim/physics/machine.ts`'s `step()`, moved the two `flipperMechanics.applyFrame(...)` /
+  `plungerMechanics.applyFrame(...)` calls from immediately before `physics.step()` to immediately after it
+  (the exact rework the AC 2 amendment names: "the hardware rule genuinely one tick late").
+- **Observed red:** `pnpm exec vitest run test/flipper-mover.test.ts` — the new test failed with
+  `expected 141 not to be 141` (the angle at tick *t+1* was still the rest angle, one tick later than
+  correct), while every other test in the file (including the pre-existing "movedByTick < 5" test) stayed
+  green — confirming the new test is what actually pins the ordering the old one did not.
+- Reverted; `git diff --stat src/sim/physics/machine.ts` showed no change afterward; full file re-run green
+  (9/9).
+
+**Task 27(a) — `test/flipper-collision.test.ts`, new describe block "TUNING.materials.flipper_rubber actually
+reaches both FlipperHit shapes (Fix Pack 27a)".** Spies directly on `FlipperHit.prototype.setElasticity` /
+`setFriction` / `setScatter` around a real `buildFlipperHarness()` call (which builds both sides through
+`createFlipperMechanics()`), asserts each was called exactly twice (once per side) with `flipper_rubber`'s
+exact values, and a discriminating negative that `flipper_rubber`'s elasticity/friction differ from
+`materials.default`'s. (One implementation snag surfaced and was fixed along the way: `mock.calls` must be
+read out *before* `mockRestore()`, which clears recorded calls the same way `mockClear()`/`mockReset()` do —
+the first draft read them after and saw 0 calls with the CORRECT code, which would have been a false
+positive in the wrong direction; fixed by capturing the arrays inside the `try` block.) The misleading
+comment in `test/collision-loader.test.ts` (which claimed this assertion already existed here, when it did
+not) was corrected to describe the real gap and point at this new block.
+- **Mutation:** commented out `hit.setElasticity(...)` in `src/sim/physics/flippers.ts`'s `buildSideRig()`.
+- **Observed red:** `pnpm exec vitest run test/flipper-collision.test.ts` — `setElasticity() must be called
+  once per flipper side: expected [] to have a length of 2 but got +0`.
+- Reverted; `git diff --stat` clean; full file re-run green (8/8).
+
+**Task 27(b) — `test/flipper-mover.test.ts`, new test "AD-5/AC-3: angularVelDegPerSec mid-stroke matches the
+INDEPENDENTLY measured per-tick change in angleDeg, not a stuck zero".** Rather than a second hardcoded magic
+number (which risks encoding the same bug it is meant to catch), this test derives an expected angular
+velocity from the SAME snapshot's `angleDeg` tick-over-tick delta times `TICK_HZ`, and compares it to the
+reported `angularVelDegPerSec`. The sampling window (ticks 5-25 after the press) was chosen empirically: an
+earlier draft sampled through tick 35 and hit a genuine, ported mechanical transient — the bat overshoots the
+end-of-stroke angle by several degrees and bounces before damping to rest (measured: crosses 90 deg around
+tick 39, peaks near 94.2 deg by tick 45), where a single tick's average delta and the mover's instantaneous
+reported velocity legitimately diverge (not a bug — the same reason the pre-existing "5 s hold" test above it
+waits until tick 200 before asserting stability). The final window is comfortably clear of both that
+transient and the initial ramp-up.
+- **Mutation:** in `src/sim/physics/flippers.ts`'s `state` getter, multiplied the reported
+  `angularVelDegPerSec` by an arbitrary `-0.6737` scale factor.
+- **Observed red:** `pnpm exec vitest run test/flipper-mover.test.ts` — two tests failed: the new test itself
+  (`angularVelDegPerSec (105.34) must match ... (-156.36)`) and, incidentally, the pre-existing "5 s hold"
+  test's `toBe(0)` check (`expected -0 to be 0` under strict equality) — confirming the mutation was
+  detectable and that the new test adds independent coverage beyond what already existed.
+- Reverted; `git diff --stat` clean; full file re-run green (9/9).
+
+**Task 27(c) — `test/collision-loader.test.ts`, new describe block "addBox()/outwardTriangle() winding
+regression guard (Fix Pack 27c)".** Re-points the superseded col_flipper_l box-orientation guard at a
+SYNTHETIC box node (added via the existing `loadMutableCommittedDoc()` seam, at the exact old col_flipper_l
+footprint — now open space per the "flippers are surfaced" describe block's own test), firing the same
+trajectory the superseded guard used. **A first draft asserted only `toHaveBeenCalled()` and did NOT
+discriminate** — measured directly: inverting the winding still produces exactly one `collide()` call (the
+triangle's plane is unchanged; only the vertex order is, so the very first hit still registers), so a bare
+"was it called" check passes either way. The real, measured divergence is the CALL COUNT over the same run:
+correct winding produces one clean bounce; inverted winding pushes the ball's post-impact velocity back into
+the (now inward-facing) surface, so it re-collides on nearly every remaining step. The test was strengthened
+to assert `collideSpy.mock.calls.length` stays under a generous ceiling (20), which the correct code clears
+easily (1 call) and the mutation blows through by an order of magnitude.
+- **Mutation:** in `src/sim/physics/loader/index.ts`'s `outwardTriangle()`, swapped the ternary's two return
+  arms (`dot >= 0 ? [a, c, b] : [a, b, c]` instead of `[a, b, c] : [a, c, b]`), inverting every face's
+  winding.
+- **Observed red (both draft and final assertion measured separately):** the bare `toHaveBeenCalled()` form
+  stayed GREEN under the mutation (1 call either way — this is why it was replaced); the call-count form
+  failed with `expected 355 to be less than 20`.
+- Reverted; `git diff --stat` clean; full file re-run green (33/33).
+
+**Full verification run after all four fixes (with every mutation reverted):**
+- `git rev-parse --show-toplevel` — `C:/git/dragonwar/.worktrees/epic-1`, confirmed before starting.
+- `pnpm typecheck` — exit 0 (all three tsconfigs).
+- `pnpm lint:boundaries` — exit 0, "70 .ts file(s) under src/ cruised, no violations".
+- `pnpm check:headers` — exit 0, empty stderr.
+- `pnpm check:attributions` — exit 0.
+- `pnpm test` — exit 0, **594 passed, 21 skipped** (up from the 590/21 this rework started from — net +4
+  tests: task 26's ordering test, task 27(a)'s material spy test, 27(b)'s angular-velocity test, and 27(c)'s
+  winding-count test; the 21 skips are unchanged, the pre-existing Blender-gated ones in
+  `test/export-py.test.ts`).
+- `pnpm build` — exit 0.
+- `pnpm check:dist` — OK, 2 HTML pages, 141 files.
+- `pnpm check:size` — OK, 0.819 MB against a 2.750 MB budget.
+- `git status --short` — entries only under `test/**` (three files) and this spec file (under
+  `_bmad-output/implementation-artifacts/`, not a forbidden path); nothing under `src/**`, `public/**`,
+  `assets/**`, `ATTRIBUTIONS.md`, `docs/**` or `_bmad-output/planning-artifacts/**` — confirming every
+  temporary mutation above was fully reverted and the net diff is test-only, as this story's own footprint
+  rule requires.
+
+**Residual risk:** none rising to `intent_gap`/`bad_spec`/`defer`. Task 27(b)'s sampling window (ticks 5-25)
+is geometry-dependent (tied to this epic's placeholder collision document's specific ramp timing) and would
+need re-measuring if the flipper tuning or geometry changes in a later story; this is the same category of
+risk the file's other measured-angle constants (e.g. `END_OF_STROKE_ANGLE_DEG = 90`) already carry, not a new
+one. `status` is left `in-progress` in this file's frontmatter rather than advanced to `done`/`in-review`,
+since the code-review layers (`1-6-flippers-plunger-cr-1` and its four review sub-agents) that gated the
+previous HIGH finding are the natural next step to re-run before the story closes, and the orchestrator owns
+that dispatch, not this implement pass.
+
 ## Auto Run Result
 
-> **REPLACES the 2026-08-28 SUPERSEDED entry below this line's predecessor.** That run's blocking condition was resolved by the 2026-08-29 AC amendment (see `## Spec Change Log` and `## Design Notes` → "The cradle amendment"). This entry records the 2026-08-29 re-dispatch, which completed task 25 (the rework) and closed the story.
+> **REPLACES the 2026-08-29 SUPERSEDED entry below this line's predecessor.** That run closed "Rework, iteration 2" (task 25, the cradle-AC amendment). This entry records the 2026-08-29 re-dispatch that completed "Rework, iteration 3" (tasks 26 and 27) and closes the story again.
 
 Status: done
 Blocking condition: none
 
-**Summary of implemented change:** This run's only outstanding work was task 25 -- the "Rework, iteration 2"
-added after the user-authorized cradle-AC amendment. Tasks 1-24 (the full flipper-mover/flipper-hit port, the
-manual plunger, `host/input`, and their tests) were already implemented, verified and committed in an earlier
-revision (`a0aebdf`), which the lead's bookkeeping commit (`83add20`) then amended on top of. This run rewrote
-`test/flipper-collision.test.ts`'s cradle test into the AMENDED "Flipper held" row's two separate assertions,
-each with a mandatory discriminating negative, deleted the previous run's rejected loosened test, and (during
-review) patched the new tests to close a self-referential comparison gap the review layers found.
+**Summary of implemented change:** This run's outstanding work was tasks 26 and 27 -- the "Rework, iteration 3"
+added after the AC 2 amendment. Tasks 1-25 (the full flipper-mover/flipper-hit port, the manual plunger,
+`host/input`, and the amended cradle test) were already implemented, verified and committed. This run added:
+(26) a test that pins AD-5's same-tick ordering by mutation -- it fails when `machine.ts`'s two `applyFrame()`
+calls are moved to after `physics.step()`, and does NOT assert an angle change at tick *t* itself (impossible
+with the verbatim port); and (27) the code review's three-item Fix Pack -- (a) the flipper's collision
+material was unverified, (b) `angularVelDegPerSec` was only ever asserted at `0`, (c) `addBox()`/
+`outwardTriangle()`'s only coverage (the two flipper nodes) was lost when they were diverted to
+`loadFlipper()`. All four required a demonstrated red (mutate -> run -> observe failure -> revert), recorded
+under `## Verification` → "Rework, iteration 3". A follow-up review pass then found and patched five further
+issues in those same new tests (see `## Review Triage Log` → "Rework, iteration 3" for the full list).
 
 **Files changed, with one-line descriptions:**
-- `test/flipper-collision.test.ts` -- rewrote the cradle test per task 25: (a) the bat reaches and holds its
-  end-of-stroke angle, unmoving, for the full 5000-tick (5 s) hold, with a discriminating negative (released
-  key does not converge to that angle); (b) the ball stays on the bat through the first 1000-tick (1 s) bound,
-  with a discriminating negative pinned in both directions (still on the bat at 1 s, measurably departed by
-  5 s). Patched during review: both (a) and its negative now compare against the true committed end-of-stroke
-  angle (90 deg, independently pinned elsewhere in the same file and in `test/flipper-mover.test.ts:83`)
-  instead of a self-derived value; the negative test's redundant, asymmetric 200-tick no-ball reference
-  harness was removed; the describe-block header comment was trimmed to comply with task 25(c)'s "one or two
-  line comment" instruction; one string-quoting nit was fixed.
+- `test/flipper-mover.test.ts` -- added the task 26 same-tick-ordering test (asserts `RulesStepResult.commands`
+  empty and `angleDeg` unchanged at tick *t*, then changed by tick *t+1*, reached through the real
+  `createLoop()`) and the Fix Pack 27b test (a genuinely mid-stroke, non-zero `angularVelDegPerSec` checked
+  against an independently derived tick-over-tick `angleDeg` delta, not a second hardcoded number). Patched
+  during review: added a "(Fix Pack 27b)" label to the new velocity test's name/comment for consistency with
+  27a/27c, a comment explaining why the test's `TICK_HZ`-based derivation and `flippers.ts`'s own
+  `DEFAULT_STEPTIME_S`-based conversion agree, and updated the file's header comment to name both new rows.
+- `test/flipper-collision.test.ts` -- added the Fix Pack 27a describe block, spying directly on
+  `FlipperHit.prototype.setElasticity`/`setFriction`/`setScatter` around a real `createFlipperMechanics()`
+  build, asserting both sides receive `TUNING.materials.flipper_rubber`'s exact values with a discriminating
+  negative against `materials.default`.
+- `test/collision-loader.test.ts` -- added the Fix Pack 27c describe block, re-pointing the lost
+  `addBox()`/`outwardTriangle()` winding-regression guard at a synthetic box node (via the existing
+  `loadMutableCommittedDoc()` seam, at the old `col_flipper_l` footprint) and asserting a `collide()`
+  call-count ceiling (a bare "was it called" check does not discriminate an inverted winding, measured during
+  this pass). Also corrected a stale comment that falsely claimed the flipper's material was already pinned in
+  `test/flipper-collision.test.ts`. Patched during review: wrapped the new test's assertions in `try/finally`
+  so the shared `HitTriangle.prototype.collide` spy is restored even if an assertion throws, and replaced a
+  hardcoded ball-radius magic number with the `TABLE.reference.ballMm`/`MM_PER_VU` constants already imported
+  and used elsewhere in the file.
 - `_bmad-output/implementation-artifacts/spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md` --
-  `baseline_revision`/`baseline_commit` captured as `83add20f249d3179b707247a43def3a1da5b7bbc` (the HEAD this
-  run started from) at implement start; task 25's three checklist items marked done; `status` progressed
-  `in-progress` → `in-review` → `done`; a `## Review Triage Log` entry appended; this `## Auto Run Result`
-  section rewritten.
+  `baseline_revision`/`baseline_commit` captured as `1586cb8a329feec349327d2d5646b86842e1269e` (the HEAD this
+  run started from) at implement start; tasks 26 and 27(a-c) marked done; a `## Verification` subsection
+  recording all four demonstrated-red mutations; `status` progressed `in-progress` -> `in-review` -> `done`;
+  a `## Review Triage Log` entry appended; this `## Auto Run Result` section rewritten.
 
 **Review findings breakdown:** 4 review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent
-Alignment Auditor) ran in parallel over the diff since `83add20`. 5 findings were classified `patch` and fixed
-in this pass (1 high, 1 medium, 3 low -- see `## Review Triage Log` for the full text of each). 0 findings
-were classified `intent_gap`, `bad_spec` or `defer`. 10 findings were classified `reject` as noise or as not
-actually defects on closer reading (one was factually incorrect on inspection; several were the review layers'
-diff-only view missing context -- e.g. the Acceptance Criteria section, already amended in the baseline commit
-this diff started from -- that this run, with full spec access, could resolve directly).
+Alignment Auditor) ran in parallel over the diff since `1586cb8` (the three modified test files). Verification
+Gap returned no findings; Intent Alignment Auditor's brief is strictly descriptive and produced no
+independently-actionable findings. 5 findings were classified `patch` and fixed in this pass (0 high, 1
+medium, 4 low -- see `## Review Triage Log` for the full text of each). 0 findings were classified
+`intent_gap`, `bad_spec` or `defer`. 6 findings were classified `reject` as cosmetic/theoretical-hardening or
+not actual defects on closer reading (verified directly rather than taken on faith -- in particular the
+`TICK_HZ` vs. `DEFAULT_STEPTIME_S` scale-factor question was independently re-derived and confirmed
+non-vacuous before being folded into a `patch`, not simply accepted or dismissed).
 
 **Follow-up review recommendation:** `true`. This pass's `patch`-triaged findings only (never `defer`/`reject`):
-1 high, 1 medium, 3 low. A patched `high`-severity finding alone sets this `true`; the `3 x medium + 1 x low`
-score is `3x1 + 1x3 = 6`, which is `>= 5` and would have set it `true` on its own as well.
+0 high, 1 medium, 4 low. No patched `high`-severity finding exists, but the `3 x medium + 1 x low` score is
+`3x1 + 1x4 = 7`, which is `>= 5` and sets this `true`.
 
-**Verification performed:** All commands from `## Verification` were run twice from
-`C:/git/dragonwar/.worktrees/epic-1` (`git rev-parse --show-toplevel` confirmed match both times) -- once
-after task 25's initial delivery, once again after the review patches -- with identical outcomes both times:
-`pnpm typecheck` exit 0 (all three tsconfigs); `pnpm lint:boundaries` exit 0 (70 files, no violations);
-`pnpm check:headers` exit 0, empty stderr; `pnpm check:attributions` exit 0; `pnpm test` exit 0, **590 passed,
-21 skipped** (up from the 588/21 baseline this story started from -- net +2 tests from the rework: 1 test
-became 3; all 21 skips remain the pre-existing Blender-gated ones in `test/export-py.test.ts`, unchanged);
-`pnpm build` exit 0; `pnpm check:dist` OK (2 HTML pages, 141 files); `pnpm check:size` OK (0.819 MB against a
-2.750 MB budget); `git status --short` showed entries only under `test/**` and this spec file (under
-`_bmad-output/implementation-artifacts/`, not a forbidden path) both times. The Matrix Test Audit re-confirmed
-the amended "Flipper held" row is covered: `test/flipper-collision.test.ts`'s 7 tests all pass, including the
-new (a), (a, discriminating negative) and (b) tests, and both required discriminating negatives were verified
-to be real (the (a) negative demonstrably differs from the held case; the (b) negative pins measured departure
-by 5 s against the measured 1 s-bound hold). Every other I/O-matrix row and Acceptance Criterion from the
-earlier commits -- same-tick energise, the 30 ms tap, coil disable/enable, end-of-stroke event, struck-vs-rest
-energy, the DW-60 drain aperture, the full plunger hold/speed/clamp/parity suite, the flipper-node/DW-48 axis
-assertion, and the DW-34/DW-63 tuning and payload rows -- remain green, unaffected by this run's changes.
+**Verification performed:** All commands from `## Verification` were run three times from
+`C:/git/dragonwar/.worktrees/epic-1` (`git rev-parse --show-toplevel` confirmed match every time) -- once
+after the implementation subagent's delivery, once to independently re-verify before dispatching review, once
+more after applying the five review patches -- with identical outcomes each time: `pnpm typecheck` exit 0 (all
+three tsconfigs); `pnpm lint:boundaries` exit 0 (70 files, no violations); `pnpm check:headers` exit 0, empty
+stderr; `pnpm check:attributions` exit 0; `pnpm test` exit 0, **594 passed, 21 skipped** (up from the 590/21
+baseline this story started from -- net +4 tests: task 26's ordering test and Fix Pack 27a/27b/27c's three
+tests; all 21 skips remain the pre-existing Blender-gated ones in `test/export-py.test.ts`, unchanged); `pnpm
+build` exit 0; `pnpm check:dist` OK (2 HTML pages, 141 files); `pnpm check:size` OK (0.819 MB against a 2.750
+MB budget); `git status --short` showed entries only under `test/**` (three files) and this spec file (under
+`_bmad-output/implementation-artifacts/`, not a forbidden path) every time. The Matrix Test Audit re-confirmed
+the amended "Flipper energises on the same tick" row is covered by a test that ran and passed: task 26's new
+test in `test/flipper-mover.test.ts` was independently mutated (moving both `applyFrame()` calls in
+`machine.ts` to after `physics.step()`), observed to fail, then reverted with `git diff --stat
+src/sim/physics/machine.ts` confirming a clean tree -- the four demonstrated-red mutations and their exact
+observed failures are recorded in `## Verification` → "Rework, iteration 3". Every other I/O-matrix row and
+Acceptance Criterion from the earlier commits -- same-tick energise (within a few ticks), the 5 s hold, the
+30 ms tap, coil disable/enable, end-of-stroke event, struck-vs-rest energy, the DW-60 drain aperture, the full
+plunger hold/speed/clamp/parity suite, the flipper-node/DW-48 axis assertion, and the DW-34/DW-63 tuning and
+payload rows -- remain green, unaffected by this run's changes.
 
-**Residual risks:** None rising to `intent_gap`, `bad_spec` or `defer`. The ball-half discriminating negative
-(test (b)) relies on a harness (`buildFlipperHarness()`) that has no `bd_trough`/`createDeviceMechanics()`, so
-the large measured drift at 5 s (thousands of mm) reflects unconstrained free travel rather than a bounded
-"cradle failure" distance -- the review layers raised this, and it was rejected as a real defect because the
-assertion only claims positional/speed departure (which is accurate and real regardless of trough absence),
-never that the ball drains or is caught anywhere. The full multi-second cradle claim remains deferred to Story
-2.1 (ledger `DW-72`), which will close it on evidence against the real playfield, not by inspection here.
+**Residual risks:** None rising to `intent_gap`, `bad_spec` or `defer`. Fix Pack 27b's sampling window (ticks
+5-25) is geometry/tuning-dependent (tied to this epic's placeholder collision document's specific ramp
+timing) and would need re-measuring if the flipper tuning or geometry changes in a later story -- the same
+category of risk this file's other measured-angle constants (e.g. `END_OF_STROKE_ANGLE_DEG = 90`) already
+carry, not a new one; noted inline in the test's own comments. The full multi-second cradle claim remains
+deferred to Story 2.1 (ledger `DW-72`), unaffected by this run.

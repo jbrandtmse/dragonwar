@@ -528,6 +528,85 @@ describe('src/sim/physics/loader -- flippers are surfaced, not registered as sta
 	});
 });
 
+describe('src/sim/physics/loader -- addBox()/outwardTriangle() winding regression guard (Fix Pack 27c)', () => {
+	// Superseded (see the describe block above): the box-orientation
+	// regression guard this suite used to run used col_flipper_l's own static
+	// box face as its target, and the two flipper nodes were the ONLY
+	// box-shaped nodes in the committed document -- once Story 1.6 diverted
+	// both to loadFlipper() instead of addBox(), ~60 lines of box-geometry
+	// construction (outwardTriangle()'s winding included) lost their only
+	// executed test. Re-pointed here at a SYNTHETIC box node, added via the
+	// existing loadMutableCommittedDoc() seam rather than invented geometry:
+	// the EXACT footprint and trajectory the superseded guard used (the old
+	// col_flipper_l bbox, now open space -- see the "flippers are surfaced"
+	// describe block's own "old static-box face location" test above), so
+	// addBox()/outwardTriangle() keep real coverage and Epic 2's first
+	// box-shaped node inherits a guard instead of a silent gap.
+	//
+	// A bare `toHaveBeenCalled()` does NOT discriminate here -- measured
+	// during this fix pack: inverting the winding still produces exactly one
+	// `collide()` call (the plane itself is unchanged; only the vertex order
+	// is), so a ball fired straight at the face still registers a first hit
+	// either way. What actually diverges is the COUNT of calls over the same
+	// 300-step run: correct winding produces a single clean bounce (1 call);
+	// inverted winding pushes the ball's post-impact velocity back INTO the
+	// (now inward-facing) surface, so it re-collides on nearly every
+	// remaining step (measured: 355 calls) -- the same "many repeated
+	// `collide()` calls vs one clean bounce" signature the code review's
+	// pre-Story-1.6 guard originally caught (3164 vs 1, a different
+	// trajectory/step count, same discriminator). Demonstrated red for THIS
+	// test: inverting outwardTriangle()'s final ternary (this spec's
+	// `## Verification` records the mutation and the failure).
+	it("a ball fired at a synthetic box node's +Y face bounces cleanly off it (ONE collide() call, not dozens) -- the winding must face outward", () => {
+		const doc = loadMutableCommittedDoc();
+		doc.nodes.push({
+			name: 'col_test_synthetic_box',
+			shape: 'box',
+			bboxMm: { min: { x: 170.0, y: 57.5, z: 0.0 }, max: { x: 249.375, y: 82.5, z: 20.0 } },
+		});
+
+		const { physics } = loadCollision(doc);
+		const collideSpy = vi.spyOn(HitTriangle.prototype, 'collide');
+
+		// Review finding (Rework iteration 3): derive the radius from
+		// TABLE.reference.ballMm / MM_PER_VU like every other test in this
+		// file, rather than repeating the raw 26.99 / 0.53975 figures.
+		const data = new BallData(TABLE.reference.ballMm / 2 / MM_PER_VU, 1, 1);
+		const targetPhysics = toPhysics({ x: 210, y: 82.5, z: 10 });
+		const startPhysics = toPhysics({ x: 210, y: 150, z: 10 });
+		const dx = targetPhysics.x - startPhysics.x;
+		const dy = targetPhysics.y - startPhysics.y;
+		const len = Math.hypot(dx, dy) || 1;
+		const speed = 8;
+
+		const start = new Vertex3D(startPhysics.x, startPhysics.y, targetPhysics.z);
+		const state = new BallState('SyntheticBoxBall', start);
+		const velocity = new Vertex3D((dx / len) * speed, (dy / len) * speed, 0);
+		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
+		physics.addBall(ball);
+
+		// Review finding (Rework iteration 3): the spy on the SHARED
+		// HitTriangle.prototype must be restored even if an expect() below
+		// throws, or it leaks into every later test in this file.
+		try {
+			for (let i = 0; i < 300; i++) {
+				physics.step();
+			}
+
+			expect(collideSpy, 'a correctly-wound box face must be struck by a ball fired directly at it').toHaveBeenCalled();
+			// The discriminating half: an inverted winding still gets hit once,
+			// but then repeatedly re-collides (measured: 355 calls over this same
+			// run) instead of bouncing cleanly away. A generous ceiling, well
+			// under an order of magnitude below the measured broken count, so a
+			// correct bounce (occasionally 2-3 calls from settling/re-contact)
+			// still passes while a genuinely inverted winding still fails loudly.
+			expect(collideSpy.mock.calls.length, 'a correctly-wound face bounces the ball away cleanly -- dozens of calls means it is re-colliding against an inward-facing surface').toBeLessThan(20);
+		} finally {
+			collideSpy.mockRestore();
+		}
+	});
+});
+
 // ---------------------------------------------------------------------------
 // The loader's own defensive guards -- review findings this story's Review
 // Triage Log records as patched, but which no existing test in this suite
@@ -689,9 +768,21 @@ describe('src/sim/physics/loader -- AD-15 material tunables actually reach the b
 	// `LoadedCollision.flippers` instead (see the describe block above) and
 	// their material is applied by `sim/physics/flippers.ts`'s own
 	// `setElasticity()`/`setFriction()`/`setScatter()` calls on the
-	// `FlipperHit`, pinned in `test/flipper-collision.test.ts`. This test now
-	// covers the wall segments only -- the committed document's only
-	// remaining `applyMaterial()` callers.
+	// `FlipperHit`. This test now covers the wall segments only -- the
+	// committed document's only remaining `applyMaterial()` callers.
+	//
+	// Fix Pack 27a (code review, 2026-08-29): the flipper's own material path
+	// is a DIFFERENT call site (`flippers.ts`, not this file's `applyMaterial()`),
+	// so it needs its OWN spy assertion, not a cross-reference to one that
+	// didn't exist -- a prior revision of this comment claimed it was "pinned
+	// in test/flipper-collision.test.ts" while that file actually asserted
+	// nothing about elasticity/falloff/friction/scatter (deleting
+	// `flippers.ts`'s three setter calls left the whole suite green). That gap
+	// is now closed by `test/flipper-collision.test.ts`'s own describe block
+	// "TUNING.materials.flipper_rubber actually reaches both FlipperHit
+	// shapes (Fix Pack 27a)", which spies on `FlipperHit.prototype` directly
+	// and demonstrated red against a real hand-mutation (see this spec's
+	// `## Verification`), so the claim above is accurate now, not aspirational.
 	it('wall segments carry the materials authored in the collision document (default)', () => {
 		const doc = loadCommittedDoc();
 

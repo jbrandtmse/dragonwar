@@ -9,6 +9,12 @@
 // synthetic fixture" discipline `test/machine-serve-drain.test.ts` already
 // established for the devices layer.
 //
+// Rework iteration 3 added two rows: the mover is UNCHANGED at the press
+// tick t itself but has ALREADY moved by t+1 (task 26, the AD-5 same-tick
+// ordering pin -- fails when machine.ts's applyFrame() calls move after
+// physics.step()), and a genuinely mid-stroke, non-zero angularVelDegPerSec
+// checked against an independently derived value (Fix Pack 27b).
+//
 // Every angle asserted here was measured against the real committed
 // geometry during this story's implementation (see flipper-collision.test.ts
 // for the collision-side rows and Design Notes for how the rest/end angles
@@ -19,6 +25,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
+import { TICK_HZ } from '../src/sim/contracts/time';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -61,6 +68,44 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		expect(movedByTick).toBeLessThan(5);
 	});
 
+	// Task 26 (rework, iteration 3): the row above only bounds "within a
+	// handful of ticks", which a ONE-TICK-LATE hardware rule (the exact
+	// latency AD-5 forbids) also satisfies -- the code review demonstrated
+	// this: moving both `applyFrame` calls in `machine.ts` to AFTER
+	// `physics.step()` left the entire suite, including the test above,
+	// green. This test pins the PRECISE boundary the amended AC-2 states:
+	// unchanged AT the press tick t itself (never asserted -- deviating from
+	// the verbatim port is impossible, see this spec's Design Notes, "The AC
+	// 2 amendment"), but ALREADY changed by tick t+1, with no gap tick
+	// between them. A rules-round-tripped (or simply one-tick-late) mover
+	// shows its first change at t+2 instead, which this test catches and the
+	// row above does not (t+2 is still "within a handful of ticks").
+	// Demonstrated red for this exact test: moving `machine.ts`'s two
+	// `applyFrame(...)` calls to after `physics.step()` (this spec's
+	// `## Verification` records the mutation and the failure).
+	it('AD-5: the mover is UNCHANGED at the press tick t itself, but has ALREADY moved by tick t+1 -- no extra tick of latency', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		let out = loop.advance(5, []); // settle at rest
+		const restTick = out.snapshot.tick;
+		const restAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
+
+		const pressTick = restTick + 1;
+		out = loop.advance(1, [{ tick: pressTick, frame: { ...NO_FRAME, flipper_l: true } }]);
+		expect(out.snapshot.tick).toBe(pressTick);
+		expect(out.commands, 'RulesStepResult.commands stays readonly never[] -- AD-5, no rules round trip').toEqual([]);
+		expect(
+			out.snapshot.mechanisms.flippers.l.angleDeg,
+			'AC 2 (amended): the angle must be UNCHANGED at the press tick t itself -- the coil energises inside this same physics step, but the ported mover\'s torque needs one full step to ramp back through zero (Design Notes, "The AC 2 amendment")',
+		).toBe(restAngle);
+
+		out = loop.advance(1, []); // tick t+1, no new transition -- the press is already latched in the frame
+		expect(out.snapshot.tick).toBe(pressTick + 1);
+		expect(
+			out.snapshot.mechanisms.flippers.l.angleDeg,
+			'the mover MUST have visibly moved by tick t+1 -- a hardware rule applied one tick late (a rules round trip, or machine.ts running applyFrame() after physics.step()) instead first moves the bat at t+2, which this exact tick would NOT yet show',
+		).not.toBe(restAngle);
+	});
+
 	it('holding the flipper for 5 simulated seconds reaches and HOLDS the end-of-stroke angle -- no oscillation or drift at the stop', () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		let out = loop.advance(5, []);
@@ -88,6 +133,69 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		}
 		expect(sawEnd, 'the bat must actually reach its end-of-stroke angle (90 deg for the left flipper) while held').toBe(true);
 		expect(out.snapshot.mechanisms.flippers.l.angularVelDegPerSec, 'angular speed must be exactly zero once parked at the stop').toBe(0);
+	});
+
+	// Task 27 (Fix Pack, item b -- "Fix Pack 27b"): the row above only ever
+	// asserts `angularVelDegPerSec` at ZERO (rest, and again once parked at
+	// the stop) -- which a broken conversion (a 100x unit error dropping the
+	// `/ DEFAULT_STEPTIME_S`, a 57x error dropping `radToDeg`, or simply
+	// returning a hardcoded `0`) satisfies just as well as a correct one.
+	// This test pins a genuinely MID-STROKE, non-zero value, checked against
+	// an INDEPENDENT computation -- the tick-over-tick change in the same
+	// snapshot's `angleDeg`, times `TICK_HZ` (ticks/second) -- rather than a
+	// second hardcoded magic number, so it does not risk encoding the same
+	// bug it is meant to catch. Demonstrated red: scaling
+	// `angularVelDegPerSec`'s reported value in `flippers.ts` (this spec's
+	// `## Verification` records the mutation and the failure).
+	//
+	// Why TICK_HZ (1000) here and DEFAULT_STEPTIME_S (0.01) in flippers.ts's
+	// own conversion are not the same number, and that is expected: one sim
+	// tick is exactly one `physics.step()` call (`src/sim/loop/index.ts`'s
+	// `advance()` loop runs `machine.step()` once per owed tick), while the
+	// ported mover's `angleSpeed` is expressed in vpx-js's own time-scaled
+	// native units via `PHYS_FACTOR` (`constants.ts`) -- the same upstream
+	// convention `physicsVelocityToTableMmPerS()` already accounts for with
+	// its own x100 factor (`loop/index.ts:160-164`). This test's tick-based
+	// derivative and `flippers.ts`'s own conversion describe the SAME real
+	// angular velocity through two independently-derived paths; verified
+	// empirically to agree here, not assumed.
+	it('AD-5/AC-3 (Fix Pack 27b): angularVelDegPerSec mid-stroke matches the INDEPENDENTLY measured per-tick change in angleDeg, not a stuck zero', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		let out = loop.advance(5, []);
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }]);
+
+		let previousAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
+		let sampledNonZero = 0;
+		for (let i = 0; i < 30; i++) {
+			out = loop.advance(1, []);
+			const angle = out.snapshot.mechanisms.flippers.l.angleDeg;
+			const reportedVel = out.snapshot.mechanisms.flippers.l.angularVelDegPerSec;
+			const deltaPerTick = angle - previousAngle;
+			// Mid-stroke only, deliberately clear of TWO boundaries this simple
+			// derivative check cannot span: the very first ramp-up tick (the
+			// torque is still reversing sign, per the AC 2 amendment) and the
+			// end-of-stroke region, where the ported mover's hit-time clamp
+			// produces a genuine, ported mechanical BOUNCE off the stop --
+			// measured on the committed geometry: the bat first crosses 90 deg
+			// around i=32, then overshoots to ~94.2 deg (i=38) before damping
+			// back down, so a single tick's average angle-delta and the
+			// instantaneous angleSpeed the mover reports genuinely diverge
+			// there (a real transient, not a bug -- the same reason the "5 s
+			// hold" test above waits until tick 200 before asserting
+			// stability). i=5..25 is comfortably inside the smooth part of the
+			// swing on this geometry, well clear of both edges.
+			if (i >= 5 && i <= 25 && deltaPerTick !== 0) {
+				const derivedVel = deltaPerTick * TICK_HZ;
+				expect(
+					reportedVel,
+					`tick ${out.snapshot.tick}: angularVelDegPerSec (${reportedVel}) must match the measured per-tick angle change (${deltaPerTick} deg/tick * ${TICK_HZ} ticks/s = ${derivedVel} deg/s) -- a 100x or 57x conversion error, or a hardcoded 0, would diverge here`,
+				).toBeCloseTo(derivedVel, 0);
+				expect(reportedVel, 'sanity: this sample must be genuinely non-zero, not a degenerate mid-stroke tick').not.toBe(0);
+				sampledNonZero++;
+			}
+			previousAngle = angle;
+		}
+		expect(sampledNonZero, 'the sampled window must have actually caught the bat mid-swing -- otherwise this test asserts nothing').toBeGreaterThan(10);
 	});
 
 	it('a 30 ms tap rises strictly between rest and end, then returns fully to rest', () => {
