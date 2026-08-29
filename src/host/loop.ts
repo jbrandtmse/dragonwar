@@ -9,6 +9,14 @@
 // (`pulseCoil()`/`setCoilEnabled()`) `src/host/boot.ts` wires up for the
 // lead's manual smoke.
 //
+// Story 1.8: `onAdvance`, an OPTIONAL third constructor argument, is the
+// exact seam `src/host/dev/replay-recorder.ts` taps -- called with this
+// frame's `elapsedMs` and the `transitions` this call actually applied,
+// immediately after `loop.advance()` returns (this file's own header line
+// this comment replaces: "record and play attached at src/host/loop.ts").
+// Never called by anything else; a caller that passes none gets the exact
+// same behaviour as before this story.
+//
 // `host/**` never imports `sim/physics` or `sim/rules` directly (AD-16) --
 // this file talks only to `sim/loop`'s `createLoop()` factory (which
 // internally calls `loadCollision()`) and `sim/contracts/time.ts`'s
@@ -29,6 +37,7 @@ import { createLoop } from '../sim/loop';
 import { createKeyboardInput, type KeyboardEventTarget } from './input';
 import { msToTicksExact } from '../sim/contracts/time';
 import type { CoilName, FrameOutput } from '../sim/table/names';
+import type { InputTransition } from '../sim/contracts/input';
 
 export interface HostLoop {
 	start(): void;
@@ -44,7 +53,11 @@ export interface HostLoop {
  * `onFrame` is called once per animation frame with that frame's
  * `FrameOutput` (possibly carrying zero steps, per AD-4).
  */
-export function createHostLoop(collisionDoc: unknown, onFrame: (output: FrameOutput) => void): HostLoop {
+export function createHostLoop(
+	collisionDoc: unknown,
+	onFrame: (output: FrameOutput) => void,
+	onAdvance?: (elapsedMs: number, transitions: readonly InputTransition[]) => void,
+): HostLoop {
 	const loop = createLoop({ collisionDoc });
 
 	let rafHandle: number | null = null;
@@ -88,6 +101,18 @@ export function createHostLoop(collisionDoc: unknown, onFrame: (output: FrameOut
 			// The new origin, for events arriving before the NEXT frame.
 			originMs = nowMs;
 			originTick = output.snapshot.tick;
+			try {
+				// Review finding 2026-08-29: onAdvance is a dev-only recording tap
+				// (replayRecorder.recordTransitions), not "the simulation or
+				// presentation" this function's own catch block below is scoped
+				// to -- a throw from it must not have the power to stop live
+				// gameplay. Isolated in its own try/catch, still called before
+				// onFrame() (see this file's header comment for why).
+				onAdvance?.(elapsedMs, transitions);
+			} catch (onAdvanceError) {
+				// eslint-disable-next-line no-console
+				console.error('src/host/loop.ts: onAdvance (dev-only recording tap) threw; continuing the loop unaffected:', onAdvanceError);
+			}
 			onFrame(output);
 		} catch (error) {
 			// A throw out of the simulation or presentation must not leave a

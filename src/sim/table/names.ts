@@ -9,16 +9,20 @@
 // seam value instead of re-instantiating the generic itself.
 
 import { TABLE } from './dragonwar';
+import type { ResolvedTuning } from './tuning';
 import type {
 	CoilCommand as ContractsCoilCommand,
 	ContactEvent as ContractsContactEvent,
 	FlasherCommand as ContractsFlasherCommand,
 	FrameOutput as ContractsFrameOutput,
+	GameStart as ContractsGameStart,
 	GameState as ContractsGameState,
 	GiCommand as ContractsGiCommand,
 	LampCommand as ContractsLampCommand,
 	MachineState as ContractsMachineState,
 	MechanismsSnapshot as ContractsMechanismsSnapshot,
+	ReplayHeader as ContractsReplayHeader,
+	Replay as ContractsReplay,
 	SemanticEvent as ContractsSemanticEvent,
 	ShowCommand as ContractsShowCommand,
 	Snapshot as ContractsSnapshot,
@@ -60,3 +64,14 @@ export type Snapshot = ContractsSnapshot<BallDeviceName>;
 export type FrameOutput = ContractsFrameOutput<BallDeviceName, DeviceName, LampName, GiChannel, FlasherName, ShowName>;
 export type MachineState = ContractsMachineState<BallDeviceName>;
 export type GameState = ContractsGameState<BallDeviceName>;
+
+// Story 1.8: `sim/contracts/replay.ts:26-28` claims this file binds
+// `GameStart`/`ReplayHeader`'s `TTuning` generic to the resolved tuning
+// shape -- true now, previously an unfulfilled claim (grep was empty; this
+// story's Code Map, "The replay surface to build on"). Bound to
+// `ResolvedTuning` (`sim/table/tuning.ts`'s `resolveTuning()` return type),
+// the same table-free generic-parameterisation pattern every other bound
+// alias above already follows.
+export type GameStart = ContractsGameStart<ResolvedTuning>;
+export type ReplayHeader = ContractsReplayHeader<ResolvedTuning>;
+export type Replay = ContractsReplay<ResolvedTuning>;

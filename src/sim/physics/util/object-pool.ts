@@ -40,6 +40,15 @@
 //    like port of the *effective* behaviour, not a new suppression — a bare
 //    `console.warn` here would instead newly pollute every measurement in this
 //    story with I/O noise it never had upstream.
+//  - Story 1.8's sweep (DW-6, ledger; Code Map Part D items 2 and 7 — "zero
+//    test references anywhere" and "a field only ever asserted at its
+//    default"): `warned`/`skipped` were private with no reader at all,
+//    dropped from the also-private-and-unread `logger()` bookkeeping above,
+//    so the pool-exhaustion branch (`release()`, "pool.length >=
+//    MAX_POOL_SIZE") was invisible to every test in this repository. Two
+//    READONLY accessors are added below, surfacing the two counters this
+//    file already computed — no behaviour changed, nothing upstream's own
+//    logic path altered; `test/object-pool.test.ts` is the first reader.
 
 export class Pool<T> {
 
@@ -47,16 +56,26 @@ export class Pool<T> {
 
 	private readonly pool: T[];
 	private readonly poolable: IPoolable<T>;
-	private warned = false;
+	private warned_ = false;
 
 	private recycled = 0;
 	private created = 0;
 	private released = 0;
-	private skipped = 0;
+	private skipped_ = 0;
 
 	constructor(poolable: IPoolable<T>) {
 		this.pool = [];
 		this.poolable = poolable;
+	}
+
+	/** DW-6: whether `release()` has ever hit the pool-exhaustion branch (`pool.length >= MAX_POOL_SIZE`) without a subsequent `get()` clearing it. Read-only — nothing outside this class ever sets it. */
+	public get warned(): boolean {
+		return this.warned_;
+	}
+
+	/** DW-6: how many `release()` calls were dropped — either a non-claimed object (`!obj.__pool`) or the pool already at `MAX_POOL_SIZE`. Read-only, monotonically non-decreasing for the life of this pool. */
+	public get skipped(): number {
+		return this.skipped_;
 	}
 
 	public get(): T {
@@ -68,7 +87,7 @@ export class Pool<T> {
 
 		} else {                                                     // if not, instantiate.
 			if (this.pool.length < Pool.MAX_POOL_SIZE) {
-				this.warned = false;
+				this.warned_ = false;
 			}
 			this.created++;
 			obj = new this.poolable() as any;
@@ -81,13 +100,13 @@ export class Pool<T> {
 	public release(o: T): void {
 		const obj = o as any;
 		if (!obj.__pool) {
-			this.skipped++;
+			this.skipped_++;
 			return;
 		}
 		/* istanbul ignore next: not supposed to happen! */
 		if (this.pool.length >= Pool.MAX_POOL_SIZE) {
-			this.warned = true;
-			this.skipped++;
+			this.warned_ = true;
+			this.skipped_++;
 			return;
 		}
 		if (this.poolable.reset) {

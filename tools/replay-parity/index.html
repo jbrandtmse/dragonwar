@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md. -->
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<!--
+		Story 1.8: this parity page follows tools/spike-1/index.html's own
+		precedent -- the same pinned CSP the shipped app carries, grepped by
+		tools/check-dist.mjs for every emitted page. `connect-src 'self'` is
+		what the /dragonwar-goldens/* fetches below need; nothing here reaches
+		any other origin.
+	-->
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:">
+	<title>DragonWar — Replay parity harness</title>
+	<!-- External stylesheet, not inline -- see style.css's own header for why. -->
+	<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+	<h1>DragonWar — AD-15 replay parity (browser vs Node)</h1>
+	<p>
+		Replays every golden under <code>test/replays/*.golden.json</code> in THIS browser and compares the
+		<code>GameState</code>-only hash against the golden's own recorded <code>expectedGameStateHash</code> —
+		AD-15: "browser parity is asserted on <code>GameState</code> only; ball positions are asserted in Node
+		alone" (a differing <code>Math.sin</code>/<code>Math.cos</code> implementation across JS engines is the
+		one thing this harness must NOT fail on for the ball-position half, which is why that half is never
+		compared here).
+	</p>
+	<div id="result">Loading…</div>
+	<table id="results-table"></table>
+	<script type="module" src="./browser.ts"></script>
+</body>
+</html>

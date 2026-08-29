@@ -18,6 +18,7 @@
 // AD-15 solver-constants pin asserts values nothing else in this suite reads
 // by name -- both stay owned by this file.
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -281,4 +282,142 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 		// on this one -- added to the pin per this story's own task list.
 		expect(C_INTERATIONS, 'C_INTERATIONS (lib/physics/constants.ts, Flippers)').toBe(20);
 	});
+});
+
+// Story 1.8's sweep (DW-79, ledger; Code Map "Verified environment facts" --
+// "test/sim-boundary.test.ts checks headers only, never bodies ... No
+// vendored upstream copy and no checksum exists anywhere in the repo").
+//
+// RESIDUAL, STATED HONESTLY (per this file's own header discipline and the
+// spec's Design Notes): this does NOT prove byte-identity to the real
+// upstream vpx-js / vpinball sources -- no vendored upstream copy is
+// available in this repository to hash against (out of footprint), and
+// re-verifying against upstream byte-for-byte was done BY HAND during each
+// port's own story (Story 1.1's spike, Story 1.6's flipper/plunger port,
+// Story 1.7's vpinball cabinet port). What this DOES do is pin every
+// declared ported file's body against THIS pass's own verified state, so
+// any LATER edit to a port -- accidental or deliberate -- fails loudly here
+// rather than silently drifting from what was actually reviewed, and
+// requires a conscious two-step response: re-verify the new content against
+// the upstream pin named in the file's own header, then deliberately update
+// PORT_BODY_HASHES below (never routine, never silent).
+//
+// Hashed over NORMALISED line endings (the same CRLF hazard this story's
+// goldens have: `core.autocrlf=true`, measured to flip a committed file's
+// line endings between the worktree and the HEAD blob) -- a Windows
+// checkout must hash identically to a Linux CI checkout of the exact same
+// content.
+describe('src/sim/physics/** port-body freeze (DW-79): every declared ported file\'s content is pinned, normalised line endings', () => {
+	function normalizeLineEndings(text: string): string {
+		return text.replace(/\r\n/g, '\n');
+	}
+
+	function sha256Hex(text: string): string {
+		return createHash('sha256').update(text, 'utf8').digest('hex');
+	}
+
+	// AUTHORED_FILES (declared above, in the header-provenance describe
+	// block) is the ONE list this manifest excludes -- every OTHER physics
+	// file is a declared port, whichever branch (the default vpx-js branch,
+	// or the declared VPINBALL_PORTED_FILES branch): both are "ported", and
+	// DW-79's gap applies equally to both. Recomputed with
+	// tools/scripts/nothing -- this manifest was generated once, by hand,
+	// from a clean pass of this exact suite (see this describe block's own
+	// header) and is a plain data literal from here on, never re-derived at
+	// test time (a self-computed pin would be vacuous -- comparing a value
+	// against itself, the mandate's own named vacuity shape).
+	const PORT_BODY_HASHES: Readonly<Record<string, string>> = {
+		'anim-object.ts': '0e6308f212fe171d2b12ba79e50058e34b18b77a1447565696b5991812072e83',
+		'anim-slingshot.ts': '0837db71a134f7806333ae00e040822c832bdb59f8412bf9c98842eae5066c99',
+		'ball/ball-data.ts': '75963b1fd8b92283ae1e5f884dd68185d883d82f4167ead39607fea35aef6c74',
+		'ball/ball-hit.ts': '0435cce48fe0ff34d37b01c106309264794369450a0e3fb89bfbdb8390d2e39a',
+		'ball/ball-mover.ts': 'ad74a85784ed124ca630a7e495f308bd0f65a45085db976b1be61ba9cbbec239',
+		'ball/ball-state.ts': '9fea1d1f2e3e889ddabaecc8eb3abfad82f938953bf23a5b52901e6f954a8a61',
+		'ball/ball.ts': 'b90d09d5d1c536464b76cef533b49860464a93c8599a543b4314a4d4b9dad18d',
+		'cabinet/nudge-impulse.ts': '0cc794dfdd1f049560c1ef8666a0af6a9e788031a69030173406c28403fb3ce2',
+		'cabinet/oscillator.ts': '257041a9009245580213136f4ce87f7aba692500816aaff29896dde3048161ee',
+		'cabinet/plumb-bob.ts': 'f9d0884180279233fe4a71347fd62e7bcaf496802b556198c95152e4c0f90e22',
+		'collision-event.ts': '73870c1dc64533a30f0dfed8db2db22c5c39aa76a309e3d70f04ce7e1d3b11a9',
+		'collision-type.ts': '19c344da0d4aed3ab52fdb31b7e624922f0d25b9b3db3bba69e11e1bf7b3a562',
+		'constants.ts': '79f2f08c87f752a67161a3a5cbe990a3b570e8d3ad307077bf15395ad0e8df03',
+		'flipper/flipper-hit.ts': 'f4dc007980d0fadcf223eac05d81d540b99f2c31576d16b9d39f26466f91dc56',
+		'flipper/flipper-mover.ts': '966b5a2d5b450256225de649fda9b57082115d9d6d2a3465b90f8641f35f0d48',
+		'functions.ts': '13f583df279ab62f997092aaa13eea79b64601f5b103cb1a914ec5511655431f',
+		'game/event-proxy.ts': 'c33e1fd4c4196520c984120972ebc22f22ec91fe29888efd245f7650c8b43533',
+		'game/event.ts': 'c00f57466162eb16c33ba0e0abfbf9779bc46772831fa418561bbd455654aeaa',
+		'game/player-physics.ts': '38cbd0136abc17eb2e6491068ad42ba9e9cf95299193939669f8edc5a41f39e5',
+		'hit-3dpoly.ts': '8f1ac4173f08f6490c347ccde39400e39ab2b925fee45669060d1083f9d06968',
+		'hit-circle.ts': '21ef77d8e45a877d3a6b7214b0d1f883ec7e34a97df4362e29577abf0cf1b617',
+		'hit-kd-node.ts': 'd40715949946da407b8f7865823a8132b371a90f6ee316d21d3af5e7ac017fd5',
+		'hit-kd.ts': 'f4cbc1d0c87b0d76bd0b11e881fc8a9bdb25f5fc0b710030c99dafbbc9a428c3',
+		'hit-line-3d.ts': 'd1a56607a625bf406c03452fe358a6a90e85fd03168f0357c1325acaf1b6755c',
+		'hit-line-z.ts': '74fe18b6b9d316c23cc996a431d32196965340aeb4107f07ca400cc7c5f25c7b',
+		'hit-object.ts': '477d76adc6a25b9ec886bd44f0e2846df6629792501cec1c1870b5a450974168',
+		'hit-plane.ts': 'e37a695ea45052fdc267a3c44216580c056fcf5d94d7bafd9c825cc2ff6ef7b1',
+		'hit-point.ts': '64c6c0e23dc10c946bed4647cb17850cd6b3b08303068963d21c4cccee90ac3e',
+		'hit-quadtree.ts': 'beca7cf1ad55c4f5d23f6b709cf7e6de812571989fc4f4c3fe0f20af3dec7917',
+		'hit-triangle.ts': 'eb5ad6d526fea2eee6208f058f4bb3b3632a24c8e68f4be4d534f2162197e9a8',
+		'line-seg-slingshot.ts': 'a676a0e3b48bf69ef440801f855dff38597d334eb8095fe44190257a16aa8658',
+		'line-seg.ts': '42887ed246ee7627fa027baf4fa3bf429cf625f8aafeb99554b18c51e61fb95d',
+		'math/float.ts': 'cb187ce23e432e7fa49035a7b34947bc5a6efaf3b1b97c4d0125a920941ac9c3',
+		'math/frect3d.ts': 'b6a88851de4e884170c649e0331aa6856477885ba0abe26260c43880864cb244',
+		'math/functions.ts': 'f3a4adacef5bf78149be8d6c13aff3d79f25bc36b0fc67857f5af37733da6ec0',
+		'math/matrix2d.ts': '6d2ba509b8a1eeebec7ec6df7ba073114126965a20ff02047b0ea16b687f87d4',
+		'math/vertex.ts': '7d544cd26671200dae83194e8649ad1793bb1f48a1d52867d6bfed002d819774',
+		'math/vertex2d.ts': 'a143de691bf467476fe6fb153e8525ccd43bd6c9aab40d5a4554c12455902839',
+		'math/vertex3d.ts': 'acd2fb57bc370f1072065371fea48f1803ce69d9e982976bde761d3ef6207bed',
+		'mover-object.ts': 'b9bd6d5bd2c4b9ad291fb342683643872b8d0a993d45e6f5fee493b2ed4abc76',
+		'util/object-pool.ts': '28a0fddc289da1c308e64ca918164508c9c0f421b7e1ef98c479948603962d02',
+	};
+
+	const toPosixLocal = (relative: string): string => relative.split(path.sep).join('/');
+	const AUTHORED_FILES_LOCAL = new Set([
+		'loader/index.ts',
+		'switches.ts',
+		'devices.ts',
+		'machine.ts',
+		'flipper/flipper-config.ts',
+		'flippers.ts',
+		'plunger.ts',
+		'cabinet/slam.ts',
+		'cabinet/index.ts',
+	]);
+	const physicsFilesLocal = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
+	const declaredPorts = physicsFilesLocal
+		.map((f) => toPosixLocal(path.relative(PHYSICS_ROOT, f)))
+		.filter((relative) => !AUTHORED_FILES_LOCAL.has(relative));
+
+	it('sanity: this pass finds a non-trivial number of declared ported files, and the manifest is not empty, or every check below is vacuous', () => {
+		expect(declaredPorts.length).toBeGreaterThan(0);
+		expect(Object.keys(PORT_BODY_HASHES).length).toBeGreaterThan(0);
+	});
+
+	it('every declared ported file under src/sim/physics/** has a PORT_BODY_HASHES entry -- a NEW port added without one is unpinned and must fail loudly, not silently', () => {
+		const missing = declaredPorts.filter((relative) => !(relative in PORT_BODY_HASHES));
+		expect(missing, `the following declared ported file(s) have no PORT_BODY_HASHES entry: ${missing.join(', ')}`).toEqual([]);
+	});
+
+	it('every PORT_BODY_HASHES entry names a real, currently-declared ported file -- a stale entry (a file renamed, moved to AUTHORED_FILES, or deleted) must be trimmed', () => {
+		const stale = Object.keys(PORT_BODY_HASHES).filter((relative) => !declaredPorts.includes(relative));
+		expect(stale, `the following PORT_BODY_HASHES entries no longer name a real, currently-declared ported file: ${stale.join(', ')}`).toEqual([]);
+	});
+
+	for (const relative of declaredPorts) {
+		it(`${relative}: content hash (normalised line endings) matches the pinned PORT_BODY_HASHES entry`, () => {
+			const expectedHash = PORT_BODY_HASHES[relative];
+			expect(expectedHash, `no PORT_BODY_HASHES entry for "${relative}" -- see the "every declared ported file has an entry" check above`).toBeDefined();
+
+			const absolute = path.resolve(PHYSICS_ROOT, relative);
+			const raw = readFileSync(absolute, 'utf8');
+			const actualHash = sha256Hex(normalizeLineEndings(raw));
+
+			expect(
+				actualHash,
+				`"${relative}" no longer matches its pinned port-body hash. This does NOT by itself mean the port is wrong -- ` +
+				`it means the file changed since this manifest was last verified. Re-verify the new content against the ` +
+				`upstream pin named in the file's own header comment, then deliberately update PORT_BODY_HASHES in ` +
+				`test/sim-boundary.test.ts to the new hash (never routine, never silent).`,
+			).toBe(expectedHash);
+		});
+	}
 });

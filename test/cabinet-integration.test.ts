@@ -11,6 +11,7 @@ import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { createMachine } from '../src/sim/physics/machine';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
+import { SECONDS_PER_TICK } from '../src/sim/contracts/time';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -188,9 +189,33 @@ describe('sim/physics/cabinet -- AD-5 ordering: the cabinet rule runs BEFORE phy
 		const controlPos = controlOut.snapshot.balls[0]!.pos;
 		const movedOnNudgeTick = Math.hypot(nudgedPos.x - controlPos.x, nudgedPos.y - controlPos.y, nudgedPos.z - controlPos.z);
 
+		// Review finding, Story 1.8's sweep (vacuity shape 5, "toBeGreaterThan(0),
+		// no margin, no stated expectation" -- Code Map, Part D item 5): a bare
+		// `toBeGreaterThan(0)` passes for ANY nonzero divergence, however tiny,
+		// which does not discriminate "applied before the step, as designed" from
+		// "applied one substep late, mostly bled away" -- both are nonzero. The
+		// replacement derives an independent expected MAGNITUDE from the SAME
+		// paired runs' own measured velocity divergence (never the position this
+		// assertion is about, so it cannot be circular): `expected = |dv| *
+		// SECONDS_PER_TICK` estimates the distance one tick of that velocity
+		// difference would cover. `expected > 0` is asserted FIRST and is
+		// mandatory on its own (Design Notes' own instruction): without it, a
+		// future change that zeroed both the velocity divergence AND the position
+		// divergence together would pass vacuously, the same failure mode this
+		// story's sweep exists to hunt. The pin STAYS on the rising-edge tick
+		// (never moved to the impulse peak -- Code Map's own "two dead ends" note:
+		// by the peak the mutated run has also diverged, destroying the
+		// discriminator that only exists at this exact tick).
+		const nudgedVel = nudgedOut.snapshot.balls[0]!.vel;
+		const controlVel = controlOut.snapshot.balls[0]!.vel;
+		const dvMagMmPerS = Math.hypot(nudgedVel.x - controlVel.x, nudgedVel.y - controlVel.y, nudgedVel.z - controlVel.z);
+		const expectedMm = dvMagMmPerS * SECONDS_PER_TICK;
+
+		expect(expectedMm, 'sanity: the paired runs must have actually diverged in velocity this tick, or the band below is vacuously [0, 0]').toBeGreaterThan(0);
 		expect(
 			movedOnNudgeTick,
-			'the coupling must be applied BEFORE physics.step() on the nudge tick, so the ball has already been carried this tick -- a hardware rule running after the step moves it for the first time only on the NEXT tick, leaving this difference exactly 0',
-		).toBeGreaterThan(0);
+			`the coupling must be applied BEFORE physics.step() on the nudge tick, so the ball has already been carried this tick by roughly one tick's worth of the measured velocity divergence (expected ~${expectedMm.toExponential(3)} mm, got ${movedOnNudgeTick.toExponential(3)} mm) -- a hardware rule running after the step moves it for the first time only on the NEXT tick, leaving this difference exactly 0`,
+		).toBeGreaterThanOrEqual(expectedMm * 0.25);
+		expect(movedOnNudgeTick).toBeLessThanOrEqual(expectedMm * 4);
 	});
 });

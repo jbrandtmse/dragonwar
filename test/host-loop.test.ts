@@ -18,6 +18,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHostLoop } from '../src/host/loop';
 import type { FrameOutput } from '../src/sim/table/names';
+import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 
@@ -327,5 +328,57 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 		expect(afterTick, 'the frame carrying the keypress must have actually run some ticks').toBeGreaterThan(beforeTick);
 		const angleAfter = outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg;
 		expect(angleAfter, 'the left flipper must have moved once the key is held for a whole frame').not.toBe(angleBefore);
+	});
+
+	// Story 1.8 (AC 3): the third, OPTIONAL constructor argument
+	// `src/host/dev/replay-recorder.ts` taps -- called with each frame's
+	// elapsedMs and the transitions THAT CALL actually applied, immediately
+	// after advance() returns.
+	describe('createHostLoop()\'s third argument, onAdvance -- the record/play seam (AC 3)', () => {
+		it('is called once per frame with that frame\'s elapsedMs and transitions, AFTER advance() but before onFrame observes anything new', () => {
+			const calls: Array<{ elapsedMs: number; transitions: unknown }> = [];
+			const host = createHostLoop(
+				loadDoc(),
+				() => {},
+				(elapsedMs, transitions) => {
+					calls.push({ elapsedMs, transitions });
+				},
+			);
+			host.start();
+
+			raf.fire(0);
+			raf.fire(16.667);
+			expect(calls, 'onAdvance must fire once per rAF frame, same as onFrame').toHaveLength(2);
+			expect(calls[0]!.elapsedMs, 'the FIRST frame owes 0 elapsed ms (it establishes the origin)').toBe(0);
+			expect(calls[1]!.elapsedMs, 'the second frame owes the DELTA since the first, not the raw timestamp').toBeCloseTo(16.667, 5);
+		});
+
+		it('is called with the SAME transitions advance() actually received -- a synthetic keypress reaches onAdvance\'s own transitions array', () => {
+			const calls: InputTransition[][] = [];
+			const host = createHostLoop(
+				loadDoc(),
+				() => {},
+				(_elapsedMs, transitions) => {
+					calls.push([...transitions]);
+				},
+			);
+			host.start();
+			raf.fire(0);
+
+			keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: 8, preventDefault: () => {} });
+			raf.fire(16.667);
+
+			const lastCall = calls[calls.length - 1]!;
+			expect(lastCall.length, 'the frame carrying the synthetic keydown must have handed onAdvance a non-empty transitions array').toBeGreaterThan(0);
+			expect(lastCall.some((t) => t.frame.flipper_l === true), 'the transition onAdvance received must be the SAME ShiftLeft -> flipper_l transition advance() applied').toBe(true);
+		});
+
+		it('omitting onAdvance entirely (the two-argument call every OTHER test in this file uses) behaves exactly as before this story -- optional, never required', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			expect(() => raf.fire(0)).not.toThrow();
+			expect(outputs).toHaveLength(1);
+		});
 	});
 });

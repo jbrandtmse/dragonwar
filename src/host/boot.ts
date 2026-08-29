@@ -18,7 +18,10 @@ import { bootScene } from '../presentation/scene/create-engine';
 import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
 import { createHostLoop } from './loop';
+import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
 import { BUILD_SHA } from './build-info';
+import { resolveTuning } from '../sim/table/tuning';
+import { TABLE } from '../sim/table/dragonwar';
 import type { CoilName, Snapshot } from '../sim/table/names';
 
 const GLB_URL = './assets/dragonwar.glb';
@@ -58,6 +61,21 @@ declare global {
 			 * `window.__dragonwarBoot.setCoilEnabled('c_flipper_l', false)`.
 			 */
 			setCoilEnabled: (coil: CoilName, enabled: boolean) => void;
+			/**
+			 * Story 1.8 (AC 3), same dev-only/console-only terms as the two
+			 * above: `src/host/dev/replay-recorder.ts`'s record/play seam,
+			 * attached at `src/host/loop.ts`'s `onAdvance` hook. e.g.
+			 * `window.__dragonwarBoot.replayRecorder.start(1)` then, later,
+			 * `window.__dragonwarBoot.replayRecorder.save()`. `invalidate()` has
+			 * no caller in this story -- Story 1.9's dev tuning panel is the
+			 * first (a hot-apply mid-recording invalidates it).
+			 */
+			replayRecorder: {
+				start: (physicsSeed: number) => void;
+				invalidate: (reason: string) => void;
+				save: () => RecordingResult | InvalidRecordingResult;
+				readonly isRecording: boolean;
+			};
 		};
 	}
 }
@@ -141,9 +159,21 @@ async function onBegin(): Promise<void> {
 		const collisionDoc: unknown = await collisionResponse.json();
 
 		let latestSnapshot: Snapshot | undefined;
-		hostLoop = createHostLoop(collisionDoc, (output) => {
-			latestSnapshot = output.snapshot;
-		});
+		// Story 1.8 (AC 3): the recorder is constructed once per boot and
+		// tapped via createHostLoop()'s third argument -- never wired into
+		// sim/ itself (AD-1). start()/save()/invalidate() are exposed on
+		// window.__dragonwarBoot.replayRecorder below for the lead's manual
+		// smoke; nothing calls them automatically.
+		const replayRecorder = createReplayRecorder();
+		hostLoop = createHostLoop(
+			collisionDoc,
+			(output) => {
+				latestSnapshot = output.snapshot;
+			},
+			(_elapsedMs, transitions) => {
+				replayRecorder.recordTransitions(transitions);
+			},
+		);
 		hostLoop.start();
 
 		// firstFrameMs comes from bootScene()'s own result, not a fresh
@@ -164,7 +194,38 @@ async function onBegin(): Promise<void> {
 			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
 		});
 
-		window.__dragonwarBoot = { gestureMs, firstFrameMs, renderer, pulseCoil: hostLoop.pulseCoil, setCoilEnabled: hostLoop.setCoilEnabled };
+		window.__dragonwarBoot = {
+			gestureMs,
+			firstFrameMs,
+			renderer,
+			pulseCoil: hostLoop.pulseCoil,
+			setCoilEnabled: hostLoop.setCoilEnabled,
+			replayRecorder: {
+				start: (physicsSeed: number) => {
+					// A dev-console default GameStart -- Story 1.9's tuning panel is
+					// the first real caller with player-chosen adjustments; this
+					// story's own recorder seam needs SOME valid GameStart to build
+					// a header from (AC 1), so it uses the table's own reference
+					// pitch and authored defaults, matching the same values the
+					// golden-recording script under test/replays/ uses.
+					replayRecorder.start(
+						{
+							seed: 0,
+							tuning: resolveTuning(),
+							adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 3, ballsPerGame: 3, matchProbability: 0 },
+							highscores: [],
+						},
+						physicsSeed,
+						collisionDoc,
+					);
+				},
+				invalidate: (reason: string) => replayRecorder.invalidate(reason),
+				save: () => replayRecorder.save(),
+				get isRecording(): boolean {
+					return replayRecorder.isRecording;
+				},
+			},
+		};
 
 		// eslint-disable-next-line no-console
 		console.info(

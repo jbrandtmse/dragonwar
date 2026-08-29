@@ -51,7 +51,15 @@ describe('sim/loop -- N = 0 (AD-4)', () => {
 		const after = loop.advance(0.4, []);
 		expect(after.events).toEqual([]);
 		expect(after.contactEvents).toEqual([]);
-		expect(after.commands).toEqual([]);
+		// Story 1.8 sweep (Code Map Part D item 1's sibling): this is the N = 0
+		// short-circuit (`sim/loop/index.ts`'s `owedTicks === 0` branch), which
+		// hard-returns the literal `commands: []` before `rulesStep()` is ever
+		// called -- it can never fail for any implementation of the ordering
+		// this file is titled "AD-4" for, and is not evidence of AD-5's "no
+		// rules round trip" either (that claim is untouched by this test: N = 0
+		// means step() never ran at all). Kept as a plain shape check for the
+		// N = 0 contract itself, alongside the snapshot-identity assertion below.
+		expect(after.commands, 'the N = 0 short-circuit returns the literal empty array -- vacuous as any kind of AD-5 proof, kept as a shape check only').toEqual([]);
 		expect(after.snapshot).toBe(before.snapshot);
 		expect(after.snapshot.tick).toBe(before.snapshot.tick);
 	});

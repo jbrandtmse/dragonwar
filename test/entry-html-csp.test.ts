@@ -119,6 +119,49 @@ describe('src/host/boot.ts -- the commit-SHA stamp is published as a DOM attribu
 	});
 });
 
+// Review 2026-08-29 -- test/module-coverage.test.ts allowlists boot.ts as
+// unreached from any test entry point, citing "text-scanned instead by
+// test/entry-html-csp.test.ts" as the reason -- but until this block, nothing
+// here ever mentioned replayRecorder (grep -rn "replayRecorder" test/ found
+// nothing). The onAdvance callback's recordTransitions() tap and start()'s
+// GameStart construction (Story 1.8, AC 3) therefore had zero coverage
+// anywhere. Same no-DOM, source-text-pin style as the describe blocks above.
+describe('src/host/boot.ts -- the replay-recorder wiring is pinned (Story 1.8, AC 3)', () => {
+	const bootSource = readFileSync(BOOT_TS, 'utf8');
+
+	it('taps replayRecorder.recordTransitions(...) inside the onAdvance callback passed to createHostLoop', () => {
+		const hostLoopCallIndex = bootSource.indexOf('hostLoop = createHostLoop(');
+		const recordTransitionsIndex = bootSource.indexOf('replayRecorder.recordTransitions(');
+		const hostLoopCallEnd = bootSource.indexOf('\n\t\thostLoop.start();', hostLoopCallIndex);
+		expect(hostLoopCallIndex, 'the createHostLoop() call must exist').toBeGreaterThan(-1);
+		expect(recordTransitionsIndex, 'the recordTransitions() call must exist').toBeGreaterThan(-1);
+		expect(hostLoopCallEnd, 'the createHostLoop() call must end before hostLoop.start()').toBeGreaterThan(-1);
+		expect(
+			recordTransitionsIndex,
+			'recordTransitions() must be called inside the createHostLoop() call (i.e. inside its onAdvance argument), before hostLoop.start()',
+		).toBeGreaterThan(hostLoopCallIndex);
+		expect(
+			recordTransitionsIndex,
+			'recordTransitions() must be called inside the createHostLoop() call (i.e. inside its onAdvance argument), before hostLoop.start()',
+		).toBeLessThan(hostLoopCallEnd);
+	});
+
+	it('builds a GameStart via resolveTuning(...) inside the start() closure exposed on window.__dragonwarBoot.replayRecorder', () => {
+		const replayRecorderBlockIndex = bootSource.indexOf('replayRecorder: {');
+		const startClosureIndex = bootSource.indexOf('start: (physicsSeed: number) => {', replayRecorderBlockIndex);
+		const resolveTuningCallIndex = bootSource.indexOf('resolveTuning()', startClosureIndex);
+		const invalidateIndex = bootSource.indexOf('invalidate: (reason: string) =>', startClosureIndex);
+		expect(replayRecorderBlockIndex, 'window.__dragonwarBoot.replayRecorder must exist').toBeGreaterThan(-1);
+		expect(startClosureIndex, 'the start() closure must exist inside replayRecorder').toBeGreaterThan(-1);
+		expect(resolveTuningCallIndex, 'resolveTuning() must be called').toBeGreaterThan(-1);
+		expect(invalidateIndex, 'the sibling invalidate() property must exist').toBeGreaterThan(-1);
+		expect(
+			resolveTuningCallIndex,
+			'resolveTuning() must be called inside the start() closure, before its next sibling property (invalidate)',
+		).toBeLessThan(invalidateIndex);
+	});
+});
+
 describe('public/styles.css -- the [hidden] panels really hide (AD-17: never white-screen)', () => {
 	const css = readFileSync(STYLES_CSS, 'utf8');
 

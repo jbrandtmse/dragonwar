@@ -128,7 +128,21 @@ describe('sim/rules/index.ts -- step() runs on every physics step (AD-4)', () =>
 		const result = rulesStep(state(), [], 42);
 		expect(result.state.tick).toBe(42);
 		expect(result.events).toEqual([]);
-		expect(result.commands, 'AD-9: this story emits no presentation command at all').toEqual([]);
+		// Story 1.8 sweep (vacuity shape 1, Code Map Part D item 1): this used to
+		// be cited as an AD-5 "no rules round trip" proof (the lead's own Story
+		// 1.6 ADR verification logged and corrected exactly that). It is not one:
+		// `RulesStepResult.commands` is typed `readonly never[]`
+		// (src/sim/rules/index.ts), so this assertion holds for EVERY possible
+		// implementation and can never go red -- it is a type-level fact restated
+		// at runtime, not evidence of anything this test exercised. Kept only as
+		// a literal type/shape check (AD-9: no presentation command exists yet to
+		// emit). The real AD-5 pin -- "no rules round trip" as an ORDERING claim
+		// -- lives in test/hardware-rule-seam.test.ts (structural) and the four
+		// same-tick-integration tests it cross-references (behavioural):
+		// test/flipper-mover.test.ts, test/plunger.test.ts,
+		// test/cabinet-integration.test.ts, test/machine-serve-drain.test.ts's
+		// fourth-participant pin.
+		expect(result.commands, 'AD-9: this story emits no presentation command at all (vacuous by readonly never[] -- see the comment above; not an AD-5 proof)').toEqual([]);
 	});
 
 	it('only ball_launched crosses into FrameOutput.events -- device_ball_entered/_left stay internal', () => {

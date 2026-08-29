@@ -531,3 +531,47 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		expect(out.events).toContainEqual({ type: 'eject_failed', device: 'bd_trough', tick: out.snapshot.tick });
 	});
 });
+
+// Story 1.8's sweep, Part A: the FOURTH pre-physics.step() hardware rule
+// (test/hardware-rule-seam.test.ts's `deviceMechanics.applyCommands`
+// manifest row) had a structural pin (the manifest test above) but no
+// BEHAVIOURAL one -- machine.ts's own header states the ordering reason
+// ("this tick's pulses apply to the devices layer ... before
+// physics.step()"), but nothing failed if that ordering broke. The
+// observable: bd_trough's spawnBall() places a new ball at the device's
+// AUTHORED eject pose (devices.ts:238, table mm); if the eject runs BEFORE
+// physics.step() (the correct ordering), that same tick's step() integrates
+// one tick of gravity + the eject velocity into it, so the ball has already
+// moved measurably off the authored pose by the time this tick's result is
+// read. If the call moved to AFTER physics.step() (the mutation), the ball
+// sits at EXACTLY the authored pose -- physics.step() would not run again
+// until the NEXT tick. Measured this pass: ~0.29 mm
+// (troughEjectSpeedMmPerS 300 mm/s * SECONDS_PER_TICK 1e-3 s ~= 0.3 mm,
+// slightly bled by one tick of gravity/contact) vs exactly 0 mm under the
+// mutation -- matching test/machine-serve-drain.test.ts:333-347's own
+// independently-measured 293.25 mm/s at this exact tick. The 0.05 mm bound
+// sits with wide margin below the true ~0.29 mm and far above float noise.
+describe('src/sim/physics/machine.ts -- the fourth hardware rule (deviceMechanics.applyCommands), behavioural pin (AD-5, Story 1.8 sweep)', () => {
+	it('one tick after pulsing c_trough_eject, the spawned ball has already moved > 0.05 mm off its authored eject pose -- physics.step() integrated it THIS SAME tick', () => {
+		const machine = createMachine(loadDoc(), resolveTuning());
+		const result = machine.step(1, NO_FRAME, [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick: 1 }]);
+
+		expect(result.contactEvents, 'the pulse must have produced exactly one eject ContactEvent').toHaveLength(1);
+		const eject = result.contactEvents[0]!;
+		expect(eject.kind).toBe('eject');
+		expect(eject.pos, 'the eject ContactEvent must carry the authored pose').toBeDefined();
+
+		const ball = machine.balls[0];
+		expect(ball, 'the eject must have spawned a ball').toBeDefined();
+		const afterMm = fromPhysics({ x: ball!.state.pos.x, y: ball!.state.pos.y, z: ball!.state.pos.z });
+		const authoredMm = eject.pos!;
+		const movedMm = Math.hypot(afterMm.x - authoredMm.x, afterMm.y - authoredMm.y, afterMm.z - authoredMm.z);
+
+		expect(
+			movedMm,
+			`expected the ball to have moved measurably (>0.05 mm) off its authored eject pose by the end of tick 1 -- ` +
+			`deviceMechanics.applyCommands() must run BEFORE physics.step() so this SAME tick's step integrates the eject ` +
+			`velocity (AD-5). Measured displacement: ${movedMm.toFixed(6)} mm.`,
+		).toBeGreaterThan(0.05);
+	});
+});

@@ -10,16 +10,17 @@
 // canonical JSON of GameState plus ball positions quantised to 0.01 mm
 // (AD-15's own definition) -- must be identical.
 //
-// The hash function itself is implemented locally, test-only: Story 1.8
-// ("Replays, golden state hashes and CI parity") owns it as a SHIPPED,
-// production artifact; this story only needs a working implementation of
-// AD-15's stated definition to prove the property holds, not to pre-empt
-// where Story 1.8 places the reusable version.
+// Story 1.8 ("Replays, golden state hashes and CI parity") promoted the hash
+// function this test used to be local and test-only into the SHIPPED,
+// production artifact `src/sim/loop/replay.ts` -- this file now imports it
+// directly rather than carrying its own copy, so exactly one implementation
+// of AD-15's hash exists anywhere in the repository.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
+import { stateHash } from '../src/sim/loop/replay';
 import type { InputTransition } from '../src/sim/contracts/input';
 import type { GameState } from '../src/sim/table/names';
 import type { BallSnapshot } from '../src/sim/contracts/snapshot';
@@ -28,44 +29,6 @@ const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragon
 
 function loadDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
-}
-
-function canonicalize(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(canonicalize);
-	}
-	if (value !== null && typeof value === 'object') {
-		const sorted: Record<string, unknown> = {};
-		for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-			sorted[key] = canonicalize((value as Record<string, unknown>)[key]);
-		}
-		return sorted;
-	}
-	return value;
-}
-
-function quantize001Mm(mm: number): number {
-	return Math.round(mm * 100) / 100;
-}
-
-/** 32-bit FNV-1a, hex-encoded. */
-function fnv1aHex(text: string): string {
-	let hash = 0x811c9dc5;
-	for (let i = 0; i < text.length; i++) {
-		hash ^= text.charCodeAt(i);
-		hash = Math.imul(hash, 0x01000193);
-	}
-	return (hash >>> 0).toString(16);
-}
-
-/** AD-15: "FNV-1a over canonical JSON of GameState plus ball positions quantised to 0.01 mm". */
-function stateHash(game: GameState, balls: readonly BallSnapshot[]): string {
-	const quantizedBalls = balls.map((b) => ({
-		id: b.id,
-		pos: { x: quantize001Mm(b.pos.x), y: quantize001Mm(b.pos.y), z: quantize001Mm(b.pos.z) },
-	}));
-	const payload = canonicalize({ game, balls: quantizedBalls });
-	return fnv1aHex(JSON.stringify(payload));
 }
 
 /**

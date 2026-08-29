@@ -42,7 +42,13 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 
 		const transitions: InputTransition[] = [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }];
 		out = loop.advance(1, transitions); // exactly one more tick
-		expect(out.commands, 'RulesStepResult.commands stays readonly never[] -- AD-5, no rules round trip').toEqual([]);
+		// Story 1.8 sweep (Code Map Part D item 1): this message named it an
+		// AD-5 proof, but the assertion is vacuous by its own type -- `readonly
+		// never[]` can never hold anything else, so it holds for any
+		// implementation. Kept as a literal shape check; the real AD-5 ordering
+		// pin is the very next assertion in this test (angle unchanged/changed
+		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
+		expect(out.commands, 'commands stays readonly never[] (type-level fact, not an AD-5 proof by itself -- see the ordering assertions in this test)').toEqual([]);
 
 		// A loose upper bound only: the bat starts moving within a handful of
 		// ticks of the press. The PRECISE boundary AC 2 states is pinned by the
@@ -90,7 +96,13 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		const pressTick = restTick + 1;
 		out = loop.advance(1, [{ tick: pressTick, frame: { ...NO_FRAME, flipper_l: true } }]);
 		expect(out.snapshot.tick).toBe(pressTick);
-		expect(out.commands, 'RulesStepResult.commands stays readonly never[] -- AD-5, no rules round trip').toEqual([]);
+		// Story 1.8 sweep (Code Map Part D item 1): this message named it an
+		// AD-5 proof, but the assertion is vacuous by its own type -- `readonly
+		// never[]` can never hold anything else, so it holds for any
+		// implementation. Kept as a literal shape check; the real AD-5 ordering
+		// pin is the very next assertion in this test (angle unchanged/changed
+		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
+		expect(out.commands, 'commands stays readonly never[] (type-level fact, not an AD-5 proof by itself -- see the ordering assertions in this test)').toEqual([]);
 		expect(
 			out.snapshot.mechanisms.flippers.l.angleDeg,
 			'AC 2 (amended): the angle must be UNCHANGED at the press tick t itself -- the coil energises inside this same physics step, but the ported mover\'s torque needs one full step to ramp back through zero (Design Notes, "The AC 2 amendment")',

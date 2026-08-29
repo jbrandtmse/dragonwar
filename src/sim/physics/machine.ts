@@ -80,6 +80,32 @@ export interface Machine {
 }
 
 /**
+ * AD-5's seam, as DATA: every entry below is called from `step()` BEFORE
+ * `physics.step()` (Story 1.8's "hardware-rule registry", a manifest, never
+ * an executable array -- see the spec's Design Notes, "The hardware-rule
+ * registry is a manifest, not an executable array", for why: `step()`'s
+ * three return channels (`switchEvents`/`contactEvents`/`semanticEvents`)
+ * each spread these four participants in a DIFFERENT, hand-picked order,
+ * none of which matches this list or the call order below, and that
+ * ordering is hashed into Story 1.8's own golden replays -- an executable
+ * loop would silently collapse to ONE order and change it).
+ *
+ * `test/hardware-rule-seam.test.ts` fails if any entry's call moves after
+ * `physics.step()`, or if a `createMachine()`-constructed mechanics object
+ * (a `const X = create…(...)` immediately below) is not listed here or on
+ * that test's own `NOT_A_HARDWARE_RULE` allowlist. Names only -- `receiver`
+ * and `method` are plain identifiers, never `c_`/`bd_`/`s_`-prefixed string
+ * literals (`pnpm lint:boundaries` check (e) bans those outside
+ * `sim/table/dragonwar.ts`), and this array is never executed.
+ */
+export const PRE_STEP_HARDWARE_RULES = [
+	{ receiver: 'flipperMechanics', method: 'applyFrame', pinnedBy: 'test/flipper-mover.test.ts' },
+	{ receiver: 'plungerMechanics', method: 'applyFrame', pinnedBy: 'test/plunger.test.ts' },
+	{ receiver: 'cabinetMechanics', method: 'applyFrame', pinnedBy: 'test/cabinet-integration.test.ts' },
+	{ receiver: 'deviceMechanics', method: 'applyCommands', pinnedBy: 'test/machine-serve-drain.test.ts' },
+] as const;
+
+/**
  * Builds the cabinet machine from an already-parsed collision document
  * (`loadCollision()`'s own contract: `sim/` never parses a file, AD-1).
  * `tuning` is the caller's already-resolved tuning (`resolveTuning()`,

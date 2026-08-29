@@ -2,16 +2,37 @@
 title: 'Story 1.8: Replays, golden state hashes and CI parity'
 type: 'feature'
 created: '2026-08-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '0607eebef58986b0054b8dc918072781a0cd1aa3'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/story-1-8-sweep-mandate.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-1-7-nudge-the-tilt-bob-and-the-slam-sensor.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - id: 'AD-2-residual'
+    finding: >-
+      AD-2's "rules never debounce" has a red test for the button-switch half only
+      (test/loop.test.ts:336-360). The whole-claim invariant -- that no debounce window
+      is ever added anywhere inside sim/rules/** -- has no test. No Phase 0 task in this
+      story's plan assigns a fix.
+    observable: >-
+      Mutation: add a debounce/settle window inside sim/rules/** (e.g. sim/rules/devices.ts
+      or ball-controller.ts) and observe no test goes red.
+  - id: 'AD-14-gap'
+    finding: >-
+      AD-14 requires GameStart (seed, tuning, adjustments, highscores) to be the one
+      bundle the host hands sim/loop at game start. CreateLoopOptions
+      (src/sim/loop/index.ts:186-189) does not accept a GameStart at all -- the replay
+      header (this story's Phase 1) embeds the whole GameStart per AC 1, but the loop
+      itself never consumes it. Real gap, not merely untested; no Phase 0 task in this
+      story's plan closes it (widening CreateLoopOptions is out of this story's scope).
+    observable: >-
+      Mutation: change header.gameStart.adjustments.pitchDeg between two otherwise-identical
+      replays and observe the replay is unaffected (the loop always uses TABLE.reference.pitchDeg).
 ---
 
 <intent-contract>
@@ -520,9 +541,99 @@ vacuous assertion promotes the masked defect to specification.
 
 ## Review Triage Log
 
-_Empty — no review pass has occurred._
+### 2026-08-29 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11 (high 0, medium 5, low 6)
+- defer: 0
+- reject: 16
+- addressed_findings:
+  - `[low]` `[patch]` Spec's own "Implementation Results" claimed the build size shows "no change ... since none of them ship in dist/" — false: `src/host/boot.ts` statically imports `createReplayRecorder` from `src/host/dev/replay-recorder.ts`, which statically imports `buildHeader` from `src/sim/loop/replay.ts`, so that module's code (canonicalize/fnv1aHex/tableHash/assetHash/PHYSICS_VERSION) does ship in `dist/` (only `tools/replay-parity/` is excluded). Corrected the wording in `## Implementation Results`.
+  - `[low]` `[patch]` `test/module-coverage.test.ts`'s `reachableSrcModules()` doc comment claimed "BFS" while the traversal uses `queue.pop()` (LIFO/DFS). Corrected the comment; traversal and result unaffected.
+  - `[low]` `[patch]` `tools/replay-parity/serve.mjs`'s `listGoldenNames()` silently excludes any `*.golden.json` file whose name fails `GOLDEN_NAME_PATTERN`, with no diagnostic — violates the I/O matrix's own "Browser parity" row ("Page reports per-golden PASS/FAIL, never a silent skip") for a hypothetical future oddly-named golden. Added a `console.warn` naming the excluded file.
+  - `[medium]` `[patch]` `runReplay()` never validated that a `coilPrologue` entry's `tick` falls within `[1, durationTicks]` — an out-of-range entry silently never fires, producing a hash that no longer reflects the intended scenario with no error (exactly the "mysterious break" class this story's Always-rules exist to prevent). Added a named-path validation that throws before replay starts.
+  - `[medium]` `[patch]` `src/host/boot.ts`'s new replay-recorder wiring (the `onAdvance` closure calling `recordTransitions`, and the console-exposed `start()` building a default `GameStart`) has zero test coverage anywhere in `test/**` (confirmed by repo-wide grep) — `boot.ts` is DOM-only and allowlisted out of `module-coverage.test.ts`, text-scanned instead by `test/entry-html-csp.test.ts`, which never mentions `replayRecorder`. Added a source-text pin to `test/entry-html-csp.test.ts` asserting the wiring is present, following that file's existing pattern for `boot.ts`'s other DOM-only glue.
+  - `[medium]` `[patch]` `tools/replay-parity/browser.ts`'s `runOneGolden()` hash-field comparison (the AD-15 cross-engine-safety choice: compare `finalGameStateHash`, never `finalHash`) and `serve.mjs`'s golden-name routing have no automated test, unlike the precedent this story explicitly follows (`tools/spike-1/browser.ts`'s equivalent non-DOM logic is unit-tested in `test/spike-1-browser-guard.test.ts` without a live browser). Added a focused non-DOM unit test for both.
+  - `[medium]` `[patch]` The two-ball-collision golden's failure message named only the measured separation, not the tick, contradicting the intent-contract's own I/O matrix Error Handling column verbatim ("Fails naming the tick and the measured separation"). Added tick tracking alongside `minSeparationEver` and included it in the assertion message.
+  - `[low]` `[patch]` The sweep's invariant-to-mutation table has no row for AD-15's second clause ("table tunables carry `source` and `confidence`... mutation: add a tunable with no `source`") — verified this pass that `TuningEntry<T>`'s `source`/`confidence` fields are structurally required by the type and by the sole `entry()` constructor, so the mandate's mutation cannot be expressed without a compile error (the same "type makes the outcome impossible" shape as `RulesStepResult.commands: readonly never[]`). Added a row recording this as type-enforced, no runtime mutation applicable.
+  - `[medium]` `[patch]` `src/host/loop.ts`'s `tick()` calls `onAdvance?.(...)` inside the same `try` block guarding `loop.advance()`/`onFrame()`, whose `catch` stops the whole host loop (`running = false`) on any throw — a throwing dev-only recording tap (`onAdvance`) would take down live gameplay, which the catch's own doc comment scopes to "simulation or presentation" only. Wrapped the `onAdvance?.()` call in its own try/catch that logs and continues.
+  - `[low]` `[patch]` `canonicalizeAt()` only rejected non-finite numbers and `undefined`; a `symbol` or `function` value (reachable in principle through `ActiveModeState`'s open `[key: string]: unknown` index signature, which this story's own Code Map already flags as "the single largest ambiguity for a shipped canonical encoder") would fall through and be silently dropped by `JSON.stringify`, matching exactly the class of failure this function exists to prevent. Extended the guard to reject `bigint`/`symbol`/`function` with a named path too.
+  - `[low]` `[patch]` `tools/replay-parity/serve.mjs`'s `/dragonwar-goldens/collision.json` route calls `readFileSync` with no `existsSync` guard, unlike its sibling `.golden.json` route two lines below which returns a clean 404. Added the same guard.
 
 ## Design Notes
+
+### The sweep's invariant-to-mutation table (Phase 0, task 1 -- written first, before any golden)
+
+Every `AD-*` invariant Epic 1 claims (spine + each Epic 1 spec's `### Governing ADs`), the mutation
+that would violate it, where it is pinned, and what happened when the mutation was actually run this
+pass. Four mutations are freshly run and reverted THIS implementation pass (the hardware-rule seam's
+four participants, individually); the DW-73 mutation is freshly run and reverted this pass; the DW-79
+port-body-freeze mechanism is freshly probed (a throwaway edit to `hit-point.ts`, reverted) to prove it
+actually discriminates; the AD-7 violation (`DW-70`) is given a real, running, out-of-process red this
+pass (`pnpm check:ad7`, verified exit 1) rather than fixed. Rows marked "pre-existing, re-run green" are
+pins this story did not newly author -- their own mutation was run and recorded by an earlier story
+(cited below) and this pass re-ran the pinning suite to confirm it is still live, rather than re-deriving
+the mutation from scratch a second time.
+
+| AD | Rule (short) | Mutation | Pin | This pass |
+|----|----|----|----|----|
+| AD-1 | `sim/**` DOM-free, Babylon-free, no upward imports; `presentation/**` reads only `sim/contracts`+`sim/table`; `host/**` never imports `sim/physics`/`sim/rules`; no `@babylonjs/havok` anywhere | Import `document`/`@babylonjs/*`/upward from `sim/**`; import `sim/physics` from `presentation/**`; import `sim/physics`/`sim/rules` from `host/**` | `test/boundary-lint.test.ts` over `test/fixtures/boundary/**` -- one deliberately-violating fixture per rule | Pre-existing (Story 1.3). Re-run this pass: **78/78 green**, confirming every fixture still trips its own rule (`test/boundary-lint.test.ts`, `npx vitest run` this pass). |
+| AD-2 | `sim/loop` owns the four button switches (`s_start`, `s_flipper_l`, `s_flipper_r`, `s_plunger`); rules never debounce | Button-switch half: emit a button edge from physics instead of the loop | `test/loop.test.ts:336-360` (`buttonSwitchEdges()` unit tests) | Pre-existing (Story 1.5/1.6). Re-run this pass: green. |
+| AD-2 (residual) | "Rules never debounce" as a *whole-claim* invariant (beyond the button-switch half above) | Add a debounce window inside `sim/rules/**` | **none** | **NO TEST. Deferred** -- no Phase 0 task in this story's plan assigns a fix; recorded in frontmatter `deferred:`. |
+| AD-3 | One clock (`TICK_HZ`, named only in `contracts/time.ts` + `table/tuning.ts`); no literal ms/tick-rate elsewhere under `sim/**`; scatter 0 on every material; no `Math.random` under `sim/**` | Name `TICK_HZ` elsewhere; author a literal `…Ms` binding outside `tuning.ts`; use `Math.random` under `sim/**` | `test/boundary-lint.test.ts` fixtures (`tick-hz-misuse.ts`, `literal-ms.ts`, `ms-literal-spellings.ts`, banned-global fixtures) | Pre-existing. Re-run this pass: green (same 78/78 run as AD-1). Scatter-0 / no-PRNG-draw is Phase 2's honest AC 6 test (below). |
+| AD-4 | `advance(elapsedMs, transitions)`; a transition applies at *t+1* at the earliest via `frameInForceAt`; key codes never enter `sim/`; N=0 -> unchanged snapshot | Apply a command the same tick it was issued; import a key code into `sim/` | `test/loop.test.ts:233` (t+1 ordering); `test/host-input.test.ts:409` (key codes stay in `host/input`) | Pre-existing (Story 1.3/1.6). Re-run this pass (`test/host-input.test.ts` in the same batch as boundary-lint above): green. |
+| AD-5 | Hardware rules (flipper, plunger, cabinet, device pulses) run *inside* the physics step, before `physics.step()`, gated only by coil enable/disable -- "no rules round trip" | Move each of the four `machine.ts` seam calls to *after* `physics.step()`, one at a time | **NEW this pass:** `test/hardware-rule-seam.test.ts` (structural, table-driven over `PRE_STEP_HARDWARE_RULES`) + four behavioural pins: `test/flipper-mover.test.ts` (t/t+1), `test/plunger.test.ts` (release-tick displacement), `test/cabinet-integration.test.ts` (nudge-tick displacement band, rewritten this pass), `test/machine-serve-drain.test.ts` (new fourth-participant eject-displacement pin) | **All four mutations RUN and REVERTED this pass**, each producing a real observed red -- see "Mutations run and reverted this pass" below for the verbatim failures. |
+| AD-6 | Device counts = closed slot switches only; opening `s_shooter_lane` is the one "plunged" event; parking devices fill lowest-empty/eject-highest-filled | Drop `entryResult.switchEvents` from `machine.ts`'s spread (or short-circuit the trough-park branch in `ball-controller.ts`) -- `DW-73`'s own mutation | `test/machine-serve-drain.test.ts:501` (`ballsInPlay` settles to 0 after drain) | **RUN and REVERTED this pass.** Dropping `...entryResult.switchEvents` at `machine.ts`'s `switchEvents` spread produced: `ballsInPlay must settle back to 0 once the SAME ball parks: expected 1 to be +0`, at exactly `:501`. Also recorded (per the mandate note): `:474-486` hand-repositions the ball before the drain half runs, so this test proves geometry-below-the-flippers only, not a full autolaunch-to-drain trajectory. |
+| AD-7 | `GameState` mutated only inside `rules.step` | Write to `GameState.machine.deviceSlots` from `sim/loop` outside `rules.step` (the CURRENT, shipped behaviour -- `DW-70`) | **NEW this pass:** `test/fixtures/dw70-ad7/ad7-device-slots.harness.ts` (out-of-suite, via `pnpm check:ad7`) + `test/ad7-device-slots.test.ts` (in-suite content-assertion wrapper) | **Confirmed RED this pass** (`pnpm check:ad7` exits 1; message contains `DW-70`, `AD-7`, `bd_trough`, and the two disagreeing `[true,true,true,true]` vs `[true,true,true,false]` arrays). Deliberately **not fixed** (Never rule) and **not re-filed** (ledger entry already exists). |
+| AD-10 | Exactly one file (`sim/table/frames.ts`) converts units/axes between table, glb, physics and scene frames | A second file performs its own unit/axis conversion | `test/collision-loader.test.ts:97,855`; `test/frames.test.ts` | Pre-existing (Story 1.4/1.5/1.7). Re-run this pass (same batch): green. |
+| AD-14 | `GameStart` (seed, tuning, adjustments, highscores) is the one bundle the host hands `sim/loop` at game start | Change `header.gameStart.adjustments.pitchDeg` and observe the replay is unaffected | **none** -- `CreateLoopOptions` (`src/sim/loop/index.ts:186-189`) does not accept a `GameStart` at all | **NO TEST, real gap. Deferred** -- the replay header (Phase 1) embeds the whole `GameStart` per AC 1, but the loop itself does not yet consume it; recorded in frontmatter `deferred:`. Not a Phase 0 task in this story's plan. |
+| AD-15 | Solver constants verbatim, never tunable; state hash = FNV-1a over canonical JSON of `GameState` + ball positions quantised to 0.01 mm; port bodies traceable to upstream | Edit a pinned solver constant; edit a ported file's body | `test/sim-boundary.test.ts:267` (constants pin); **NEW this pass:** the same file's port-body-freeze block (`DW-79`, 41 declared ported files, normalised-line-ending SHA-256) | Constants pin pre-existing, re-run green this pass. Port-body freeze **probed this pass**: a throwaway one-line comment appended to `hit-point.ts` (reverted immediately after) flipped its hash-comparison test red (`expected 'a469d831…' to be '64c6c0e2…'`); the header-provenance test also caught the same probe (an unrelated, pre-existing check) — both confirm the mechanism discriminates a real edit. The hash-promotion itself (Phase 1) is this story's own new AD-15 artifact. |
+| AD-15 (tunables) | Table tunables carry `source` and `confidence` (no bare/invented numbers) | Add a tunable via `entry()` with no `source` (or no `confidence`) | `TuningEntry<T>`'s own field declarations (`src/sim/table/tuning.ts:30-34`, both `readonly`, neither optional) + `entry<T>(value, source, confidence)`'s signature (`:36`, both parameters required, no default) | **Type-enforced, no runtime mutation applicable** — the same "type makes the outcome impossible" shape as `RulesStepResult.commands: readonly never[]` (Design Notes, "The sweep, Part D — vacuity candidates", item 1). Verified this pass by reading both declarations: `source`/`confidence` are structurally required, so a tunable missing either fails `pnpm typecheck`, not a runtime test. No mutation was run because none can compile; no red test applies. |
+| AD-16 | Ported files keep upstream header + port marker; new files carry the DragonWar GPL-3.0 header; `check:headers`/`check:attributions` enforce this in CI | Strip a port's header; add an unattributed dependency | `test/sim-boundary.test.ts` header-provenance describe block; `tools/check-licence-headers.mjs` / `check-attributions.mjs` (+ their own test files) | Pre-existing. Re-run this pass: `pnpm check:headers` / `pnpm check:attributions` both **OK** against the current tree (including this story's own new/edited files); the header-provenance suite is part of the 99/99 green `test/sim-boundary.test.ts` run above. |
+| AD-17 | CI runs typecheck/boundary-lint/headers/attributions/test/build/CSP/size on every push and PR; ship is `main`-only | Add a CI step that shells to Blender or a browser | `.github/workflows/ci.yml`'s own fixed script list (no such step exists); `test/spike-1-harness-boundary.test.ts` et al. | Governs Phase 2's CI-parity task (Node version pin); no new mutation needed -- the existing workflow already adds no Blender/browser step, which this story's Phase 2 task preserves rather than changes. |
+
+**Mutations run and reverted this pass, verbatim (AD-5's four hardware-rule participants):**
+
+1. **Flipper** (`flipperMechanics.applyFrame(...)` moved after `physics.step()`):
+   `test/hardware-rule-seam.test.ts` -- `"flipperMechanics.applyFrame(" must appear before "physics.step();" in
+   machine.ts's step(): expected '...' to contain 'flipperMechanics.applyFrame('`.
+   `test/flipper-mover.test.ts` (t/t+1 pin) -- `the mover MUST have visibly moved by tick t+1 ...: expected 141
+   not to be 141`.
+2. **Plunger** (`plungerMechanics.applyFrame(...)` moved after `physics.step()`):
+   `test/hardware-rule-seam.test.ts` -- same shape, naming `plungerMechanics.applyFrame(`.
+   `test/plunger.test.ts` (release-tick displacement) -- `the plunge must be applied BEFORE physics.step() on the
+   release tick ...: expected 0.006976495069691228 to be greater than 1`.
+3. **Cabinet** (`cabinetMechanics.applyFrame(...)` moved after `physics.step()`):
+   `test/hardware-rule-seam.test.ts` -- same shape, naming `cabinetMechanics.applyFrame(`.
+   `test/cabinet-integration.test.ts` (nudge-tick displacement band, this story's own rewrite) -- `expected ~7.702e-5
+   mm, got 0.000e+0 mm ...: expected 0 to be greater than or equal to 0.000019255870821507414`.
+   Bonus confirmation (not a required pin, but both went red too): the two new DW-83-residual tests in
+   `test/cabinet-nudge.test.ts` (diagonal-nudge-through-the-real-loop, and nudge_r end-to-end) both failed under
+   this exact mutation as well.
+4. **Device pulses** (`deviceMechanics.applyCommands(...)` moved after `physics.step()`):
+   `test/hardware-rule-seam.test.ts` -- same shape, naming `deviceMechanics.applyCommands(`.
+   `test/machine-serve-drain.test.ts` (new fourth-participant pin) -- `expected the ball to have moved measurably
+   (>0.05 mm) ... Measured displacement: 0.000018 mm.: expected 0.000017647812972511636 to be greater than 0.05`
+   (against the unmutated, passing measurement of **0.296120 mm**, captured this pass and matching the Code Map's
+   estimate of ~0.29 mm almost exactly).
+
+All four were reverted immediately after their red was captured; `git diff --stat src/sim/physics/machine.ts`
+after the full round showed only this story's own permanent addition (the `PRE_STEP_HARDWARE_RULES` manifest,
++26 lines, 0 deletions) -- confirmed clean before continuing.
+
+**Vacuity shapes closed this pass (Part 1 of the mandate):** shape 1 (the `RulesStepResult.commands toEqual([])`
+sites) is not deleted but re-commented at all four call sites (`test/rules-devices.test.ts:131`,
+`test/loop.test.ts:54`, `test/flipper-mover.test.ts:44,92`) to state plainly why each is vacuous and where the
+real AD-5 pin actually lives, rather than leaving the old "AD-5 proof" claim standing. Shape 2 (zero-reference
+modules) and shape 7 (field only ever asserted at its default) are closed together for `object-pool.ts`'s
+`warned`/`skipped` counters (`DW-6`, new `test/object-pool.test.ts`, four tests: default state, the
+non-claimed-release branch, the exhaustion branch driven past `MAX_POOL_SIZE`, and the recovery-to-default
+path) and, more broadly, by `test/module-coverage.test.ts`'s import-reachability sweep (new), whose
+`ALLOWLIST_REASONS` names every module Part D item 2 originally flagged that is STILL genuinely unreached after
+this pass (`anim-object.ts`, `anim-slingshot.ts`, `hit-3dpoly.ts`, `line-seg-slingshot.ts`, plus
+`hit-line-3d.ts` and `src/host/{boot,build-info}.ts`, found fresh this pass) and explains, per entry, why three
+of Part D's original seven (`game/event-proxy.ts`, `util/object-pool.ts`, `contracts/mode-view.ts`) turned out
+to already be import-reachable and are correctly NOT on the allowlist.
 
 ### The AC 4 amendment (2026-08-29)
 
@@ -788,46 +899,195 @@ risk rather than an intent gap because the leg is measurable — just not by thi
   restore.
 - The Safari leg of AC 5, on the author's macOS machine.
 
+## Implementation Results (dev pass, 2026-08-29)
+
+All commands above were run for real against this pass's implementation, not merely predicted:
+
+- `pnpm typecheck` — clean (all three projects: `tsconfig.sim.json`, `tsconfig.app.json`, `tsconfig.node.json`).
+- `pnpm lint:boundaries` — `OK -- 77 .ts file(s) under src/ cruised, no violations`.
+- `pnpm check:headers` — `OK -- every tracked authored-extension file carries a licence header`.
+- `pnpm check:attributions` — `OK -- every package.json dependency has an ATTRIBUTIONS.md row` (no new package).
+- `pnpm test` — green: **778 passed / 21 skipped across 57 files** (up from the 659/21/48 baseline; +119
+  tests, +9 files — the sweep's new pins, `replay.ts`'s own tests, the five golden runner's 35 tests, the
+  recorder's 9, the AC6/DW-64/DW-70/skip-visibility suites, and the `hardware-rule-seam`/`module-coverage`
+  structural tests). 21 skipped matches the pre-existing Blender-gated baseline exactly (confirmed by
+  `test/export-py-skip-visibility.test.ts`'s own live, nested-run check, new this pass).
+- `pnpm check:ad7` — exits 1 (non-zero, as required), message contains `DW-70`, `AD-7`, `bd_trough`, and both
+  disagreeing `deviceSlots.bd_trough` arrays (`[true,true,true,true]` vs `[true,true,true,false]`).
+- `node tools/replay-parity/serve.mjs` then opened in a real Chrome instance (this pass, via CDP): **5/5
+  goldens report PASS** on the `GameState`-only hash — `full-plunge`, `hold-and-release`, `nudge-coupling`,
+  `roll-and-drain`, `two-ball-collision` all matched their Node-recorded `expectedGameStateHash`. One real
+  defect was found and fixed during this live check: the page's original JS-set `element.style.*` rendering
+  violated the pinned CSP (`default-src 'self'`, no `style-src` widening) — moved to an external
+  `tools/replay-parity/style.css` (same-origin, `'self'`-admitted), re-verified clean (no CSP console errors,
+  correct rendering).
+- `pnpm build` + `node tools/check-dist.mjs` + `node tools/size-budget.mjs` — all pass (`tools/replay-parity/`
+  is correctly NOT part of the build, by design; measured size 0.824 MB against a 2.75 MB budget — `boot.ts`
+  statically imports `createReplayRecorder` from `src/host/dev/replay-recorder.ts`, which statically imports
+  `buildHeader` from `src/sim/loop/replay.ts`, so those two modules DO ship in `dist/`; the measured 0.824 MB
+  figure already reflects that small addition, still comfortably inside budget — only `tools/replay-parity/`
+  is excluded, by design).
+
+**All four hardware-rule mutations were run and reverted this pass** (`machine.ts`'s
+`flipperMechanics.applyFrame`, `plungerMechanics.applyFrame`, `cabinetMechanics.applyFrame`,
+`deviceMechanics.applyCommands`, each moved individually to after `physics.step()`), each producing both the
+structural (`test/hardware-rule-seam.test.ts`) and behavioural red, verbatim failures recorded in
+`## Design Notes`. The `DW-73` mutation (dropping `...entryResult.switchEvents` from `machine.ts`'s spread)
+was also run and reverted, producing exactly the predicted `:501` red. The `DW-79` port-body-freeze mechanism
+was probed with a throwaway one-line comment appended to `hit-point.ts` (immediately reverted, confirmed
+byte-identical to `HEAD` via `git hash-object` before continuing) to prove the hash comparison genuinely
+discriminates a real edit.
+
+**One residual, flagged for the reviewer**: `git status` reports `src/sim/physics/hit-point.ts` as modified,
+but `git diff` shows no content difference and `git hash-object` on the working-tree file exactly matches the
+committed blob hash (`bb662fb0...`) — a `core.autocrlf=true` stat-cache artefact from the DW-79 probe above
+(a `git checkout --` mid-probe briefly re-introduced CRLF line endings, since corrected by rewriting the file
+with LF endings only), not a real change. Safe to stage or ignore; recorded here rather than left silent.
+
+**The Safari leg of AC 5 was not run** (this environment is Windows) — remains author-owned, exactly as this
+spec's own Design Notes anticipated ("Risk carried into implementation: AC 5's Safari leg").
+
+Two AD invariants were found to have no red test and no assigned Phase 0 task to close them; both are
+recorded in this spec's own frontmatter `deferred:` list with their mutation named as the observable, per the
+sweep's own rule ("Findings the sweep cannot fix in footprint -> spec frontmatter `deferred:`"): **AD-2's
+"rules never debounce"** (whole-claim residual beyond the button-switch half) and **AD-14's gap**
+(`CreateLoopOptions` does not accept a `GameStart`, so the replay header embeds a bundle the loop never
+consumes).
+
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
-### What changed since the first plan pass
+### Summary of implemented change
 
-The `intent gap` that blocked the first pass is **resolved** by the user's `epics.md` AC 4 amendment and
-does not re-fire; the Block-If is struck through in the preserved intent contract. No new intent gap was
-found. AC 5's Safari leg and AC 6's absent PRNG were both examined against Rule 5 and **neither is an NFR
-tripwire**: the Safari leg is measurable (just not on this platform, and Spike 1 set the precedent for an
-author-owned macOS leg), and AC 6 is satisfiable as worded — what it needs is an honest implementation, not
-an amendment.
+Story 1.8 shipped in full: Phase 0's blocking sweep (the `PRE_STEP_HARDWARE_RULES` manifest + table-driven
+test; the fourth hardware rule's behavioural pin; `DW-73`/`DW-79`/`DW-83`/`DW-6` closed with named
+observables; the four `toEqual([])` vacuous AD-5 "proofs" replaced; a `dependency-cruiser`-based
+import-reachability substitute for coverage instrumentation; `DW-70`'s out-of-suite red harness + `check:ad7`
+script + in-suite content-asserting wrapper); Phase 1's shipped `src/sim/loop/replay.ts` (canonicalize,
+quantize001Mm, fnv1aHex, stateHash, gameStateHash, tableHash, assetHash, PHYSICS_VERSION, buildHeader,
+runReplay, promoted verbatim from the test-local original); and Phase 2's `src/host/dev/replay-recorder.ts`
+(record + invalidate/save, wired at `src/host/loop.ts`'s new `onAdvance` seam and exposed via
+`window.__dragonwarBoot`), five golden replays under `test/replays/*.golden.json` (each carrying a declared
+`coilPrologue` per the AC 4 amendment) with their runner `test/replay-goldens.test.ts`, the
+`tools/replay-parity/` browser-parity page (Vite's programmatic API, no build-config edit), the Blender-free
+hull test (`DW-64`) and skip-count visibility test, and the CI Node-version pin.
 
-### The three user directives are planned as deliverables
+The sweep's mutations were run for real, not merely predicted (verbatim reds recorded in `## Design Notes` →
+"The sweep's invariant-to-mutation table"), and every source file was restored afterward (`git diff` clean on
+each, independently re-verified by this reviewing pass, including the one CRLF stat-cache artefact on
+`src/sim/physics/hit-point.ts` — confirmed content-identical to `HEAD` via `git hash-object`, not a real
+change).
 
-1. **The hardware-rule registry** is planned as a **manifest** plus one table-driven test, with the reason
-   the executable-array form was rejected recorded so it is not re-attempted: the three return channels in
-   `machine.ts` spread in three different orders, none matching the call order, and that sequence is hashed
-   into this story's own goldens. The unpinned fourth participant gains a behavioural observable as well as
-   a structural one.
-2. **Goldens are JSON-parsed, never byte-compared** — endorsed and carried unchanged, and extended to
-   `DW-79`'s port-body hash manifest, which has the same CRLF exposure.
-3. **`DW-70` gets a running red test** and it is a named deliverable: an out-of-suite harness under
-   `test/fixtures/`, a `check:ad7` script, and an in-suite wrapper that asserts the failure's *content* so
-   `pnpm test` and CI stay green. It is scoped to `bd_trough`, and `it.fails()` was rejected as theatre.
-   The violation is **not** fixed and **not** re-filed.
+A first code-review pass (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment — see
+`## Review Triage Log`) found 11 real, fixable gaps, all applied in this pass: a factually wrong doc claim
+about what ships in `dist/`; a misdescribed traversal algorithm in a comment; a silent-skip risk in the
+parity page's golden-file filter; an unvalidated `coilPrologue` tick range in `runReplay()`; zero test
+coverage on `boot.ts`'s replay-recorder wiring; zero non-DOM unit coverage on the parity harness's
+hash-comparison and routing logic; a two-ball-collision failure message that didn't name the tick as the I/O
+matrix requires verbatim; a missing sweep-table row for AD-15's tunable-`source`/`confidence` clause
+(resolved as type-enforced, no runtime mutation possible); `onAdvance` sharing a catch block that could let a
+dev-only recording-tap failure halt live gameplay; `canonicalizeAt()` not guarding `bigint`/`symbol`/
+`function`; and an asymmetric missing-file guard on the parity page's `collision.json` route. All fixes were
+independently re-verified (typecheck/lint/test all green; browser parity re-checked live in Chrome via
+`chrome-devtools-mcp`, still 5/5 PASS).
 
-### The sweep is Phase 0 and blocks every golden
+### Files changed
 
-No golden file is created until every Phase 0 task has been run and its red observed and recorded. The
-invariant-to-mutation table is the first task in the story, before any code. One further finding is recorded
-prominently for the merge gate: because `stateHash()` covers the whole `game` tree, **every golden recorded
-by this story bakes `DW-70`'s loop-written `deviceSlots` value into the reference hash** — harmless if
-Story 2.5's fix is faithful, but its provenance must be written next to the goldens rather than left to be
-rediscovered.
+**New source:** `src/sim/loop/replay.ts` (the shipped AD-15 hash + replay runner); `src/host/dev/replay-recorder.ts`
+(record/invalidate/save seam); `tools/replay-parity/{index.html,browser.ts,serve.mjs,serve.d.mts,style.css}`
+(browser-parity page + server).
 
-### Out-of-footprint items, recorded not actioned
+**New tests/fixtures:** `test/replay-goldens.test.ts` (golden runner + matrix coverage); `test/replay-recorder.test.ts`
+(AC 3); `test/replay-parity-logic.test.ts` (non-DOM parity-harness unit tests, added in review); `test/hardware-rule-seam.test.ts`
+(manifest structural/set-equality test); `test/module-coverage.test.ts` (import-reachability substitute for
+coverage); `test/object-pool.test.ts` (`DW-6`); `test/ad7-device-slots.test.ts` + `test/fixtures/dw70-ad7/`
+(`DW-70`'s out-of-suite harness + in-suite wrapper); `test/export-py-hull.test.ts` + `test/fixtures/export-py/hull-runner.py`
+(`DW-64`); `test/export-py-skip-visibility.test.ts`; `test/ac6-scatter-and-prng.test.ts`; `test/replays/*.golden.json`
+(five goldens: roll-and-drain, hold-and-release, full-plunge, nudge-coupling, two-ball-collision).
 
-`NOTICE` (`DW-82`'s residual) is in no authorization and no AC of this story requires it, so it is recorded
-with its observable and re-owned at the `ledger_adjudicated` gate rather than halting the run.
-`ATTRIBUTIONS.md`, `vite.config.ts`, `vitest.config.ts`, `.gitattributes`, `index.html` and `public/**` are
-untouched, and the plan routes around each of them by design — no new npm package is required anywhere.
+**Modified source:** `src/sim/physics/machine.ts` (`PRE_STEP_HARDWARE_RULES` manifest); `src/sim/table/names.ts`
+(`TTuning` binding); `src/host/boot.ts` (recorder wiring); `src/host/loop.ts` (`onAdvance` seam + review fix
+isolating it from the simulation/presentation catch); `src/sim/physics/util/object-pool.ts` (`DW-6` accessors).
+
+**Modified tests:** `test/loop-determinism.test.ts` (re-pointed at the shipped module); `test/cabinet-integration.test.ts`
+(vacuity fix, review-cited); `test/cabinet-nudge.test.ts`, `test/machine-serve-drain.test.ts`, `test/sim-boundary.test.ts`
+(`DW-83`/`DW-73`/`DW-79`); `test/rules-devices.test.ts`, `test/loop.test.ts`, `test/flipper-mover.test.ts`
+(vacuous `toEqual([])` fix); `test/host-loop.test.ts`, `test/entry-html-csp.test.ts` (review: boot.ts wiring
+pin).
+
+**Other:** `.github/workflows/ci.yml` (Node version pinned to `24.16.0`); `package.json` (`check:ad7` script);
+`src/host/dev/.gitkeep` and `test/replays/.gitkeep` removed (superseded by real content); this spec file
+(`deferred:` frontmatter, `## Design Notes`, `## Review Triage Log`, this section).
+
+### Review findings breakdown
+
+- **Patches applied:** 11 (high 0, medium 5, low 6) — see `## Review Triage Log` → 2026-08-29 for the full
+  list with file/line evidence and the fix applied to each.
+- **Deferred:** 0 from this review pass (two items were already deferred by the implementation pass itself
+  before review — `AD-2-residual` and `AD-14-gap`, both in frontmatter `deferred:` with named mutations; not
+  re-counted here since they did not originate from this review's four layers).
+- **Rejected:** 16 — real-but-out-of-contract observations (no local Node pinning; no golden-recording
+  script; `ReplayRecorder` not exposing tick count; deferred-entry "ownership" — a false premise, this spec's
+  `deferred:` schema carries no owner field; a duplicated `MAX_POOL_SIZE` test constant, already documented
+  and low-risk since it mirrors a frozen port; subprocess-test CI cost, an established in-repo pattern;
+  non-zero-padded hash length, intentionally spec-verbatim behaviour; cross-golden tuning-copy consistency,
+  already guaranteed transitively by each golden's own live-environment check; a benign unhandled-rejection
+  in a manually-run dev tool whose user-facing error path already works; `runCruise()`'s exit-status handling,
+  where adding a check risks false negatives against dependency-cruiser's own violation-reporting semantics;
+  an already-self-limiting unguarded `JSON.parse` in a test helper; four Intent Alignment observations that
+  were verified and found to be either already resolved by this spec's own explicit Design Notes ("record"
+  vs "play" scope, the coverage substitution, the port-body-freeze residual note) or a false positive (a
+  "mislabeled" vacuity-shape citation that in fact correctly cites this spec's own Code Map Part D, not the
+  mandate's differently-numbered shape list); and the sweep-ordering-is-only-provable-via-prose observation,
+  which isn't code-fixable and was instead independently re-verified by this reviewing pass re-running
+  `pnpm test` and `pnpm check:ad7` directly).
+
+### Follow-up review recommendation
+
+`followup_review_recommended: true`. Computed from this pass's `patch` findings only (high 0, medium 5, low
+6): `3 × 5 + 1 × 6 = 21 ≥ 5`, so `true` regardless of the high-severity clause (which was not triggered — no
+high-severity patch this pass).
+
+### Verification performed
+
+All commands re-run for real by this reviewing pass after the implementation subagent's own run, and again
+after the 11 review patches:
+- `pnpm typecheck` — clean, both times (all three projects).
+- `pnpm lint:boundaries` — clean, both times (`77 .ts file(s) under src/ cruised, no violations`).
+- `pnpm check:headers` / `pnpm check:attributions` — clean, both times (no new package; new files carry the
+  GPL-3.0 header, including the review pass's new `tools/replay-parity/serve.d.mts`).
+- `pnpm test` — green throughout: 659/21/48 baseline → 778/21/57 after implementation → **792 passed / 21
+  skipped across 58 files** after the 11 review patches (+14 tests, 0 new skips, 0 regressions).
+- `pnpm check:ad7` — exits 1 (non-zero, as designed) naming `DW-70`, `AD-7` and `bd_trough`, both disagreeing
+  `deviceSlots.bd_trough` arrays shown; re-confirmed unchanged after the review patches.
+- `node tools/replay-parity/serve.mjs` opened in a **real Chrome instance via `chrome-devtools-mcp`**, twice
+  (once after implementation, once after the review patches touched `browser.ts`/`serve.mjs`): **5/5 goldens
+  PASS** on the `GameState`-only hash both times; console/network inspected, only a harmless `favicon.ico`
+  404 present.
+- The four hardware-rule mutations and the `DW-73` mutation were run and reverted for real (verbatim reds
+  recorded in `## Design Notes`); `git status`/`git diff`/`git hash-object` independently re-checked by this
+  pass to confirm the tree carries no unintended residual changes from those probes.
+
+### Residual risks
+
+- **AC 5's Safari leg was not run** (this environment is Windows) — author-owned per this spec's own Design
+  Notes, exactly as Spike 1's macOS legs were left. Becomes a ledger entry with its observable if unrun at
+  epic close.
+- **Two AD invariants have no red test and no assigned Phase 0 task**, recorded in frontmatter `deferred:`
+  with named mutations: AD-2's whole-claim debounce residual (button-switch half only is pinned), and AD-14's
+  gap (`CreateLoopOptions` doesn't accept a `GameStart`, so the replay header embeds a bundle the loop never
+  consumes).
+- **Every golden recorded by this story bakes `DW-70`'s loop-written `deviceSlots` value into the reference
+  hash** (`stateHash()` covers the whole `game` tree) — harmless if Story 2.5's fix is faithful, and the
+  provenance is written next to the goldens themselves (`test/replay-goldens.test.ts`'s header and each
+  golden's own metadata) rather than left to be rediscovered.
+- **`DW-79`'s port-body freeze proves forward-drift only**, not byte-identity to real upstream sources (no
+  vendored copy exists in-repo); this residual is explicitly recorded in `test/sim-boundary.test.ts`'s own
+  header, per this spec's own instruction.
+- **`NOTICE` (`DW-82`'s residual)** remains untouched — out of footprint, in no authorization, no AC of this
+  story requires it; recorded with its observable, re-owned at the `ledger_adjudicated` gate.
+- `ATTRIBUTIONS.md`, `vite.config.ts`, `vitest.config.ts`, `.gitattributes`, `index.html` and `public/**`
+  remain untouched; no new npm package was added anywhere (verified both by the implementation pass and
+  independently by this reviewing pass).

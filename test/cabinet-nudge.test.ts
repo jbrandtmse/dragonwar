@@ -19,7 +19,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadCollision } from '../src/sim/physics/loader';
 import { createCabinetMechanics, cabinetAccelToPhysicsAccel } from '../src/sim/physics/cabinet';
-import { NO_FRAME } from '../src/sim/loop';
+import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from '../src/sim/physics/constants';
 import { toPhysics } from '../src/sim/table/frames';
@@ -29,7 +29,7 @@ import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
-import type { InputFrame } from '../src/sim/contracts/input';
+import type { InputFrame, InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
@@ -359,5 +359,87 @@ describe('sim/physics/cabinet -- NUDGE_DIRECTIONS: which action pushes the cabin
 		const up = cabinetVelocityAfterOneNudge('nudge_up');
 		expect(up.y, "nudge_up must push the cabinet along table -Y (toward the player), so the ball's relative motion shifts +Y, up the playfield").toBeLessThan(0);
 		expect(up.x, 'nudge_up must not move the X axis at all').toBe(0);
+	});
+});
+
+// Story 1.8's sweep, DW-83 residual (Code Map: "never driven through
+// createLoop() / machine.step() with a real physics.step(); nudge_r has no
+// end-to-end ball-coupling test (:349 checks cabinet velocity sign only)").
+// Both tests below drive the REAL seam (createLoop(), machine.ts's
+// PRE_STEP_HARDWARE_RULES-ordered step(), a real physics.step()) rather than
+// the raw createCabinetMechanics() harness every test above this point uses
+// directly.
+describe('sim/physics/cabinet -- DW-83 residual: two nudge rising edges on ONE tick, through the REAL createLoop() seam (real physics.step())', () => {
+	it('nudge_l AND nudge_up rising on the SAME tick, fed through createLoop().advance(), diverge a served ball on BOTH axes from an otherwise-identical no-nudge control run', () => {
+		const control = createLoop({ collisionDoc: loadDoc() });
+		const nudged = createLoop({ collisionDoc: loadDoc() });
+		control.pulseCoil('c_trough_eject');
+		nudged.pulseCoil('c_trough_eject');
+
+		let controlOut = control.advance(1, []);
+		let nudgedOut = nudged.advance(1, []);
+		for (let i = 0; i < 200; i++) {
+			controlOut = control.advance(1, []);
+			nudgedOut = nudged.advance(1, []);
+		}
+		expect(controlOut.snapshot.balls.length, 'a ball must be in play, or this proves nothing').toBeGreaterThan(0);
+		expect(nudgedOut.snapshot.balls[0]!.pos, 'the paired runs must be bit-identical before the diagonal nudge').toEqual(controlOut.snapshot.balls[0]!.pos);
+
+		// BOTH nudge_l and nudge_up rise on the SAME tick -- the exact same-tick
+		// multi-nudge scenario DW-83 names, now through the real loop rather
+		// than the raw cabinetMechanics harness the earlier DW-83(2) test above
+		// drives directly.
+		const diagonalTick = nudgedOut.snapshot.tick + 1;
+		const diagonalTransition: InputTransition = { tick: diagonalTick, frame: { ...NO_FRAME, nudge_l: true, nudge_up: true } };
+		controlOut = control.advance(1, []);
+		nudgedOut = nudged.advance(1, [diagonalTransition]);
+
+		const nudgedPos = nudgedOut.snapshot.balls[0]!.pos;
+		const controlPos = controlOut.snapshot.balls[0]!.pos;
+		expect(nudgedPos.x, 'the X axis (nudge_l\'s own axis) must have diverged on the diagonal-nudge tick, through the real loop and a real physics.step()').not.toBe(controlPos.x);
+		expect(nudgedPos.y, 'the Y axis (nudge_up\'s own axis) must ALSO have diverged on the SAME tick -- proves nudge_up\'s impulse was not dropped or overwritten by nudge_l\'s when both rise together through the real seam').not.toBe(controlPos.y);
+	});
+});
+
+describe('sim/physics/cabinet -- DW-83 residual: nudge_r, end-to-end ball coupling through the real createLoop() seam, with an INDEPENDENT expectation', () => {
+	// Every existing nudge_r assertion in this file (the "which action pushes
+	// the cabinet which way" describe block above) reads the CABINET's own
+	// absolute oscillator velocity -- an independent observable in its own
+	// right, but never a BALL, and never through the real loop. This test
+	// closes that: it drives a served ball through createLoop(), applies a
+	// nudge_r transition, and checks the ball's OWN divergence against the
+	// declared table-frame mapping ("nudge_r pushes the cabinet along table
+	// +X, so the ball's relative motion shifts -X, to the left" --
+	// cabinet/index.ts's own header and this file's "which action pushes the
+	// cabinet which way" test above) -- a SIGN check against a mapping
+	// declared independently of this run, never a numeric value recomputed
+	// from this same run's own oscillator state (which is exactly the
+	// self-comparison shape Story 1.7's original NUDGE_DIRECTIONS gap had).
+	it('nudge_r, fed through createLoop().advance(), moves the served ball toward -X relative to an otherwise-identical control run', () => {
+		const control = createLoop({ collisionDoc: loadDoc() });
+		const nudged = createLoop({ collisionDoc: loadDoc() });
+		control.pulseCoil('c_trough_eject');
+		nudged.pulseCoil('c_trough_eject');
+
+		let controlOut = control.advance(1, []);
+		let nudgedOut = nudged.advance(1, []);
+		for (let i = 0; i < 200; i++) {
+			controlOut = control.advance(1, []);
+			nudgedOut = nudged.advance(1, []);
+		}
+		expect(controlOut.snapshot.balls.length, 'a ball must be in play, or this proves nothing').toBeGreaterThan(0);
+		expect(nudgedOut.snapshot.balls[0]!.pos, 'the paired runs must be bit-identical before the nudge').toEqual(controlOut.snapshot.balls[0]!.pos);
+
+		const nudgeTick = nudgedOut.snapshot.tick + 1;
+		const nudgeTransition: InputTransition = { tick: nudgeTick, frame: { ...NO_FRAME, nudge_r: true } };
+		controlOut = control.advance(1, []);
+		nudgedOut = nudged.advance(1, [nudgeTransition]);
+
+		const nudgedX = nudgedOut.snapshot.balls[0]!.pos.x;
+		const controlX = controlOut.snapshot.balls[0]!.pos.x;
+		expect(
+			nudgedX,
+			'nudge_r must push the cabinet along table +X (its own declared, absolute direction -- see the "which action pushes the cabinet which way" test above), so BY THE FRAME RELATION the ball\'s relative table-frame motion shifts -X: the nudged ball must sit LEFT of the control ball, not merely "different"',
+		).toBeLessThan(controlX);
 	});
 });

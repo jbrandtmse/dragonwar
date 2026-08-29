@@ -73,7 +73,17 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          # Story 1.8 (CI parity, AD-17): pinned from the floating `24` to the
+          # exact version this story's replay goldens were recorded on
+          # (local `node --version` this pass: v24.16.0) -- AD-15's own state
+          # hash is FNV-1a over canonical JSON, which is exact and
+          # deterministic across Node builds on the SAME major/minor, but
+          # V8's transcendental math (Math.sin/cos, used by the ball-hit
+          # collision response) is not specified to be bit-identical ACROSS
+          # V8 versions. Pinning the exact patch CI runs on is the honest fix
+          # for a hash-exact golden replay; bumping this is a deliberate act
+          # (re-verify the goldens still reproduce, then update the pin).
+          node-version: 24.16.0
           cache: pnpm
 
       - name: Install dependencies
