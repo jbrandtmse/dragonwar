@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-29'
 status: 'done'
 baseline_revision: '59ffe6a3de1ac2701fda386065633950157ee14d'
+baseline_commit: '59ffe6a3de1ac2701fda386065633950157ee14d'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -1029,6 +1030,58 @@ explanation.)
   and Space do not scroll the page, and the build still renders — a headless suite cannot see renderer breakage.
   `pnpm build` succeeds (verified); the smoke test itself needs a running browser session this agent does not
   have.
+
+**QA test additions (2026-08-29), targeting the remaining-risk areas named in the QA spawn prompt (the authored
+`cabinet/index.ts` facade, AD-2 edge collapsing, `host/input`'s multi-code-per-action fix, the sub-stepping
+construction-time guard, and same-tick multi-nudge/DW-83) — every mutation below was run against a temporary
+edit of the AUTHORED file it targets (never the three ported files), observed red, then reverted; `git status`
+confirms no source file carries a residual diff:**
+- `test/cabinet-substep.test.ts` (QA, new) — `sim/physics/cabinet/oscillator.ts`'s `cabinetSubstepsPerTick()`
+  construction-time guard had ZERO prior coverage (grep-confirmed). Five cases via module-mocked
+  `sim/contracts/time` + dynamic re-import (the same isolated-mock shape `test/machine-serve-drain.test.ts`
+  already uses): the real production TICK_HZ=1000 path (no throw, substepsPerTick=1); a non-integer ratio
+  (TICK_HZ=480) throws; the real `createCabinetOscillator()` construction path also throws for the same input
+  (not bypassable); a ratio that rounds to zero throws (the guard's other branch); a clean 2x multiple
+  (TICK_HZ=500) does not throw and returns substepsPerTick=2. Mutation-verified: temporarily changed the
+  "throws" case's own mocked `SECONDS_PER_TICK` to a valid ratio (0.001) — the test went red
+  (`expected [Function] to throw an error`, none thrown) — then reverted, proving the module-mock plumbing is
+  live rather than vacuously green from a caching artifact.
+- `test/cabinet-slam.test.ts` (QA, extended) — two additions. (1) An independent-oracle edge-collapsing test for
+  `s_slam_tilt` (the same shape `test/cabinet-bob.test.ts`'s AC 3 test already established for the bob, which
+  had no equivalent for slam): a hand-verified, test-local-tuning-override two-cycle flicker (threshold 2 /
+  3-tick window) whose raw per-tick level and derived edge sequence are pinned literally, then asserted equal to
+  the real emitted `s_slam_tilt` sequence. Mutation-verified: temporarily bypassed `cabinet/index.ts`'s
+  `stepLevel()` debounce for the slam edge (pushing `closed:true` on every over-threshold tick, mirroring the
+  spec's own AC 3 mutation shape) — the new test went red (`emittedEdges` diverged from the level-derived oracle
+  at tick 3) — reverted. (2) A DW-83-partial-coverage test: three simultaneous nudge-action rising edges on ONE
+  tick immediately satisfy `slamNudgesPerWindow=3` and close `s_slam_tilt` on that tick. Mutation-verified:
+  temporarily capped the facade's rising-edge loop at one action per tick (`break` after the first) — the test
+  went red (`expected false to be true`) while the flicker test (unaffected by this different mutation) stayed
+  green — reverted.
+- `test/cabinet-nudge.test.ts` (QA, extended) — two DW-83-partial-coverage additions. (1) The Y-axis mirror of
+  AC 1's own X-axis ball-coupling test (paired nudged-vs-control, measured before `physics.step()`) for
+  `nudge_up` — previously the Y sign flip was checked only by `test/frames.test.ts`'s standalone unit-conversion
+  test, never through the real coupling code the way X was. (2) A same-tick diagonal-nudge test (`nudge_l` +
+  `nudge_up` rising together) asserting both axes couple correctly within that one tick. Mutation-verified
+  (both): temporarily flipped the ball-coupling sign in `cabinet/index.ts` from `-=` to `+=` (the spec's own
+  documented AC 1 mutation, upstream's force-on-the-ball shape) — both new tests went red alongside the
+  pre-existing AC 1 test — reverted. The diagonal test was additionally mutation-verified in isolation against
+  the same same-tick edge cap used above — went red specifically on the Y-axis assertion (`Y axis must have
+  moved`) while the Y-axis-only test (unaffected, since it drives only one action) stayed green — reverted.
+- `test/host-input.test.ts` (QA, extended) — one addition: a keyup for a code that was NEVER pressed down (a)
+  for a plain single-bound action, emitting nothing and leaving the action usable normally afterward, and (b)
+  for `nudge_up`'s second code (`Space`) while `ArrowUp` is genuinely held, proving the spurious keyup neither
+  clears the action nor corrupts the held-codes tracking that `ArrowUp`'s own later release depends on.
+  Mutation-verified: temporarily dropped `onKeyUp()`'s "already released" guard in `src/host/input/index.ts` —
+  the test went red (a spurious keyup for a never-held code emitted a phantom released-frame transition) —
+  reverted.
+
+`pnpm test` after this QA pass: 654 passed / 21 skipped (up from 644/21 — 10 new tests across 4 files); `pnpm
+typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` and `pnpm build` all re-run
+clean. None of the mutation-verification edits above ever touched a ported file (`oscillator.ts`,
+`nudge-impulse.ts`, `plumb-bob.ts` were never edited, per this story's own constraint) or altered an existing
+assertion; every pre-existing test in the four touched files is unchanged, and `git status` shows only the four
+test-file diffs (three extended, one new) with every source file clean.
 
 ## Auto Run Result
 

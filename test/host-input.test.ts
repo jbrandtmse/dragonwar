@@ -272,6 +272,44 @@ describe('src/host/input -- createKeyboardInput() (AD-4)', () => {
 		expect(transitions[0]!.frame.nudge_up).toBe(false);
 	});
 
+	it('QA audit: a keyup for a code that was NEVER pressed down emits no transition and does not corrupt later state -- for a plain single-bound action, and for a multi-bound action (nudge_up) while its OTHER code is genuinely held', () => {
+		const input = createKeyboardInput({ tickAt: (ms) => ms });
+		const { target, dispatch } = installStubTarget();
+		input.attach(target);
+
+		// A bare keyup with no prior keydown, for a normal single-bound action.
+		dispatch(markPreventDefault(keyEvent('keyup', 'ShiftLeft', 1)));
+		expect(input.drainTransitions(), 'a keyup for a code never pressed down must emit nothing').toEqual([]);
+
+		// The SAME code must still work normally afterward -- proves the
+		// spurious keyup left no phantom held-code entry behind.
+		dispatch(markPreventDefault(keyEvent('keydown', 'ShiftLeft', 2)));
+		let transitions = input.drainTransitions();
+		expect(transitions, 'a normal keydown after a spurious keyup must still emit').toHaveLength(1);
+		expect(transitions[0]!.frame.flipper_l).toBe(true);
+		dispatch(markPreventDefault(keyEvent('keyup', 'ShiftLeft', 3)));
+		transitions = input.drainTransitions();
+		expect(transitions[0]!.frame.flipper_l, 'the real release must still clear the action').toBe(false);
+
+		// The multi-bound-action case (Story 1.7's own review-found bug class):
+		// ArrowUp genuinely held, then a keyup for Space -- the SAME action's
+		// SECOND code -- that was NEVER pressed down.
+		dispatch(markPreventDefault(keyEvent('keydown', 'ArrowUp', 4)));
+		expect(input.drainTransitions()[0]!.frame.nudge_up).toBe(true);
+
+		dispatch(markPreventDefault(keyEvent('keyup', 'Space', 5))); // never pressed
+		expect(input.drainTransitions(), 'a keyup for Space, which was never held, must emit nothing while ArrowUp is still down').toEqual([]);
+
+		// ArrowUp's own release must still correctly clear nudge_up -- the
+		// spurious Space keyup above must not have corrupted the held-codes
+		// set for nudge_up (e.g. by adding a phantom entry that would keep the
+		// action wrongly "held" after ArrowUp's real release).
+		dispatch(markPreventDefault(keyEvent('keyup', 'ArrowUp', 6)));
+		transitions = input.drainTransitions();
+		expect(transitions, "ArrowUp's real release must still clear nudge_up").toHaveLength(1);
+		expect(transitions[0]!.frame.nudge_up).toBe(false);
+	});
+
 	it('each transition is stamped via the injected tickAt(event.timeStamp), and detach() stops future events', () => {
 		const seen: number[] = [];
 		const input = createKeyboardInput({ tickAt: (ms) => { seen.push(ms); return ms * 2; } });

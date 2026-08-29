@@ -206,3 +206,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-08-29T12:52:13Z	Epic 1	runtime_lock_released	stage=adr_verifications
 2026-08-29T12:52:13Z	Epic 1	runtime_lock_acquired	stage=qa
 2026-08-29T12:52:13Z	Story 1.7	stage_spawned	stage=qa spawn_at=2026-08-29T12:52:13Z model=claude-sonnet-5 agent_name=1-7-nudge-tilt-slam-qa-1 cycle_iteration=1
+2026-08-29T13:07:51Z	Story 1.7	qa_complete	spawn_at=2026-08-29T11:34:20Z model=claude-sonnet-5 tests_added=10 test_files_new=1_cabinet-substep test_files_modified=3 total_tests=654_pass_21_skip_48_files first_run_failures=0 clarifications=0 closing_sections_present=true no_commit_verified=true src_clean_all_mutations_reverted=verified_by_lead gaps_closed=substep_construction_guard_had_ZERO_coverage,ad2_slam_edge_collapsing_oracle,keyup_for_never_held_code,same_tick_multi_nudge_partial_DW-83,y_axis_coupling all_mutation_verified=true never_edited_the_3_ported_files=verified
+2026-08-29T13:07:51Z	Epic 1	runtime_lock_released	stage=qa
+2026-08-29T13:07:51Z	Story 1.7	stage_spawned	stage=code-review spawn_at=2026-08-29T13:07:51Z model=claude-opus-5 agent_name=1-7-nudge-tilt-slam-cr-1 cycle_iteration=1

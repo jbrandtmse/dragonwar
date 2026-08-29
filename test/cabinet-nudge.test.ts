@@ -211,3 +211,95 @@ describe('sim/physics/cabinet -- AC 1: nudge is cabinet motion, not a force', ()
 		expect(cabinetAccelToPhysicsAccel({ x: 0, y: 0 })).toEqual({ x: 0, y: 0 });
 	});
 });
+
+// QA audit (2026-08-29): ledger DW-83, both halves.
+// (1) "AC 1's ball-coupling conservation test only exercises the X axis
+//     end-to-end -- the Y axis's sign flip is checked only by the
+//     standalone unit-conversion test in test/frames.test.ts, never through
+//     the real coupling code the way X is." Fixed by the first test below,
+//     mirroring the X-axis test above exactly (paired nudged-vs-control,
+//     measured before physics.step()), for nudge_up instead of nudge_l.
+// (2) "No test exercises two nudge actions with rising edges on the same
+//     tick (e.g. a diagonal ArrowLeft+ArrowUp nudge...)." Fixed (partially;
+//     the slam side is covered separately in test/cabinet-slam.test.ts) by
+//     the second test below.
+// Both were cheap to add on top of AC 1's existing harness and assertion
+// shape, per this story's own QA priority list; neither replaces DW-83's
+// remaining routed scope for Story 1.8 (a broader multi-nudge/replay sweep).
+describe('sim/physics/cabinet -- DW-83 partial coverage: Y-axis end-to-end coupling and same-tick multi-nudge', () => {
+	it('DW-83(1): ball coupling on the Y AXIS (nudge_up), through the REAL coupling code end-to-end -- paired nudged-vs-control run, the same shape as AC 1\'s X-axis test above', () => {
+		const nudgedRig = buildHarness();
+		const controlRig = buildHarness();
+		const nudgedBall = spawnRollingBall(nudgedRig.physics);
+		const controlBall = spawnRollingBall(controlRig.physics);
+
+		const nudgeTick = 20;
+		for (let tick = 1; tick < nudgeTick; tick++) {
+			nudgedRig.cabinetMechanics.applyFrame(tick, NO_FRAME);
+			controlRig.cabinetMechanics.applyFrame(tick, NO_FRAME);
+			nudgedRig.physics.step();
+			controlRig.physics.step();
+			expect(nudgedBall.hit.vel.y).toBe(controlBall.hit.vel.y);
+		}
+
+		const preNudgeVelX = nudgedBall.hit.vel.x;
+		const preNudgeVelY = nudgedBall.hit.vel.y;
+
+		const nudgedFrame: InputFrame = { ...NO_FRAME, nudge_up: true };
+		nudgedRig.cabinetMechanics.applyFrame(nudgeTick, nudgedFrame);
+		controlRig.cabinetMechanics.applyFrame(nudgeTick, NO_FRAME);
+
+		const osc = nudgedRig.cabinetMechanics.state.oscillator;
+		const cabinetVelPhysics = cabinetVelocityToPhysicsVelocity({ x: osc.x.velocityMPerS, y: osc.y.velocityMPerS });
+		const deltaX = nudgedBall.hit.vel.x - preNudgeVelX;
+		const deltaY = nudgedBall.hit.vel.y - preNudgeVelY;
+
+		expect(deltaY, 'nudge_up\'s own Y-axis velocity delta must equal -(cabinet Y velocity delta), through the REAL coupling code (not the standalone frames.test.ts unit conversion)').toBeCloseTo(-cabinetVelPhysics.y, 6);
+		// nudge_up is a pure Y-direction nudge (NUDGE_DIRECTIONS.nudge_up = {x:0, y:-1}) -- the X axis oscillator was never disturbed, so this tick's coupling must leave the ball's X velocity untouched, exactly.
+		expect(deltaX, 'a pure Y-direction nudge must not perturb the X axis').toBe(0);
+		expect(controlBall.hit.vel.y, 'the control ball, having received no coupling this tick, is untouched').toBe(preNudgeVelY);
+
+		// Sanity: the cabinet actually moved along Y, or every assertion above is vacuously "0 == 0".
+		expect(osc.y.displacementM, 'the Y oscillator must actually have moved').not.toBe(0);
+		expect(cabinetVelPhysics.y).not.toBe(0);
+		expect(deltaY).not.toBe(0);
+	});
+
+	it('DW-83(2): same-tick multi-nudge -- nudge_l AND nudge_up rising on the SAME tick (a diagonal nudge) each independently queue their own impulse, and BOTH axes couple correctly to the ball within that one tick', () => {
+		const nudgedRig = buildHarness();
+		const controlRig = buildHarness();
+		const nudgedBall = spawnRollingBall(nudgedRig.physics);
+		const controlBall = spawnRollingBall(controlRig.physics);
+
+		const nudgeTick = 20;
+		for (let tick = 1; tick < nudgeTick; tick++) {
+			nudgedRig.cabinetMechanics.applyFrame(tick, NO_FRAME);
+			controlRig.cabinetMechanics.applyFrame(tick, NO_FRAME);
+			nudgedRig.physics.step();
+			controlRig.physics.step();
+		}
+		const preNudgeVelX = nudgedBall.hit.vel.x;
+		const preNudgeVelY = nudgedBall.hit.vel.y;
+
+		// BOTH nudge_l and nudge_up rise on the SAME tick -- the exact scenario DW-83 names.
+		const diagonalFrame: InputFrame = { ...NO_FRAME, nudge_l: true, nudge_up: true };
+		nudgedRig.cabinetMechanics.applyFrame(nudgeTick, diagonalFrame);
+		controlRig.cabinetMechanics.applyFrame(nudgeTick, NO_FRAME);
+
+		const osc = nudgedRig.cabinetMechanics.state.oscillator;
+		const cabinetVelPhysics = cabinetVelocityToPhysicsVelocity({ x: osc.x.velocityMPerS, y: osc.y.velocityMPerS });
+		const deltaX = nudgedBall.hit.vel.x - preNudgeVelX;
+		const deltaY = nudgedBall.hit.vel.y - preNudgeVelY;
+
+		expect(deltaX, 'the diagonal nudge\'s X-axis delta must equal -(cabinet X velocity delta) -- proves nudge_l\'s impulse was queued even though nudge_up rose in the SAME tick').toBeCloseTo(-cabinetVelPhysics.x, 6);
+		expect(deltaY, 'the diagonal nudge\'s Y-axis delta must equal -(cabinet Y velocity delta) -- proves nudge_up\'s impulse was ALSO queued in the same tick, not dropped or overwritten by nudge_l\'s').toBeCloseTo(-cabinetVelPhysics.y, 6);
+
+		// Sanity: BOTH axes actually moved -- if only one action's impulse had
+		// been queued (a same-tick edge-cap regression), one of these would be
+		// exactly 0 instead of matching a nonzero cabinet delta.
+		expect(osc.x.displacementM, 'X axis must have moved (nudge_l\'s impulse)').not.toBe(0);
+		expect(osc.y.displacementM, 'Y axis must have moved (nudge_up\'s impulse)').not.toBe(0);
+		expect(controlBall.hit.vel.x).toBe(preNudgeVelX);
+		expect(controlBall.hit.vel.y).toBe(preNudgeVelY);
+	});
+});
