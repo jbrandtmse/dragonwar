@@ -29,6 +29,16 @@
 // `BallHit`, and `HitQuadtree` all reference the `EventProxy` type structurally.
 // TODO(story-1.3): replace this no-op with a bridge into `SwitchEvent`/`ContactEvent`
 // emission once the seam contracts exist.
+//
+// Deviation (Story 1.6): upstream's `fireVoidEventParm(e, value)` — called by the
+// ported `FlipperMover.updateDisplacements()` on end-of-stroke/beginning-of-stroke —
+// dispatches into the same out-of-scope scripting system `fireGroupEvent()` already
+// diverges from, plus a `logger().info(...)` debug line this port drops entirely
+// (CLAUDE.md/AD-3: only `host/` logs, `sim/` is wall-clock- and console-free). It is
+// restored here as a real method, in the same optional-callback shape as
+// `onCollision` immediately above, so `src/sim/physics/flippers.ts` can observe the
+// end-of-stroke edge without `FlipperMover` importing anything outside
+// `src/sim/physics/**` (AD-1).
 
 import { HitObject } from '../hit-object';
 import { Ball } from '../ball/ball';
@@ -60,5 +70,19 @@ export class EventProxy {
 	// TODO(story-1.3): no-op seam — see the deviation note above.
 	public fireGroupEvent(_e: Event): void {
 		// intentionally empty
+	}
+
+	/**
+	 * Story 1.6 deviation (see this file's header): optional callback for
+	 * `fireVoidEventParm()` below, mirroring `onCollision`'s shape. Unset by
+	 * default, so every OTHER ported caller of an `EventProxy` (none yet set
+	 * this) is unaffected.
+	 */
+	public onVoidEvent?: (e: Event, value: number) => void;
+
+	public fireVoidEventParm(e: Event, value: number): void {
+		if (this.onVoidEvent) {
+			this.onVoidEvent(e, value);
+		}
 	}
 }

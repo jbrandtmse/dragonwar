@@ -301,6 +301,38 @@ describe('sim/loop -- tick-stamped InputTransitions (AD-4)', () => {
 	});
 });
 
+// Story 1.6: Snapshot.mechanisms.flippers/.plunger were hard-wired to
+// NEUTRAL_FLIPPER / { posMm: 0, holdTicks: 0 } before this story
+// (loop/index.ts:166, :224-225) -- now built from machine.mechanisms. See
+// test/flipper-mover.test.ts and test/plunger.test.ts for the full
+// behavioural coverage; this is just the wiring-reaches-the-snapshot pin.
+describe('sim/loop -- Snapshot.mechanisms reports the REAL flipper/plunger state (Story 1.6)', () => {
+	it('mechanisms.flippers.l/.r report the mover\'s actual angle, not a hard-wired neutral placeholder', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		const before = loop.advance(5, []).snapshot.mechanisms.flippers.l.angleDeg;
+
+		const out = loop.advance(1, [{ tick: 6, frame: { ...NO_FRAME, flipper_l: true } }]);
+		let after = out.snapshot.mechanisms.flippers.l.angleDeg;
+		let moved = after !== before;
+		let last = out;
+		for (let i = 0; i < 50 && !moved; i++) {
+			last = loop.advance(1, []);
+			after = last.snapshot.mechanisms.flippers.l.angleDeg;
+			moved = after !== before;
+		}
+		expect(moved, 'holding flipper_l must move mechanisms.flippers.l.angleDeg away from its rest value').toBe(true);
+	});
+
+	it('mechanisms.plunger.holdTicks reports the real hold count, not a hard-wired 0', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		let out = loop.advance(1, [{ tick: 1, frame: { ...NO_FRAME, plunger: true } }]);
+		for (let i = 0; i < 9; i++) {
+			out = loop.advance(1, []);
+		}
+		expect(out.snapshot.mechanisms.plunger.holdTicks).toBe(10);
+	});
+});
+
 describe('buttonSwitchEdges() -- the button-switch edge source (AD-2), unit-level', () => {
 	it('emits a closed:true edge for each action that transitions from not-held to held', () => {
 		const previous = NO_FRAME;

@@ -122,12 +122,37 @@ export interface LoadedDevice {
 	readonly ejectPose: { readonly posMm: Vec3; readonly dir: Vec3 };
 }
 
+/**
+ * A flipper node's derived pivot/tip/length/half-width/z-range (Story 1.6,
+ * task 8b): `col_flipper_l`/`col_flipper_r` are surfaced here instead of
+ * being dispatched to `addBox()` -- a moving bat must not ALSO exist as 24
+ * static `HitTriangle`s (that static box is ledger `DW-60`). See this file's
+ * header, "How the bat is derived from the committed box" in this story's
+ * Design Notes, and `sim/physics/flipper/flipper-config.ts`, which turns this
+ * into the ported mover's `FlipperConfig`.
+ */
+export interface LoadedFlipper {
+	readonly name: string;
+	readonly side: 'l' | 'r';
+	/** The end FARTHER from the playfield x-centre -- the bat's fixed rotation axis. */
+	readonly pivotMm: Vec3;
+	/** The opposite end -- the bat's free (moving) tip. */
+	readonly tipMm: Vec3;
+	readonly lengthMm: number;
+	readonly halfWidthMm: number;
+	readonly zLowMm: number;
+	readonly zHighMm: number;
+	readonly physMaterial?: string;
+}
+
 export interface LoadedCollision {
-	/** A fully populated `PlayerPhysics` -- playfield/glass planes set, every static hit object added, `finalizeStatics()` already called. The caller only needs to `addBall()`. */
+	/** A fully populated `PlayerPhysics` -- playfield/glass planes set, every static hit object added, `finalizeStatics()` already called. The caller only needs to `addBall()` (and, for the two flipper nodes below, `addFlipper()`). */
 	readonly physics: PlayerPhysics;
 	readonly switchZones: readonly LoadedSwitchZone[];
 	/** Every ball device's authored eject pose, validated against `TABLE.ballDevices` (Story 1.5, DW-45's sibling: the first reader of this array). */
 	readonly devices: readonly LoadedDevice[];
+	/** `col_flipper_l` and `col_flipper_r`, derived rather than registered as static geometry (Story 1.6). Always exactly the two, in no particular order. */
+	readonly flippers: readonly LoadedFlipper[];
 }
 
 // ---------------------------------------------------------------------------
@@ -329,8 +354,16 @@ function assertReferenceDimensions(doc: CollisionDoc): void {
 	for (const nodeName of [TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR]) {
 		const flipper = findNode(doc, nodeName);
 		const b = flipper.bboxMm;
-		const measuredLength = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
-		assertClose(nodeName, 'length', measuredLength, expectedBatMm);
+		// DW-48: axis-agnostic (`Math.max` over all three extents) let a bat
+		// measuring the reference length on the WRONG axis (e.g. y instead of
+		// x) pass silently, as long as SOME axis happened to be long enough.
+		// The committed body is x-major (`loadCollision()`'s own header: "the
+		// pivot as ... the left bat's min.x and the right bat's max.x"), so the
+		// x extent specifically is what the loader treats as the bat's length
+		// everywhere else (`loadFlipper()` below) -- asserting that SAME axis
+		// here, naming it in the throw, is what closes the ledger entry.
+		const measuredLength = b.max.x - b.min.x;
+		assertClose(nodeName, 'length (x axis)', measuredLength, expectedBatMm);
 	}
 }
 
@@ -339,23 +372,37 @@ function assertReferenceDimensions(doc: CollisionDoc): void {
 // come from `TUNING.materials`, keyed by the node's own `physMaterial`.
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolves `physMaterial` against `TUNING.materials`, throwing if it names
+ * something unknown (AD-16 Conventions: load-time paths throw -- an
+ * authored-but-unknown phys_material must not silently fall back to
+ * 'default', review finding, this story's review pass). Extracted
+ * (Story 1.6) so `loadFlipper()` below can validate a flipper node's own
+ * `physMaterial` the same way every other node's is validated, even though
+ * the VALUE it resolves to is not the one actually applied to the flipper's
+ * hit shape (that is `sim/physics/flippers.ts`'s own, deliberate
+ * `TUNING.materials.flipper_rubber`, per this story's task list) -- the
+ * committed document's own field is still checked for a typo or a renamed
+ * material, the same as any other node's.
+ */
+function resolveMaterial(physMaterial: string | undefined, nodeName: string): (typeof TUNING.materials)['default'] {
+	const materials = TUNING.materials as Record<string, (typeof TUNING.materials)['default']>;
+	if (physMaterial === undefined) {
+		return materials.default;
+	}
+	const found = materials[physMaterial];
+	if (!found) {
+		throw new Error(`loadCollision(): node "${nodeName}" has unknown phys_material "${physMaterial}"`);
+	}
+	return found;
+}
+
 function applyMaterial<T extends { setElasticity(e: number, f?: number): unknown; setFriction(f: number): unknown; setScatter(s: number): unknown }>(
 	hitObject: T,
 	physMaterial: string | undefined,
 	nodeName: string,
 ): void {
-	const materials = TUNING.materials as Record<string, (typeof TUNING.materials)['default']>;
-	let m = materials.default;
-	if (physMaterial !== undefined) {
-		const found = materials[physMaterial];
-		if (!found) {
-			// AD-16 Conventions: load-time paths throw -- an authored-but-unknown
-			// phys_material must not silently fall back to 'default' (review
-			// finding, this story's review pass).
-			throw new Error(`loadCollision(): node "${nodeName}" has unknown phys_material "${physMaterial}"`);
-		}
-		m = found;
-	}
+	const m = resolveMaterial(physMaterial, nodeName);
 	hitObject.setElasticity(m.elasticity.value, m.elasticityFalloff.value);
 	hitObject.setFriction(m.friction.value);
 	hitObject.setScatter(m.scatter.value);
@@ -513,6 +560,52 @@ function addBox(physics: PlayerPhysics, node: CollisionNodeDoc): void {
 }
 
 // ---------------------------------------------------------------------------
+// Flipper extraction (Story 1.6): derives a LoadedFlipper from the committed
+// box's own bboxMm -- see this file's header and LoadedFlipper's own doc
+// comment. No figure is invented: pivot/tip/length/half-width/z-range are all
+// direct reads of the committed geometry.
+// ---------------------------------------------------------------------------
+
+function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): LoadedFlipper {
+	const node = findNode(doc, nodeName);
+	const b = node.bboxMm;
+
+	// Validated the same way every other node's phys_material is (an
+	// authored-but-unknown value throws, naming the node) -- even though the
+	// flipper's hit shape is not built here, `sim/physics/flippers.ts`
+	// deliberately applies `TUNING.materials.flipper_rubber` regardless (this
+	// story's own task list), not this field. The committed document's own
+	// value is still checked, matching this story's I/O matrix ("Flipper node
+	// is not a static box" row: "the two nodes are still validated for length
+	// and material").
+	resolveMaterial(node.physMaterial, node.name);
+
+	// The pivot is the end FARTHER from the playfield x-centre (this file's
+	// own header: "x = 170 for the left bat, x = 344.4 for the right --
+	// equivalently the left bat's min.x and the right bat's max.x"), computed
+	// from the actual measured distances rather than hard-coded per side, so
+	// a re-authored (but still axis-aligned) box is still read correctly.
+	const centreX = TABLE.reference.playfieldMm.w / 2;
+	const distMin = Math.abs(b.min.x - centreX);
+	const distMax = Math.abs(b.max.x - centreX);
+	const pivotX = distMin >= distMax ? b.min.x : b.max.x;
+	const tipX = distMin >= distMax ? b.max.x : b.min.x;
+	const centreY = (b.min.y + b.max.y) / 2;
+
+	return {
+		name: node.name,
+		side,
+		pivotMm: { x: pivotX, y: centreY, z: b.min.z },
+		tipMm: { x: tipX, y: centreY, z: b.min.z },
+		lengthMm: b.max.x - b.min.x,
+		halfWidthMm: (b.max.y - b.min.y) / 2,
+		zLowMm: b.min.z,
+		zHighMm: b.max.z,
+		physMaterial: node.physMaterial,
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point.
 // ---------------------------------------------------------------------------
 
@@ -557,9 +650,18 @@ export function loadCollision(doc: unknown): LoadedCollision {
 	applyMaterial(glassPlane, glassNode.physMaterial, glassNode.name);
 	physics.setTopGlassHit(glassPlane);
 
+	// Story 1.6: the two flipper nodes are dispatched to loadFlipper() instead
+	// of addBox() below -- a moving bat must not ALSO exist as static
+	// geometry (DW-60). Their names are resolved once, outside the loop, so
+	// the loop's own dispatch is a plain Set membership test.
+	const flipperNodeNames = new Set<string>([TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR]);
+
 	for (const node of parsed.nodes) {
 		if (node.name === playfieldNode.name || node.name === glassNode.name) {
 			continue; // already installed as the playfield/glass planes above
+		}
+		if (flipperNodeNames.has(node.name)) {
+			continue; // handled by loadFlipper() below, never a static hit object
 		}
 		if (node.shape === 'plane') {
 			throw new Error(`loadCollision(): node "${node.name}" is an unexpected plane-shaped node -- only col_playfield and col_glass may be plane-shaped`);
@@ -572,6 +674,11 @@ export function loadCollision(doc: unknown): LoadedCollision {
 	}
 
 	physics.finalizeStatics();
+
+	const flippers: LoadedFlipper[] = [
+		loadFlipper(parsed, TABLE.nodes.colFlipperL, 'l'),
+		loadFlipper(parsed, TABLE.nodes.colFlipperR, 'r'),
+	];
 
 	const switchZones: LoadedSwitchZone[] = parsed.switchZones.map((zone) => {
 		if (!(zone.switch in TABLE.switches)) {
@@ -601,5 +708,5 @@ export function loadCollision(doc: unknown): LoadedCollision {
 		};
 	});
 
-	return { physics, switchZones, devices };
+	return { physics, switchZones, devices, flippers };
 }

@@ -186,15 +186,22 @@ describe('asset contract -- public/assets/dragonwar.collision.json, node grammar
 		expect(h).toBeCloseTo(TABLE.reference.playfieldMm.h, 1);
 	});
 
-	it('both flipper nodes measure the reference bat length within tolerance', () => {
+	it('both flipper nodes measure the reference bat length on the x axis within tolerance (DW-48)', () => {
+		// DW-48's unmentioned twin (this story's own task list): the
+		// axis-agnostic `Math.max` over all three extents let a bat measuring
+		// the reference length on the WRONG axis pass silently, the same
+		// defect `loader/index.ts`'s own per-axis assertion closes. This
+		// document-grammar check must measure the SAME axis (x -- the
+		// committed body is x-major) that the loader itself does, not merely
+		// "some axis is long enough".
 		const doc = readCollisionDoc();
 		const expectedMm = TABLE.reference.flipperBatIn * 25.4;
 		for (const nodeName of [TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR]) {
 			const node = doc.nodes.find((n) => n.name === nodeName)!;
 			expect(node, `${nodeName} missing from collision doc`).toBeDefined();
 			const b = node.bboxMm;
-			const measured = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z);
-			expect(measured).toBeCloseTo(expectedMm, 1);
+			const measured = b.max.x - b.min.x;
+			expect(measured, `${nodeName}: x extent`).toBeCloseTo(expectedMm, 1);
 		}
 	});
 });

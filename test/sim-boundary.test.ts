@@ -26,6 +26,7 @@ import {
 	C_CONTACTVEL,
 	C_DISP_GAIN,
 	C_DISP_LIMIT,
+	C_INTERATIONS,
 	C_LOWNORMVEL,
 	C_PRECISION,
 	PHYS_FACTOR,
@@ -79,7 +80,15 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	// header at the TOP and must NOT carry either port signal (asserted, not
 	// returned past, so the authored branch can never report as a pass while
 	// checking nothing).
-	const AUTHORED_FILES = new Set(['loader/index.ts', 'switches.ts', 'devices.ts', 'machine.ts']);
+	const AUTHORED_FILES = new Set([
+		'loader/index.ts',
+		'switches.ts',
+		'devices.ts',
+		'machine.ts',
+		'flipper/flipper-config.ts',
+		'flippers.ts',
+		'plunger.ts',
+	]);
 	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
 	const isDeclaredAuthored = (relative: string): boolean => AUTHORED_FILES.has(toPosix(relative));
 	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
@@ -189,5 +198,8 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 		expect(STATICTIME, 'STATICTIME').toBe(0.005);
 		expect(VELOCITY_EPSILON, 'VELOCITY_EPSILON').toBe(0.05);
 		expect(BALL_BALL_RESTITUTION, 'BALL_BALL_RESTITUTION (lib/vpt/ball/ball-hit.ts:303)').toBe(0.8);
+		// Story 1.6: the flipper port (flipper-hit.ts's MFP root search) relies
+		// on this one -- added to the pin per this story's own task list.
+		expect(C_INTERATIONS, 'C_INTERATIONS (lib/physics/constants.ts, Flippers)').toBe(20);
 	});
 });

@@ -64,22 +64,65 @@ function installRaf(): RafQueue {
 	};
 }
 
+/**
+ * `src/host/loop.ts` (Story 1.6) attaches `src/host/input`'s keyboard
+ * listeners to `globalThis` (which IS `window` in a real browser main
+ * thread) inside `start()`, so every test below needs a stub target even
+ * when it never dispatches a synthetic key event itself -- otherwise
+ * `start()` throws on `target.addEventListener is not a function`, the same
+ * way `installRaf()` above stubs requestAnimationFrame/cancelAnimationFrame
+ * for the SAME reason.
+ */
+interface KeyboardTargetStub {
+	dispatch(type: 'keydown' | 'keyup' | 'blur', event: { readonly code?: string; readonly timeStamp: number; preventDefault?: () => void }): void;
+}
+
+function installKeyboardTarget(): KeyboardTargetStub {
+	const listeners = new Map<string, Set<(event: unknown) => void>>();
+
+	(globalThis as unknown as { addEventListener: unknown }).addEventListener = (type: string, listener: (event: unknown) => void): void => {
+		if (!listeners.has(type)) {
+			listeners.set(type, new Set());
+		}
+		listeners.get(type)!.add(listener);
+	};
+	(globalThis as unknown as { removeEventListener: unknown }).removeEventListener = (type: string, listener: (event: unknown) => void): void => {
+		listeners.get(type)?.delete(listener);
+	};
+
+	return {
+		dispatch(type, event): void {
+			for (const listener of listeners.get(type) ?? []) {
+				listener(event);
+			}
+		},
+	};
+}
+
 describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 	let raf: RafQueue;
+	let keyboardTarget: KeyboardTargetStub;
 	let originalRaf: unknown;
 	let originalCancel: unknown;
+	let originalAddEventListener: unknown;
+	let originalRemoveEventListener: unknown;
 
 	beforeEach(() => {
 		const g = globalThis as unknown as Record<string, unknown>;
 		originalRaf = g.requestAnimationFrame;
 		originalCancel = g.cancelAnimationFrame;
+		originalAddEventListener = g.addEventListener;
+		originalRemoveEventListener = g.removeEventListener;
 		raf = installRaf();
+		keyboardTarget = installKeyboardTarget();
 	});
 
 	afterEach(() => {
 		const g = globalThis as unknown as Record<string, unknown>;
 		g.requestAnimationFrame = originalRaf;
 		g.cancelAnimationFrame = originalCancel;
+		g.addEventListener = originalAddEventListener;
+		g.removeEventListener = originalRemoveEventListener;
 	});
 
 	it('advances the sim by the DELTA between successive frame timestamps, not by the timestamp itself', () => {
@@ -184,5 +227,45 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 
 		const last = outputs[outputs.length - 1];
 		expect(last.snapshot.balls, 'a trough eject issued through the host must put a ball in the snapshot').toHaveLength(1);
+	});
+
+	it('setCoilEnabled() reaches the sim loop -- the dev hatch src/host/boot.ts publishes', () => {
+		const outputs: FrameOutput[] = [];
+		const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+		host.start();
+		raf.fire(0);
+
+		// A disabled c_flipper_l must not throw and must be queryable via the
+		// same real stack a browser smoke would exercise -- this is the "no
+		// throw, reaches machine.step()" half; test/flipper-mover.test.ts pins
+		// the flipper-side observable behaviour directly.
+		expect(() => host.setCoilEnabled('c_flipper_l', false)).not.toThrow();
+		expect(() => raf.fire(16.667)).not.toThrow();
+		expect(outputs.length).toBeGreaterThan(0);
+	});
+
+	// Story 1.6, Integration AC: "with the installRaf() harness, a synthetic
+	// ShiftLeft keydown between two frames results in advance() being called
+	// with a transition whose tick lies inside that frame's range, and the
+	// resulting FrameOutput's flipper angle has moved."
+	it("a synthetic ShiftLeft keydown between two frames reaches advance() with a tick inside the frame's range, and moves the flipper", () => {
+		const outputs: FrameOutput[] = [];
+		const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+		host.start();
+		raf.fire(0); // establishes the origin: tick 0, no owed time.
+
+		const beforeTick = outputs[outputs.length - 1]!.snapshot.tick;
+		const angleBefore = outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg;
+
+		// Fired BETWEEN frame 1 (nowMs = 0) and frame 2 (nowMs = 16.667) --
+		// exactly the DOM-event timing this integration AC describes.
+		keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: 8, preventDefault: () => {} });
+
+		raf.fire(16.667);
+		const afterTick = outputs[outputs.length - 1]!.snapshot.tick;
+
+		expect(afterTick, 'the frame carrying the keypress must have actually run some ticks').toBeGreaterThan(beforeTick);
+		const angleAfter = outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg;
+		expect(angleAfter, 'the left flipper must have moved once the key is held for a whole frame').not.toBe(angleBefore);
 	});
 });

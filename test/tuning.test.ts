@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TICK_HZ } from '../src/sim/contracts/time';
-import { resolveTuning, TUNING, type Confidence, type TuningEntry } from '../src/sim/table/tuning';
+import { plungerSpeedByHoldMs, resolveTuning, TUNING, type Confidence, type TuningEntry } from '../src/sim/table/tuning';
 
 function isTuningEntry(value: unknown): value is TuningEntry<unknown> {
 	return (
@@ -288,5 +288,167 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 			};
 			expect(() => resolveTuning(broken)).toThrow(/switchSettleMsByClass\.standup/);
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Story 1.6: TUNING.flipper (the ported FlipperMover parameters) and the
+// three DW-34 guards resolveTuning() now enforces (deep-frozen result,
+// nested "…Ms" throws, "…Ticks" collision throws).
+// ---------------------------------------------------------------------------
+
+describe('TUNING.flipper -- the ported FlipperMover parameters (Story 1.6, AD-5, AD-15)', () => {
+	const FLIPPER_KEYS = [
+		'mass',
+		'strength',
+		'rampUp',
+		'returnRatio',
+		'torqueDamping',
+		'torqueDampingAngleDeg',
+		'sweepDeg',
+		'endRadiusRatio',
+	] as const;
+
+	it('every entry is a TuningEntry with a source naming the pinned upstream file (or physics-tuning.md) and an honest confidence', () => {
+		for (const key of FLIPPER_KEYS) {
+			const entry = TUNING.flipper[key];
+			expect(isTuningEntry(entry), `TUNING.flipper.${key} is not a TuningEntry`).toBe(true);
+			expect(typeof entry.source).toBe('string');
+			expect(entry.source.length).toBeGreaterThan(0);
+			const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+			expect(validConfidences).toContain(entry.confidence);
+			// Every figure here is transcribed from the pinned upstream commit
+			// (flipper-mover.ts/flipper-data.ts @ e8a6d6f) or, for rampUp,
+			// physics-tuning.md's own explicit override -- never
+			// "authored"/invented outright the way the do-not-invent-list
+			// figures are.
+			expect(entry.source).toMatch(/e8a6d6f|physics-tuning\.md/);
+		}
+	});
+
+	it('no key in the group ends in "Ms" -- none of these are durations resolveTuning() converts', () => {
+		for (const key of FLIPPER_KEYS) {
+			expect(key.endsWith('Ms'), `TUNING.flipper.${key} must not end in "Ms"`).toBe(false);
+		}
+	});
+
+	it('rampUp is 2.5 -- physics-tuning.md\'s explicit override of flipper-data.ts\'s own 3.0 fallback, sourced to the brief addendum §4', () => {
+		expect(TUNING.flipper.rampUp.value).toBe(2.5);
+		expect(TUNING.flipper.rampUp.source).toMatch(/2\.5/);
+	});
+
+	it('strength/mass/returnRatio/torqueDamping/torqueDampingAngleDeg transcribe flipper-data.ts\'s own override-fallback defaults', () => {
+		expect(TUNING.flipper.mass.value).toBe(1);
+		expect(TUNING.flipper.strength.value).toBe(2200);
+		expect(TUNING.flipper.returnRatio.value).toBe(0.058);
+		expect(TUNING.flipper.torqueDamping.value).toBe(0.75);
+		expect(TUNING.flipper.torqueDampingAngleDeg.value).toBe(6.0);
+	});
+
+	it('sweepDeg (51) and endRadiusRatio transcribe flipper-data.ts\'s own field defaults, not an invented figure', () => {
+		expect(TUNING.flipper.sweepDeg.value).toBe(51);
+		expect(TUNING.flipper.endRadiusRatio.value).toBeCloseTo(13.0 / 21.5, 10);
+	});
+
+	it('the flipper\'s collision material is NOT here -- it stays materials.flipper_rubber, already authored', () => {
+		expect('elasticity' in TUNING.flipper).toBe(false);
+		expect('friction' in TUNING.flipper).toBe(false);
+		expect(TUNING.materials.flipper_rubber.elasticity.value).toBe(0.88);
+	});
+
+	it('MPF\'s pulse/hold figures appear only as prose in physics-tuning.md, never as a TUNING.flipper entry', () => {
+		// physics-tuning.md's own words: "~30 ms at 70%, then 25% hold ... a
+		// calibration reference, not a parameter". No key in this group may be
+		// named after it.
+		const keys = Object.keys(TUNING.flipper);
+		for (const key of keys) {
+			expect(key.toLowerCase()).not.toMatch(/pulse|mpf/);
+		}
+	});
+});
+
+describe('resolveTuning() -- DW-34 guards (Story 1.6)', () => {
+	it('the returned object is frozen at every depth, including nested groups (materials, flipper, switchSettleTicksByClass)', () => {
+		const resolved = resolveTuning();
+		expect(Object.isFrozen(resolved)).toBe(true);
+		expect(Object.isFrozen(resolved.flipper)).toBe(true);
+		expect(Object.isFrozen(resolved.flipper.strength)).toBe(true);
+		expect(Object.isFrozen(resolved.materials)).toBe(true);
+		expect(Object.isFrozen(resolved.materials.flipper_rubber)).toBe(true);
+		expect(Object.isFrozen(resolved.switchSettleTicksByClass)).toBe(true);
+		expect(Object.isFrozen(resolved.switchSettleTicksByClass.standup)).toBe(true);
+		expect(() => {
+			(resolved as unknown as { flipper: unknown }).flipper = null;
+		}).toThrow();
+		expect(() => {
+			(resolved.flipper as unknown as { strength: unknown }).strength = null;
+		}).toThrow();
+	});
+
+	it('a nested "…Ms" key one level down throws naming its dotted path, rather than silently never converting it (DW-34)', () => {
+		const broken = {
+			...TUNING,
+			flipper: { ...TUNING.flipper, rampUpMs: { value: 5, source: 'test fixture', confidence: 'unverified' as const } },
+		};
+		expect(() => resolveTuning(broken as unknown as typeof TUNING)).toThrow(/flipper\.rampUpMs/);
+	});
+
+	it('a nested key NOT ending in "Ms" passes through untouched', () => {
+		expect(() => resolveTuning()).not.toThrow();
+		const resolved = resolveTuning();
+		expect(resolved.flipper.strength.value).toBe(TUNING.flipper.strength.value);
+	});
+
+	it('a hand-authored top-level "…Ticks" key colliding with a derived one throws naming the key, rather than being silently overwritten', () => {
+		const broken = {
+			...TUNING,
+			tiltSettleTicks: { value: 999, source: 'test fixture', confidence: 'unverified' as const },
+		};
+		expect(() => resolveTuning(broken as unknown as typeof TUNING)).toThrow(/tiltSettleTicks/);
+	});
+
+	it('a "…Ticks" key with no colliding "…Ms" sibling survives untouched', () => {
+		const withExtra = { ...TUNING, someUnrelatedTicks: { value: 7, source: 'test fixture', confidence: 'unverified' as const } };
+		const resolved = resolveTuning(withExtra as unknown as typeof TUNING);
+		expect((resolved as unknown as { someUnrelatedTicks: { value: number } }).someUnrelatedTicks.value).toBe(7);
+	});
+});
+
+describe('plungerSpeedByHoldMs() -- the manual-plunge hold->speed mapping (AD-5)', () => {
+	const resolved = resolveTuning();
+
+	it('clamps to plungerMinSpeedScale at or below plungerMinHoldTicks', () => {
+		const expected = resolved.autolaunchSpeedMmPerS.value * resolved.plungerMinSpeedScale.value;
+		expect(plungerSpeedByHoldMs(resolved.plungerMinHoldTicks.value, resolved)).toBeCloseTo(expected, 6);
+		expect(plungerSpeedByHoldMs(0, resolved)).toBeCloseTo(expected, 6);
+		expect(plungerSpeedByHoldMs(-5, resolved)).toBeCloseTo(expected, 6);
+	});
+
+	it('clamps to plungerMaxSpeedScale at or above plungerMaxHoldTicks -- it never extrapolates past either end', () => {
+		const expected = resolved.autolaunchSpeedMmPerS.value * resolved.plungerMaxSpeedScale.value;
+		expect(plungerSpeedByHoldMs(resolved.plungerMaxHoldTicks.value, resolved)).toBeCloseTo(expected, 6);
+		expect(plungerSpeedByHoldMs(resolved.plungerMaxHoldTicks.value + 1000, resolved)).toBeCloseTo(expected, 6);
+	});
+
+	it('interpolates linearly between the two clamps', () => {
+		const minTicks = resolved.plungerMinHoldTicks.value;
+		const maxTicks = resolved.plungerMaxHoldTicks.value;
+		const midTicks = minTicks + (maxTicks - minTicks) / 2;
+		const minSpeed = resolved.autolaunchSpeedMmPerS.value * resolved.plungerMinSpeedScale.value;
+		const maxSpeed = resolved.autolaunchSpeedMmPerS.value * resolved.plungerMaxSpeedScale.value;
+		const expectedMid = (minSpeed + maxSpeed) / 2;
+		expect(plungerSpeedByHoldMs(midTicks, resolved)).toBeCloseTo(expectedMid, 3);
+	});
+
+	it('a zero-width hold window (plungerMinHoldTicks === plungerMaxHoldTicks) yields the max scale rather than dividing by zero', () => {
+		const zeroWidth = {
+			...resolved,
+			plungerMinHoldTicks: { value: 10, source: 'test fixture', confidence: 'unverified' as const },
+			plungerMaxHoldTicks: { value: 10, source: 'test fixture', confidence: 'unverified' as const },
+		};
+		const expected = resolved.autolaunchSpeedMmPerS.value * resolved.plungerMaxSpeedScale.value;
+		expect(plungerSpeedByHoldMs(10, zeroWidth)).toBeCloseTo(expected, 6);
+		expect(plungerSpeedByHoldMs(999, zeroWidth)).toBeCloseTo(expected, 6);
+		expect(Number.isFinite(plungerSpeedByHoldMs(10, zeroWidth))).toBe(true);
 	});
 });

@@ -46,6 +46,30 @@ export interface PhysMaterialTuning {
 }
 
 /**
+ * Story 1.6's `FlipperMover`/`FlipperHit` port parameters (AD-5, AD-15). Every
+ * value here is transcribed from the pinned upstream source at
+ * `lib/vpt/flipper/flipper-mover.ts` / `flipper-data.ts` @ `e8a6d6f`, never
+ * invented — see each entry's own `source` below. No key ends in `Ms`: none
+ * of these is a duration `resolveTuning()` converts, and `pnpm
+ * lint:boundaries`'s tick/ms rule would reject one that did outside this
+ * file's own top level.
+ *
+ * MPF's `~30 ms at 70%, then 25% hold` figures (`physics-tuning.md:29`) are
+ * deliberately NOT one of these entries -- they are a calibration reference
+ * for the feel ritual (Story 1.9), never a parameter this port reads.
+ */
+export interface FlipperTuning {
+	readonly mass: TuningEntry<number>;
+	readonly strength: TuningEntry<number>;
+	readonly rampUp: TuningEntry<number>;
+	readonly returnRatio: TuningEntry<number>;
+	readonly torqueDamping: TuningEntry<number>;
+	readonly torqueDampingAngleDeg: TuningEntry<number>;
+	readonly sweepDeg: TuningEntry<number>;
+	readonly endRadiusRatio: TuningEntry<number>;
+}
+
+/**
  * `TABLE as const`-adjacent, deep-frozen tuning registry. Seeds exactly the
  * tunables Epic 1's later stories consume (this story's task 7); flipper
  * mover parameters (strength, ramp-up, end-of-stroke, return) are Story
@@ -80,6 +104,55 @@ export const TUNING = deepFreeze({
 			scatter: entry(0, "addendum §2 physics tuning table, 'Scatter angle': \"0, for every era; randomness is tuned down\"", 'high'),
 		},
 	} satisfies Readonly<Record<'default' | 'flipper_rubber', PhysMaterialTuning>>,
+
+	/**
+	 * Story 1.6's mover parameters (see `FlipperTuning`'s own doc comment
+	 * above). The flipper's COLLISION material (elasticity 0.88, falloff
+	 * 0.15, friction 0.85) stays `materials.flipper_rubber` above -- already
+	 * authored, reused rather than restated here.
+	 */
+	flipper: {
+		mass: entry(
+			1,
+			"lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData.updatePhysicsSettings()'s registry.getRegStringAsFloat('Player', 'FlipperPhysicsMass${idx}', 1) fallback default -- the vpx-js 'modern era' override value, transcribed since DragonWar has no per-table override-physics system of its own (AD-1) and this IS the modern band physics-tuning.md's 'Flipper strength' note says to inherit",
+			'medium',
+		),
+		strength: entry(
+			2200,
+			"lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsStrength${idx} fallback default 2200 (VPX internal solenoid-strength unit, dimensionless) -- the modern-era band",
+			'medium',
+		),
+		rampUp: entry(
+			2.5,
+			'physics-tuning.md:28 "Coil ramp-up 2.5 -- Solenoid acceleration time -- enables the light tap. Source: VPE default via the brief addendum §4" (supersedes flipper-data.ts\'s own FlipperPhysicsCoilRampUp fallback of 3.0 for this table)',
+			'medium',
+		),
+		returnRatio: entry(
+			0.058,
+			'lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsReturnStrength${idx} fallback default',
+			'medium',
+		),
+		torqueDamping: entry(
+			0.75,
+			'lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorque${idx} fallback default',
+			'medium',
+		),
+		torqueDampingAngleDeg: entry(
+			6.0,
+			'lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorqueAngle${idx} fallback default, degrees',
+			'medium',
+		),
+		sweepDeg: entry(
+			51,
+			'lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults startAngle 121.0 / endAngle 70.0 -> the ported ROTATION MAGNITUDE |121-70| = 51; the committed collision geometry supplies the flipper\'s absolute table-frame pose (see loader/index.ts and this story\'s Design Notes, "How the bat is derived from the committed box")',
+			'medium',
+		),
+		endRadiusRatio: entry(
+			13.0 / 21.5,
+			'lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults endRadius 13.0 / baseRadius 21.5 -- the ported dimensionless taper ratio; the committed collision geometry supplies the absolute base radius (half the bat\'s own width)',
+			'medium',
+		),
+	} satisfies FlipperTuning,
 
 	/**
 	 * AD-2's five default classes, transcribed verbatim from the spine's own
@@ -248,7 +321,47 @@ function msToTicks(ms: number, label: string, tickHz: number): number {
  * exactly when a regressed conversion would start mattering (review finding,
  * this story's review pass).
  */
+function isTuningEntryLike(value: unknown): value is TuningEntry<unknown> {
+	return typeof value === 'object' && value !== null && 'value' in value && 'source' in value && 'confidence' in value;
+}
+
+/**
+ * DW-34, "nested `…Ms` silently dropped": the top-level loop below only ever
+ * inspected `Object.entries(tuning)`'s OWN keys, so a `…Ms`-suffixed key one
+ * level down (inside a group like `TUNING.flipper` or a future one) was never
+ * even looked at -- neither converted nor rejected, just silently inert.
+ * Walks the whole tree from `tuning` (depth 0); at every depth beyond the
+ * top level, a key ending in `Ms` throws naming its dotted path, because
+ * `resolveTuning()` never converts anything but a TOP-level `…Ms` scalar (and
+ * `switchSettleMsByClass`, handled by its own dedicated loop above/below).
+ * A `TuningEntry` is a leaf -- its own `value`/`source`/`confidence` fields
+ * are never descended into, so a top-level tunable actually named `…Ms` (an
+ * intentional, converted one) is correctly left alone at depth 0 and never
+ * misread as "nested".
+ */
+function assertNoNestedMsKeys(node: unknown, path: string, depth: number): void {
+	if (typeof node !== 'object' || node === null) {
+		return;
+	}
+	for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+		const fullPath = path ? `${path}.${key}` : key;
+		if (depth > 0 && key.endsWith('Ms')) {
+			throw new Error(
+				`resolveTuning(): "${fullPath}" is a NESTED tunable ending in "Ms" (DW-34) -- resolveTuning() only ` +
+				`converts TOP-level "…Ms" scalars (and switchSettleMsByClass) to ticks; a nested one would be silently ` +
+				`never converted. Author it in ticks directly, or lift it to the top level.`,
+			);
+		}
+		if (isTuningEntryLike(value)) {
+			continue; // a leaf: never descend into its own value/source/confidence fields
+		}
+		assertNoNestedMsKeys(value, fullPath, depth + 1);
+	}
+}
+
 export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = TICK_HZ): ResolvedTuning {
+	assertNoNestedMsKeys(tuning, '', 0);
+
 	const scalarTicks: Record<string, TuningEntry<number>> = {};
 	for (const [key, value] of Object.entries(tuning)) {
 		if (!key.endsWith('Ms')) {
@@ -269,6 +382,15 @@ export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = T
 		}
 		const entryValue = value as TuningEntry<number>;
 		const ticksKey = `${key.slice(0, -2)}Ticks`;
+		// DW-34, "…Ticks key collision silently overwritten": a hand-authored
+		// top-level `fooTicks` sharing a name with this derived key must throw
+		// naming the collision, not be silently clobbered by the spread below.
+		if (Object.prototype.hasOwnProperty.call(tuning, ticksKey)) {
+			throw new Error(
+				`resolveTuning(): the derived key "${ticksKey}" (from "${key}") collides with an existing top-level ` +
+				`tunable of the same name (DW-34) -- rename one of them.`,
+			);
+		}
 		scalarTicks[ticksKey] = entry(msToTicks(entryValue.value, key, tickHz), entryValue.source, entryValue.confidence);
 	}
 
@@ -281,9 +403,61 @@ export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = T
 		);
 	}
 
-	return {
+	// DW-34, "unfrozen resolveTuning() result": deep-frozen exactly like
+	// `TUNING` itself (`deepFreeze()` short-circuits on the already-frozen
+	// pieces spread in from `tuning`, so this only does new work for
+	// `scalarTicks`/`switchSettleTicksByClass`, freshly built above).
+	return deepFreeze({
 		...tuning,
 		...(scalarTicks as ResolvedScalarTicks),
 		switchSettleTicksByClass: switchSettleTicksByClass as Readonly<Record<SettleClass, TuningEntry<number>>>,
-	};
+	}) as ResolvedTuning;
+}
+
+/**
+ * AD-5: "the manual plunge maps `s_plunger` hold ticks through
+ * `plungerSpeedByHoldMs` in `tuning.ts`." A clamped linear interpolation from
+ * `plungerMinSpeedScale` to `plungerMaxSpeedScale` across
+ * `[plungerMinHoldTicks, plungerMaxHoldTicks]`, scaling
+ * `autolaunchSpeedMmPerS` -- see this story's Design Notes, "Why the
+ * plunger's full-strength speed is `autolaunchSpeedMmPerS`" and
+ * "`plungerSpeedByHoldMs` is a function in `tuning.ts`, not a `TUNING` key"
+ * for why this is a function here rather than a fifth scalar tunable.
+ *
+ * A function, not a `TUNING` key (Design Notes): `resolveTuning()` tests
+ * `key.endsWith('Ms')` and then requires a `TuningEntry<number>`, so a
+ * function value under a `…Ms`-suffixed name would throw at load; exporting
+ * it as `(holdTicks, tuning) => number` keeps the four scalars it reads as
+ * the tunables a dev panel edits, and never trips that rule at all.
+ */
+export function plungerSpeedByHoldMs(holdTicks: number, tuning: ResolvedTuning): number {
+	const minTicks = tuning.plungerMinHoldTicks.value;
+	const maxTicks = tuning.plungerMaxHoldTicks.value;
+	const minScale = tuning.plungerMinSpeedScale.value;
+	const maxScale = tuning.plungerMaxSpeedScale.value;
+	const fullSpeed = tuning.autolaunchSpeedMmPerS.value;
+
+	// Guard a zero-width hold window (I/O matrix: "plungerMinHoldTicks ===
+	// plungerMaxHoldTicks yields the max scale rather than dividing by zero"):
+	// with no interval to interpolate across, any nonzero hold is already "at
+	// or past" the single boundary point, so the max (full-strength) scale is
+	// the only value consistent with both clamps below collapsing to one point.
+	if (maxTicks <= minTicks) {
+		return fullSpeed * maxScale;
+	}
+
+	const t = clampNumber((holdTicks - minTicks) / (maxTicks - minTicks), 0, 1);
+	const scale = minScale + t * (maxScale - minScale);
+	return fullSpeed * scale;
+}
+
+/** Local, so `sim/table/**` (AD-1: no upward import) never reaches into `sim/physics/math/functions.ts` for one clamp. */
+function clampNumber(x: number, min: number, max: number): number {
+	if (x < min) {
+		return min;
+	}
+	if (x > max) {
+		return max;
+	}
+	return x;
 }

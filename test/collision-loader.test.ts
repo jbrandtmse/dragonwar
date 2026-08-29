@@ -121,6 +121,33 @@ describe('src/sim/physics/loader -- reference-dimension assertion (AD-10)', () =
 
 		expect(() => loadCollision(doc)).toThrowError(new RegExp(TABLE.nodes.colFlipperL));
 	});
+
+	// DW-48: the assertion must be PER-AXIS (x, since the committed body is
+	// x-major), not `Math.max` over all three extents -- a bat that measures
+	// the reference length on the WRONG axis must still throw, naming the
+	// node, the axis, the measured value and the expected value.
+	it('DW-48: throws naming the node and the axis when col_flipper_l measures the reference length on y instead of x', () => {
+		const doc = loadMutableCommittedDoc();
+		const flipperNode = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperL)! as MutableNode & { bboxMm: { min: { x: number; y: number }; max: { x: number; y: number } } };
+		const expectedMm = TABLE.reference.flipperBatIn * 25.4;
+
+		// Shrink x to something implausibly short, and widen y to EXACTLY the
+		// reference bat length -- the axis-agnostic `Math.max` regression would
+		// pass this (SOME axis is long enough); the per-axis fix must not.
+		flipperNode.bboxMm.max.x = flipperNode.bboxMm.min.x + 5;
+		flipperNode.bboxMm.max.y = flipperNode.bboxMm.min.y + expectedMm;
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(TABLE.nodes.colFlipperL);
+			expect(message, 'the throw must name the AXIS it measured, not just the node').toMatch(/x axis/);
+			expect(message).toContain('5');
+			expect(message).toContain(String(expectedMm));
+		}
+	});
 });
 
 describe('src/sim/physics/loader -- document shape validation (load-time paths throw, AD-16)', () => {
@@ -422,16 +449,55 @@ describe('src/sim/physics/loader -- interior divider guards BOTH faces (Review F
 	});
 });
 
-describe('src/sim/physics/loader -- HitTriangle regression guard (outwardTriangle() orientation)', () => {
-	it('firing a ball at a face of the col_flipper_l compound box runs HitTriangle.collide() -- the box must actually block the ball, not let it sail through', () => {
+// Superseded (Story 1.6): the box-orientation regression this describe block
+// guarded (outwardTriangle()'s winding, verified by firing a ball at
+// col_flipper_l's static box face) can no longer be exercised against the
+// COMMITTED document -- col_flipper_l/col_flipper_r were the only two
+// box-shaped nodes in it, and both are now excluded from addBox()'s dispatch
+// entirely (DW-60: a moving bat must not also exist as a static box).
+// outwardTriangle() itself is UNCHANGED by this story; it simply has no real
+// caller left in the committed geometry. Replaced with the two assertions
+// this story's own task list calls for: the flipper nodes are surfaced on
+// `LoadedCollision.flippers` with the geometry derived from their committed
+// bboxMm, and no static hit object exists at either node's old location any
+// more (not merely narrowed to a slot -- gone).
+describe('src/sim/physics/loader -- flippers are surfaced, not registered as static geometry (Story 1.6, DW-60)', () => {
+	it('loadCollision() surfaces both flipper nodes on LoadedCollision.flippers with the derived pivot/tip/length/half-width', () => {
+		const doc = loadCommittedDoc();
+		const { flippers } = loadCollision(doc);
+
+		expect(flippers).toHaveLength(2);
+		const left = flippers.find((f) => f.side === 'l');
+		const right = flippers.find((f) => f.side === 'r');
+		expect(left, 'no "l"-side flipper').toBeDefined();
+		expect(right, 'no "r"-side flipper').toBeDefined();
+		expect(left!.name).toBe(TABLE.nodes.colFlipperL);
+		expect(right!.name).toBe(TABLE.nodes.colFlipperR);
+
+		const expectedBatMm = TABLE.reference.flipperBatIn * 25.4;
+		expect(left!.lengthMm).toBeCloseTo(expectedBatMm, 1);
+		expect(right!.lengthMm).toBeCloseTo(expectedBatMm, 1);
+		expect(left!.halfWidthMm).toBeCloseTo(12.5, 1);
+		expect(right!.halfWidthMm).toBeCloseTo(12.5, 1);
+		expect(left!.zLowMm).toBeCloseTo(0, 1);
+		expect(left!.zHighMm).toBeCloseTo(20, 1);
+
+		// The pivot is the end FARTHER from the playfield x-centre (this
+		// story's own Design Notes): col_flipper_l spans x [170, 249.375] --
+		// its pivot is the near-170 end, its tip the near-249.375 end.
+		// col_flipper_r spans x [265.025, 344.4] -- mirrored.
+		expect(left!.pivotMm.x).toBeCloseTo(170.0, 1);
+		expect(left!.tipMm.x).toBeCloseTo(249.375, 1);
+		expect(right!.pivotMm.x).toBeCloseTo(344.4, 1);
+		expect(right!.tipMm.x).toBeCloseTo(265.025, 1);
+	});
+
+	it('a ball fired at col_flipper_l\'s OLD static-box face location never triggers HitTriangle.collide() -- the box is gone, not merely slotted', () => {
 		const doc = loadCommittedDoc();
 		const { physics } = loadCollision(doc);
 
-		// col_flipper_l spans table x:[170, 249.375], y:[57.5, 82.5], z:[0, 20].
-		// Aim at the middle of its +Y face (table y=82.5, x=210, z=10) from
-		// just outside it -- the regression guard outwardTriangle()'s own doc
-		// comment names: inverting its final ternary flips every face to point
-		// inward, and this is the only test in this suite that would notice.
+		// The exact trajectory the superseded static-box regression guard
+		// used: aimed at the middle of the old box's +Y face.
 		const collideSpy = vi.spyOn(HitTriangle.prototype, 'collide');
 
 		const data = new BallData(26.99 / 2 / 0.53975, 1, 1);
@@ -443,30 +509,16 @@ describe('src/sim/physics/loader -- HitTriangle regression guard (outwardTriangl
 		const speed = 8;
 
 		const start = new Vertex3D(startPhysics.x, startPhysics.y, targetPhysics.z);
-		const state = new BallState('FlipperFaceBall', start);
+		const state = new BallState('FlipperGoneBall', start);
 		const velocity = new Vertex3D((dx / len) * speed, (dy / len) * speed, 0);
 		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
 		physics.addBall(ball);
 
-		// Run a FIXED step budget (not "stop at the first collide() call"):
-		// merely checking "collide() fired at least once" turned out NOT to
-		// distinguish correct from broken winding here -- with
-		// outwardTriangle()'s ternary inverted, the ball still triggers a
-		// collide() almost immediately, but then gets trapped, oscillating
-		// between two inward-facing triangles a fraction of a millimetre
-		// apart (measured: 3164 collide() calls over these same 300 steps,
-		// vs. exactly 1 with correct winding, which cleanly deflects the
-		// ball away). Bounding the call count is what actually catches the
-		// regression.
 		for (let i = 0; i < 300; i++) {
 			physics.step();
 		}
 
-		expect(collideSpy).toHaveBeenCalled();
-		expect(
-			collideSpy.mock.calls.length,
-			'the box must cleanly deflect the ball, not trap it oscillating between inward-facing triangles',
-		).toBeLessThanOrEqual(3);
+		expect(collideSpy, 'no HitTriangle exists at the old flipper box location any more').not.toHaveBeenCalled();
 		collideSpy.mockRestore();
 	});
 });
@@ -574,6 +626,28 @@ describe('src/sim/physics/loader -- applyMaterial() rejects an unrecognized phys
 			expect(message).toContain('unknown phys_material');
 		}
 	});
+
+	// Story 1.6, I/O matrix "Flipper node is not a static box" row, Error
+	// Handling column: "The two nodes are still validated for length and
+	// material" -- even though the flipper's OWN hit shape (built by
+	// sim/physics/flippers.ts) does not read this field back (it applies
+	// TUNING.materials.flipper_rubber unconditionally), the committed
+	// document's phys_material value is still checked at load time.
+	it('throws naming the flipper node and the bad value when col_flipper_l names an unrecognized phys_material', () => {
+		const doc = loadMutableCommittedDoc();
+		const flipperNode = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperL)!;
+		flipperNode.physMaterial = 'unobtainium';
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain(TABLE.nodes.colFlipperL);
+			expect(message).toContain('unobtainium');
+			expect(message).toContain('unknown phys_material');
+		}
+	});
 });
 
 describe('src/sim/physics/loader -- switch zones reject an unknown TABLE switch name (review finding: no silent cast)', () => {
@@ -597,14 +671,23 @@ describe('src/sim/physics/loader -- switch zones reject an unknown TABLE switch 
 describe('src/sim/physics/loader -- AD-15 material tunables actually reach the built statics', () => {
 	// applyMaterial() resolves TUNING.materials[physMaterial] and calls
 	// setElasticity/setFriction/setScatter on EVERY primitive it builds, but
-	// nothing read any of those values back: dropping the lookup (so every
-	// flipper resolved to `default`) or removing the setter calls entirely
-	// left the whole suite green -- measured during this story's re-review by
-	// simulating exactly that regression. AD-15 makes these the per-object
-	// feel parameters, so a silent no-op here is flipper rubber behaving like
-	// bare wood, discovered in Story 1.6 as a feel problem with no failing
-	// test pointing at its cause.
-	it('flipper boxes carry flipper_rubber and wall segments carry default, as authored in the collision document', () => {
+	// nothing read any of those values back: dropping the lookup or removing
+	// the setter calls entirely left the whole suite green -- measured during
+	// this story's re-review by simulating exactly that regression. AD-15
+	// makes these the per-object feel parameters, so a silent no-op here is a
+	// material behaving like bare wood, discovered as a feel problem with no
+	// failing test pointing at its cause.
+	//
+	// Story 1.6: the two `physMaterial: "flipper_rubber"` nodes in the
+	// committed document (`col_flipper_l`/`col_flipper_r`) no longer reach
+	// `addBox()`/`applyMaterial()` at all -- they are surfaced as
+	// `LoadedCollision.flippers` instead (see the describe block above) and
+	// their material is applied by `sim/physics/flippers.ts`'s own
+	// `setElasticity()`/`setFriction()`/`setScatter()` calls on the
+	// `FlipperHit`, pinned in `test/flipper-collision.test.ts`. This test now
+	// covers the wall segments only -- the committed document's only
+	// remaining `applyMaterial()` callers.
+	it('wall segments carry the materials authored in the collision document (default)', () => {
 		const doc = loadCommittedDoc();
 
 		const applied = new Map<string, { elasticity: number; falloff: number | undefined; friction: number; scatter: number }>();
@@ -614,15 +697,6 @@ describe('src/sim/physics/loader -- AD-15 material tunables actually reach the b
 			return record;
 		};
 		const spies = [
-			vi.spyOn(HitTriangle.prototype, 'setElasticity').mockImplementation(function (this: HitTriangle, e: number, f?: number) {
-				const r = track('box'); r.elasticity = e; r.falloff = f; return this;
-			}),
-			vi.spyOn(HitTriangle.prototype, 'setFriction').mockImplementation(function (this: HitTriangle, f: number) {
-				track('box').friction = f; return this;
-			}),
-			vi.spyOn(HitTriangle.prototype, 'setScatter').mockImplementation(function (this: HitTriangle, s: number) {
-				track('box').scatter = s; return this;
-			}),
 			vi.spyOn(LineSeg.prototype, 'setElasticity').mockImplementation(function (this: LineSeg, e: number, f?: number) {
 				const r = track('wall'); r.elasticity = e; r.falloff = f; return this;
 			}),
@@ -642,17 +716,7 @@ describe('src/sim/physics/loader -- AD-15 material tunables actually reach the b
 			}
 		}
 
-		// The two box nodes are col_flipper_l/col_flipper_r, both
-		// physMaterial "flipper_rubber"; every wall node is "default".
-		const rubber = TUNING.materials.flipper_rubber;
 		const plain = TUNING.materials.default;
-
-		const box = applied.get('box');
-		expect(box, 'no HitTriangle was built -- the flipper boxes did not reach applyMaterial()').toBeDefined();
-		expect(box!.elasticity, 'flipper HitTriangle elasticity').toBe(rubber.elasticity.value);
-		expect(box!.falloff, 'flipper HitTriangle elasticityFalloff').toBe(rubber.elasticityFalloff.value);
-		expect(box!.friction, 'flipper HitTriangle friction').toBe(rubber.friction.value);
-		expect(box!.scatter, 'flipper HitTriangle scatter').toBe(rubber.scatter.value);
 
 		const wall = applied.get('wall');
 		expect(wall, 'no LineSeg was built -- the wall footprints did not reach applyMaterial()').toBeDefined();
@@ -660,10 +724,17 @@ describe('src/sim/physics/loader -- AD-15 material tunables actually reach the b
 		expect(wall!.falloff, 'wall LineSeg elasticityFalloff').toBe(plain.elasticityFalloff.value);
 		expect(wall!.friction, 'wall LineSeg friction').toBe(plain.friction.value);
 		expect(wall!.scatter, 'wall LineSeg scatter').toBe(plain.scatter.value);
+	});
 
-		// The two materials must actually differ, or the assertions above
-		// would hold under a regression that collapsed both to `default`.
-		expect(rubber.elasticity.value, 'the two materials must differ, or this test cannot discriminate').not.toBe(plain.elasticity.value);
+	it('no HitTriangle reaches applyMaterial() any more -- the only box-shaped nodes in the committed document are the two flippers, now excluded (DW-60)', () => {
+		const doc = loadCommittedDoc();
+		const setElasticitySpy = vi.spyOn(HitTriangle.prototype, 'setElasticity');
+		try {
+			loadCollision(doc);
+		} finally {
+			setElasticitySpy.mockRestore();
+		}
+		expect(setElasticitySpy).not.toHaveBeenCalled();
 	});
 });
 

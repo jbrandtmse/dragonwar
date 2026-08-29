@@ -45,8 +45,9 @@ import type {
 	SwitchEvent,
 	SwitchName,
 } from '../table/names';
+import type { CoilAction } from '../contracts/commands';
 import type { InputAction, InputFrame, InputTransition } from '../contracts/input';
-import type { BallSnapshot, FlipperMechanismState, MechanismsSnapshot } from '../contracts/snapshot';
+import type { BallSnapshot, MechanismsSnapshot } from '../contracts/snapshot';
 
 export interface Loop {
 	/**
@@ -59,6 +60,13 @@ export interface Loop {
 	advance(elapsedMs: number, transitions: readonly InputTransition[]): FrameOutput;
 	/** Dev-only: enqueues a coil pulse for the next tick, exactly as a rules-issued command. See this file's header. */
 	pulseCoil(coil: CoilName): void;
+	/**
+	 * Dev-only, same terms as `pulseCoil()` above: enqueues a `CoilCommand
+	 * { action: 'enable' | 'disable' }` for the next tick -- Story 1.6's own
+	 * lever for the flipper/plunger coil-gating acceptance criterion, until a
+	 * later story (service menu, ball save, tilt) drives it from real rules.
+	 */
+	setCoilEnabled(coil: CoilName, enabled: boolean): void;
 }
 
 /** Test-only export: a convenience "nothing held" frame for building `InputTransition`s in tests without repeating all eight `InputAction` keys. */
@@ -163,8 +171,6 @@ function physicsVelocityToTableMmPerS(vel: Vec3): Vec3 {
 	return { x: (tip.x - origin.x) * 100, y: (tip.y - origin.y) * 100, z: (tip.z - origin.z) * 100 };
 }
 
-const NEUTRAL_FLIPPER: FlipperMechanismState = { angleDeg: 0, angularVelDegPerSec: 0 };
-
 function initialMachineState(deviceSlots: Readonly<Record<BallDeviceName, readonly boolean[]>>): MachineState {
 	return {
 		ballsInPlay: 0,
@@ -191,7 +197,11 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	let currentFrame: InputFrame = NO_FRAME;
 	let previousFrame: InputFrame = NO_FRAME;
 	const pendingTransitions: InputTransition[] = [];
-	let pendingPulses: CoilName[] = [];
+	// Generalised (Story 1.6) from `pendingPulses: CoilName[]` to carry
+	// `enable`/`disable` alongside `pulse` -- both `pulseCoil()` and
+	// `setCoilEnabled()` below queue into this ONE array, exactly the same
+	// "commands land next tick" semantics either action already had.
+	let pendingCommands: Array<{ readonly coil: CoilName; readonly action: CoilAction }> = [];
 
 	let state: GameState = {
 		tick: 0,
@@ -221,8 +231,8 @@ export function createLoop(options: CreateLoopOptions): Loop {
 		}
 
 		const mechanisms: MechanismsSnapshot<BallDeviceName> = {
-			flippers: { l: NEUTRAL_FLIPPER, r: NEUTRAL_FLIPPER },
-			plunger: { posMm: 0, holdTicks: 0 },
+			flippers: machine.mechanisms.flippers,
+			plunger: machine.mechanisms.plunger,
 			dropTargets: {},
 			spinner: {},
 			devices: devices as Readonly<Record<BallDeviceName, { slots: readonly boolean[] }>>,
@@ -301,13 +311,13 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			const edges = buttonSwitchEdges(previousFrame, currentFrame, tick);
 			previousFrame = currentFrame;
 
-			const commandsForThisTick: CoilCommand[] = pendingPulses.map((coil) => ({
+			const commandsForThisTick: CoilCommand[] = pendingCommands.map((c) => ({
 				type: 'coil',
-				coil,
-				action: 'pulse',
+				coil: c.coil,
+				action: c.action,
 				tick,
 			}));
-			pendingPulses = [];
+			pendingCommands = [];
 
 			const machineResult = machine.step(tick, currentFrame, commandsForThisTick);
 			const switchEvents: SwitchEvent[] = [...edges, ...machineResult.switchEvents];
@@ -328,8 +338,12 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	}
 
 	function pulseCoil(coil: CoilName): void {
-		pendingPulses.push(coil);
+		pendingCommands.push({ coil, action: 'pulse' });
 	}
 
-	return { advance, pulseCoil };
+	function setCoilEnabled(coil: CoilName, enabled: boolean): void {
+		pendingCommands.push({ coil, action: enabled ? 'enable' : 'disable' });
+	}
+
+	return { advance, pulseCoil, setCoilEnabled };
 }

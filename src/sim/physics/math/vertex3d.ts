@@ -25,9 +25,14 @@
 //    our own `constants.ts` instead.
 //  - Dropped `multiplyMatrix()`/`multiplyMatrixNoTranslate()` (the only callers pass a
 //    render-only `Matrix3D`, which is not ported — nothing in the physics closure
-//    calls these), the buffer-reading `get()` static (VPX binary file loading), the
-//    `RenderVertex3D` subclass, and `crossZ()`/`getRotatedAxis()` (only used by the
-//    flipper/gate/spinner movers, Story 1.6+, never called by anything ported here).
+//    calls these), the buffer-reading `get()` static (VPX binary file loading) and the
+//    `RenderVertex3D` subclass.
+//  - `getRotatedAxis()` stays dropped: spike-1 dropped it alongside `crossZ()`
+//    because the flipper mover was unported (Story 1.6+); `crossZ()` is restored
+//    below because `FlipperMover`/`FlipperHit` (Story 1.6) call it, but neither
+//    calls `getRotatedAxis()` (that one is for a table-authored rotation axis, a
+//    VPX table-loading concern out of scope per AD-1) — restoring only what the
+//    port actually needs shrinks the deviation list rather than growing it.
 
 /* tslint:disable:variable-name adjacent-overload-signatures */
 import { FLT_MIN } from '../constants';
@@ -234,5 +239,17 @@ export class Vertex3D implements Vertex {
 				pv1.z * pv2.x - pv1.x * pv2.z,
 				pv1.x * pv2.y - pv1.y * pv2.x,
 			);
+	}
+
+	/**
+	 * Restored (Story 1.6, see this file's header): the cross product of the
+	 * angular-velocity pseudovector `(0, 0, rz)` with `v`, i.e. `(0,0,rz) x v`,
+	 * used by the flipper mover to turn an angular speed into a linear surface
+	 * velocity/acceleration at a point `v` relative to the pivot.
+	 */
+	public static crossZ(rz: number, v: Vertex3D, recycle = false) {
+		return recycle
+			? Vertex3D.claim(-rz * v.y, rz * v.x, 0)
+			: new Vertex3D(-rz * v.y, rz * v.x, 0);
 	}
 }

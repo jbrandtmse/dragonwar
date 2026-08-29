@@ -52,6 +52,12 @@ declare global {
 			 * `window.__dragonwarBoot.pulseCoil('c_trough_eject')`.
 			 */
 			pulseCoil: (coil: CoilName) => void;
+			/**
+			 * Dev-only (Story 1.6), same terms as `pulseCoil` above: the lead's
+			 * manual lever for the coil-enable/disable acceptance criterion, e.g.
+			 * `window.__dragonwarBoot.setCoilEnabled('c_flipper_l', false)`.
+			 */
+			setCoilEnabled: (coil: CoilName, enabled: boolean) => void;
 		};
 	}
 }
@@ -158,7 +164,7 @@ async function onBegin(): Promise<void> {
 			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
 		});
 
-		window.__dragonwarBoot = { gestureMs, firstFrameMs, renderer, pulseCoil: hostLoop.pulseCoil };
+		window.__dragonwarBoot = { gestureMs, firstFrameMs, renderer, pulseCoil: hostLoop.pulseCoil, setCoilEnabled: hostLoop.setCoilEnabled };
 
 		// eslint-disable-next-line no-console
 		console.info(

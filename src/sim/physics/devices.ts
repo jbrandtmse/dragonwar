@@ -27,6 +27,7 @@ import { TABLE } from '../table/dragonwar';
 import { MM_PER_VU, fromPhysics, toPhysics, type Vec3 } from '../table/frames';
 import type { ResolvedTuning } from '../table/tuning';
 import type { BallDeviceName, CoilName, SwitchName } from '../table/names';
+import type { ContactKind, ContactSurface } from '../contracts/events';
 import type { LoadedDevice } from './loader';
 import type { LoadedSwitchZone } from './loader';
 
@@ -44,12 +45,21 @@ export interface SwitchEdgeLike {
 	readonly tick: number;
 }
 
+/**
+ * Widened (Story 1.6) from `'eject' | 'hit'`/`device?: BallDeviceName` to the
+ * full `ContactKind`/`BallDeviceName | CoilName` union: `sim/physics/
+ * flippers.ts` reuses this exact shape for its own `flipper_eos` events
+ * (`device` naming the coil, not a ball device) rather than inventing a
+ * second, near-identical contact-event type for `machine.ts` to merge.
+ */
 export interface ContactEventLike {
 	readonly type: 'contact';
-	readonly kind: 'eject' | 'hit';
+	readonly kind: ContactKind;
 	readonly ballId?: number;
-	readonly device?: BallDeviceName;
+	readonly device?: BallDeviceName | CoilName;
 	readonly pos?: Vec3;
+	/** Story 1.6: `sim/physics/flippers.ts`'s own `flipper_eos` events carry `'flipper'` here, matching this story's I/O matrix ("ContactEvent { kind: 'flipper_eos', surface: 'flipper', device: <coil> }"). */
+	readonly surface?: ContactSurface;
 	readonly tick: number;
 }
 
@@ -86,6 +96,16 @@ export interface DeviceMechanics {
 	applyCommands(tick: number, commands: readonly PulseCommandLike[]): DeviceMechanicsResult;
 	/** Runs AFTER `physics.step()`: parks any ball whose swept segment entered a parking device's slot-zone union. */
 	detectEntries(tick: number, movements: readonly BallStepMovement[]): DeviceMechanicsResult;
+	/**
+	 * Story 1.6, task 10(a): the non-parking eject path (`AD-6`: "the served
+	 * ball stays simulated"), extracted so `sim/physics/plunger.ts`'s manual
+	 * plunge SHARES it rather than duplicating it -- both give the ball
+	 * already resting in `device`'s entry zone a velocity through
+	 * `tableSpeedToPhysicsVelocity()`; neither spawns a ball. `applyCommands()`
+	 * below calls this itself for a coil-fired autolaunch, with
+	 * `tuning.autolaunchSpeedMmPerS.value`.
+	 */
+	launch(tick: number, device: BallDeviceName, speedMmPerS: number): DeviceMechanicsResult;
 }
 
 type BallDevice = (typeof TABLE.ballDevices)[BallDeviceName];
@@ -192,9 +212,9 @@ export function createDeviceMechanics(options: {
 				if (primaryPulseCoil(device) !== command.coil) {
 					continue;
 				}
-				const pose = eject.get(name);
 
 				if (device.kind === 'parking') {
+					const pose = eject.get(name);
 					const slots = parkingSlots[name]!;
 					const highestFilled = slots.lastIndexOf(true);
 					if (highestFilled === -1) {
@@ -210,28 +230,49 @@ export function createDeviceMechanics(options: {
 					switchEvents.push({ type: 'switch', switch: slotSwitch, closed: false, tick });
 					const velocity = tableSpeedToPhysicsVelocity(pose.dir, tuning.troughEjectSpeedMmPerS.value);
 					const ball = spawnBall(pose, velocity);
-					contactEvents.push({ type: 'contact', kind: 'eject', ballId: ball.id, device: name, pos: pose, tick });
+					// DW-63: pos is a plain {x,y,z}, never `pose` itself -- `pose`'s
+					// own type is `Vec3 & { dir: Vec3 }`, so pushing it directly would
+					// structurally carry an extra `dir` property `ContactEventLike.pos`
+					// never intended, the same normalisation `launch()` below gives
+					// the non-parking branch.
+					contactEvents.push({ type: 'contact', kind: 'eject', ballId: ball.id, device: name, pos: { x: pose.x, y: pose.y, z: pose.z }, tick });
 					continue;
 				}
 
-				// Non-parking: give the ball ALREADY resting in this device's entry
-				// zone velocity -- AD-6: "the served ball stays simulated"; a pulse
-				// never spawns a second ball here.
-				const entryZone = switchZones.find((zone) => zone.switch === device.entry);
-				const resting = entryZone
-					? physics.balls.find((ball) => isBallInsideZoneNow(ball, entryZone))
-					: undefined;
-				if (!resting || !pose) {
-					failures.push({ type: 'eject_failed', device: name, tick });
-					continue;
-				}
-				const velocity = tableSpeedToPhysicsVelocity(pose.dir, tuning.autolaunchSpeedMmPerS.value);
-				resting.hit.vel.set(velocity);
-				contactEvents.push({ type: 'contact', kind: 'eject', ballId: resting.id, device: name, tick });
+				// Non-parking: shares launch() below with the manual plunge
+				// (sim/physics/plunger.ts) -- AD-6/AD-5, "the manual plunge and the
+				// autolaunch are one code path".
+				const result = launch(tick, name, tuning.autolaunchSpeedMmPerS.value);
+				switchEvents.push(...result.switchEvents);
+				contactEvents.push(...result.contactEvents);
+				failures.push(...result.failures);
 			}
 		}
 
 		return { switchEvents, contactEvents, failures };
+	}
+
+	/** See `DeviceMechanics.launch()`'s own doc comment. */
+	function launch(tick: number, device: BallDeviceName, speedMmPerS: number): DeviceMechanicsResult {
+		const pose = eject.get(device);
+		const nonParkingDevice = TABLE.ballDevices[device] as { readonly kind: 'non-parking'; readonly entry: SwitchName };
+		const entryZone = switchZones.find((zone) => zone.switch === nonParkingDevice.entry);
+		const resting = entryZone
+			? physics.balls.find((ball) => isBallInsideZoneNow(ball, entryZone))
+			: undefined;
+		if (!resting || !pose) {
+			return { switchEvents: [], contactEvents: [], failures: [{ type: 'eject_failed', device, tick }] };
+		}
+		const velocity = tableSpeedToPhysicsVelocity(pose.dir, speedMmPerS);
+		resting.hit.vel.set(velocity);
+		// DW-63: the same plain {x,y,z} shape the parking branch's payload
+		// carries -- the resting ball's own table-frame position at the moment
+		// of the launch (no new ball spawns here, AD-6, so there is no
+		// "authored eject pose" of its own to report; the ball's live position
+		// is the closest equivalent).
+		const posMm = fromPhysics({ x: resting.state.pos.x, y: resting.state.pos.y, z: resting.state.pos.z });
+		const contactEvents: ContactEventLike[] = [{ type: 'contact', kind: 'eject', ballId: resting.id, device, pos: posMm, tick }];
+		return { switchEvents: [], contactEvents, failures: [] };
 	}
 
 	function isBallInsideZoneNow(ball: Ball, zone: LoadedSwitchZone): boolean {
@@ -293,6 +334,7 @@ export function createDeviceMechanics(options: {
 		},
 		applyCommands,
 		detectEntries,
+		launch,
 	};
 }
 

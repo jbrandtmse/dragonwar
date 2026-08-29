@@ -32,12 +32,16 @@
 //    (`tools/spike-1/scene.ts`) can populate the same fields directly; a later
 //    story's table loader (Story 1.4's `sim/physics/loader`) is the natural next
 //    caller of the same seam.
-//  - Dropped `flipperMovers: FlipperMover[]` and the "find earliest time where a
-//    flipper collides with its stop" loop at the top of `physicsSimulateCycle`'s
-//    while-loop — flippers are `lib/vpt/flipper/`, explicitly out of scope for this
-//    story (Story 1.6). The loop is a no-op with an empty flipper list in any case;
-//    it is removed rather than kept as dead code because `FlipperMover` is not
-//    ported and there is nothing to type the (permanently empty) array as.
+//  - `flipperMovers: FlipperMover[]` and the "find earliest time where a flipper
+//    collides with its stop" loop at the top of `physicsSimulateCycle`'s while-loop
+//    were dropped by the ORIGINAL port (Story 1.1) because flippers were out of
+//    scope; Story 1.6 RESTORES both, now that `FlipperMover` is ported
+//    (`sim/physics/flipper/flipper-mover.ts`) — this shrinks the deviation list
+//    rather than growing it (the restored code is upstream's own, unchanged).
+//    Upstream indexes `flipperMovers` from `Object.values(this.table.flippers)`
+//    inside its (also dropped) `init(table, pinInput)` — this project's `addFlipper()`
+//    below is the authored registration seam that replaces it, matching `addBall()`'s
+//    own shape (AD-1: no `Table`-driven indexing).
 //  - Dropped the timer system (`hitTimers: TimerHit[]`, `changedHitTimers:
 //    TimerOnOff[]`, `MAX_TIMERS_MSEC_OVERALL`, `scriptPeriod`) and the emulator hook
 //    (`emu?: IEmulator`) — both belong to the rules/scripting layer (Story 1.3+),
@@ -88,6 +92,13 @@ import { HitPlane } from '../hit-plane';
 import { HitQuadtree } from '../hit-quadtree';
 import { MoverObject } from '../mover-object';
 import { Ball } from '../ball/ball';
+// `import type` only, and typed against `FlipperMover` alone (never
+// `FlipperHit`): `flipper-hit.ts` imports `PlayerPhysics` for its
+// `contact()`/`collide()` signatures, so importing THAT type here too would
+// create a real import cycle; `FlipperMover` imports nothing from `game/**`
+// (see its own header), so this direction is acyclic. `addFlipper()` below
+// types its `hit` parameter as the already-imported `HitObject` instead.
+import type { FlipperMover } from '../flipper/flipper-mover';
 
 export class PlayerPhysics {
 
@@ -104,6 +115,12 @@ export class PlayerPhysics {
 	public bcTarget?: Vertex3D;
 
 	private readonly movers: MoverObject[] = [];
+	// Restored (Story 1.6, see this file's header): upstream's own
+	// `flipperMovers` — a SEPARATE list from `movers` (every `FlipperMover` is
+	// in both) that only `physicsSimulateCycle()`'s end-of-stroke clamp below
+	// reads, via the `FlipperMover`-specific `getHitTime()` (not part of the
+	// generic `MoverObject` interface).
+	private readonly flipperMovers: FlipperMover[] = [];
 
 	private readonly hitObjects: HitObject[] = [];
 	private readonly hitObjectsDynamic: HitObject[] = [];
@@ -128,6 +145,31 @@ export class PlayerPhysics {
 		this.balls.push(ball);
 		this.movers.push(ball.getMover());
 		this.hitObjectsDynamic.push(ball.hit);
+		this.hitOcTreeDynamic.fillFromVector(this.hitObjectsDynamic);
+	}
+
+	/**
+	 * Registers one flipper's mover and hit shape: the mover joins both
+	 * `movers` (so `updateDisplacements()`/`updateVelocities()` run it every
+	 * step, the same as any other `MoverObject`) and `flipperMovers` (so the
+	 * restored end-of-stroke clamp below can find it); the hit shape joins
+	 * `hitObjectsDynamic` and rebuilds `hitOcTreeDynamic` — the exact idiom
+	 * `addBall()` above already uses. Deviation (Story 1.6): replaces
+	 * upstream's `Table`-driven indexing (`init()`'s `for (const flipper of
+	 * Object.values(this.table.flippers)) { this.flipperMovers.push(...) }`,
+	 * itself part of the `init()`/`indexTableElements()` this file's header
+	 * already documents as dropped, AD-1) — a flipper is registered from the
+	 * caller (`sim/physics/flippers.ts`) exactly like a ball is, not indexed
+	 * from a table object. A flipper's hit shape is DYNAMIC, not static: it
+	 * is never subject to `addStaticHitObject()`'s post-`finalizeStatics()`
+	 * guard, and may be registered any time after `loadCollision()` returns
+	 * (this story's Design Notes, "The flipper hit shape is dynamic, so
+	 * finalizeStatics() is not in the way").
+	 */
+	public addFlipper(mover: FlipperMover, hit: HitObject): void {
+		this.movers.push(mover);
+		this.flipperMovers.push(mover);
+		this.hitObjectsDynamic.push(hit);
 		this.hitOcTreeDynamic.fillFromVector(this.hitObjectsDynamic);
 	}
 
@@ -228,6 +270,20 @@ export class PlayerPhysics {
 
 		while (dTime > 0) {
 			let hitTime = dTime;
+
+			// Restored (Story 1.6, see this file's header): find the earliest
+			// time within this hitTime window that a flipper reaches its own
+			// stop, so the mover's displacement update below (`for (const mover
+			// of this.movers) { mover.updateDisplacements(hitTime); }`) never
+			// carries a flipper PAST its end/start angle between two collision
+			// events -- without this, a fast enough coil pulse could overshoot
+			// its stop before the next hit-test pass ever notices.
+			for (const flipperMover of this.flipperMovers) {
+				const flipperHitTime = flipperMover.getHitTime();
+				if (flipperHitTime > 0 && flipperHitTime < hitTime) { //!! >= 0.f causes infinite loop
+					hitTime = flipperHitTime;
+				}
+			}
 
 			this.recordContacts = true;
 			CollisionEvent.release(...this.contacts);
