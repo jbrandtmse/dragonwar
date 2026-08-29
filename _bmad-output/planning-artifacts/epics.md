@@ -512,7 +512,8 @@ So that I can play the ball rather than watch it.
 
 **Given** `s_flipper_l` closes at tick *t* in the `InputFrame`
 **When** physics steps tick *t*
-**Then** `c_flipper_l` energises inside the same physics step as a hardware rule with no rules round trip, and a test asserts the flipper angle changes on tick *t*
+**Then** `c_flipper_l` energises inside tick *t*'s own physics step as a hardware rule, with no rules round trip (`RulesStepResult.commands` stays empty), and the flipper angle has moved by tick *t+1* `[AMENDED 2026-08-29 — see the story change log below]`
+**And** the ordering itself is pinned by a test that **fails when the hardware rules are moved to run after `physics.step()`**. The mutation is part of this criterion, not of the author's diligence: the story is not accepted until that red has been observed and the observation recorded in the spec
 **And** `sim/loop` also emits `s_flipper_l`, `s_flipper_r`, `s_start` and `s_plunger` as `SwitchEvent` edges from `InputFrame` transitions
 
 **Given** the ported `FlipperMover` (strength, ramp-up, end-of-stroke torque and angle, return strength, inertia ⅓·m·r²)
@@ -556,6 +557,25 @@ So that I can play the ball rather than watch it.
   discriminating negative rather than a window the ball would survive anyway. The part that needs
   geometry which does not exist yet is deferred to **Story 2.1**, tracked as ledger `DW-72`,
   where the original 5 s cradle is re-asserted against the real playfield.
+- **2026-08-29 — AC 2's observable changed from "the angle changes on tick *t*" to "the coil
+  energises inside tick *t*'s step and the angle has moved by *t+1*", and a mutation requirement
+  added.**
+  The original observable is unreachable with the `FlipperMover` port that AD-5 and AD-15
+  mandate. Measured one tick at a time through the real `createLoop()`: the angle is 141° at both
+  *t−1* and *t*, and first moves at *t+1* (140.995°). The ported mover ramps `curTorque` by
+  `strength / rampUp × PHYS_FACTOR` ≈ 88 per step from an at-rest return torque of ≈ 127.6, so the
+  torque sign flips on the *second* step — for any positive `rampUp`. **Angle is a lagging
+  indicator of torque**; the coil genuinely energises on tick *t*, and only its visible effect
+  arrives a tick later. Correcting the code to move the angle on tick *t* would mean deviating
+  from the verbatim port, which AD-5 and AD-15 forbid, so the criterion was wrong, not the
+  implementation. `FlipperMechanismState` carries only `angleDeg` and `angularVelDegPerSec`, and
+  both are unchanged at *t*, so no snapshot observable could have satisfied the original wording.
+  **The mutation requirement is the more important half of this amendment.** AD-5's central
+  invariant — the whole reason the flipper is a hardware rule and not a command — had *no* test
+  pinning it: moving `machine.ts`'s two `applyFrame` calls to after `physics.step()`, making the
+  flipper genuinely one tick late, left the entire suite green (590 passed, typecheck clean).
+  The story would have closed green with the invariant unprotected. A specified, auditable
+  mutation survives in the criterion; a well-intentioned test author may not.
 
 ### Story 1.7: Nudge, the tilt bob and the slam sensor
 

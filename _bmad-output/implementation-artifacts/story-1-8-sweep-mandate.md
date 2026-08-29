@@ -1,7 +1,8 @@
-# Story 1.8 — the test-vacuity sweep runs BEFORE any golden is recorded
+# Story 1.8 — the test-vacuity AND invariant sweep runs BEFORE any golden is recorded
 
-**Status:** binding mandate, user-approved 2026-08-29. Recorded by the Epic 1 runner during
-Story 1.6 so it survives a context loss. Fold this into Story 1.8's spec at its plan stage.
+**Status:** binding mandate, user-approved 2026-08-29 (extended the same day to cover
+architectural invariants). Recorded by the Epic 1 runner during Story 1.6 so it survives a
+context loss. Fold this into Story 1.8's spec at its plan stage.
 
 ## Why the ordering matters
 
@@ -21,7 +22,11 @@ This is an AC amendment, which stays in the hash-exempt class. Only if that prov
 should a separate story be proposed — and inserting a mid-epic story heading is a structural
 change requiring a fresh `## Clarification Needed`, not runner authority.
 
-## Sweep scope — the five vacuity shapes this epic has already produced
+---
+
+# Part 1 — assertions that cannot fail
+
+## The five vacuity shapes this epic has already produced
 
 All five are from Epic 1's own logs, not hypotheses:
 
@@ -34,6 +39,22 @@ All five are from Epic 1's own logs, not hypotheses:
    through the old static flipper boxes' uncovered edges (ledger **`DW-73`**).
 5. **Test fitted to the code** — Story 1.6's first implement subagent narrowing its cradle window
    until it passed (caught and rejected by the Matrix Test Audit).
+
+## Three more shapes, added 2026-08-29 from Story 1.6's Fix Pack
+
+The code review's Fix Pack is the same vacuity class and is a **preview of this sweep**. Add its
+patterns to the checklist:
+
+6. **Config written but never read back** — `flippers.ts`'s three collision-material calls are
+   entirely unverified; deleting all three leaves the suite green. Probe: delete the assignment,
+   expect red.
+7. **A field only ever asserted at its zero/default value** — `angularVelDegPerSec` is only ever
+   asserted as `0`, so a 100x unit error ships green. Probe: scale the value, expect red. Any
+   field whose every assertion uses the default is unpinned.
+8. **Coverage silently lost when a guard is deleted** — `addBox()`/`outwardTriangle()` lost their
+   only coverage when the winding regression guard was removed, because the two flippers were the
+   only box-shaped nodes in the committed document. Probe: ask what *else* a deleted test was the
+   sole cover for.
 
 ## Method
 
@@ -48,10 +69,66 @@ All five are from Epic 1's own logs, not hypotheses:
 - Findings the sweep cannot fix in place become **ledger entries with named observables**, never
   silent carry-forward.
 
-## The `cradle-and-release` golden needs a recorded decision
+---
+
+# Part 2 — architectural invariants (added 2026-08-29, user mandate)
+
+The sweep is **no longer only about assertions that cannot fail**. For every `AD-*` invariant this
+epic claims to enforce, it must ask:
+
+> **Is there a test that fails when this invariant is violated?**
+
+## Why this is the more dangerous half
+
+An unpinned *assertion* is a weak test. An unpinned *invariant* is the thing the architecture
+spine exists to guarantee, and the thing a future story is most likely to break without noticing.
+
+**The proof case is AD-5, found in Story 1.6.** AD-5 is why the flipper is a hardware rule and not
+a command: "switch or button to coil on the same tick." Moving `machine.ts`'s two `applyFrame`
+calls to run *after* `physics.step()` makes the flipper genuinely one tick late — the exact
+latency AD-5 forbids — and **the entire suite stayed green**: 590 passed, 42 files, typecheck
+clean. The story would have closed green with its central invariant unprotected. What existed was
+a *comment* at `test/flipper-mover.test.ts:40-46` explaining the timing, and documented reasoning
+is not a test.
+
+## Method — identical, applied to invariants
+
+For each `AD-*` in scope: **state the mutation** that would violate it, **run it**, **confirm
+red**, **restore**. Record the mutation and the observed red. An invariant with no such test
+becomes a ledger entry **with the mutation named as the observable**, so it closes on evidence
+rather than on inspection.
+
+## Scope — the AD-* invariants Epic 1 claims
+
+Work from the spine (`ARCHITECTURE-SPINE.md`, AD-1..AD-19) and from the `### Governing ADs`
+sections of Epic 1's specs. Known claims worth a mutation each — not exhaustive, derive the full
+list at plan time:
+
+- **AD-5** — hardware rules inside the physics step, same tick. *Mutation: move `applyFrame` after
+  `physics.step()`.* Story 1.6's amended AC 2 now requires exactly this test; verify it exists and
+  goes red under the mutation, then extend the pattern to the rest.
+- **AD-4** — one clock, commands land at *t+1*, key codes never enter `sim/`. *Mutations: apply a
+  command on the same tick it was issued; import a key code into `sim/`.*
+- **AD-2** — `sim/loop` owns the four button switches; rules never debounce. *Mutation: emit a
+  button edge from physics instead.*
+- **AD-6** — the opening of `s_shooter_lane` is the one event meaning "plunged". *Mutation: emit a
+  second launch signal, or suppress the opening.*
+- **AD-7** — `GameState` mutated only inside `rules.step`. *Mutation: write to it from the loop.*
+  **Note:** `DW-70` is a known live violation of exactly this (`deviceSlots` written by
+  `sim/loop`), currently escalated to the merge gate — a standing example of an invariant that is
+  breached today and caught by nothing.
+- **AD-1 / AD-3 / AD-10** — layering, no upward imports. Partly pinned by `lint:boundaries`;
+  confirm the lint actually fails on a deliberate violation rather than assuming it.
+- **AD-15** — solver constants verbatim and untunable; table tunables carry `source` and
+  `confidence`. *Mutation: add a tunable with no `source`.*
+- **AD-16** — provenance: ported files keep upstream copyright and stay inside
+  `src/sim/physics/**`. *Mutation: move a ported file out of the glob, or strip its header;
+  `check:headers` / `check:attributions` should fail.*
+
+## The cradle-and-release golden needs a recorded decision
 
 As of Story 1.6's findings this table **cannot hold a cradle**: with no geometry beside either
-flipper, a ball on a raised bat departs after roughly 1.2-1.9 s. Recording a golden under the name
+flipper, a ball on a raised bat departs after roughly 1.2-1.9 s. Recording a golden named
 "cradle-and-release" would encode "ball rolls off the bat" as the *cradle* reference, and such a
 golden will break when Story 2.1 lands the real pocket — at which point it is likely to be
 re-recorded rather than questioned.
@@ -72,10 +149,13 @@ If at plan time this reads as a genuine product call rather than a scoping one, 
 - **`DW-73`** — the tunnelling test; owned by `1-8-replays-golden-state-hashes-and-ci-parity`,
   closes on a mutation spot-check, not on inspection.
 - **`DW-72`** — the deferred full cradle; owned by
-  `2-1-the-playfield-geometry-and-the-full-switch-set`, now backed by a reciprocal AC in Story 2.1.
+  `2-1-the-playfield-geometry-and-the-full-switch-set`, backed by a reciprocal AC in Story 2.1.
+- **`DW-70`** — `deviceSlots` written outside `rules.step` (AD-7); escalated, surfaced at the Epic
+  1 merge gate. Relevant here as a live, uncaught invariant violation.
+- **`DW-74`..`DW-78`** — filed by Story 1.6's code review; several are invariant-adjacent.
 
 ## Note on Story 1.9
 
-Burn-down Story 1.9 still runs, and still charters against `owner:burndown` versus a cap of 8.
-Moving the sweep ahead of the goldens does not fold 1.9 into 1.8 — it only takes the
-golden-poisoning risk off 1.9's plate.
+Burn-down Story 1.9 still runs, and still charters against `owner:burndown` (28 as of 2026-08-29)
+versus a cap of 8. Moving the sweep ahead of the goldens does not fold 1.9 into 1.8 — it only
+takes the golden-poisoning risk off 1.9's plate.
