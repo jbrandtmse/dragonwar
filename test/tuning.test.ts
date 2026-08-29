@@ -38,6 +38,7 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'plungerMaxSpeedScale',
 			'troughEjectSpeedMmPerS',
 			'autolaunchSpeedMmPerS',
+			'nudgeImpulseMs',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
@@ -163,6 +164,7 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 			['slamNudgeWindowMs', 'slamNudgeWindowTicks'],
 			['plungerMinHoldMs', 'plungerMinHoldTicks'],
 			['plungerMaxHoldMs', 'plungerMaxHoldTicks'],
+			['nudgeImpulseMs', 'nudgeImpulseTicks'],
 		];
 		for (const [msKey, ticksKey] of cases) {
 			const msEntry = resolved[msKey] as unknown as TuningEntry<number>;
@@ -465,5 +467,107 @@ describe('plungerSpeedByHoldMs() -- the manual-plunge hold->speed mapping (AD-5)
 		expect(plungerSpeedByHoldMs(10, zeroWidth)).toBeCloseTo(expected, 6);
 		expect(plungerSpeedByHoldMs(999, zeroWidth)).toBeCloseTo(expected, 6);
 		expect(Number.isFinite(plungerSpeedByHoldMs(10, zeroWidth))).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Story 1.7: TUNING.cabinet and TUNING.tiltBob (the cabinet oscillator, the
+// keyboard-nudge impulse peak and the plumb-bob tilt pendulum). Copies the
+// FLIPPER_KEYS exhaustiveness pattern (:301-320 above) exactly, for the same
+// reason: without it, a new tunable added to either group ships with no
+// source/confidence check covering it.
+// ---------------------------------------------------------------------------
+
+describe('TUNING.cabinet -- the ported oscillator and nudge-impulse-peak parameters (Story 1.7, AD-5, AD-15)', () => {
+	const CABINET_KEYS = ['massKg', 'freqXHz', 'zetaX', 'freqYHz', 'zetaY', 'nudgePeakAccelG'] as const;
+
+	it('CABINET_KEYS is the actual key set of TUNING.cabinet, so the per-key checks below cover every entry', () => {
+		expect([...Object.keys(TUNING.cabinet)].sort()).toEqual([...CABINET_KEYS].sort());
+	});
+
+	it('every entry is a TuningEntry with a source naming the pinned vpinball/vpinball file and an honest confidence', () => {
+		for (const key of Object.keys(TUNING.cabinet) as Array<keyof typeof TUNING.cabinet>) {
+			const entry = TUNING.cabinet[key];
+			expect(isTuningEntry(entry), `TUNING.cabinet.${key} is not a TuningEntry`).toBe(true);
+			expect(typeof entry.source).toBe('string');
+			expect(entry.source.length).toBeGreaterThan(0);
+			const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+			expect(validConfidences).toContain(entry.confidence);
+			expect(entry.source, `TUNING.cabinet.${key}.source must name the pinned vpinball/vpinball commit`).toMatch(/3f838c14b/);
+		}
+	});
+
+	it('no key in the group ends in "Ms" -- none of these is a duration resolveTuning() converts', () => {
+		for (const key of Object.keys(TUNING.cabinet)) {
+			expect(key.endsWith('Ms'), `TUNING.cabinet.${key} must not end in "Ms"`).toBe(false);
+		}
+	});
+
+	it('transcribes CabinetPhysics.cpp\'s ctor arguments verbatim', () => {
+		expect(TUNING.cabinet.massKg.value).toBe(113);
+		expect(TUNING.cabinet.freqXHz.value).toBe(9.3);
+		expect(TUNING.cabinet.zetaX.value).toBe(0.052);
+		expect(TUNING.cabinet.freqYHz.value).toBe(5.8);
+		expect(TUNING.cabinet.zetaY.value).toBe(0.055);
+	});
+
+	it('nudgePeakAccelG transcribes KeyboardNudge.cpp\'s "0.5g max peak accel on strong nudge" comment', () => {
+		expect(TUNING.cabinet.nudgePeakAccelG.value).toBe(0.5);
+	});
+});
+
+describe('TUNING.nudgeImpulseMs -- the ONE new top-level duration (Story 1.7, DW-34 trap)', () => {
+	it('is top-level (not nested inside TUNING.cabinet), transcribing KeyboardNudge.cpp\'s 25 ms impulse length', () => {
+		expect('nudgeImpulseMs' in TUNING.cabinet).toBe(false);
+		expect(TUNING.nudgeImpulseMs.value).toBe(25);
+		expect(TUNING.nudgeImpulseMs.source).toMatch(/3f838c14b/);
+	});
+
+	it('resolveTuning() does not throw (the DW-34 nested-Ms guard would fire if this were ever moved inside a group)', () => {
+		expect(() => resolveTuning()).not.toThrow();
+	});
+});
+
+describe('TUNING.tiltBob -- the ported plumb-bob tilt pendulum parameters (Story 1.7, AD-5, AD-15)', () => {
+	const TILT_BOB_KEYS = ['rodLengthM', 'cabAccelScale', 'dampingCoef0', 'dampingCoef1', 'ringBounceDamping', 'dampingScale', 'thresholdDeg'] as const;
+
+	it('TILT_BOB_KEYS is the actual key set of TUNING.tiltBob, so the per-key checks below cover every entry', () => {
+		expect([...Object.keys(TUNING.tiltBob)].sort()).toEqual([...TILT_BOB_KEYS].sort());
+	});
+
+	it('every entry is a TuningEntry with a non-empty source and an honest confidence', () => {
+		for (const key of Object.keys(TUNING.tiltBob) as Array<keyof typeof TUNING.tiltBob>) {
+			const entry = TUNING.tiltBob[key];
+			expect(isTuningEntry(entry), `TUNING.tiltBob.${key} is not a TuningEntry`).toBe(true);
+			expect(typeof entry.source).toBe('string');
+			expect(entry.source.length).toBeGreaterThan(0);
+			const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+			expect(validConfidences).toContain(entry.confidence);
+		}
+	});
+
+	it('no key in the group ends in "Ms" -- none of these is a duration resolveTuning() converts', () => {
+		for (const key of Object.keys(TUNING.tiltBob)) {
+			expect(key.endsWith('Ms'), `TUNING.tiltBob.${key} must not end in "Ms"`).toBe(false);
+		}
+	});
+
+	it('the five transcribed figures (rodLengthM, cabAccelScale, dampingCoef0, dampingCoef1, ringBounceDamping) carry the pinned vpinball/vpinball commit in their source, and match PlumbHandler.{h,cpp} verbatim', () => {
+		const transcribed = ['rodLengthM', 'cabAccelScale', 'dampingCoef0', 'dampingCoef1', 'ringBounceDamping'] as const;
+		for (const key of transcribed) {
+			expect(TUNING.tiltBob[key].source, `TUNING.tiltBob.${key}.source must name the pinned vpinball/vpinball commit`).toMatch(/3f838c14b/);
+		}
+		expect(TUNING.tiltBob.rodLengthM.value).toBe(0.1);
+		expect(TUNING.tiltBob.cabAccelScale.value).toBe(1.0);
+		expect(TUNING.tiltBob.dampingCoef0.value).toBe(1.25);
+		expect(TUNING.tiltBob.dampingCoef1.value).toBe(0.75);
+		expect(TUNING.tiltBob.ringBounceDamping.value).toBe(0.8);
+	});
+
+	it('dampingScale and thresholdDeg are the two AUTHORED figures (no authorized file supplies either), both shipped unverified', () => {
+		expect(TUNING.tiltBob.dampingScale.confidence).toBe('unverified');
+		expect(TUNING.tiltBob.thresholdDeg.confidence).toBe('unverified');
+		expect(TUNING.tiltBob.dampingScale.source).toMatch(/authored/);
+		expect(TUNING.tiltBob.thresholdDeg.source).toMatch(/authored/);
 	});
 });

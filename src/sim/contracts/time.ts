@@ -72,3 +72,17 @@ export function ticksToMs(ticks: number): number {
 
 /** AD-4's 200 ms owed-time cap, in ticks at the live `TICK_HZ` -- `sim/loop` never names `TICK_HZ` itself (AD-3), so it imports this instead of computing it. */
 export const MAX_OWED_TICKS = Math.round(MAX_OWED_SECONDS * TICK_HZ);
+
+/**
+ * Story 1.7, task 3: seconds per simulation tick -- `TICK_HZ`'s reciprocal,
+ * exported so a consumer that needs a per-tick DURATION IN SECONDS (rather
+ * than a tick count) never has to name `TICK_HZ` itself (`pnpm
+ * lint:boundaries`'s tick/ms rule: `TICK_HZ` may be named only here and in
+ * `sim/table/tuning.ts`). Added for the cabinet integrator
+ * (`sim/physics/cabinet/oscillator.ts`), which sub-steps at a FIXED, ported
+ * `0.001` s cadence regardless of `TICK_HZ` and must express "how many
+ * seconds does one tick span" without a literal -- mirrors `MAX_OWED_TICKS`
+ * immediately above: a second permitted arithmetic site for `TICK_HZ`,
+ * additive only.
+ */
+export const SECONDS_PER_TICK = 1 / TICK_HZ;

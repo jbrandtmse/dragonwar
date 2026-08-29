@@ -262,6 +262,72 @@ export const TUNING = deepFreeze({
 		"authored: AD-6 requires an eject speed, no artifact states one -- measured during Story 1.5 planning against col_lane_deflector, whose clearance threshold sits between 1600 and 1800 mm/s; this carries margin above it",
 		'unverified',
 	),
+
+	/**
+	 * Story 1.7 (AD-5, AD-15): the ported damped-harmonic cabinet oscillator's
+	 * two axes (`sim/physics/cabinet/oscillator.ts`, transcribing
+	 * `DampedHarmonicOscillator.h` + `CabinetPhysics.{h,cpp}`) and the
+	 * keyboard-nudge impulse peak (`nudge-impulse.ts`, transcribing
+	 * `KeyboardNudge.{h,cpp}`'s `CabModelKeyboardNudge`), all five figures
+	 * transcribed verbatim from `vpinball/vpinball @
+	 * 3f838c14bd2e37fb49a0b5aa6a9d76d421846bef` (ATTRIBUTIONS.md, the
+	 * `src/sim/physics/cabinet/**` row) -- never invented (this story's Design
+	 * Notes, "The tunables, and which are honestly transcribed"). No key ends
+	 * in `Ms`: none of these is a duration.
+	 */
+	cabinet: {
+		massKg: entry(113, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.h:24, CabinetPhysics(float mass = 113.f) default ctor argument', 'medium'),
+		freqXHz: entry(9.3, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)', 'medium'),
+		zetaX: entry(0.052, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)', 'medium'),
+		freqYHz: entry(5.8, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)', 'medium'),
+		zetaY: entry(0.055, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)', 'medium'),
+		nudgePeakAccelG: entry(
+			0.5,
+			'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:162-164, comment "0.5g max peak accel on strong nudge" (baseScale = 0.5f * g / coreScriptStrength, with coreScriptStrength = 2.f the reference "full strength" nudge)',
+			'medium',
+		),
+	} satisfies Readonly<Record<'massKg' | 'freqXHz' | 'zetaX' | 'freqYHz' | 'zetaY' | 'nudgePeakAccelG', TuningEntry<number>>>,
+
+	/**
+	 * Story 1.7 (AD-5, AD-15): the ONE new top-level duration this story
+	 * adds -- the raised-cosine nudge-impulse length `nudge-impulse.ts`
+	 * transcribes. Trap DW-34: this key MUST stay top-level (never nested
+	 * inside `cabinet`), or `resolveTuning()`'s `assertNoNestedMsKeys` throws.
+	 */
+	nudgeImpulseMs: entry(25, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)', 'medium'),
+
+	/**
+	 * Story 1.7 (AD-5, AD-15): the ported plumb-bob tilt pendulum
+	 * (`sim/physics/cabinet/plumb-bob.ts`, transcribing `PlumbHandler.{h,cpp}`).
+	 * `rodLengthM`, `cabAccelScale`, `dampingCoef0`, `dampingCoef1` and
+	 * `ringBounceDamping` are transcribed verbatim. `dampingScale` and
+	 * `thresholdDeg` are NOT constants in any authorized file --
+	 * `PlumbHandler.cpp:18-20` reads both from `Settings::GetPlayer_
+	 * PlumbDamping()` / `GetPlayer_PlumbThresholdAngle()`, a user setting with
+	 * no value in any of the seven authorized files (this story's Spec Change
+	 * Log, item 2) -- so both are authored here, `unverified`, chosen so a
+	 * firm nudge tilts the bob past threshold and an ordinary one does not
+	 * (measured against this story's own cabinet-bob test; see the spec's
+	 * Verification section for the evidence). Story 1.9's feel ritual
+	 * ratifies both against the Reference machine.
+	 */
+	tiltBob: {
+		rodLengthM: entry(0.1, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:30, m_plumbPoleLength = 0.10f', 'medium'),
+		cabAccelScale: entry(1.0, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:33, m_plumbCabAccelScale = 1.0f', 'medium'),
+		dampingCoef0: entry(1.25, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:45, m_dampingCoef0 = 1.25f', 'medium'),
+		dampingCoef1: entry(0.75, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:46, m_dampingCoef1 = 0.75f', 'medium'),
+		ringBounceDamping: entry(0.8, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.cpp:118, m_plumbOmega *= 0.8f; // magic damping factor', 'medium'),
+		dampingScale: entry(
+			1.0,
+			"authored: upstream reads this from Settings::GetPlayer_PlumbDamping(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- 1.0 (identity) is the most defensible 'no adjustment' choice against the transcribed dampingCoef0/dampingCoef1 ratio coefficients; measured during this story's implementation (see spec Verification section) to leave a single ordinary nudge's peak swing (~1.05 deg) well clear of thresholdDeg while still permitting a rapid nudge burst to cross it and decay away within a few seconds. Story 1.9's feel ritual ratifies it",
+			'unverified',
+		),
+		thresholdDeg: entry(
+			1.3,
+			"authored: upstream reads this from Settings::GetPlayer_PlumbThresholdAngle(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- measured during this story's implementation (see spec Verification section) so that ONE ordinary nudge_* rising edge (peak swing ~1.05 deg, measured) never crosses it, while a rapid burst of nudges (a deliberate, violent 'slam'-style burst) does. Story 1.9's feel ritual ratifies it against the Reference machine",
+			'unverified',
+		),
+	} satisfies Readonly<Record<'rodLengthM' | 'cabAccelScale' | 'dampingCoef0' | 'dampingCoef1' | 'ringBounceDamping' | 'dampingScale' | 'thresholdDeg', TuningEntry<number>>>,
 } as const);
 
 type TuningMsKey<T> = {

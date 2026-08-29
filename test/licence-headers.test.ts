@@ -36,6 +36,7 @@ describe('tools/check-licence-headers.mjs -- checkLicenceHeaders() on a delibera
 	const relativeNoHeader = path.posix.join('test', 'fixtures', '__tmp-licence-headers-no-header.ts');
 	const relativeWithHeader = path.posix.join('test', 'fixtures', '__tmp-licence-headers-with-header.ts');
 	const relativeWithPortMarker = path.posix.join('test', 'fixtures', '__tmp-licence-headers-port-marker.ts');
+	const relativeWithVpinballPortMarker = path.posix.join('test', 'fixtures', '__tmp-licence-headers-vpinball-port-marker.ts');
 	const relativeExempt = path.posix.join('public', 'LICENSE.txt');
 
 	beforeAll(() => {
@@ -51,10 +52,15 @@ describe('tools/check-licence-headers.mjs -- checkLicenceHeaders() on a delibera
 			'// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0\nexport const ported = 1;\n',
 			'utf8',
 		);
+		writeFileSync(
+			path.join(REPO_ROOT, relativeWithVpinballPortMarker),
+			'// Ported from vpinball/vpinball (GPL-3.0-or-later); distributed with DragonWar under GPL-3.0\nexport const ported = 1;\n',
+			'utf8',
+		);
 	});
 
 	afterAll(() => {
-		for (const relative of [relativeNoHeader, relativeWithHeader, relativeWithPortMarker]) {
+		for (const relative of [relativeNoHeader, relativeWithHeader, relativeWithPortMarker, relativeWithVpinballPortMarker]) {
 			rmSync(path.join(REPO_ROOT, relative), { force: true });
 		}
 	});
@@ -71,6 +77,11 @@ describe('tools/check-licence-headers.mjs -- checkLicenceHeaders() on a delibera
 
 	it('does not flag a file carrying the vpx-js port marker instead', () => {
 		const offenders = checkLicenceHeaders([relativeWithPortMarker]);
+		expect(offenders).toEqual([]);
+	});
+
+	it('does not flag a file carrying the vpinball/vpinball port marker instead (Story 1.7)', () => {
+		const offenders = checkLicenceHeaders([relativeWithVpinballPortMarker]);
 		expect(offenders).toEqual([]);
 	});
 

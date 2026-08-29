@@ -17,7 +17,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createKeyboardInput, type KeyboardEventTarget } from '../src/host/input';
+import { KEY_MAP, createKeyboardInput, type KeyboardEventTarget } from '../src/host/input';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 interface StubEvent {
@@ -159,6 +159,119 @@ describe('src/host/input -- createKeyboardInput() (AD-4)', () => {
 		expect(transitions[1]!.frame.start).toBe(true);
 	});
 
+	it('Story 1.7 AC 7: ArrowLeft maps to nudge_l, ArrowRight to nudge_r, ArrowUp to nudge_up, and Space ALSO to nudge_up (a second binding) -- each maps to nothing else, and each calls preventDefault()', () => {
+		const input = createKeyboardInput({ tickAt: (ms) => ms });
+		const { target, dispatch } = installStubTarget();
+		input.attach(target);
+
+		const arrowLeft = markPreventDefault(keyEvent('keydown', 'ArrowLeft', 1));
+		dispatch(arrowLeft);
+		let transitions = input.drainTransitions();
+		expect(transitions).toHaveLength(1);
+		expect(transitions[0]!.frame).toMatchObject({ nudge_l: true, nudge_r: false, nudge_up: false, flipper_l: false, flipper_r: false, plunger: false, start: false, menu: false });
+		expect(arrowLeft.defaultPrevented).toBe(true);
+		dispatch(markPreventDefault(keyEvent('keyup', 'ArrowLeft', 2)));
+		input.drainTransitions();
+
+		const arrowRight = markPreventDefault(keyEvent('keydown', 'ArrowRight', 3));
+		dispatch(arrowRight);
+		transitions = input.drainTransitions();
+		expect(transitions[0]!.frame).toMatchObject({ nudge_l: false, nudge_r: true, nudge_up: false });
+		expect(arrowRight.defaultPrevented).toBe(true);
+		dispatch(markPreventDefault(keyEvent('keyup', 'ArrowRight', 4)));
+		input.drainTransitions();
+
+		const arrowUp = markPreventDefault(keyEvent('keydown', 'ArrowUp', 5));
+		dispatch(arrowUp);
+		transitions = input.drainTransitions();
+		expect(transitions[0]!.frame).toMatchObject({ nudge_l: false, nudge_r: false, nudge_up: true });
+		expect(arrowUp.defaultPrevented).toBe(true);
+		dispatch(markPreventDefault(keyEvent('keyup', 'ArrowUp', 6)));
+		input.drainTransitions();
+
+		// Space is a SECOND binding for the same action, nudge_up.
+		const space = markPreventDefault(keyEvent('keydown', 'Space', 7));
+		dispatch(space);
+		transitions = input.drainTransitions();
+		expect(transitions[0]!.frame).toMatchObject({ nudge_l: false, nudge_r: false, nudge_up: true });
+		expect(space.defaultPrevented).toBe(true);
+	});
+
+	it('Story 1.7 AC 7: ArrowDown stays unmapped -- emits no transition and never calls preventDefault()', () => {
+		const input = createKeyboardInput({ tickAt: (ms) => ms });
+		const { target, dispatch } = installStubTarget();
+		input.attach(target);
+
+		const arrowDown = markPreventDefault(keyEvent('keydown', 'ArrowDown', 1));
+		dispatch(arrowDown);
+		expect(input.drainTransitions()).toEqual([]);
+		expect(arrowDown.defaultPrevented, 'ArrowDown must never call preventDefault() -- it is not a mapped code').toBe(false);
+	});
+
+	it('Story 1.7 AC 7: "and nothing else" -- KEY_MAP\'s full key set maps to exactly the eight documented codes, no more', () => {
+		// Drives every code this file's own header/AC 7 documents and asserts
+		// each produces exactly the action named; a stray extra mapping (or a
+		// removed one) would desync this list from the shipped KEY_MAP.
+		const expected: ReadonlyArray<readonly [string, string]> = [
+			['ShiftLeft', 'flipper_l'],
+			['ShiftRight', 'flipper_r'],
+			['Enter', 'plunger'],
+			['Digit1', 'start'],
+			['ArrowLeft', 'nudge_l'],
+			['ArrowRight', 'nudge_r'],
+			['ArrowUp', 'nudge_up'],
+			['Space', 'nudge_up'],
+		];
+
+		// Review finding: the per-code loop below only ever DISPATCHES this
+		// fixed expected list, so on its own it cannot detect a STRAY extra
+		// (or mistakenly removed) entry actually shipped in KEY_MAP -- it
+		// would just never exercise it. Assert against KEY_MAP's own real key
+		// set directly first, the same exhaustiveness shape TUNING.cabinet's
+		// own CABINET_KEYS check uses (test/tuning.test.ts).
+		expect(Object.keys(KEY_MAP).sort(), "KEY_MAP's real key set must equal exactly the eight documented codes").toEqual(expected.map(([code]) => code).sort());
+
+		for (const [code, action] of expected) {
+			const input = createKeyboardInput({ tickAt: (ms) => ms });
+			const { target, dispatch } = installStubTarget();
+			input.attach(target);
+			dispatch(markPreventDefault(keyEvent('keydown', code, 1)));
+			const transitions = input.drainTransitions();
+			expect(transitions, `${code} must map to exactly one action`).toHaveLength(1);
+			const heldActions = (Object.keys(transitions[0]!.frame) as Array<keyof typeof transitions[0]['frame']>).filter((a) => transitions[0]!.frame[a]);
+			expect(heldActions, `${code} must map to "${action}" and nothing else`).toEqual([action]);
+		}
+	});
+
+	it('Story 1.7 review finding: ArrowUp and Space are two DIFFERENT codes bound to the SAME action (nudge_up) -- releasing one while the other is still held must not clear nudge_up, and the later release of the other must still clear it', () => {
+		const input = createKeyboardInput({ tickAt: (ms) => ms });
+		const { target, dispatch } = installStubTarget();
+		input.attach(target);
+
+		dispatch(markPreventDefault(keyEvent('keydown', 'ArrowUp', 1)));
+		let transitions = input.drainTransitions();
+		expect(transitions, 'ArrowUp keydown must raise nudge_up').toHaveLength(1);
+		expect(transitions[0]!.frame.nudge_up).toBe(true);
+
+		// Space is a SECOND code for the SAME action, already held -- must
+		// not emit a new transition (mirrors OS auto-repeat's "no change"),
+		// but must be tracked as its own held code.
+		dispatch(markPreventDefault(keyEvent('keydown', 'Space', 2)));
+		expect(input.drainTransitions(), 'a second code for an already-held action must not emit a transition').toEqual([]);
+
+		// Releasing ArrowUp while Space is STILL held must NOT clear nudge_up
+		// -- the bug this test guards: a single per-action boolean would
+		// clear here even though Space is still physically down.
+		dispatch(markPreventDefault(keyEvent('keyup', 'ArrowUp', 3)));
+		expect(input.drainTransitions(), 'releasing one of two codes bound to an action, while the other is still held, must not clear the action').toEqual([]);
+
+		// Releasing the LAST held code for the action must clear it.
+		dispatch(markPreventDefault(keyEvent('keyup', 'Space', 4)));
+		transitions = input.drainTransitions();
+		expect(transitions, 'releasing the last held code for an action must clear it').toHaveLength(1);
+		expect(transitions[0]!.frame.nudge_up).toBe(false);
+	});
+
 	it('each transition is stamped via the injected tickAt(event.timeStamp), and detach() stops future events', () => {
 		const seen: number[] = [];
 		const input = createKeyboardInput({ tickAt: (ms) => { seen.push(ms); return ms * 2; } });
@@ -234,7 +347,13 @@ describe('AD-4 -- no key code, KeyboardEvent reference or "code" string exists a
 		// code this AC's grep half never checked. Word-boundary matching keeps
 		// the identifier-shaped tokens precise; '.code' stays a substring
 		// because '.' is not a word character.
-		const bannedWords = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', 'Enter', 'Digit1', 'keydown', 'keyup'];
+		// 'Space' is deliberately NOT in this list: unlike the other mapped
+		// codes (all clearly code-shaped identifiers unlikely to appear in
+		// ordinary prose), 'Space' is a common English word -- a blanket
+		// word-boundary grep for it would false-positive on legitimate prose
+		// (found during this story's implementation: "Space/arrow keys to
+		// Nudge", quoting the PRD, in this file's own header comment).
+		const bannedWords = ['KeyboardEvent', 'ShiftLeft', 'ShiftRight', 'Enter', 'Digit1', 'keydown', 'keyup', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 		const bannedSubstrings = ['.code'];
 		const offenders: string[] = [];
 		for (const file of listFiles(SIM_ROOT)) {

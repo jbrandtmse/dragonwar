@@ -4,8 +4,9 @@
 // AD-16, AR-34: the per-file licence-header check. Every tracked source file
 // (discovered from `git ls-files`, never a hand-maintained roots list -- the
 // Story 1.1 stand-in's list needed widening twice, per review) carrying one
-// of the authored extensions must contain either the DragonWar GPL-3.0
-// header or the vpx-js port marker. `public/LICENSE.txt` and
+// of the authored extensions must contain the DragonWar GPL-3.0 header, the
+// vpx-js port marker, or (Story 1.7) the vpinball/vpinball port marker.
+// `public/LICENSE.txt` and
 // `public/THIRD-PARTY-NOTICES.txt` are licence texts themselves; `pnpm-lock.yaml`
 // is a machine-generated lockfile, not hand-authored source -- all three are
 // exempt by exact path.
@@ -40,6 +41,11 @@ const EXCLUDED_TREE_PREFIXES = ['.claude/', '_bmad/', '_bmad-output/'];
 
 const AUTHORED_HEADER = 'DragonWar is licensed GPL-3.0';
 const PORT_MARKER = 'Ported from vpdb/vpx-js';
+// Story 1.7: the vpinball/vpinball port's own marker substring (the third
+// class, `src/sim/physics/cabinet/**`) -- a flat third disjunct, exactly the
+// same shape as PORT_MARKER above, no structural check (that belongs to
+// test/sim-boundary.test.ts's own, stricter third branch).
+const VPINBALL_PORT_MARKER = 'Ported from vpinball/vpinball';
 
 export class CheckHeadersError extends Error {}
 
@@ -89,7 +95,7 @@ export function checkLicenceHeaders(files = listTrackedFiles()) {
 			// (e.g. mid-rename in a working tree) is not this check's concern.
 			continue;
 		}
-		if (!content.includes(AUTHORED_HEADER) && !content.includes(PORT_MARKER)) {
+		if (!content.includes(AUTHORED_HEADER) && !content.includes(PORT_MARKER) && !content.includes(VPINBALL_PORT_MARKER)) {
 			offenders.push(posix);
 		}
 	}
@@ -112,7 +118,7 @@ function main() {
 		return;
 	}
 
-	console.error(`[check-headers] FAILED -- ${offenders.length} file(s) missing "${AUTHORED_HEADER}" or "${PORT_MARKER}":`);
+	console.error(`[check-headers] FAILED -- ${offenders.length} file(s) missing "${AUTHORED_HEADER}", "${PORT_MARKER}" or "${VPINBALL_PORT_MARKER}":`);
 	for (const file of offenders) {
 		console.error(`  ${file}`);
 	}

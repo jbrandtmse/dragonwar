@@ -28,6 +28,7 @@
 // `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
 
 import type { Ball } from './ball/ball';
+import { createCabinetMechanics, type CabinetState } from './cabinet';
 import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from './constants';
 import { createDeviceMechanics, type BallStepMovement, type ContactEventLike, type DeviceFailure, type SwitchEdgeLike } from './devices';
 import { createFlipperMechanics } from './flippers';
@@ -65,6 +66,16 @@ export interface Machine {
 	readonly deviceSlots: Readonly<Record<BallDeviceName, readonly boolean[]>>;
 	/** A frozen, per-tick snapshot of the flipper and plunger hardware rules -- the `deviceSlots` getter's own shape, applied to Story 1.6's mechanisms. `sim/loop/index.ts`'s `buildSnapshot()` is the only reader. */
 	readonly mechanisms: HardwareMechanismsState;
+	/**
+	 * Story 1.7: a frozen, per-tick snapshot of the cabinet oscillator, the
+	 * tilt bob and the slam detector -- shaped exactly like `mechanisms`
+	 * above, for the same reason (a fresh object per read, never a live
+	 * reference a later tick could mutate out from under a caller). Epic 1
+	 * renders no cabinet shake (Design Notes, "`MechanismsSnapshot` is
+	 * deliberately not widened"), so this has no `Snapshot` counterpart yet --
+	 * `test/cabinet-*.test.ts` and Story 1.9's tuning panel are its readers.
+	 */
+	readonly cabinet: CabinetState;
 	readonly effectivePitchDeg: number;
 }
 
@@ -95,6 +106,7 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 	});
 	const flipperMechanics = createFlipperMechanics({ physics, flippers: loaded.flippers, tuning });
 	const plungerMechanics = createPlungerMechanics({ deviceMechanics, tuning });
+	const cabinetMechanics = createCabinetMechanics({ physics, tuning });
 
 	// AD-5: "gated only by CoilCommand enable | disable" -- a per-coil map,
 	// default enabled, fed ONLY by `enable`/`disable` commands below. Every
@@ -127,6 +139,10 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// stays readonly never[]).
 		const flipperResult = flipperMechanics.applyFrame(tick, frame, { l: coilEnabled.c_flipper_l, r: coilEnabled.c_flipper_r });
 		const plungerResult = plungerMechanics.applyFrame(tick, frame, coilEnabled.c_autolaunch);
+		// Story 1.7: the cabinet hardware rule -- nudge impulse, oscillator,
+		// tilt bob and slam detector, plus the table-frame ball coupling --
+		// same seam, same "before physics.step()" reasoning (AD-5).
+		const cabinetResult = cabinetMechanics.applyFrame(tick, frame);
 
 		const commandResult = deviceMechanics.applyCommands(tick, pulses);
 
@@ -154,7 +170,7 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		const entryResult = deviceMechanics.detectEntries(tick, movements);
 
 		return {
-			switchEvents: [...commandResult.switchEvents, ...plungerResult.switchEvents, ...switchEdges, ...entryResult.switchEvents],
+			switchEvents: [...commandResult.switchEvents, ...plungerResult.switchEvents, ...cabinetResult.switchEvents, ...switchEdges, ...entryResult.switchEvents],
 			contactEvents: [...flipperResult.contactEvents, ...commandResult.contactEvents, ...plungerResult.contactEvents, ...entryResult.contactEvents],
 			semanticEvents: [...commandResult.failures, ...plungerResult.failures, ...entryResult.failures],
 		};
@@ -186,6 +202,12 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 			// fresh object on every read, so this is a plain pass-through, not a
 			// live reference a later tick could mutate out from under a caller.
 			return { flippers: flipperMechanics.state, plunger: plungerMechanics.state };
+		},
+		get cabinet(): CabinetState {
+			// `cabinetMechanics.state` already builds a fresh object per read
+			// (its own getter, `cabinet/index.ts`) -- the same pass-through
+			// reasoning as `mechanisms` above.
+			return cabinetMechanics.state;
 		},
 		effectivePitchDeg,
 	};

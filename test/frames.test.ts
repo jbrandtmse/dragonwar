@@ -9,6 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { MM_PER_VU, fromPhysics, glbToTable, toPhysics, toPhysicsPlane, toScene, type Vec3 } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
+import { cabinetAccelToPhysicsAccel } from '../src/sim/physics/cabinet';
+import { GRAVITYCONST } from '../src/sim/physics/constants';
 
 const EPSILON = 1e-9;
 
@@ -238,5 +240,50 @@ describe('sim/table/frames.ts -- toPhysicsPlane()', () => {
 		const { d } = toPhysicsPlane(normal, dMm);
 
 		expect(naiveLhs).not.toBeCloseTo(d, 3);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Story 1.7: `sim/physics/cabinet/index.ts`'s `cabinetAccelToPhysicsAccel()`
+// -- the cabinet's own SI m/s^2 -> physics U/T^2 crossing (the acceleration
+// analogue of `sim/physics/devices.ts`'s velocity crossing, divided by
+// 100*100 = 10000 rather than 100 -- see that function's own doc comment).
+// This is the ONE assertion that catches a units error in the ball-coupling
+// arithmetic, which would otherwise present only as "the nudge feels wrong"
+// (this story's spec, Tasks & Acceptance). `frames.ts` itself is NOT edited
+// by this story -- the crossing lives in cabinet/index.ts, following the
+// already-adjudicated frame/time-unit split `devices.ts:126-141` and
+// `loop/index.ts:157-172` both state verbatim (Code Map, "Verified
+// environment facts").
+// ---------------------------------------------------------------------------
+
+describe('sim/physics/cabinet -- cabinetAccelToPhysicsAccel() reproduces GRAVITYCONST (Story 1.7)', () => {
+	it('converting 9.81 m/s^2 along table +Y reproduces GRAVITYCONST (1.81751) in magnitude, with the y axis flipped in sign', () => {
+		const physicsAccel = cabinetAccelToPhysicsAccel({ x: 0, y: 9.81 });
+		expect(physicsAccel.x).toBeCloseTo(0, 9);
+		// Table +Y (away from the player) maps to physics -Y (PlayerPhysics's
+		// own down-slope-toward-the-player convention, sim/table/frames.ts's
+		// header) -- so a POSITIVE table-frame y-acceleration reproduces
+		// GRAVITYCONST's magnitude with a NEGATIVE sign.
+		expect(physicsAccel.y).toBeCloseTo(-GRAVITYCONST, 4);
+	});
+
+	it('the x axis is NOT flipped -- a table +X acceleration converts to a positive physics x acceleration', () => {
+		const physicsAccel = cabinetAccelToPhysicsAccel({ x: 9.81, y: 0 });
+		expect(physicsAccel.x).toBeCloseTo(GRAVITYCONST, 4);
+		expect(physicsAccel.y).toBeCloseTo(0, 9);
+	});
+
+	it('is linear -- scaling the input scales the output by the same factor (a sanity check that this is a pure unit crossing, not an affine one)', () => {
+		const base = cabinetAccelToPhysicsAccel({ x: 3.3, y: -1.7 });
+		const scaled = cabinetAccelToPhysicsAccel({ x: 6.6, y: -3.4 });
+		expect(scaled.x).toBeCloseTo(base.x * 2, 9);
+		expect(scaled.y).toBeCloseTo(base.y * 2, 9);
+	});
+
+	it('zero acceleration converts to zero (the affine playfield-height translation must cancel exactly, as it does for toPhysics() itself)', () => {
+		const physicsAccel = cabinetAccelToPhysicsAccel({ x: 0, y: 0 });
+		expect(physicsAccel.x).toBe(0);
+		expect(physicsAccel.y).toBe(0);
 	});
 });

@@ -88,10 +88,30 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 		'flipper/flipper-config.ts',
 		'flippers.ts',
 		'plunger.ts',
+		'cabinet/slam.ts',
+		'cabinet/index.ts',
 	]);
+
 	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
 	const isDeclaredAuthored = (relative: string): boolean => AUTHORED_FILES.has(toPosix(relative));
 	const physicsFiles = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
+
+	// Story 1.7: the third provenance branch, for the seven-file
+	// vpinball/vpinball port authorized 2026-08-29 (ATTRIBUTIONS.md's
+	// `src/sim/physics/cabinet/**` row). Branch selection is BY DECLARATION
+	// (`VPINBALL_PORTED_FILES`, mirroring `AUTHORED_FILES` above), never by
+	// content -- an undeclared file falls through to the vpx-js branch by
+	// default, which a vpinball-derived file cannot pass (this story's Design
+	// Notes, "The third provenance branch"). This branch is exactly as
+	// strict as the other two: it asserts every element positively AND
+	// asserts the other two classes' markers absent, so the three classes
+	// stay mutually exclusive.
+	const VPINBALL_PORT_MARKER = '// Ported from vpinball/vpinball (GPL-3.0-or-later); distributed with DragonWar under GPL-3.0';
+	const VPINBALL_HOLDER = 'Visual Pinball development team and contributors';
+	const VPINBALL_PIN = '3f838c14bd2e37fb49a0b5aa6a9d76d421846bef';
+	const VPINBALL_GRANT_PHRASE = 'either version 3 of the License, or (at your option) any later version';
+	const VPINBALL_PORTED_FILES = new Set(['cabinet/oscillator.ts', 'cabinet/nudge-impulse.ts', 'cabinet/plumb-bob.ts']);
+	const isDeclaredVpinballPort = (relative: string): boolean => VPINBALL_PORTED_FILES.has(toPosix(relative));
 
 	it('finds at least one file under src/sim/physics/ (sanity check the test itself is wired up)', () => {
 		expect(physicsFiles.length).toBeGreaterThan(0);
@@ -113,6 +133,32 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 				expect(headOfFile, `${relative}: declared authored, so it must carry "${AUTHORED_HEADER}" in its first 5 lines`).toContain(AUTHORED_HEADER);
 				expect(content, `${relative}: declared authored, so it must NOT carry the vpx-js port marker`).not.toContain(PORT_MARKER);
 				expect(content, `${relative}: declared authored, so it must NOT carry the upstream VPDB copyright block`).not.toContain(UPSTREAM_PROJECT);
+				return;
+			}
+
+			if (isDeclaredVpinballPort(relative)) {
+				// Story 1.7's third branch: a DECLARED vpinball/vpinball port.
+				// Asserts every element positively (never returns past an
+				// unchecked branch, same discipline as the authored branch
+				// above) AND asserts the other two classes' markers absent, so
+				// the three classes stay mutually exclusive.
+				const lines = content.split('\n');
+				const blockEndIdx = lines.findIndex((line) => line.trim() === '*/');
+				expect(blockEndIdx, `${relative}: no closing "*/" of an upstream copyright block found`).toBeGreaterThanOrEqual(0);
+
+				const blockText = lines.slice(0, blockEndIdx + 1).join('\n');
+				expect(blockText, `${relative}: missing "${VPINBALL_HOLDER}"`).toContain(VPINBALL_HOLDER);
+				expect(blockText, `${relative}: missing the GPL-3-or-later grant phrase`).toContain(VPINBALL_GRANT_PHRASE);
+
+				const nextLine = lines[blockEndIdx + 1];
+				expect(nextLine, `${relative}: line after the copyright block must be the exact vpinball port-marker line`).toBe(VPINBALL_PORT_MARKER);
+
+				expect(content, `${relative}: missing "${VPINBALL_PIN}"`).toContain(VPINBALL_PIN);
+				expect(content, `${relative}: missing an upstream "// Source: src/physics/cabinet/..." path`).toMatch(/\/\/ Source: src\/physics\/cabinet\//);
+
+				expect(content, `${relative}: a vpinball port must NOT carry the vpx-js port marker`).not.toContain(PORT_MARKER);
+				expect(content, `${relative}: a vpinball port must NOT carry the upstream VPDB project name`).not.toContain(UPSTREAM_PROJECT);
+				expect(content, `${relative}: a vpinball port must NOT carry the DragonWar GPL-3.0 header`).not.toContain(AUTHORED_HEADER);
 				return;
 			}
 
@@ -164,6 +210,30 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 				physicsFiles.map((f) => toPosix(path.relative(PHYSICS_ROOT, f))),
 				`AUTHORED_FILES entry "${declared}" does not name a real file under src/sim/physics/`,
 			).toContain(toPosix(path.relative(PHYSICS_ROOT, absolute)));
+		}
+	});
+
+	it('Story 1.7: VPINBALL_PORTED_FILES names only real files, and the three provenance sets (authored, vpinball-ported, vpx-js-default) are mutually disjoint', () => {
+		for (const declared of VPINBALL_PORTED_FILES) {
+			const absolute = path.resolve(PHYSICS_ROOT, declared);
+			expect(
+				physicsFiles.map((f) => toPosix(path.relative(PHYSICS_ROOT, f))),
+				`VPINBALL_PORTED_FILES entry "${declared}" does not name a real file under src/sim/physics/`,
+			).toContain(toPosix(path.relative(PHYSICS_ROOT, absolute)));
+		}
+
+		// No path is declared in both sets -- a file that took the vpinball
+		// branch could not also silently qualify for the authored branch (or
+		// vice versa), which would make "exactly as strict as before" false.
+		for (const declared of VPINBALL_PORTED_FILES) {
+			expect(AUTHORED_FILES.has(declared), `"${declared}" is declared in BOTH AUTHORED_FILES and VPINBALL_PORTED_FILES -- the three provenance classes must stay mutually exclusive`).toBe(false);
+		}
+
+		// A declared vpinball port takes the vpinball branch, never the
+		// authored one -- isDeclaredAuthored() must not also fire for it.
+		for (const declared of VPINBALL_PORTED_FILES) {
+			expect(isDeclaredVpinballPort(declared), `"${declared}" must take the vpinball branch`).toBe(true);
+			expect(isDeclaredAuthored(declared), `"${declared}" must NOT also take the authored branch`).toBe(false);
 		}
 	});
 

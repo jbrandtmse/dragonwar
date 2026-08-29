@@ -56,6 +56,40 @@ describe('ATTRIBUTIONS.md -- vpdb/vpx-js provenance record (Story 1.1 AC)', () =
 	});
 });
 
+describe('ATTRIBUTIONS.md -- vpinball/vpinball provenance record (Story 1.7 AC 9)', () => {
+	// Mirrors the vpdb/vpx-js block above: pins the row CLAUDE.md's ordering
+	// rule required to land BEFORE any ported file (commit `38e51cd`), so a
+	// future edit that trims or "corrects" it away is caught by `pnpm test`
+	// rather than by manual inspection.
+	const normalized = normalize(readFileSync(ATTRIBUTIONS_PATH, 'utf8'));
+
+	it('names the upstream project and the pinned commit', () => {
+		expect(normalized).toContain('vpinball/vpinball');
+		expect(normalized).toContain('3f838c14bd2e37fb49a0b5aa6a9d76d421846bef');
+	});
+
+	it('names the holder from the root LICENSE, not a per-file copyright line', () => {
+		expect(normalized).toContain('Visual Pinball development team and contributors');
+		expect(normalized).toMatch(/none of the ported files carries a per-file copyright line/);
+	});
+
+	it('records the licence as GPL-3.0-or-later, verified per file from each file\'s own "// license:GPLv3+" first line', () => {
+		expect(normalized).toContain('GPL-3.0-or-later');
+		expect(normalized).toMatch(/license:GPLv3\+/);
+		expect(normalized).toMatch(/per file, from each file's own/);
+	});
+
+	it('explicitly excludes NudgeHandler.h and states why', () => {
+		expect(normalized).toContain('NudgeHandler.h');
+		expect(normalized).toMatch(/EXCLUDED/);
+		expect(normalized).toMatch(/non-commercial/);
+	});
+
+	it('records the 2026-08-29 verification date', () => {
+		expect(normalized).toContain('2026-08-29');
+	});
+});
+
 describe('ATTRIBUTIONS.md -- Babylon.js provenance record (Story 1.2 AC)', () => {
 	// Story 1.2's hard, spec-level acceptance criterion: the two Babylon rows
 	// must record the source URL, the author, Apache-2.0 as read in license.md
