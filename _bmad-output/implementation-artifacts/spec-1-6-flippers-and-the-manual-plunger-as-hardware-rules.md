@@ -777,6 +777,20 @@ story replaces.
   reaches the playfield; hold left/right Shift — the ball is flipped; call
   `window.__dragonwarBoot.setCoilEnabled('c_flipper_l', false)` — the left flipper stops responding, and
   `true` restores it. A headless suite cannot see renderer-level breakage, so this pass is not optional.
+- **(QA) Browser smoke already run once at the QA stage (2026-08-29), via `chrome-devtools-mcp` against
+  `pnpm build` + `pnpm preview` on `http://localhost:4173/` — Rule 3's real-runtime evidence for this story's
+  user-facing surface, distinct from the lead's later manual pass above. Sequence and observed results:
+  press-to-begin click populates `window.__dragonwarBoot`; `pulseCoil('c_trough_eject')` visibly serves a
+  ball into the shooter lane (screenshot); a **real DOM `KeyboardEvent('keydown', {code:'Enter'})` dispatched
+  on `window`**, held ~800 ms then released with a matching `keyup`, drives the manual plunger through the
+  real `host/input` → `host/loop` → `sim/loop` → `machine.step` → plunger hardware-rule → `devices.launch`
+  stack end to end and visibly moves the ball from the shooter lane onto the main field (screenshot); real
+  `KeyboardEvent`s for `ShiftLeft`/`ShiftRight` (flippers, held then released) and
+  `window.__dragonwarBoot.setCoilEnabled('c_flipper_l', false)` / `true` all dispatch and complete with no
+  thrown exception. Console messages before and after every step were identical to the pre-existing baseline
+  Story 1.5 already documented (one `favicon.ico` 404, one benign WebGPU-alpha-material fallback warning) —
+  no new console error or warning was introduced. The preview server was stopped afterward; `dist/` is
+  gitignored, so this pass left no footprint changes.
 
 ## Auto Run Result
 
