@@ -667,6 +667,11 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **When** the drain triangle is drawn
 **Then** the flipper tip gap, the two outlane widths, the inlane guides and every post position are authored as `col_` primitives with the tip gap recorded in `tuning.ts` as `unverified`, and guides end at `rubber_post` surfaces, never bare metal
 
+**Given** the inlane guides and posts authored above, and the ported `FlipperMover` from Story 1.6 `[ADDED 2026-08-29 — see the story change log below]`
+**When** a ball resting on a raised bat is held with the flipper key for a full 5 simulated seconds
+**Then** the ball stays within the cradle pocket for the whole hold — at rest, its position on the bat unchanged within tolerance — and does not depart the bat
+**And** this closes ledger `DW-72`: it is the half of Story 1.6's cradle criterion deferred to this story because Epic 1's placeholder table had no geometry beside either flipper to form a pocket (see Story 1.6's change log), so `test/flipper-collision.test.ts`'s 1 s ball bound is widened back to the full 5 s here
+
 **Given** the drain triangle is placed
 **When** the shot map is drawn
 **Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-5/FR-27 decision in `docs/decisions.md`), the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, pop bumpers, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
@@ -688,6 +693,21 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **Given** the fixed camera from Story 1.4
 **When** the full geometry is in view
 **Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible and the Backglass quad occupies a strip at the top of the view
+
+**Change log**
+
+- **2026-08-29 — cradle criterion added, as the receiving half of Story 1.6's split.**
+  Story 1.6 could not assert a 5 s cradle: Epic 1's placeholder table has no geometry beside
+  either flipper, so a ball rolls along the raised bat under the 6.5° pitch and leaves it after
+  roughly 1.2–1.9 s. That was proved to be missing geometry rather than a defect in the ported
+  `FlipperMover` (energy dissipates rather than being injected, and a control ball that never
+  touches a flipper runs away faster). Story 1.6's ball claim was therefore bounded to 1 s and
+  the full cradle deferred here as ledger `DW-72`.
+  This story already **authors** the pocket — the inlane guides and posts are in its first
+  criterion — but asserted no behaviour that geometry enables, so it would have built the pocket,
+  never tested it, and met `DW-72` at its ledger gate with nothing delivered to close it against.
+  The criterion above closes that gap. `DW-72` is deliberately written to close on evidence
+  rather than on inspection.
 
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
