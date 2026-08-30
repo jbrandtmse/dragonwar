@@ -55,7 +55,7 @@ export interface InvalidRecordingResult {
 	readonly reason: string;
 }
 
-/** Thrown by `start()` when the loop's current tick is not exactly 0 (DW-86): rebasing the recorded ticks alone would fix only their alignment, not the initial world state a fresh `createLoop()` reproduces. Named, so a caller sees WHY, rather than silently saving an unreproducible recording. The panel's Record control resets the loop first, which is what makes a normal Record click satisfy this. */
+/** Thrown by `start()` when the loop's current tick is not exactly 0 (DW-86): rebasing the recorded ticks alone would fix only their alignment, not the initial world state a fresh `createLoop()` reproduces. Named, so a caller sees WHY, rather than silently saving an unreproducible recording. `src/host/boot.ts`'s `replayRecorder.start()` facade calls `hostLoop.reset()` first, which is what makes a normal console `start()` satisfy this (the panel itself has no Record control). */
 export class NonZeroStartTickError extends Error {}
 
 export interface ReplayRecorder {

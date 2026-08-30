@@ -196,7 +196,14 @@ export const TUNING = deepFreeze({
 	 * architecture spine explicitly names): a dimensionless scale on the
 	 * excess of a ball's own post-step velocity change above
 	 * `src/sim/physics/hop.ts`'s authored trigger, applied ONLY while a
-	 * flipper coil is energised. `0` is the exact identity (no hops, by
+	 * flipper bat is ACTIVELY ROTATING (its own measured
+	 * `angularVelDegPerSec`, threshold 30 deg/s) -- deliberately NOT "while a
+	 * flipper coil is energised", which this story tried first and rejected:
+	 * a held-but-settled bat is physically a wall, and gating on the raw coil
+	 * boolean made the `roll-and-drain` golden's own multi-thousand-tick hold
+	 * re-hop the ball every time it landed back on the stationary bat, an
+	 * unbounded energy-adding feedback loop (see the spec's Spec Change Log).
+	 * `0` is the exact identity (no hops, by
 	 * construction -- `hop.ts`'s own short-circuit, not a tuning value close
 	 * to zero). This story's own measurement (`test/hop-control.test.ts`,
 	 * `## Verification`): at the default below, the paired stress replay's

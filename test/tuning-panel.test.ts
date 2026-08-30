@@ -163,9 +163,50 @@ describe('src/host/dev/tuning-panel.ts -- enumerateTuningRows() (DOM-free)', () 
 		}
 	});
 
-	it('plungerSpeedByHoldMs never appears as a row -- it is a function, not a TuningEntry', () => {
+	it('a function-valued node contributes NO row and is never descended into -- the guard AC 1\'s "plungerSpeedByHoldMs does not appear" clause rests on', () => {
+		// Review finding, this pass (Rule 19): the assertion in the test below
+		// -- `rows.some(r => r.path.includes('plungerSpeedByHoldMs')) === false`
+		// against the live TUNING -- CANNOT FAIL. `plungerSpeedByHoldMs` is a
+		// module-level `export function` in src/sim/table/tuning.ts, never a
+		// TUNING property, so the walk never reaches it under ANY
+		// implementation and enumerateTuningRows()'s own
+		// `typeof node === 'function'` guard is never executed by it. That left
+		// the AC clause pinned only by a statement about tuning.ts's module
+		// shape, not about the panel. THIS test drives the guard directly.
+		//
+		// Demonstrated this pass, and note WHICH mutation: deleting the
+		// `typeof node === 'function'` early return does NOT make this red --
+		// that guard is redundant with the `typeof node !== 'object'` check
+		// immediately below it (typeof a function is 'function', not 'object'),
+		// so it is provably dead code and nothing can pin it. The guard that
+		// actually carries the behaviour is the object check.
+		//
+		// The two guards are mutually redundant for a function, so the SMALLEST
+		// change that violates the contract removes both.
+		//
+		// mutation: delete the `typeof node === 'function'` early return AND
+		// weaken `node === null || typeof node !== 'object'` to `node === null`
+		// -> this test goes red (demonstrated this pass: the run then yields
+		// ['realLeaf', 'asFunction.nested'] instead of ['realLeaf']). The
+		// fixture hangs exactly the shape plungerSpeedByHoldMs would have if it
+		// were ever moved onto TUNING.
+		const fnWithEntryShapedProps = Object.assign(() => 0, {
+			nested: { value: 42, source: 'test fixture', confidence: 'unverified' as const },
+		});
+		const rows = enumerateTuningRows({
+			realLeaf: { value: 1, source: 'test fixture', confidence: 'unverified' as const },
+			asFunction: fnWithEntryShapedProps,
+		});
+		expect(rows.map((r) => r.path.join('.')), 'the function node must contribute nothing at all -- neither itself nor its properties').toEqual(['realLeaf']);
+	});
+
+	it('plungerSpeedByHoldMs never appears as a row -- a structural invariant of tuning.ts (it is a module export, not a TUNING property), not a panel behaviour', () => {
 		const rows = enumerateTuningRows();
 		expect(rows.some((r) => r.path.includes('plungerSpeedByHoldMs'))).toBe(false);
+		// Stated explicitly so the assertion above is not mistaken for a pin on
+		// the panel: it holds because of where plungerSpeedByHoldMs LIVES. The
+		// falsifiable pin for the exclusion BEHAVIOUR is the test above.
+		expect(typeof (TUNING as unknown as Record<string, unknown>).plungerSpeedByHoldMs, 'if this ever becomes a TUNING property, the test above is the load-bearing one').toBe('undefined');
 	});
 
 	it('nested groups (materials, flipper, cabinet, tiltBob, switchSettleMsByClass) are walked recursively -- each contributes rows with a multi-segment path', () => {
@@ -356,5 +397,133 @@ describe('src/host/dev/tuning-panel.ts -- createTuningPanel() (hand-rolled DOM s
 
 		expect(exportArea.value, 'clicking Export must populate the textarea -- it must not stay empty').not.toBe('');
 		expect(exportArea.value).toBe(serialiseTuning([{ path: ['defaultPitchDeg'], value: 7.75 }]));
+	});
+
+	it('AC 1: each rendered row really SHOWS its value, source and confidence -- asserted on the DOM a developer sees, not on enumerateTuningRows()\'s return value', () => {
+		// Review finding, this pass: every assertion covering "with its value,
+		// source and confidence" ran against enumerateTuningRows()'s rows, and
+		// every DOM assertion filtered on input/button/textarea only -- nothing
+		// ever inspected a span. Deleting both spans from the row builder (so
+		// the panel rendered bare, unlabelled number inputs with no provenance
+		// at all) left every test in this file green.
+		//
+		// mutation: drop the pathEl/metaEl appendChild calls in
+		// createTuningPanel()'s row loop -> this test goes red.
+		const hostLoop = createHostLoop(loadDoc(), () => {});
+		const replayRecorder = createReplayRecorder();
+		const panel = createTuningPanel({ hostLoop, replayRecorder });
+		const elements = [...walk(panel.element as unknown as FakeElement)];
+
+		const row = enumerateTuningRows().find((r) => r.path.join('.') === 'defaultPitchDeg')!;
+		expect(row, 'sanity: the defaultPitchDeg row must exist').toBeDefined();
+
+		const input = elements.find((el) => el.tagName === 'input' && el.dataset.path === 'defaultPitchDeg')!;
+		expect(input.value, 'the input must be seeded with the shipped value before any edit').toBe(String(row.value));
+
+		const pathSpan = elements.find((el) => el.className === 'dw-tuning-panel__path' && el.textContent === 'defaultPitchDeg');
+		expect(pathSpan, 'the tunable\'s dotted path must be rendered').toBeDefined();
+
+		const metaTexts = elements.filter((el) => el.className === 'dw-tuning-panel__meta').map((el) => el.textContent);
+		expect(metaTexts, 'the row must render its confidence AND its source verbatim').toContain(`${row.confidence} \u2014 ${row.source}`);
+		expect(row.source.length, 'sanity: the source is genuinely non-empty, so the assertion above is not matching an empty tail').toBeGreaterThan(0);
+	});
+
+	it('every class the panel puts on an element has a real rule in public/styles.css (AD-17: styles are bundled, never inline)', () => {
+		// Review finding, this pass: test/entry-html-csp.test.ts already
+		// establishes exactly this pin for the three boot panels, and it was
+		// never applied to the tuning panel's own classes -- so renaming a
+		// class on either side shipped a silently unstyled panel with every
+		// test green, and pnpm check:dist's inline-style grep would not catch
+		// it either. Collected from the BUILT DOM rather than hardcoded, so a
+		// class added later is covered without touching this test.
+		//
+		// mutation: rename .dw-tuning-panel__status in public/styles.css (or in
+		// src/host/dev/tuning-panel.ts) -> this test goes red.
+		//
+		// The selector match is anchored on a non-identifier boundary, NOT a
+		// bare toContain(): demonstrated this pass, a plain substring check
+		// passed against `.dw-tuning-panel__statusRENAMED`, which contains the
+		// very name it was supposed to be looking for. Demonstrated red by
+		// renaming `.dw-tuning-panel__heading` (a class with exactly one rule;
+		// `__status` has two, so renaming only one of them is not a mutation).
+		const css = readFileSync(path.resolve(__dirname, '..', 'public', 'styles.css'), 'utf8');
+		const hostLoop = createHostLoop(loadDoc(), () => {});
+		const replayRecorder = createReplayRecorder();
+		const panel = createTuningPanel({ hostLoop, replayRecorder });
+
+		const classNames = new Set(
+			[...walk(panel.element as unknown as FakeElement)].map((el) => el.className).filter((c) => c.length > 0),
+		);
+		expect(classNames.size, 'sanity: the panel must genuinely put classes on its elements, or this check is vacuous').toBeGreaterThan(4);
+		for (const className of classNames) {
+			const selector = new RegExp(`\\.${className.replace(/[^\w-]/g, '\\$&')}(?![\\w-])`);
+			expect(
+				selector.test(css),
+				`.${className} is used by src/host/dev/tuning-panel.ts but has no rule in public/styles.css`,
+			).toBe(true);
+		}
+	});
+
+	it('a finite but UNRESOLVABLE ...Ms edit is rejected without wedging the panel and without destroying an in-progress recording', () => {
+		// Review finding, this pass. resolveTuning() -> msToTicks() (DW-35)
+		// THROWS on a negative ...Ms duration and on a strictly positive one
+		// that rounds to 0 ticks at the live tick rate. The panel enumerates
+		// every ...Ms leaf, and -1 is ordinary typing in a plain number input,
+		// so this is a routine edit rather than an exotic one. Before the fix
+		// the throw escaped the change listener uncaught, having ALREADY
+		// invalidated a live recording and ALREADY stored the bad value in
+		// `overrides` -- so every later edit to ANY row re-applied it and threw
+		// again, wedging the panel until a page reload (there is no close/reset
+		// affordance; DW-95).
+		//
+		// mutation: remove the try/catch in createTuningPanel()'s hotApply()
+		// -> this test goes red (the change listener throws).
+		let resetCalls = 0;
+		const realHostLoop = createHostLoop(loadDoc(), () => {});
+		const hostLoop: typeof realHostLoop = {
+			...realHostLoop,
+			reset: (options) => {
+				resetCalls += 1;
+				realHostLoop.reset(options);
+			},
+		};
+		const replayRecorder = createReplayRecorder();
+		replayRecorder.start(
+			{ seed: 0, tuning: resolveTuning(), adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 3, ballsPerGame: 3, matchProbability: 0 }, highscores: [] },
+			1,
+			loadDoc(),
+			0,
+		);
+		const panel = createTuningPanel({ hostLoop, replayRecorder });
+		const elements = [...walk(panel.element as unknown as FakeElement)];
+		const msInput = elements.find((el) => el.tagName === 'input' && el.dataset.path === 'slamNudgeWindowMs')!;
+		expect(msInput, 'sanity: slamNudgeWindowMs is a real ...Ms leaf the panel enumerates').toBeDefined();
+		const shippedValue = msInput.value;
+
+		expect(() => {
+			msInput.value = '-1';
+			fireEvent(msInput, 'change');
+		}, 'a rejected edit must not throw out of the change listener').not.toThrow();
+
+		expect(resetCalls, 'an unresolvable edit must never reach hostLoop.reset()').toBe(0);
+		expect(msInput.value, 'the input must revert to the last known-good value').toBe(shippedValue);
+		expect(panel.overrides.has('slamNudgeWindowMs'), 'the rejected value must not be retained in overrides').toBe(false);
+
+		const statusEl = elements.find((el) => el.className === 'dw-tuning-panel__status')!;
+		expect(statusEl.textContent, 'the reason must be surfaced, not swallowed').toContain('slamNudgeWindowMs');
+
+		// An edit that never applied is not a hot-apply, so AD-15's
+		// invalidation must not have fired.
+		expect(replayRecorder.isRecording).toBe(true);
+		const saveResult = replayRecorder.save();
+		expect(saveResult.ok, 'a REJECTED edit must not invalidate an in-progress recording').toBe(true);
+
+		// And the panel is still usable: a subsequent VALID edit on another row
+		// still hot-applies (before the fix the poisoned override made every
+		// later edit throw too).
+		const pitchInput = elements.find((el) => el.tagName === 'input' && el.dataset.path === 'defaultPitchDeg')!;
+		pitchInput.value = '7.25';
+		fireEvent(pitchInput, 'change');
+		expect(resetCalls, 'a later valid edit must still hot-apply -- the panel must not be wedged').toBe(1);
 	});
 });

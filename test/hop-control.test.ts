@@ -203,6 +203,32 @@ describe('src/sim/physics/hop.ts -- AC 2, the paired hopControl=0-vs-default str
 		expect(ball.hit.vel.z).toBe(0);
 	});
 
+	it('a NEGATIVE hopControl is the same unconditional no-op -- the `hopControl <= 0` short-circuit, not arithmetic, is what makes it one', () => {
+		// Review finding, this pass (Rule 19). The test above asserts
+		// `vel.z === 0` after a run at hopControl = 0, which stays GREEN with
+		// the `hopControl <= 0 ||` short-circuit deleted: without the guard the
+		// loop simply computes `vel.z += 0 * excess`, which is still 0. So it
+		// did not test the guard its own title names ("applyPostStep never even
+		// reads a sample's velocity"). A NEGATIVE hopControl distinguishes them:
+		// with the guard it is an exact no-op, and without it the same input
+		// SUBTRACTS `|hopControl| * excess` from vel.z. Negative is reachable --
+		// the dev tuning panel enumerates hopControl as an ordinary editable
+		// numeric row.
+		//
+		// mutation: delete the `hopControl <= 0 ||` term from hop.ts's
+		// applyPostStep() short-circuit -> this test goes red (vel.z goes
+		// strongly negative), while the hopControl = 0 test above stays green.
+		const hopMechanics = createHopMechanics({ tuning: withHopControl(-1) });
+		const posPhysics = toPhysics({ x: 210, y: 85, z: RADIUS_VU * 0.53975 });
+		const data = new BallData(RADIUS_VU, 1, 1);
+		const state = new BallState('NegativeProbe', new Vertex3D(posPhysics.x, posPhysics.y, posPhysics.z));
+		const ball = new Ball(0, data, state, new Vertex3D(0, 0, 0), TABLE_DATA);
+		ball.hit.vel.z = 0;
+		const beforeVel = { x: 0, y: 0, z: -500 };
+		hopMechanics.applyPostStep(1, [{ ball, beforeVel }], { l: 500, r: 0 });
+		expect(ball.hit.vel.z, 'a negative hopControl must be short-circuited, never applied as a downward impulse').toBe(0);
+	});
+
 	it('HOP_COOLDOWN_TICKS (200): a SECOND qualifying strike on the SAME ball within the cooldown window does NOT re-hop, but a strike after the cooldown expires does', () => {
 		// Review finding, this pass: runStressReplayOfHardFlipperHits() places a
 		// FRESH Ball for each of its three hits (removing the previous one

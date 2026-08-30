@@ -50,7 +50,9 @@ const MACHINE_TS_PATH = path.resolve(REPO_ROOT, 'src', 'sim', 'physics', 'machin
  * - `hopMechanics` (Story 1.9, AC 2) likewise runs its own
  *   `applyPostStep()` AFTER `physics.step()` -- it is a collision-RESPONSE
  *   modifier over what the step already produced (the ball's own
- *   post-step velocity change while a flipper coil is energised), never a
+ *   post-step velocity change while a flipper bat is ACTIVELY ROTATING --
+ *   its own measured angular velocity, deliberately not the raw coil-held
+ *   boolean; see the hopControl entry in src/sim/table/tuning.ts), never a
  *   mover-commanding participant read from `frame` before the step runs.
  * Both are deliberately excluded from PRE_STEP_HARDWARE_RULES rather than
  * silently unlisted.

@@ -142,6 +142,19 @@ html, body {
 	margin: 0 0 0.5rem 0;
 }
 
+/* Surfaces a REJECTED tuning edit's reason (src/host/dev/tuning-panel.ts's
+   hotApply()). Empty most of the time, so it must not reserve vertical space
+   when it has nothing to say. */
+.dw-tuning-panel__status {
+	color: var(--dw-accent);
+	font-size: 0.75rem;
+	margin: 0;
+}
+
+.dw-tuning-panel__status:empty {
+	display: none;
+}
+
 .dw-tuning-panel__list {
 	display: flex;
 	flex-direction: column;

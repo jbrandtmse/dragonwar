@@ -56,6 +56,22 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 		expect(normalized).toMatch(ISO_DATE);
 	});
 
+	it('the cradling entry carries its OWN measured numbers, not merely "some number followed by mm"', () => {
+		// Review finding, this pass: flipper snap pins 90.0416/104.3998 and
+		// rejection/rebound pins 0.7584/0.6886, but cradling was pinned only by
+		// /\d+(\.\d+)?\s*mm/ -- so 27.5 mm and ~4292 mm could drift out of
+		// truth silently while this file stayed green.
+		//
+		// mutation: change the cradling drift figure in docs/feel-test.md ->
+		// this test goes red.
+		const section = raw.slice(raw.indexOf('### Cradling'), raw.indexOf('### Flipper snap'));
+		expect(section.length, 'the cradling section must exist and be non-empty').toBeGreaterThan(0);
+		const n = normalize(section);
+		expect(n, 'the first-second drift figure (mm)').toMatch(/27\.5/);
+		expect(n, 'the 5 s departure figure (mm)').toMatch(/4292/);
+		expect(n.toLowerCase(), 'cradling is bounded by DW-72, which the entry must name').toContain('dw-72');
+	});
+
 	it('the cradling entry carries a measured build-side number (drift in mm)', () => {
 		const section = raw.slice(raw.indexOf('### Cradling'), raw.indexOf('### Flipper snap'));
 		expect(section.length, 'the cradling section must exist and be non-empty').toBeGreaterThan(0);
@@ -118,6 +134,52 @@ describe('docs/feel-test.md -- both renderer paths are named (AC 5)', () => {
 
 	it('names the default (unforced) path', () => {
 		expect(normalized.toLowerCase()).toMatch(/default path/);
+	});
+
+	it('does not claim the browser dual-path run has been PERFORMED -- only that it is defined and pending', () => {
+		// Review finding, this pass: the document simultaneously claimed to
+		// deliver "the both-renderer-paths run of the build side" and carried a
+		// "build-side PASS" verdict, while the same file stated "Both named
+		// here, per AC 5; neither yet run". AC 5's browser leg is Rule 7's
+		// allocation to the lead and had not been performed, so two of those
+		// three statements were wrong. Nothing in CI caught the contradiction.
+		//
+		// mutation: restore the verdict line to "build-side PASS -- reference-
+		// machine comparison pending author" -> this test goes red.
+		const rawDoc = readFileSync(DOC_PATH, 'utf8');
+		const verdictLine = rawDoc.split('\n').find((l) => l.trim().toLowerCase().startsWith('## verdict'));
+		expect(verdictLine, 'the doc must carry a ## Verdict line (spike-3 house format)').toBeDefined();
+		expect(
+			verdictLine!.toLowerCase(),
+			'the verdict must not read as an unqualified build-side PASS while the browser dual-path run is still outstanding',
+		).toMatch(/pending/);
+		expect(
+			normalize(rawDoc).toLowerCase(),
+			'the doc must state plainly that the two renderer-path runs have not been performed',
+		).toContain('neither yet run');
+	});
+});
+
+describe('docs/feel-test.md -- the house format from docs/spikes/spike-3.md', () => {
+	// Review finding, this pass: the spec's Code Map names the format this
+	// document must match, "environment table naming machine/OS/browser
+	// verbatim" included. It had no environment section at all, and nothing
+	// asserted one.
+	//
+	// mutation: delete the ## Environment section from docs/feel-test.md ->
+	// this test goes red.
+	const raw = readFileSync(DOC_PATH, 'utf8');
+
+	it('carries an Environment section naming the machine, the OS and the browser leg', () => {
+		expect(raw, 'spike-3 house format: an ## Environment section').toMatch(/^##\s+Environment\s*$/m);
+		const start = raw.search(/^##\s+Environment\s*$/m);
+		const rest = raw.slice(start + 1);
+		const nextHeading = rest.search(/\n##\s/);
+		const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+		expect(section.length, 'sanity: the Environment section must be non-empty, or the assertions below are vacuous').toBeGreaterThan(40);
+		expect(section.toLowerCase(), 'the environment must name the measuring machine').toContain('machine:');
+		expect(section, 'the environment must name the OS verbatim, as spike-3 does').toContain('Windows 11');
+		expect(section.toLowerCase(), 'the environment must state the browser leg (named, or explicitly not yet exercised)').toContain('browser:');
 	});
 });
 

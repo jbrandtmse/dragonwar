@@ -72,10 +72,15 @@ declare global {
 			 * `window.__dragonwarBoot.replayRecorder.save()` -- or `.play()` to
 			 * replay the last saved recording back through the SAME host loop
 			 * and log whether it reproduced its own hash (DW-86's own claim).
-			 * `start()` throws `NonZeroStartTickError` unless the loop is
-			 * genuinely at tick 0 -- call `pulseCoil`/`setCoilEnabled`'s sibling
-			 * `hostLoop`-level `reset()` (via `openTuningPanel()`'s panel, or a
-			 * fresh page load) first.
+			 * `ReplayRecorder.start()` throws `NonZeroStartTickError` unless the
+			 * loop is genuinely at tick 0, and the loop has been running since
+			 * boot -- so this facade RESETS the host loop first and starts the
+			 * recording on the fresh sim. Review finding, this pass: before that
+			 * fix this hatch passed the live `latestSnapshot.tick`, which is
+			 * past 0 within one frame of boot, so every console `start()` threw
+			 * and DW-86's own record/save/play workflow was unreachable in a
+			 * real browser (there was no reset affordance either -- the panel
+			 * has no Record control, and `reset` was not exposed here).
 			 */
 			replayRecorder: {
 				start: (physicsSeed: number) => void;
@@ -92,6 +97,13 @@ declare global {
 			 * `window.__dragonwarBoot.openTuningPanel()`.
 			 */
 			openTuningPanel: () => void;
+			/**
+			 * Story 1.9: `src/host/loop.ts`'s rebuild seam, exposed so the
+			 * console can put the loop back at tick 0 (what `replayRecorder`'s
+			 * own `start()` needs, and what the tuning panel's hot-apply does
+			 * as a side effect). Dev-only/console-only, same terms as above.
+			 */
+			reset: () => void;
 		};
 	}
 }
@@ -185,6 +197,9 @@ async function onBegin(): Promise<void> {
 		// it (a no-op when nothing is playing, the same "dev-only tap, always
 		// wired, mostly inert" pattern the recorder's onAdvance tap already
 		// establishes).
+		// deps.replayRecorder: starting playback mid-recording must invalidate
+		// that recording (review finding, this pass -- DW-93 gap 3). See
+		// src/host/dev/replay-player.ts's start().
 		const replayPlayer = createReplayPlayer((result) => {
 			// eslint-disable-next-line no-console
 			console.info(`[dragonwar] replay playback complete: finalHash=${result.finalHash} finalGameStateHash=${result.finalGameStateHash}`);
@@ -251,6 +266,14 @@ async function onBegin(): Promise<void> {
 					// script in this repository: the five goldens were recorded
 					// once, and re-recording is a deliberate act, never a routine
 					// one).
+					// The loop has been running since boot, so its tick is past 0
+					// and ReplayRecorder.start()'s NonZeroStartTickError guard
+					// would reject every console call. Reset FIRST -- the error's
+					// own message says to ("Reset the loop first (hostLoop.reset()),
+					// then start()") and the Design Notes say the same ("the
+					// panel's Record resets first"). The fresh loop really is at
+					// tick 0, so 0 is what is passed, not a stale snapshot tick.
+					hostLoopRef.reset();
 					replayRecorder.start(
 						{
 							seed: 0,
@@ -260,7 +283,7 @@ async function onBegin(): Promise<void> {
 						},
 						physicsSeed,
 						collisionDoc,
-						latestSnapshot?.tick ?? 0,
+						0,
 					);
 				},
 				invalidate: (reason: string) => replayRecorder.invalidate(reason),
@@ -283,6 +306,9 @@ async function onBegin(): Promise<void> {
 				get isRecording(): boolean {
 					return replayRecorder.isRecording;
 				},
+			},
+			reset: () => {
+				hostLoopRef.reset();
 			},
 			openTuningPanel: () => {
 				if (tuningPanel) {

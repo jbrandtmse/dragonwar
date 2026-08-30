@@ -229,10 +229,16 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 
 		physics.step();
 
-		// AC 2: runs immediately after physics.step(), before any switch/entry
-		// test reads the now-hopped position -- a hop this tick is fully
-		// reflected in everything downstream (switch zones, device entry,
-		// the snapshot) exactly like a physics-native movement would be.
+		// AC 2: runs immediately after physics.step() and before this tick's
+		// switch/entry tests. Precisely what that buys (review finding, this
+		// pass -- the previous wording overclaimed it): applyPostStep() mutates
+		// ball.hit.vel.z ONLY. This tick's POSITIONS were already integrated by
+		// physics.step() above, so the switch zones, the device-entry tests and
+		// the published snapshot all still see the pre-hop position; a hop's
+		// positional effect first appears on the NEXT tick's integration. What
+		// the placement does guarantee is that the hop is inside the hashed
+		// physics step -- never a presentation-side effect -- so every replay
+		// and golden captures it.
 		const hopSamples: HopBallVelocitySample[] = [];
 		for (const ball of physics.balls) {
 			const sampledBeforeVel = beforeVel.get(ball);

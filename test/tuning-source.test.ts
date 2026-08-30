@@ -6,17 +6,44 @@
 // from the file on disk only at that value's line -- group order, JSDoc
 // blocks, tab indentation, quote style and satisfies clauses all preserved."
 //
-// Falsifiability (spec): mutation: emit entry(value, source) WITHOUT the
-// confidence argument -> the byte-identity assertion goes red (this file's
-// own "no edits" case reads the real file's THIRD entry() argument through
-// unchanged, so dropping it anywhere would already differ from the real
-// tuning.ts -- demonstrated directly below by asserting confidence survives
-// on a representative entry).
+// Falsifiability. Review finding, this pass -- the spec previously recorded
+// "mutation: emit entry(value, source) WITHOUT the confidence argument ->
+// the byte-identity assertion goes red" as this AC's demonstrated pin. That
+// mutation names code that DOES NOT EXIST. What shipped is not an emitter: it
+// is a template pass-through plus a line patcher. serialiseTuning([]) returns
+// the `?raw` import of src/sim/table/tuning.ts VERBATIM (an early return that
+// never touches applyOverride/replaceEntryValue/GROUP_OPEN/GROUP_CLOSE/
+// ENTRY_OPEN at all), so the first case below compares that file's text to
+// the same file's text read through fs -- it cannot fail for any FORMATTING
+// regression, because nothing formats anything. There is no entry() emitter
+// to drop an argument from.
+//
+// That matters beyond the assertion itself: deferred-work.md's DW-94 defers
+// the parser's GROUP_CLOSE depth bug as "currently unreachable because
+// test/tuning-source.test.ts's byte-identity assertion ... already covers
+// every line shape that file actually contains". It covers none of them.
+//
+// The real, applicable pins for AC 1's Export clauses are therefore:
+// - mutation: make serialiseTuning([]) return anything other than the raw
+//   template -> the byte-identity case goes red. (Real, but narrow: it pins
+//   the pass-through, not a format.)
+// - mutation: change replaceEntryValue() to rewrite the `key: entry(` line
+//   instead of the value line (or to slice from markerIdx instead of
+//   markerIdx + marker.length) -> the single-edit cases, and the every-row
+//   round trip at the bottom of this file, go red.
+// - mutation: pop the group stack on any tab-indented `}` regardless of depth
+//   (DW-94's own bug) -> the every-row round trip goes red for the first leaf
+//   whose path the walk then misresolves.
+// The every-row round trip is what turns "the parser handles the three paths
+// someone happened to pick" into "the parser handles every leaf the panel can
+// actually offer" -- which is the property Export needs, since the panel's
+// Export click handler has no try/catch around serialiseTuning().
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { serialiseTuning, UnknownTuningPathError } from '../src/host/dev/tuning-source';
+import { enumerateTuningRows } from '../src/host/dev/tuning-panel';
 import { TUNING } from '../src/sim/table/tuning';
 
 const TUNING_TS_PATH = path.resolve(__dirname, '..', 'src', 'sim', 'table', 'tuning.ts');
@@ -26,7 +53,7 @@ function normalise(text: string): string {
 }
 
 describe('src/host/dev/tuning-source.ts -- serialiseTuning() (AC 1, Export)', () => {
-	it('with no overrides, is byte-identical (LF-normalised) to src/sim/table/tuning.ts on disk', () => {
+	it('with no overrides, is byte-identical (LF-normalised) to src/sim/table/tuning.ts on disk -- true BY CONSTRUCTION (the template is that file\'s own ?raw text), so read it as a pass-through pin, not a format pin', () => {
 		const onDisk = normalise(readFileSync(TUNING_TS_PATH, 'utf8'));
 		const emitted = serialiseTuning([]);
 		expect(emitted).toBe(onDisk);
@@ -108,5 +135,42 @@ describe('src/host/dev/tuning-source.ts -- serialiseTuning() (AC 1, Export)', ()
 		expect(TUNING.materials.flipper_rubber.elasticityFalloff.value).toBe(0.15);
 		expect(TUNING.hopControl.value).toBeGreaterThan(0);
 		expect(TUNING.defaultPitchDeg.value).toBe(6.5);
+	});
+
+	it('EVERY leaf the panel can offer round-trips: one override per enumerated row changes exactly one line, and that line carries the new value', () => {
+		// Review finding, this pass. Before this, the parser
+		// (applyOverride/replaceEntryValue) was exercised on three hand-picked
+		// paths, and the "byte-identical" case that was supposed to stand for
+		// format fidelity never ran the parser at all (see this file's header).
+		// Every path the PANEL enumerates is a path Export can be asked to
+		// emit, and the panel's Export click handler has no try/catch -- so a
+		// leaf whose line shape the walk mishandles throws
+		// UnknownTuningPathError straight out of a DOM event handler. This
+		// closes the gap for the whole set rather than a sample of it, and it
+		// is what empirically supports DW-94's "currently unreachable" claim
+		// instead of merely asserting it.
+		const onDiskLines = normalise(readFileSync(TUNING_TS_PATH, 'utf8')).split('\n');
+		const rows = enumerateTuningRows();
+		expect(rows.length, 'sanity: the panel must genuinely enumerate leaves, or this loop is vacuous').toBeGreaterThan(20);
+
+		for (const row of rows) {
+			const dotted = row.path.join('.');
+			// A value guaranteed to differ from the shipped one under
+			// String(), including for 0 and for negative shipped values.
+			const newValue = row.value + 1.5;
+			let emitted: string;
+			expect(() => {
+				emitted = serialiseTuning([{ path: row.path, value: newValue }]);
+			}, `serialiseTuning() threw for "${dotted}" -- the panel offers this row, and Export has no try/catch`).not.toThrow();
+			const emittedLines = emitted!.split('\n');
+
+			expect(emittedLines.length, `an edit to "${dotted}" must not add or remove a line`).toBe(onDiskLines.length);
+			const differing = onDiskLines.reduce<number[]>((acc, l, i) => (l !== emittedLines[i] ? [...acc, i] : acc), []);
+			expect(differing.length, `an edit to "${dotted}" must change exactly one line, not ${differing.length}`).toBe(1);
+			expect(
+				emittedLines[differing[0]!],
+				`the changed line for "${dotted}" must carry the new value`,
+			).toContain(String(newValue));
+		}
 	});
 });

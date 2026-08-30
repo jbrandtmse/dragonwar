@@ -21,6 +21,7 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { createMachine } from '../src/sim/physics/machine';
+import { NO_FRAME } from '../src/sim/loop';
 import { loadCollision } from '../src/sim/physics/loader';
 import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
@@ -32,6 +33,7 @@ import { TABLE } from '../src/sim/table/dragonwar';
 import { toPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { applyPitch } from '../src/presentation/scene/playfield';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
+import type { CoilCommand } from '../src/sim/table/names';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
@@ -126,16 +128,87 @@ describe('src/sim/physics/machine.ts -- a steeper effective pitch produces a mea
 	it('8.5 deg produces a larger-magnitude downfield velocity than 6.0 deg after the same number of steps, from the same rest start', () => {
 		const shallow = yVelocityAfterFreefall(6.0, 200);
 		const steep = yVelocityAfterFreefall(8.5, 200);
-		expect(Number.isFinite(shallow) && Number.isFinite(steep), 'sanity: both runs must have actually moved').toBe(true);
+		// Review finding, this pass: the sanity check here used to be
+		// `Number.isFinite(shallow) && Number.isFinite(steep)`, which is true of
+		// 0 -- so it did not check "both runs actually moved" at all, and the
+		// movement floor below was applied only to `shallow`. Both are now
+		// checked for real.
+		expect(Math.abs(shallow), 'sanity: the shallow run must genuinely have moved, or "greater than" is vacuous').toBeGreaterThan(0.001);
+		expect(Math.abs(steep), 'sanity: the steep run must genuinely have moved too').toBeGreaterThan(0.001);
 		expect(Math.abs(steep), 'a steeper pitch must accelerate the ball downfield FASTER (sin(8.5deg) > sin(6.0deg))').toBeGreaterThan(Math.abs(shallow));
-		// Both must be genuinely moving (not both stuck at ~0), or "greater than" is vacuous.
-		expect(Math.abs(shallow)).toBeGreaterThan(0.001);
 	});
 
 	it('the shipped default (6.5 deg, via TUNING unmodified) produces the SAME downfield velocity as machine.ts read directly off TABLE.reference.pitchDeg (6.5) -- the source changed, not the number', () => {
 		const viaTuning = yVelocityAfterFreefall(resolveTuning().defaultPitchDeg.value, 100);
 		const viaReferenceDirect = yVelocityAfterFreefall(TABLE.reference.pitchDeg, 100);
 		expect(viaTuning).toBe(viaReferenceDirect);
+	});
+});
+
+describe('src/sim/physics/machine.ts -- the tuned pitch really reaches physics.setGravity(), observed through the REAL public Machine.step() (AC 4, gravity half)', () => {
+	// Review finding, this pass. AC 4 says "gravity AND
+	// snapshot.effectivePitchDeg both follow". The block above measures a real
+	// acceleration difference, but it builds its own loadCollision() and calls
+	// physics.setGravity(pitchDeg, ...) BY HAND -- so it is a property of
+	// PlayerPhysics.setGravity(), not of this story's derivation. Every other
+	// assertion in this file reads machine.effectivePitchDeg, which comes from
+	// machine.ts's `const effectivePitchDeg = clampToRange(...)` line and NOT
+	// from the setGravity() call on the line after it. Mutating ONLY the
+	// setGravity() argument back to TABLE.reference.pitchDeg therefore left
+	// this entire file, test/host-loop.test.ts's reset block and all five
+	// goldens green: the snapshot and the rendered playfield tilt would report
+	// the tuned angle while the ball kept falling at 6.5 deg.
+	//
+	// This block closes that. It drives a genuinely physics-registered ball
+	// through createMachine().step() itself, reusing
+	// test/hop-machine-step.test.ts's own serve-then-reposition technique (a
+	// real c_trough_eject pulse through step()'s public command channel, then
+	// the SAME ball repositioned to open playfield).
+	//
+	// mutation: change machine.ts's `physics.setGravity(effectivePitchDeg, ...)`
+	// to `physics.setGravity(TABLE.reference.pitchDeg, ...)`, leaving the
+	// effectivePitchDeg derivation itself intact -> the assertion below goes
+	// red while every other test in this file stays green (which is the point).
+	function downfieldVelocityThroughMachineStep(pitchDeg: number, steps: number): number {
+		const machine = createMachine(loadDoc(), tuningWithPitch(pitchDeg));
+		let tick = 0;
+		const step = (commands: readonly CoilCommand[] = []): void => {
+			tick += 1;
+			machine.step(tick, NO_FRAME, commands);
+		};
+
+		step([{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick: 1 }]);
+		const ball = machine.balls[0];
+		if (!ball) {
+			throw new Error('sanity: the trough eject must have spawned a ball for this test to mean anything');
+		}
+
+		// The same open-playfield rest pose the hand-wired block above uses --
+		// well clear of every device zone, so the only thing that can move the
+		// ball is gravity's slope component.
+		const radiusMm = TABLE.reference.ballMm / 2;
+		const { w, h } = TABLE.reference.playfieldMm;
+		const restPosPhysics = toPhysics({ x: w / 2, y: h / 2, z: radiusMm });
+		ball.state.pos.set(restPosPhysics.x, restPosPhysics.y, restPosPhysics.z);
+		ball.hit.vel.set(0, 0, 0);
+		ball.hit.angularVelocity.set(0, 0, 0);
+		ball.hit.angularMomentum.set(0, 0, 0);
+
+		for (let i = 0; i < steps; i++) {
+			step();
+		}
+		return ball.hit.vel.y;
+	}
+
+	it('a ball stepped through createMachine(doc, tuning@8.5) accelerates downfield measurably faster than the same ball at tuning@6.0 -- so the value setGravity() receives really is effectivePitchDeg', () => {
+		const shallow = downfieldVelocityThroughMachineStep(6.0, 200);
+		const steep = downfieldVelocityThroughMachineStep(8.5, 200);
+		expect(Math.abs(shallow), 'sanity: the shallow run must genuinely have moved').toBeGreaterThan(0.001);
+		expect(Math.abs(steep), 'sanity: the steep run must genuinely have moved').toBeGreaterThan(0.001);
+		expect(
+			Math.abs(steep),
+			'the TUNED pitch must reach physics.setGravity() -- a ball inside a createMachine()-built machine must fall faster at 8.5 deg than at 6.0 deg',
+		).toBeGreaterThan(Math.abs(shallow));
 	});
 });
 

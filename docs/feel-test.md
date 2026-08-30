@@ -9,24 +9,42 @@ cradling, flipper snap, rejection/rebound. Each item's first dated entry is
 closed as one of three verdicts — `no-material-difference`,
 `tuning-change`, or `accepted-difference` — against the physical machine.
 
-This document delivers the whole **machinable** half: the three items
+This document delivers the **machinable, headless** half: the three items
 defined below, the dated-entry format, the link-to-golden mechanism
-(demonstrated against a real, checked-in golden file), the measured
-build-side number for each item, and the both-renderer-paths run of the
-*build* side. **The comparative verdict against the Reference machine is the
-author's own leg** (frontmatter `deferred:`,
+(demonstrated against a real, checked-in golden file), and the measured
+build-side number for each item, taken from this story's own real physics
+harness in Node. Two legs remain open and are named as such throughout: the
+**both-renderer-paths browser run** of the build side (defined below, not yet
+performed -- Rule 7 places browser-tooled checks on the lead, and no
+browser-automation tool was available to the implementation pass) and **the
+comparative verdict against the Reference machine, which is the author's own
+leg** (frontmatter `deferred:`,
 `ac5-reference-machine-leg-is-author-owned`) — no agent can play a physical
 pinball machine. Until played, each item's first entry reads `pending-author`
 and `test/feel-test-docs.test.ts` asserts exactly that, so the gap is visible
 in CI rather than silent.
 
-## Verdict: **build-side PASS — reference-machine comparison pending author**
+## Verdict: **headless build-side PASS — browser dual-path run and reference-machine comparison both pending author**
 
 | Item | Measured build-side number | Golden | First entry |
 |---|---|---|---|
 | Cradling | Ball-on-bat drift ≤ 35 mm through the first simulated second (measured 27.5 mm); measurably departed by 5 s (measured ~4292 mm) — DW-72's 1 s bound, owed to Story 2.1 for the real 5 s pocket | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
 | Flipper snap | 30 ms tap: release 104.3998°, true peak 90.0416° — a margin of 0.0416° short of the 90° stop (DW-80, closed) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
 | Rejection/rebound | Rebound-to-impact ratio at 1000/3000/5000 mm/s: 0.7584 / 0.7150 / 0.6886 (strictly decreasing, default `elasticityFalloff` 0.15); flat control at `elasticityFalloff` 0: 0.7819 / 0.7777 / 0.7776. Hop: `hopControl` 0 → max ball height 13.53 mm (no hop); default 0.35 → 25.41 mm, an 11.88 mm margin, nothing above the glass (400 mm) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+
+## Environment
+
+- Machine: `NOMAD`, Windows 11 Pro 10.0.26200, Intel Core i5-8259U @ 2.30GHz
+  — the same host `docs/spikes/spike-1.md` and `docs/spikes/spike-3.md` were
+  measured on.
+- Browser: not yet exercised. The headless numbers below come from Node
+  (Vitest) through this story's own `sim/loop`/`sim/physics` harness, which
+  is the authoritative leg for a physics claim (AD-15). The browser leg
+  (`?renderer=webgl2` and the default path) is recorded as `pending-author`
+  under "Both renderer paths" below, and its own machine/OS/browser row
+  belongs with that dated entry when it is run.
+- Date: 2026-08-29 (UTC).
+- Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic1`.
 
 ## Items
 
@@ -66,7 +84,8 @@ and a ball placed against its face (`test/flipper-collision.test.ts`'s own
 "(b)" case), drift stays ≤ 35 mm (measured 27.5 mm) through the first
 simulated second, then measurably exceeds 500 mm (measured ~4292 mm) by 5 s
 — the ball departs because this epic's placeholder table has no pocket
-geometry, not because of a defect in the ported flipper (the bat is provably
+geometry (the 1 s bound is DW-72's, owed to Story 2.1 for the real 5 s
+pocket), not because of a defect in the ported flipper (the bat is provably
 static while held: `test/flipper-collision.test.ts`'s own "(a)" case,
 unmoving within 0.01° for the full 5 s hold). Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json)

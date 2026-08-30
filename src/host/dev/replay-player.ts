@@ -75,14 +75,46 @@ export interface ReplayPlayer {
 	readonly isPlaying: boolean;
 }
 
-/** Builds a replay player. `onComplete` is called exactly once per `start()` call, when `durationTicks` is reached. */
-export function createReplayPlayer(onComplete: (result: ReplayPlayResult) => void): ReplayPlayer {
+/**
+ * The only two members of `ReplayRecorder` this file needs, narrowed exactly
+ * the way `src/host/dev/tuning-panel.ts` narrows the same dependency for the
+ * same reason -- so the player cannot reach into the rest of the recorder's
+ * surface.
+ */
+export interface ReplayPlayerDeps {
+	readonly replayRecorder?: { invalidate(reason: string): void; readonly isRecording: boolean };
+}
+
+/**
+ * Builds a replay player. `onComplete` is called exactly once per `start()`
+ * call, when `durationTicks` is reached.
+ *
+ * `deps.replayRecorder` is optional only so a test can construct a player in
+ * isolation; `src/host/boot.ts` always passes the real recorder. See
+ * `start()` for what it is for.
+ */
+export function createReplayPlayer(onComplete: (result: ReplayPlayResult) => void, deps: ReplayPlayerDeps = {}): ReplayPlayer {
 	let coilQueue: CoilPrologueEntry[] = [];
 	let durationTicks = 0;
 	let activeHostLoop: HostLoop | undefined;
 	let playing = false;
 
 	function start(hostLoop: HostLoop, recording: PlayableRecording): void {
+		// Review finding, this pass (DW-93 gap 3 -- the ledger's own note calls
+		// it "a correctness hole inside DW-86's own deliverable ... expected
+		// fix-now at code review"). Starting playback calls hostLoop.reset()
+		// below, rebuilding the sim out from under any recording in progress,
+		// and then feeds it REPLAYED transitions through the same onAdvance tap
+		// the recorder is listening on. Without this, that recording stayed
+		// saveable -- save() returned { ok: true } for a "golden" whose input
+		// was replayed rather than player-driven. Same contract, and the same
+		// ordering, as the tuning panel's hot-apply (AD-15: the thing that
+		// invalidates a recording does so BEFORE it rebuilds the sim).
+		if (deps.replayRecorder?.isRecording) {
+			deps.replayRecorder.invalidate(
+				'replay playback started while a recording was in progress -- the recording would otherwise contain REPLAYED input, not player-driven input',
+			);
+		}
 		activeHostLoop = hostLoop;
 		durationTicks = recording.durationTicks;
 		coilQueue = [...recording.coilPrologue].sort((a, b) => a.tick - b.tick);

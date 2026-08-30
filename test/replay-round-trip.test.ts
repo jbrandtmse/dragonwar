@@ -17,10 +17,21 @@
 // advancing many ticks per frame can fire a pulse late) -- this test
 // exercises the case the mechanism is actually built for.
 //
-// Falsifiability (spec): mutation: remove the start-tick rebasing from
-// save() -> the hash-equality assertion goes red. Second, independent:
-// mutation: remove the non-zero-tick guard from start() and begin recording
-// mid-session -> the same assertion goes red.
+// Falsifiability. Review finding, this pass: the spec previously recorded
+// "mutation: remove the start-tick rebasing from save() -> the hash-equality
+// assertion goes red" as a demonstrated pin. It CANNOT go red.
+// ReplayRecorder.start() throws NonZeroStartTickError unless startTick is 0,
+// and capturedStartTick is assigned only from that argument -- so
+// rebaseTick(t, 0) is the identity on every legal path (replay-recorder.ts's
+// own doc comment concedes as much), and deleting the rebasing changes no
+// output at all. The real, demonstrated pins for DW-86 are:
+// - mutation: remove the non-zero-tick guard from start() and begin recording
+//   mid-session -> the hash-equality assertion goes red (its own test below).
+// - mutation: break save()'s coilPrologue or durationTicks -> the runReplay()
+//   assertion below goes red, because runReplay() validates every transition
+//   and prologue tick against [1, durationTicks] before hashing.
+// The rebasing stays as a pure, independently-meaningful step (it is what
+// makes the guard's contract expressible), but it is not evidence.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -28,7 +39,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHostLoop } from '../src/host/loop';
 import { createReplayRecorder, NonZeroStartTickError } from '../src/host/dev/replay-recorder';
 import { createReplayPlayer } from '../src/host/dev/replay-player';
-import { stateHash, gameStateHash } from '../src/sim/loop/replay';
+import { stateHash, gameStateHash, runReplay } from '../src/sim/loop/replay';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { GameStart, Snapshot } from '../src/sim/table/names';
@@ -79,7 +90,20 @@ function installRaf(): RafQueue {
 	};
 }
 
-function installKeyboardTarget(): void {
+/**
+ * Review finding, this pass: this file previously carried a STRIPPED copy of
+ * test/host-loop.test.ts's harness whose `listeners` map was written and
+ * never read -- so it could not dispatch a key event, and the recording this
+ * file saved contained a coil pulse and ZERO input transitions. DW-86's AC
+ * says "transitions + coil pulses captured", and HostLoop.injectTransitions()
+ * plus the whole transition-rebasing path were therefore never exercised
+ * end to end by the proof. Restored to the dispatch-capable form.
+ */
+interface KeyboardTargetStub {
+	dispatch(type: 'keydown' | 'keyup' | 'blur', event: { readonly code?: string; readonly timeStamp: number; preventDefault?: () => void }): void;
+}
+
+function installKeyboardTarget(): KeyboardTargetStub {
 	const listeners = new Map<string, Set<(event: unknown) => void>>();
 	(globalThis as unknown as { addEventListener: unknown }).addEventListener = (type: string, listener: (event: unknown) => void): void => {
 		if (!listeners.has(type)) {
@@ -88,10 +112,18 @@ function installKeyboardTarget(): void {
 		listeners.get(type)!.add(listener);
 	};
 	(globalThis as unknown as { removeEventListener: unknown }).removeEventListener = (): void => {};
+	return {
+		dispatch(type, event): void {
+			for (const listener of listeners.get(type) ?? []) {
+				listener(event);
+			}
+		},
+	};
 }
 
 describe('DW-86: record through the real createHostLoop, save, play back, identical stateHash', () => {
 	let raf: RafQueue;
+	let keyboardTarget: KeyboardTargetStub;
 	let originalRaf: unknown;
 	let originalCancel: unknown;
 	let originalAddEventListener: unknown;
@@ -104,7 +136,7 @@ describe('DW-86: record through the real createHostLoop, save, play back, identi
 		originalAddEventListener = g.addEventListener;
 		originalRemoveEventListener = g.removeEventListener;
 		raf = installRaf();
-		installKeyboardTarget();
+		keyboardTarget = installKeyboardTarget();
 	});
 
 	afterEach(() => {
@@ -148,8 +180,16 @@ describe('DW-86: record through the real createHostLoop, save, play back, identi
 		host.pulseCoil('c_trough_eject');
 		recorder.recordCoilPulse('c_trough_eject', ejectTick);
 
-		// One tick per frame throughout -- see this file's header.
+		// One tick per frame throughout -- see this file's header. A real
+		// flipper press/release is dispatched mid-run so the recording carries
+		// genuine INPUT TRANSITIONS as well as a coil pulse (the AC says both).
 		for (let ms = 1; ms <= 300; ms++) {
+			if (ms === 120) {
+				keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: 119.5, preventDefault: () => {} });
+			}
+			if (ms === 180) {
+				keyboardTarget.dispatch('keyup', { code: 'ShiftLeft', timeStamp: 179.5, preventDefault: () => {} });
+			}
 			raf.fire(ms);
 		}
 		expect(latestSnapshot!.balls.length, 'sanity: the served ball must actually be in play').toBeGreaterThan(0);
@@ -159,6 +199,10 @@ describe('DW-86: record through the real createHostLoop, save, play back, identi
 		if (!saved.ok) throw new Error('unreachable');
 		expect(saved.coilPrologue).toEqual([{ tick: ejectTick, coil: 'c_trough_eject' }]);
 		expect(saved.durationTicks, 'durationTicks must be the last tick actually observed').toBe(latestSnapshot!.tick);
+		expect(
+			saved.replay.transitions.length,
+			'the recording must carry genuine INPUT transitions, not only a coil pulse -- otherwise injectTransitions() and the whole transition path are unexercised by this proof',
+		).toBeGreaterThan(0);
 
 		// The LIVE session's own final hash -- the target the played-back
 		// recording must reproduce.
@@ -185,6 +229,26 @@ describe('DW-86: record through the real createHostLoop, save, play back, identi
 		expect(playResult, 'playback must have completed and reported a result').toBeDefined();
 		expect(playResult!.finalHash, 'the played-back recording must reproduce the IDENTICAL stateHash the live session produced').toBe(expectedHash);
 		expect(playResult!.finalGameStateHash).toBe(expectedGameStateHash);
+
+		// Review finding, this pass. The AC names runReplay() as the verifier
+		// ("when it is saved and replayed, then runReplay() reproduces the live
+		// loop's stateHash at the same tick"), and nothing in the repo ever fed
+		// a save() result to it -- every runReplay() call site takes a
+		// checked-in *.golden.json parsed from disk. Playback above is verified
+		// only against src/host/dev/replay-player.ts, a SECOND implementation of
+		// the same pipeline, so a saved recording could be unpromotable to a
+		// golden (out-of-range transition ticks, an off-by-one durationTicks)
+		// with every gate green. runReplay() validates every transition and
+		// prologue tick against [1, durationTicks] and runs its own fresh loop,
+		// so this is the promotability claim actually being asserted.
+		const viaRunReplay = runReplay({
+			replay: saved.replay,
+			collisionDoc: loadDoc(),
+			durationTicks: saved.durationTicks,
+			coilPrologue: saved.coilPrologue,
+		});
+		expect(viaRunReplay.finalHash, 'runReplay() on the SAVED recording must reproduce the live session\'s own stateHash -- the AC\'s literal claim, and what makes a recording promotable to a golden').toBe(expectedHash);
+		expect(viaRunReplay.finalGameStateHash).toBe(expectedGameStateHash);
 	});
 
 	it('start() throws NonZeroStartTickError when the loop\'s tick is not 0 -- a mid-session recording would be silently unreproducible otherwise', () => {

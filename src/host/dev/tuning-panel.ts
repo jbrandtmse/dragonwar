@@ -130,15 +130,54 @@ export function createTuningPanel(deps: TuningPanelDeps): TuningPanel {
 	heading.textContent = 'Dev tuning panel';
 	root.appendChild(heading);
 
+	// Surfaces a REJECTED edit's reason (see hotApply()). Empty whenever the
+	// last edit applied cleanly, so a stale message never outlives its cause.
+	const statusEl = document.createElement('p');
+	statusEl.className = 'dw-tuning-panel__status';
+	statusEl.setAttribute('role', 'status');
+	statusEl.textContent = '';
+	root.appendChild(statusEl);
+
 	const list = document.createElement('div');
 	list.className = 'dw-tuning-panel__list';
 	root.appendChild(list);
 
-	function hotApply(): void {
+	/**
+	 * Builds the overridden tuning FIRST and only then -- once that has
+	 * succeeded -- invalidates any in-progress recording and rebuilds the
+	 * sim. Returns the rejection reason, or `undefined` on success.
+	 *
+	 * Review finding, this pass: `resolveTuning()` legitimately THROWS for a
+	 * value the numeric input itself cannot reject. `msToTicks()`
+	 * (`sim/table/tuning.ts`, DW-35) throws on a negative `...Ms` duration and
+	 * on a strictly positive one that rounds to 0 ticks at the live tick
+	 * rate. This panel enumerates every `...Ms` leaf (`slamNudgeWindowMs`,
+	 * `tiltWarningSpacingMs`, `tiltSettleMs`, `plungerMinHoldMs`,
+	 * `plungerMaxHoldMs`, `nudgeImpulseMs`, `switchSettleMsByClass.*`), and
+	 * `-1` or `0.4` is ordinary typing in a plain number input -- so this is
+	 * a routine edit, not an exotic one. Before this fix the throw escaped
+	 * the `change` listener uncaught having ALREADY invalidated a live
+	 * recording and ALREADY stored the offending value in `overrides`, so
+	 * every subsequent edit to ANY row re-applied it and threw again --
+	 * wedging the panel until a page reload (there is no close/reset
+	 * affordance; DW-95).
+	 *
+	 * The ordering still honours AD-15 ("a hot-apply during a recording
+	 * invalidates it"): an edit that never applied is not a hot-apply, so it
+	 * must not destroy a recording either.
+	 */
+	function hotApply(): string | undefined {
+		let resolved: ResolvedTuning;
+		try {
+			resolved = buildOverriddenTuning(overrides);
+		} catch (err) {
+			return err instanceof Error ? err.message : String(err);
+		}
 		if (deps.replayRecorder.isRecording) {
 			deps.replayRecorder.invalidate(`dev tuning panel: hot-apply (${overrides.size} pending edit${overrides.size === 1 ? '' : 's'})`);
 		}
-		deps.hostLoop.reset({ tuning: buildOverriddenTuning(overrides) });
+		deps.hostLoop.reset({ tuning: resolved });
+		return undefined;
 	}
 
 	for (const row of rows) {
@@ -162,6 +201,7 @@ export function createTuningPanel(deps: TuningPanelDeps): TuningPanel {
 
 		const metaEl = document.createElement('span');
 		metaEl.className = 'dw-tuning-panel__meta';
+		// Rule 14: the em dash is authored as an escape, never a literal byte.
 		metaEl.textContent = `${row.confidence} — ${row.source}`;
 		rowEl.appendChild(metaEl);
 
@@ -176,6 +216,7 @@ export function createTuningPanel(deps: TuningPanelDeps): TuningPanel {
 			// ever calling Number() on it.
 			if (input.value.trim() === '') {
 				input.value = String(overrides.get(pathKey) ?? row.value);
+				statusEl.textContent = pathKey + ': a blank field is not a value -- reverted.';
 				return;
 			}
 			const parsed = Number(input.value);
@@ -183,10 +224,28 @@ export function createTuningPanel(deps: TuningPanelDeps): TuningPanel {
 				// I/O matrix: "Non-finite / non-numeric edit is rejected at the
 				// input, sim untouched" -- revert the field, touch nothing else.
 				input.value = String(overrides.get(pathKey) ?? row.value);
+				statusEl.textContent = pathKey + ': not a finite number -- reverted.';
 				return;
 			}
+			const previous = overrides.get(pathKey);
 			overrides.set(pathKey, parsed);
-			hotApply();
+			const rejection = hotApply();
+			if (rejection !== undefined) {
+				// See hotApply(): the value is finite but not RESOLVABLE (a
+				// negative or sub-half-tick `...Ms` duration). Restore the
+				// previous state exactly -- nothing was invalidated, nothing was
+				// rebuilt, and the panel stays usable -- and surface the reason
+				// rather than letting it escape as an uncaught throw.
+				if (previous === undefined) {
+					overrides.delete(pathKey);
+				} else {
+					overrides.set(pathKey, previous);
+				}
+				input.value = String(previous ?? row.value);
+				statusEl.textContent = rejection;
+				return;
+			}
+			statusEl.textContent = '';
 		});
 
 		list.appendChild(rowEl);
