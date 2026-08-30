@@ -790,6 +790,48 @@ A stranger can play a full 1–4 player game with no instructions: the real geom
 
 **FRs covered:** FR-2, FR-3, FR-11, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-31, FR-32, FR-44 · **NFRs:** NFR-5, NFR-8 · **ARs:** AR-14, AR-15, AR-18, AR-19, AR-22, AR-23, AR-28, AR-37
 
+### Story 2.0: Epic 1 Deferred Cleanup
+
+As the author,
+I want the provenance gate that ten Epic 1 stories edited and nobody owned to be named for what it actually asserts, given a documented owner, and recorded in AD-16 alongside the two gates it complements rather than duplicates,
+So that the licence-header story a fresh contributor reads is true, no gate can be retired as a redundant copy of another, and the cross-story accretion Epic 1's retrospective measured cannot recur.
+
+**Context.** Epic 1's retrospective (Finding 2) measured `test/sim-boundary.test.ts` as modified by **10 of 10** stories, the only file with that distinction, while carrying the epic's licensing gate. The first proposed remedy — make `pnpm check:headers` the single authority and strip the test — rested on a false premise: the two are not duplicates. `tools/check-licence-headers.mjs` is an OR of three substring **presence** checks and its own comment defers structural checking to the test file; the test file holds the **structural** assertions and contains no import-direction assertions at all (those moved to `tools/boundary-lint.mjs` in Story 1.3). Deleting the upstream VPDB copyright block from a ported file while keeping its one-line port marker leaves `check:headers` green and turns the structural gate red. AD-16 has been corrected accordingly; this story implements the correction.
+
+**Acceptance Criteria:**
+
+**Given** `test/sim-boundary.test.ts`, whose name describes assertions it does not contain
+**When** the file is renamed to `test/port-provenance.test.ts` with `git mv`, so history follows
+**Then** every reference to the old path is updated — the file's own header comment, `tools/check-licence-headers.mjs` (whose comment names the old path as the stricter authority and must name the new one), and every hit from `grep -rn "sim-boundary"` across `src/`, `test/`, `tools/`, `package.json`, `.github/workflows/`, `_bmad-output/planning-artifacts/` and the root docs
+**And** `pnpm test`, `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm build`, `pnpm check:dist` and `pnpm check:size` all pass, and no reference to `sim-boundary` survives except in historical records that describe the past (cycle logs, the ledger, the Epic 1 retrospective)
+
+**Given** the "everybody edits it, nobody owns it" pattern the retrospective measured
+**When** the renamed file's header comment is rewritten
+**Then** it names **Story 2.0** as the file's documented owner, states what the file asserts (structural provenance: the upstream copyright block intact, the authored/ported branches disjoint, `VPINBALL_PORTED_FILES` real and disjoint) and what it deliberately does **not** assert (per-file presence, which is `check:headers`; import direction, which is `tools/boundary-lint.mjs`), so the next contributor cannot re-derive the duplicate-gate confusion
+
+**Given** AD-16 as rewritten on 2026-08-30
+**When** the implementation is checked against it
+**Then** the three gates it names are all present and none has been retired in favour of another: `pnpm check:headers` (presence, discovered from `git ls-files`), `test/port-provenance.test.ts` (structure, plus the AD-15 verbatim solver-constants pin and the DW-79 port-body freeze) and `tools/boundary-lint.mjs` (imports, banned globals, the tick/ms rule, the device-name-literal rule)
+
+**Given** `DW-79` is `resolved-by:1-8-replays-golden-state-hashes-and-ci-parity`, its resolution being the port-body hash manifest this file carries
+**When** the rename lands
+**Then** the manifest still pins all five declared ported bodies across the new filename, `DW-79` stays resolved, and no entry is reopened
+
+**Given** a rename that quietly stopped enforcing would be invisible to every other gate
+**When** the regression bar is applied after the rename
+**Then** deleting the upstream VPDB copyright block from `src/sim/physics/anim-object.ts` while keeping its one-line port marker turns `test/port-provenance.test.ts` **red**, reverting restores a byte-identical tree, and the suite returns to its 950 pass / 21 skip / 76 files baseline — recorded as a `mutation:` line in the spec's `## Verification`
+
+**Change log**
+
+- **2026-08-30 — created at the Epic 2 Story 2.0 gate.** Carries Epic 1's retrospective
+  Finding 2 (the 10-of-10 accretion) and open action item "Give `test/sim-boundary.test.ts`
+  a deliberate owner in Epic 2". The instruction as first written would have stripped the
+  structural provenance suite; the runner's evidence overturned the premise and the author
+  chose the rename-and-record option instead. AD-16 and the Conventions "Licence headers"
+  row were corrected in the same commit as this insertion (Rule 20), superseding the
+  earlier same-day amendment.
+
+
 ### Story 2.1a: The drain triangle, the cradle pocket and the flipper's real dimensions
 
 As the author,

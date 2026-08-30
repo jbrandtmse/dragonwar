@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 08-30-2026 14:19
+last_updated: 08-30-2026 09:13
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -49,6 +49,7 @@ development_status:
   epic-1-retrospective: done
 
   epic-2: backlog
+  2-0-epic-1-deferred-cleanup: backlog
   2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real: backlog
   2-1b-the-full-shot-map-and-the-switch-set: backlog
   2-2-slingshots-and-pop-bumpers-as-hardware-rules: backlog
@@ -172,3 +173,10 @@ action_items:
     owner: "user"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
+  - id: "epic-2-retro-item-10-run-the-seven-shot-feel-ritual-for-story"
+    epic: 2
+    action: "Run the seven-shot feel ritual for Story 2.1b AC 6 against the Reference
+      machine and record the Lawlor judgments in docs/feel-test.md"
+    owner: "user"
+    status: open
+    ref: ""
