@@ -43,6 +43,25 @@ describe('createSwitchTracker() -- swept-segment zone tests (AD-2, AD-11)', () =
 		expect(events).toEqual([]);
 	});
 
+	// QA (DW-61 z-sensitivity gap, this story's own review corrected this
+	// exact claim -- see spec-1-10 `## Verification`'s `[LEAD CORRECTION]`):
+	// every OTHER fixture in this describe block holds z constant at 15,
+	// squarely inside the zone's [0, 30] range, so this suite never actually
+	// exercises segmentIntersectsBox()'s z-axis slab clip -- dropping it
+	// entirely would leave every assertion above still green. This is the
+	// exact same X/Y sweep as the very first test above (which registers
+	// true), but held at z = 200 -- outside [0, 30] the whole tick -- so this
+	// one must NOT register. Falsifiability: mutation: drop the z-axis clip
+	// from the shared src/sim/physics/geometry.ts segmentIntersectsBox() (the
+	// same mutation the spec's [LEAD CORRECTION] applied and found this exact
+	// suite insensitive to) -> this assertion goes red.
+	it('the swept-segment test genuinely uses the Z axis, not just X/Y: the SAME crossing sweep as the first test above, but held entirely outside the zone on Z, does NOT register', () => {
+		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
+		const tracker = createSwitchTracker(zones, TUNING);
+		const events = tracker.step(1, [{ before: { x: -100, y: 0, z: 200 }, after: { x: 100, y: 0, z: 200 } }]);
+		expect(events, 'an X/Y-only crossing sweep held outside the zone on Z must not register -- the Z slab clip is what rejects it').toEqual([]);
+	});
+
 	it('a 0 ms settle class produces exactly one close edge on entry and exactly one open edge on exit, never one per tick while stable', () => {
 		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
 		const tracker = createSwitchTracker(zones, TUNING);

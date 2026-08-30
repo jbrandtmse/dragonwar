@@ -234,6 +234,38 @@ describe('sim/physics/devices.ts -- park into the lowest empty slot; the ball le
 		expect(mechanics.parkingSlots.bd_trough).toEqual([true, true, true, true]);
 		expect(physics.balls, 'a ball that overflows a full device stays simulated').toContain(extra);
 	});
+
+	// QA (DW-61 z-sensitivity gap): every OTHER movement in this file --
+	// including throughZoneMovement() itself -- holds Z constant at the
+	// zone's own midpoint, so this suite never exercises
+	// segmentIntersectsBox()'s Z-axis slab clip on this (devices.ts) consumer
+	// path either -- the same gap this story's own [LEAD CORRECTION] in
+	// spec-1-10's `## Verification` found in test/switch-zones.test.ts.
+	// Falsifiability: mutation: drop the Z-axis clip from the shared
+	// src/sim/physics/geometry.ts segmentIntersectsBox() -> this assertion
+	// goes red (the ball would wrongly park).
+	it('the swept-segment entry test genuinely uses the Z axis, not just X/Y: the SAME X/Y crossing sweep that would otherwise park a ball, held entirely outside the zone on Z, does NOT park it', () => {
+		const { mechanics, physics, switchZones } = buildFreshMechanics();
+		mechanics.applyCommands(1, [{ coil: 'c_trough_eject' }]);
+		expect(mechanics.parkingSlots.bd_trough, 'sanity: the eject must have produced a real ball to sweep, or nothing below proves anything').toEqual([true, true, true, false]);
+		const [ejectedBall] = physics.balls;
+		expect(ejectedBall).toBeDefined();
+
+		const troughZones = switchZones.filter((z) => (TABLE.ballDevices.bd_trough.slots as readonly string[]).includes(z.switch));
+		const zone = troughZones[0]!;
+		const cx = (zone.minMm.x + zone.maxMm.x) / 2;
+		const cy = (zone.minMm.y + zone.maxMm.y) / 2;
+		const outsideZ = zone.maxMm.z + 500;
+
+		const result = mechanics.detectEntries(2, [
+			{ ball: ejectedBall!, beforeMm: { x: cx, y: zone.maxMm.y + 50, z: outsideZ }, afterMm: { x: cx, y: cy, z: outsideZ } },
+		]);
+
+		expect(result.switchEvents, 'an X/Y-only crossing sweep held outside the zone on Z must not open the slot switch').toEqual([]);
+		expect(result.contactEvents).toEqual([]);
+		expect(mechanics.parkingSlots.bd_trough, 'the slot must stay exactly as the eject left it -- the Z-outside sweep must not park anything').toEqual([true, true, true, false]);
+		expect(physics.balls, 'the ball must remain simulated -- it was never parked').toContain(ejectedBall);
+	});
 });
 
 // Review finding 2026-08-28 (this file, the eject_failed case below) closed

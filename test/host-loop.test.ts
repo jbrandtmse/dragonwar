@@ -102,6 +102,10 @@ function installKeyboardTarget(): KeyboardTargetStub {
 	};
 }
 
+function countBallLaunched(outputs: readonly FrameOutput[]): number {
+	return outputs.flatMap((output) => output.events).filter((event) => (event as { readonly type: string }).type === 'ball_launched').length;
+}
+
 describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 	let raf: RafQueue;
 	let keyboardTarget: KeyboardTargetStub;
@@ -644,6 +648,65 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 				settled.mechanisms.plunger.holdTicks,
 				'once the sim genuinely reaches tick 500, the injected transition must apply -- it was deferred, not dropped',
 			).toBe(1);
+		});
+
+		// Code review, this pass: every other test in this describe block
+		// dispatches exactly ONE keyboard event, so nothing observed what the
+		// bound does to a PAIR. It collapsed them: a keydown and its keyup both
+		// clamped to the same lastTickThisFrame, and frameInForceAt()
+		// (sim/loop/index.ts) shifts every transition whose tick has been reached
+		// and keeps only the LAST one's frame -- so the pressed frame was never in
+		// force at any tick and the press vanished outright. Measured before the
+		// fix: zero ball_launched, and plunger holdTicks 0 across the stall frame
+		// AND every catch-up frame after it, where the pre-story unbounded stamp
+		// produced 134 ticks of hold. That is a dropped plunger pull or flipper
+		// tap during a GC pause or tab switch -- the exact condition DW-75 exists
+		// for. Observed through ball_launched rather than holdTicks because the
+		// press now begins AND ends inside one frame: holdTicks is reset by the
+		// release before the frame's snapshot is taken, so the surviving evidence
+		// of the press is the launch its falling edge produced (plunger.ts's
+		// falling-edge branch). Falsifiability (Rule 19): mutation: restore the
+		// single shared ceiling in src/host/loop.ts's drain seam (map every
+		// drained transition through `tick: Math.min(transition.tick,
+		// lastTickThisFrame)`) -> this test goes red (0 ball_launched, expected 1).
+		it('a keydown AND its keyup, both inside one >MAX_OWED_TICKS frame, still produce a real press -- the bound must never collapse two transitions onto one tick, which would swallow the press entirely', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0);
+			// A ball in the shooter lane, so a completed plunger hold has an
+			// observable effect that OUTLIVES the frame it happened in.
+			host.pulseCoil('c_trough_eject');
+			let nowMs = 0;
+			for (let i = 1; i <= 150; i++) {
+				nowMs = i * 16.667;
+				raf.fire(nowMs);
+			}
+			expect(outputs[outputs.length - 1]!.snapshot.balls.length, 'sanity: a ball must be in the shooter lane, or a completed plunge has nothing to launch and this test proves nothing').toBeGreaterThan(0);
+			const launchedBefore = countBallLaunched(outputs);
+			expect(launchedBefore, 'sanity: nothing must have been launched before the plunge below').toBe(0);
+
+			// Unbounded, tickAt() stamps these two past the 200-tick cap the single
+			// frame below is about to hit, so BOTH meet the ceiling.
+			keyboardTarget.dispatch('keydown', { code: 'Enter', timeStamp: nowMs + 250, preventDefault: () => {} });
+			keyboardTarget.dispatch('keyup', { code: 'Enter', timeStamp: nowMs + 400, preventDefault: () => {} });
+			const tickBefore = outputs[outputs.length - 1]!.snapshot.tick;
+			raf.fire(nowMs + 500); // a genuinely >200 ms frame.
+			expect(outputs[outputs.length - 1]!.snapshot.tick - tickBefore, 'sanity: the 200 ms owed-time cap must actually have fired, or this test proves nothing about the bound').toBe(200);
+			// `ball_launched` is derived in the rules layer from s_shooter_lane
+			// OPENING (sim/rules/devices.ts) -- the ball physically leaving the
+			// lane -- so the plunge needs a few ordinary frames afterwards to
+			// travel. Twenty frames is far too few for the ~12 mm/s residual drift
+			// of an UNplunged ball to leave the lane on its own, so the event still
+			// means "the plunger fired", not "time passed".
+			for (let i = 1; i <= 20; i++) {
+				raf.fire(nowMs + 500 + i * 16.667);
+			}
+			host.stop();
+			expect(
+				countBallLaunched(outputs) - launchedBefore,
+				'the keydown must hold the plunger for at least one real tick before the keyup releases it -- if both transitions were clamped onto the SAME tick, frameInForceAt() would keep only the frame carried by the keyup, the press would never exist at any tick, and its falling edge would never launch the ball',
+			).toBeGreaterThanOrEqual(1);
 		});
 	});
 });

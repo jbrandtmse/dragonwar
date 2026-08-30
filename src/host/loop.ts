@@ -45,12 +45,16 @@
 // frame will actually run -- `originTick + min(floor(msToTicksExact(elapsedMs)),
 // MAX_OWED_TICKS)` -- floored at the existing `originTick + 1` lower bound,
 // so it lands in THIS frame's own `frameInForceAt()` call instead of
-// waiting. Provably a no-op inside the cap (`originMs` and `lastFrameMs` are
-// both assigned from the same `nowMs`, so a DOM timestamp is always at or
-// before it); the host cannot read `advance()`'s own carried
-// `owedRemainderTicks`, so this bound can be conservative by at most one
-// tick when a fractional remainder is in play -- accepted, not fixed here
-// (frontmatter `deferred:`).
+// waiting. Bounding is per-transition and never collapses two onto one tick
+// (see the drain seam's own comment): `frameInForceAt()` keeps only the last
+// frame whose tick has been reached, so a shared tick would silently swallow
+// a press that starts AND ends inside one over-cap frame. Provably a no-op
+// inside the cap (`originMs` and `lastFrameMs` are both assigned from the
+// same `nowMs`, so a DOM timestamp is always at or before it); the host
+// cannot read `advance()`'s own carried `owedRemainderTicks`, so this bound
+// can be conservative by at most one tick when a fractional remainder is in
+// play -- accepted, out of this story's chartered scope (closing it means
+// widening the FrameOutput contract), recorded in the spec's Residual Risks.
 
 import { createLoop } from '../sim/loop';
 import { createKeyboardInput, type KeyboardEventTarget } from './input';
@@ -168,10 +172,27 @@ export function createHostLoop(
 			// injectedTransitions are the replay player's explicit-tick path and
 			// must never be clamped, or playback would corrupt itself.
 			const lastTickThisFrame = Math.max(originTick + 1, originTick + Math.min(Math.floor(msToTicksExact(elapsedMs)), MAX_OWED_TICKS));
-			const drained = keyboardInput.drainTransitions().map((transition) => ({
-				...transition,
-				tick: Math.min(transition.tick, lastTickThisFrame),
-			}));
+			// Code-review finding 2026-08-30: clamping EVERY drained transition
+			// to the same `lastTickThisFrame` collapses a keydown and its keyup
+			// onto one tick, and `frameInForceAt()` (sim/loop/index.ts) shifts
+			// every transition whose tick has been reached and keeps only the
+			// LAST one's frame -- so a press that both starts and ends inside one
+			// over-cap frame vanished ENTIRELY (measured: plunger holdTicks 0,
+			// where the unbounded stamp produced 134). Walk the drained list from
+			// the END, so each transition keeps a tick of its own: the last lands
+			// on the frame's last tick, each earlier one at least one tick before
+			// the one after it, floored at the existing `originTick + 1`. The
+			// ceiling only ever binds where the raw stamp already exceeded it, so
+			// inside the cap this stays byte-identical to the unbounded stamp.
+			const drainedRaw = keyboardInput.drainTransitions();
+			const drained: InputTransition[] = new Array(drainedRaw.length);
+			let ceilingTick = lastTickThisFrame;
+			for (let i = drainedRaw.length - 1; i >= 0; i--) {
+				const transition = drainedRaw[i]!;
+				const tick = Math.max(originTick + 1, Math.min(transition.tick, ceilingTick));
+				drained[i] = { ...transition, tick };
+				ceilingTick = tick - 1;
+			}
 			const transitions = injectedTransitions.length > 0 ? [...drained, ...injectedTransitions] : drained;
 			injectedTransitions = [];
 			const output = loop.advance(elapsedMs, transitions);

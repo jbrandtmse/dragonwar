@@ -541,11 +541,26 @@ function checkDeviceNameLiterals(srcRoot, relRoot) {
  * DEEPER in an otherwise-authored file and wrongly exempt it entirely.
  */
 function isDeclaredPort(source, tokens) {
-	const firstLineComment = tokens.find((token) => token.type === 'line-comment');
-	if (!firstLineComment) {
-		return false;
+	// Code review 2026-08-30: this used to be `tokens.find(t => t.type ===
+	// 'line-comment')`, which skips `code` spans as readily as block comments
+	// -- so a file with real code above a later `// Ported from ` line was
+	// still exempted whole-file, the doc comment above notwithstanding. Walk
+	// the tokens in order instead and stop at the first thing that is neither
+	// a block comment nor pure whitespace: the marker counts only if that
+	// first substantive token IS the line comment carrying it.
+	for (const token of tokens) {
+		if (token.type === 'block-comment') {
+			continue;
+		}
+		if (token.type === 'code' && source.slice(token.start, token.end).trim() === '') {
+			continue;
+		}
+		if (token.type !== 'line-comment') {
+			return false;
+		}
+		return PORT_MARKER_PATTERN.test(source.slice(token.start, token.end));
 	}
-	return PORT_MARKER_PATTERN.test(source.slice(firstLineComment.start, firstLineComment.end));
+	return false;
 }
 
 /** Check (f): Rule 14, no literal non-ASCII byte in a string/template literal, over `src/**`, ported files exempt. */
@@ -568,12 +583,22 @@ function checkNonAsciiLiterals(srcRoot, relRoot) {
 				// literal's match can be further down, so count newlines in the
 				// literal text up to the match to land on the right line.
 				const newlinesBefore = (literal.text.slice(0, match.index).match(/\n/g) ?? []).length;
-				const codepoint = match[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0');
+				// Code review 2026-08-30: the `u` flag above makes an astral (non-BMP)
+				// codepoint ONE match rather than two surrogate halves, so the ADVICE has
+				// to be the astral escape form too -- \\u1F600 is not a valid escape and
+				// following it would silently break the very string it was meant to fix.
+				// Only the BMP form is zero-padded to four digits; \\u{...} takes the
+				// codepoint as-is.
+				const codepointValue = match[0].codePointAt(0);
+				const codepoint = codepointValue.toString(16).toUpperCase().padStart(4, '0');
+				const escapeAdvice = codepointValue > 0xFFFF
+					? `\\u{${codepointValue.toString(16).toUpperCase()}}`
+					: `\\u${codepoint}`;
 				violations.push({
 					rule: 'no-literal-non-ascii',
 					file: relative,
 					line: literal.line + newlinesBefore,
-					message: `string/template literal contains a literal non-ASCII byte U+${codepoint} (Rule 14: author it as \\u${codepoint} instead)`,
+					message: `string/template literal contains a literal non-ASCII byte U+${codepoint} (Rule 14: author it as ${escapeAdvice} instead)`,
 				});
 			}
 		}

@@ -103,6 +103,21 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary (one violation per r
 		expect(lines[0]).toContain('[no-literal-non-ascii]');
 	});
 
+	// Code review 2026-08-30: isDeclaredPort()'s doc comment claimed the marker
+	// counts only when nothing but a block comment precedes it ("a /* */ header
+	// before it is fine, but any code before it is not"), while the code did
+	// `tokens.find(t => t.type === 'line-comment')`, which skips code spans too
+	// -- so a file with real code above a later marker was still exempted
+	// whole-file. That is the same hole the earlier fake-port fixture closed
+	// from the other direction. Falsifiability (Rule 19): mutation: restore
+	// `tokens.find((token) => token.type === 'line-comment')` in isDeclaredPort()
+	// -> this test goes red (the fixture is wrongly exempted, 0 violations).
+	it("DOES fire when the \"Ported from \" marker follows real CODE -- only a marker on the file's first substantive token exempts it", () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/physics/code-before-port-marker.ts'));
+		expect(lines, `expected exactly one violation for code-before-port-marker.ts, got: ${lines.join(' | ')}`).toHaveLength(1);
+		expect(lines[0]).toContain('[no-literal-non-ascii]');
+	});
+
 	it('still catches a real violation after a two-interpolation template literal (tokenizer stack does not desync)', () => {
 		expect(stderr).toContain('[sim-no-banned-global]');
 		expect(stderr).toContain('src/sim/template-interpolation.ts');
@@ -238,8 +253,14 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/exemption-near-miss 
 	});
 
 	it('src/sim/table/nested/dragonwar.ts (basename matches src/sim/table/dragonwar.ts, path does not) still fires no-device-name-literal', () => {
-		expect(stderr).toContain('[no-device-name-literal]');
-		expect(stderr).toContain('src/sim/table/nested/dragonwar.ts');
+		// QA: correlate the rule and the file on the SAME violation line
+		// (mirroring the sim/other/tuning.ts test above), rather than two
+		// independent stderr-wide toContain calls -- which a fixture-root
+		// change producing "[no-device-name-literal]" and this path's name on
+		// unrelated lines could satisfy without the near-miss file's own
+		// violation ever having fired.
+		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/table/nested/dragonwar.ts'));
+		expect(lines.join('\n'), `expected a violation naming src/sim/table/nested/dragonwar.ts, got:\n${stderr}`).toContain('[no-device-name-literal]');
 	});
 });
 
