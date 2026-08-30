@@ -2,8 +2,8 @@
 title: 'Story 2.0: Epic 1 Deferred Cleanup — the provenance gate''s rename and owner'
 type: 'chore'
 created: '2026-08-30'
-status: 'ready-for-dev'
-baseline_revision: 'c529d324596763604ff06037dc6b94d4b87f92f0'
+status: 'done'
+baseline_revision: '02fa9222e2545f1970018138928ad3a87f7ca5ac'
 baseline_commit: 'c529d324596763604ff06037dc6b94d4b87f92f0'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -13,7 +13,40 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-1-10-epic-1-burn-down.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      sprint-status.yaml's retro action item 5 (give test/sim-boundary.test.ts
+      a deliberate owner) is not marked done even though this story's
+      completion fully resolves it.
+    evidence: |-
+      The entry epic-1-retro-item-5-give-test-sim-boundary-test-ts-a-deliber
+      remains status: open in _bmad-output/implementation-artifacts/sprint-status.yaml.
+      The established convention (retro items 4, 6-8) closes such items in a
+      dedicated chore commit once the underlying work lands (commits 40a7d44,
+      1a234cf) -- that closing commit is lead/runner bookkeeping, outside
+      bmad-build-auto's own contract of editing only the spec file and the
+      reviewed diff.
+    location: >-
+      _bmad-output/implementation-artifacts/sprint-status.yaml
+    severity: low
+  - summary: >-
+      test/spike-1-harness-boundary.test.ts:10,17 misattributes to
+      test/port-provenance.test.ts a banned-global/DOM-global scan that
+      Story 1.3 actually moved to tools/boundary-lint.mjs.
+    evidence: |-
+      Confirmed pre-existing at baseline (c529d32): git show
+      c529d324596763604ff06037dc6b94d4b87f92f0:test/spike-1-harness-boundary.test.ts
+      carries the identical wording against the old filename
+      ("test/sim-boundary.test.ts checks the opposite direction ... stay
+      clean of DOM/engine globals"), which was already stale before this
+      story since Story 1.3 moved that scan to tools/boundary-lint.mjs. This
+      story's Task 8 mechanical path-token substitution correctly carried the
+      pre-existing string forward without introducing the misattribution;
+      fixing the underlying claim is outside this story's mechanical-only
+      scope for that file.
+    location: >-
+      test/spike-1-harness-boundary.test.ts:10,17
+    severity: low
 ---
 
 <intent-contract>
@@ -121,6 +154,20 @@ Every anchor below was read and every count measured at `c529d32`.
 
 ## Review Triage Log
 
+### 2026-08-30 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2: (high 0, medium 1, low 1)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `medium` `patch` The spec's `## Verification` mutation line only recorded the pre-rename, planning-time observation of AC 5's mutation; per Rule 19 a mutation re-observed only in an earlier context is not evidence for this pass. Re-ran the mutation independently against the renamed file (deleted the 18-line VPDB block from `src/sim/physics/anim-object.ts`, confirmed `test/port-provenance.test.ts` went red on exactly the same 2 named tests while `pnpm check:headers` stayed exit 0, reverted, confirmed byte-identical tree) and appended the post-rename re-observation to the mutation line.
+  - `low` `patch` `tools/boundary-lint.mjs:74` and `test/fixtures/boundary/src/sim/banned-global.js:5` referred to "test/port-provenance.test.ts's superseded stand-in" — a narrative this story's own header rewrite (Task 2) removed from that file, orphaning the cross-reference. Reworded both comments to describe the historical Story 1.1 stand-in directly (with an AD-16 pointer) instead of depending on prose that no longer exists in the renamed file's header. Re-ran the full verification sweep afterward (gates + `pnpm test`) — unchanged: 76 files / 950 passed / 21 skipped, all eight gates in their expected state.
+
+Rejected: the Verification Gap layer's observation that AC 1/AC 2 have no permanent vitest pinning test (checked only by one-off `git grep`/`git log` commands and a manual header read) — the reviewer itself judged this not a behavioral gap, and adding a new assertion to pin it would violate the intent-contract's own "no assertion added or removed" constraint. Also rejected: the Intent Alignment layer's secondary observation that the DW-79 freeze describe block's failure-message string was edited — Task 3 explicitly authorizes updating this exact self-reference, and the Boundaries clause's "only the filename, the header comment and the references change" carve-out covers it.
+
+Deferred: sprint-status.yaml's still-open retro action item 5 (closing it is lead/runner bookkeeping outside this story's file scope) and `test/spike-1-harness-boundary.test.ts`'s pre-existing (confirmed present at baseline, before this story) misattribution of a banned-global scan to the renamed file — both recorded in frontmatter `deferred:` above.
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6):** **AD-16** governs this story end to end — it is the decision rewritten on 2026-08-30 that names the three complementary gates, already specifies `test/port-provenance.test.ts` as the structural gate's name, and states that the file "is owned by Story 2.0 and names its owner in its header comment". **AD-15** is touched only in that its verbatim solver-constants pin lives inside the renamed file and must survive unchanged. The spine's Conventions "Licence headers" row (`:268`) is already consistent with the target state. No spine edit is required by this story, so Rule 20 does not fire.
@@ -151,7 +198,7 @@ Every anchor below was read and every count measured at `c529d32`.
 
 **Mutations (Rule 19):**
 
-- `mutation: delete the 18-line upstream VPDB copyright block (lines 1-18) from src/sim/physics/anim-object.ts, keeping its one-line port marker → test/port-provenance.test.ts goes red on exactly 2 tests — "anim-object.ts carries either the upstream copyright block + port marker, or the DragonWar GPL-3.0 header" (header provenance, AD-16) and "anim-object.ts: content hash (normalised line endings) matches the pinned PORT_BODY_HASHES entry" (port-body freeze, DW-79) — while pnpm check:headers stays exit 0. Reverted with git checkout; sha256 of anim-object.ts back to 0e6308f212fe171d2b12ba79e50058e34b18b77a1447565696b5991812072e83, git status --short and git diff --stat both empty.` **Observed red at `c529d32` during planning**, against the pre-rename filename; the implementer re-runs it against the renamed file, which is what AC 5 asserts.
+- `mutation: delete the 18-line upstream VPDB copyright block (lines 1-18) from src/sim/physics/anim-object.ts, keeping its one-line port marker → test/port-provenance.test.ts goes red on exactly 2 tests — "anim-object.ts carries either the upstream copyright block + port marker, or the DragonWar GPL-3.0 header" (header provenance, AD-16) and "anim-object.ts: content hash (normalised line endings) matches the pinned PORT_BODY_HASHES entry" (port-body freeze, DW-79) — while pnpm check:headers stays exit 0. Reverted with git checkout; sha256 of anim-object.ts back to 0e6308f212fe171d2b12ba79e50058e34b18b77a1447565696b5991812072e83, git status --short and git diff --stat both empty.` **Observed red at `c529d32` during planning**, against the pre-rename filename. **Re-observed post-rename** during this implementation pass: same 2 tests went red for the same reasons, `pnpm check:headers` stayed exit 0, revert restored the exact pinned sha256, `git status --short` and `git diff --stat` were both empty afterward (only this story's own staged rename/edits remained). AC 5 satisfied against the renamed file, not just the pre-rename planning observation.
 
 **Manual checks:**
 
@@ -159,7 +206,25 @@ Every anchor below was read and every count measured at `c529d32`.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
-Planned at `c529d32` on 2026-08-30. Halted after planning as dispatched; no implementation performed and nothing committed. The epic-2 context cache was reused, not recompiled. The AC-5 mutation was executed during planning to ground Rule 19 — observed red on exactly 2 tests, reverted byte-identically, tree clean.
+**Summary of implemented change:** `git mv test/sim-boundary.test.ts test/port-provenance.test.ts` (history preserved via a detected 92%-similarity rename), the file's header comment rewritten to name Story 2.0 as owner and state the four things it asserts plus the two it deliberately does not (with the owning gate for each), all 21 references across 18 files updated to the new path (matched on the anchored token `test/sim-boundary\.test\.ts`, never the bare substring), and `tools/check-licence-headers.mjs`'s `:47` comment updated to name the new path as the structural authority. No test assertion, describe-block structure, or product behaviour changed. Two review-triggered documentation patches were applied on top (see Review Triage Log).
+
+**Files changed:**
+- `test/sim-boundary.test.ts` -> `test/port-provenance.test.ts` (git mv; header rewritten; two internal self-references updated)
+- `tools/check-licence-headers.mjs` -- comment at old `:47` now names the new path
+- `src/sim/physics/hop.ts` -- path + stale line-range replaced with a describe-block name reference
+- `src/sim/loop/replay.ts`, `src/sim/physics/{devices,flippers,geometry,machine,plunger,switches}.ts`, `src/sim/physics/loader/index.ts` -- one comment reference each, mechanical substitution
+- `tools/boundary-lint.mjs` (`:74`, `:108`) -- path references updated; `:84`'s `typecheck-sim-boundary` reference left untouched; `:74` additionally reworded in the review patch pass (see below)
+- `tools/dependency-cruiser.config.mjs` -- one comment reference
+- `test/ac6-scatter-and-prng.test.ts`, `test/entry-html-csp.test.ts`, `test/spike-1-harness-boundary.test.ts` (`:10`, `:17`), `test/fixtures/boundary/src/sim/banned-global.js`, `test/fixtures/boundary/src/sim/physics/fake-port-non-ascii.ts` -- path references updated; `banned-global.js` additionally reworded in the review patch pass
+- `_bmad-output/implementation-artifacts/spec-2-0-epic-1-deferred-cleanup.md` -- this file: status/baseline frontmatter, `deferred:` list, Review Triage Log, this section
+
+**Review findings breakdown:** 2 patches applied, 2 items deferred, 2 items rejected (0 intent_gap, 0 bad_spec). See `## Review Triage Log` above for the full breakdown and rationale.
+
+**Follow-up review recommendation:** `false`. This pass's patched findings: 1 medium (the `## Verification` mutation line lacked a post-rename re-observation), 1 low (two stale "superseded stand-in" cross-references orphaned by the header rewrite) -- no high-severity patch, and `3 x medium(1) + 1 x low(1) = 4`, below the threshold of 5.
+
+**Verification performed:** All Verification-section commands run and passing after the patch pass: `git rev-parse --show-toplevel` = `C:/git/dragonwar/.worktrees/epic-2`; `git grep -n "test/sim-boundary\.test\.ts" -- src test tools package.json .github` = zero hits; `typecheck-sim-boundary` count = 13 (unchanged), `tsc-sim-boundary` count = 2 (unchanged); `npx vitest run test/port-provenance.test.ts` = 101 passed (56 header-provenance / 1 AD-15 pin / 44 DW-79 freeze); `pnpm test` = 76 files / 950 passed / 21 skipped (baseline exactly preserved, re-confirmed after the patch pass); `pnpm typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size` all exit 0; `pnpm check:ad7` stays exit 1, still naming `DW-70`/`AD-7`/`bd_trough` -- no Block-If fired. AC-5 mutation independently re-applied and observed by this reviewing pass (not merely the implementation subagent's self-report, per Rule 19): deleted the 18-line VPDB block from `src/sim/physics/anim-object.ts`, confirmed `test/port-provenance.test.ts` went red on exactly the 2 named tests while `pnpm check:headers` stayed exit 0, reverted with `git checkout --`, confirmed sha256 back to `0e6308f2...072e83` and `git diff --stat -- src/sim/physics/anim-object.ts` empty. `git diff --stat -- test/replays/` confirmed empty (no golden hash moved). `git log --follow` for the renamed file cannot show pre-rename history until the finalize commit lands (build-auto commits only at finalize per Rule 16); this is a re-checked at finalize, not a pending gap -- see below.
+
+**Residual risks:** None blocking. Two low-severity pre-existing/administrative items recorded in frontmatter `deferred:` for the lead/runner to harvest: closing `sprint-status.yaml`'s retro action item 5, and a pre-existing (predates this story) misattribution comment in `test/spike-1-harness-boundary.test.ts`.

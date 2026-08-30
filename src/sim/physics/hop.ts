@@ -2,9 +2,10 @@
 //
 // Story 1.9, AC 2 -- hop control. Authored BESIDE the port, never inside it
 // (this story's Design Notes, "Hop control: authored beside the port, never
-// inside it"): `DW-79`'s port-body freeze (`test/sim-boundary.test.ts:325-370`)
-// covers `ball/ball-hit.ts`, `flipper/flipper-hit.ts` and `functions.ts` --
-// exactly where a hop would naturally live (`collide3DWall()` /
+// inside it"): `DW-79`'s port-body freeze (`test/port-provenance.test.ts`'s
+// "port-body freeze (DW-79)" describe block) covers `ball/ball-hit.ts`,
+// `flipper/flipper-hit.ts` and `functions.ts` -- exactly where a hop would
+// naturally live (`collide3DWall()` /
 // `elasticityWithFalloff()`) -- so this file never edits any of them; it acts
 // entirely AFTER `physics.step()` has already run, as a collision-RESPONSE
 // modifier over what the step produced, mirroring `machine.ts`'s own

@@ -124,7 +124,7 @@ export default {
 				"real internal cycles (e.g. ball-hit.ts <-> player-physics.ts, hit-kd.ts <-> hit-kd-node.ts), " +
 				"every one of them both FROM and TO a src/sim/physics/** module -- the upstream engine's " +
 				"own structure, not DragonWar's, and every file in the cycle is a DW-79-frozen port body " +
-				"(test/sim-boundary.test.ts's PORT_BODY_HASHES); breaking one means editing a frozen port " +
+				"(test/port-provenance.test.ts's PORT_BODY_HASHES); breaking one means editing a frozen port " +
 				"and re-pinning its hash, which this story's own Block If rules out. Excluding physics/ as " +
 				"a CYCLE ORIGIN still catches every cycle this rule exists for: one introduced among the " +
 				"seam contracts, or one that newly drags host/, presentation/, sim/table/, sim/rules/ or " +

@@ -1,22 +1,35 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 1.1's textual boundary stand-in (banned-global/`@babylonjs` scan over
-// src/sim/**, and the hand-maintained GPL-header `roots` list that review had
-// to widen twice) is superseded by Story 1.3's real tooling, each with its
-// own test suite:
-//   - tools/boundary-lint.mjs (test/boundary-lint.test.ts) -- the import
-//     rules (dependency-cruiser + @swc/core), the banned-global textual scan,
-//     the tick/ms rule and the device-name-literal rule, all over src/**,
-//     discovered from real file listings rather than this file's old
-//     hand-maintained `roots` array.
-//   - tools/check-licence-headers.mjs (test/licence-headers.test.ts) -- the
-//     per-file GPL-3.0-header check, discovered from `git ls-files`.
+// Structural provenance gate. Owned by Story 2.0, which renamed this file
+// (it was "sim-boundary.test.ts", its name since Story 1.1) and gave it this
+// header so ownership and scope stop having to be re-derived by whichever
+// story next needs to touch it -- Epic 1's ten stories all did. AD-16
+// (rewritten 2026-08-30) names three complementary provenance gates and none
+// may be retired in favour of another:
 //
-// What remains here is NOT superseded by either tool: the vpx-js
-// port-header describe below asserts the exact upstream VPDB copyright block
-// text is intact (stronger than "carries some header or other"), and the
-// AD-15 solver-constants pin asserts values nothing else in this suite reads
-// by name -- both stay owned by this file.
+//   - tools/check-licence-headers.mjs (test/licence-headers.test.ts) --
+//     per-file header PRESENCE, over every tracked file.
+//   - test/port-provenance.test.ts (this file) -- STRUCTURE: see below.
+//   - tools/boundary-lint.mjs (test/boundary-lint.test.ts) -- import
+//     DIRECTION, banned globals, the tick/ms rule, device-name literals.
+//
+// This file asserts four things:
+//   1. Every file under src/sim/physics/** carries either an intact upstream
+//      copyright block + port marker (vpx-js or vpinball/vpinball), or the
+//      plain DragonWar GPL-3.0 header -- never a mix, never neither.
+//   2. The authored, vpx-js-ported and vpinball-ported provenance classes are
+//      declared (never inferred from a file's own text) and mutually
+//      disjoint, and every declared entry names a real file.
+//   3. AD-15's solver constants, transcribed verbatim from the pinned
+//      upstream source (the constants pin, below).
+//   4. DW-79's port-body freeze: every declared ported file's content hash
+//      (normalised line endings) matches its pinned entry (below).
+//
+// This file deliberately does NOT assert:
+//   - Per-file header presence across all tracked files -- that is
+//     `pnpm check:headers` (tools/check-licence-headers.mjs)'s job.
+//   - Import direction -- that is `pnpm lint:boundaries`
+//     (tools/boundary-lint.mjs)'s job.
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -287,7 +300,7 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 });
 
 // Story 1.8's sweep (DW-79, ledger; Code Map "Verified environment facts" --
-// "test/sim-boundary.test.ts checks headers only, never bodies ... No
+// "test/port-provenance.test.ts checks headers only, never bodies ... No
 // vendored upstream copy and no checksum exists anywhere in the repo").
 //
 // RESIDUAL, STATED HONESTLY (per this file's own header discipline and the
@@ -420,7 +433,7 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 				`"${relative}" no longer matches its pinned port-body hash. This does NOT by itself mean the port is wrong -- ` +
 				`it means the file changed since this manifest was last verified. Re-verify the new content against the ` +
 				`upstream pin named in the file's own header comment, then deliberately update PORT_BODY_HASHES in ` +
-				`test/sim-boundary.test.ts to the new hash (never routine, never silent).`,
+				`test/port-provenance.test.ts to the new hash (never routine, never silent).`,
 			).toBe(expectedHash);
 		});
 	}

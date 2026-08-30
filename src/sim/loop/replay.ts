@@ -150,7 +150,7 @@ export function assetHash(doc: unknown): string {
  * re-records every golden" -- and the same is true of `TICK_HZ` (AD-3: "if
  * spike 1 forces 480 Hz, that constant changes and golden replays are
  * re-recorded"). Derived, never hand-written, so the re-record obligation
- * enforces itself: this hashes every constant `test/sim-boundary.test.ts`'s
+ * enforces itself: this hashes every constant `test/port-provenance.test.ts`'s
  * own AD-15 pin asserts by name, plus the live tick rate. `physicsStepTimeUs`
  * duplicates `PHYSICS_STEPTIME` under a table-safe key name only (never
  * `…Ms`) -- it is MICROSECONDS (the constant's own unit, `constants.ts`'s

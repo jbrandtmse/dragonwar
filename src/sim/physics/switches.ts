@@ -19,7 +19,7 @@
 //
 // This file is authored, not ported -- it sits beside the vpx-js primitive
 // set and carries the GPL-3.0 header rather than the port marker (AD-16,
-// declared in `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// declared in `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import { TABLE } from '../table/dragonwar';
 import type { ResolvedTuning } from '../table/tuning';

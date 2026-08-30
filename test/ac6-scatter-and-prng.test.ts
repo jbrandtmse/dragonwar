@@ -85,7 +85,7 @@ describe('AC 6 (amended): scatter is 0 on every material, and the physics PRNG i
 		// test/hardware-rule-seam.test.ts uses on machine.ts. Its honest limit
 		// is the same too -- it catches a changed formula, not a changed
 		// meaning. Its complement is this story's own DW-79 port-body freeze
-		// (test/sim-boundary.test.ts), which fails loudly and by name on ANY
+		// (test/port-provenance.test.ts), which fails loudly and by name on ANY
 		// edit to ball-hit.ts; together they mean the claim above cannot go
 		// stale silently.
 		const ballHitSource = readFileSync(path.join(REPO_ROOT, 'src', 'sim', 'physics', 'ball', 'ball-hit.ts'), 'utf8');

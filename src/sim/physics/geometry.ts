@@ -5,7 +5,7 @@
 // identical slab-method algorithm -- `devices.ts`'s own JSDoc already
 // admitted it ("Local mirror of switches.ts's slab-method segment/box test
 // ... re-deriving it"), and a fix applied to one silently missed the other.
-// Both call sites are authored/editable (test/sim-boundary.test.ts's DW-79
+// Both call sites are authored/editable (test/port-provenance.test.ts's DW-79
 // freeze), so the shared body lives here rather than in either sibling --
 // `switches.ts` and `devices.ts` both import it.
 

@@ -8,7 +8,7 @@
 // primitive set (`HitPlane`, `LineSeg`, `HitLineZ`, `HitTriangle`,
 // `PlayerPhysics`) and instantiates them from data, carrying the GPL-3.0
 // header rather than the port marker (AD-16 -- the clause task 15 of this
-// story's spec aligns `test/sim-boundary.test.ts` with).
+// story's spec aligns `test/port-provenance.test.ts` with).
 //
 // Three responsibilities:
 //   1. Assert `col_playfield`'s bounds and both flipper nodes' lengths

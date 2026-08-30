@@ -11,7 +11,7 @@
 // trip) -- plus the per-tick `FlipperMechanismState` for the snapshot.
 //
 // This file is authored, not ported (AD-16, declared in
-// `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import { Event } from './game/event';
 import { EventProxy } from './game/event-proxy';

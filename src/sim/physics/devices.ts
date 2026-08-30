@@ -15,7 +15,7 @@
 // simulated set (AD-6's own text: "the served ball stays simulated").
 //
 // This file is authored, not ported (AD-16, declared in
-// `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import { Ball } from './ball/ball';
 import { BallData } from './ball/ball-data';

@@ -7,14 +7,14 @@
 // both step the identical, boundary-respecting scene (AD-1: the harness sits
 // outside sim/, but sim/ is the only thing it's allowed to depend on). Nothing
 // currently asserts this direction of the boundary --
-// test/sim-boundary.test.ts checks the opposite direction (that files *under*
+// test/port-provenance.test.ts checks the opposite direction (that files *under*
 // src/sim/ stay clean of DOM/engine globals), not that tools/spike-1/scene.ts
 // stays clean of imports from anywhere *outside* those two roots. A future edit
 // that reaches for, say, `@babylonjs/core` or a not-yet-built `src/sim/table/`
 // module directly from the harness would otherwise pass every existing test.
 //
 // Plain textual parsing only (no TypeScript compiler API), matching this
-// story's other Story-1.3-dependency-cruiser stand-in (test/sim-boundary.test.ts).
+// story's other Story-1.3-dependency-cruiser stand-in (test/port-provenance.test.ts).
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

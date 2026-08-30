@@ -71,9 +71,11 @@ const DEPCRUISE_CONFIG = path.join(TOOL_ROOT, 'tools', 'dependency-cruiser.confi
 
 // Not just `.ts`: a `.js`/`.mjs`/`.cjs`/`.tsx`/`.mts`/`.cts` file dropped
 // under src/ would otherwise bypass every textual check below entirely. This
-// is the same extension set test/sim-boundary.test.ts's superseded stand-in
-// scanned (review finding, this story's own review pass: the three textual
-// checks below had narrowed to `.ts`-only, regressing that defense-in-depth),
+// is the same extension set Story 1.1's original textual boundary check
+// (superseded by this tool per AD-16; see test/port-provenance.test.ts's own
+// header for the current gate split) scanned (review finding, this story's
+// own review pass: the three textual checks below had narrowed to `.ts`-only,
+// regressing that defense-in-depth),
 // widened again with `.mts`/`.cts` -- the swc parser reports those as NOT
 // scannable (`depcruise --info` prints `x .mts`, `x .cts`), and
 // tools/check-licence-headers.mjs already treats them as authored source, so
@@ -105,7 +107,7 @@ const DEVICE_NAME_PATTERN = /^(?:s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$/;
 const NON_ASCII_LITERAL_PATTERN = /[^\x00-\x7F]/gu;
 // The vpx-js/vpinball port marker every declared DW-79-frozen port carries as
 // its own first identifying line (verified against all 41 files named in
-// test/sim-boundary.test.ts's PORT_BODY_HASHES): `// Ported from <repo>
+// test/port-provenance.test.ts's PORT_BODY_HASHES): `// Ported from <repo>
 // (<licence>); distributed with DragonWar under GPL-3.0`. A file carrying it
 // AS ITS OWN FIRST LINE-COMMENT (not merely anywhere in the file -- a later
 // `// Ported from ` appearing deep inside an otherwise-authored file must

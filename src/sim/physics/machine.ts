@@ -25,7 +25,7 @@
 // conversion goes through `sim/table/frames.ts`.
 //
 // This file is authored, not ported (AD-16, declared in
-// `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import type { Ball } from './ball/ball';
 import { createCabinetMechanics, type CabinetState } from './cabinet';
