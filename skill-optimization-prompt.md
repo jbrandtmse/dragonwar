@@ -1,6 +1,6 @@
 I need you to update the model configuration for all BMAD Method skills to optimize performance against token cost for an InterSystems ObjectScript stack.
 
-**Kit-Version:** 2026-08-26.1
+**Kit-Version:** 2026-08-30.2
 
 **Requires BMAD Method v6.11.0 or later.** The skill inventory below reflects the v6.11 tree (`bmad-build` / `bmad-build-auto`, the eight-skill core, the `v6-shims`); on a 6.10 install use the previous version of this document.
 
@@ -36,7 +36,7 @@ Note: the `model:` frontmatter field is documented for both skills and slash com
 1. An installed skill not listed here is classified by the generic tier rules; the explicit family entries below (TEA `bmad-testarch-*`, BMB builders, extra personas) exist to remove the ambiguous cases.
 2. Where a listed consolidated skill (`bmad-prd`, `bmad-architecture`, `bmad-ux`, `bmad-spec`, `bmad-review`, `bmad-deep-recon`, `bmad-project-context`, `bmad-build`) is NOT installed, the legacy skills it replaced are NOT deprecated shims on that install — they are the real skills. Assign them the same tier directly and ignore the shim framing for them.
 3. Skills listed here but absent from the install (e.g. `bmad-forge-idea`, a TEA family) are simply skipped — do not create anything.
-4. Skills that v6.11 **removed outright** (`bmad-check-implementation-readiness`, `bmad-agent-tech-writer`, `bmad-index-docs`, `bmad-shard-doc`, `bmad-investigate`, `bmad-automator`) are deleted by the installer via `removals.txt`; if one is still on disk it is an orphan — mention it, pin nothing.
+4. Skills that v6.11 **removed outright** (`bmad-check-implementation-readiness`, `bmad-agent-tech-writer`, `bmad-index-docs`, `bmad-shard-doc`, `bmad-investigate`, `bmad-automator`) are not part of a 6.11 install (no `removals.txt` ships in `_bmad/_config/` — the installer simply no longer writes them); if one is still on disk from an older install it is an orphan — mention it, pin nothing.
 
 **Shim policy (v6.11):** a deprecated skill's SKILL.md only prints a notice and forwards (or, for `bmad-create-story` / `bmad-dev-story`, still runs the full retained workflow "only when explicitly invoked by name"). Pin every shim to the tier of the skill it forwards to, so the forwarded work runs at the correct tier even if the target's own `model:` does not re-switch mid-conversation. Removal of all shims rides the v7 cut.
 
@@ -73,7 +73,7 @@ Architecture, canonical contracts, context fusion, adversarial critique, and una
 - bmad-edit-prd                (DEPRECATED shim → bmad-prd; match the target's model)
 - bmad-validate-prd            (DEPRECATED shim → bmad-prd; match the target's model)
 - bmad-create-architecture     (DEPRECATED shim → bmad-architecture, an opus skill; match the target's model)
-- **/epic-cycle** — custom slash command at `.claude/commands/epic-cycle.md`, NOT a skill (orchestration lead for the whole epic pipeline: sprint planning, spec validation, retrospective, ADR verifications, per-story smoke, and merge-conflict decisions all run inline on the lead's model, and the command's own Model Strategy section mandates an Opus-tier lead. Pinning `model: opus` in the command frontmatter enforces that instead of relying on whatever model the session happens to run. The pipeline stays cheap regardless: the implement/qa stages are spawned as `sonnet` subagents and plan/code-review as `opus` per the command's stage→model map. Note: `model` is officially documented for slash commands too — and equally ignored at runtime today (#45191). Keep the pin as declared intent; actual lead-tier enforcement is the command's own pre-flight Lead model gate plus the optional settings.json project default. Above-Opus tiers: the gate accepts Fable/Mythos, but Opus is the intended price/performance point for the lead — ~2x the cost for marginal lead-side gain; reserve for exceptionally hard epics, never a standing default.)
+- **/epic-cycle** — custom slash command at `.claude/commands/epic-cycle.md`, NOT a skill (orchestration lead for the whole epic pipeline: sprint planning, spec validation, retrospective, architecture-decision (AD) verifications, per-story smoke, and merge-conflict decisions all run inline on the lead's model, and the command's own Model Strategy section mandates an Opus-tier lead. Pinning `model: opus` in the command frontmatter enforces that instead of relying on whatever model the session happens to run. The pipeline stays cheap regardless: the implement/qa stages are spawned as `sonnet` subagents and plan/code-review as `opus` per the command's stage→model map. Note: `model` is officially documented for slash commands too — and equally ignored at runtime today (#45191). Keep the pin as declared intent; actual lead-tier enforcement is the command's own pre-flight Lead model gate plus the optional settings.json project default. Above-Opus tiers: the gate accepts Fable/Mythos, but Opus is the intended price/performance point for the lead — ~2x the cost for marginal lead-side gain; reserve for exceptionally hard epics, never a standing default.)
 
 Removed in v6.11 (no pin; if present on disk it is an orphan): `bmad-check-implementation-readiness` (folded into `bmad-sprint-planning`'s readiness gate).
 
@@ -93,7 +93,7 @@ The high-frequency workhorses. Sonnet 5 is near-Opus on coding and agentic work,
 - bmad-dev-story               (DEPRECATED, retained in full, removed at v7 — runs only when invoked by name; story implementation against an Opus-authored spec)
 - bmad-dev-auto                (DEPRECATED shim → bmad-build-auto. Exception to the shim rule: pin SONNET, not the target's opus — the only reason to invoke this shim by name is an ad-hoc unattended implement run, which is the sonnet stage)
 - bmad-qa-generate-e2e-tests   (bounded test implementation)
-- bmad-checkpoint-preview      (diff walkthrough on a bounded change; frequent per-story use)
+- bmad-checkpoint-preview      (diff walkthrough on a bounded change; frequent per-story use — renamed `bmad-walkthrough` on BMAD `main` after 6.11.0 with a forwarding shim; pin whichever name is installed, both if both)
 - bmad-create-epics-and-stories (structured decomposition against clear rules)
 - bmad-sprint-planning         (moved from haiku: in v6.11 it opens with the implementation-readiness gate — PASS/CONCERNS/FAIL judgment over PRD/UX/architecture/epics, absorbed from the removed bmad-check-implementation-readiness — and full-loads those artifacts. The tracker work is a deterministic script either way. Note: inside /epic-cycle it runs lead-side; this pin matters for standalone runs only)
 - bmad-sprint-status           (DEPRECATED shim → bmad-sprint-planning status view; match the target's model)
@@ -179,9 +179,16 @@ history:                        # append-only; every change records its evidence
 
 ## Changes vs the previous version of this configuration
 
+**2026-08-30.2** (audit against the installed 6.11.0 tree and BMAD `main`; no tier changes):
+
+- `removals.txt` does not exist in a 6.11 install — orphan detection is by name only.
+- `bmad-checkpoint-preview` is renamed `bmad-walkthrough` on BMAD `main` (shim kept); pin whichever is installed.
+- Wording: the lead's "ADR verifications" are architecture-decision (AD) verifications against the project's `ARCHITECTURE-SPINE.md` (base kit Rule 6/20 since 2026-08-30.2); no tier impact.
+- Reminder the base kit's re-run overwrites the command's `model:` pin (observed on the 2026-08-30.1 upgrade of a test project): re-run this pass after every base-kit run, in the documented order.
+
 **2026-08-26.1** (BMAD v6.11 refactor — see `docs/bmad-6.11-refactor-proposal.md` in the authoring repo):
 
-- **Requires BMAD ≥ 6.11**; preflight checks the manifest version and `bmad-build-auto`; removed skills (`removals.txt`) are treated as orphans.
+- **Requires BMAD ≥ 6.11**; preflight checks the manifest version and `bmad-build-auto`; skills removed in 6.11 that linger from an older install are treated as orphans.
 - **Renames:** `bmad-quick-dev` → `bmad-build` (sonnet), `bmad-dev-auto` → `bmad-build-auto` (opus = the PLAN tier; implement is forced to sonnet by the stage map). `bmad-create-story` / `bmad-dev-story` are retained-in-full deprecated skills (opus / sonnet, by-name runs only).
 - **New skills:** `bmad-review` (opus; its six review/editorial shims follow it — `bmad-editorial-review-prose` and `-structure` therefore move sonnet → opus), `bmad-deep-recon` (sonnet; research trio become shims), `bmad-project-context` (sonnet; document-project / generate-project-context become shims), `bmad-loop-*` (sonnet).
 - **`bmad-sprint-planning` haiku → sonnet** (absorbed the readiness gate — judgment, not parsing); `bmad-sprint-status` follows as its shim. Haiku tier is now `bmad-help` only on a vanilla install.

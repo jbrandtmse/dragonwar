@@ -17,3 +17,4 @@ _bmad/custom/*.yaml eol=lf
 # comparison. Every downstream reader already normalises line endings as a
 # workaround -- this makes the LF guarantee structural instead.
 test/replays/** eol=lf
+_bmad-output/planning-artifacts/architecture/**/.memlog.md merge=union

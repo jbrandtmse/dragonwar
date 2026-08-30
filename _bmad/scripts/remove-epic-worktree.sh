@@ -59,8 +59,17 @@ for i in 1 2 3; do
   if git worktree remove --force "$WT_PATH" 2>/dev/null; then OK="yes"; break; fi
 done
 if [ "$OK" != "yes" ]; then
-  echo "ERROR: worktree remove --force failed after retries (open handles under $WT_PATH? close editors/shells there and re-run)" >&2
-  exit 1
+  # Windows: a lingering shell/editor handle makes the final rmdir fail AFTER git has already
+  # deregistered the worktree and emptied it. Deregistered + empty is success with a warning,
+  # not a failure (field report 2026-08-30) -- the directory is gitignored and git no longer tracks it.
+  if ! git worktree list --porcelain | grep -qx "worktree $(cd "$WT_PATH" 2>/dev/null && pwd -W 2>/dev/null || echo "$WT_PATH")" \
+     && [ -z "$(find "$WT_PATH" -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
+    echo "WARN: worktree deregistered and empty; the directory $WT_PATH is held open by another process and will be removed when it is released" >&2
+    OK="yes"
+  else
+    echo "ERROR: worktree remove --force failed after retries (open handles under $WT_PATH? close editors/shells there and re-run)" >&2
+    exit 1
+  fi
 fi
 
 # --- prune per-submodule worktree registrations in the main checkout ----------------
