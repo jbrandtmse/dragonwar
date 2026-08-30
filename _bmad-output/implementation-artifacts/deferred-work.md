@@ -11,6 +11,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-08-27T22:33:38Z occurrence=1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies by=migration note=Spike 1 browser leg run on Windows only; macOS rows marked PENDING in docs/spikes/spike-1.md
 - 2026-08-27T22:33:39Z occurrence=1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies by=migration note=scope grows: the gravity correction invalidates the Windows legs too, so all four paths need re-measuring, with machine, browser version and date recorded in the deciding table
 - 2026-08-27T22:33:40Z occurrence=1-1-spike-1-the-ported-physics-loop-at-1-khz-over-six-bodies by=migration note=still pending after the post-fix re-measurement; when the author runs the macOS legs, measure A/B in one session per DW-13
+- 2026-08-30T06:08:45Z status=decision-pending owner=burndown by=burndown note=human=run the Chrome/macOS and Safari/macOS measurement legs on real Apple hardware. Reclassified at the burn-down gate: this sat as 'routed owner=burndown', which reads as story work, but no story can close it - it needs a Mac. It is the blocker under DW-2 (TICK_HZ ratification), so the two should be decided together at the sheet.
+- 2026-08-30T06:10:04Z status=decision-pending owner=burndown by=burndown note=CORRECTION_by_lead: the previous trailer quoted the literal token o-w-n-e-r-equals-burndown inside its prose and the parser read THAT as the owner clause, yielding a malformed owner value with a trailing quote. Re-stating cleanly. Substance unchanged: human=run the Chrome/macOS and Safari/macOS measurement legs on real Apple hardware; no story can close this because it needs a Mac, and it is the blocker under DW-2's TICK_HZ ratification, so decide the two together at the sheet.
 
 ### DW-2: Author-owned: TICK_HZ ratification from Spike 1
 - source: orchestrator-policy | severity: high | fix-risk: med | footprint: out-of-footprint
@@ -26,17 +28,20 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: orchestrator-policy | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: UJ-4 feel ritual and Lawlor's test are author judgment in docs/feel-test.md; 1.9, 2.1, 3.11, 4.8, 6.6 all need it
 - 2026-08-27T22:32:54Z status=routed owner=burndown by=migration note=Agents build and prove reachability; author supplies judgment. 3.11 scoring freeze must never be agent-marked playtested
+- 2026-08-30T06:08:45Z status=decision-pending owner=burndown by=burndown note=human=run the feel ritual against the Stern Dungeons and Dragons, apply Lawlor's test per shot, and record the playtest judgments. Reclassified from routed at the burn-down gate for the same reason as DW-1 - it is author practice, not story work. Story 1.9 just shipped docs/feel-test.md, so the ritual now has a document and a format to land in; DW-90 is this epic's first concrete instance of it.
 
 ### DW-4: Author-owned: hand-authored art assets (Epic 5)
 - source: orchestrator-policy | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: Epic 5 needs a sculpted Blender Dragon under 2000 tris, hand-painted textures, cabinet and backglass art
 - 2026-08-27T22:32:54Z status=routed owner=burndown by=migration note=Agents deliver export/loader/budget scaffolding and placeholders; author supplies meshes and textures with ATTRIBUTIONS entries first
+- 2026-08-30T06:08:46Z status=routed owner=5-2-playfield-art-and-materials by=burndown note=overflow re-own. Hand-authored art assets are Epic 5's whole subject and 5.2 is its playfield-art-and-materials story, so that is where the obligation actually lands. Author-owned in the sense that a human draws them, but unlike DW-1/DW-3 this has a real story to belong to rather than a standing practice.
 
 ### DW-5: AGENTS.md scaffold-stage TODOs are now answerable but unrefreshed
 - source: spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: in-epic
 - evidence: AGENTS.md still says no package.json and no CI workflow; 1.1 added both scaffolds and 1.2 adds CI
 - 2026-08-27T22:32:55Z status=open owner=1-3-seam-contracts-the-table-registry-and-boundary-lint by=migration note=Refresh the bmad:context block once 1.3 lands CI and dependency-cruiser so both TODOs close in one pass
 - 2026-08-28T06:42:59Z status=routed owner=burndown by=adjudication note=Not closed by Story 1.3: the lead removed task 19 at the spec-validation gate because AGENTS.md is outside Epic 1's declared footprint (Rule 11). Residual restated: AGENTS.md's bmad:context block still says there is no package.json and no CI, both now false, and says the spine runs to AD-17 where it runs to AD-19. Proper fix is a bmad-project-context run, which regenerates the managed block. Burn-down gate to assign a specific next-epic story key.
+- 2026-08-30T06:09:47Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-6: ObjectPool exhaustion counters are tracked but never surfaced
 - source: spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: in-epic
@@ -82,6 +87,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: cr spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: DEFAULT_EXE is Windows-only; killTree's detached branch never applies because spawn omits detached:true; process.exit() can truncate the result JSON on POSIX pipes
 - 2026-08-27T22:33:14Z status=routed owner=burndown by=migration note=Fix all three immediately before the author's macOS leg so the first macOS run is not also the first test of these paths
+- 2026-08-30T06:08:46Z status=routed owner=6-6-the-browser-matrix-and-the-feel-ritual-on-both-paths by=burndown note=overflow re-own. measure.mjs's non-Windows paths are untested and its next caller is the macOS leg; 6.6 is the story that actually runs the browser matrix across platforms, so it is the first gate that fails while this stands.
 
 ### DW-13: This host's session-to-session measurement variance (~1.9x) exceeds every effect being measured
 - source: lead re-measurement 1.1 | severity: high | fix-risk: med | footprint: out-of-footprint
@@ -119,6 +125,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Deploy run 33134412545 first failed with 'Branch DW-1-epic1 is not allowed to deploy to github-pages due to environment protection rules' until the policy was widened; the workflow YAML trigger has since been narrowed back to main but this separate setting has not
 - 2026-08-28T02:53:57Z status=routed owner=burndown by=harvest note=Merge-gate item for the orchestrator, not a code change: Story 1.2's seventh AC covers only the workflow YAML trigger, which IS narrowed back and verified. This is the other half of the same grant and must be reverted to main-only when Epic 1 merges.
 - 2026-08-28T03:30:13Z occurrence=1-2-spike-3-build-size-and-load-time-measured-from-a-link by=cr note=workflow_dispatch fires from any branch; deploy job now guarded by github.ref, Environment setting still open
+- 2026-08-30T06:08:46Z status=routed owner=6-7-release-the-ledger-audit-licence-headers-and-v1-0-0 by=burndown note=overflow re-own. A GitHub Environment setting that still admits DW-1-epic1 as a deployment branch is release hygiene living outside version control; 6.7 is the release audit and is the only story that reviews settings no diff can surface.
 
 ### DW-19: create-engine.ts's WebGPU-verification failure handling arms its error listeners only through a short post-first-frame grace window and does not scope captured failures to WebGPU-originated errors
 - source: spec-1-2-spike-3-build-size-and-load-time-measured-from-a-link.md | severity: low | fix-risk: low | footprint: src/presentation/scene/create-engine.ts:207,280-291
@@ -196,11 +203,13 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
 - evidence: sim includes src/sim/**, app includes src/host/** + src/presentation/**, node includes test|tools|root configs. A src/index.ts or src/shared/** is in no project. The pre-story tsconfig.json had include: [src,test,tools] and no such hole. boundary-lint does scan .tsx textually, so the two gates disagree about what exists.
 - 2026-08-28T06:36:36Z status=routed owner=burndown by=cr note=assert the union of the three project file lists equals the real src listing
+- 2026-08-30T06:09:44Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-33: deepFreeze short-circuits on an already-frozen node, so children of a pre-frozen sub-object stay mutable while the DeepReadonly<T> return type claims otherwise
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: med | footprint: in-epic
 - evidence: Reproduced: deepFreeze(Object.freeze({inner:{a:1}})) then inner.a=99 succeeds. Latent today (TABLE and TUNING are fresh literals) but the helper is exported for reuse. The !Object.isFrozen gate is also the current cycle guard, so a fix needs a visited set rather than unconditional recursion.
 - 2026-08-28T06:36:36Z status=routed owner=burndown by=cr note=fix-risk is the cycle guard, not the freeze itself
+- 2026-08-30T06:08:46Z status=routed owner=2-1-the-playfield-geometry-and-the-full-switch-set by=burndown note=overflow re-own, and its exclusion from the chartered story is fix-risk driven not value driven: LOW severity but MED fix-risk, so Rule 17's priority order (severity, then occurrences, then lowest fix-risk) placed twelve cheaper items ahead of it. Real hazard - DeepReadonly<T> claims immutability that deepFreeze does not deliver for children of a pre-frozen sub-object. 2.1 completes TABLE, the frozen structure this misreports.
 
 ### DW-34: resolveTuning returns an unfrozen object and converts only top-level scalar keys, so a nested ...Ms tunable is silently never converted and a hand-written ...Ticks key would be overwritten
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
@@ -223,16 +232,19 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: Six forbidden rules cover sim to host|presentation, sim to Babylon, contracts to outside, presentation to sim internals, host to physics|rules, and Havok. Nothing forbids sim/table importing sim/physics or sim/rules, nothing constrains physics vs rules direction, and no no-circular rule exists. The repo has no cycle today. Spec task 9 named five rules; review added the sixth.
 - 2026-08-28T06:37:03Z status=routed owner=burndown by=cr note=no-circular is six lines of config and would pass clean today
+- 2026-08-30T06:09:45Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-38: no-device-name-literal has broad single-letter prefixes and no suppression mechanism, so an ordinary c_ f_ or l_ string in presentation code is a violation with no in-file escape hatch
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: The pattern is ^(s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$ over all of src/**. A CSS class 'c_hidden', a shader uniform 'f_time' or an i18n key 'l_label' matches; the only remedy is editing tools/boundary-lint.mjs. Epic 4's lighting and Epic 5's art are where non-device strings in that shape become likely.
 - 2026-08-28T06:37:03Z status=routed owner=burndown by=cr note=add a per-line suppression comment or a narrow allowlist before Epic 4
+- 2026-08-30T06:09:46Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-39: The boundary-lint fixtures prove every rule fires but never prove its exemptions hold, so an over-broad exemption edit would leave the whole suite green
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: med | fix-risk: low | footprint: in-epic
 - evidence: Fixtures exist for TICK_HZ named outside its two permitted files and a literal ...Ms outside tuning.ts, but nothing asserts that sim/contracts/time.ts and sim/table/tuning.ts are themselves exempt, nor that the exemption is path-exact rather than basename-matched; the same holds for no-device-name-literal's single dragonwar.ts exemption. Changing the check to relative.endsWith('tuning.ts') would pass every existing test.
 - 2026-08-28T06:37:03Z status=routed owner=burndown by=cr note=fixtures at the exact exempt paths plus a near-miss path each
+- 2026-08-30T06:09:44Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-40: no-havok is scoped from ^src/ and the cruise only ever walks src, so the 'banned everywhere' promise is not enforced in tools/, test/ or root config files
 - source: spec-1-3-seam-contracts-the-table-registry-and-boundary-lint.md | severity: low | fix-risk: med | footprint: in-story
@@ -272,11 +284,13 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: tools/blender.mjs expandBlenderFoundationDir('C:\Program Files\Blender Foundation') while the sibling per-user branch correctly reads env.LOCALAPPDATA; the darwin and Linux candidate lists are unreachable through the env parameter, so they are covered on no platform
 - 2026-08-28T11:56:05Z status=routed owner=burndown by=cr note=env.ProgramFiles / env['ProgramFiles(x86)'] is the portable form; a base-dir env hook would also make the POSIX branches testable
 - 2026-08-28T13:44:59Z occurrence=1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi
+- 2026-08-30T06:08:47Z status=routed owner=2-1-the-playfield-geometry-and-the-full-switch-set by=burndown note=overflow re-own. resolveBlender()'s hardcoded C: drive and English Program Files bite the moment someone re-exports the .blend on another machine, and 2.1 is the story that re-authors assets/src/dragonwar.blend through the export pipeline.
 
 ### DW-47: l_insert_left's lens protrudes 0.5 mm above the playfield surface, against AD-11's 'lens and cup geometry below the surface'
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: tools/make-placeholder-blend.py builds the lens box from z -1.0 to +0.5 while vis_playfield spans z -1.0 to 0.0; the cup (z -7 to -1) is correct. No physics effect (l_ is visual; only col_ is hit), but it is a lip in the authored surface
 - 2026-08-28T11:56:20Z status=routed owner=burndown by=cr note=Fix needs the .blend regenerated, which this review is forbidden to do; Epic 2 re-authors this geometry -- lead to re-own to the 2.1 key
+- 2026-08-30T06:08:47Z status=routed owner=4-2-inserts-as-lights-through-cups by=burndown note=overflow re-own. l_insert_left's lens protruding 0.5 mm above the playfield violates AD-11's 'lens and cup geometry below the surface', and 4.2 is literally the inserts-as-lights-through-cups story - the gate that cannot pass while the lens sits proud.
 
 ### DW-48: The collision loader's flipper-length assertion is axis-agnostic, so a bat with the right extent on the WRONG axis passes
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
@@ -288,6 +302,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: src/sim/physics/loader/index.ts reads surface into CollisionNodeDoc but applyMaterial() keys only on physMaterial; no hit object ends up carrying a ContactSurface. The sibling 'devices' field got an explicit comment explaining its deferral; surface is dropped silently
 - 2026-08-28T11:56:20Z status=routed owner=burndown by=cr note=AD-13 drives contact sound from ContactEvent.surface; the first audio consumer needs this wired -- lead to re-own to that story
+- 2026-08-30T06:08:47Z status=routed owner=4-4-mechanical-sounds-from-contacts by=burndown note=overflow re-own. The collision loader parses each node's surface property and discards it, so AD-13's contact-sound selection has no carrier; 4.4 is the story that needs that carrier to exist and will fail without it.
 
 ### DW-50: Nothing automated covers ATTRIBUTIONS.md's generated-asset provenance rows, so a future asset can land with no row and every check stays green
 - source: spec-1-4-a-placeholder-table-at-real-dimensions-through-the-export-pi.md | severity: low | fix-risk: low | footprint: out-of-footprint
@@ -353,6 +368,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: src/sim/physics/switches.ts; src/sim/physics/devices.ts
 - evidence: Two byte-equivalent implementations of the same slab test; a fix applied to one will silently miss the other
 - 2026-08-28T18:24:33Z status=routed owner=burndown by=harvest note=Pure refactor, no behaviour change; safe to batch at the burn-down gate
+- 2026-08-30T06:09:46Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-62: create-engine.ts's render loop wraps onFrame in try/catch only on the FIRST frame, so a later presentation throw stops Babylon's render loop silently with nothing surfaced to the user
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: med | fix-risk: med | footprint: src/presentation/scene/create-engine.ts:304-317
@@ -376,6 +392,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: test/machine-serve-drain.test.ts
 - evidence: ball.pos.x < 468.4 written as a literal; a geometry change moves the boundary and the assertion silently stops meaning what it says
 - 2026-08-28T18:24:33Z status=routed owner=burndown by=harvest note=Trivial test-hygiene fix, safe to batch
+- 2026-08-30T06:08:47Z status=routed owner=2-1-the-playfield-geometry-and-the-full-switch-set by=burndown note=overflow re-own. The hardcoded lane-divider x in machine-serve-drain.test.ts can only be derived from the collision document once real geometry exists, which is 2.1.
 
 ### DW-66: Story 1.5's s_shooter_lane acceptance criterion is verified in two halves that are never checked together against the real device
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: med | fix-risk: low | footprint: src/sim/rules/devices.ts; test/switch-zones.test.ts; test/machine-serve-drain.test.ts
@@ -397,6 +414,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: med | footprint: in-epic
 - evidence: Code review 2026-08-28. src/sim/physics/loader/index.ts throws on an UNKNOWN device name in the document; a device declared in TABLE with no matching document entry passes silently. src/sim/physics/devices.ts then finds pose === undefined and turns every pulse of that device's coil into eject_failed forever -- the coil looks wired and simply never works. The committed document covers both devices, so this is only reachable via a stale or hand-built document; a completeness check would need care not to break the hand-built documents in test/collision-loader.test.ts.
 - 2026-08-28T19:17:12Z status=routed owner=burndown by=cr note=AD-17 wants a malformed collision document to reach the error panel at boot, not to degrade silently at runtime.
+- 2026-08-30T06:08:47Z status=routed owner=2-1-the-playfield-geometry-and-the-full-switch-set by=burndown note=overflow re-own. loadCollision() validates document devices against TABLE but not the reverse, so a TABLE.ballDevices entry missing from the document degrades to a permanent runtime eject_failed instead of a load-time throw; 2.1 completes TABLE.ballDevices and TABLE.switches, which is exactly when a one-way validation starts hiding real mistakes.
 
 ### DW-70: GameState.machine.deviceSlots is written by sim/loop after rules.step() returns, not derived inside sim/rules/ball-controller.ts as AD-7 and this story's task 18 both require
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: med | fix-risk: high | footprint: in-story
@@ -407,6 +425,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-5-a-ball-rolls-drains-and-is-served-on-the-fixed-step-loop.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: Code review 2026-08-28. expect(wedge.worstMs).toBeGreaterThan(ordinary.meanMs * 10) compares two measurements taken on whatever machine runs pnpm test; a GC pause in the ordinary run or a quiet wedge run flips it, and the JIT-warmup mitigation does not remove the dependence on scheduler noise. The spec's task 24 requires the substance ('its worst single step is at least an order of magnitude above an ordinary step's'), so the assertion is spec-bound; only its wall-clock formulation is at issue. A step-COUNT or contact-iteration measure would be robust. The same file also hardcodes node_modules/vitest/vitest.mjs rather than resolving it.
 - 2026-08-28T19:17:25Z status=routed owner=burndown by=cr note=Note for whoever sees the first flake: this is expected noise, not a solver regression -- the out-of-process guard is the real gate.
+- 2026-08-30T06:09:46Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-72: The full multi-second flipper cradle is untestable until the playfield carries geometry beside the flippers: a ball held on a raised bat rolls along it under the 6.5deg pitch and leaves after roughly 1.2-1.9s because there is no inlane guide or post to form the cradle pocket
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: low | footprint: public/assets/dragonwar.collision.json,assets/src/**,test/flipper-collision.test.ts
@@ -424,12 +443,14 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: med | footprint: in-epic
 - evidence: Code review 2026-08-29. src/sim/physics/machine.ts builds coilEnabled with all four coils and reads only c_flipper_l/c_flipper_r (flipper rule) and c_autolaunch (plunger rule); deviceMechanics.applyCommands(tick, pulses) receives every pulse unfiltered, so coilEnabled.c_trough_eject is written and never read. AD-5: 'gated only by CoilCommand enable | disable ... Tilt, game over and Attract disable all of them together'. Unreachable today (RulesStepResult.commands is readonly never[], so only the dev hatch issues commands) and the spec deliberately scoped the map to 'the only gate on the flipper rule', so this is dead state that LOOKS live rather than a missed Story 1.6 requirement.
 - 2026-08-29T05:29:26Z status=routed owner=burndown by=cr note=Re-own to the story that first drives hardware disable from rules (tilt / game over / attract, 2-11). Either gate applyCommands on the map or drop the two unread keys -- do not leave a written-but-unread enable flag.
+- 2026-08-30T06:09:45Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-75: host/loop.ts's tickAt() stamps a DOM event against wall-clock elapsed time with no upper bound, so a transition produced during a frame longer than MAX_OWED_TICKS lands past the last tick that frame runs and waits in pendingTransitions until the sim catches up
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: med | fix-risk: med | footprint: in-epic
 - evidence: Code review 2026-08-29. tickAt returns Math.max(originTick+1, originTick+floor(msToTicksExact(now-originMs))) with no cap; sim/loop's advance() caps owedTicks at MAX_OWED_TICKS and DISCARDS the excess (sim_time_discarded), so after a >200 ms stall the two diverge and a keypress made inside the stall applies seconds late. tickAt also ignores advance()'s owedRemainderTicks, so it can be one tick off on any frame whose elapsed time is not a whole number of ticks. The I/O matrix row is self-contradictory here ('one after the last clamps to it, AND frameInForceAt carries it forward'), so the correct behaviour is a spec question, not a code one.
 - 2026-08-29T05:29:26Z status=routed owner=burndown by=cr note=Settle the matrix row's wording first (clamp to the frame's last tick, or carry forward), then implement one of them. The verification half is in this review's Fix Pack -- tickAt has no test of its own today.
 - 2026-08-29T08:03:03Z occurrence=1-6-flippers-and-the-manual-plunger-as-hardware-rules
+- 2026-08-30T06:09:45Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-76: The flipper_eos ContactEvent discards the ported mover's own end-of-stroke angular speed and is stamped one tick after the stop was reached, so Story 4.4 has nothing to modulate gain and pitch with and the sound lands a tick late
 - source: spec-1-6-flippers-and-the-manual-plunger-as-hardware-rules.md | severity: low | fix-risk: low | footprint: in-epic
@@ -464,6 +485,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: TUNING.flipper.rampUp's source string (U+00A7) and assertNoNestedMsKeys()'s throw string (U+2026) are new; twelve more predate this story at tuning.ts lines 87-104, 184-186, 380. Escaping two of fourteen is worse than either consistent extreme, so review iteration 1 deliberately left them and iteration 2 agrees -- but the eventual consistent fix had no owner until now.
 - 2026-08-29T08:02:59Z status=routed owner=burndown by=cr note=Fix file-wide in one pass, not per-story; comments and prose stay exempt
 - 2026-08-30T05:52:17Z occurrence=1-9-dev-tuning-panel-and-the-first-feel-ritual by=cr note=story 1.9 added one more literal (U+2014 in tuning-panel.ts's meta template literal), fixed to u2014 at cr; file-wide literals remain in src/sim/table/tuning.ts and five test files
+- 2026-08-30T06:09:46Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-82: The distributed bundle now contains vpinball/vpinball GPLv3+ cabinet-physics code but public/THIRD-PARTY-NOTICES.txt carries no vpinball block, and NOTICE still lists vpinball as not yet present -- so a build would ship that code without the notice that file exists to carry
 - source: spec-1-7-nudge-the-tilt-bob-and-the-slam-sensor.md | severity: high | fix-risk: low | footprint: public/THIRD-PARTY-NOTICES.txt,NOTICE
@@ -482,6 +504,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-7-nudge-the-tilt-bob-and-the-slam-sensor.md | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: test/cabinet-substep.test.ts covers cabinetSubstepsPerTick()'s arithmetic and its two throw branches, but never drives applyFrame() or stepSubstep() at substepsPerTick > 1. Deleting '* substepsPerTick' from nudge-impulse.ts:85 leaves the suite green today. Code review added a pin that the cabinet's integrated time per tick equals the solver's PHYS_FACTOR, which makes a bare TICK_HZ change fail loudly; the sub-step BEHAVIOUR (impulse length scaling, delta accumulation, bob cadence) is still unexercised and would land unverified on whichever story changes the tick rate.
 - 2026-08-29T13:32:54Z status=routed owner=burndown by=cr note=Owned with DW-2 (TICK_HZ ratification); exercise a mocked SECONDS_PER_TICK=0.002 through applyFrame before any tick-rate change lands
+- 2026-08-30T06:09:45Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-85: The roll-and-drain golden contributes zero unique discriminating signal: its terminal GameState equals its own starting state (ball drained, trough all-true), so a defect that perturbs the trajectory but converges back to that closed-loop configuration leaves the hashed final state unchanged
 - source: spec-1-8-replays-golden-state-hashes-and-ci-parity.md | severity: med | fix-risk: low | footprint: test/replays/roll-and-drain.golden.json,test/replay-goldens.test.ts
@@ -503,11 +526,13 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-1-8-replays-golden-state-hashes-and-ci-parity.md (code review) | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: core.autocrlf=true and .gitattributes carries no rule matching test/replays/**. src/sim/loop/replay.ts, tools/replay-parity/serve.mjs, test/replay-goldens.test.ts and test/sim-boundary.test.ts's DW-79 block each reason at length about line endings and each normalises independently. One eol=lf rule would make the whole class structural instead of four separate workarounds. .gitattributes is explicitly out of this story's footprint.
 - 2026-08-29T17:42:32Z status=routed owner=burndown by=cr note=one-line .gitattributes rule; needs a footprint widening
+- 2026-08-30T06:09:46Z owner=1-10-epic-1-burn-down by=burndown note=chartered into the Epic 1 burn-down story (Rule 17), selected by severity then occurrences then lowest fix-risk; it has an acceptance bullet naming it in epics.md Story 1.10
 
 ### DW-89: tools/replay-parity/serve.mjs's middleware routes have no automated test -- only its two exported regexes do, so a broken golden route surfaces only in the manual browser smoke
 - source: spec-1-8-replays-golden-state-hashes-and-ci-parity.md (code review) | severity: low | fix-risk: med | footprint: in-epic
 - evidence: test/replay-parity-logic.test.ts covers GOLDEN_NAME_PATTERN and GOLDEN_ROUTE_PATTERN only. goldensPlugin()'s index.json / collision.json / per-golden handlers, their existsSync 404 paths, and listGoldenNames()'s filter-and-warn have no test; test/replay-parity-orchestration.test.ts stubs globalThis.fetch and never reaches the server. A route returning an empty index or 404ing every golden would show as a clean page-level failure only when a human opens it. Covered end-to-end today by the lead's per-story Chrome smoke (re-verified this review: 5/5 PASS), which is why this is low rather than a gap in AC 5's evidence.
 - 2026-08-29T17:42:41Z status=routed owner=burndown by=cr note=needs a route-level harness over the connect middleware; live smoke covers it today
+- 2026-08-30T06:08:48Z status=routed owner=6-6-the-browser-matrix-and-the-feel-ritual-on-both-paths by=burndown note=overflow re-own. tools/replay-parity/serve.mjs's middleware routes are untested (only its two exported regexes are), so a broken golden route surfaces only in a manual browser smoke; 6.6 is the story that drives the parity page across the matrix.
 
 ### DW-90: AC 5's Reference-machine comparison is author-owned: only the author can play the Stern Dungeons and Dragons and record the three comparative verdicts
 - source: spec-1-9-dev-tuning-panel-and-the-first-feel-ritual.md | severity: med | fix-risk: med | footprint: in-story

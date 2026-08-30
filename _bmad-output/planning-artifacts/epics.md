@@ -689,6 +689,101 @@ So that I can play the Reference machine, play the build, and turn each named di
 **Then** the document defines the three items (cradling, flipper snap, rejection/rebound), records the first dated entry per item as "no material difference", a tuning change, or an accepted difference, and links the golden replay that captures any change
 **And** the ritual is run on both the WebGL2 (`?renderer=webgl2`) and default paths
 
+### Story 1.10: Epic 1 burn-down
+
+As the author,
+I want the twelve highest-priority items Epic 1 deferred fixed in one pass — the gaps in what the
+type-checker and the boundary linter actually cover, the two real host/sim defects the reviews found,
+the unexecuted cabinet sub-step path, and a handful of cheap hygiene items —
+So that Epic 1 closes having paid down what it chose to defer, instead of handing Epic 2 a pile of
+small debts that no story's gate will ever fail on.
+
+`[ADDED 2026-08-30 — chartered by the Epic 1 burn-down gate (Rule 17). Twelve of the thirty-five
+`owner:burndown` entries, selected by severity, then occurrence count, then lowest fix-risk. The
+remaining twenty-three were dispositioned at the same gate: ten re-owned to named stories in Epics 2,
+4, 5 and 6; thirteen set aside for the user's decision sheet because they are product calls or need a
+human's hands. See the story change log below.]`
+
+**Acceptance Criteria:**
+
+**Given** the three tsconfig projects
+**When** the typecheck coverage is asserted
+**Then** every file under `src/` is provably covered by exactly one project, and a new `src/` subdirectory
+outside `sim|host|presentation` — or a `src/*.tsx` — fails a test rather than being silently typechecked
+by nothing — *`DW-32`*
+
+**Given** the boundary-lint fixture suite
+**When** a rule's exemption is broadened
+**Then** a fixture fails — the fixtures prove each rule's exemptions hold, not merely that the rule fires,
+so an over-broad exemption edit can no longer leave the whole suite green — *`DW-39`*
+
+**Given** the per-coil enable/disable map
+**When** `setCoilEnabled('c_trough_eject', false)` is set and a coil pulse is issued
+**Then** the pulse path consults the map and the coil does not fire; and `c_autolaunch` answers a manual
+plunge and a coil pulse identically — *`DW-74`*
+
+**Given** `host/loop.ts`'s `tickAt()`
+**When** a frame runs longer than `MAX_OWED_TICKS`
+**Then** the stamped transition is bounded to the last tick that frame actually runs, rather than landing
+past it and waiting in `pendingTransitions` until the sim catches up — *`DW-75`*
+
+**Given** the cabinet's multi-sub-step path (`substepsPerTick > 1`)
+**When** the tick-rate-dependent scaling in the cabinet port is exercised
+**Then** a test executes that path and pins its scaling, so it is verified behaviour rather than
+constructed-and-guarded-but-never-run — *`DW-84`*
+
+**Given** the dependency-cruiser configuration
+**When** a cycle is introduced among the seam contracts, or a `sim/table` → `sim/physics` import is added
+**Then** the lint fails — a `no-circular` rule and direction rules inside `sim/` both exist — *`DW-37`*
+
+**Given** `no-device-name-literal`'s broad single-letter prefixes
+**When** an ordinary `c_`, `f_` or `l_` string is legitimately needed in presentation code
+**Then** an in-file suppression mechanism exists and is documented, and a test proves it works and is
+narrow — *`DW-38`*
+
+**Given** Rule 14 (non-ASCII authored as escape sequences)
+**When** `src/sim/table/tuning.ts` is checked
+**Then** its fourteen literal `U+00A7`/`U+2026` bytes are escape sequences, and a check fails on any new
+literal non-ASCII byte in `src/` — *`DW-81`*
+
+**Given** `.gitattributes`
+**When** the goldens are checked out on Windows
+**Then** `test/replays/**` carries an `eol=lf` rule, so the CRLF hazard the goldens are designed around is
+prevented at source rather than only worked around — *`DW-88`*
+
+**Given** `test/solver-termination.test.ts`'s in-process companion
+**When** the default suite runs under scheduler noise
+**Then** it no longer asserts a wall-clock ratio between two timing runs — the assertion pins solver
+termination itself, so the test cannot fail for reasons unrelated to what it is named for — *`DW-71`*
+
+**Given** the swept-segment/box intersection test
+**When** `switches.ts` and `devices.ts` are read
+**Then** the verbatim duplicate (`segmentIntersectsBox` / `segmentIntersectsBoxLocal`) is a single shared
+implementation with one set of tests — *`DW-61`*
+
+**Given** `AGENTS.md`'s scaffold-stage TODOs
+**When** Epic 1 closes
+**Then** each is answered from what Epic 1 actually built, or removed with a reason — *`DW-5`*
+
+**Given** every acceptance criterion above
+**When** its pinning test is written
+**Then** the spec's `## Verification` records a named mutation per criterion that was applied, observed
+red, reverted, and the tree confirmed byte-identical (Rule 19)
+
+**Change log**
+
+- **2026-08-30 — chartered by the Epic 1 burn-down gate.** Epic 1 finished with thirty-five entries
+  owned by `burndown` against a `ledger_cap` of 8, so Rule 17 required a bounded burn-down story. It is
+  numbered **1.10, not the conventional N.9**, because `Story 1.9` is the Dev tuning panel and the first
+  feel ritual; the rule's fallback is the next free number under the epic. Twelve entries were chartered
+  (`burndown_story_max` is 12) by severity, then occurrence count — no entry had two or more — then
+  lowest fix-risk: five MEDs (`DW-32`, `DW-39`, `DW-74`, `DW-75`, `DW-84`) and seven low-fix-risk LOWs.
+  `DW-33` is the notable exclusion and its own note records why: LOW severity with MED fix-risk placed it
+  behind twelve cheaper items, so it went to Story 2.1 rather than into this charter. Nothing here is a
+  product decision: the thirteen `escalated` / `decision-pending` entries — including `DW-70`'s live
+  AD-7 violation and `DW-2`'s TICK_HZ ratification — were set aside untouched for the user's
+  decision sheet at the merge gate, because a burn-down story cannot ratify a tick rate or run a playtest.
+
 ## Epic 2: A Complete Game on the Real Shot Map
 
 A stranger can play a full 1–4 player game with no instructions: the real geometry (OQ-6 answered, OQ-5 confirmed or a scoop added), every device and shot, reliable switches, Lawlor's test per shot, start and Hot seat, plunge and Skill shot, ball save, bonus, lane change, tilt warnings, Tilt and Slam tilt, ball search, Match, game over back to a minimal Attract — all read from a DMD Backglass and inserts lit in the held colour grammar. Geometry is the first story and iterates with the rules.
