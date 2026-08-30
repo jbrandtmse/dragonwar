@@ -22,7 +22,7 @@ import { buildFlipperConfig, buildFlipperPhysicsData } from './flipper/flipper-c
 import { FlipperHit } from './flipper/flipper-hit';
 import type { FlipperMover } from './flipper/flipper-mover';
 import type { FlipperState } from './flipper/flipper-config';
-import { TUNING, type ResolvedTuning } from '../table/tuning';
+import type { ResolvedTuning } from '../table/tuning';
 import type { CoilName } from '../table/names';
 import type { LoadedFlipper } from './loader';
 import type { ContactEventLike } from './devices';
@@ -94,11 +94,18 @@ function buildSideRig(flipper: LoadedFlipper, tuning: ResolvedTuning, physics: P
 	};
 
 	const hit = new FlipperHit(config, data, flipperState, events);
-	// The material comes from the already-authored TUNING.materials.flipper_rubber
-	// -- the same setElasticity()/setFriction()/setScatter() calls
+	// The material comes from the CALLER's already-resolved `tuning` parameter
+	// -- never the module-level `TUNING` import -- so a hot-applied override
+	// (Story 1.9's tuning panel, `createLoop({ tuning })`'s rebuild seam)
+	// actually reaches the flipper's own material. Story 1.9 review finding:
+	// this previously read the bare `TUNING` import, so `materials.
+	// flipper_rubber.elasticityFalloff`, the AC 3 "primary feel knob"
+	// (tuning.ts's own doc comment), was NOT wired through the seam at all --
+	// overriding it via createLoop({ tuning }) had zero effect on the running
+	// sim, silently. Same setElasticity()/setFriction()/setScatter() calls
 	// sim/physics/loader/index.ts's applyMaterial() makes for every other hit
 	// object in the compound body, not a second material-resolution path.
-	const material = TUNING.materials.flipper_rubber;
+	const material = tuning.materials.flipper_rubber;
 	hit.setElasticity(material.elasticity.value, material.elasticityFalloff.value);
 	hit.setFriction(material.friction.value);
 	hit.setScatter(material.scatter.value);

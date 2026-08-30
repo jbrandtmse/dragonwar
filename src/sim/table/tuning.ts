@@ -8,17 +8,23 @@
 // transcribed, ships `confidence: 'unverified'` with the authoring stated in
 // `source` (this story's own "Always" rule).
 //
-// BLOCKED tunable, named rather than invented (this story's own "Block If"
-// rule): FR-9's hop control ("Occasional ball hops are produced by one
-// explicit tuning control... setting the control to zero produces no hops;
-// the default produces occasional hops on hard hits") states no unit, no
-// magnitude and no mechanism -- the architecture spine's own Deferred section
-// lists "Hop control mechanism" itself as undecided ("vpx-js has no such
-// knob"). A number cannot be defensibly authored when even its *unit* is
-// unknown, unlike the tunables below (each of which has a known unit and a
-// stated behavioural bound to author within). No `hopControl` entry exists
-// in `TUNING`; the first story that implements the mechanism must add it
-// alongside its unit and formula, not before.
+// `hopControl` (Story 1.9, AC 2): FR-9's hop control ("Occasional ball hops
+// are produced by one explicit tuning control... setting the control to
+// zero produces no hops; the default produces occasional hops on hard
+// hits") stated no unit, no magnitude and no mechanism when this file
+// previously recorded the tunable as deliberately BLOCKED -- the
+// architecture spine's own Deferred section listed "Hop control mechanism"
+// as undecided ("vpx-js has no such knob"). Story 1.9 picks the mechanism
+// (`src/sim/physics/hop.ts`, authored beside the port rather than inside
+// it -- DW-79's freeze covers exactly the ported files a hop would
+// naturally live in) and, with a mechanism now defined, a unit: `hopControl`
+// is a DIMENSIONLESS scale on the ball's own post-step velocity-change
+// excess above an authored trigger, in the same physics-internal units the
+// solver already works in (`hop.ts`'s own header carries the measurement).
+// `0` is the exact identity -- no hops, by construction, not by tuning close
+// to zero; the shipped default is authored, unverified, and explicitly
+// owed to Story 1.9's own feel ritual (`docs/feel-test.md`) for ratification
+// against the Reference machine.
 
 import { deepFreeze, type SettleClass } from './dragonwar';
 import { TICK_HZ } from '../contracts/time';
@@ -184,6 +190,25 @@ export const TUNING = deepFreeze({
 	defaultPitchDeg: entry(6.5, 'FR-10 consequence text; AD-10 TABLE.reference.pitchDeg; addendum §2 reference geometry ("pitch 6.5°... high confidence")', 'high'),
 	pitchMinDeg: entry(6.0, 'FR-10 consequence text: "range 6.0-8.5° [ASSUMPTION: bounds]"', 'medium'),
 	pitchMaxDeg: entry(8.5, 'FR-10 consequence text: "range 6.0-8.5° [ASSUMPTION: bounds]"; corroborated by addendum §2 "competition range 6.5-8.5°"', 'medium'),
+
+	/**
+	 * FR-9 / AD-15 ("hop control; pitch bounds" -- the two tunables the
+	 * architecture spine explicitly names): a dimensionless scale on the
+	 * excess of a ball's own post-step velocity change above
+	 * `src/sim/physics/hop.ts`'s authored trigger, applied ONLY while a
+	 * flipper coil is energised. `0` is the exact identity (no hops, by
+	 * construction -- `hop.ts`'s own short-circuit, not a tuning value close
+	 * to zero). This story's own measurement (`test/hop-control.test.ts`,
+	 * `## Verification`): at the default below, the paired stress replay's
+	 * maximum ball height clears the `hopControl = 0` run's by a named
+	 * margin, and no ball passes the glass. Story 1.9's feel ritual
+	 * ratifies this default against the Reference machine.
+	 */
+	hopControl: entry(
+		0.35,
+		'authored: FR-9 states the two-endpoint behaviour (0 = no hops, default = occasional hops on hard hits) but no unit or magnitude; hop.ts (this story) supplies both -- measured this pass against the paired hopControl=0-vs-default stress replay (test/hop-control.test.ts) to produce a clear, glass-safe margin without every hard hit turning into a launch',
+		'unverified',
+	),
 
 	/**
 	 * FR-16: "triggered by a rapid repeated Nudge past a threshold distinct

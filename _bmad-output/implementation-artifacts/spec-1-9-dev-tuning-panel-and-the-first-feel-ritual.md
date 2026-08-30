@@ -2,9 +2,10 @@
 title: 'Story 1.9: Dev tuning panel and the first feel ritual'
 type: 'feature'
 created: '2026-08-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5aa86165b626a22581c5afe7cefba1ceff516ea0'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
@@ -34,6 +35,135 @@ deferred:
     human: 'play the Stern Dungeons & Dragons reference machine and record the three comparative verdicts'
     footprint: 'in-story'
     severity: 'med'
+  - summary: >-
+      No test drives a hard flipper strike through createMachine()'s own public step() --
+      hop.ts's only test coverage (test/hop-control.test.ts) reimplements machine.ts's tick
+      loop directly (loadCollision() + createFlipperMechanics() + createHopMechanics()
+      wired by hand), never Machine.step() itself, and a real probe run through all five
+      goldens confirmed none of them ever exercises the hop trigger at all.
+    evidence: |-
+      Code reading confirms hop.ts is correctly wired into machine.ts's real step()
+      (:196-233): before/after velocity captured, physics.step() runs, hopMechanics.
+      applyPostStep() called with the post-step flipper angular velocities. A direct probe
+      (createLoop({ tuning }) driven through all five goldens' recorded transitions at
+      hopControl=0 vs the shipped 0.35) showed byte-identical max ball z on every golden --
+      none of them ever produces a ball struck by an actively-rotating flipper hard enough
+      to cross the trigger, so the wiring has never been exercised end-to-end through the
+      real orchestration path, only through a hand-parallel reimplementation that could
+      silently diverge from a future machine.ts refactor without any test catching it.
+      Machine's public interface has no ball-injection seam, so closing this needs either a
+      new golden purpose-built to strike a ball with an actively-swinging flipper, or a
+      Machine API addition -- both bigger than a mechanical patch.
+    location: 'src/sim/physics/machine.ts:196-233, src/sim/physics/hop.ts, test/hop-control.test.ts'
+    severity: medium
+  - summary: >-
+      hop.ts's active-rotation gate is global across balls and both flippers -- it fires for
+      ANY sampled ball whose velocity delta crosses the trigger as long as EITHER flipper is
+      rotating, with no check that the ball was actually near or struck by the rotating one.
+    evidence: |-
+      A ball involved in an unrelated large velocity change (a two-ball collision, a slingshot
+      fire, a device eject) at the same tick the OTHER flipper happens to be mid-stroke (e.g.
+      the player is holding both flip buttons) would incorrectly qualify for a hop. No test
+      exercises this cross-contamination case, even though test/replays/two-ball-collision.
+      golden.json already exists as a natural fixture for it. Narrow, requires a specific
+      combination of inputs (both flippers active, an unrelated hard hit) to manifest.
+    location: 'src/sim/physics/hop.ts:130 (the `rotating` check)'
+    severity: low
+  - summary: >-
+      No coordination exists between the tuning panel, the replay player and the replay
+      recorder, even though all three independently call hostLoop.reset() or otherwise touch
+      shared loop state -- three distinct gaps, one root cause (no cross-seam contract was
+      designed beyond the single AC'd "hot-apply during a recording" case).
+    evidence: |-
+      (1) A hot-apply during an active replayPlayer.play() rebuilds the sim mid-playback with
+      no signal to ReplayPlayer, which keeps waiting on a coilQueue/durationTicks against a
+      sim it no longer matches. (2) replayPlayer.start() resets the sim to the RECORDING's own
+      header tuning, but an already-open tuning panel's displayed rows/overrides map is never
+      refreshed to reflect it -- the panel's next edit silently discards the played-back
+      tuning and reapplies only its own stale overrides plus TUNING defaults. (3) Calling
+      play() while a recording is in progress feeds replayed transitions into the live
+      recording without ever calling replayRecorder.invalidate() (only the panel's hotApply()
+      does that), so a saved "golden" could silently include replayed rather than
+      player-driven input. None of these three-way interactions is named by any AC.
+    location: 'src/host/dev/tuning-panel.ts, src/host/dev/replay-player.ts, src/host/dev/replay-recorder.ts, src/host/boot.ts'
+    severity: medium
+  - summary: >-
+      src/host/dev/tuning-source.ts's hand-rolled entry() line patcher has no depth
+      validation on its GROUP_CLOSE regex and can silently corrupt an emitted line if an
+      entry() call has no comma after its value.
+    evidence: |-
+      GROUP_CLOSE = /^\t+\}/ pops the group stack on any line starting with one-or-more tabs
+      then '}', without checking the tab count matches the currently-open group's depth. A
+      comma-less inline entry() value falls back to a slice(-1) that keeps only the last
+      character. Currently unreachable: test/tuning-source.test.ts's byte-identity assertion
+      against the REAL src/sim/table/tuning.ts already covers every line shape that file
+      actually contains, so this is dormant until tuning.ts's own formatting changes in a way
+      the parser does not anticipate.
+    location: 'src/host/dev/tuning-source.ts (GROUP_CLOSE regex, replaceEntryValue())'
+    severity: low
+  - summary: >-
+      The tuning panel has no way to clear an individual override back to its shipped
+      default, or to close/unmount the panel once opened -- TuningPanel.destroy() is defined
+      on the interface but never called from anywhere in this diff.
+    evidence: |-
+      Every edit only ever adds/updates an entry in the panel's internal overrides Map; there
+      is no UI affordance to revert a single tunable (short of retyping the original number
+      by hand) or reset the whole panel. window.__dragonwarBoot exposes openTuningPanel() but
+      no close/toggle counterpart, so recovering "panel absent" (which AC 5's default-path
+      ritual depends on) requires a page reload. Dev-tool UX gap, not a correctness defect.
+    location: 'src/host/dev/tuning-panel.ts (destroy(), openTuningPanel())'
+    severity: low
+  - summary: >-
+      src/host/dev/replay-player.ts's start() has no re-entrancy guard -- calling it again
+      while a prior playback is still in progress silently abandons the first one, and
+      calling it while the host loop is stopped leaves isPlaying permanently true.
+    evidence: |-
+      start() unconditionally overwrites activeHostLoop/coilQueue/durationTicks/playing with
+      no check of the current playing state, so a second start() call drops the first
+      playback's onComplete callback without ever firing it. Separately, onFrame() (the only
+      thing that can complete a playback) is driven by the host loop's own onAdvance hook, so
+      starting playback on a stopped loop means onFrame() never runs again and isPlaying
+      never resets. Dev-only "Play" affordance; no AC exercises either scenario.
+    location: 'src/host/dev/replay-player.ts:81-89 (start())'
+    severity: low
+  - summary: >-
+      The tuning panel has two unhandled-error paths: an override whose path does not match
+      any real TUNING leaf is a silent no-op at hot-apply time (only surfacing later as an
+      uncaught UnknownTuningPathError on Export), and Export itself has no try/catch around
+      serialiseTuning().
+    evidence: |-
+      buildOverriddenTuning() applies overrides by walking TUNING and matching paths; an
+      override whose path never matches (e.g. a stale reference after a tuning.ts rename)
+      never throws at hot-apply time -- it just has no effect, then later throws uncaught
+      from the Export click handler with no visible error surfaced to the panel's own UI.
+      Currently unreachable in normal use (every path the panel enumerates comes from the
+      real TUNING itself), so this only bites a future refactor that renames a tunable while
+      old overrides are still held in an open panel session.
+    location: 'src/host/dev/tuning-panel.ts (buildOverriddenTuning(), the export click handler)'
+    severity: low
+  - summary: >-
+      The tuning panel's rows have no `<label for>` tied to their `<input>` -- each tunable's
+      name is a plain `<span>`, not a label programmatically associated with its input.
+    evidence: |-
+      Assistive tech cannot associate the tunable's name with its input element via the
+      standard label/for mechanism. Low real-world impact given this is a dev-only,
+      console-gated tool never shipped on the default path, but a real accessibility gap.
+    location: 'src/host/dev/tuning-panel.ts (row construction)'
+    severity: low
+  - summary: >-
+      The tuning panel gives no visible indication when an out-of-range (but finite)
+      pitchMinDeg/pitchMaxDeg/defaultPitchDeg edit gets silently clamped by machine.ts --
+      the I/O matrix's "the panel shows the clamp" clause has no implementation or test.
+    evidence: |-
+      The change listener stores the raw, unclamped value into overrides and calls hotApply()
+      unconditionally; nothing re-reads the resolved (clamped) tuning afterward to re-sync
+      input.value or otherwise surface that a clamp occurred, and the exported
+      serialiseTuning() call serialises the raw override too. The underlying CLAMPING itself
+      is implemented and tested (test/pitch-tunable.test.ts); only the panel-level "shows the
+      clamp" UI affordance is missing. AC 4's own acceptance text ("outside that band the
+      value is clamped") does not require the panel to visibly indicate it.
+    location: 'src/host/dev/tuning-panel.ts (the input change listener)'
+    severity: low
 ---
 
 <intent-contract>
@@ -179,7 +309,46 @@ deferred:
 
 ## Spec Change Log
 
+- **2026-08-29, implementation pass.** Two findings, both fixed in-story
+  (neither widens scope — both are fixes to this story's own new code):
+  1. `src/sim/physics/flippers.ts`'s `buildSideRig()` read
+     `materials.flipper_rubber` off the module-level `TUNING` import rather
+     than the `tuning: ResolvedTuning` parameter every sibling
+     `create*Mechanics()` reads its material from — so AC 3's own "primary
+     feel knob" (`elasticityFalloff`) was not actually reachable through the
+     Phase 1 rebuild seam. Fixed to read `tuning.materials.flipper_rubber`.
+  2. The hop mechanism's first working design gated on "a flipper coil is
+     held" rather than "the bat is actively rotating", which made the
+     `roll-and-drain` golden's own multi-thousand-tick continuous hold
+     re-trigger the hop every time a hopped ball landed back on the
+     now-STATIONARY bat — an unbounded energy-adding feedback loop that
+     stopped the ball ever draining. Fixed by gating on
+     `flipperMechanics.state.{l,r}.angularVelDegPerSec` (threshold 30
+     deg/s) instead, plus a 200-tick per-ball cooldown. See `## Verification`
+     → "Numbers this story must record" for the full account and the
+     measured before/after.
+
 ## Review Triage Log
+
+### 2026-08-29 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9 (high 4, medium 4, low 1)
+- defer: 9 (medium 2, low 7)
+- reject: 3
+- addressed_findings:
+  - `high` `patch` `materials.default` (and every non-flipper material — walls, ramps, the playfield plane, the glass plane) was silently unreachable through the Phase 1 rebuild seam: `loadCollision()` read the bare module-level `TUNING` import for every material except the flipper's, the same bug class already found and fixed once for `flippers.ts` this pass. Fixed: `loadCollision(doc, tuning = resolveTuning())` now threads `tuning.materials` through `resolveMaterial()`/`applyMaterial()`/`addWall()`/`addBox()`; `createMachine()` passes its own `tuning` through. New `test/loader-material-tuning.test.ts` (2 tests); mutation demonstrated red/revert.
+  - `high` `patch` The spec's own `## Verification` "Numbers this story must record" section claimed `hold-and-release`'s `expectedHash` "CHANGED... the hop mechanism legitimately fires" — never actually measured, and false (confirmed `7e6ecab7` identical before/after via `git show`, and a direct probe driving all five goldens at `hopControl = 0` vs `0.35` through the real tick loop showed byte-identical max ball z on every one). Corrected in place: all five goldens are hash-unchanged; the hop mechanism is correctly implemented and wired into `createMachine()`'s real `step()` (confirmed by code reading) but none of these five general-purpose goldens happens to produce a ball struck by an actively-rotating flipper hard enough to cross the trigger. Residual gap recorded as `defer`, below.
+  - `high` `patch` `test/hop-control.test.ts` carried a "mutation" test that ran the SAME zero-`hopControl` case twice and compared the results — guaranteed to pass regardless of whether the named mutation existed (this epic's third near-miss on a vacuous assertion; caught before it shipped). Removed as redundant with the file's own determinism test; the already-present paired divergence assertion is the real pinning test for this mutation, re-confirmed red/revert directly against `hop.ts`'s own source this pass.
+  - `high` `patch` The tuning panel's numeric-input guard treated a blank/whitespace-only field as the number 0 (`Number('')` passes `Number.isFinite()`), silently hot-applying an override of 0 and violating the I/O matrix's "Non-finite / non-numeric edit is rejected at the input" contract. Fixed: blank input is now rejected the same way as non-finite input. New test in `test/tuning-panel.test.ts`; mutation demonstrated red/revert.
+  - `medium` `patch` `test/tuning.test.ts`'s "hopControl does not end in Ms" test asserted a string literal against itself (`'hopControl'.endsWith('Ms')`) -- the exact vacuous pattern a PRIOR review finding in the same file already fixed for `troughEjectSpeedMmPerS`/`autolaunchSpeedMmPerS`. Fixed to read the key off live `TUNING`, mirroring that existing pattern.
+  - `medium` `patch` The Export button's DOM click handler (`serialiseTuning()` -> `exportArea.value`) had no test past the pure-function layer -- `test/tuning-source.test.ts` never touches the panel, `test/tuning-panel.test.ts` never fired the click. New test exercises the real DOM stub end to end, asserting exact equality against `serialiseTuning()`'s own output.
+  - `medium` `patch` `replay-player.ts`'s coil-pulse scheduler used strict tick equality, which could silently DROP a queued pulse forever (not merely fire it late, as the file's own header claimed) once a frame's `snapshot.tick` skipped past the target -- the ORDINARY case at the shipped 1000 Hz sim against a ~60 fps rAF, not an edge case. Fixed (`===` to `<=`, still fires late rather than never); header corrected to disclose the true prior failure mode. New `test/replay-player-scheduling.test.ts` (3 tests); mutation demonstrated red/revert.
+  - `medium` `patch` `hop.ts`'s 200-tick per-ball cooldown (the guard against the exact unbounded-feedback bug class this story's own Spec Change Log already hit once, via a different gate) had no test: the existing stress test places a fresh `Ball` per hit, so the per-ball `WeakMap` never saw a repeated hit. New test in `test/hop-control.test.ts` drives the SAME ball through two strikes inside the window and one after; mutation demonstrated red/revert.
+  - `low` `patch` `machine.ts`'s `clampToRange()` could return a value outside the intended band when `pitchMinDeg > pitchMaxDeg` (a panel typo, now reachable since both are ordinary editable `TuningEntry` leaves) because it compared `x` against `min`/`max` without normalising their order. Fixed by normalising via `Math.min`/`Math.max` first. New test in `test/pitch-tunable.test.ts`; mutation demonstrated red/revert (tightened after an initial too-weak assertion coincidentally passed under the mutation).
+
+Process note: the diff first handed to all four review layers was incomplete (a pathspec-exclusion bug silently dropped the 20 tracked-modified files, leaving only the 12 new ones) -- caught when two of the four reviewers (`verification-gap`, `intent-alignment`) independently noticed and self-corrected by reading the full worktree diff directly. The diff was rebuilt and `blind-hunter`/`edge-case-hunter` were re-run against the complete, corrected version; their first-pass output (against the incomplete diff) was discarded except where it pointed at genuine defects in the 12 new files, all confirmed against the corrected pass.
 
 ## Design Notes
 
@@ -293,18 +462,150 @@ Owned and adjudicated at this story's `ledger_adjudicated` gate: **`DW-86`** (Ph
 - **`DW-80` (tap bound):** pinning test `test/flipper-tap-bound.test.ts` — the 30 ms tap's true peak (tracking the post-release coast, not the release angle) against the 90° stop, asserting the margin against a named number. `mutation: raise TUNING.flipper.strength through the tuning seam → the margin assertion goes red.`
 - **Goldens:** already falsifiable by construction — `assertHeaderMatchesLiveEnvironment` throws on any tuning drift. `mutation: revert one golden's header.gameStart.tuning to its pre-story value → that golden's test goes red with StaleReplayHeaderError.`
 
-**Numbers this story must record in this section before it closes:**
-- The re-measured 30 ms tap peak and its margin against the 90° stop, on the final tuning (`DW-80`; the Story 1.6 baseline was peak 90.0416° vs stop 90.0°, release 104.4°).
-- Per golden: whether `expectedHash` changed after the re-stamp, and the measured reason.
-- The chosen `hopControl` default, its unit-suffixed name, its `source` and `confidence`, and the measured max ball height at 0 vs at the default under the stress replay.
-- The three rebound-to-impact ratios at the three impact speeds, and the flat control ratios.
+**Review-pass additions (this pass's own patch findings, each demonstrated red/revert/clean before this section was closed):**
 
-**Manual checks (lead, per-story smoke — Rule 7 places browser-tooled checks on the lead):**
+- **AC 1 (materials hot-apply, non-flipper):** pinning test `test/loader-material-tuning.test.ts` — overriding `materials.default.elasticity` through `loadCollision(doc, tuning)` changes the playfield rebound ratio. `mutation: revert loadCollision()'s materialsSource to the bare module-level TUNING import → the divergence assertion goes red (demonstrated: 0.3014 vs 0.3014, both runs identical).` Closes a real gap: every non-flipper material (walls, ramps, the playfield plane, the glass plane) — including `materials.default`, which the panel enumerates and lets a developer edit — was silently unreachable through the Phase 1 rebuild seam before this fix, the same bug class already found and fixed once for `flippers.ts`'s `flipper_rubber` read.
+- **AC 1 (blank input rejected):** pinning test `test/tuning-panel.test.ts`'s new "a blank (cleared) input is rejected" case. `mutation: drop the blank/whitespace-only guard before Number() → the resetCalls assertion goes red (demonstrated: 0 → 1).` `Number('')` and `Number('   ')` both coerce to 0, which passes `Number.isFinite()`, so a cleared field previously hot-applied a silent override of 0, contradicting the I/O matrix's "Non-finite / non-numeric edit is rejected at the input, sim untouched" contract.
+- **`DW-86` (play, coil-pulse scheduling):** pinning test `test/replay-player-scheduling.test.ts` — a pulse whose target tick a frame skips past must still fire, not be dropped. `mutation: revert the <= comparison to strict === → the skipped-tick assertion goes red (demonstrated: pulseCoil never called).` The file's own header previously (and inaccurately) disclosed "one or more ticks late" as the failure mode; the real failure mode under strict equality was permanent loss, at the ORDINARY case (a multi-tick rAF frame at 1000 Hz sim / ~60 fps), not an edge case.
+- **AC 2 (hop cooldown):** pinning test `test/hop-control.test.ts`'s new "HOP_COOLDOWN_TICKS" case — a second qualifying strike on the SAME ball inside the 200-tick window must not re-hop; one after the window must. `mutation: disable the cooldown check entirely → the "must NOT add a further hop impulse" assertion goes red (demonstrated: -451.25 vs the expected -460).` Closes a real coverage gap: the existing stress test places a FRESH ball per hit, so the per-ball cooldown — the exact guard this story's own Spec Change Log already needed once, for a DIFFERENT feedback-loop bug (the coil-held gate vs `roll-and-drain`) — had never actually been exercised.
+- **AC 4 (pitch, inverted bounds):** pinning test `test/pitch-tunable.test.ts`'s new "inverted pitchMinDeg/pitchMaxDeg" case — a value genuinely between two swapped bounds must pass through unclamped. `mutation: drop the min/max normalisation in clampToRange() → the exact-value assertion goes red (demonstrated: 8.5 vs the expected 7).`
+- **`AC 2` (removed, not replaced):** `test/hop-control.test.ts` previously carried a test titled "a mutation that clamps the hop impulse to 0 unconditionally reproduces the SAME max height as the true zero run," which ran `runStressReplayOfHardFlipperHits(0)` twice and compared the (real, unmutated) results — guaranteed to pass regardless of whether the described mutation existed, and redundant with the determinism test in the same file. Removed rather than left as a third vacuous assertion in this epic; the spec's own `mutation: clamp the hop impulse to 0 unconditionally → the divergence assertion goes red` line above already correctly names the REAL pinning test (the paired divergence assertion, immediately preceding it in the same file), which this pass re-confirmed red/revert directly against `hop.ts`'s own source.
+
+**Numbers this story must record in this section before it closes:**
+
+- **DW-80, re-measured on this story's final tuning:** 30 ms tap releases at
+  **104.3998°**, coasts under its own momentum to a true peak of
+  **90.0416°** — a margin of **0.0416°** short of the 90° end-of-stroke stop
+  (`test/flipper-mover.test.ts`'s own named-margin assertion,
+  `toBeCloseTo(0.0416, 3)`). Numerically **identical** to Story 1.6's own
+  baseline (peak 90.0416°, stop 90.0°, release 104.4°) — expected, since this
+  story touches no `TUNING.flipper.*` entry and the ported mover is
+  untouched. The margin did not go to zero or negative, so the Block-If
+  ("a flipper tunable would have to change purely to make DW-80's criterion
+  pass") never fired.
+- **Per golden, after re-stamping `header.gameStart.tuning` to the live
+  `resolveTuning()` (which now includes `hopControl`) and re-deriving
+  `expectedHash`/`expectedGameStateHash`:**
+  - **Correction (review pass, this story):** the paragraph originally here
+    claimed `hold-and-release`'s `expectedHash` changed because its own
+    flipper press "genuinely strikes the ball while the bat is mid-stroke,
+    so the hop mechanism legitimately fires." That claim was never actually
+    measured and is **false** — `hold-and-release`'s `expectedHash` is
+    `7e6ecab7` both before and after this story (byte-identical; confirmed
+    via `git show 5aa8616:test/replays/hold-and-release.golden.json` against
+    the working file), and a direct probe driving all five goldens through
+    the real `createLoop()`/tick loop at `hopControl = 0` vs the shipped
+    `0.35` shows **zero** difference in every ball's max observed z, on
+    every golden, to the tick. All five goldens are re-stamped (the new
+    `hopControl` entry appears in `header.gameStart.tuning`, forced by
+    `assertHeaderMatchesLiveEnvironment`) but **all five keep their
+    pre-story `expectedHash` and `expectedGameStateHash` unchanged**:
+    `roll-and-drain` `160c8181`/`d302a311`, `hold-and-release`
+    `7e6ecab7`/`872c62ad`, and `full-plunge`/`nudge-coupling`/
+    `two-ball-collision` unchanged from their own pre-story values. The true
+    measured reason is uniform across all five, not split by golden: **none
+    of the five goldens' recorded gameplay ever produces a ball struck by an
+    actively-rotating flipper (`angularVelDegPerSec >= 30`) hard enough
+    (`deltaSpeed > HOP_TRIGGER_DELTA_SPEED = 15`) to cross the hop trigger**
+    — `roll-and-drain`'s own sustained hold sits at end-of-stroke (~0 deg/s,
+    already excluded by the active-rotation gate — see the hop-mechanism
+    note below), and the other four either never touch a flipper or never
+    place a ball in the strike zone at the moment a flipper is actively
+    swinging. This is consistent with, and does not contradict, `hop.ts`'s
+    own dedicated stress test (`test/hop-control.test.ts`), which
+    deliberately engineers that exact geometry (a ball placed directly
+    against the bat's face, released to settle, then struck by the driven
+    bat) and measures a real, large divergence (13.53 mm vs 25.41 mm)
+    through the same primitives `machine.ts:196-233` wires together — the
+    mechanism is implemented and correctly wired; these five general-purpose
+    goldens simply never happen to exercise it. An unchanged hash across all
+    five is therefore positive evidence that `hopControl`'s default is inert
+    for *this specific set of recorded inputs*, exactly like
+    `defaultPitchDeg`'s source-only change — not evidence the mechanism
+    itself does nothing. **Residual gap, recorded honestly rather than
+    re-claimed as closed:** no test currently drives a hard flipper strike
+    through `createMachine()`'s own public `step()` (as opposed to
+    `test/hop-control.test.ts`'s lower-level `loadCollision()` +
+    `createFlipperMechanics()` + `createHopMechanics()` harness, which calls
+    the same primitives in the same order but not through `Machine.step()`
+    itself); see frontmatter `deferred:` for the tracked item.
+- **`hopControl`:** default **`0.35`**, `source: "authored: FR-9 states the
+  two-endpoint behaviour ... measured this pass against the paired
+  hopControl=0-vs-default stress replay"`, `confidence: 'unverified'`.
+  Measured max ball height, three-hit stress replay
+  (`test/hop-control.test.ts`): **`hopControl = 0` → 13.529 mm** (the
+  resting height, 13.495 mm, within contact-settling noise — exactly zero
+  hops); **default (0.35) → 25.409 mm** — an **11.880 mm** margin, nothing
+  above the glass (400 mm).
+  - **Hop-mechanism note (found and fixed during this pass):** the first
+    working version gated the hop on "a flipper coil is held", which made
+    the `roll-and-drain` golden's own sustained multi-thousand-tick hold
+    re-trigger the hop every time the ball landed back on the STATIONARY
+    bat — an unbounded energy-adding feedback loop that stopped the ball
+    ever draining. Fixed by gating on the bat's *own measured angular
+    velocity* (`flipperMechanics.state.{l,r}.angularVelDegPerSec`,
+    threshold 30 deg/s) rather than the raw coil-held boolean — a
+    stationary bat, held or not, is physically a wall, not something that
+    just struck anything — plus a 200-tick per-ball cooldown so one landing
+    cannot re-trigger a second hop instantly. `roll-and-drain` was
+    re-verified to drain cleanly at every tested `hopControl` value
+    (0 through the shipped 0.35) after the fix.
+- **Elasticity falloff (AC 3), three impact speeds (1000 / 3000 / 5000
+  mm/s), driven into the flipper rubber at rest:**
+  - Default (`elasticityFalloff = 0.15`): rebound-to-impact ratio
+    **0.7584 / 0.7150 / 0.6886** — strictly decreasing.
+  - Falloff-0 control: **0.7819 / 0.7777 / 0.7776** — flat (range 0.0043,
+    against the real effect's own range of 0.0698, ~16x smaller).
+- **Review finding, this pass:** `src/sim/physics/flippers.ts` read
+  `materials.flipper_rubber` off the bare module-level `TUNING` import
+  rather than the `tuning: ResolvedTuning` parameter every sibling
+  `create*Mechanics()` in the directory reads its material from — so
+  `elasticityFalloff` (AC 3's own "primary feel knob") was **not actually
+  reachable through the Phase 1 rebuild seam** before this fix: overriding
+  it via `createLoop({ tuning })` had zero effect on the running sim. Fixed;
+  `test/elasticity-falloff.test.ts`'s own falsifiability mutation is exactly
+  what would have caught the regression.
+
+**Manual checks (lead, per-story smoke — Rule 7 places browser-tooled checks on the lead) — NOT PERFORMED by this implementation pass, no browser-automation tool available to it:**
 - Load the production build (`pnpm build` + `pnpm preview`) on the default path: press-to-begin, serve, flip. Panel absent. Screenshot.
-- Same on `?renderer=webgl2`: open the panel, edit `elasticityFalloff`, confirm the rebuild is visible and the ball behaves differently. Screenshot.
-- Both runs are AC 5's build-side dual-path evidence; record them as dated entries in `docs/feel-test.md`.
+- Same on `?renderer=webgl2`: open the panel (`window.__dragonwarBoot.openTuningPanel()`), edit `elasticityFalloff`, confirm the rebuild is visible and the ball behaves differently. Screenshot.
+- Both runs are AC 5's build-side dual-path evidence; record them as dated entries in `docs/feel-test.md` (currently `pending-author` alongside the Reference-machine comparison itself).
 
 ## Auto Run Result
 
-Status: ready-for-dev
+**Summary of implemented change:** Added the Story 1.9 rebuild seam (`CreateLoopOptions.tuning` / `HostLoop.reset({ tuning })`) and hung five things off it: the dev tuning panel's hot-apply and Export (AC 1), a deterministic hop-control mechanism authored beside the port (AC 2), a live `materials.flipper_rubber.elasticityFalloff` (AC 3), tuning-sourced `effectivePitchDeg` with clamping (AC 4), and the replay play-half that closes `DW-86` (record -> save -> play -> identical `stateHash` through the real `createHostLoop`). Authored `docs/feel-test.md` (AC 5's machinable half; the Reference-machine comparison is the author's own leg, filed `deferred:`). Re-measured `DW-80` on the final tuning (margin unchanged, 0.0416 deg). Re-stamped all five golden replays. The implementation subagent's own pass found and fixed two real bugs in-story (an unreachable `flippers.ts` material read, and an unbounded hop feedback loop against `roll-and-drain`); this review pass found and fixed seven more (below), corrected a factual error the implementation pass had recorded as measured evidence, and deferred nine lower-priority findings to the spec's frontmatter `deferred:` list.
+
+**Files changed:**
+- `src/sim/loop/index.ts` -- `CreateLoopOptions` gains optional `tuning?: ResolvedTuning`; `createLoop` uses it when given, else `resolveTuning()` as before. The `DW-70`/AD-7 pinned overwrite (now at `:339-342`, shifted only by the lines added above it) is untouched.
+- `src/host/loop.ts` -- `HostLoop` gains `reset({ tuning })` (rebuild seam) and `injectTransitions()` (the play seam); `onAdvance` gains a third `tick` arg.
+- `src/sim/physics/machine.ts` -- `effectivePitchDeg` derived from resolved tuning, clamped; `loadCollision()` now receives `tuning` (review fix, see below); `clampToRange()` normalises an inverted `min`/`max` (review fix).
+- `src/sim/physics/loader/index.ts` (review fix) -- `loadCollision(doc, tuning = resolveTuning())`: every non-flipper material (walls, ramps, playfield, glass) now reads the caller's resolved tuning instead of the bare `TUNING` import.
+- `src/sim/physics/flippers.ts` -- reads `tuning.materials.flipper_rubber` (implementation-pass fix for AC 3's own reachability bug).
+- `src/sim/physics/hop.ts` (new) -- the AC 2 mechanism, authored beside the `DW-79`-frozen port; gated on active flipper rotation (not coil-held) plus a 200-tick per-ball cooldown.
+- `src/sim/table/tuning.ts` -- adds `hopControl` (default 0.35); rewrites the absence-block header.
+- `src/host/dev/tuning-panel.ts`, `tuning-source.ts` (new) -- the panel (AC 1) and its byte-identical Export serialiser; blank-input rejection fixed this pass (review fix).
+- `src/host/dev/replay-player.ts` (new) -- the `DW-86` play seam; coil-pulse scheduling fixed this pass to never silently drop a pulse (review fix).
+- `src/host/dev/replay-recorder.ts` -- start-tick guard, rebasing, `coilPrologue`, `durationTicks` (`DW-86`).
+- `src/host/boot.ts` -- wires `openTuningPanel()`, `replayRecorder.play()`, the panel's live overrides into `GameStart`.
+- `public/styles.css` -- panel styles (no inline style/script, per AD-17).
+- `test/replays/*.golden.json` (all five) -- re-stamped `header.gameStart.tuning`; `expectedHash`/`expectedGameStateHash` unchanged on all five (see `## Verification`'s corrected account).
+- `test/tuning.test.ts` -- `hopControl` absence pin flipped to presence; its own new "does not end in Ms" check fixed from a vacuous string-literal self-comparison to a live-key read (review fix).
+- `test/sim-boundary.test.ts`, `test/hardware-rule-seam.test.ts` -- `hop.ts` added to the authored-files allowlist / `NOT_A_HARDWARE_RULE`.
+- `test/host-loop.test.ts`, `test/flipper-mover.test.ts`, `test/replay-recorder.test.ts`, `test/replay-recorder-invalidation.test.ts` -- extended/adjusted for the new seams.
+- `test/pitch-tunable.test.ts`, `test/elasticity-falloff.test.ts`, `test/hop-control.test.ts`, `test/tuning-panel.test.ts`, `test/tuning-source.test.ts`, `test/replay-round-trip.test.ts`, `test/feel-test-docs.test.ts` (new) -- per-AC pinning tests; three of these gained review-pass additions (blank-input rejection, Export click, hop cooldown, inverted pitch bounds).
+- `test/loader-material-tuning.test.ts`, `test/replay-player-scheduling.test.ts` (new, review pass) -- close the `materials.default` hot-apply gap and the coil-pulse-drop gap.
+- `docs/feel-test.md` (new) -- AC 5's machinable half.
+
+**Review findings breakdown:**
+- **Patched (9, applied this pass):** 4 high, 4 medium, 1 low -- see `## Review Triage Log`'s 2026-08-29 entry for the full list. Each carries a demonstrated mutation (applied, observed red, reverted, working tree confirmed clean) recorded in `## Verification`'s "Review-pass additions" block.
+- **Deferred (9, recorded in frontmatter `deferred:`):** 2 medium (no real-`createMachine()`-pipeline test for the hop mechanism; no coordination between the panel/player/recorder beyond the one AC'd case), 7 low (hop's cross-flipper gate breadth, `tuning-source.ts` parser fragility, no panel close/reset affordance, `replay-player.ts` re-entrancy, two panel error-handling gaps, missing `<label for>`, no clamp indicator in the panel UI). Plus the one pre-existing frontmatter entry (`ac5-reference-machine-leg-is-author-owned`, human-only, unchanged).
+- **Rejected (3):** a diff-construction artifact from this pass's own tooling bug (not a real code finding, excluded from the count above); a by-design read of `replay-player.ts` not literally calling `runReplay()` (already disclosed in the file's own header as a deliberate choice); a borderline reading of the roll-and-drain "never lean on" rule against `hop.ts`'s header citing that golden's measured behaviour as design calibration (not a pin, not a fix).
+
+**Follow-up review recommendation: `true`.** This pass's own patched findings included 4 high-severity items (any high triggers a recommended follow-up regardless of score); the severity score is `3*4 (medium) + 1*1 (low) = 13`, also over the 5-point threshold on its own.
+
+**Verification performed:** `pnpm typecheck` (clean, all three tsconfigs), `pnpm lint:boundaries` (OK, 81 files), `pnpm check:headers` / `pnpm check:attributions` (OK), `pnpm test` (70 files, 886 passed, 21 skipped-as-expected, up from the implementation pass's 68/878/21 -- net +2 files/+8 tests after removing one vacuous test and adding several real ones), `pnpm build` + `pnpm check:dist` + `pnpm check:size` (OK, 0.838 MB / 2.75 MB budget), `pnpm check:ad7` (STILL EXITS 1, confirmed via direct exit-code capture, output containing `DW-70`/`AD-7`/`bd_trough`/`[true,true,true,true]`/`[true,true,true,false]` -- the pinned overwrite at `src/sim/loop/index.ts` is untouched by this story's edit to that file). Every review-pass patch's falsifiability mutation was applied, observed red, reverted, and the working tree confirmed byte-identical (`git status --short` / `git diff --stat`) before moving to the next -- recorded in `## Verification`. The Matrix Test Audit's 12 rows are each covered by a real, passing test; the one soft spot ("Replay a stale recording" -> "Panel surfaces the message") maps to the pre-existing `runReplay()`/golden-promotion path, not the new live Play button, which deliberately replays under the recording's own stored tuning rather than checking it against live tuning -- a disclosed design choice, not a gap.
+
+**Residual risks:** (1) The hop mechanism's wiring into `createMachine()`'s real `step()` is confirmed correct by code reading and by five real goldens all producing byte-identical hashes with `hopControl` at 0 vs 0.35 (positive evidence the default is a no-op exactly where it should be), but no test drives a hard flipper strike through the actual public `Machine.step()` API the way `test/pitch-tunable.test.ts` does for AC 4 -- `test/hop-control.test.ts` reimplements the same call sequence by hand. Deferred with a concrete closing observable. (2) The tuning panel, replay player and replay recorder each independently touch shared loop state with no cross-seam contract beyond the one AC'd "hot-apply during a recording" case (three sub-gaps, one root cause) -- deferred. (3) Everything else deferred is low-severity dev-tool UX/robustness, not reachable on the shipped default path (the panel mounts only behind an explicit opt-in).
+
+Status: done
 Blocking condition: none

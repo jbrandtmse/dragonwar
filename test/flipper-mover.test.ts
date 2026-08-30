@@ -253,6 +253,23 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		expect(peakAngle, 'a 30 ms tap must have moved AT ALL, not stayed at rest').not.toBe(restAngle);
 		expect(peakAngle, 'the peak must be past the release angle -- the bat coasts on after the key comes up, which is the whole reason this is tracked rather than sampled').toBeLessThan(angleAtRelease);
 		expect(out.snapshot.mechanisms.flippers.l.angleDeg, 'the bat must return fully to rest after release').toBe(restAngle);
+
+		// Story 1.9 (DW-80): re-measured on this story's FINAL tuning (the
+		// rebuild seam, pitch, hop control and elasticity-falloff wiring all
+		// landed above) -- against a named number, not merely "greater than
+		// angleMin" (this file's own review-comment margin above named the
+		// number in prose only). Re-measured this pass: peak 90.0416 deg,
+		// release 104.3998 deg -- numerically IDENTICAL to Story 1.6's own
+		// baseline, because nothing this story ships touches
+		// TUNING.flipper.* or the ported mover itself (pitch's default stays
+		// 6.5 deg either way; hop only ever acts on a BALL, never the bat's
+		// own stroke). Had the margin gone to zero or negative, this story's
+		// own Block-If would fire (narrowing a shipped AC is Rule 5's
+		// ask-first tier) rather than silently re-tuning the flipper to
+		// compensate.
+		const marginDeg = peakAngle - endAngle;
+		expect(marginDeg, 'DW-80: the 30 ms tap must still fall short of the 90 deg stop by a strictly positive, named margin').toBeGreaterThan(0);
+		expect(marginDeg, 'DW-80: re-measured margin must match the value recorded in the spec\'s own Verification section (0.0416 deg, +/- float noise)').toBeCloseTo(0.0416, 3);
 	});
 
 	it('CoilCommand { coil: "c_flipper_l", action: "disable" } stops the bat from moving; { action: "enable" } restores it', () => {

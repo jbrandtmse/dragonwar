@@ -42,8 +42,20 @@ import { PRE_STEP_HARDWARE_RULES } from '../src/sim/physics/machine';
 const REPO_ROOT = path.resolve(__dirname, '..');
 const MACHINE_TS_PATH = path.resolve(REPO_ROOT, 'src', 'sim', 'physics', 'machine.ts');
 
-/** Every `const X = create…(...)` name `createMachine()` builds internally, but is NOT itself a pre-step hardware rule -- `switchTracker` runs its own `.step()` AFTER `physics.step()` (it consumes ball MOVEMENTS the step produces, not `frame`), so it is deliberately excluded from PRE_STEP_HARDWARE_RULES rather than silently unlisted. */
-const NOT_A_HARDWARE_RULE = new Set(['switchTracker']);
+/**
+ * Every `const X = create…(...)` name `createMachine()` builds internally,
+ * but is NOT itself a pre-step hardware rule:
+ * - `switchTracker` runs its own `.step()` AFTER `physics.step()` (it
+ *   consumes ball MOVEMENTS the step produces, not `frame`).
+ * - `hopMechanics` (Story 1.9, AC 2) likewise runs its own
+ *   `applyPostStep()` AFTER `physics.step()` -- it is a collision-RESPONSE
+ *   modifier over what the step already produced (the ball's own
+ *   post-step velocity change while a flipper coil is energised), never a
+ *   mover-commanding participant read from `frame` before the step runs.
+ * Both are deliberately excluded from PRE_STEP_HARDWARE_RULES rather than
+ * silently unlisted.
+ */
+const NOT_A_HARDWARE_RULE = new Set(['switchTracker', 'hopMechanics']);
 
 /**
  * Strips line comments and block comments, so a call site mentioned only in

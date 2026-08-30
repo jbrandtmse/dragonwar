@@ -32,6 +32,7 @@ import { createCabinetMechanics, type CabinetState } from './cabinet';
 import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from './constants';
 import { createDeviceMechanics, type BallStepMovement, type ContactEventLike, type DeviceFailure, type SwitchEdgeLike } from './devices';
 import { createFlipperMechanics } from './flippers';
+import { createHopMechanics, type HopBallVelocitySample } from './hop';
 import { createPlungerMechanics } from './plunger';
 import { loadCollision } from './loader';
 import { createSwitchTracker } from './switches';
@@ -44,6 +45,30 @@ import type { MechanismsSnapshot } from '../contracts/snapshot';
 
 /** The subset of `MechanismsSnapshot` this file's own `mechanisms` getter owns -- `sim/loop/index.ts` fills in `dropTargets`/`spinner` (both empty in Epic 1) and `devices` (from `deviceSlots` above) itself. */
 export type HardwareMechanismsState = Pick<MechanismsSnapshot, 'flippers' | 'plunger'>;
+
+/**
+ * Local, so `sim/physics/**` never reaches into `sim/table/tuning.ts` for one
+ * clamp (the same reasoning `tuning.ts`'s own local `clampNumber()` states
+ * for not reaching the other way).
+ *
+ * Review finding, this pass: `pitchMinDeg`/`pitchMaxDeg` are ordinary
+ * `TuningEntry<number>` leaves the panel enumerates and lets a developer
+ * edit independently -- an edit that leaves `min > max` (e.g. a typo)
+ * previously produced an inverted, out-of-either-band clamp (`x < min`
+ * returning `min`, which could sit ABOVE the intended `max`). Normalising
+ * the pair first makes the clamp well-defined for any `min`/`max` ordering.
+ */
+function clampToRange(x: number, minInput: number, maxInput: number): number {
+	const min = Math.min(minInput, maxInput);
+	const max = Math.max(minInput, maxInput);
+	if (x < min) {
+		return min;
+	}
+	if (x > max) {
+		return max;
+	}
+	return x;
+}
 
 export interface MachineStepResult {
 	readonly switchEvents: readonly SwitchEdgeLike[];
@@ -113,10 +138,22 @@ export const PRE_STEP_HARDWARE_RULES = [
  * arithmetic of its own.
  */
 export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Machine {
-	const loaded = loadCollision(collisionDoc);
+	// Story 1.9 review fix: loadCollision() previously ignored `tuning`
+	// entirely (it read the bare module-level TUNING import for every
+	// non-flipper material), so a hot-applied materials.default.* (or any
+	// non-flipper material) override never reached the running sim even
+	// though this function receives the caller's resolved tuning. See
+	// src/sim/physics/loader/index.ts's loadCollision() doc comment.
+	const loaded = loadCollision(collisionDoc, tuning);
 	const physics = loaded.physics;
 
-	const effectivePitchDeg = TABLE.reference.pitchDeg;
+	// Story 1.9, AC 4: the resolved tuning's `defaultPitchDeg` is the runtime
+	// pitch, clamped to `[pitchMinDeg, pitchMaxDeg]` -- never silently accepted
+	// out of band (I/O matrix). `TABLE.reference.pitchDeg` stays the loader's
+	// REFERENCE dimension only (AD-10); this file's Design Notes citation of
+	// it above is now historical. Both are 6.5 today, so this changes the
+	// SOURCE of the number, not the number itself -- trajectories do not move.
+	const effectivePitchDeg = clampToRange(tuning.defaultPitchDeg.value, tuning.pitchMinDeg.value, tuning.pitchMaxDeg.value);
 	physics.setGravity(effectivePitchDeg, DEFAULT_TABLE_GRAVITY * GRAVITYCONST);
 
 	let ballIdCounter = 0;
@@ -133,6 +170,11 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 	const flipperMechanics = createFlipperMechanics({ physics, flippers: loaded.flippers, tuning });
 	const plungerMechanics = createPlungerMechanics({ deviceMechanics, tuning });
 	const cabinetMechanics = createCabinetMechanics({ physics, tuning });
+	// Story 1.9, AC 2: NOT a hardware rule -- runs AFTER physics.step(), a
+	// collision-response modifier over what the step produced, never a
+	// mover-commanding participant read from `frame` before it. See
+	// test/hardware-rule-seam.test.ts's NOT_A_HARDWARE_RULE allowlist.
+	const hopMechanics = createHopMechanics({ tuning });
 
 	// AD-5: "gated only by CoilCommand enable | disable" -- a per-coil map,
 	// default enabled, fed ONLY by `enable`/`disable` commands below. Every
@@ -173,11 +215,40 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		const commandResult = deviceMechanics.applyCommands(tick, pulses);
 
 		const before = new Map<Ball, ReturnType<typeof fromPhysics>>();
+		// Story 1.9, AC 2: the hop mechanism's own input -- each ball's velocity
+		// immediately before physics.step() runs, captured alongside `before`
+		// above for the same reason (a point-in-time snapshot this tick's own
+		// step() call is about to move past). Physics-internal units (VU/T),
+		// deliberately NOT converted through fromPhysics() -- hop.ts adds
+		// directly to ball.hit.vel, so no round trip is needed.
+		const beforeVel = new Map<Ball, { x: number; y: number; z: number }>();
 		for (const ball of physics.balls) {
 			before.set(ball, fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z }));
+			beforeVel.set(ball, { x: ball.hit.vel.x, y: ball.hit.vel.y, z: ball.hit.vel.z });
 		}
 
 		physics.step();
+
+		// AC 2: runs immediately after physics.step(), before any switch/entry
+		// test reads the now-hopped position -- a hop this tick is fully
+		// reflected in everything downstream (switch zones, device entry,
+		// the snapshot) exactly like a physics-native movement would be.
+		const hopSamples: HopBallVelocitySample[] = [];
+		for (const ball of physics.balls) {
+			const sampledBeforeVel = beforeVel.get(ball);
+			if (sampledBeforeVel) {
+				hopSamples.push({ ball, beforeVel: sampledBeforeVel });
+			}
+		}
+		// flipperMechanics.state is read AFTER physics.step() so its
+		// angularVelDegPerSec reflects THIS tick's own mover integration --
+		// "was the bat actively swinging on the tick that produced this ball
+		// movement", not last tick's value.
+		const flipperState = flipperMechanics.state;
+		hopMechanics.applyPostStep(tick, hopSamples, {
+			l: flipperState.l.angularVelDegPerSec,
+			r: flipperState.r.angularVelDegPerSec,
+		});
 
 		const movements: BallStepMovement[] = [];
 		for (const ball of physics.balls) {

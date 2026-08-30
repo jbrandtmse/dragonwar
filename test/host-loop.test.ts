@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHostLoop } from '../src/host/loop';
+import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import type { FrameOutput } from '../src/sim/table/names';
 import type { InputTransition } from '../src/sim/contracts/input';
 
@@ -420,6 +421,92 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 			host.start();
 			expect(() => raf.fire(0)).not.toThrow();
 			expect(outputs).toHaveLength(1);
+		});
+	});
+
+	// Story 1.9's rebuild seam (DW-86): reset() stops the rAF chain, builds a
+	// FRESH sim/loop and resets the AD-4 accumulator origin -- the ONE seam
+	// hot-apply (AC 1), pitch (AC 4), elasticity falloff (AC 3) and the hop
+	// A/B (AC 2) all hang off.
+	//
+	// Falsifiability (spec): pinning test -- run N frames, reset({ tuning:
+	// override }), run N frames, assert the snapshot observable changed.
+	// mutation: make reset() keep the existing loop instead of constructing a
+	// fresh one -> the post-reset snapshot assertion goes red.
+	describe('reset() -- the rebuild seam (Story 1.9, DW-86)', () => {
+		it('rebuilds the sim with an overridden tuning: the next frame\'s snapshot reflects the new value (effectivePitchDeg)', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0);
+			raf.fire(16.667);
+			expect(outputs[outputs.length - 1]!.snapshot.effectivePitchDeg, 'sanity: starts at the shipped default').toBe(6.5);
+
+			const overridden = resolveTuning({
+				...TUNING,
+				defaultPitchDeg: { value: 8.5, source: 'test fixture', confidence: 'unverified' as const },
+			});
+			host.reset({ tuning: overridden });
+
+			// reset() re-arms the chain (the loop was running), so the queued
+			// frame carries the FRESH sim's own first snapshot -- tick 0, no
+			// owed time, exactly like the very first frame after start().
+			expect(raf.pending(), 'reset() must leave the loop armed for its next frame, since it was running').toBe(1);
+			raf.fire(0);
+			const afterReset = outputs[outputs.length - 1]!.snapshot;
+			expect(afterReset.tick, 'the rebuilt sim\'s accumulator origin must be fresh -- tick 0 on its first frame').toBe(0);
+			expect(afterReset.effectivePitchDeg, 'the next frame\'s snapshot must reflect the overridden tuning -- this is the seam a hot-apply relies on').toBe(8.5);
+		});
+
+		it('omitting tuning entirely rebuilds with the live TUNING default -- byte-identical behaviour to before this story', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0);
+
+			host.reset();
+			raf.fire(0);
+			expect(outputs[outputs.length - 1]!.snapshot.effectivePitchDeg).toBe(6.5);
+		});
+
+		it('reset() while stopped does not restart the chain', () => {
+			const host = createHostLoop(loadDoc(), () => {});
+			host.start();
+			raf.fire(0);
+			host.stop();
+			expect(raf.pending()).toBe(0);
+
+			host.reset();
+			expect(raf.pending(), 'reset() must not resurrect a stopped loop').toBe(0);
+		});
+
+		it('reset() called while running cancels the currently-queued frame rather than leaving two chains alive', () => {
+			const host = createHostLoop(loadDoc(), () => {});
+			host.start();
+			expect(raf.pending()).toBe(1);
+
+			host.reset();
+			// Exactly one frame queued afterward (the fresh loop's restart), not
+			// two -- the stale pre-reset handle must have been cancelled.
+			expect(raf.pending()).toBe(1);
+			expect(raf.cancelled(), 'the pre-reset queued frame must have been cancelled, not merely orphaned').toBeGreaterThanOrEqual(1);
+		});
+
+		it('a hot-apply mid-flight genuinely rebuilds the sim, not merely relabels the same one -- balls in play are gone after reset (a fresh createLoop() starts with none)', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0);
+			host.pulseCoil('c_trough_eject');
+			raf.fire(16.667);
+			expect(outputs[outputs.length - 1]!.snapshot.balls.length, 'sanity: a ball must actually be in play before reset').toBeGreaterThan(0);
+
+			host.reset();
+			raf.fire(0);
+			expect(
+				outputs[outputs.length - 1]!.snapshot.balls,
+				'reset() must construct a FRESH createLoop() -- if it kept the existing loop instead, the ball ejected before reset would still be there',
+			).toHaveLength(0);
 		});
 	});
 });

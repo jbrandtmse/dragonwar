@@ -30,7 +30,7 @@
 import { createMachine } from '../physics/machine';
 import { step as rulesStep } from '../rules';
 import { msToTicksExact, ticksToMs, MAX_OWED_TICKS } from '../contracts/time';
-import { resolveTuning } from '../table/tuning';
+import { resolveTuning, type ResolvedTuning } from '../table/tuning';
 import { TABLE } from '../table/dragonwar';
 import { fromPhysics, type Vec3 } from '../table/frames';
 import type {
@@ -186,10 +186,25 @@ function initialMachineState(deviceSlots: Readonly<Record<BallDeviceName, readon
 export interface CreateLoopOptions {
 	/** An already-parsed `dragonwar.collision.json` document (`sim/` never parses a file -- AD-1). */
 	readonly collisionDoc: unknown;
+	/**
+	 * Story 1.9's rebuild seam: an already-RESOLVED tuning set to build this
+	 * machine from, instead of the live `TUNING` default. Omitted (the
+	 * default), behaviour is byte-identical to before this story --
+	 * `resolveTuning()` is called bare, exactly as it always was. Provided
+	 * (e.g. `resolveTuning(overrideTuning)`, computed once by the caller), it
+	 * is used AS-IS -- never re-run through `resolveTuning()` here, since a
+	 * `ResolvedTuning` already carries its own derived `…Ticks` keys and
+	 * `switchSettleTicksByClass`, and re-resolving it would collide with
+	 * itself (`resolveTuning()`'s own DW-34 "…Ticks collision" guard). This is
+	 * the one seam Story 1.9 hangs the dev tuning panel's hot-apply, AC 4's
+	 * pitch, AC 3's elasticity falloff and AC 2's hop-control A/B on -- see
+	 * `src/host/loop.ts`'s `reset()`.
+	 */
+	readonly tuning?: ResolvedTuning;
 }
 
 export function createLoop(options: CreateLoopOptions): Loop {
-	const tuning = resolveTuning();
+	const tuning = options.tuning ?? resolveTuning();
 	const machine = createMachine(options.collisionDoc, tuning);
 
 	let tick = 0;

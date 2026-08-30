@@ -19,6 +19,8 @@ import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
 import { createHostLoop } from './loop';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
+import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
+import { createTuningPanel, buildOverriddenTuning, type TuningPanel } from './dev/tuning-panel';
 import { BUILD_SHA } from './build-info';
 import { resolveTuning } from '../sim/table/tuning';
 import { TABLE } from '../sim/table/dragonwar';
@@ -62,20 +64,34 @@ declare global {
 			 */
 			setCoilEnabled: (coil: CoilName, enabled: boolean) => void;
 			/**
-			 * Story 1.8 (AC 3), same dev-only/console-only terms as the two
-			 * above: `src/host/dev/replay-recorder.ts`'s record/play seam,
-			 * attached at `src/host/loop.ts`'s `onAdvance` hook. e.g.
-			 * `window.__dragonwarBoot.replayRecorder.start(1)` then, later,
-			 * `window.__dragonwarBoot.replayRecorder.save()`. `invalidate()` has
-			 * no caller in this story -- Story 1.9's dev tuning panel is the
-			 * first (a hot-apply mid-recording invalidates it).
+			 * Story 1.8 (AC 3) / Story 1.9 (DW-86), same dev-only/console-only
+			 * terms as the two above: `src/host/dev/replay-recorder.ts`'s
+			 * record/play seam, attached at `src/host/loop.ts`'s `onAdvance`
+			 * hook. e.g. `window.__dragonwarBoot.replayRecorder.start(1)`, drive
+			 * the machine a while (`pulseCoil`/keyboard), then
+			 * `window.__dragonwarBoot.replayRecorder.save()` -- or `.play()` to
+			 * replay the last saved recording back through the SAME host loop
+			 * and log whether it reproduced its own hash (DW-86's own claim).
+			 * `start()` throws `NonZeroStartTickError` unless the loop is
+			 * genuinely at tick 0 -- call `pulseCoil`/`setCoilEnabled`'s sibling
+			 * `hostLoop`-level `reset()` (via `openTuningPanel()`'s panel, or a
+			 * fresh page load) first.
 			 */
 			replayRecorder: {
 				start: (physicsSeed: number) => void;
 				invalidate: (reason: string) => void;
 				save: () => RecordingResult | InvalidRecordingResult;
+				play: () => void;
 				readonly isRecording: boolean;
 			};
+			/**
+			 * Story 1.9, AC 1: mounts the dev tuning panel into `document.body`
+			 * (idempotent -- a second call is a no-op if it is already mounted).
+			 * Off on the default path (this story's own "Always" rule) -- never
+			 * called automatically, console-only, e.g.
+			 * `window.__dragonwarBoot.openTuningPanel()`.
+			 */
+			openTuningPanel: () => void;
 		};
 	}
 }
@@ -165,13 +181,28 @@ async function onBegin(): Promise<void> {
 		// window.__dragonwarBoot.replayRecorder below for the lead's manual
 		// smoke; nothing calls them automatically.
 		const replayRecorder = createReplayRecorder();
+		// Story 1.9 (DW-86): the play half -- onFrame below always forwards to
+		// it (a no-op when nothing is playing, the same "dev-only tap, always
+		// wired, mostly inert" pattern the recorder's onAdvance tap already
+		// establishes).
+		const replayPlayer = createReplayPlayer((result) => {
+			// eslint-disable-next-line no-console
+			console.info(`[dragonwar] replay playback complete: finalHash=${result.finalHash} finalGameStateHash=${result.finalGameStateHash}`);
+		});
+		let lastSavedRecording: RecordingResult | undefined;
+		// Story 1.9, AC 1: the panel this dev hatch's GameStart reads from once
+		// opened -- see the replayRecorder.start() lever below, which replaces
+		// this story's own hardcoded dev GameStart with "the panel's current
+		// set" once the panel exists.
+		let tuningPanel: TuningPanel | undefined;
 		hostLoop = createHostLoop(
 			collisionDoc,
 			(output) => {
 				latestSnapshot = output.snapshot;
+				replayPlayer.onFrame(output.snapshot);
 			},
-			(_elapsedMs, transitions) => {
-				replayRecorder.recordTransitions(transitions);
+			(_elapsedMs, transitions, tick) => {
+				replayRecorder.recordTransitions(transitions, tick);
 			},
 		);
 		hostLoop.start();
@@ -194,42 +225,71 @@ async function onBegin(): Promise<void> {
 			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
 		});
 
+		const hostLoopRef = hostLoop;
 		window.__dragonwarBoot = {
 			gestureMs,
 			firstFrameMs,
 			renderer,
-			pulseCoil: hostLoop.pulseCoil,
-			setCoilEnabled: hostLoop.setCoilEnabled,
+			pulseCoil: (coil: CoilName) => {
+				hostLoopRef.pulseCoil(coil);
+				// Story 1.9, DW-86: a coil pulsed through this dev hatch while
+				// recording lands in the saved recording's own coilPrologue -- a
+				// no-op when nothing is recording (ReplayRecorder's own contract).
+				// The pulse lands on the NEXT tick (pulseCoil()'s own contract),
+				// so it is recorded at latestSnapshot.tick + 1.
+				replayRecorder.recordCoilPulse(coil, (latestSnapshot?.tick ?? 0) + 1);
+			},
+			setCoilEnabled: hostLoopRef.setCoilEnabled,
 			replayRecorder: {
 				start: (physicsSeed: number) => {
-					// A dev-console default GameStart -- Story 1.9's tuning panel is
-					// the first real caller with player-chosen adjustments; this
-					// story's own recorder seam needs SOME valid GameStart to build
-					// a header from (AC 1), so it uses the table's own reference
-					// pitch and authored defaults -- the same values every
-					// checked-in golden's header carries
-					// (test/replays/*.golden.json). There is deliberately NO
-					// golden-recording script in this repository: the five
-					// goldens were recorded once, and re-recording is a
-					// deliberate act, never a routine one (review finding
-					// 2026-08-29: this comment used to cite a script that does
-					// not exist).
+					// Story 1.9: "replace the hardcoded dev GameStart with the
+					// panel's current set" -- once the panel exists (opened via
+					// window.__dragonwarBoot.openTuningPanel()), its accumulated
+					// edits are what the recording's own header describes;
+					// otherwise this falls back to the shipped default, exactly as
+					// before this story (there is deliberately NO golden-recording
+					// script in this repository: the five goldens were recorded
+					// once, and re-recording is a deliberate act, never a routine
+					// one).
 					replayRecorder.start(
 						{
 							seed: 0,
-							tuning: resolveTuning(),
+							tuning: tuningPanel ? buildOverriddenTuning(tuningPanel.overrides) : resolveTuning(),
 							adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 3, ballsPerGame: 3, matchProbability: 0 },
 							highscores: [],
 						},
 						physicsSeed,
 						collisionDoc,
+						latestSnapshot?.tick ?? 0,
 					);
 				},
 				invalidate: (reason: string) => replayRecorder.invalidate(reason),
-				save: () => replayRecorder.save(),
+				save: () => {
+					const result = replayRecorder.save();
+					if (result.ok) {
+						lastSavedRecording = result;
+					}
+					return result;
+				},
+				play: () => {
+					if (!lastSavedRecording) {
+						// eslint-disable-next-line no-console
+						console.error('[dragonwar] replayRecorder.play(): no saved recording -- call start() then save() first.');
+						return;
+					}
+					const recording: PlayableRecording = lastSavedRecording;
+					replayPlayer.start(hostLoopRef, recording);
+				},
 				get isRecording(): boolean {
 					return replayRecorder.isRecording;
 				},
+			},
+			openTuningPanel: () => {
+				if (tuningPanel) {
+					return; // idempotent -- already mounted
+				}
+				tuningPanel = createTuningPanel({ hostLoop: hostLoopRef, replayRecorder });
+				document.body.appendChild(tuningPanel.element);
 			},
 		};
 

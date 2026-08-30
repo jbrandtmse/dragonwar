@@ -11,11 +11,12 @@
 //
 // Story 1.8: `onAdvance`, an OPTIONAL third constructor argument, is the
 // exact seam `src/host/dev/replay-recorder.ts` taps -- called with this
-// frame's `elapsedMs` and the `transitions` this call actually applied,
-// immediately after `loop.advance()` returns (this file's own header line
-// this comment replaces: "record and play attached at src/host/loop.ts").
-// Never called by anything else; a caller that passes none gets the exact
-// same behaviour as before this story.
+// frame's `elapsedMs`, the `transitions` this call actually applied, and
+// (Story 1.9) this frame's resulting `tick`, immediately after
+// `loop.advance()` returns (this file's own header line this comment
+// replaces: "record and play attached at src/host/loop.ts"). Never called by
+// anything else; a caller that ignores the third argument (or passes none)
+// gets the exact same behaviour as before Story 1.9 added it.
 //
 // `host/**` never imports `sim/physics` or `sim/rules` directly (AD-16) --
 // this file talks only to `sim/loop`'s `createLoop()` factory (which
@@ -38,6 +39,12 @@ import { createKeyboardInput, type KeyboardEventTarget } from './input';
 import { msToTicksExact } from '../sim/contracts/time';
 import type { CoilName, FrameOutput } from '../sim/table/names';
 import type { InputTransition } from '../sim/contracts/input';
+import type { ResolvedTuning } from '../sim/table/tuning';
+
+export interface ResetOptions {
+	/** Story 1.9: an already-resolved tuning set to rebuild the sim from -- see `sim/loop/index.ts`'s `CreateLoopOptions.tuning` doc comment. Omitted, the rebuilt loop uses the live `TUNING` default (the same tuning it already had, unless `TUNING` itself changed). */
+	readonly tuning?: ResolvedTuning;
+}
 
 export interface HostLoop {
 	start(): void;
@@ -46,6 +53,34 @@ export interface HostLoop {
 	pulseCoil(coil: CoilName): void;
 	/** Dev-only passthrough to `sim/loop`'s `setCoilEnabled()` -- see its own doc comment. */
 	setCoilEnabled(coil: CoilName, enabled: boolean): void;
+	/**
+	 * Story 1.9's rebuild seam (`DW-86`): stops the rAF chain if it was
+	 * running, constructs a FRESH `sim/loop` (`createLoop({ collisionDoc,
+	 * tuning })`) -- never mutates the live one, per `plumb-bob.ts`'s own
+	 * design note ("rebuilds the machine rather than mutating live physics")
+	 * -- resets the AD-4 accumulator origin (`originTick = 0`, `originMs =
+	 * performance.now()`, `lastFrameMs = null`) so the next frame owes zero
+	 * ticks exactly like a fresh boot, and restarts if it was running. This is
+	 * the ONE seam the tuning panel's hot-apply, the replay player's
+	 * reset-before-play, and every test that proves either uses -- `loop`
+	 * itself is never widened with a `reset()` of its own (`sim/loop`'s
+	 * contract is unchanged; only this file's binding of it moves).
+	 */
+	reset(options?: ResetOptions): void;
+	/**
+	 * Story 1.9's play seam (`DW-86`, `src/host/dev/replay-player.ts`):
+	 * queues `transitions` for the loop's own `advance()` to apply -- exactly
+	 * like a real keypress, merged into the SAME per-frame array
+	 * `keyboardInput.drainTransitions()` already contributes to. Every
+	 * transition may name any future tick (`sim/loop`'s own `pendingTransitions`
+	 * queue and `frameInForceAt()` already carry a transition forward until
+	 * its own tick is reached, exactly as `sim/loop/replay.ts`'s `runReplay()`
+	 * relies on when it seeds a whole replay's transitions in one
+	 * `advance(0, replay.transitions)` call) -- so a player may call this
+	 * once, immediately after `reset()`, with an entire saved recording's
+	 * transitions at once.
+	 */
+	injectTransitions(transitions: readonly InputTransition[]): void;
 }
 
 /**
@@ -56,9 +91,13 @@ export interface HostLoop {
 export function createHostLoop(
 	collisionDoc: unknown,
 	onFrame: (output: FrameOutput) => void,
-	onAdvance?: (elapsedMs: number, transitions: readonly InputTransition[]) => void,
+	onAdvance?: (elapsedMs: number, transitions: readonly InputTransition[], tick: number) => void,
 ): HostLoop {
-	const loop = createLoop({ collisionDoc });
+	// `let`, not `const` (Story 1.9): `reset()` below rebuilds this binding
+	// wholesale rather than mutating the sim it points at -- every reader in
+	// this file (tick(), pulseCoil(), setCoilEnabled()) reads `loop` at CALL
+	// time, so a rebuild is transparent to them without any further change.
+	let loop = createLoop({ collisionDoc });
 
 	let rafHandle: number | null = null;
 	let lastFrameMs: number | null = null;
@@ -80,6 +119,11 @@ export function createHostLoop(
 	let originMs = performance.now();
 	let originTick = 0;
 
+	// Story 1.9's play seam: transitions queued via injectTransitions(),
+	// drained into the SAME per-frame array keyboardInput.drainTransitions()
+	// contributes to -- see the HostLoop interface's own doc comment.
+	let injectedTransitions: InputTransition[] = [];
+
 	function tickAt(domTimeStampMs: number): number {
 		const elapsedMs = domTimeStampMs - originMs;
 		const ticksSinceOrigin = Math.floor(msToTicksExact(elapsedMs));
@@ -95,8 +139,13 @@ export function createHostLoop(
 		try {
 			// Transitions are drained BEFORE advance() runs -- they were stamped
 			// against the OLD origin (the previous frame's), which is exactly the
-			// tick range advance() is about to process.
-			const transitions = keyboardInput.drainTransitions();
+			// tick range advance() is about to process. injectedTransitions
+			// (Story 1.9's play seam) are merged in and cleared the same way --
+			// they carry their OWN absolute tick stamps (not relative to this
+			// frame), so merging is correct regardless of when injectTransitions()
+			// was called.
+			const transitions = injectedTransitions.length > 0 ? [...keyboardInput.drainTransitions(), ...injectedTransitions] : keyboardInput.drainTransitions();
+			injectedTransitions = [];
 			const output = loop.advance(elapsedMs, transitions);
 			// The new origin, for events arriving before the NEXT frame.
 			originMs = nowMs;
@@ -108,7 +157,7 @@ export function createHostLoop(
 				// to -- a throw from it must not have the power to stop live
 				// gameplay. Isolated in its own try/catch, still called before
 				// onFrame() (see this file's header comment for why).
-				onAdvance?.(elapsedMs, transitions);
+				onAdvance?.(elapsedMs, transitions, output.snapshot.tick);
 			} catch (onAdvanceError) {
 				// eslint-disable-next-line no-console
 				console.error('src/host/loop.ts: onAdvance (dev-only recording tap) threw; continuing the loop unaffected:', onAdvanceError);
@@ -155,6 +204,40 @@ export function createHostLoop(
 		},
 		setCoilEnabled(coil: CoilName, enabled: boolean): void {
 			loop.setCoilEnabled(coil, enabled);
+		},
+		injectTransitions(transitions: readonly InputTransition[]): void {
+			injectedTransitions.push(...transitions);
+		},
+		reset(resetOptions?: ResetOptions): void {
+			// Mirrors stop()'s own rAF-teardown, but WITHOUT keyboardInput.detach()
+			// -- a reset is not the player leaving the game, and re-attaching a
+			// fresh listener on every hot-apply would be wasted churn (and a
+			// legitimate double-attach hazard if start() below re-attaches too).
+			const wasRunning = running;
+			running = false;
+			if (rafHandle !== null) {
+				cancelAnimationFrame(rafHandle);
+				rafHandle = null;
+			}
+
+			loop = createLoop({ collisionDoc, tuning: resetOptions?.tuning });
+			// A stale injection from before this reset must never leak into the
+			// fresh sim -- its tick numbers are meaningless against a new origin.
+			injectedTransitions = [];
+
+			// AD-4's accumulator origin, reset exactly as it is at construction
+			// time (this file's own header) -- the fresh loop's tick 0 must line
+			// up with a fresh origin, or the very next frame would compute a
+			// stale elapsed-ticks count against a sim that no longer has that
+			// history.
+			originMs = performance.now();
+			originTick = 0;
+			lastFrameMs = null;
+
+			if (wasRunning) {
+				running = true;
+				rafHandle = requestAnimationFrame(tick);
+			}
 		},
 	};
 }

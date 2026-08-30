@@ -145,6 +145,11 @@
           "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"; corroborated by addendum §2 \"competition range 6.5-8.5°\"",
           "confidence": "medium"
         },
+        "hopControl": {
+          "value": 0.35,
+          "source": "authored: FR-9 states the two-endpoint behaviour (0 = no hops, default = occasional hops on hard hits) but no unit or magnitude; hop.ts (this story) supplies both -- measured this pass against the paired hopControl=0-vs-default stress replay (test/hop-control.test.ts) to produce a clear, glass-safe margin without every hard hit turning into a launch",
+          "confidence": "unverified"
+        },
         "slamNudgesPerWindow": {
           "value": 3,
           "source": "authored: FR-16 states the mechanism (a repeated-nudge threshold distinct from the tilt bob) but no count",

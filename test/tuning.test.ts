@@ -28,6 +28,7 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'defaultPitchDeg',
 			'pitchMinDeg',
 			'pitchMaxDeg',
+			'hopControl',
 			'slamNudgesPerWindow',
 			'slamNudgeWindowMs',
 			'tiltWarningSpacingMs',
@@ -108,8 +109,32 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 		}).toThrow();
 	});
 
-	it('has no hopControl entry -- FR-9 states no unit or magnitude, so none is invented (this story\'s own Block-If rule)', () => {
-		expect('hopControl' in TUNING).toBe(false);
+	// Story 1.9, AC 2: the pin flips from absence to presence -- FR-9's mechanism
+	// and unit are no longer undecided (src/sim/physics/hop.ts), so this is a
+	// deliberate edit to the pin, not a silent drop of what it was protecting.
+	it('has a hopControl entry -- a TuningEntry, authored, unverified (Story 1.9 supplies the mechanism and unit FR-9 itself did not state)', () => {
+		expect('hopControl' in TUNING).toBe(true);
+		expect(isTuningEntry(TUNING.hopControl)).toBe(true);
+		expect(TUNING.hopControl.confidence).toBe('unverified');
+		expect(TUNING.hopControl.source).toMatch(/authored/i);
+	});
+
+	it('hopControl does not end in "Ms" -- it is a dimensionless scale, not a duration resolveTuning() converts', () => {
+		// Review finding, this pass: this previously read
+		// `expect('hopControl'.endsWith('Ms')).toBe(false)` -- a string LITERAL
+		// asserted against itself, which cannot fail whatever TUNING actually
+		// contains (the exact vacuous pattern a prior review finding already
+		// fixed for troughEjectSpeedMmPerS/autolaunchSpeedMmPerS below). Read
+		// the key off TUNING itself and pin the consequence that matters:
+		// resolveTuning() CONVERTS a `...Ms` key into a `...Ticks` key, so a
+		// hopControl misnamed `...Ms` would silently become a tick count and
+		// vanish from the resolved shape hop.ts reads.
+		const hopControlKeys = Object.keys(TUNING).filter((key) => TUNING[key as keyof typeof TUNING] === TUNING.hopControl);
+		expect(hopControlKeys, 'hopControl must be reachable as a TUNING key').toHaveLength(1);
+		expect(
+			hopControlKeys[0]!.endsWith('Ms'),
+			'TUNING.hopControl is a dimensionless scale, not a duration -- a name ending in "Ms" is converted to ticks by resolveTuning()',
+		).toBe(false);
 	});
 
 	// Story 1.5, task 10(b): the two eject-speed tunables.

@@ -38,7 +38,7 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 		const gameStart = testGameStart();
 
 		expect(recorder.isRecording, 'not recording before start()').toBe(false);
-		recorder.start(gameStart, 42, collisionDoc);
+		recorder.start(gameStart, 42, collisionDoc, 0);
 		expect(recorder.isRecording, 'recording after start()').toBe(true);
 
 		const result = recorder.save();
@@ -69,14 +69,14 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 
 	it('recordTransitions() accumulates across multiple calls, in the order they were recorded', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 
 		const t1: InputTransition[] = [{ tick: 1, frame: { ...NO_FRAME, flipper_l: true } }];
 		const t2: InputTransition[] = [{ tick: 5, frame: NO_FRAME }];
 		const t3: InputTransition[] = [{ tick: 10, frame: { ...NO_FRAME, nudge_l: true } }];
-		recorder.recordTransitions(t1);
-		recorder.recordTransitions(t2);
-		recorder.recordTransitions(t3);
+		recorder.recordTransitions(t1, 1);
+		recorder.recordTransitions(t2, 5);
+		recorder.recordTransitions(t3, 10);
 
 		const result = recorder.save();
 		expect(result.ok).toBe(true);
@@ -87,14 +87,14 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 	it('recordTransitions() before start() (or after save()) is a silent no-op -- never throws, never retroactively appears in a later recording', () => {
 		const recorder = createReplayRecorder();
 		// Before any start():
-		expect(() => recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }])).not.toThrow();
+		expect(() => recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }], 1)).not.toThrow();
 
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		recorder.save();
 		// After save() ended the recording:
-		recorder.recordTransitions([{ tick: 999, frame: NO_FRAME }]);
+		recorder.recordTransitions([{ tick: 999, frame: NO_FRAME }], 999);
 
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		const result = recorder.save();
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error('unreachable');
@@ -103,8 +103,8 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 
 	it('invalidate(reason) makes save() refuse and return the named reason -- AC 3', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
-		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }]);
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
+		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }], 1);
 
 		recorder.invalidate('hot-apply mid-recording (dev tuning panel)');
 		const result = recorder.save();
@@ -116,7 +116,7 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 
 	it('invalidate() is idempotent -- the FIRST reason wins over a second call', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		recorder.invalidate('first reason');
 		recorder.invalidate('second reason (must be ignored)');
 
@@ -130,7 +130,7 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 		const recorder = createReplayRecorder();
 		expect(() => recorder.invalidate('nothing is recording yet')).not.toThrow();
 
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		const result = recorder.save();
 		expect(result.ok, 'a stray invalidate() before start() must not poison the recording that follows').toBe(true);
 	});
@@ -145,7 +145,7 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 
 	it('a second save() without a new start() fails the same way (recording already ended)', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		const first = recorder.save();
 		expect(first.ok).toBe(true);
 
@@ -155,11 +155,11 @@ describe('src/host/dev/replay-recorder.ts -- AC 3: record and save', () => {
 
 	it('a fresh start() after a previous save() discards the prior recording\'s transitions entirely', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
-		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }]);
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
+		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }], 1);
 		recorder.save();
 
-		recorder.start(testGameStart(), 2, loadDoc());
+		recorder.start(testGameStart(), 2, loadDoc(), 0);
 		const result = recorder.save();
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error('unreachable');

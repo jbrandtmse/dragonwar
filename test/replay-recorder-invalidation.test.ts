@@ -45,8 +45,8 @@ function testGameStart(): GameStart {
 describe('src/host/dev/replay-recorder.ts -- the invalidated flag cannot be cleared by continued recording activity', () => {
 	it('recordTransitions() calls made AFTER invalidate() (the recording keeps running, exactly as src/host/loop.ts drives it every tick) do not clear or bypass the invalid reason -- save() still refuses', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
-		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }]);
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
+		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }], 1);
 
 		recorder.invalidate('hot-apply mid-recording (dev tuning panel)');
 		// The recording is NOT stopped by invalidate() -- src/host/loop.ts's
@@ -55,7 +55,7 @@ describe('src/host/dev/replay-recorder.ts -- the invalidated flag cannot be clea
 		// eventually calls save() themselves.
 		expect(recorder.isRecording, 'invalidate() must not itself end the recording -- only save() does').toBe(true);
 		for (let tick = 2; tick <= 50; tick++) {
-			recorder.recordTransitions([{ tick, frame: NO_FRAME }]);
+			recorder.recordTransitions([{ tick, frame: NO_FRAME }], tick);
 		}
 
 		const result = recorder.save();
@@ -66,10 +66,10 @@ describe('src/host/dev/replay-recorder.ts -- the invalidated flag cannot be clea
 
 	it('a SECOND invalidate() after further recording activity still keeps the FIRST reason, not the second', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		recorder.invalidate('first hot-apply');
-		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }]);
-		recorder.recordTransitions([{ tick: 2, frame: NO_FRAME }]);
+		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }], 1);
+		recorder.recordTransitions([{ tick: 2, frame: NO_FRAME }], 2);
 		recorder.invalidate('second hot-apply, later in the same recording');
 
 		const result = recorder.save();
@@ -80,13 +80,13 @@ describe('src/host/dev/replay-recorder.ts -- the invalidated flag cannot be clea
 
 	it('a fresh start() after an INVALIDATED recording does not leak the old invalid reason into the new one', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
 		recorder.invalidate('poisoned the first recording');
 		const first = recorder.save();
 		expect(first.ok).toBe(false);
 
-		recorder.start(testGameStart(), 2, loadDoc());
-		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }]);
+		recorder.start(testGameStart(), 2, loadDoc(), 0);
+		recorder.recordTransitions([{ tick: 1, frame: NO_FRAME }], 1);
 		const second = recorder.save();
 		expect(second.ok, 'a fresh start() must clear the previous recording\'s invalid reason -- otherwise the recorder is permanently unsaveable after its first hot-apply').toBe(true);
 		if (!second.ok) throw new Error('unreachable');
@@ -95,9 +95,9 @@ describe('src/host/dev/replay-recorder.ts -- the invalidated flag cannot be clea
 
 	it('invalidate() called on a recording that already accumulated transitions still refuses save() -- the transitions are real, not merely an empty recording that happens to fail', () => {
 		const recorder = createReplayRecorder();
-		recorder.start(testGameStart(), 1, loadDoc());
-		recorder.recordTransitions([{ tick: 1, frame: { ...NO_FRAME, flipper_l: true } }]);
-		recorder.recordTransitions([{ tick: 2, frame: { ...NO_FRAME, nudge_l: true } }]);
+		recorder.start(testGameStart(), 1, loadDoc(), 0);
+		recorder.recordTransitions([{ tick: 1, frame: { ...NO_FRAME, flipper_l: true } }], 1);
+		recorder.recordTransitions([{ tick: 2, frame: { ...NO_FRAME, nudge_l: true } }], 2);
 		recorder.invalidate('mid-recording tunable change');
 
 		const result = recorder.save();

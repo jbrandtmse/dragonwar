@@ -51,7 +51,7 @@ import { Vertex2D } from '../math/vertex2d';
 import { Vertex3D } from '../math/vertex3d';
 import { TABLE } from '../../table/dragonwar';
 import { MM_PER_IN, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
-import { TUNING } from '../../table/tuning';
+import { TUNING, resolveTuning, type ResolvedTuning } from '../../table/tuning';
 import type { BallDeviceName, SwitchName } from '../../table/names';
 
 const TOLERANCE_MM = 0.1;
@@ -385,8 +385,23 @@ function assertReferenceDimensions(doc: CollisionDoc): void {
  * committed document's own field is still checked for a typo or a renamed
  * material, the same as any other node's.
  */
-function resolveMaterial(physMaterial: string | undefined, nodeName: string): (typeof TUNING.materials)['default'] {
-	const materials = TUNING.materials as Record<string, (typeof TUNING.materials)['default']>;
+/**
+ * `materialsSource` is the CALLER's resolved tuning's `materials` group
+ * (Story 1.9 review fix: this previously read the bare module-level
+ * `TUNING` import directly, exactly the bug class this story's own Spec
+ * Change Log already found and fixed once for `flippers.ts`'s
+ * `flipper_rubber` read -- a hot-applied override of `materials.default.*`,
+ * or any non-flipper material, had ZERO effect on the running sim because
+ * every wall/ramp/playfield/glass hit object was built from the shipped
+ * default forever, regardless of what `tuning` `createMachine()` was given.
+ * Callers pass `tuning.materials` (or omit it -- see `loadCollision()`'s own
+ * default below, byte-identical to this file's pre-fix behaviour). */
+function resolveMaterial(
+	materialsSource: (typeof TUNING)['materials'],
+	physMaterial: string | undefined,
+	nodeName: string,
+): (typeof TUNING.materials)['default'] {
+	const materials = materialsSource as Record<string, (typeof TUNING.materials)['default']>;
 	if (physMaterial === undefined) {
 		return materials.default;
 	}
@@ -398,11 +413,12 @@ function resolveMaterial(physMaterial: string | undefined, nodeName: string): (t
 }
 
 function applyMaterial<T extends { setElasticity(e: number, f?: number): unknown; setFriction(f: number): unknown; setScatter(s: number): unknown }>(
+	materialsSource: (typeof TUNING)['materials'],
 	hitObject: T,
 	physMaterial: string | undefined,
 	nodeName: string,
 ): void {
-	const m = resolveMaterial(physMaterial, nodeName);
+	const m = resolveMaterial(materialsSource, physMaterial, nodeName);
 	hitObject.setElasticity(m.elasticity.value, m.elasticityFalloff.value);
 	hitObject.setFriction(m.friction.value);
 	hitObject.setScatter(m.scatter.value);
@@ -457,7 +473,7 @@ function orientedEdge(p1: Vec2Mm, p2: Vec2Mm, centroid: Vec2Mm): [Vec2Mm, Vec2Mm
 	return dot >= 0 ? [p1, p2] : [p2, p1];
 }
 
-function addWall(physics: PlayerPhysics, node: CollisionNodeDoc): void {
+function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
 	const footprint = node.footprintMm!;
 	const zLowVu = toPhysics({ x: 0, y: 0, z: node.zLowMm! }).z;
 	const zHighVu = toPhysics({ x: 0, y: 0, z: node.zHighMm! }).z;
@@ -484,7 +500,7 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc): void {
 		const p2 = physicsPoints[(i + 1) % physicsPoints.length];
 		const [a, b] = orientedEdge(p1, p2, centroid);
 		const lineSeg = new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
-		applyMaterial(lineSeg, node.physMaterial, node.name);
+		applyMaterial(materialsSource, lineSeg, node.physMaterial, node.name);
 		physics.addStaticHitObject(lineSeg);
 	}
 
@@ -500,7 +516,7 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc): void {
 	// at a single z, so a rolling ball's surface actually reaches it.
 	for (const point of physicsPoints) {
 		const hitLineZ = new HitLineZ(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
-		applyMaterial(hitLineZ, node.physMaterial, node.name);
+		applyMaterial(materialsSource, hitLineZ, node.physMaterial, node.name);
 		physics.addStaticHitObject(hitLineZ);
 	}
 }
@@ -522,7 +538,7 @@ function outwardTriangle(a: Vertex3D, b: Vertex3D, c: Vertex3D, hint: Vec3): [Ve
 	return dot >= 0 ? [a, b, c] : [a, c, b];
 }
 
-function addBox(physics: PlayerPhysics, node: CollisionNodeDoc): void {
+function addBox(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
 	const { min, max } = node.bboxMm;
 	const toP = (x: number, y: number, z: number): Vertex3D => {
 		const p = toPhysics({ x, y, z });
@@ -553,7 +569,7 @@ function addBox(physics: PlayerPhysics, node: CollisionNodeDoc): void {
 		for (const [a, b, c] of face.tris) {
 			const [ra, rb, rc] = outwardTriangle(a, b, c, face.hint);
 			const triangle = new HitTriangle([ra, rb, rc]);
-			applyMaterial(triangle, node.physMaterial, node.name);
+			applyMaterial(materialsSource, triangle, node.physMaterial, node.name);
 			physics.addStaticHitObject(triangle);
 		}
 	}
@@ -578,7 +594,7 @@ function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): Load
 	// value is still checked, matching this story's I/O matrix ("Flipper node
 	// is not a static box" row: "the two nodes are still validated for length
 	// and material").
-	resolveMaterial(node.physMaterial, node.name);
+	resolveMaterial(TUNING.materials, node.physMaterial, node.name);
 
 	// The pivot is the end FARTHER from the playfield x-centre (this file's
 	// own header: "x = 170 for the left bat, x = 344.4 for the right --
@@ -628,11 +644,22 @@ function assertPlaneShaped(node: CollisionNodeDoc): void {
  * `TABLE`/`TUNING` (AD-1). Throws (never returns a partial result) on any
  * shape or reference-dimension mismatch (AD-16 Conventions: load-time paths
  * throw).
+ *
+ * `tuning` (Story 1.9 review fix, optional, defaults to the live
+ * `resolveTuning()` -- byte-identical to this function's pre-fix behaviour
+ * when omitted, matching `CreateLoopOptions.tuning`'s own optional-seam
+ * pattern): every non-flipper hit object's material (walls, ramps, the
+ * playfield plane, the glass plane) is resolved from `tuning.materials`
+ * instead of the bare module-level `TUNING` singleton, so a hot-applied
+ * `materials.default.*` (or any non-flipper material) override actually
+ * reaches the running sim through `createMachine(collisionDoc, tuning)` --
+ * previously only `flippers.ts`'s own `flipper_rubber` read did this.
  */
-export function loadCollision(doc: unknown): LoadedCollision {
+export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuning()): LoadedCollision {
 	const parsed = parseCollisionDoc(doc);
 	assertReferenceDimensions(parsed);
 
+	const materialsSource = tuning.materials;
 	const physics = new PlayerPhysics();
 
 	const playfieldNode = findNode(parsed, TABLE.nodes.colPlayfield);
@@ -642,12 +669,12 @@ export function loadCollision(doc: unknown): LoadedCollision {
 
 	const { normal: playfieldNormal, d: playfieldD } = toPhysicsPlane(playfieldNode.normal!, playfieldNode.dMm!);
 	const playfieldPlane = new HitPlane(new Vertex3D(playfieldNormal.x, playfieldNormal.y, playfieldNormal.z), playfieldD);
-	applyMaterial(playfieldPlane, playfieldNode.physMaterial, playfieldNode.name);
+	applyMaterial(materialsSource, playfieldPlane, playfieldNode.physMaterial, playfieldNode.name);
 	physics.setPlayfieldHit(playfieldPlane);
 
 	const { normal: glassNormal, d: glassD } = toPhysicsPlane(glassNode.normal!, glassNode.dMm!);
 	const glassPlane = new HitPlane(new Vertex3D(glassNormal.x, glassNormal.y, glassNormal.z), glassD);
-	applyMaterial(glassPlane, glassNode.physMaterial, glassNode.name);
+	applyMaterial(materialsSource, glassPlane, glassNode.physMaterial, glassNode.name);
 	physics.setTopGlassHit(glassPlane);
 
 	// Story 1.6: the two flipper nodes are dispatched to loadFlipper() instead
@@ -667,9 +694,9 @@ export function loadCollision(doc: unknown): LoadedCollision {
 			throw new Error(`loadCollision(): node "${node.name}" is an unexpected plane-shaped node -- only col_playfield and col_glass may be plane-shaped`);
 		}
 		if (node.shape === 'wall') {
-			addWall(physics, node);
+			addWall(physics, node, materialsSource);
 		} else {
-			addBox(physics, node);
+			addBox(physics, node, materialsSource);
 		}
 	}
 
