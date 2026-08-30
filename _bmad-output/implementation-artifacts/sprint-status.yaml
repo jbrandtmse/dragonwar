@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 08-30-2026 09:35
+last_updated: 08-30-2026 04:09
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -106,3 +106,25 @@ development_status:
   6-6-the-browser-matrix-and-the-feel-ritual-on-both-paths: backlog
   6-7-release-the-ledger-audit-licence-headers-and-v1-0-0: backlog
   epic-6-retrospective: optional
+action_items:
+  - id: "epic-1-retro-item-1-run-the-chrome-macos-and-safari-macos-me"
+    epic: 1
+    action: "Run the Chrome/macOS and Safari/macOS measurement legs on real Apple
+      hardware; they gate the TICK_HZ evidence base (DW-1)"
+    owner: "user"
+    status: open
+    ref: ""
+  - id: "epic-1-retro-item-2-run-the-first-feel-ritual-against-the-re"
+    epic: 1
+    action: "Run the first feel ritual against the Reference machine and record the
+      three judgments in docs/feel-test.md (DW-3)"
+    owner: "user"
+    status: open
+    ref: ""
+  - id: "epic-1-retro-item-3-play-the-stern-dungeons-and-dragons-and"
+    epic: 1
+    action: "Play the Stern Dungeons and Dragons and fill in Story 1.9 AC 5s Reference-machine
+      comparison, currently pending-author (DW-90)"
+    owner: "user"
+    status: open
+    ref: ""
