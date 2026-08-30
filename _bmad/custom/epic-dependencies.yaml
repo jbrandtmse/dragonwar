@@ -8,11 +8,13 @@
 # DragonWar has no submodules (.gitmodules absent; parallel.yaml submodule_mode: none),
 # so every `submodules:` list is empty.
 
-epics_md_hash: "4c336f68e8954f63486db85173692d5cc4be51b9d470f8ded816856edc0668cf"
+epics_md_hash: "2b39592f05a1f6ae85b076edb30361ec442c2bf1395caf42f18be6017635342b"
 analyzed_by: claude-opus-5
 approved: true
 approved_date: 2026-08-27
-hash_rerecorded: 2026-08-30  # Epic 1 close: Story 1.10 (burn-down) inserted + 4 AC/prose amendments.
+hash_rerecorded: 2026-08-30  # Re-recorded twice today: (1) Epic 1 close, Story 1.10 inserted;
+                            # (2) after the LF renormalisation changed epics.md bytes on disk with
+                            # ZERO content change (identical once CR is stripped; headings identical).
                             # Structural diff vs approval: ONE added story heading under Epic 1.
                             # Epic boundaries, story-to-epic assignment and dependency statements unchanged.
                             # Hash-exempt per the kit -- re-recorded without re-approval.
