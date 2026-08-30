@@ -1,9 +1,32 @@
+# ---------------------------------------------------------------------------
+# Line endings: LF in the working tree, on every platform.
+#
+# core.autocrlf=true (the Windows default) checks source out as CRLF. Nothing in
+# this repository wants that: the AD-16 header-provenance tests compare port
+# markers byte-for-byte, and several extraction regexes match on \n. CI runs on
+# Linux and so never sees CRLF, which is exactly why this went unnoticed --
+# a fresh Windows clone failed 43 tests, including the licence-header gate that
+# CLAUDE.md makes a hard requirement, while CI stayed green.
+#
+# Ten stories never hit it because agents WRITE files (LF stays LF on disk);
+# autocrlf converts on CHECKOUT, so the first real checkout was the epic merge.
+# Field case: Epic 1 retrospective 2026-08-30, Finding 1.
+#
+# This line must stay FIRST -- later rules override it per-path.
+# ---------------------------------------------------------------------------
+* text=auto eol=lf
+
+# Binaries are never line-ending converted or diffed as text.
+*.png binary
+*.pyc binary
+
 # Deferred-work ledger is append-only across parallel epic branches
 _bmad-output/implementation-artifacts/deferred-work.md merge=union
 
 # Cycle logs are TAB-delimited and parsed field-by-field on resume; a CRLF checkout
 # would append \r to every metadata value. Keep the tracker files LF in the working
 # tree too, so every epic worktree parses identically.
+# (Redundant under the blanket rule above, kept because they document why.)
 _bmad-output/implementation-artifacts/*.md eol=lf
 _bmad-output/implementation-artifacts/*.yaml eol=lf
 _bmad/custom/*.yaml eol=lf
@@ -17,4 +40,7 @@ _bmad/custom/*.yaml eol=lf
 # comparison. Every downstream reader already normalises line endings as a
 # workaround -- this makes the LF guarantee structural instead.
 test/replays/** eol=lf
+
+# The spine's append-only decision log; ARCHITECTURE-SPINE.md itself is NOT
+# union-merged -- its conflicts are reconciled deterministically at SC-4-P.
 _bmad-output/planning-artifacts/architecture/**/.memlog.md merge=union
