@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 08-30-2026 04:11
+last_updated: 08-30-2026 05:57
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -46,7 +46,7 @@ development_status:
   1-8-replays-golden-state-hashes-and-ci-parity: done
   1-9-dev-tuning-panel-and-the-first-feel-ritual: done
   1-10-epic-1-burn-down: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   epic-2: backlog
   2-1-the-playfield-geometry-and-the-full-switch-set: backlog
@@ -128,3 +128,46 @@ action_items:
     owner: "user"
     status: open
     ref: ""
+  - id: "epic-1-retro-item-4-pin-line-endings-for-src-test-and-github"
+    epic: 1
+    action: "Pin line endings for src, test and .github paths in .gitattributes and
+      re-normalise the tree -- a fresh Windows checkout currently fails 43 tests including
+      the AD-16 header-provenance gate (Retro Finding 1)"
+    owner: "user"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
+  - id: "epic-1-retro-item-5-give-test-sim-boundary-test-ts-a-deliber"
+    epic: 1
+    action: "Give test/sim-boundary.test.ts a deliberate owner in Epic 2 -- all 10
+      stories edited it and it carries the licensing gate (Retro Finding 2)"
+    owner: "user"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
+  - id: "epic-1-retro-item-6-kit-record-ci-status-on-the-per-story-co"
+    epic: 1
+    action: "Kit: record CI status on the per-story committed entry and make a green
+      branch tip a merge-gate precondition (bug report 4, BUG 3)"
+    owner: "user"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
+  - id: "epic-1-retro-item-7-kit-write-routed-ledger-entries-into-the"
+    epic: 1
+    action: "Kit: write routed ledger entries into the receiving story acceptance
+      criteria in epics.md (bug report 4, BUG 1)"
+    owner: "user"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
+  - id: "epic-1-retro-item-8-kit-validate-ledger-owner-keys-against-t"
+    epic: 1
+    action: "Kit: validate ledger owner keys against the tracker on write and on ledger_load
+      (bug report 4, BUG 2)"
+    owner: "user"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
+  - id: "epic-1-retro-item-9-decide-the-model-tier-escalation-for-imp"
+    epic: 1
+    action: "Decide the model-tier escalation for implement to opus -- mean 4.40 high+med
+      findings per story against a threshold of 2.00"
+    owner: "user"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-08-30.md"
