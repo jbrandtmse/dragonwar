@@ -790,11 +790,11 @@ A stranger can play a full 1–4 player game with no instructions: the real geom
 
 **FRs covered:** FR-2, FR-3, FR-11, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-31, FR-32, FR-44 · **NFRs:** NFR-5, NFR-8 · **ARs:** AR-14, AR-15, AR-18, AR-19, AR-22, AR-23, AR-28, AR-37
 
-### Story 2.1: The playfield geometry and the full switch set
+### Story 2.1a: The drain triangle, the cradle pocket and the flipper's real dimensions
 
 As the author,
-I want the whole shot map drawn in the Blender source from the reference dimensions — drain triangle first, then Loops, Ramp, Dragon and Lock lane, pops, slings, DRAGON bank and Top lanes — with every switch zone placed and every shot's miss checked,
-So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are answered, and every later rule lands on real shots.
+I want the drain triangle drawn in the Blender source from the reference dimensions — the flipper tip gap, both outlane widths, the inlane guides and every post — and the flipper's modelled collision body reconciled with the box the reference-dimension assertion pins,
+So that the pocket a real cradle needs exists, the bat the whole game is played with is the shape the geometry says it is, and Story 2.1b's shot map is drawn on geometry that has been proved rather than assumed.
 
 **Acceptance Criteria:**
 
@@ -807,7 +807,55 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **Then** the ball stays within the cradle pocket for the whole hold — at rest, its position on the bat unchanged within tolerance — and does not depart the bat
 **And** this closes ledger `DW-72`: it is the half of Story 1.6's cradle criterion deferred to this story because Epic 1's placeholder table had no geometry beside either flipper to form a pocket (see Story 1.6's change log), so `test/flipper-collision.test.ts`'s 1 s ball bound is widened back to the full 5 s here
 
-**Given** the drain triangle is placed
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-77: the reworked cradle test spawns its ball roughly 9 mm inside the raised bat's modelled body, so the amended ball-half AC measures embedded-ball ejection rather than a resting contact (ledger; routed by decision_sheet 2026-08-30)
+- DW-78: `flipper-config.ts` puts the pivot at the committed box's own end while `FlipperMover` centres `hitCircleBase` of `baseRadius` there, so the collision body runs about 12.5 mm longer than the box `assertReferenceDimensions()` insists IS the bat (ledger; routed by decision_sheet 2026-08-30)
+- DW-105: `no-circular` exempts all of `src/sim/physics/` as a cycle origin, and the honest narrowing exposes a real authored-to-ported cycle `flipper-config` -> `loader` -> `player-physics` -> `flipper-mover` (ledger; routed by decision_sheet 2026-08-30)
+- DW-52: `addWall()`'s vertex-mean centroid orients faces outward only for a convex footprint, so a non-convex wall polygon faces reflex edges inward (ledger; routed by decision_sheet 2026-08-30)
+- DW-55: `applyPitch()` silently overwrites `playfield_root`'s transform; its correction is valid only while `playfield_root` is at identity and `pivot_pitch` is an unparented sibling, both asserted nowhere (ledger; routed by decision_sheet 2026-08-30)
+- DW-59: `addBox()` emits 12 `HitTriangle`s and no edge or vertex primitives, so a box's edges are uncovered exactly the way a wall's corners were in DW-7 (ledger; routed by decision_sheet 2026-08-30)
+
+**Change log**
+
+- **2026-08-29 — cradle criterion added, as the receiving half of Story 1.6's split.**
+  Story 1.6 could not assert a 5 s cradle: Epic 1's placeholder table has no geometry beside
+  either flipper, so a ball rolls along the raised bat under the 6.5° pitch and leaves it after
+  roughly 1.2–1.9 s. That was proved to be missing geometry rather than a defect in the ported
+  `FlipperMover` (energy dissipates rather than being injected, and a control ball that never
+  touches a flipper runs away faster). Story 1.6's ball claim was therefore bounded to 1 s and
+  the full cradle deferred here as ledger `DW-72`.
+  This story already **authors** the pocket — the inlane guides and posts are in its first
+  criterion — but asserted no behaviour that geometry enables, so it would have built the pocket,
+  never tested it, and met `DW-72` at its ledger gate with nothing delivered to close it against.
+  The criterion above closes that gap. `DW-72` is deliberately written to close on evidence
+  rather than on inspection.
+
+- **2026-08-30 — Story 2.1 split into Stories 2.1a and 2.1b at the Epic 2 Story 2.0 gate.**
+  The single story authored the whole shot map in Blender, declared the ~30-switch `TABLE`
+  surface, pinned switch reliability at maximum ball speed, ran a seven-shot feel ritual and
+  checked camera framing — and carried 15 routed ledger entries against a `routed_story_max`
+  of 6. Three of those entries (`DW-77`, `DW-78`, `DW-105`) are geometry and architecture
+  constraints on the bat itself, which the story's own design depends on rather than work it
+  could bolt on afterwards. The split is a partition, not a change of promise: every acceptance
+  criterion is carried over verbatim and in order, and both halves land before Story 2.2.
+  **2.1a** takes the drain triangle and the cradle — the geometry beside the flippers, the
+  bat's real dimensions, and the 5 s hold that proves the pocket. **2.1b** takes the rest of
+  the shot map, the full switch set, the swept-segment reliability test, the feel ritual and
+  the camera framing, drawn on geometry 2.1a has already proved. Story numbering uses the
+  tracker's split-story key grammar (`2-1a-`, `2-1b-`), so no sibling story is renumbered and
+  every existing cross-reference to "Story 2.1" — all of which concern the cradle and `DW-72` —
+  resolves to 2.1a, which keeps that criterion.
+
+### Story 2.1b: The full shot map and the switch set
+
+As the author,
+I want the rest of the shot map drawn on Story 2.1a's drain triangle — Loops, Ramp, Dragon and Lock lane, pops, slings, DRAGON bank and Top lanes — with every switch zone placed, every switch and coil declared in `TABLE`, and every shot's miss checked,
+So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are answered, and every later rule lands on real shots.
+
+**Acceptance Criteria:**
+
+**Given** the drain triangle placed in Story 2.1a
 **When** the shot map is drawn
 **Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-5/FR-27 decision in `docs/decisions.md`), the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, pop bumpers, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
 
@@ -829,20 +877,19 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **When** the full geometry is in view
 **Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible and the Backglass quad occupies a strip at the top of the view
 
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-58: Story 1.5's placeholder shooter-lane geometry — the relocated `bd_trough` eject pose and the invented lane-top deflector — is authored to make the serve work, not derived from any acceptance criterion, and must be replaced by real table geometry (ledger; routed by decision_sheet 2026-08-30)
+- DW-67: `createSwitchTracker` requires a new raw value to hold for `settleTicks`+1 consecutive ticks, so any zone crossing shorter than the settle window emits no edge at all — debouncing the make instead of the break (ledger; routed by decision_sheet 2026-08-30)
+- DW-68: `export.py`'s convex-hull wall reduction silently replaces a concave wall footprint with its filled hull, with no `fail()` and no diagnostic (ledger; routed by decision_sheet 2026-08-30)
+- DW-46: `resolveBlender()`'s conventional-location step hardcodes the C: drive and English Program Files, and its macOS/Linux candidates are absolute paths no test can inject (ledger; routed by decision_sheet 2026-08-30)
+- DW-65: `machine-serve-drain.test.ts` hardcodes the lane divider's main-field-face x as a bare numeric literal instead of deriving it from the collision document (ledger; routed by decision_sheet 2026-08-30)
+- DW-53: the placeholder table has no vertical containment — walls are 50 mm tall with no top cap, so a ball above that height leaves the field laterally (ledger; routed by decision_sheet 2026-08-30)
+
 **Change log**
 
-- **2026-08-29 — cradle criterion added, as the receiving half of Story 1.6's split.**
-  Story 1.6 could not assert a 5 s cradle: Epic 1's placeholder table has no geometry beside
-  either flipper, so a ball rolls along the raised bat under the 6.5° pitch and leaves it after
-  roughly 1.2–1.9 s. That was proved to be missing geometry rather than a defect in the ported
-  `FlipperMover` (energy dissipates rather than being injected, and a control ball that never
-  touches a flipper runs away faster). Story 1.6's ball claim was therefore bounded to 1 s and
-  the full cradle deferred here as ledger `DW-72`.
-  This story already **authors** the pocket — the inlane guides and posts are in its first
-  criterion — but asserted no behaviour that geometry enables, so it would have built the pocket,
-  never tested it, and met `DW-72` at its ledger gate with nothing delivered to close it against.
-  The criterion above closes that gap. `DW-72` is deliberately written to close on evidence
-  rather than on inspection.
+- **2026-08-30 — created as the receiving half of the Story 2.1 split.** See Story 2.1a's
+  change log for the rationale and the criterion-by-criterion partition.
 
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
@@ -959,6 +1006,12 @@ So that a complete game is playable from Start to the last ball.
 **Given** two players in Hot seat
 **When** player 1 drops three letters and player 2 starts a ball
 **Then** player 2's letters are empty and player 1's persist, verified by a switch-script test
+
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-70: `GameState.machine.deviceSlots` is written by `sim/loop` after `rules.step()` returns, not derived inside `sim/rules/ball-controller.ts` as AD-7 and this story both require; `pnpm check:ad7` is deliberately red until this story fixes it, and `test/ad7-device-slots.test.ts` (which currently asserts the failure exists) must be updated in the same change (ledger; routed by decision_sheet 2026-08-30)
+- DW-85: the roll-and-drain golden contributes zero unique discriminating signal — its terminal `GameState` equals its own starting state, so a defect that perturbs the trajectory but converges back leaves the hashed final state unchanged (ledger; routed by decision_sheet 2026-08-30)
+- DW-87: `PHYSICS_VERSION` hashes only the 13 AD-15-pinned solver constants, so editing any other integration-affecting constant breaks every golden as a bare hash mismatch instead of a named re-record (ledger; routed by decision_sheet 2026-08-30)
 
 ### Story 2.6: The DMD Backglass
 
@@ -1123,6 +1176,10 @@ So that nudge danger is real and the machine punishes abuse the way a real one d
 **Given** `s_slam_tilt` closes during any phase with a game running
 **When** rules process it
 **Then** `slam_tilt` fires, every player's game ends without bonus, hardware is disabled and the machine returns to Attract
+
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-36: FR-14's tilt-warning default of 1 is never transcribed, so `GameAdjustments.tiltWarnings` has no table default even though AD-15 lists `tiltWarnings` among the table tunables (ledger; routed by decision_sheet 2026-08-30)
 
 ### Story 2.12: Ball search
 
