@@ -11,3 +11,9 @@ _bmad/custom/*.yaml eol=lf
 # Shell scripts must stay LF: core.autocrlf=true would otherwise give a fresh
 # clone CRLF shebangs, which Git Bash rejects with "bad interpreter".
 *.sh eol=lf
+
+# Golden replay fixtures are hashed and diffed byte-for-byte across engines;
+# a CRLF checkout on a fresh clone (core.autocrlf=true) would corrupt that
+# comparison. Every downstream reader already normalises line endings as a
+# workaround -- this makes the LF guarantee structural instead.
+test/replays/** eol=lf

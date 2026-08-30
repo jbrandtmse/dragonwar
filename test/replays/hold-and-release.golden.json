@@ -1,0 +1,401 @@
+{
+  "name": "hold-and-release",
+  "description": "Renamed from \"cradle-and-release\" (epic context, Code Map): this placeholder table has no pocket geometry beside either flipper, so a golden claiming a multi-second cradle would freeze roll-off as the cradle reference. This golden presses the left flipper for 800 ticks (< 1 s, well inside the ~1 s stable window) starting just before the autolaunched ball reaches it, then releases -- the ball visibly bounces off the raised bat (a measurable z-height hop) during the hold, then drains shortly after release. Pins the coil hardware rule (energise/de-energise) against a real ball, not a literal rest-on-bat cradle.",
+  "header": {
+    "gameStart": {
+      "seed": 12345,
+      "tuning": {
+        "materials": {
+          "default": {
+            "elasticity": {
+              "value": 0.3,
+              "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
+              "confidence": "high"
+            },
+            "elasticityFalloff": {
+              "value": 0,
+              "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
+              "confidence": "high"
+            },
+            "friction": {
+              "value": 0.3,
+              "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
+              "confidence": "high"
+            },
+            "scatter": {
+              "value": 0,
+              "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
+              "confidence": "high"
+            }
+          },
+          "flipper_rubber": {
+            "elasticity": {
+              "value": 0.88,
+              "source": "addendum §2 physics tuning table, 'Flipper elasticity' (AR-17)",
+              "confidence": "medium"
+            },
+            "elasticityFalloff": {
+              "value": 0.15,
+              "source": "addendum §2 physics tuning table, 'Elasticity falloff' (AR-17) -- \"the primary feel knob\"",
+              "confidence": "medium"
+            },
+            "friction": {
+              "value": 0.85,
+              "source": "authored: midpoint of addendum §2's 'Flipper friction' range 0.8-0.9 (AR-17) -- \"what makes centre shots and backhands possible\"; no artifact states a single value",
+              "confidence": "unverified"
+            },
+            "scatter": {
+              "value": 0,
+              "source": "addendum §2 physics tuning table, 'Scatter angle': \"0, for every era; randomness is tuned down\"",
+              "confidence": "high"
+            }
+          }
+        },
+        "flipper": {
+          "mass": {
+            "value": 1,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData.updatePhysicsSettings()'s registry.getRegStringAsFloat('Player', 'FlipperPhysicsMass${idx}', 1) fallback default -- the vpx-js 'modern era' override value, transcribed since DragonWar has no per-table override-physics system of its own (AD-1) and this IS the modern band physics-tuning.md's 'Flipper strength' note says to inherit",
+            "confidence": "medium"
+          },
+          "strength": {
+            "value": 2200,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsStrength${idx} fallback default 2200 (VPX internal solenoid-strength unit, dimensionless) -- the modern-era band",
+            "confidence": "medium"
+          },
+          "rampUp": {
+            "value": 2.5,
+            "source": "physics-tuning.md:28 \"Coil ramp-up 2.5 -- Solenoid acceleration time -- enables the light tap. Source: VPE default via the brief addendum §4\" (supersedes flipper-data.ts's own FlipperPhysicsCoilRampUp fallback of 3.0 for this table)",
+            "confidence": "medium"
+          },
+          "returnRatio": {
+            "value": 0.058,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsReturnStrength${idx} fallback default",
+            "confidence": "medium"
+          },
+          "torqueDamping": {
+            "value": 0.75,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorque${idx} fallback default",
+            "confidence": "medium"
+          },
+          "torqueDampingAngleDeg": {
+            "value": 6,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorqueAngle${idx} fallback default, degrees",
+            "confidence": "medium"
+          },
+          "sweepDeg": {
+            "value": 51,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults startAngle 121.0 / endAngle 70.0 -> the ported ROTATION MAGNITUDE |121-70| = 51; the committed collision geometry supplies the flipper's absolute table-frame pose (see loader/index.ts and this story's Design Notes, \"How the bat is derived from the committed box\")",
+            "confidence": "medium"
+          },
+          "endRadiusRatio": {
+            "value": 0.6046511627906976,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults endRadius 13.0 / baseRadius 21.5 -- the ported dimensionless taper ratio; the committed collision geometry supplies the absolute base radius (half the bat's own width)",
+            "confidence": "medium"
+          }
+        },
+        "switchSettleMsByClass": {
+          "rollover": {
+            "value": 0,
+            "source": "AD-2 rule text: \"defaults by class: rollover 0, standup target 8, drop target 20, bumper skirt 2, tilt bob 0\"",
+            "confidence": "high"
+          },
+          "standup": {
+            "value": 8,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "drop_target": {
+            "value": 20,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "bumper_skirt": {
+            "value": 2,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "tilt_bob": {
+            "value": 0,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "button": {
+            "value": 0,
+            "source": "authored: AD-2 states button switches (s_start, s_flipper_l, s_flipper_r, s_plunger) are emitted by sim/loop from InputFrame transitions, never through physics debounce, so there is no bounce to settle",
+            "confidence": "unverified"
+          },
+          "slam": {
+            "value": 0,
+            "source": "authored: AD-5 states the slam detector's closure is a tick-windowed nudge-count threshold computed in physics, not a debounced analog switch",
+            "confidence": "unverified"
+          }
+        },
+        "defaultPitchDeg": {
+          "value": 6.5,
+          "source": "FR-10 consequence text; AD-10 TABLE.reference.pitchDeg; addendum §2 reference geometry (\"pitch 6.5°... high confidence\")",
+          "confidence": "high"
+        },
+        "pitchMinDeg": {
+          "value": 6,
+          "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"",
+          "confidence": "medium"
+        },
+        "pitchMaxDeg": {
+          "value": 8.5,
+          "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"; corroborated by addendum §2 \"competition range 6.5-8.5°\"",
+          "confidence": "medium"
+        },
+        "hopControl": {
+          "value": 0.35,
+          "source": "authored: FR-9 states the two-endpoint behaviour (0 = no hops, default = occasional hops on hard hits) but no unit or magnitude; hop.ts (this story) supplies both -- measured this pass against the paired hopControl=0-vs-default stress replay (test/hop-control.test.ts) to produce a clear, glass-safe margin without every hard hit turning into a launch",
+          "confidence": "unverified"
+        },
+        "slamNudgesPerWindow": {
+          "value": 3,
+          "source": "authored: FR-16 states the mechanism (a repeated-nudge threshold distinct from the tilt bob) but no count",
+          "confidence": "unverified"
+        },
+        "slamNudgeWindowMs": {
+          "value": 500,
+          "source": "authored: FR-16 states the mechanism but no window duration",
+          "confidence": "unverified"
+        },
+        "tiltWarningSpacingMs": {
+          "value": 500,
+          "source": "authored: AD-3 names \"tilt spacing\" as a rules timer; FR-14 states the debounce requirement, no duration",
+          "confidence": "unverified"
+        },
+        "tiltSettleMs": {
+          "value": 3000,
+          "source": "authored: AD-3/AD-7 name \"tilt... settle\" as a rules timer keyed to the bob's physical decay; no duration stated",
+          "confidence": "unverified"
+        },
+        "plungerMinHoldMs": {
+          "value": 0,
+          "source": "authored: AD-5 states the mapping exists (\"plungerSpeedByHoldMs\"), not its curve; a bare tap is the ramp's lower bound",
+          "confidence": "unverified"
+        },
+        "plungerMaxHoldMs": {
+          "value": 500,
+          "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
+          "confidence": "unverified"
+        },
+        "plungerMinSpeedScale": {
+          "value": 0.3,
+          "source": "authored: fraction of full plunger power at plungerMinHoldMs",
+          "confidence": "unverified"
+        },
+        "plungerMaxSpeedScale": {
+          "value": 1,
+          "source": "authored: fraction of full plunger power at plungerMaxHoldMs and beyond",
+          "confidence": "unverified"
+        },
+        "troughEjectSpeedMmPerS": {
+          "value": 300,
+          "source": "authored: AD-6 requires an eject speed, no artifact states one -- measured against the real loop (not just a standalone physics probe) to stay inside sw_shooter_lane's own y <= 60 mm zone ceiling for its whole arc (peak y ~50.6 mm), avoiding the spurious ball_launched a higher speed (500 mm/s, peak y ~105.6 mm) produces by overshooting the zone before settling",
+          "confidence": "unverified"
+        },
+        "autolaunchSpeedMmPerS": {
+          "value": 2500,
+          "source": "authored: AD-6 requires an eject speed, no artifact states one -- measured during Story 1.5 planning against col_lane_deflector, whose clearance threshold sits between 1600 and 1800 mm/s; this carries margin above it",
+          "confidence": "unverified"
+        },
+        "cabinet": {
+          "massKg": {
+            "value": 113,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.h:24, CabinetPhysics(float mass = 113.f) default ctor argument",
+            "confidence": "medium"
+          },
+          "freqXHz": {
+            "value": 9.3,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)",
+            "confidence": "medium"
+          },
+          "zetaX": {
+            "value": 0.052,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)",
+            "confidence": "medium"
+          },
+          "freqYHz": {
+            "value": 5.8,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)",
+            "confidence": "medium"
+          },
+          "zetaY": {
+            "value": 0.055,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)",
+            "confidence": "medium"
+          },
+          "nudgePeakAccelG": {
+            "value": 0.5,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:162-164, comment \"0.5g max peak accel on strong nudge\" (baseScale = 0.5f * g / coreScriptStrength, with coreScriptStrength = 2.f the reference \"full strength\" nudge)",
+            "confidence": "medium"
+          }
+        },
+        "nudgeImpulseMs": {
+          "value": 25,
+          "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
+          "confidence": "medium"
+        },
+        "tiltBob": {
+          "rodLengthM": {
+            "value": 0.1,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:30, m_plumbPoleLength = 0.10f",
+            "confidence": "medium"
+          },
+          "cabAccelScale": {
+            "value": 1,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:33, m_plumbCabAccelScale = 1.0f",
+            "confidence": "medium"
+          },
+          "dampingCoef0": {
+            "value": 1.25,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:45, m_dampingCoef0 = 1.25f",
+            "confidence": "medium"
+          },
+          "dampingCoef1": {
+            "value": 0.75,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:46, m_dampingCoef1 = 0.75f",
+            "confidence": "medium"
+          },
+          "ringBounceDamping": {
+            "value": 0.8,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.cpp:118, m_plumbOmega *= 0.8f; // magic damping factor",
+            "confidence": "medium"
+          },
+          "dampingScale": {
+            "value": 1,
+            "source": "authored: upstream reads this from Settings::GetPlayer_PlumbDamping(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- 1.0 (identity) is the most defensible 'no adjustment' choice against the transcribed dampingCoef0/dampingCoef1 ratio coefficients; measured during this story's implementation (see spec Verification section) to leave a single ordinary nudge's peak swing (~1.05 deg) well clear of thresholdDeg while still permitting a rapid nudge burst to cross it and decay away within a few seconds. Story 1.9's feel ritual ratifies it",
+            "confidence": "unverified"
+          },
+          "thresholdDeg": {
+            "value": 1.3,
+            "source": "authored: upstream reads this from Settings::GetPlayer_PlumbThresholdAngle(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- measured during this story's implementation (see spec Verification section) so that ONE ordinary nudge_* rising edge (peak swing ~1.05 deg, measured) never crosses it, while a rapid burst of nudges (a deliberate, violent 'slam'-style burst) does. Story 1.9's feel ritual ratifies it against the Reference machine",
+            "confidence": "unverified"
+          }
+        },
+        "slamNudgeWindowTicks": {
+          "value": 500,
+          "source": "authored: FR-16 states the mechanism but no window duration",
+          "confidence": "unverified"
+        },
+        "tiltWarningSpacingTicks": {
+          "value": 500,
+          "source": "authored: AD-3 names \"tilt spacing\" as a rules timer; FR-14 states the debounce requirement, no duration",
+          "confidence": "unverified"
+        },
+        "tiltSettleTicks": {
+          "value": 3000,
+          "source": "authored: AD-3/AD-7 name \"tilt... settle\" as a rules timer keyed to the bob's physical decay; no duration stated",
+          "confidence": "unverified"
+        },
+        "plungerMinHoldTicks": {
+          "value": 0,
+          "source": "authored: AD-5 states the mapping exists (\"plungerSpeedByHoldMs\"), not its curve; a bare tap is the ramp's lower bound",
+          "confidence": "unverified"
+        },
+        "plungerMaxHoldTicks": {
+          "value": 500,
+          "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
+          "confidence": "unverified"
+        },
+        "nudgeImpulseTicks": {
+          "value": 25,
+          "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
+          "confidence": "medium"
+        },
+        "switchSettleTicksByClass": {
+          "rollover": {
+            "value": 0,
+            "source": "AD-2 rule text: \"defaults by class: rollover 0, standup target 8, drop target 20, bumper skirt 2, tilt bob 0\"",
+            "confidence": "high"
+          },
+          "standup": {
+            "value": 8,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "drop_target": {
+            "value": 20,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "bumper_skirt": {
+            "value": 2,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "tilt_bob": {
+            "value": 0,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "button": {
+            "value": 0,
+            "source": "authored: AD-2 states button switches (s_start, s_flipper_l, s_flipper_r, s_plunger) are emitted by sim/loop from InputFrame transitions, never through physics debounce, so there is no bounce to settle",
+            "confidence": "unverified"
+          },
+          "slam": {
+            "value": 0,
+            "source": "authored: AD-5 states the slam detector's closure is a tick-windowed nudge-count threshold computed in physics, not a debounced analog switch",
+            "confidence": "unverified"
+          }
+        }
+      },
+      "adjustments": {
+        "pitchDeg": 6.5,
+        "tiltWarnings": 3,
+        "ballsPerGame": 3,
+        "matchProbability": 0
+      },
+      "highscores": []
+    },
+    "physicsSeed": 999,
+    "tickHz": 1000,
+    "tableHash": "5985b9f7",
+    "assetHash": "a1ee6e8e",
+    "physicsVersion": "v1-c5990f6c"
+  },
+  "transitions": [
+    {
+      "tick": 7300,
+      "frame": {
+        "flipper_l": true,
+        "flipper_r": false,
+        "plunger": false,
+        "nudge_l": false,
+        "nudge_r": false,
+        "nudge_up": false,
+        "start": false,
+        "menu": false
+      }
+    },
+    {
+      "tick": 8100,
+      "frame": {
+        "flipper_l": false,
+        "flipper_r": false,
+        "plunger": false,
+        "nudge_l": false,
+        "nudge_r": false,
+        "nudge_up": false,
+        "start": false,
+        "menu": false
+      }
+    }
+  ],
+  "coilPrologue": [
+    {
+      "tick": 1,
+      "coil": "c_trough_eject"
+    },
+    {
+      "tick": 5021,
+      "coil": "c_autolaunch"
+    }
+  ],
+  "durationTicks": 8110,
+  "expectedHash": "7e6ecab7",
+  "expectedGameStateHash": "872c62ad",
+  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:326-329, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed."
+}

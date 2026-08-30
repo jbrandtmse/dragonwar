@@ -1,0 +1,14 @@
+// Solution file for editor resolution only -- it typechecks nothing itself.
+// `pnpm typecheck` invokes tsconfig.sim.json, tsconfig.app.json and
+// tsconfig.node.json explicitly (package.json's "typecheck" script); this
+// file exists so an editor opening the repository root sees all three
+// projects. Story 1.3 split the single project in three to close DW-15 --
+// see tsconfig.base.json and the three project files beside it.
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.sim.json" },
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

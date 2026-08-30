@@ -36,16 +36,25 @@ The live ledger of everything third-party in this repository is
 ATTRIBUTIONS.md, and the rule governing what may be added is in
 CLAUDE.md. Nothing enters the repository without recorded provenance.
 
-Summarised below so the obligations are not discovered late. None of the
-following is yet present in this repository.
+Summarised below so the obligations are not discovered late. The vpdb/vpx-js
+port has been present since Story 1.1 and Babylon.js since Story 1.2; both are
+recorded in ATTRIBUTIONS.md's Code table. The remainder are not yet present.
 
-  Visual Pinball / vpx-js
-    If physics code is ported from vpdb/vpx-js, its existing copyright
-    notices must be PRESERVED alongside ours, not replaced. That project
-    is licensed "version 2 of the GNU General Public License, or (at
-    your option) any later version"; DragonWar exercises the or-later
-    clause to combine it with Apache-2.0 dependencies under GPL-3.0.
-    A port inherits its authors' authorship.
+  Visual Pinball / vpx-js  (PRESENT since Story 1.1)
+    Physics code IS ported from vpdb/vpx-js and lives under
+    src/sim/physics/**, where each ported file retains its original
+    copyright header alongside ours, as the licence requires. That
+    project is licensed "version 2 of the GNU General Public License, or
+    (at your option) any later version"; DragonWar exercises the
+    or-later clause to combine it with Apache-2.0 dependencies under
+    GPL-3.0. A port inherits its authors' authorship.
+
+    Because the deployed build minifies that code and minification
+    strips comments, the built bundle cannot carry those per-file
+    headers. They are therefore reproduced in
+    public/THIRD-PARTY-NOTICES.txt, which ships in dist/ and is linked
+    from every deployed page, together with the Corresponding Source URL
+    (Story 1.2; gap found and closed by review 2026-08-28).
 
   Visual Pinball (vpinball/vpinball)
     Dual-licensed and mid-migration. Files converted to GPLv3+ carry
@@ -58,9 +67,13 @@ following is yet present in this repository.
     naming, or event vocabulary is adopted, include its copyright notice
     and permission notice.
 
-  Babylon.js
-    Apache-2.0. Retain the licence and any NOTICE content from the
-    distribution.
+  Babylon.js (`@babylonjs/core`, `@babylonjs/loaders` @ 9.22.2)
+    Apache-2.0, verified in `license.md` at the root of
+    https://github.com/BabylonJS/Babylon.js (2026-08-27). The licence text and
+    upstream `NOTICE.md` content ("Babylon.js / Copyright 2023 The Babylon.js
+    team") ship in `public/THIRD-PARTY-NOTICES.txt`, reachable from the
+    press-to-begin panel — this repository's first distribution, so Apache-2.0
+    sections 4(a) and 4(d) attach as of Story 1.2.
 
   vbousquet/pinball-parts
     CC BY-SA, with the exception of a "Thin Film Interaction" node group

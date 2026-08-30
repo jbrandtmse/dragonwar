@@ -1,0 +1,12 @@
+// presentation/ and host/ project: the DOM-facing half of src/. Types are
+// `vite/client` only (import.meta.env, asset URL imports) -- no `node` here,
+// so a Node global reaching into presentation/ or host/ is caught the same
+// way a DOM global reaching into sim/ is.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src/host/**/*.ts", "src/presentation/**/*.ts"]
+}

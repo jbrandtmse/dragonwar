@@ -1,0 +1,220 @@
+/* DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md. */
+
+/* All page styling lives here -- default-src 'self' blocks inline <style> and
+   style= attributes, so an inline gate panel would be invisible (AD-17). */
+
+:root {
+	color-scheme: dark;
+	--dw-bg: #0b0b10;
+	--dw-fg: #e8e8ef;
+	--dw-accent: #d4443a;
+	--dw-muted: #9a9aa8;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	background: var(--dw-bg);
+	color: var(--dw-fg);
+	font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#gate {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	text-align: center;
+	padding: 2rem;
+}
+
+/* Without this, the author-origin `#gate { display: flex; }` rule above beats
+   the browser's own default `[hidden] { display: none }` UA style (an author
+   rule always wins over a UA rule regardless of specificity), so
+   `gate.hidden = true` in src/host/boot.ts would leave the gate's heading,
+   button and notices link in the layout and hit-testable region -- visible
+   through the still-transparent canvas until the first frame paints over it
+   (review finding 2026-08-28; mirrors the pattern #error-panel and
+   #render-canvas already use below). */
+#gate[hidden] {
+	display: none;
+}
+
+#gate h1 {
+	font-size: 2.5rem;
+	letter-spacing: 0.05em;
+	margin: 0;
+}
+
+#gate-message {
+	color: var(--dw-muted);
+	margin: 0;
+	max-width: 32rem;
+}
+
+#begin-button {
+	font-size: 1.25rem;
+	padding: 0.75rem 2rem;
+	background: var(--dw-accent);
+	color: #fff;
+	border: none;
+	border-radius: 0.25rem;
+	cursor: pointer;
+}
+
+#begin-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+#notices-link {
+	color: var(--dw-muted);
+	font-size: 0.85rem;
+}
+
+#error-panel {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	text-align: center;
+	padding: 2rem;
+	background: var(--dw-bg);
+	color: var(--dw-fg);
+}
+
+#error-panel[hidden] {
+	display: none;
+}
+
+#error-message {
+	max-width: 32rem;
+	color: var(--dw-accent);
+}
+
+#render-canvas {
+	position: fixed;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	touch-action: none;
+}
+
+#render-canvas[hidden] {
+	display: none;
+}
+
+/* Story 1.9's dev tuning panel (src/host/dev/tuning-panel.ts) -- mounted only
+   behind an explicit opt-in, never on the default path. Every rule here, not
+   an inline style= attribute or <style> tag, is what keeps the panel legal
+   under AD-17's pinned CSP (no inline style). */
+.dw-tuning-panel {
+	position: fixed;
+	top: 0;
+	right: 0;
+	width: 26rem;
+	max-height: 100%;
+	overflow-y: auto;
+	background: rgba(11, 11, 16, 0.95);
+	color: var(--dw-fg);
+	font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+	font-size: 0.75rem;
+	padding: 0.75rem;
+	border-left: 1px solid var(--dw-muted);
+	z-index: 10;
+}
+
+.dw-tuning-panel__heading {
+	font-size: 1rem;
+	margin: 0 0 0.5rem 0;
+}
+
+/* Surfaces a REJECTED tuning edit's reason (src/host/dev/tuning-panel.ts's
+   hotApply()). Empty most of the time, so it must not reserve vertical space
+   when it has nothing to say. */
+.dw-tuning-panel__status {
+	color: var(--dw-accent);
+	font-size: 0.75rem;
+	margin: 0;
+}
+
+.dw-tuning-panel__status:empty {
+	display: none;
+}
+
+.dw-tuning-panel__list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.dw-tuning-panel__row {
+	display: grid;
+	grid-template-columns: 1fr 5rem;
+	gap: 0.25rem 0.5rem;
+	padding: 0.25rem 0;
+	border-bottom: 1px solid rgba(154, 154, 168, 0.25);
+}
+
+.dw-tuning-panel__path {
+	grid-column: 1;
+	word-break: break-word;
+}
+
+.dw-tuning-panel__value {
+	grid-column: 2;
+	width: 100%;
+	background: var(--dw-bg);
+	color: var(--dw-fg);
+	border: 1px solid var(--dw-muted);
+	border-radius: 0.2rem;
+	font: inherit;
+}
+
+.dw-tuning-panel__meta {
+	grid-column: 1 / -1;
+	color: var(--dw-muted);
+	font-size: 0.65rem;
+}
+
+.dw-tuning-panel__export-section {
+	margin-top: 0.75rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.dw-tuning-panel__export-button {
+	align-self: flex-start;
+	background: var(--dw-accent);
+	color: #fff;
+	border: none;
+	border-radius: 0.25rem;
+	padding: 0.4rem 0.9rem;
+	cursor: pointer;
+	font: inherit;
+}
+
+.dw-tuning-panel__export-area {
+	width: 100%;
+	height: 12rem;
+	background: var(--dw-bg);
+	color: var(--dw-fg);
+	border: 1px solid var(--dw-muted);
+	border-radius: 0.2rem;
+	font-family: ui-monospace, "SF Mono", Consolas, monospace;
+	font-size: 0.65rem;
+}

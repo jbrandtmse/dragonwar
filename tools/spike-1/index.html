@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md. -->
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<!--
+		Story 1.2: this harness page is built into dist/ and deployed alongside the
+		root page (DW-11), so it carries the same pinned CSP tag and tools/check-dist.mjs
+		asserts it on every emitted page. The harness needs no directive beyond 'self':
+		it fetches nothing.
+	-->
+	<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:">
+	<title>DragonWar — Spike 1 harness</title>
+</head>
+<body>
+	<h1>DragonWar — Spike 1: six-ball physics harness</h1>
+	<p id="result">Loading…</p>
+	<!--
+		This page's own bundle carries the minified vpx-js physics port, whose
+		per-file copyright headers the minifier strips, so the deployed harness must
+		reach the notices and the licence text too -- it previously linked neither
+		(review finding 2026-08-28). Paths are relative to dist/tools/spike-1/.
+	-->
+	<p>
+		<a href="../../THIRD-PARTY-NOTICES.txt">Third-party notices</a>
+		&middot;
+		<a href="../../LICENSE.txt">Licence (GPL-3.0)</a>
+	</p>
+	<script type="module" src="./browser.ts"></script>
+</body>
+</html>

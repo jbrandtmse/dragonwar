@@ -1,0 +1,36 @@
+/* DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md. */
+/*
+ * Story 1.8: an EXTERNAL stylesheet, not inline styles -- the pinned CSP
+ * (`default-src 'self'`, no `style-src` widening) blocks both a `<style>`
+ * block in index.html and JS-set `element.style.*` properties equally
+ * (both count as "inline" under CSP's style-src governance); a same-origin
+ * `<link rel="stylesheet">` is the only styling path 'self' actually admits.
+ * Measured this pass in a real Chrome load: the JS-set-inline-style version
+ * of this page logged a real CSP violation and rendered unstyled.
+ */
+
+body {
+	font-family: system-ui, sans-serif;
+	margin: 1.5em;
+}
+
+table {
+	border-collapse: collapse;
+	margin-top: 1em;
+}
+
+th,
+td {
+	border: 1px solid #888;
+	padding: 4px 8px;
+	text-align: left;
+	font-family: monospace;
+}
+
+tr.pass {
+	background: #d7f5d7;
+}
+
+tr.fail {
+	background: #f5d7d7;
+}

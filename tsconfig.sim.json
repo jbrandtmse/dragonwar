@@ -1,0 +1,14 @@
+// sim/ project (DW-15's closure): no DOM lib, no ambient types at all -- a
+// reference to `document`, `window`, `navigator`, `performance`, `setTimeout`,
+// `setInterval`, `requestAnimationFrame` or `localStorage` inside src/sim/**
+// fails here with TS2584/TS2304, which is the layer that can actually reject
+// a global by name (AD-1, AD-16). `Date`, `Math.random` and `globalThis` are
+// legal ES2023 and remain tools/boundary-lint.mjs's job.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src/sim/**/*.ts"]
+}

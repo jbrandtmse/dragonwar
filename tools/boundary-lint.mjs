@@ -1,0 +1,764 @@
+#!/usr/bin/env node
+// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
+//
+// AD-16: the boundary gate is three parts (this story's Design Notes,
+// "Why the boundary gate is three parts, not one"), and this tool is two of
+// them plus the coverage guard that makes the third (dependency-cruiser)
+// honest:
+//
+//   (a) runs dependency-cruiser (tools/dependency-cruiser.config.mjs) over
+//       `<root>/src` and fails on any import-rule violation -- exit 2,
+//       naming the rule, per this story's I/O matrix ("sim/ imports
+//       upward", "presentation/ reaches past the seam", "host/ reaches into
+//       the core", "Engine physics anywhere" rows all read "Exit 2").
+//   (b) fails if any `.ts` file under `<root>/src` is missing from the
+//       cruise result -- "a lint that cannot see the files is a defect, not
+//       a pass" (this story's own Always rule). Never exits 0 over an empty
+//       graph.
+//   (c) scans `<root>/src/sim/**` textually for `Date`, `Math.random` and
+//       `globalThis` (legal ES2023, so `tsconfig.sim.json` cannot reject
+//       them) plus the DOM/Node token list as defence in depth, outside
+//       comments and string/template literals.
+//   (d) enforces AD-3's tick/ms rule: `TICK_HZ` named anywhere under
+//       `<root>/src/sim/**` other than `contracts/time.ts` and
+//       `table/tuning.ts`; an `…Ms`-suffixed binding authored with a numeric
+//       literal anywhere under `<root>/src/sim/**` other than
+//       `table/tuning.ts`.
+//   (e) enforces the device-name-literal rule over `<root>/src/**`, excluding
+//       `src/sim/table/dragonwar.ts`: a string/template literal matching
+//       `^(s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$`.
+//   (f) enforces Rule 14 (no literal non-ASCII byte in authored source) over
+//       `<root>/src/**` string and template literals ONLY -- comments and
+//       JSDoc are prose and stay exempt. A file whose first `//` line reads
+//       `// Ported from ` (the vpx-js/vpinball port marker every declared
+//       port under src/sim/physics/** carries) is exempt entirely: its bytes
+//       are the upstream author's, not ours to re-encode.
+//
+// (a) and (b) need a real import graph, which only dependency-cruiser (with
+// the `@swc/core` parser) can produce -- it cannot see identifier references
+// or string literals, so (c)-(f) are a hand-rolled textual pass instead.
+// Node built-ins plus dependency-cruiser only, per this story's own
+// constraint (AD-16: no lint may depend on the TypeScript compiler API).
+//
+// In-file suppression (DW-38), `no-device-name-literal` ONLY: a line comment
+// reading EXACTLY (after trimming)
+//
+//     // boundary-lint-disable-next-line <rule-name>
+//
+// exempts that one violation kind on exactly the line immediately below the
+// comment -- narrow by construction: a different line, a suppression naming
+// a different rule, or one naming a rule that does not exist all still
+// report the underlying violation exactly as if no suppression were present
+// (an unrecognised rule name is never silently honoured -- it simply never
+// matches the real rule name a violation is compared against). The syntax
+// deliberately mirrors `// eslint-disable-next-line <rule>` already used
+// elsewhere in this repository. Only a LINE comment (`//`) is honoured, not
+// a block comment (`/* */`).
+//
+// Usage: node tools/boundary-lint.mjs [root]
+//   [root] -- defaults to the repository root; test/boundary-lint.test.ts
+//   points it at test/fixtures/boundary so the tool's checks run for real
+//   against deliberately violating input, one violation per rule.
+
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const TOOL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DEPCRUISE_BIN = path.join(TOOL_ROOT, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruise.mjs');
+const DEPCRUISE_CONFIG = path.join(TOOL_ROOT, 'tools', 'dependency-cruiser.config.mjs');
+
+// Not just `.ts`: a `.js`/`.mjs`/`.cjs`/`.tsx`/`.mts`/`.cts` file dropped
+// under src/ would otherwise bypass every textual check below entirely. This
+// is the same extension set test/sim-boundary.test.ts's superseded stand-in
+// scanned (review finding, this story's own review pass: the three textual
+// checks below had narrowed to `.ts`-only, regressing that defense-in-depth),
+// widened again with `.mts`/`.cts` -- the swc parser reports those as NOT
+// scannable (`depcruise --info` prints `x .mts`, `x .cts`), and
+// tools/check-licence-headers.mjs already treats them as authored source, so
+// leaving them out here let a `src/sim/*.mts` module import upward, reference
+// `Date`, author literal milliseconds and hard-code device names while
+// `pnpm lint:boundaries` reported OK (review finding, this story's review
+// pass; reproduced against the shipped tool).
+// Exported (DW-32) so test/typecheck-sim-boundary.test.ts's set-difference
+// check compares against the SAME extension set this file's own textual
+// scan uses, rather than a hand-copied duplicate that could silently drift.
+export const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+// The coverage guard's own set (check (b)). Kept to the TypeScript
+// extensions the import graph is supposed to cover: any of these that
+// dependency-cruiser did not return is a blind spot, whether because the
+// parser dropped the extension (DW-15's own failure mode, and what `.mts`
+// and `.cts` do today) or because a path filter hid the file.
+const GRAPH_COVERAGE_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts)$/;
+
+const DEVICE_NAME_PATTERN = /^(?:s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$/;
+// Any codepoint outside the printable-ASCII + control-character range. Rule
+// 14: author non-ASCII bytes as `\uXXXX` escapes so the source stays plain
+// ASCII everywhere except prose (comments/JSDoc, which this check never
+// scans -- extractStringLiterals() only ever yields string/template spans).
+// The `u` flag is load-bearing: without it, a character class matches UTF-16
+// CODE UNITS, so an astral (non-BMP) codepoint's surrogate pair would be
+// reported as two separate violations, each naming half a codepoint. With
+// `u`, matching (and codePointAt(0) below) operates on whole Unicode scalar
+// values, exactly one violation per real character.
+const NON_ASCII_LITERAL_PATTERN = /[^\x00-\x7F]/gu;
+// The vpx-js/vpinball port marker every declared DW-79-frozen port carries as
+// its own first identifying line (verified against all 41 files named in
+// test/sim-boundary.test.ts's PORT_BODY_HASHES): `// Ported from <repo>
+// (<licence>); distributed with DragonWar under GPL-3.0`. A file carrying it
+// AS ITS OWN FIRST LINE-COMMENT (not merely anywhere in the file -- a later
+// `// Ported from ` appearing deep inside an otherwise-authored file must
+// never exempt that whole file) is exempt from the non-ASCII check -- its
+// bytes are the upstream author's and are never ours to re-encode. Matched
+// against the tokenizer's first `line-comment` span (isDeclaredPort() below),
+// never against the raw source text.
+const PORT_MARKER_PATTERN = /^\/\/ Ported from /;
+const BANNED_TOKENS_ALWAYS = ['Date', 'Math.random', 'globalThis'];
+// Defence in depth (task 10c): the DOM/Node globals tsconfig.sim.json's
+// `types: []` / `lib: ["ES2023"]` already reject at the type level (DW-15) --
+// kept here too so a `// @ts-expect-error`-suppressed or `any`-typed
+// reference is still caught textually.
+const BANNED_TOKENS_DEFENCE_IN_DEPTH = [
+	'window',
+	'document',
+	'performance',
+	'setTimeout',
+	'setInterval',
+	'requestAnimationFrame',
+	'localStorage',
+	'navigator',
+];
+const BANNED_GLOBAL_TOKENS = [...BANNED_TOKENS_ALWAYS, ...BANNED_TOKENS_DEFENCE_IN_DEPTH];
+
+class BoundaryLintError extends Error {}
+
+/** Recursively lists every file (not directory) under `root`, absolute paths. Exported (DW-32) for the same reuse-not-duplicate reason as TEXTUAL_SCAN_EXTENSION_PATTERN above. */
+export function listFilesRecursive(root) {
+	if (!existsSync(root)) {
+		return [];
+	}
+	const out = [];
+	for (const dirent of readdirSync(root)) {
+		const full = path.join(root, dirent);
+		const stat = statSync(full);
+		if (stat.isDirectory()) {
+			out.push(...listFilesRecursive(full));
+		} else {
+			out.push(full);
+		}
+	}
+	return out;
+}
+
+function toPosix(p) {
+	return p.split(path.sep).join('/');
+}
+
+function lineOf(source, index) {
+	let line = 1;
+	for (let i = 0; i < index && i < source.length; i++) {
+		if (source[i] === '\n') {
+			line++;
+		}
+	}
+	return line;
+}
+
+/**
+ * Splits `source` into typed spans: `code`, `line-comment`, `block-comment`,
+ * `string` (single- or double-quoted) and `template` (the literal parts of a
+ * template string; `${...}` interpolation content is re-classified back to
+ * `code`, brace-depth tracked via a stack so nested braces/templates inside
+ * an interpolation resolve correctly). Not regex-literal aware -- no `/…/`
+ * regex literal exists anywhere under `src/` today (verified by inspection
+ * during this story's implementation); a future one containing `//`, `/*`, a
+ * quote or a backtick could confuse this tokenizer.
+ *
+ * Where the superseded stand-in merely accepted that limitation, this
+ * tokenizer FAILS CLOSED on it: if the scan reaches end-of-file still inside
+ * an unterminated comment, string or template span, every later check would
+ * silently see blanked-out text instead of code, which is precisely the
+ * "green but blind" failure this story exists to prevent ("A lint that cannot
+ * see the files is a defect, not a pass"). That state throws instead, naming
+ * the file (review finding, this story's review pass; reproduced with
+ * `const re = /[`]/;`, after which a real `new Date()` went unreported).
+ */
+function tokenize(source, file) {
+	const tokens = [];
+	const n = source.length;
+	let i = 0;
+	let start = 0;
+	let mode = 'code';
+	// Stack of 'template' (this frame closes a `${…}` back into a template
+	// literal) or 'brace' (an ordinary nested `{…}` inside code/interpolation).
+	const stack = [];
+
+	function emit(type, end) {
+		if (end > start) {
+			tokens.push({ type, start, end });
+		}
+		start = end;
+	}
+
+	while (i < n) {
+		const c = source[i];
+		if (mode === 'code') {
+			if (c === '/' && source[i + 1] === '/') {
+				emit('code', i);
+				mode = 'line-comment';
+				i += 2;
+				continue;
+			}
+			if (c === '/' && source[i + 1] === '*') {
+				emit('code', i);
+				mode = 'block-comment';
+				i += 2;
+				continue;
+			}
+			if (c === "'") {
+				emit('code', i);
+				mode = 'string-single';
+				i += 1;
+				continue;
+			}
+			if (c === '"') {
+				emit('code', i);
+				mode = 'string-double';
+				i += 1;
+				continue;
+			}
+			if (c === '`') {
+				emit('code', i);
+				mode = 'template';
+				stack.push('template');
+				i += 1;
+				continue;
+			}
+			if (c === '{') {
+				stack.push('brace');
+				i += 1;
+				continue;
+			}
+			if (c === '}') {
+				const top = stack.pop();
+				if (top === 'template') {
+					emit('code', i + 1);
+					mode = 'template';
+				}
+				i += 1;
+				continue;
+			}
+			i += 1;
+			continue;
+		}
+		if (mode === 'line-comment') {
+			if (c === '\n') {
+				emit('line-comment', i);
+				mode = 'code';
+			}
+			i += 1;
+			continue;
+		}
+		if (mode === 'block-comment') {
+			if (c === '*' && source[i + 1] === '/') {
+				emit('block-comment', i + 2);
+				mode = 'code';
+				i += 2;
+				continue;
+			}
+			i += 1;
+			continue;
+		}
+		if (mode === 'string-single' || mode === 'string-double') {
+			if (c === '\\') {
+				i += 2;
+				continue;
+			}
+			const quote = mode === 'string-single' ? "'" : '"';
+			if (c === quote) {
+				emit(mode, i + 1);
+				mode = 'code';
+				i += 1;
+				continue;
+			}
+			if (c === '\n') {
+				// Unterminated string (should not happen in valid source): bail back
+				// to code rather than consuming the rest of the file as a string.
+				emit(mode, i);
+				mode = 'code';
+				i += 1;
+				continue;
+			}
+			i += 1;
+			continue;
+		}
+		if (mode === 'template') {
+			if (c === '\\') {
+				i += 2;
+				continue;
+			}
+			if (c === '`') {
+				emit('template', i + 1);
+				mode = 'code';
+				stack.pop(); // the 'template' frame this backtick opened
+				i += 1;
+				continue;
+			}
+			if (c === '$' && source[i + 1] === '{') {
+				emit('template', i);
+				mode = 'code';
+				// Push a frame for THIS interpolation's own closing `}` to pop --
+				// distinct from the outer backtick's frame, which must survive
+				// until the literal's real closing backtick. Without this push, a
+				// template literal with two or more `${...}` interpolations
+				// desyncs: the first `}` consumes the outer backtick's frame, the
+				// second `}` has nothing to pop, mode never reverts to 'template',
+				// and everything from there to end-of-file is misclassified,
+				// blinding checkBannedGlobals/checkTickMsRule/checkDeviceNameLiterals
+				// for the rest of the file (review finding, this story's own review
+				// pass; reproduced with a two-interpolation template).
+				stack.push('template');
+				i += 2;
+				continue;
+			}
+			i += 1;
+			continue;
+		}
+		i += 1;
+	}
+	emit(mode, n);
+	// Fail closed (see this function's doc comment). `line-comment` is a
+	// legitimate end state (a file whose last line is `// …` with no trailing
+	// newline); the other four mean the scan lost sync and everything after
+	// that point was masked out of every check.
+	if (mode === 'template' || mode === 'block-comment' || mode === 'string-single' || mode === 'string-double') {
+		throw new BoundaryLintError(
+			`${file}: reached end-of-file still inside an unterminated ${mode} span, so the rest of the file could not be ` +
+			`classified as code and the textual checks would have silently seen nothing after that point. This scanner is ` +
+			`deliberately not regex-literal aware: a regex literal containing a quote or a backtick is the usual cause. ` +
+			`Rewrite it as new RegExp('…') so the boundary lint can see the whole file.`,
+		);
+	}
+	return tokens;
+}
+
+/** `source` with every comment, string and template-literal span blanked to spaces (newlines preserved) -- for identifier-level checks that must ignore both. */
+function maskForCodeOnly(source, tokens) {
+	const chars = source.split('');
+	for (const token of tokens) {
+		if (token.type === 'code') {
+			continue;
+		}
+		for (let i = token.start; i < token.end; i++) {
+			if (chars[i] !== '\n') {
+				chars[i] = ' ';
+			}
+		}
+	}
+	return chars.join('');
+}
+
+const LITERAL_DELIMITERS = '\'"`';
+
+/** Every string/template-literal span's inner text (quotes stripped), with its 1-based start line. */
+function extractStringLiterals(source, tokens) {
+	const out = [];
+	for (const token of tokens) {
+		if (token.type !== 'string-single' && token.type !== 'string-double' && token.type !== 'template') {
+			continue;
+		}
+		const raw = source.slice(token.start, token.end);
+		// Strip a delimiter only where one is actually present. A template
+		// literal split by `${…}` yields chunk spans that begin and/or end at
+		// the interpolation rather than at a backtick, so the previous
+		// unconditional slice(1, -1) ate a real character: `` `${p}s_start` ``
+		// became "_star" and was missed entirely, while `` `s_start${p}` ``
+		// became "s_star" and was reported under a device name that does not
+		// exist (review finding, this story's review pass; both reproduced).
+		const lead = raw.length > 0 && LITERAL_DELIMITERS.includes(raw[0]) ? 1 : 0;
+		const tail = raw.length > lead && LITERAL_DELIMITERS.includes(raw[raw.length - 1]) ? raw.length - 1 : raw.length;
+		const inner = raw.slice(lead, tail);
+		out.push({ text: inner, line: lineOf(source, token.start) });
+	}
+	return out;
+}
+
+// DW-38: `// boundary-lint-disable-next-line <rule-name>` suppresses exactly
+// ONE violation kind on exactly the line immediately following the comment.
+// Anchored to the whole (trimmed) comment text, so a rule name embedded in a
+// longer sentence does not accidentally suppress anything.
+const SUPPRESSION_PATTERN = /^\/\/\s*boundary-lint-disable-next-line\s+(\S+)\s*$/;
+
+/**
+ * Map from 1-based line number -> the single rule name suppressed on that
+ * line, read from `// boundary-lint-disable-next-line <rule>` LINE comments
+ * only (a suppression inside a block comment is not honoured -- narrower is
+ * safer for a mechanism that silences a real check). An unrecognised rule
+ * name is still recorded here -- it is the CALLER's exact-match comparison
+ * against its own real rule name that makes an unrecognised name a no-op,
+ * per this story's I/O matrix ("An unrecognised rule name is reported, not
+ * silently honoured"): the underlying violation is simply never matched by
+ * any `=== ruleName` check and so is reported exactly as if no suppression
+ * comment were present at all.
+ */
+function collectLineSuppressions(source, tokens) {
+	const suppressions = new Map();
+	for (const token of tokens) {
+		if (token.type !== 'line-comment') {
+			continue;
+		}
+		const text = source.slice(token.start, token.end);
+		const match = SUPPRESSION_PATTERN.exec(text);
+		if (!match) {
+			continue;
+		}
+		const commentLine = lineOf(source, token.start);
+		suppressions.set(commentLine + 1, match[1]);
+	}
+	return suppressions;
+}
+
+function bannedTokenPattern(token) {
+	const escaped = token.replace(/[.]/g, '\\.');
+	return new RegExp(`\\b${escaped}\\b`, 'g');
+}
+
+/** Check (c): banned globals, textual, comments/strings excluded. */
+function checkBannedGlobals(simRoot, relRoot) {
+	const violations = [];
+	const files = listFilesRecursive(simRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const source = readFileSync(file, 'utf8');
+		const relative = toPosix(path.relative(relRoot, file));
+		const codeOnly = maskForCodeOnly(source, tokenize(source, relative));
+		for (const token of BANNED_GLOBAL_TOKENS) {
+			const pattern = bannedTokenPattern(token);
+			let match;
+			while ((match = pattern.exec(codeOnly)) !== null) {
+				violations.push({
+					rule: 'sim-no-banned-global',
+					file: relative,
+					line: lineOf(source, match.index),
+					message: `references banned token "${token}" (sim/ must be DOM-free, wall-clock-free and unseeded-random-free -- AD-3, AD-16)`,
+				});
+			}
+		}
+	}
+	return violations;
+}
+
+// A numeric literal in any legal ES2023 spelling. The original
+// `-?\d+(?:\.\d+)?\b` matched plain decimal only, so `1_000` (numeric
+// separator -- the trailing \b could not cross the `_`), `1e3` (exponent),
+// `0x10` (hex) and `.5` (leading dot) every one of them evaded AD-3's
+// literal-millisecond rule; all four were reproduced against the shipped tool
+// (review finding, this story's review pass). The `_MS` alternative catches
+// the SCREAMING_SNAKE spelling of the same thing (`DEBOUNCE_MS = 20`).
+const NUMERIC_LITERAL_SOURCE = String.raw`-?(?:0[xX][0-9a-fA-F][0-9a-fA-F_]*|0[bB][01][01_]*|0[oO][0-7][0-7_]*|(?:\d[\d_]*)?\.\d[\d_]*|\d[\d_]*(?:\.[\d_]*)?)(?:[eE][+-]?\d[\d_]*)?n?`;
+const MS_BINDING_PATTERN = new RegExp(
+	String.raw`\b([A-Za-z_$][A-Za-z0-9_$]*(?:Ms|_MS))\b\s*(?::\s*number\s*)?[:=]\s*` + NUMERIC_LITERAL_SOURCE,
+	'g',
+);
+const TICK_HZ_PATTERN = /\bTICK_HZ\b/g;
+
+/** Check (d): AD-3's tick/ms rule, textual. */
+function checkTickMsRule(simRoot, relRoot) {
+	const violations = [];
+	const timeFile = toPosix(path.join('src', 'sim', 'contracts', 'time.ts'));
+	const tuningFile = toPosix(path.join('src', 'sim', 'table', 'tuning.ts'));
+	const files = listFilesRecursive(simRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const source = readFileSync(file, 'utf8');
+		const relative = toPosix(path.relative(relRoot, file));
+		const codeOnly = maskForCodeOnly(source, tokenize(source, relative));
+
+		if (relative !== timeFile && relative !== tuningFile) {
+			let match;
+			const tickPattern = new RegExp(TICK_HZ_PATTERN.source, 'g');
+			while ((match = tickPattern.exec(codeOnly)) !== null) {
+				violations.push({
+					rule: 'sim-one-tick-constant',
+					file: relative,
+					line: lineOf(source, match.index),
+					message: 'names TICK_HZ outside sim/contracts/time.ts and sim/table/tuning.ts (AD-3: one clock behind one constant)',
+				});
+			}
+		}
+
+		if (relative !== tuningFile) {
+			let match;
+			const msPattern = new RegExp(MS_BINDING_PATTERN.source, 'g');
+			while ((match = msPattern.exec(codeOnly)) !== null) {
+				violations.push({
+					rule: 'sim-no-literal-ms',
+					file: relative,
+					line: lineOf(source, match.index),
+					message: `declares "${match[1]}" with a literal numeric value outside sim/table/tuning.ts (AD-3: durations are authored in ms only in tuning.ts and converted to ticks once at load)`,
+				});
+			}
+		}
+	}
+	return violations;
+}
+
+/** Check (e): device-name string literals, textual, over `src/**` excluding the table file. */
+function checkDeviceNameLiterals(srcRoot, relRoot) {
+	const violations = [];
+	const tableFile = toPosix(path.join('src', 'sim', 'table', 'dragonwar.ts'));
+	const files = listFilesRecursive(srcRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const relative = toPosix(path.relative(relRoot, file));
+		if (relative === tableFile) {
+			continue;
+		}
+		const source = readFileSync(file, 'utf8');
+		const tokens = tokenize(source, relative);
+		const suppressions = collectLineSuppressions(source, tokens);
+		const literals = extractStringLiterals(source, tokens);
+		for (const literal of literals) {
+			if (DEVICE_NAME_PATTERN.test(literal.text)) {
+				if (suppressions.get(literal.line) === 'no-device-name-literal') {
+					continue;
+				}
+				violations.push({
+					rule: 'no-device-name-literal',
+					file: relative,
+					line: literal.line,
+					message: `string literal "${literal.text}" names a device outside sim/table/dragonwar.ts (AD-1, AD-16: device names are typed through sim/table/names.ts)`,
+				});
+			}
+		}
+	}
+	return violations;
+}
+
+/**
+ * A file is a declared port only when its OWN FIRST `line-comment` token (in
+ * tokenizer order, so a `/* *\/` header before it is fine, but any code
+ * before it is not) matches PORT_MARKER_PATTERN -- never a raw whole-source
+ * `.test()`, which would also match the marker text appearing anywhere
+ * DEEPER in an otherwise-authored file and wrongly exempt it entirely.
+ */
+function isDeclaredPort(source, tokens) {
+	// Code review 2026-08-30: this used to be `tokens.find(t => t.type ===
+	// 'line-comment')`, which skips `code` spans as readily as block comments
+	// -- so a file with real code above a later `// Ported from ` line was
+	// still exempted whole-file, the doc comment above notwithstanding. Walk
+	// the tokens in order instead and stop at the first thing that is neither
+	// a block comment nor pure whitespace: the marker counts only if that
+	// first substantive token IS the line comment carrying it.
+	for (const token of tokens) {
+		if (token.type === 'block-comment') {
+			continue;
+		}
+		if (token.type === 'code' && source.slice(token.start, token.end).trim() === '') {
+			continue;
+		}
+		if (token.type !== 'line-comment') {
+			return false;
+		}
+		return PORT_MARKER_PATTERN.test(source.slice(token.start, token.end));
+	}
+	return false;
+}
+
+/** Check (f): Rule 14, no literal non-ASCII byte in a string/template literal, over `src/**`, ported files exempt. */
+function checkNonAsciiLiterals(srcRoot, relRoot) {
+	const violations = [];
+	const files = listFilesRecursive(srcRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const source = readFileSync(file, 'utf8');
+		const relative = toPosix(path.relative(relRoot, file));
+		const tokens = tokenize(source, relative);
+		if (isDeclaredPort(source, tokens)) {
+			continue;
+		}
+		const literals = extractStringLiterals(source, tokens);
+		for (const literal of literals) {
+			const pattern = new RegExp(NON_ASCII_LITERAL_PATTERN.source, 'gu');
+			let match;
+			while ((match = pattern.exec(literal.text)) !== null) {
+				// literal.line is the token's START line; a multi-line template
+				// literal's match can be further down, so count newlines in the
+				// literal text up to the match to land on the right line.
+				const newlinesBefore = (literal.text.slice(0, match.index).match(/\n/g) ?? []).length;
+				// Code review 2026-08-30: the `u` flag above makes an astral (non-BMP)
+				// codepoint ONE match rather than two surrogate halves, so the ADVICE has
+				// to be the astral escape form too -- \\u1F600 is not a valid escape and
+				// following it would silently break the very string it was meant to fix.
+				// Only the BMP form is zero-padded to four digits; \\u{...} takes the
+				// codepoint as-is.
+				const codepointValue = match[0].codePointAt(0);
+				const codepoint = codepointValue.toString(16).toUpperCase().padStart(4, '0');
+				const escapeAdvice = codepointValue > 0xFFFF
+					? `\\u{${codepointValue.toString(16).toUpperCase()}}`
+					: `\\u${codepoint}`;
+				violations.push({
+					rule: 'no-literal-non-ascii',
+					file: relative,
+					line: literal.line + newlinesBefore,
+					message: `string/template literal contains a literal non-ASCII byte U+${codepoint} (Rule 14: author it as ${escapeAdvice} instead)`,
+				});
+			}
+		}
+	}
+	return violations;
+}
+
+/** Checks (a) and (b): the real import graph, via dependency-cruiser + @swc/core. */
+function runImportGraphChecks(root) {
+	const srcArg = 'src';
+	const srcDir = path.join(root, 'src');
+	if (!existsSync(DEPCRUISE_BIN)) {
+		throw new BoundaryLintError(
+			`dependency-cruiser is not installed at ${path.relative(TOOL_ROOT, DEPCRUISE_BIN)} -- run "pnpm install" first`,
+		);
+	}
+	const result = spawnSync(
+		process.execPath,
+		[DEPCRUISE_BIN, '--config', DEPCRUISE_CONFIG, '-T', 'json', srcArg],
+		{ cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+	);
+	if (result.error) {
+		throw new BoundaryLintError(`failed to run dependency-cruiser: ${result.error.message}`);
+	}
+	let report;
+	try {
+		report = JSON.parse(result.stdout);
+	} catch {
+		throw new BoundaryLintError(
+			`dependency-cruiser did not produce valid JSON (exit ${result.status}). stderr:\n${result.stderr}`,
+		);
+	}
+
+	const violations = [];
+	for (const v of report.summary?.violations ?? []) {
+		if (v.rule?.severity !== 'error') {
+			continue;
+		}
+		violations.push({
+			rule: v.rule.name,
+			file: v.from,
+			line: undefined,
+			message: `${v.from} → ${v.to}`,
+			importRule: true,
+		});
+	}
+
+	// Check (b): every `.ts` file under `<root>/src` must appear in the cruise
+	// result -- "a lint that cannot see the files is a defect, not a pass."
+	const expected = new Set(
+		listFilesRecursive(srcDir)
+			.filter((f) => GRAPH_COVERAGE_EXTENSION_PATTERN.test(f))
+			.map((f) => toPosix(path.relative(root, f))),
+	);
+	const seen = new Set((report.modules ?? []).map((m) => toPosix(m.source)));
+	const missing = [...expected].filter((f) => !seen.has(f)).sort();
+
+	// An empty expected set is itself a blind lint: the previous guard read
+	// `expected.size > 0 && totalCruised === 0`, so a src/ tree holding no
+	// TypeScript at all sailed through with "[boundary-lint] OK -- 0 .ts
+	// file(s) under src/ cruised" and exit 0 -- the exact thing this story's
+	// I/O matrix forbids ("never exit 0 over an empty graph") and its own
+	// Always rule calls a defect (review finding, this story's review pass).
+	if (expected.size === 0) {
+		throw new BoundaryLintError(
+			`no TypeScript file was found under ${toPosix(path.relative(TOOL_ROOT, srcDir))}, so this run inspected nothing -- ` +
+			`a lint that cannot see the files is a defect, not a pass. Never exit 0 over an empty graph.`,
+		);
+	}
+
+	if (missing.length > 0 || report.summary?.totalCruised === 0) {
+		// A best-effort, separately-invoked `--info` for the failure message --
+		// the JSON reporter's own `environment` field was found empirically not
+		// to be populated reliably across runs, so this dedicated call is the
+		// trustworthy source for "the installed parser" this failure must name.
+		const info = spawnSync(process.execPath, [DEPCRUISE_BIN, '--info'], { cwd: root, encoding: 'utf8' });
+		const swcLine = /^.*\bswc\b.*$/m.exec(info.stdout ?? '');
+		const parserInfo = swcLine ? swcLine[0].trim() : 'swc: could not be determined (dependency-cruiser --info produced no swc line)';
+
+		throw new BoundaryLintError(
+			`dependency-cruiser's cruise result is missing ${missing.length} of ${expected.size} .ts file(s) under ` +
+			`${toPosix(path.relative(TOOL_ROOT, srcDir))} -- a lint that cannot see the files is a defect, not a pass.\n` +
+			`Installed parser: ${parserInfo}.\n` +
+			`Missing: ${missing.slice(0, 25).join(', ')}${missing.length > 25 ? `, ... (${missing.length - 25} more)` : ''}`,
+		);
+	}
+
+	return { violations, coverage: expected.size };
+}
+
+function parseArgs(argv) {
+	if (argv.length > 1) {
+		throw new BoundaryLintError(`unexpected extra argument(s): ${argv.slice(1).join(' ')}`);
+	}
+	const root = argv[0] ? path.resolve(argv[0]) : TOOL_ROOT;
+	if (!existsSync(root)) {
+		throw new BoundaryLintError(`root does not exist: ${root}`);
+	}
+	return { root };
+}
+
+export function runBoundaryLint(root) {
+	const { violations: importViolations, coverage } = runImportGraphChecks(root);
+
+	const simRoot = path.join(root, 'src', 'sim');
+	const srcRoot = path.join(root, 'src');
+	const textualViolations = [
+		...checkBannedGlobals(simRoot, root),
+		...checkTickMsRule(simRoot, root),
+		...checkDeviceNameLiterals(srcRoot, root),
+		...checkNonAsciiLiterals(srcRoot, root),
+	];
+
+	return { importViolations, textualViolations, coverage };
+}
+
+function formatViolation(v) {
+	const location = v.line ? `${v.file}:${v.line}` : v.file;
+	return `  [${v.rule}] ${location} -- ${v.message}`;
+}
+
+function main() {
+	let args;
+	try {
+		args = parseArgs(process.argv.slice(2));
+	} catch (err) {
+		console.error(`[boundary-lint] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+		process.exit(1);
+		return;
+	}
+
+	let result;
+	try {
+		result = runBoundaryLint(args.root);
+	} catch (err) {
+		console.error(`[boundary-lint] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+		process.exit(1);
+		return;
+	}
+
+	const { importViolations, textualViolations, coverage } = result;
+	const allViolations = [...importViolations, ...textualViolations];
+
+	if (allViolations.length === 0) {
+		console.log(`[boundary-lint] OK -- ${coverage} .ts file(s) under src/ cruised, no violations`);
+		process.exit(0);
+		return;
+	}
+
+	console.error(`[boundary-lint] FAILED -- ${allViolations.length} violation(s):`);
+	for (const v of allViolations) {
+		console.error(formatViolation(v));
+	}
+	// This story's I/O matrix: import-graph rule violations (sim-no-upward-import,
+	// sim-no-babylon, presentation-only-contracts-and-table, host-no-physics-or-rules,
+	// no-havok) exit 2; every other violation kind exits 1.
+	process.exit(importViolations.length > 0 ? 2 : 1);
+}
+
+const isMainModule = process.argv[1] && path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]);
+if (isMainModule) {
+	main();
+}

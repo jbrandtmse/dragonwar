@@ -1,0 +1,51 @@
+=== HELD FLIPPER (cradle attempt) === start (195,85)mm  E0=-319.2
+  tick |   x_mm |   y_mm |   speed |          E |   E/E0
+   625 |  205.7 |  978.2 |   0.669 |     -317.6 | 0.9948
+  1250 |  237.0 |  976.0 |   1.260 |     -316.2 | 0.9906
+  1875 |  278.8 | 1044.1 |   4.677 |     -331.0 | 1.0368
+  2500 |  169.0 | 1283.4 |  12.007 |     -358.6 | 1.1233
+  3125 |   60.1 | 1824.0 |  20.710 |     -416.2 | 1.3037
+  3750 |  -48.7 | 2665.2 |  29.571 |     -504.3 | 1.5799
+  4375 | -157.6 | 3806.9 |  38.426 |     -625.5 | 1.9594
+  5000 | -266.5 | 5249.3 |  47.292 |     -778.9 | 2.4399
+=== BARE PLAYFIELD (control) === start (300,600)mm  E0=-128.8
+  tick |   x_mm |   y_mm |   speed |          E |   E/E0
+   625 |  300.0 |  618.2 |   8.944 |     -144.7 | 1.1235
+  1250 |  261.6 | 1030.6 |  12.956 |     -253.3 | 1.9663
+  1875 |  424.2 | 1273.6 |  12.722 |     -346.2 | 2.6875
+  2500 |  611.6 | 1810.4 |  21.077 |     -403.5 | 3.1323
+  3125 |  799.1 | 2647.7 |  29.796 |     -491.2 | 3.8136
+  3750 |  986.5 | 3785.6 |  38.572 |     -612.0 | 4.7514
+  4375 | 1174.0 | 5224.1 |  47.440 |     -762.6 | 5.9202
+  5000 | 1361.5 | 6963.1 |  56.276 |     -947.3 | 7.3542
+--- LEAD INTERPRETATION (epic runner, 2026-08-29) ---
+Probe: 1000 Hz physics ticks (5000 ticks = 5 simulated seconds), committed collision
+document, real loadCollision() + createFlipperMechanics(). Columns are RAW PHYSICS-frame
+coordinates (not fromPhysics()-converted), so x/y are not table mm; only their TRENDS matter.
+E = 0.5|v|^2 - (g . pos) = total mechanical energy per unit mass. Conserved under gravity alone.
+
+1. ENERGY IS DISSIPATED, NOT INJECTED. E moves from -319.2 to -778.9 (held flipper) and from
+   -128.8 to -947.3 (bare playfield) -- i.e. E becomes steadily MORE NEGATIVE in both runs.
+   The solver is losing energy to friction/damping, which is the correct sign. There is no
+   energy-injecting contact instability. (E/E0 reads > 1 only because E0 is negative; the
+   ratio is increasing magnitude of a negative number, i.e. a decrease in E.)
+
+2. THE RUNAWAY IS NOT FLIPPER-SPECIFIC. The control run never touches a flipper at all -- a
+   ball simply placed on the bare playfield accelerates down-slope and exits the geometry on
+   the SAME trajectory shape and reaches a HIGHER speed (56.3) than the held-flipper run
+   (47.3). Whatever causes the departure is therefore not introduced by this story's port.
+
+3. THE EXTREME DISPLACEMENT IS A HARNESS ARTIFACT. This diagnostic harness has no
+   createDeviceMechanics(), so a ball that reaches the drain aperture is never captured by
+   bd_trough -- it keeps free-falling down the 6.5 deg slope forever. "Ball ends up 4292 mm
+   off the table" therefore means "the ball drained, and nothing in this harness caught it",
+   not "the ball was flung off the playfield".
+
+CONCLUSION: the ported FlipperMover/FlipperHit are not defective and the bat itself is
+provably static while held. The ball departs the bat because the committed placeholder table
+has NO geometry adjacent to either flipper -- the 12 collision nodes are the playfield, the
+glass, five outer walls, two lane walls, the lane deflector and the two flipper bats. A real
+cradle is a POCKET formed by the raised bat plus the inlane guide/post beside it; with no
+such adjacent geometry the ball rolls along the bat under the 6.5 deg pitch and leaves it
+after roughly 1.2-1.9 simulated seconds. That geometry is Epic 2's (Story 2.1, "The playfield
+geometry and the full switch set"), and this story's Boundaries forbid touching the asset.

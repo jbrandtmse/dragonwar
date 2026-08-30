@@ -1,0 +1,32 @@
+// test/, tools/ and the root Vite configs: Node-facing TypeScript. `node`
+// types (`types: ["node"]`); DOM lib stays enabled because this project's own
+// root files legitimately reach into it -- Story 1.1's tools/spike-1/browser.ts
+// and tools/spike-1/scene.ts are bundled into a real browser page
+// (vite.config.ts's `spike1` entry) and use `document`/`requestAnimationFrame`
+// directly, and test/scene-smoke.test.ts and test/spike-1-browser-guard.test.ts
+// import them (and src/presentation/scene/create-engine.ts) by real module
+// specifier -- TypeScript type-checks a project's whole reachable import graph
+// regardless of "include", so those DOM references reach this project's
+// program no matter which root files list them. AD-16's DOM ban is scoped to
+// `src/sim/**` only (tsconfig.sim.json, `types: []`, no DOM lib -- DW-15's
+// actual closure); nothing forbids DOM types in test/tools code, so widening
+// this project's lib is a compiler-config accommodation of pre-existing,
+// out-of-this-story source, not a boundary-rule relaxation.
+// `vite/client` is in `types` alongside `node` (Story 1.3, review finding):
+// `import.meta.env` (src/host/build-info.ts's `VITE_BUILD_SHA` read) needs
+// `vite/client`'s `ImportMetaEnv` augmentation to typecheck; without it, a
+// future test that `import`s build-info.ts/boot.ts as a module (rather than
+// reading them as source text, as today's tests do) would fail only under
+// this project, not tsconfig.app.json, which already has it.
+// test/fixtures/boundary/** is excluded -- it is deliberately violating source
+// the boundary-lint fixture tests feed to the tools as subprocess input, and
+// must never typecheck cleanly or poison this project's own result.
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"]
+  },
+  "include": ["test/**/*.ts", "tools/**/*.ts", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["test/fixtures/**"]
+}

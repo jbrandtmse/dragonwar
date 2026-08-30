@@ -110,7 +110,7 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 **Distribution (§4.10)**
 
 - FR-53: The Table loads and plays from a URL with no install, plugin or account; a stranger reaches the Walk-up with only a press-to-begin gesture between; the build is a static `dist/` with relative paths deployed to GitHub Pages.
-- FR-54: Current Chrome, Edge and Safari on Windows and macOS are supported, Firefox best-effort; WebGL2 is the floor and WebGPU an enhancement; an unsupported browser gets a message naming supported ones before any asset loads; the WebGL2 path is fully playable and equal in feel; WebGPU improves lighting quality only; `?renderer=webgl2` and a Settings toggle force the floor.
+- FR-54: Current Chrome, Edge and Safari on Windows and macOS are supported, Firefox best-effort (Edge's functional support is unchanged; it is best-effort for the Story 1.1 frame-budget gate only — see that story's change log); WebGL2 is the floor and WebGPU an enhancement; an unsupported browser gets a message naming supported ones before any asset loads; the WebGL2 path is fully playable and equal in feel; WebGPU improves lighting quality only; `?renderer=webgl2` and a Settings toggle force the floor.
 - FR-55: The repository is public under GPL-3.0 with a clean, verified attribution ledger — every third-party file and generated asset in `ATTRIBUTIONS.md` with source, author, licence and verification date before it enters; ported files keep their original notices plus the DragonWar marker, checked per file in CI; `v1.0.0` is tagged.
 
 ### NonFunctional Requirements
@@ -121,7 +121,7 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 - NFR-4: First playable Walk-up within 10 s on a 50 Mbps connection; compressed initial payload ≤ 20 MB enforced in CI as the proxy (re-set by spike 3).
 - NFR-5: The Rules layer runs headless as a pure function of Switch events; identical inputs replay identically to a state hash (FNV-1a over canonical `GameState` plus ball positions quantised to 0.01 mm).
 - NFR-6: Windows 11 and macOS current-1 in current Chrome, Edge and Safari; Firefox best-effort; no mobile or Linux commitment.
-- NFR-7: Local browser storage only; no network calls after load (CSP `default-src 'self'; connect-src 'none'`, grepped in CI).
+- NFR-7: Local browser storage only; no network calls after load (CSP `default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:`, grepped in CI).
 - NFR-8: English only; rebindable keys are the sole accessibility feature; English literals live in `presentation/backglass` only.
 - NFR-9: Provenance is a hard requirement: the `ATTRIBUTIONS.md` entry lands before the file; licences verified at source, never from package metadata; nothing unlicensed, non-commercial, GPL-2.0-only, or from a commercial machine; `vpinball/vpinball` only from files headed `// license:GPLv3+`; author recordings of generic mechanical noise only.
 
@@ -325,15 +325,38 @@ So that the browser-first premise is proven — or the 480 Hz fallback is taken 
 **When** 10,000 ticks are stepped in Node
 **Then** no ball leaves the bounds or overlaps another, every step terminates (forced advance by `STATICTIME`), and the mean and p95 cost per tick are reported
 
-**Given** the same harness in a Vite dev page
+**Given** the same harness served from a **production build** (`vite build` + `vite preview`), not the Vite dev page `[AMENDED 2026-08-27 — see the story change log below]`
 **When** 17 steps (one 60 Hz frame of simulated time) are measured per frame over 600 frames in Chrome and Safari on the author's macOS machine and Chrome and Edge on the Windows machine
 **Then** the p95 sim cost per frame is recorded per browser and machine
-**And** the spike passes if p95 ≤ 4 ms on every measured path `[ASSUMPTION: leaves ≥ 12 ms of a 16.67 ms frame for rendering]`, fails otherwise
+**And** the spike passes if p95 ≤ 4 ms on every **gating** path — Chrome/Windows, Chrome/macOS and Safari/macOS — `[ASSUMPTION: leaves ≥ 12 ms of a 16.67 ms frame for rendering]`, fails otherwise
+**And** Edge/Windows is measured and recorded but is **best-effort for this gate**: its number never decides the verdict. Edge remains a fully supported browser (FR-54, NFR-6 unchanged) — this is a frame-budget carve-out, not a support-tier demotion
 
 **Given** the measured result
 **When** the spike closes
 **Then** `TICK_HZ` in `src/sim/contracts/time.ts` is set to 1000 on pass or 480 on fail, the numbers, machines, browsers and date are recorded in `docs/spikes/spike-1.md`
 **And** on fail the solver re-tune is logged there as the next piece of work before Story 1.3
+
+**Change log**
+
+- **2026-08-27 — measurement surface amended from the Vite dev page to a production build.**
+  The amendment stands: a frame-budget number that gates anything should come from the artifact
+  that ships, and Story 1.2's size and load-time numbers must come from the real production
+  artifact for the same reason.
+  **Its original justification has since been retracted.** The amendment was made on a 0.4 ms
+  dev-vs-production delta (Edge/Windows 4.1 ms median on the dev page against 3.70 ms on a
+  production build) measured in two different sessions. A later same-session A/B — dev and
+  production measured alternately on identical code — found **no measurable difference** (both
+  1.8 ms). That delta was session noise. Keep the rule as standing practice; do not cite the
+  0.4 ms figure as evidence for it. See `docs/spikes/spike-1.md`, "Post-fix re-measurement and a
+  variance investigation", and the ledger entry on this host's ~1.9x session variance.
+- **2026-08-27 — Edge/Windows carved out to best-effort for this gate.** Author decision after
+  the spike escalation: Chrome is the primary target, so Chrome/Windows, Chrome/macOS and
+  Safari/macOS gate `TICK_HZ` while Edge is measured and recorded only. **Safari was NOT
+  demoted** — it runs JavaScriptCore rather than V8, is still unmeasured, and is the real
+  remaining performance risk. Edge's functional support is untouched: it keeps its place in
+  Story 6.1's boot message and Story 6.6's release matrix, and FR-54, NFR-6, `prd.md` and
+  `SPEC.md` are unchanged.
+- Outcome: `TICK_HZ = 1000`, provisional pending the author's two macOS legs.
 
 ### Story 1.2: Spike 3 — build size and load time measured from a link
 
@@ -347,13 +370,13 @@ So that the load NFR is a measured number and the CI size budget is set before t
 **When** they are added at 9.22.2
 **Then** each is recorded with Apache-2.0 verified at the package's LICENSE in the source repository, with the date, before `pnpm add`
 
-**Given** `index.html` carries `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'">` and a press-to-begin panel
+**Given** `index.html` carries `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' blob:; img-src 'self' blob:">` and a press-to-begin panel
 **When** `vite build` runs
 **Then** `dist/` contains only relative asset paths, no service worker, and a CI step greps the CSP tag and fails if it is absent
 
 **Given** the engine is created once via `EngineFactory.CreateAsync` with `useRightHandedSystem = true` after the press-to-begin gesture
 **When** a placeholder `dragonwar.glb` (a playfield-sized box) loads
-**Then** a frame renders on WebGL2, and on a WebGPU-capable Chrome the WebGPU engine is chosen unless `?renderer=webgl2` is present, in which case WebGL2 is forced
+**Then** a frame renders on WebGL2, and on a WebGPU-capable Chrome the WebGPU engine is chosen where it can initialise under the pinned CSP - its transpiler served from our own origin, never a CDN - falling back silently to WebGL2 otherwise; `?renderer=webgl2` forces WebGL2 in every case, and no feature may require WebGPU (AR-27)
 
 **Given** a GitHub Actions workflow on `main`
 **When** a commit is pushed
@@ -367,6 +390,11 @@ So that the load NFR is a measured number and the CI size budget is set before t
 **Given** the size budget is set
 **When** a build's compressed `dist/` exceeds it
 **Then** CI fails with the measured and budgeted sizes in the message
+
+**Given** the deploy workflow is temporarily triggered on `DW-1-epic1` and `workflow_dispatch` so this spike can measure a live deployment before Epic 1 merges
+**When** the spike's measurements are recorded
+**Then** the epic-branch trigger is removed and the workflow is narrowed back to `main` plus `workflow_dispatch` before Epic 1's merge gate, restoring AD-17 / AR-34's `main`-only shipping rule
+**And** `docs/spikes/spike-3.md` records that the measured artifact was built from an unmerged branch and is provisional until it reruns from `main`
 
 ### Story 1.3: Seam contracts, the TABLE registry and boundary lint
 
@@ -484,7 +512,8 @@ So that I can play the ball rather than watch it.
 
 **Given** `s_flipper_l` closes at tick *t* in the `InputFrame`
 **When** physics steps tick *t*
-**Then** `c_flipper_l` energises inside the same physics step as a hardware rule with no rules round trip, and a test asserts the flipper angle changes on tick *t*
+**Then** `c_flipper_l` energises inside tick *t*'s own physics step as a hardware rule, with no rules round trip (`RulesStepResult.commands` stays empty), and the flipper angle has moved by tick *t+1* `[AMENDED 2026-08-29 — see the story change log below]`
+**And** the ordering itself is pinned by a test that **fails when the hardware rules are moved to run after `physics.step()`**. The mutation is part of this criterion, not of the author's diligence: the story is not accepted until that red has been observed and the observation recorded in the spec
 **And** `sim/loop` also emits `s_flipper_l`, `s_flipper_r`, `s_start` and `s_plunger` as `SwitchEvent` edges from `InputFrame` transitions
 
 **Given** the ported `FlipperMover` (strength, ramp-up, end-of-stroke torque and angle, return strength, inertia ⅓·m·r²)
@@ -493,7 +522,9 @@ So that I can play the ball rather than watch it.
 
 **Given** a ball resting on a raised flipper
 **When** the flipper key is held for 5 s
-**Then** the flipper stays up and the ball stays cradled; **and** when the key is tapped for 30 ms, the flipper rises partially and returns
+**Then** the flipper reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the whole 5 s `[AMENDED 2026-08-29 — see the story change log below]`
+**And** the ball is held on the bat — at rest, its position on the bat unchanged within tolerance — for at least the first 1 s of that hold, which is what this epic's placeholder geometry can support; the full multi-second cradle is **Story 2.1's** (ledger `DW-72`), once the playfield carries the inlane guides and posts that form the pocket a real cradle needs
+**And** when the key is tapped for 30 ms, the flipper rises partially and returns
 
 **Given** `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` has been issued
 **When** the flipper key is pressed
@@ -503,6 +534,48 @@ So that I can play the ball rather than watch it.
 **When** physics applies `plungerSpeedByHoldMs`
 **Then** the ball leaves the shooter lane at the mapped speed, `s_shooter_lane` opens once and `ball_launched` fires once
 **And** a full-strength plunge replay shows the ball reaching the top of the placeholder playfield without rebounding back into the lane
+
+**Change log**
+
+- **2026-08-29 — the 5 s cradle claim split: the bat's half kept in full, the ball's half bounded
+  to 1 s, and the real cradle moved to Story 2.1.**
+  The original criterion asked that a ball resting on a raised flipper "stays cradled" for a 5 s
+  hold. That is not satisfiable on this epic's placeholder table, and the reason is **geometry,
+  not the flipper**. The committed collision document has twelve `col_*` nodes — the playfield,
+  the glass, five outer walls, two lane walls, the lane deflector and the two bats — and
+  **nothing beside either flipper**. A real cradle is a pocket formed by the raised bat together
+  with the inlane guide or post next to it; with no such adjacent geometry the ball rolls along
+  the bat under the 6.5° pitch and leaves it after roughly 1.2–1.9 simulated seconds.
+  The ported `FlipperMover` / `FlipperHit` are **not** at fault, and were not altered to
+  accommodate this: the bat is provably static while held, `FlipperHit.contact()` matches the
+  pinned upstream `vpdb/vpx-js @ e8a6d6f` byte-for-byte, total mechanical energy is dissipated
+  rather than injected, and a control ball that never touches a flipper runs away *faster* than
+  the held-flipper ball — so the departure is not flipper-specific. Measurements are recorded in
+  `_bmad-output/implementation-artifacts/probe-1-6-cradle-energy.txt`.
+  What Story 1.6 owns — the coil as a hardware rule that reaches its stop and holds it under a
+  sustained hold — is still asserted in full, and the bounded ball claim is tested with a
+  discriminating negative rather than a window the ball would survive anyway. The part that needs
+  geometry which does not exist yet is deferred to **Story 2.1**, tracked as ledger `DW-72`,
+  where the original 5 s cradle is re-asserted against the real playfield.
+- **2026-08-29 — AC 2's observable changed from "the angle changes on tick *t*" to "the coil
+  energises inside tick *t*'s step and the angle has moved by *t+1*", and a mutation requirement
+  added.**
+  The original observable is unreachable with the `FlipperMover` port that AD-5 and AD-15
+  mandate. Measured one tick at a time through the real `createLoop()`: the angle is 141° at both
+  *t−1* and *t*, and first moves at *t+1* (140.995°). The ported mover ramps `curTorque` by
+  `strength / rampUp × PHYS_FACTOR` ≈ 88 per step from an at-rest return torque of ≈ 127.6, so the
+  torque sign flips on the *second* step — for any positive `rampUp`. **Angle is a lagging
+  indicator of torque**; the coil genuinely energises on tick *t*, and only its visible effect
+  arrives a tick later. Correcting the code to move the angle on tick *t* would mean deviating
+  from the verbatim port, which AD-5 and AD-15 forbid, so the criterion was wrong, not the
+  implementation. `FlipperMechanismState` carries only `angleDeg` and `angularVelDegPerSec`, and
+  both are unchanged at *t*, so no snapshot observable could have satisfied the original wording.
+  **The mutation requirement is the more important half of this amendment.** AD-5's central
+  invariant — the whole reason the flipper is a hardware rule and not a command — had *no* test
+  pinning it: moving `machine.ts`'s two `applyFrame` calls to after `physics.step()`, making the
+  flipper genuinely one tick late, left the entire suite green (590 passed, typecheck clean).
+  The story would have closed green with the invariant unprotected. A specified, auditable
+  mutation survives in the criterion; a well-intentioned test author may not.
 
 ### Story 1.7: Nudge, the tilt bob and the slam sensor
 
@@ -555,8 +628,9 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 
 **Given** `test/replays/`
 **When** CI runs Vitest in Node
-**Then** goldens for roll-and-drain, cradle-and-release, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes
+**Then** goldens for roll-and-drain, **hold-and-release**, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the two-ball golden also asserts the balls' separation never drops below one diameter
+**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Story 2.5** removes the prologue when Start serves through the rules layer, and re-records the goldens
 
 **Given** a browser test page or Vitest browser run
 **When** each golden is replayed in Chrome and Safari
@@ -565,6 +639,25 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 **Given** physics materials
 **When** any replay runs
 **Then** `scatter` is 0 on every material and the physics PRNG is never drawn, asserted by a test
+
+**Change log**
+
+- **2026-08-29 — AC 4 gains a declared coil prologue, and `cradle-and-release` is renamed
+  `hold-and-release`.**
+  *The prologue.* AC 1 and AD-4 define a replay as `ReplayHeader + InputTransition[]`, but nothing in that
+  body can put a ball in play, so all five goldens would have replayed against an empty playfield. This is
+  type-level, not a gap in today's behaviour: `src/sim/rules/index.ts:30` types `RulesStepResult.commands`
+  as `readonly never[]`, so the rules layer **cannot** issue a `CoilCommand`; `InputAction` is closed at
+  eight members and none reaches a coil; and `loop.pulseCoil()` — the only path a ball reaches the
+  playfield — is documented in-file as a dev-only escape hatch that `src/host/loop.ts:36` already names
+  Story 2.5's to replace. Rather than pre-build Story 2.5's ball lifecycle inside a determinism story, each
+  golden declares its prologue as data and re-asserts it on replay, and Story 2.5 removes it and re-records.
+  *The rename.* Epic 1's placeholder table **cannot hold a cradle**: with no geometry beside either flipper,
+  a ball on a raised bat departs after roughly 1.2–1.9 s (`DW-72`, owned by Story 2.1, which authors the
+  pocket). A golden named "cradle" would freeze roll-off *as* the cradle reference, and when Story 2.1 lands
+  the pocket its breakage would read as "re-record me" rather than "ask why". The hold is kept well inside
+  the ~1 s window where behaviour is stable and will not change when the pocket arrives, so this golden
+  survives Story 2.1 intact. A golden must not claim behaviour the table cannot produce.
 
 ### Story 1.9: Dev tuning panel and the first feel ritual
 
@@ -596,6 +689,101 @@ So that I can play the Reference machine, play the build, and turn each named di
 **Then** the document defines the three items (cradling, flipper snap, rejection/rebound), records the first dated entry per item as "no material difference", a tuning change, or an accepted difference, and links the golden replay that captures any change
 **And** the ritual is run on both the WebGL2 (`?renderer=webgl2`) and default paths
 
+### Story 1.10: Epic 1 burn-down
+
+As the author,
+I want the twelve highest-priority items Epic 1 deferred fixed in one pass — the gaps in what the
+type-checker and the boundary linter actually cover, the two real host/sim defects the reviews found,
+the unexecuted cabinet sub-step path, and a handful of cheap hygiene items —
+So that Epic 1 closes having paid down what it chose to defer, instead of handing Epic 2 a pile of
+small debts that no story's gate will ever fail on.
+
+`[ADDED 2026-08-30 — chartered by the Epic 1 burn-down gate (Rule 17). Twelve of the thirty-five
+`owner:burndown` entries, selected by severity, then occurrence count, then lowest fix-risk. The
+remaining twenty-three were dispositioned at the same gate: ten re-owned to named stories in Epics 2,
+4, 5 and 6; thirteen set aside for the user's decision sheet because they are product calls or need a
+human's hands. See the story change log below.]`
+
+**Acceptance Criteria:**
+
+**Given** the three tsconfig projects
+**When** the typecheck coverage is asserted
+**Then** every file under `src/` is provably covered by exactly one project, and a new `src/` subdirectory
+outside `sim|host|presentation` — or a `src/*.tsx` — fails a test rather than being silently typechecked
+by nothing — *`DW-32`*
+
+**Given** the boundary-lint fixture suite
+**When** a rule's exemption is broadened
+**Then** a fixture fails — the fixtures prove each rule's exemptions hold, not merely that the rule fires,
+so an over-broad exemption edit can no longer leave the whole suite green — *`DW-39`*
+
+**Given** the per-coil enable/disable map
+**When** `setCoilEnabled('c_trough_eject', false)` is set and a coil pulse is issued
+**Then** the pulse path consults the map and the coil does not fire; and `c_autolaunch` answers a manual
+plunge and a coil pulse identically — *`DW-74`*
+
+**Given** `host/loop.ts`'s `tickAt()`
+**When** a frame runs longer than `MAX_OWED_TICKS`
+**Then** the stamped transition is bounded to the last tick that frame actually runs, rather than landing
+past it and waiting in `pendingTransitions` until the sim catches up — *`DW-75`*
+
+**Given** the cabinet's multi-sub-step path (`substepsPerTick > 1`)
+**When** the tick-rate-dependent scaling in the cabinet port is exercised
+**Then** a test executes that path and pins its scaling, so it is verified behaviour rather than
+constructed-and-guarded-but-never-run — *`DW-84`*
+
+**Given** the dependency-cruiser configuration
+**When** a cycle is introduced among the seam contracts, or a `sim/table` → `sim/physics` import is added
+**Then** the lint fails — a `no-circular` rule and direction rules inside `sim/` both exist — *`DW-37`*
+
+**Given** `no-device-name-literal`'s broad single-letter prefixes
+**When** an ordinary `c_`, `f_` or `l_` string is legitimately needed in presentation code
+**Then** an in-file suppression mechanism exists and is documented, and a test proves it works and is
+narrow — *`DW-38`*
+
+**Given** Rule 14 (non-ASCII authored as escape sequences)
+**When** `src/sim/table/tuning.ts` is checked
+**Then** its fourteen literal `U+00A7`/`U+2026` bytes are escape sequences, and a check fails on any new
+literal non-ASCII byte in `src/` — *`DW-81`*
+
+**Given** `.gitattributes`
+**When** the goldens are checked out on Windows
+**Then** `test/replays/**` carries an `eol=lf` rule, so the CRLF hazard the goldens are designed around is
+prevented at source rather than only worked around — *`DW-88`*
+
+**Given** `test/solver-termination.test.ts`'s in-process companion
+**When** the default suite runs under scheduler noise
+**Then** it no longer asserts a wall-clock ratio between two timing runs — the assertion pins solver
+termination itself, so the test cannot fail for reasons unrelated to what it is named for — *`DW-71`*
+
+**Given** the swept-segment/box intersection test
+**When** `switches.ts` and `devices.ts` are read
+**Then** the verbatim duplicate (`segmentIntersectsBox` / `segmentIntersectsBoxLocal`) is a single shared
+implementation with one set of tests — *`DW-61`*
+
+**Given** `AGENTS.md`'s scaffold-stage TODOs
+**When** Epic 1 closes
+**Then** each is answered from what Epic 1 actually built, or removed with a reason — *`DW-5`*
+
+**Given** every acceptance criterion above
+**When** its pinning test is written
+**Then** the spec's `## Verification` records a named mutation per criterion that was applied, observed
+red, reverted, and the tree confirmed byte-identical (Rule 19)
+
+**Change log**
+
+- **2026-08-30 — chartered by the Epic 1 burn-down gate.** Epic 1 finished with thirty-five entries
+  owned by `burndown` against a `ledger_cap` of 8, so Rule 17 required a bounded burn-down story. It is
+  numbered **1.10, not the conventional N.9**, because `Story 1.9` is the Dev tuning panel and the first
+  feel ritual; the rule's fallback is the next free number under the epic. Twelve entries were chartered
+  (`burndown_story_max` is 12) by severity, then occurrence count — no entry had two or more — then
+  lowest fix-risk: five MEDs (`DW-32`, `DW-39`, `DW-74`, `DW-75`, `DW-84`) and seven low-fix-risk LOWs.
+  `DW-33` is the notable exclusion and its own note records why: LOW severity with MED fix-risk placed it
+  behind twelve cheaper items, so it went to Story 2.1 rather than into this charter. Nothing here is a
+  product decision: the thirteen `escalated` / `decision-pending` entries — including `DW-70`'s live
+  AD-7 violation and `DW-2`'s TICK_HZ ratification — were set aside untouched for the user's
+  decision sheet at the merge gate, because a burn-down story cannot ratify a tick rate or run a playtest.
+
 ## Epic 2: A Complete Game on the Real Shot Map
 
 A stranger can play a full 1–4 player game with no instructions: the real geometry (OQ-6 answered, OQ-5 confirmed or a scoop added), every device and shot, reliable switches, Lawlor's test per shot, start and Hot seat, plunge and Skill shot, ball save, bonus, lane change, tilt warnings, Tilt and Slam tilt, ball search, Match, game over back to a minimal Attract — all read from a DMD Backglass and inserts lit in the held colour grammar. Geometry is the first story and iterates with the rules.
@@ -613,6 +801,11 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **Given** `assets/src/dragonwar.blend` from Story 1.4
 **When** the drain triangle is drawn
 **Then** the flipper tip gap, the two outlane widths, the inlane guides and every post position are authored as `col_` primitives with the tip gap recorded in `tuning.ts` as `unverified`, and guides end at `rubber_post` surfaces, never bare metal
+
+**Given** the inlane guides and posts authored above, and the ported `FlipperMover` from Story 1.6 `[ADDED 2026-08-29 — see the story change log below]`
+**When** a ball resting on a raised bat is held with the flipper key for a full 5 simulated seconds
+**Then** the ball stays within the cradle pocket for the whole hold — at rest, its position on the bat unchanged within tolerance — and does not depart the bat
+**And** this closes ledger `DW-72`: it is the half of Story 1.6's cradle criterion deferred to this story because Epic 1's placeholder table had no geometry beside either flipper to form a pocket (see Story 1.6's change log), so `test/flipper-collision.test.ts`'s 1 s ball bound is widened back to the full 5 s here
 
 **Given** the drain triangle is placed
 **When** the shot map is drawn
@@ -635,6 +828,21 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **Given** the fixed camera from Story 1.4
 **When** the full geometry is in view
 **Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible and the Backglass quad occupies a strip at the top of the view
+
+**Change log**
+
+- **2026-08-29 — cradle criterion added, as the receiving half of Story 1.6's split.**
+  Story 1.6 could not assert a 5 s cradle: Epic 1's placeholder table has no geometry beside
+  either flipper, so a ball rolls along the raised bat under the 6.5° pitch and leaves it after
+  roughly 1.2–1.9 s. That was proved to be missing geometry rather than a defect in the ported
+  `FlipperMover` (energy dissipates rather than being injected, and a control ball that never
+  touches a flipper runs away faster). Story 1.6's ball claim was therefore bounded to 1 s and
+  the full cradle deferred here as ledger `DW-72`.
+  This story already **authors** the pocket — the inlane guides and posts are in its first
+  criterion — but asserted no behaviour that geometry enables, so it would have built the pocket,
+  never tested it, and met `DW-72` at its ledger gate with nothing delivered to close it against.
+  The criterion above closes that gap. `DW-72` is deliberately written to close on evidence
+  rather than on inspection.
 
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
@@ -1660,7 +1868,7 @@ So that the machine remembers me without an account or a network.
 **When** a game starts
 **Then** it is the only object the host hands `sim/loop`, `highscores` is read-only inside `sim/`, and dependency-cruiser confirms nothing under `src/sim/` references `localStorage`
 
-**Given** the CSP `connect-src 'none'`
+**Given** the CSP `connect-src 'self' blob:`
 **When** the game runs through a full session
 **Then** the network panel shows no request after the initial asset load
 
