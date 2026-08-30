@@ -27,12 +27,33 @@
 //   (e) enforces the device-name-literal rule over `<root>/src/**`, excluding
 //       `src/sim/table/dragonwar.ts`: a string/template literal matching
 //       `^(s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$`.
+//   (f) enforces Rule 14 (no literal non-ASCII byte in authored source) over
+//       `<root>/src/**` string and template literals ONLY -- comments and
+//       JSDoc are prose and stay exempt. A file whose first `//` line reads
+//       `// Ported from ` (the vpx-js/vpinball port marker every declared
+//       port under src/sim/physics/** carries) is exempt entirely: its bytes
+//       are the upstream author's, not ours to re-encode.
 //
 // (a) and (b) need a real import graph, which only dependency-cruiser (with
 // the `@swc/core` parser) can produce -- it cannot see identifier references
-// or string literals, so (c)-(e) are a hand-rolled textual pass instead.
+// or string literals, so (c)-(f) are a hand-rolled textual pass instead.
 // Node built-ins plus dependency-cruiser only, per this story's own
 // constraint (AD-16: no lint may depend on the TypeScript compiler API).
+//
+// In-file suppression (DW-38), `no-device-name-literal` ONLY: a line comment
+// reading EXACTLY (after trimming)
+//
+//     // boundary-lint-disable-next-line <rule-name>
+//
+// exempts that one violation kind on exactly the line immediately below the
+// comment -- narrow by construction: a different line, a suppression naming
+// a different rule, or one naming a rule that does not exist all still
+// report the underlying violation exactly as if no suppression were present
+// (an unrecognised rule name is never silently honoured -- it simply never
+// matches the real rule name a violation is compared against). The syntax
+// deliberately mirrors `// eslint-disable-next-line <rule>` already used
+// elsewhere in this repository. Only a LINE comment (`//`) is honoured, not
+// a block comment (`/* */`).
 //
 // Usage: node tools/boundary-lint.mjs [root]
 //   [root] -- defaults to the repository root; test/boundary-lint.test.ts
@@ -60,7 +81,10 @@ const DEPCRUISE_CONFIG = path.join(TOOL_ROOT, 'tools', 'dependency-cruiser.confi
 // `Date`, author literal milliseconds and hard-code device names while
 // `pnpm lint:boundaries` reported OK (review finding, this story's review
 // pass; reproduced against the shipped tool).
-const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+// Exported (DW-32) so test/typecheck-sim-boundary.test.ts's set-difference
+// check compares against the SAME extension set this file's own textual
+// scan uses, rather than a hand-copied duplicate that could silently drift.
+export const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
 // The coverage guard's own set (check (b)). Kept to the TypeScript
 // extensions the import graph is supposed to cover: any of these that
 // dependency-cruiser did not return is a blind spot, whether because the
@@ -69,6 +93,27 @@ const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
 const GRAPH_COVERAGE_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts)$/;
 
 const DEVICE_NAME_PATTERN = /^(?:s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$/;
+// Any codepoint outside the printable-ASCII + control-character range. Rule
+// 14: author non-ASCII bytes as `\uXXXX` escapes so the source stays plain
+// ASCII everywhere except prose (comments/JSDoc, which this check never
+// scans -- extractStringLiterals() only ever yields string/template spans).
+// The `u` flag is load-bearing: without it, a character class matches UTF-16
+// CODE UNITS, so an astral (non-BMP) codepoint's surrogate pair would be
+// reported as two separate violations, each naming half a codepoint. With
+// `u`, matching (and codePointAt(0) below) operates on whole Unicode scalar
+// values, exactly one violation per real character.
+const NON_ASCII_LITERAL_PATTERN = /[^\x00-\x7F]/gu;
+// The vpx-js/vpinball port marker every declared DW-79-frozen port carries as
+// its own first identifying line (verified against all 41 files named in
+// test/sim-boundary.test.ts's PORT_BODY_HASHES): `// Ported from <repo>
+// (<licence>); distributed with DragonWar under GPL-3.0`. A file carrying it
+// AS ITS OWN FIRST LINE-COMMENT (not merely anywhere in the file -- a later
+// `// Ported from ` appearing deep inside an otherwise-authored file must
+// never exempt that whole file) is exempt from the non-ASCII check -- its
+// bytes are the upstream author's and are never ours to re-encode. Matched
+// against the tokenizer's first `line-comment` span (isDeclaredPort() below),
+// never against the raw source text.
+const PORT_MARKER_PATTERN = /^\/\/ Ported from /;
 const BANNED_TOKENS_ALWAYS = ['Date', 'Math.random', 'globalThis'];
 // Defence in depth (task 10c): the DOM/Node globals tsconfig.sim.json's
 // `types: []` / `lib: ["ES2023"]` already reject at the type level (DW-15) --
@@ -88,8 +133,8 @@ const BANNED_GLOBAL_TOKENS = [...BANNED_TOKENS_ALWAYS, ...BANNED_TOKENS_DEFENCE_
 
 class BoundaryLintError extends Error {}
 
-/** Recursively lists every file (not directory) under `root`, absolute paths. */
-function listFilesRecursive(root) {
+/** Recursively lists every file (not directory) under `root`, absolute paths. Exported (DW-32) for the same reuse-not-duplicate reason as TEXTUAL_SCAN_EXTENSION_PATTERN above. */
+export function listFilesRecursive(root) {
 	if (!existsSync(root)) {
 		return [];
 	}
@@ -339,6 +384,41 @@ function extractStringLiterals(source, tokens) {
 	return out;
 }
 
+// DW-38: `// boundary-lint-disable-next-line <rule-name>` suppresses exactly
+// ONE violation kind on exactly the line immediately following the comment.
+// Anchored to the whole (trimmed) comment text, so a rule name embedded in a
+// longer sentence does not accidentally suppress anything.
+const SUPPRESSION_PATTERN = /^\/\/\s*boundary-lint-disable-next-line\s+(\S+)\s*$/;
+
+/**
+ * Map from 1-based line number -> the single rule name suppressed on that
+ * line, read from `// boundary-lint-disable-next-line <rule>` LINE comments
+ * only (a suppression inside a block comment is not honoured -- narrower is
+ * safer for a mechanism that silences a real check). An unrecognised rule
+ * name is still recorded here -- it is the CALLER's exact-match comparison
+ * against its own real rule name that makes an unrecognised name a no-op,
+ * per this story's I/O matrix ("An unrecognised rule name is reported, not
+ * silently honoured"): the underlying violation is simply never matched by
+ * any `=== ruleName` check and so is reported exactly as if no suppression
+ * comment were present at all.
+ */
+function collectLineSuppressions(source, tokens) {
+	const suppressions = new Map();
+	for (const token of tokens) {
+		if (token.type !== 'line-comment') {
+			continue;
+		}
+		const text = source.slice(token.start, token.end);
+		const match = SUPPRESSION_PATTERN.exec(text);
+		if (!match) {
+			continue;
+		}
+		const commentLine = lineOf(source, token.start);
+		suppressions.set(commentLine + 1, match[1]);
+	}
+	return suppressions;
+}
+
 function bannedTokenPattern(token) {
 	const escaped = token.replace(/[.]/g, '\\.');
 	return new RegExp(`\\b${escaped}\\b`, 'g');
@@ -433,14 +513,67 @@ function checkDeviceNameLiterals(srcRoot, relRoot) {
 			continue;
 		}
 		const source = readFileSync(file, 'utf8');
-		const literals = extractStringLiterals(source, tokenize(source, relative));
+		const tokens = tokenize(source, relative);
+		const suppressions = collectLineSuppressions(source, tokens);
+		const literals = extractStringLiterals(source, tokens);
 		for (const literal of literals) {
 			if (DEVICE_NAME_PATTERN.test(literal.text)) {
+				if (suppressions.get(literal.line) === 'no-device-name-literal') {
+					continue;
+				}
 				violations.push({
 					rule: 'no-device-name-literal',
 					file: relative,
 					line: literal.line,
 					message: `string literal "${literal.text}" names a device outside sim/table/dragonwar.ts (AD-1, AD-16: device names are typed through sim/table/names.ts)`,
+				});
+			}
+		}
+	}
+	return violations;
+}
+
+/**
+ * A file is a declared port only when its OWN FIRST `line-comment` token (in
+ * tokenizer order, so a `/* *\/` header before it is fine, but any code
+ * before it is not) matches PORT_MARKER_PATTERN -- never a raw whole-source
+ * `.test()`, which would also match the marker text appearing anywhere
+ * DEEPER in an otherwise-authored file and wrongly exempt it entirely.
+ */
+function isDeclaredPort(source, tokens) {
+	const firstLineComment = tokens.find((token) => token.type === 'line-comment');
+	if (!firstLineComment) {
+		return false;
+	}
+	return PORT_MARKER_PATTERN.test(source.slice(firstLineComment.start, firstLineComment.end));
+}
+
+/** Check (f): Rule 14, no literal non-ASCII byte in a string/template literal, over `src/**`, ported files exempt. */
+function checkNonAsciiLiterals(srcRoot, relRoot) {
+	const violations = [];
+	const files = listFilesRecursive(srcRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const source = readFileSync(file, 'utf8');
+		const relative = toPosix(path.relative(relRoot, file));
+		const tokens = tokenize(source, relative);
+		if (isDeclaredPort(source, tokens)) {
+			continue;
+		}
+		const literals = extractStringLiterals(source, tokens);
+		for (const literal of literals) {
+			const pattern = new RegExp(NON_ASCII_LITERAL_PATTERN.source, 'gu');
+			let match;
+			while ((match = pattern.exec(literal.text)) !== null) {
+				// literal.line is the token's START line; a multi-line template
+				// literal's match can be further down, so count newlines in the
+				// literal text up to the match to land on the right line.
+				const newlinesBefore = (literal.text.slice(0, match.index).match(/\n/g) ?? []).length;
+				const codepoint = match[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0');
+				violations.push({
+					rule: 'no-literal-non-ascii',
+					file: relative,
+					line: literal.line + newlinesBefore,
+					message: `string/template literal contains a literal non-ASCII byte U+${codepoint} (Rule 14: author it as \\u${codepoint} instead)`,
 				});
 			}
 		}
@@ -551,6 +684,7 @@ export function runBoundaryLint(root) {
 		...checkBannedGlobals(simRoot, root),
 		...checkTickMsRule(simRoot, root),
 		...checkDeviceNameLiterals(srcRoot, root),
+		...checkNonAsciiLiterals(srcRoot, root),
 	];
 
 	return { importViolations, textualViolations, coverage };

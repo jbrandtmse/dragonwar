@@ -26,6 +26,7 @@ import type { ResolvedTuning } from '../table/tuning';
 import type { SwitchName } from '../table/names';
 import type { Vec3 } from '../table/frames';
 import type { LoadedSwitchZone } from './loader';
+import { segmentIntersectsBox } from './geometry';
 
 /** One ball's table-frame position before and after one tick's physics step -- the swept segment a zone test runs against. */
 export interface BallMovement {
@@ -57,45 +58,6 @@ function parkingDeviceOwnedSwitches(): ReadonlySet<SwitchName> {
 		}
 	}
 	return owned;
-}
-
-/**
- * Segment-vs-axis-aligned-box intersection (the slab method): clips the
- * segment's parametric range `t ∈ [0, 1]` (from `before` to `after`) against
- * each axis's `[min, max]` slab. The segment intersects the box iff a
- * non-empty `t` range survives all three axes -- this is what makes a ball
- * whose START and END positions are both OUTSIDE a zone, but whose path
- * crosses through it within one tick, still register (the I/O matrix's
- * "Swept-segment zone crossing" row).
- */
-function segmentIntersectsBox(before: Vec3, after: Vec3, minMm: Vec3, maxMm: Vec3): boolean {
-	let tMin = 0;
-	let tMax = 1;
-	for (const axis of ['x', 'y', 'z'] as const) {
-		const p0 = before[axis];
-		const d = after[axis] - p0;
-		const lo = minMm[axis];
-		const hi = maxMm[axis];
-		if (Math.abs(d) < 1e-9) {
-			// Not moving along this axis: the whole segment's fate on this axis
-			// is decided by whether the start point already lies in the slab.
-			if (p0 < lo || p0 > hi) {
-				return false;
-			}
-			continue;
-		}
-		let t1 = (lo - p0) / d;
-		let t2 = (hi - p0) / d;
-		if (t1 > t2) {
-			[t1, t2] = [t2, t1];
-		}
-		tMin = Math.max(tMin, t1);
-		tMax = Math.min(tMax, t2);
-		if (tMin > tMax) {
-			return false;
-		}
-	}
-	return true;
 }
 
 interface TrackedSwitch {

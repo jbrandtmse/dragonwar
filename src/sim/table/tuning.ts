@@ -90,24 +90,24 @@ export const TUNING = deepFreeze({
 	 */
 	materials: {
 		default: {
-			elasticity: entry(0.3, "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
-			elasticityFalloff: entry(0, "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
-			friction: entry(0.3, "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
-			scatter: entry(0, "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
+			elasticity: entry(0.3, "addendum \u00A72 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
+			elasticityFalloff: entry(0, "addendum \u00A72 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
+			friction: entry(0.3, "addendum \u00A72 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
+			scatter: entry(0, "addendum \u00A72 physics tuning table, 'Per-object tunables': VPX per-object default", 'high'),
 		},
 		flipper_rubber: {
-			elasticity: entry(0.88, "addendum §2 physics tuning table, 'Flipper elasticity' (AR-17)", 'medium'),
+			elasticity: entry(0.88, "addendum \u00A72 physics tuning table, 'Flipper elasticity' (AR-17)", 'medium'),
 			elasticityFalloff: entry(
 				0.15,
-				"addendum §2 physics tuning table, 'Elasticity falloff' (AR-17) -- \"the primary feel knob\"",
+				"addendum \u00A72 physics tuning table, 'Elasticity falloff' (AR-17) -- \"the primary feel knob\"",
 				'medium',
 			),
 			friction: entry(
 				0.85,
-				"authored: midpoint of addendum §2's 'Flipper friction' range 0.8-0.9 (AR-17) -- \"what makes centre shots and backhands possible\"; no artifact states a single value",
+				"authored: midpoint of addendum \u00A72's 'Flipper friction' range 0.8-0.9 (AR-17) -- \"what makes centre shots and backhands possible\"; no artifact states a single value",
 				'unverified',
 			),
-			scatter: entry(0, "addendum §2 physics tuning table, 'Scatter angle': \"0, for every era; randomness is tuned down\"", 'high'),
+			scatter: entry(0, "addendum \u00A72 physics tuning table, 'Scatter angle': \"0, for every era; randomness is tuned down\"", 'high'),
 		},
 	} satisfies Readonly<Record<'default' | 'flipper_rubber', PhysMaterialTuning>>,
 
@@ -130,7 +130,7 @@ export const TUNING = deepFreeze({
 		),
 		rampUp: entry(
 			2.5,
-			'physics-tuning.md:28 "Coil ramp-up 2.5 -- Solenoid acceleration time -- enables the light tap. Source: VPE default via the brief addendum §4" (supersedes flipper-data.ts\'s own FlipperPhysicsCoilRampUp fallback of 3.0 for this table)',
+			'physics-tuning.md:28 "Coil ramp-up 2.5 -- Solenoid acceleration time -- enables the light tap. Source: VPE default via the brief addendum \u00A74" (supersedes flipper-data.ts\'s own FlipperPhysicsCoilRampUp fallback of 3.0 for this table)',
 			'medium',
 		),
 		returnRatio: entry(
@@ -187,9 +187,9 @@ export const TUNING = deepFreeze({
 	} satisfies Readonly<Record<SettleClass, TuningEntry<number>>>,
 
 	/** FR-10: "default 6.5°; range 6.0-8.5° [ASSUMPTION: bounds]". Default corroborated by AD-10's `TABLE.reference.pitchDeg` and the addendum's reference geometry (high confidence there). */
-	defaultPitchDeg: entry(6.5, 'FR-10 consequence text; AD-10 TABLE.reference.pitchDeg; addendum §2 reference geometry ("pitch 6.5°... high confidence")', 'high'),
-	pitchMinDeg: entry(6.0, 'FR-10 consequence text: "range 6.0-8.5° [ASSUMPTION: bounds]"', 'medium'),
-	pitchMaxDeg: entry(8.5, 'FR-10 consequence text: "range 6.0-8.5° [ASSUMPTION: bounds]"; corroborated by addendum §2 "competition range 6.5-8.5°"', 'medium'),
+	defaultPitchDeg: entry(6.5, 'FR-10 consequence text; AD-10 TABLE.reference.pitchDeg; addendum \u00A72 reference geometry ("pitch 6.5\u00B0... high confidence")', 'high'),
+	pitchMinDeg: entry(6.0, 'FR-10 consequence text: "range 6.0-8.5\u00B0 [ASSUMPTION: bounds]"', 'medium'),
+	pitchMaxDeg: entry(8.5, 'FR-10 consequence text: "range 6.0-8.5\u00B0 [ASSUMPTION: bounds]"; corroborated by addendum \u00A72 "competition range 6.5-8.5\u00B0"', 'medium'),
 
 	/**
 	 * FR-9 / AD-15 ("hop control; pitch bounds" -- the two tunables the
@@ -446,7 +446,7 @@ function assertNoNestedMsKeys(node: unknown, path: string, depth: number): void 
 		if (depth > 0 && key.endsWith('Ms')) {
 			throw new Error(
 				`resolveTuning(): "${fullPath}" is a NESTED tunable ending in "Ms" (DW-34) -- resolveTuning() only ` +
-				`converts TOP-level "…Ms" scalars (and switchSettleMsByClass) to ticks; a nested one would be silently ` +
+				`converts TOP-level "\u2026Ms" scalars (and switchSettleMsByClass) to ticks; a nested one would be silently ` +
 				`never converted. Author it in ticks directly, or lift it to the top level.`,
 			);
 		}
@@ -475,7 +475,7 @@ export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = T
 			// story's review pass).
 			throw new Error(
 				`resolveTuning(): "${key}" ends in "Ms" but is not a TuningEntry<number> ` +
-				`(got ${value === null ? 'null' : typeof value}); every …Ms tunable must carry a numeric value.`,
+				`(got ${value === null ? 'null' : typeof value}); every \u2026Ms tunable must carry a numeric value.`,
 			);
 		}
 		const entryValue = value as TuningEntry<number>;

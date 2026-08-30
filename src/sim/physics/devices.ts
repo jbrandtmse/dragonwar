@@ -30,6 +30,7 @@ import type { BallDeviceName, CoilName, SwitchName } from '../table/names';
 import type { ContactKind, ContactSurface } from '../contracts/events';
 import type { LoadedDevice } from './loader';
 import type { LoadedSwitchZone } from './loader';
+import { segmentIntersectsBox } from './geometry';
 
 /** vpx-js's `TableData` stand-in `BallHit` reads (same shape spike-1's harness and the loader's own tests use -- this project's established convention, not an invention). */
 const BALL_HIT_TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
@@ -308,7 +309,7 @@ export function createDeviceMechanics(options: {
 				if (parked.has(movement.ball)) {
 					continue;
 				}
-				const entered = zones.some((zone) => segmentIntersectsBoxLocal(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
+				const entered = zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
 				if (!entered) {
 					continue;
 				}
@@ -338,31 +339,3 @@ export function createDeviceMechanics(options: {
 	};
 }
 
-/** Local mirror of `switches.ts`'s slab-method segment/box test -- devices.ts needs the identical semantics for its own slot-zone entry test, and importing a physics-internal helper from a sibling module for one function would be a heavier coupling than re-deriving it (both are small, both are pure geometry, and both are exercised by their own module's tests). */
-function segmentIntersectsBoxLocal(before: Vec3, after: Vec3, minMm: Vec3, maxMm: Vec3): boolean {
-	let tMin = 0;
-	let tMax = 1;
-	for (const axis of ['x', 'y', 'z'] as const) {
-		const p0 = before[axis];
-		const d = after[axis] - p0;
-		const lo = minMm[axis];
-		const hi = maxMm[axis];
-		if (Math.abs(d) < 1e-9) {
-			if (p0 < lo || p0 > hi) {
-				return false;
-			}
-			continue;
-		}
-		let t1 = (lo - p0) / d;
-		let t2 = (hi - p0) / d;
-		if (t1 > t2) {
-			[t1, t2] = [t2, t1];
-		}
-		tMin = Math.max(tMin, t1);
-		tMax = Math.min(tMax, t2);
-		if (tMin > tMax) {
-			return false;
-		}
-	}
-	return true;
-}

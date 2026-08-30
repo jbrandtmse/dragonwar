@@ -202,7 +202,7 @@ export function createTuningPanel(deps: TuningPanelDeps): TuningPanel {
 		const metaEl = document.createElement('span');
 		metaEl.className = 'dw-tuning-panel__meta';
 		// Rule 14: the em dash is authored as an escape, never a literal byte.
-		metaEl.textContent = `${row.confidence} — ${row.source}`;
+		metaEl.textContent = `${row.confidence} \u2014 ${row.source}`;
 		rowEl.appendChild(metaEl);
 
 		input.addEventListener('change', () => {

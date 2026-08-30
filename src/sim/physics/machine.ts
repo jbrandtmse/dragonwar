@@ -212,7 +212,14 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// same seam, same "before physics.step()" reasoning (AD-5).
 		const cabinetResult = cabinetMechanics.applyFrame(tick, frame);
 
-		const commandResult = deviceMechanics.applyCommands(tick, pulses);
+		// DW-74: AD-5 says every coil is "gated only by CoilCommand enable |
+		// disable" -- filtered here, AFTER every enable/disable in this tick has
+		// already been written to coilEnabled above, so a same-tick
+		// disable-then-pulse is swallowed regardless of the commands array's own
+		// order. A no-op at the shipped defaults (every coil starts, and stays,
+		// enabled unless something disables it).
+		const enabledPulses = pulses.filter((pulse) => coilEnabled[pulse.coil]);
+		const commandResult = deviceMechanics.applyCommands(tick, enabledPulses);
 
 		const before = new Map<Ball, ReturnType<typeof fromPhysics>>();
 		// Story 1.9, AC 2: the hop mechanism's own input -- each ball's velocity

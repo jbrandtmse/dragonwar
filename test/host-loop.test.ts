@@ -18,6 +18,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHostLoop } from '../src/host/loop';
 import { resolveTuning, TUNING } from '../src/sim/table/tuning';
+import { NO_FRAME } from '../src/sim/loop';
 import type { FrameOutput } from '../src/sim/table/names';
 import type { InputTransition } from '../src/sim/contracts/input';
 
@@ -507,6 +508,142 @@ describe('src/host/loop.ts -- the rAF driver (AD-4, task 21)', () => {
 				outputs[outputs.length - 1]!.snapshot.balls,
 				'reset() must construct a FRESH createLoop() -- if it kept the existing loop instead, the ball ejected before reset would still be there',
 			).toHaveLength(0);
+		});
+	});
+
+	// DW-75: a keydown stamped by tickAt() against a stall longer than
+	// MAX_OWED_TICKS (200 ticks / 200 ms, AD-4) could land past the tick the
+	// SAME frame actually reaches (that frame's owed time beyond the cap is
+	// discarded), leaving it queued in pendingTransitions until some LATER
+	// frame's ticking caught up to the raw stamped tick for real. The fix
+	// bounds each keyboard-drained transition to the last tick its own frame
+	// actually runs. Falsifiability (Rule 19): mutation: remove the upper
+	// bound from the drain seam, restoring the unbounded stamp -> the
+	// long-frame assertion below goes red while the control stays green;
+	// mutation: apply the bound unconditionally on every frame (not just
+	// where it would exceed the frame's last tick) -> the control goes red.
+	describe('tickAt() upper bound: a keyboard-drained transition never lands past its own frame\'s last tick (DW-75, AD-4)', () => {
+		it('a frame longer than MAX_OWED_TICKS (500 ms) with a keydown 250 ms into the stall is consumed by THAT SAME (capped) frame, not left waiting in pendingTransitions for a later frame', () => {
+			// Observable: mechanisms.plunger.holdTicks -- a discrete per-tick
+			// counter (plunger.ts: +1 for every tick "plunger" reads true), unlike
+			// angleDeg's continuous, ramp-up-governed integration, which cannot be
+			// trusted to move measurably from exactly ONE tick of held input
+			// landing on the frame's very last tick (verified empirically this
+			// pass: it does not). "Enter" is the mapped key for the plunger
+			// action (src/host/input's ACTION_KEY_MAP).
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0); // origin: tick 0, originMs 0, no owed time yet.
+			expect(outputs[outputs.length - 1]!.snapshot.mechanisms.plunger.holdTicks, 'sanity: holdTicks must start at 0').toBe(0);
+			// Unbounded, tickAt() would stamp this at tick 250 (TICK_HZ = 1000,
+			// so 1 ms = 1 tick) -- past the 200-tick cap the SAME frame below is
+			// about to hit.
+			keyboardTarget.dispatch('keydown', { code: 'Enter', timeStamp: 250, preventDefault: () => {} });
+			raf.fire(500); // a genuinely >200 ms frame.
+			host.stop();
+			const after = outputs[outputs.length - 1]!.snapshot;
+			expect(after.tick, 'sanity: the 200 ms owed-time cap must actually have fired, or this test proves nothing about the bound').toBe(200);
+			expect(
+				after.mechanisms.plunger.holdTicks,
+				'the keydown must be consumed by THIS SAME (capped) frame -- if it were still queued in pendingTransitions waiting for the sim to tick forward to the raw stamped tick (250), holdTicks would still read 0 here',
+			).toBe(1);
+		});
+
+		it('CONTROL: an ordinary ~16.7 ms frame (well inside the cap) produces a BYTE-IDENTICAL stamped tick before and after the bound -- the bound must never bite on a normal frame', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0);
+			// The exact scenario the pre-existing "tickAt() stamps against the
+			// CURRENT accumulator origin" test above already pins to a specific
+			// tick and a specific angle -- re-asserted here as this AC's own
+			// no-op control, so a bound that fires unconditionally (rather than
+			// only where it would exceed the frame's last tick) is caught.
+			const angleBefore = outputs[outputs.length - 1]!.snapshot.mechanisms.flippers.l.angleDeg;
+			keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: 8, preventDefault: () => {} });
+			raf.fire(16.667);
+			const after = outputs[outputs.length - 1]!.snapshot;
+
+			expect(after.tick, 'sanity: an ordinary frame must not have hit the 200-tick cap').toBeLessThan(200);
+			expect(after.tick).toBeGreaterThan(0);
+			expect(
+				after.mechanisms.flippers.l.angleDeg,
+				'inside the cap, a DOM timestamp is always at or before the frame\'s own nowMs, so the bound is provably a no-op -- the flipper must still move exactly as it did before this story',
+			).not.toBe(angleBefore);
+		});
+
+		it('a zero-tick frame (advance() owes nothing) still defers the transition via the EXISTING originTick + 1 lower bound, exactly as before this story', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0);
+			const originTick = outputs[outputs.length - 1]!.snapshot.tick;
+
+			// A keydown timestamped BEFORE the current origin -- the existing
+			// lower-bound scenario (I/O matrix: "a timestamp at or before the
+			// origin clamps to the frame's first tick").
+			keyboardTarget.dispatch('keydown', { code: 'ShiftLeft', timeStamp: -5, preventDefault: () => {} });
+			// The very next frame at THE SAME timestamp: elapsedMs = 0, so
+			// advance() owes zero ticks this frame -- the transition must still
+			// be accepted (via originTick + 1), not dropped, and the sim must
+			// still show no ticking yet.
+			raf.fire(0);
+			const after = outputs[outputs.length - 1]!.snapshot;
+			expect(after.tick, 'a zero-tick frame must not advance the tick counter').toBe(originTick);
+		});
+
+		// Verification-gap review, this pass: every other test in this
+		// describe block only exercises keyboard-drained transitions.
+		// injectTransitions() (the replay player's own explicit-tick path) is
+		// concatenated in UNCLAMPED at src/host/loop.ts's drain seam -- but
+		// nothing combined a >MAX_OWED_TICKS frame with an injected transition
+		// stamped past that frame's own last tick to prove it, so a future
+		// refactor that folded injectedTransitions into the same .map() as the
+		// keyboard-drained ones would corrupt replay playback with nothing to
+		// catch it. Uses `plunger`/`holdTicks` rather than a flipper's
+		// `angleDeg` -- same reason the FIRST test in this describe block does
+		// (a discrete +1-per-tick counter, unlike angleDeg's continuous,
+		// ramp-up-governed integration, is trusted to move from exactly ONE
+		// tick of held input landing on a frame's very last tick; verified
+		// empirically this pass that an angleDeg-based version of this same
+		// test does NOT discriminate the mutation below -- it stayed green
+		// under the bug too). Falsifiability (Rule 19): mutation: apply the
+		// drain seam's clamp to injectedTransitions too (map them through the
+		// same lastTickThisFrame bound as `drained`) -> this test's first
+		// assertion goes red (holdTicks becomes 1 a whole frame early).
+		it('an INJECTED transition stamped past a >MAX_OWED_TICKS frame\'s own last tick is NOT clamped into that frame -- it stays queued, exactly as before this story, until the sim really ticks that far', () => {
+			const outputs: FrameOutput[] = [];
+			const host = createHostLoop(loadDoc(), (output) => outputs.push(output));
+			host.start();
+			raf.fire(0); // origin: tick 0, originMs 0.
+			expect(outputs[outputs.length - 1]!.snapshot.mechanisms.plunger.holdTicks, 'sanity: holdTicks must start at 0').toBe(0);
+
+			// Stamped at tick 500 -- deep past the 200-tick cap the frame below
+			// is about to hit. A keyboard-drained transition at this same tick
+			// WOULD be bounded into the capped frame (this describe block's
+			// first test); an injected one must never be.
+			host.injectTransitions([{ tick: 500, frame: { ...NO_FRAME, plunger: true } }]);
+			raf.fire(500); // a genuinely >200 ms frame.
+			const capped = outputs[outputs.length - 1]!.snapshot;
+			expect(capped.tick, 'sanity: the 200 ms owed-time cap must actually have fired').toBe(200);
+			expect(
+				capped.mechanisms.plunger.holdTicks,
+				'the injected transition is stamped at tick 500, past this capped frame\'s own last tick (200) -- if it had been clamped into this frame the same way a keyboard transition would be, holdTicks would already be nonzero here',
+			).toBe(0);
+
+			// Two more ordinary-length frames close the remaining 300-tick gap
+			// (150 ticks each, comfortably inside the cap) -- proves the
+			// transition was correctly DEFERRED, not silently dropped, once the
+			// sim genuinely reaches tick 500.
+			raf.fire(650);
+			raf.fire(800);
+			const settled = outputs[outputs.length - 1]!.snapshot;
+			expect(settled.tick, 'sanity: the sim must have reached the injected transition\'s own stamped tick').toBe(500);
+			expect(
+				settled.mechanisms.plunger.holdTicks,
+				'once the sim genuinely reaches tick 500, the injected transition must apply -- it was deferred, not dropped',
+			).toBe(1);
 		});
 	});
 });

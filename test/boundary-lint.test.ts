@@ -15,6 +15,11 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const BOUNDARY_LINT_SCRIPT = path.join(REPO_ROOT, 'tools', 'boundary-lint.mjs');
 const FIXTURES_ROOT = path.join(REPO_ROOT, 'test', 'fixtures', 'boundary');
 const COVERAGE_GAP_ROOT = path.join(FIXTURES_ROOT, 'coverage-gap');
+const SIM_CYCLE_ROOT = path.join(FIXTURES_ROOT, 'sim-cycle');
+const TABLE_REACHES_PHYSICS_ROOT = path.join(FIXTURES_ROOT, 'table-reaches-physics');
+const SUPPRESSION_ROOT = path.join(FIXTURES_ROOT, 'suppression');
+const EXEMPTION_EXACT_ROOT = path.join(FIXTURES_ROOT, 'exemption-exact');
+const EXEMPTION_NEAR_MISS_ROOT = path.join(FIXTURES_ROOT, 'exemption-near-miss');
 const RUN_TIMEOUT_MS = 30_000;
 
 interface RunResult {
@@ -59,6 +64,7 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary (one violation per r
 		['sim-one-tick-constant', 'src/sim/tick-hz-misuse.ts'],
 		['sim-no-literal-ms', 'src/sim/literal-ms.ts'],
 		['no-device-name-literal', 'src/presentation/device-name-literal.ts'],
+		['no-literal-non-ascii', 'src/presentation/non-ascii-literal.ts'],
 	])('names rule "%s" and file "%s"', (rule, file) => {
 		expect(stderr).toContain(`[${rule}]`);
 		expect(stderr).toContain(file);
@@ -79,6 +85,22 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary (one violation per r
 		const lines = stderr.split('\n').filter((line) => line.includes('src/presentation/device-name-literal.ts'));
 		expect(lines, `expected exactly one violation for device-name-literal.ts, got:\n${lines.join('\n')}`).toHaveLength(1);
 		expect(lines[0]).toContain('"s_start"');
+	});
+
+	it('ignores the same non-ASCII codepoint inside a comment -- only the string literal fires (Rule 14: comments are prose)', () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/presentation/non-ascii-literal.ts'));
+		expect(lines, `expected exactly one violation for non-ascii-literal.ts, got:\n${lines.join('\n')}`).toHaveLength(1);
+		expect(lines[0]).toContain('U+00A7');
+	});
+
+	it('does not fire on a literal non-ASCII byte inside a declared vpx-js/vpinball port (Rule 14 exemption)', () => {
+		expect(stderr).not.toContain('src/sim/physics/ported-non-ascii.ts');
+	});
+
+	it('DOES fire when the "Ported from " marker is NOT the file\'s own first line-comment -- the exemption is not a whole-file text search', () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/physics/fake-port-non-ascii.ts'));
+		expect(lines, `expected exactly one violation for fake-port-non-ascii.ts, got:\n${lines.join('\n')}`).toHaveLength(1);
+		expect(lines[0]).toContain('[no-literal-non-ascii]');
 	});
 
 	it('still catches a real violation after a two-interpolation template literal (tokenizer stack does not desync)', () => {
@@ -149,6 +171,75 @@ describe('tools/boundary-lint.mjs -- empty-graph / missing-file guard (test/fixt
 		expect(stderr).toMatch(/missing 1 of 2 \.ts file\(s\)/);
 		expect(stderr).toContain('src/vendored_node_modules_copy/orphan.ts');
 		expect(stderr).toMatch(/Installed parser:.*swc/);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/sim-cycle (DW-37: no-circular)', () => {
+	it('exits 2 and reports no-circular for a cycle introduced among the seam contracts', () => {
+		const { status, stderr } = run([SIM_CYCLE_ROOT]);
+		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
+		expect(stderr).toContain('[no-circular]');
+		expect(stderr).toContain('src/sim/contracts/a.ts');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/table-reaches-physics (DW-37: sim-table-no-physics-rules-loop)', () => {
+	it('exits 2 and reports sim-table-no-physics-rules-loop for a sim/table -> sim/physics import', () => {
+		const { status, stderr } = run([TABLE_REACHES_PHYSICS_ROOT]);
+		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
+		expect(stderr).toContain('[sim-table-no-physics-rules-loop]');
+		expect(stderr).toContain('src/sim/table/reaches-physics.ts');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/suppression (DW-38: in-file suppression, narrow)', () => {
+	const { stderr } = run([SUPPRESSION_ROOT]);
+	const lines = (n: number) => stderr.split('\n').filter((line) => line.includes(`src/presentation/suppressed.ts:${n}`));
+
+	it('exempts exactly the line named by "// boundary-lint-disable-next-line no-device-name-literal"', () => {
+		expect(lines(5), `expected no violation on line 5, got:\n${lines(5).join('\n')}`).toHaveLength(0);
+	});
+
+	it('does not exempt the line after the suppressed one', () => {
+		expect(lines(6), `expected exactly one violation on line 6, got:\n${lines(6).join('\n')}`).toHaveLength(1);
+		expect(lines(6)[0]).toContain('[no-device-name-literal]');
+	});
+
+	it('a suppression naming a DIFFERENT rule does not suppress the real violation', () => {
+		expect(lines(9), `expected exactly one violation on line 9, got:\n${lines(9).join('\n')}`).toHaveLength(1);
+		expect(lines(9)[0]).toContain('[no-device-name-literal]');
+	});
+
+	it('a suppression naming an UNRECOGNISED rule does not suppress the real violation', () => {
+		expect(lines(12), `expected exactly one violation on line 12, got:\n${lines(12).join('\n')}`).toHaveLength(1);
+		expect(lines(12)[0]).toContain('[no-device-name-literal]');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/exemption-exact (DW-39: exact-path exemptions really hold)', () => {
+	it('exits 0 -- no violation for the sim-no-literal-ms/sim-one-tick-constant/no-device-name-literal patterns at the exact exempt paths', () => {
+		const { status, stdout, stderr } = run([EXEMPTION_EXACT_ROOT]);
+		expect(status, `expected exit 0, stderr:\n${stderr}`).toBe(0);
+		expect(stdout).toMatch(/OK --/);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/exemption-near-miss (DW-39: exemption is path-exact, not basename- or suffix-matched)', () => {
+	const { status, stderr } = run([EXEMPTION_NEAR_MISS_ROOT]);
+
+	it('exits non-zero (both near-miss files fire)', () => {
+		expect(status).not.toBe(0);
+	});
+
+	it('src/sim/other/tuning.ts (basename matches src/sim/table/tuning.ts, path does not) still fires sim-no-literal-ms and sim-one-tick-constant', () => {
+		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/other/tuning.ts'));
+		expect(lines.join('\n')).toContain('[sim-no-literal-ms]');
+		expect(lines.join('\n')).toContain('[sim-one-tick-constant]');
+	});
+
+	it('src/sim/table/nested/dragonwar.ts (basename matches src/sim/table/dragonwar.ts, path does not) still fires no-device-name-literal', () => {
+		expect(stderr).toContain('[no-device-name-literal]');
+		expect(stderr).toContain('src/sim/table/nested/dragonwar.ts');
 	});
 });
 

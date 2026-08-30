@@ -1,5 +1,5 @@
 <!-- bmad:context -->
-<!-- Verified 2026-08-27 against 19fc140. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
+<!-- Verified 2026-08-30 against 969a528. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
 ## DragonWar
 
@@ -11,15 +11,15 @@ An open-source pinball simulation: one original table, browser-first, Windows an
 
 ## Where things are
 
-- Structural decisions are governed by the architecture spine: `_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md` (invariants AD-1..AD-17), with `SOLUTION-DESIGN.md` beside it for the reasoning. It supersedes the brief and the research where they disagree.
+- Structural decisions are governed by the architecture spine: `_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md` (invariants AD-1..AD-19), with `SOLUTION-DESIGN.md` beside it for the reasoning. It supersedes the brief and the research where they disagree.
 - Story breakdown — 6 epics, 53 stories: `_bmad-output/planning-artifacts/epics.md`
 - Machine behaviour, physics tuning figures, and the domain glossary: `_bmad-output/specs/spec-dragonwar/`
 
 ## Running and verifying
 
 - Resolve BMad config as `PYTHONIOENCODING=utf-8 uv run _bmad/scripts/resolve_config.py --project-root .` — plain `uv run` dies with a `UnicodeEncodeError` on the agent icons under a cp1252 console.
-- TODO — no `package.json` yet. The spine fixes the toolchain at pnpm 11.24.0, Vite 8.2.2, Vitest 4.1.11, TypeScript 7.0.2 (`tsc --noEmit` gate only), Node 24 LTS. Verify the real scripts here on the first refresh after scaffolding.
-- TODO — CI is `.github/workflows/ci.yml`, not yet written: typecheck, dependency-cruiser, Vitest goldens, build, CSP grep, size budget, deploy Pages.
+- `package.json`'s twelve scripts, pnpm 11.24.0 / Vite 8.2.2 / Vitest 4.1.11 / TypeScript 7.0.2 / Node >=24 as the spine fixed them: `dev`, `typecheck` (`tsc --noEmit` over the three tsconfig projects), `test` (`vitest run`), `build`, `preview`, `check:dist`, `check:size`, `lint:boundaries`, `check:headers`, `check:attributions`, `export:assets`, `check:ad7`.
+- CI is `.github/workflows/ci.yml`: a `Checks` job (typecheck, boundary lint, licence headers, attribution ledger, test, build, static-bundle check, size budget, then uploads the Pages artifact on `main`) followed by a `Deploy to GitHub Pages` job gated on that job succeeding and on `main`.
 
 ## Conventions that differ from defaults
 

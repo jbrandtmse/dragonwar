@@ -61,7 +61,7 @@ describe('src/host/dev/tuning-source.ts -- serialiseTuning() (AC 1, Export)', ()
 
 	it('a representative entry\'s confidence argument survives untouched -- the falsifiability mutation (dropping the third entry() argument) would fail THIS assertion', () => {
 		const emitted = serialiseTuning([]);
-		expect(emitted).toContain("entry(0.88, \"addendum §2 physics tuning table, 'Flipper elasticity' (AR-17)\", 'medium')");
+		expect(emitted).toContain("entry(0.88, \"addendum \\u00A72 physics tuning table, 'Flipper elasticity' (AR-17)\", 'medium')");
 	});
 
 	it('with exactly one edited value, the emitted text differs from the file on disk ONLY at that value\'s line', () => {

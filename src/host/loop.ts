@@ -29,14 +29,32 @@
 // exactly that pair, using the SAME `msToTicksExact()` arithmetic
 // `sim/loop`'s own `advance()` uses. `Math.max(originTick + 1, ...)` clamps
 // a timestamp at or before the origin to the frame's first tick (I/O
-// matrix); a timestamp past what a frame actually reaches is not separately
-// capped here -- `sim/loop`'s own `frameInForceAt()` already carries such a
-// transition forward to a later frame rather than dropping it (also I/O
-// matrix), so there is no second clamp to duplicate.
+// matrix).
+//
+// DW-75: a timestamp past what a frame actually reaches WAS carried forward
+// unbounded by `sim/loop`'s own `pendingTransitions` queue until the sim
+// caught up -- correct for `injectedTransitions` (the replay player's own
+// explicit-tick path, still never clamped here), but not for a live keydown
+// during a stall longer than `MAX_OWED_TICKS` (AD-4's 200 ms owed-time cap):
+// `tickAt()` has no way to know a frame will discard time it has not been
+// asked to process yet, so it could stamp a keydown past the tick the SAME
+// frame is about to cap out at, leaving it queued for however many further
+// frames it takes the sim to tick that far forward for real. The drain seam
+// below (`tick()`, where `elapsedMs` and the drained transitions are both in
+// hand) now bounds each KEYBOARD-drained transition to the last tick this
+// frame will actually run -- `originTick + min(floor(msToTicksExact(elapsedMs)),
+// MAX_OWED_TICKS)` -- floored at the existing `originTick + 1` lower bound,
+// so it lands in THIS frame's own `frameInForceAt()` call instead of
+// waiting. Provably a no-op inside the cap (`originMs` and `lastFrameMs` are
+// both assigned from the same `nowMs`, so a DOM timestamp is always at or
+// before it); the host cannot read `advance()`'s own carried
+// `owedRemainderTicks`, so this bound can be conservative by at most one
+// tick when a fractional remainder is in play -- accepted, not fixed here
+// (frontmatter `deferred:`).
 
 import { createLoop } from '../sim/loop';
 import { createKeyboardInput, type KeyboardEventTarget } from './input';
-import { msToTicksExact } from '../sim/contracts/time';
+import { msToTicksExact, MAX_OWED_TICKS } from '../sim/contracts/time';
 import type { CoilName, FrameOutput } from '../sim/table/names';
 import type { InputTransition } from '../sim/contracts/input';
 import type { ResolvedTuning } from '../sim/table/tuning';
@@ -144,7 +162,17 @@ export function createHostLoop(
 			// they carry their OWN absolute tick stamps (not relative to this
 			// frame), so merging is correct regardless of when injectTransitions()
 			// was called.
-			const transitions = injectedTransitions.length > 0 ? [...keyboardInput.drainTransitions(), ...injectedTransitions] : keyboardInput.drainTransitions();
+			//
+			// DW-75: only the KEYBOARD-drained transitions are bounded to the last
+			// tick THIS frame will actually run (this file's header comment) --
+			// injectedTransitions are the replay player's explicit-tick path and
+			// must never be clamped, or playback would corrupt itself.
+			const lastTickThisFrame = Math.max(originTick + 1, originTick + Math.min(Math.floor(msToTicksExact(elapsedMs)), MAX_OWED_TICKS));
+			const drained = keyboardInput.drainTransitions().map((transition) => ({
+				...transition,
+				tick: Math.min(transition.tick, lastTickThisFrame),
+			}));
+			const transitions = injectedTransitions.length > 0 ? [...drained, ...injectedTransitions] : drained;
 			injectedTransitions = [];
 			const output = loop.advance(elapsedMs, transitions);
 			// The new origin, for events arriving before the NEXT frame.

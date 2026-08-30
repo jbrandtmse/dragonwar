@@ -92,6 +92,7 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 		'cabinet/slam.ts',
 		'cabinet/index.ts',
 		'hop.ts',
+		'geometry.ts',
 	]);
 
 	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
@@ -383,6 +384,7 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 		'cabinet/slam.ts',
 		'cabinet/index.ts',
 		'hop.ts',
+		'geometry.ts',
 	]);
 	const physicsFilesLocal = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 	const declaredPorts = physicsFilesLocal

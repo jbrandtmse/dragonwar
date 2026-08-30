@@ -32,6 +32,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { listFilesRecursive, TEXTUAL_SCAN_EXTENSION_PATTERN } from '../tools/boundary-lint.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const TSC_BIN = path.join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
@@ -126,5 +127,92 @@ describe('pnpm typecheck -- the gate covers all three projects', () => {
 		});
 		// tsc --listFiles emits absolute POSIX-separated paths on every platform.
 		expect((listed.stdout ?? '').split(path.sep).join('/')).toContain('src/host/build-info.ts');
+	});
+});
+
+// DW-32: the second half of the hole this story's Code Map names -- the two
+// gates (`pnpm typecheck`'s three tsconfig projects and
+// tools/boundary-lint.mjs's textual scan) disagree about what files EXIST
+// under src/, because every project's `include` is `*.ts` only while the
+// lint's own TEXTUAL_SCAN_EXTENSION_PATTERN also covers `.tsx`/`.mts`/`.cts`/
+// `.js`/`.mjs`/`.cjs`. `src/` holds no orphan file today (the hole is
+// latent), so the real-tree assertion below is trivially green against any
+// implementation -- the synthetic positive control immediately after it is
+// what actually exercises the comparison function's discriminating power
+// inside this suite (this story's own Design Notes, "DW-32's set difference
+// is trivially green").
+/** Every file under `src/` this suite considers "covered" (present in at least one of the three tsconfig projects' real programs), repo-root-relative POSIX paths. */
+function listCoveredSrcFiles(): Set<string> {
+	const repoRootPosix = REPO_ROOT.split(path.sep).join('/');
+	const covered = new Set<string>();
+	for (const project of ['tsconfig.sim.json', 'tsconfig.app.json', 'tsconfig.node.json']) {
+		const result = spawnSync(process.execPath, [TSC_BIN, '--noEmit', '-p', project, '--listFiles'], {
+			cwd: REPO_ROOT,
+			encoding: 'utf8',
+			timeout: RUN_TIMEOUT_MS,
+		});
+		const lines = (result.stdout ?? '').split(path.sep).join('/').split('\n');
+		for (const rawLine of lines) {
+			const line = rawLine.trim();
+			if (line.length === 0) {
+				continue;
+			}
+			const prefix = `${repoRootPosix}/src/`;
+			if (line.startsWith(prefix)) {
+				covered.add(line.slice(repoRootPosix.length + 1));
+			}
+		}
+	}
+	return covered;
+}
+
+/** Every real file under `<repoRoot>/src` whose extension matches boundary-lint.mjs's own textual-scan extension set, repo-root-relative POSIX paths. */
+function listAllSrcFilesWithCodeExtension(): string[] {
+	const srcRoot = path.join(REPO_ROOT, 'src');
+	return listFilesRecursive(srcRoot)
+		.filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f))
+		.map((f) => path.relative(REPO_ROOT, f).split(path.sep).join('/'))
+		.sort();
+}
+
+/**
+ * The set-difference itself, as a pure function so the synthetic control
+ * below can drive it directly without touching the filesystem or spawning
+ * `tsc` -- exactly the discriminating power this story's Design Notes calls
+ * for ("the synthetic positive control ... is what carries the
+ * discriminating power inside the suite; the tree mutation only demonstrates
+ * it once").
+ */
+function computeUncoveredSrcFiles(coveredFiles: ReadonlySet<string>, allSrcFiles: readonly string[]): string[] {
+	return allSrcFiles.filter((f) => !coveredFiles.has(f));
+}
+
+describe('typecheck coverage -- every src/** file with a code extension is covered by at least one tsconfig project (DW-32)', () => {
+	it('sanity: the real src/ tree actually holds files, and TEXTUAL_SCAN_EXTENSION_PATTERN actually matches some of them, or the assertion below is vacuous', () => {
+		const all = listAllSrcFilesWithCodeExtension();
+		expect(all.length).toBeGreaterThan(0);
+	});
+
+	it('every file under src/ with a code extension (tools/boundary-lint.mjs\'s own extension set) is included by at least one of the three tsconfig projects', () => {
+		const covered = listCoveredSrcFiles();
+		const all = listAllSrcFilesWithCodeExtension();
+		const uncovered = computeUncoveredSrcFiles(covered, all);
+		expect(
+			uncovered,
+			`the following src/** file(s) are in no tsconfig project (typecheck and boundary-lint disagree about what exists): ${uncovered.join(', ')}`,
+		).toEqual([]);
+	});
+
+	it('SYNTHETIC CONTROL: the comparison function reports a path fed to it as uncovered -- proves the assertion above can actually fail, not just happens to pass today', () => {
+		const covered = new Set(['src/sim/real.ts']);
+		const all = ['src/sim/real.ts', 'src/shared/orphan.ts', 'src/sim/widget.tsx'];
+		const uncovered = computeUncoveredSrcFiles(covered, all);
+		expect(uncovered).toEqual(['src/shared/orphan.ts', 'src/sim/widget.tsx']);
+	});
+
+	it('SYNTHETIC CONTROL: reports nothing when every file is covered (no false positive)', () => {
+		const covered = new Set(['src/sim/real.ts', 'src/shared/orphan.ts']);
+		const all = ['src/sim/real.ts', 'src/shared/orphan.ts'];
+		expect(computeUncoveredSrcFiles(covered, all)).toEqual([]);
 	});
 });

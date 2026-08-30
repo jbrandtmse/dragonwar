@@ -113,5 +113,36 @@ export default {
 			from: { path: '^src/' },
 			to: { path: '@babylonjs/havok' },
 		},
+		{
+			name: 'no-circular',
+			comment:
+				"AD-1: the layer graph is a DAG -- a dependency cycle anywhere under src/ means two " +
+				"modules cannot be reasoned about independently, which the seam contracts exist to " +
+				"prevent. dependency-cruiser's own built-in cycle detector (`to.circular: true`), not a " +
+				"hand-rolled graph walk. `from.pathNot` excludes src/sim/physics/** -- measured during " +
+				"this story's implementation: the vpx-js/vpinball-ported time-of-impact core carries 33 " +
+				"real internal cycles (e.g. ball-hit.ts <-> player-physics.ts, hit-kd.ts <-> hit-kd-node.ts), " +
+				"every one of them both FROM and TO a src/sim/physics/** module -- the upstream engine's " +
+				"own structure, not DragonWar's, and every file in the cycle is a DW-79-frozen port body " +
+				"(test/sim-boundary.test.ts's PORT_BODY_HASHES); breaking one means editing a frozen port " +
+				"and re-pinning its hash, which this story's own Block If rules out. Excluding physics/ as " +
+				"a CYCLE ORIGIN still catches every cycle this rule exists for: one introduced among the " +
+				"seam contracts, or one that newly drags host/, presentation/, sim/table/, sim/rules/ or " +
+				"sim/loop/ into a cycle touching physics/ -- such a cycle's edge FROM the non-physics side " +
+				"still matches this rule and still fails.",
+			severity: 'error',
+			from: { pathNot: '^src/sim/physics/' },
+			to: { circular: true },
+		},
+		{
+			name: 'sim-table-no-physics-rules-loop',
+			comment:
+				"AD-1: sim/table/** authors WHAT the table is (devices, tunables, frames) -- it never " +
+				"reaches into HOW the simulation runs. sim/table/** must not import sim/physics/**, " +
+				"sim/rules/** or sim/loop/**; sim/contracts/** stays the only sanctioned inward seam.",
+			severity: 'error',
+			from: { path: '^src/sim/table/' },
+			to: { path: '^src/sim/(physics|rules|loop)/' },
+		},
 	],
 };

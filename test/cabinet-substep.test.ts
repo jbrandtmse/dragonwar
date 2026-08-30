@@ -24,7 +24,15 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { cabinetSubstepsPerTick, CABINET_SUBSTEP_SECONDS } from '../src/sim/physics/cabinet/oscillator';
+import { createCabinetMechanics, cabinetAccelToPhysicsAccel } from '../src/sim/physics/cabinet';
 import { PHYS_FACTOR } from '../src/sim/physics/constants';
+import { PlayerPhysics } from '../src/sim/physics/game/player-physics';
+import { Ball } from '../src/sim/physics/ball/ball';
+import { BallData } from '../src/sim/physics/ball/ball-data';
+import { BallState } from '../src/sim/physics/ball/ball-state';
+import { Vertex3D } from '../src/sim/physics/math/vertex3d';
+import { resolveTuning } from '../src/sim/table/tuning';
+import { NO_FRAME } from '../src/sim/loop';
 
 describe('sim/physics/cabinet/oscillator.ts -- cabinetSubstepsPerTick() construction-time guard', () => {
 	it('the REAL, unmocked, production SECONDS_PER_TICK (TICK_HZ=1000) does not throw and yields substepsPerTick=1 -- the guard is a no-op today, exactly as the spec states', () => {
@@ -132,5 +140,168 @@ describe('sim/physics/cabinet -- the cabinet integrates exactly as much time per
 			cabinetTPerTick,
 			'the cabinet must advance exactly one physics step worth of time per tick -- if TICK_HZ changes, PHYSICS_STEPTIME must change with it (a physics-version bump that re-records every golden, AD-3/AD-15)',
 		).toBeCloseTo(PHYS_FACTOR, 12);
+	});
+});
+
+// DW-84: `applyFrame()`'s own sub-step loop (`cabinet/index.ts:195`,
+// `for (let s = 0; s < oscillator.substepsPerTick; s++)`) has never been
+// driven under `oscillator.substepsPerTick > 1` -- the guard above proves the
+// CONSTRUCTION-time arithmetic (`cabinetSubstepsPerTick()`) but nothing runs
+// the loop itself more than once. This extends the same partial
+// `vi.doMock('../src/sim/contracts/time', ...)` seam one call further, into
+// `createCabinetMechanics().applyFrame()`, and pins BOTH tick-rate-dependent
+// scalings the task names:
+//
+//   (a) `lengthSubsteps` (`nudge-impulse.ts:99`, `nudgeImpulseTicks.value *
+//       substepsPerTick`) doubling, 25 -> 50 -- proven by observing WHEN a
+//       queued impulse expires: `createNudgeImpulseQueue` is exported, so a
+//       reference instance built with the SAME (mocked) `substepsPerTick` is
+//       driven exactly 26 `stepSubstep()` calls -- one past the UNMOCKED
+//       baseline's own 25-substep-long impulse -- and is still IN PROGRESS
+//       (nonzero) there, while a baseline-`substepsPerTick` instance has
+//       already EXPIRED (exactly zero) at that same call.
+//   (b) the accumulated `deltaVelPhysicsX/Y` doubling -- `deltaVelPhysicsX`
+//       itself is a local variable inside `applyFrame()`, never returned
+//       (`CabinetMechanicsResult` carries only `switchEvents`), so it is
+//       observed the only way it is OBSERVABLE: the ball-coupling side effect
+//       (`:210-213`, `ball.hit.vel.x -= deltaVelPhysicsX`) against a bare
+//       ball starting at rest. `createCabinetOscillator` and
+//       `createNudgeImpulseQueue` are BOTH exported (the same primitives
+//       `cabinet/index.ts`'s own loop calls), so an INDEPENDENT reference
+//       computation -- built from those same primitives, run for a
+//       caller-chosen number of sub-step iterations -- reproduces
+//       `applyFrame()`'s own `:193-204` accumulation without importing or
+//       duplicating `applyFrame()` itself. The production ball's observed
+//       delta is asserted to match the reference run at `substepsPerTick`
+//       iterations (2, under the mock) and to DIFFER from the reference run
+//       capped at 1 iteration -- exactly the loop-bound mutation this
+//       story's Verification section names.
+describe('sim/physics/cabinet -- applyFrame() sub-step loop, driven for real under substepsPerTick > 1 (DW-84)', () => {
+	const SUBSTEP_DT_T = CABINET_SUBSTEP_SECONDS * 100;
+	const NUDGE_L_DIRECTION = { x: -1, y: 0 };
+
+	function buildFakePhysics(): { physics: PlayerPhysics; ball: Ball } {
+		const physics = new PlayerPhysics();
+		const data = new BallData(25, 1, 1);
+		const state = new BallState('dw84-probe', new Vertex3D(0, 0, 0));
+		const ball = new Ball(0, data, state, new Vertex3D(0, 0, 0), { tableHeight: 0, globalDifficulty: 1 });
+		physics.addBall(ball);
+		return { physics, ball };
+	}
+
+	/**
+	 * Reference recomputation of `applyFrame()`'s own `:193-204` per-tick
+	 * accumulation, for `substepIterations` loop iterations, using a FRESH
+	 * oscillator/queue pair independent of any production instance -- both
+	 * `createCabinetOscillator` and `createNudgeImpulseQueue` are exported,
+	 * so this calls the SAME primitives `cabinet/index.ts`'s own loop does,
+	 * never a reimplementation of the ported oscillator/queue math itself.
+	 */
+	function referenceDeltaVel(
+		createOscillator: typeof import('../src/sim/physics/cabinet/oscillator').createCabinetOscillator,
+		createQueue: typeof import('../src/sim/physics/cabinet/nudge-impulse').createNudgeImpulseQueue,
+		convertAccel: typeof import('../src/sim/physics/cabinet').cabinetAccelToPhysicsAccel,
+		tuning: ReturnType<typeof resolveTuning>,
+		substepIterations: number,
+	): { readonly x: number; readonly y: number } {
+		const oscillator = createOscillator(tuning);
+		const queue = createQueue({ tuning, substepsPerTick: oscillator.substepsPerTick });
+		queue.queue(NUDGE_L_DIRECTION.x, NUDGE_L_DIRECTION.y);
+		let deltaVelX = 0;
+		let deltaVelY = 0;
+		for (let s = 0; s < substepIterations; s++) {
+			const impulseAccel = queue.stepSubstep();
+			oscillator.stepSubstep(oscillator.massKg * impulseAccel.x, oscillator.massKg * impulseAccel.y);
+			const physicsAccel = convertAccel({ x: oscillator.x.accelerationMPerS2, y: oscillator.y.accelerationMPerS2 });
+			deltaVelX += physicsAccel.x * SUBSTEP_DT_T;
+			deltaVelY += physicsAccel.y * SUBSTEP_DT_T;
+		}
+		return { x: deltaVelX, y: deltaVelY };
+	}
+
+	it('(a) lengthSubsteps doubles, 25 -> 50: a mocked-substepsPerTick=2 impulse queue is still IN PROGRESS 26 stepSubstep() calls in, while an unmocked (substepsPerTick=1) one has already EXPIRED there', async () => {
+		const tuning = resolveTuning();
+		expect(tuning.nudgeImpulseTicks.value, 'sanity: this test\'s whole premise (25 -> 50) depends on nudgeImpulseTicks.value being 25').toBe(25);
+
+		const { createCabinetOscillator: baselineCreateOscillator } = await import('../src/sim/physics/cabinet/oscillator');
+		const { createNudgeImpulseQueue: baselineCreateQueue } = await import('../src/sim/physics/cabinet/nudge-impulse');
+		const baselineOscillator = baselineCreateOscillator(tuning);
+		expect(baselineOscillator.substepsPerTick, 'sanity: unmocked baseline must be 1').toBe(1);
+		const baselineQueue = baselineCreateQueue({ tuning, substepsPerTick: baselineOscillator.substepsPerTick });
+		baselineQueue.queue(NUDGE_L_DIRECTION.x, NUDGE_L_DIRECTION.y);
+		let baselineLastResult: { readonly x: number; readonly y: number } = { x: 0, y: 0 };
+		for (let s = 0; s < 26; s++) {
+			baselineLastResult = baselineQueue.stepSubstep();
+		}
+		expect(baselineLastResult, 'the 26th call must find the baseline (25-substep-long) impulse already EXPIRED').toEqual({ x: 0, y: 0 });
+
+		vi.resetModules();
+		vi.doMock('../src/sim/contracts/time', async (importOriginal) => {
+			const actual = await importOriginal<typeof import('../src/sim/contracts/time')>();
+			return { ...actual, SECONDS_PER_TICK: 0.002 };
+		});
+		try {
+			const { createCabinetOscillator: mockedCreateOscillator } = await import('../src/sim/physics/cabinet/oscillator');
+			const { createNudgeImpulseQueue: mockedCreateQueue } = await import('../src/sim/physics/cabinet/nudge-impulse');
+			const mockedOscillator = mockedCreateOscillator(tuning);
+			expect(mockedOscillator.substepsPerTick, 'sanity: mocked scenario must be 2').toBe(2);
+			const mockedQueue = mockedCreateQueue({ tuning, substepsPerTick: mockedOscillator.substepsPerTick });
+			mockedQueue.queue(NUDGE_L_DIRECTION.x, NUDGE_L_DIRECTION.y);
+			let mockedLastResult: { readonly x: number; readonly y: number } = { x: 0, y: 0 };
+			for (let s = 0; s < 26; s++) {
+				mockedLastResult = mockedQueue.stepSubstep();
+			}
+			expect(mockedLastResult.x, 'the 26th call must find the mocked (50-substep-long) impulse STILL IN PROGRESS -- lengthSubsteps really did double').not.toBe(0);
+		} finally {
+			vi.doUnmock('../src/sim/contracts/time');
+			vi.resetModules();
+		}
+	});
+
+	it('(b) the accumulated deltaVelPhysicsX/Y that applyFrame() couples into a ball, under substepsPerTick=2, matches a 2-substep-iteration reference and DIFFERS from a 1-substep-iteration reference (the falsifiability mutation: capping cabinet/index.ts:195\'s loop to s < 1)', async () => {
+		vi.resetModules();
+		vi.doMock('../src/sim/contracts/time', async (importOriginal) => {
+			const actual = await importOriginal<typeof import('../src/sim/contracts/time')>();
+			return { ...actual, SECONDS_PER_TICK: 0.002 };
+		});
+		try {
+			const { createCabinetMechanics: mockedCreateMechanics, cabinetAccelToPhysicsAccel: mockedConvertAccel } = await import('../src/sim/physics/cabinet');
+			const { createCabinetOscillator: mockedCreateOscillator } = await import('../src/sim/physics/cabinet/oscillator');
+			const { createNudgeImpulseQueue: mockedCreateQueue } = await import('../src/sim/physics/cabinet/nudge-impulse');
+			const { resolveTuning: mockedResolveTuning } = await import('../src/sim/table/tuning');
+			const tuning = mockedResolveTuning();
+
+			const twoSubstepReference = referenceDeltaVel(mockedCreateOscillator, mockedCreateQueue, mockedConvertAccel, tuning, 2);
+			const oneSubstepReference = referenceDeltaVel(mockedCreateOscillator, mockedCreateQueue, mockedConvertAccel, tuning, 1);
+			expect(
+				twoSubstepReference.x,
+				'sanity: the reference computation itself must actually differ between 1 and 2 iterations, or this test proves nothing',
+			).not.toBe(oneSubstepReference.x);
+
+			const { physics, ball } = buildFakePhysics();
+			const mechanics = mockedCreateMechanics({ physics, tuning });
+			mechanics.applyFrame(1, { ...NO_FRAME, nudge_l: true });
+
+			// applyFrame() couples `ball.hit.vel.x -= deltaVelPhysicsX`, starting from rest.
+			const observedDeltaVelX = -ball.hit.vel.x;
+			expect(observedDeltaVelX, 'applyFrame()\'s REAL loop (s < oscillator.substepsPerTick, = 2 here) must match the 2-substep-iteration reference').toBeCloseTo(twoSubstepReference.x, 9);
+			expect(observedDeltaVelX, 'and must therefore DIFFER from what a loop capped at 1 iteration (the named mutation) would have produced').not.toBeCloseTo(oneSubstepReference.x, 6);
+		} finally {
+			vi.doUnmock('../src/sim/contracts/time');
+			vi.resetModules();
+		}
+	});
+
+	it('(control) the SAME reference computation, run unmocked at substepsPerTick=1, matches applyFrame()\'s real production behaviour too -- proves (b) is not vacuously true only under the mock', async () => {
+		const tuning = resolveTuning();
+		const { createCabinetOscillator } = await import('../src/sim/physics/cabinet/oscillator');
+		const { createNudgeImpulseQueue } = await import('../src/sim/physics/cabinet/nudge-impulse');
+		const oneSubstepReference = referenceDeltaVel(createCabinetOscillator, createNudgeImpulseQueue, cabinetAccelToPhysicsAccel, tuning, 1);
+
+		const { physics, ball } = buildFakePhysics();
+		const mechanics = createCabinetMechanics({ physics, tuning });
+		mechanics.applyFrame(1, { ...NO_FRAME, nudge_l: true });
+		const observedDeltaVelX = -ball.hit.vel.x;
+		expect(observedDeltaVelX).toBeCloseTo(oneSubstepReference.x, 9);
 	});
 });
