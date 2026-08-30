@@ -26,10 +26,14 @@
 //      exactly those two files and asserts the REPORTED skip count against
 //      the live formula for THIS platform and THIS machine's Blender
 //      resolvability, so the number is proven correct by an actual run, not
-//      merely computed and trusted.
+//      merely computed and trusted. That count is read from vitest's JSON
+//      reporter -- `--reporter=json --outputFile=...`, whose
+//      `numPendingTests` IS the skip count -- and never scraped from the
+//      human summary line; see `DW-107` and the comment on that case below.
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveBlender } from '../tools/blender.mjs';
@@ -114,29 +118,70 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 			`(${blenderResolvable ? 0 : 21} Blender-gated + ${isWin32 ? 0 : 1} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
 		);
 
-		const result = spawnSync(
-			process.execPath,
-			[path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'), 'run', 'test/export-py.test.ts', 'test/blender-resolve.test.ts', 'test/export-py-hull.test.ts'],
-			{ cwd: REPO_ROOT, encoding: 'utf8', timeout: RUN_TIMEOUT_MS },
-		);
-		expect(result.status, `the nested run itself must succeed. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+		// `DW-107` (Story 1.10 follow-up): the skip count is read from vitest's
+		// JSON reporter, never scraped from its human summary line. That scrape
+		// was CI-red from Story 1.8's push through Story 1.10 and no pipeline
+		// gate caught it, because every gate ran `pnpm test` on a Windows TTY
+		// where it passed -- local-green and CI-green were never the same claim.
+		// GitHub Actions' runner advertises colour support, so vitest emits ANSI
+		// escapes BETWEEN the word "Tests" and "10 passed"; the old pattern's
+		// segments were ALL optional, so it matched the bare word "Tests" with
+		// both capture groups undefined and failed on terminal formatting rather
+		// than on the skip arithmetic it exists to pin. The arithmetic was right
+		// the whole time -- CI reported exactly the 22 this formula predicts. A
+		// reporter contract cannot drift with a terminal's colour support; a
+		// human summary line can, and did.
+		const reportDir = mkdtempSync(path.join(tmpdir(), 'dw-skip-visibility-'));
+		const reportPath = path.join(reportDir, 'nested-run.json');
+		try {
+			const result = spawnSync(
+				process.execPath,
+				[
+					path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),
+					'run',
+					'test/export-py.test.ts',
+					'test/blender-resolve.test.ts',
+					'test/export-py-hull.test.ts',
+					'--reporter=json',
+					`--outputFile=${reportPath}`,
+				],
+				{ cwd: REPO_ROOT, encoding: 'utf8', timeout: RUN_TIMEOUT_MS },
+			);
+			expect(result.status, `the nested run itself must succeed. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+			expect(existsSync(reportPath), `the nested run wrote no JSON report at ${reportPath}. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(true);
 
-		// Review finding 2026-08-29: this pattern used to REQUIRE an `N passed`
-		// segment, so a run in which every case skipped (all three gates
-		// closed at once) matched nothing and failed for a formatting reason
-		// rather than for the skip arithmetic it exists to pin. Both segments
-		// are optional now, and at least one must be present.
-		const summaryMatch = /Tests\s+(?:(\d+)\s+passed)?\s*\|?\s*(?:(\d+)\s+skipped)?/.exec(result.stdout ?? '');
-		expect(summaryMatch, `could not find a "Tests ..." summary line in the nested run's output:\n${result.stdout}`).not.toBeNull();
-		expect(
-			summaryMatch![1] !== undefined || summaryMatch![2] !== undefined,
-			`the "Tests ..." summary line named neither a passed nor a skipped count -- the pattern no longer matches vitest's output format:\n${result.stdout}`,
-		).toBe(true);
-		const reportedSkipped = summaryMatch![2] ? Number(summaryMatch![2]) : 0;
+			const raw = readFileSync(reportPath, 'utf8');
+			// A missing, empty or unparseable report is a LOUD failure, never a
+			// silent zero: defaulting the count here would let a run that executed
+			// nothing at all still satisfy the assertion on any platform whose
+			// expectedSkips happens to be 0.
+			let report: Record<string, unknown>;
+			try {
+				report = JSON.parse(raw) as Record<string, unknown>;
+			} catch (cause) {
+				throw new Error(`the nested run's JSON report was not parseable JSON (${String(cause)}). raw:\n${raw.slice(0, 2_000)}`);
+			}
+			for (const key of ['numTotalTests', 'numPassedTests', 'numPendingTests', 'numFailedTests'] as const) {
+				expect(typeof report[key], `vitest's JSON report is missing a numeric "${key}" -- the reporter contract changed; fix this pin deliberately rather than loosening it`).toBe('number');
+			}
+			const numTotal = report.numTotalTests as number;
+			const numPassed = report.numPassedTests as number;
+			const numSkipped = report.numPendingTests as number;
+			const numFailed = report.numFailedTests as number;
 
-		expect(
-			reportedSkipped,
-			`expected ${expectedSkips} skipped test(s) on this platform (blenderResolvable=${blenderResolvable}, win32=${isWin32}), but the nested run reported ${reportedSkipped}. Full output:\n${result.stdout}`,
-		).toBe(expectedSkips);
+			// Three guards, so the skip assertion below cannot be satisfied by a
+			// run that did not happen: cases were executed at all, none of them
+			// failed, and the report's own passed+skipped accounts for its total.
+			expect(numTotal, 'the nested run reported ZERO tests -- it did not actually execute the three files').toBeGreaterThan(0);
+			expect(numFailed, `the nested run reported failing cases, which would make its skip count meaningless. report:\n${raw.slice(0, 2_000)}`).toBe(0);
+			expect(numPassed + numSkipped, `the nested run's passed (${numPassed}) + skipped (${numSkipped}) does not account for its own total (${numTotal}) -- this report is not describing the run this test spawned`).toBe(numTotal);
+
+			expect(
+				numSkipped,
+				`expected ${expectedSkips} skipped test(s) on this platform (blenderResolvable=${blenderResolvable}, win32=${isWin32}, pythonAvailable=${pythonAvailable}), but the nested run reported ${numSkipped}. report:\n${raw.slice(0, 2_000)}`,
+			).toBe(expectedSkips);
+		} finally {
+			rmSync(reportDir, { recursive: true, force: true });
+		}
 	}, RUN_TIMEOUT_MS + 5_000);
 });
