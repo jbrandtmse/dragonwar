@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 08-30-2026 16:30
+last_updated: 08-30-2026 17:08
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -49,7 +49,7 @@ development_status:
   epic-1-retrospective: done
 
   epic-2: in-progress
-  2-0-epic-1-deferred-cleanup: in-progress
+  2-0-epic-1-deferred-cleanup: review
   2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real: backlog
   2-1b-the-full-shot-map-and-the-switch-set: backlog
   2-2-slingshots-and-pop-bumpers-as-hardware-rules: backlog
