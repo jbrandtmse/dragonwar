@@ -369,3 +369,59 @@ describe('asset contract -- Story 2.1a AC 1: the flipper tip gap and both outlan
 		expect(measuredMm).toBeCloseTo(TUNING.outlaneWidthRightMm.value, 1);
 	});
 });
+
+describe('asset contract -- Story 2.1a AC 8: the centre channel clear width is pinned DIMENSIONALLY, not only behaviourally', () => {
+	// Code review, 2026-08-31. AC 8 promises the 32.65 mm centre channel is
+	// "pinned by a test so a later story cannot narrow the channel
+	// silently". test/drain-routing.test.ts alone does not deliver that: a
+	// dead-centre release clears each outer guide by 2.83 mm and never
+	// touches one, so its lateral-drift bound is structurally 0.00 mm, and
+	// the biased-release drift is not monotonic in the channel width.
+	// DEMONSTRATED at review time by performing the narrowing: moving BOTH
+	// outer guides 2.5 mm toward centre (32.65 -> 27.65 mm, a 15% narrowing,
+	// still wider than the ball) left EVERY AC 8 assertion green -- centred
+	// drift 0.00 < 2, both biased drifts 13.81 < 18, all three drained. Only
+	// `drained` can fail there, and only once the channel falls below one
+	// ball diameter. These gates measure the authored width itself, in the
+	// same shape as the tip-gap and outlane-width gates above.
+	//
+	// mutation: move col_guide_outer_l/_r 2.5 mm toward centre in the
+	// committed collision document -> the clear-width assertion goes red
+	// reporting 27.65 against 32.65.
+	const CHANNEL_CLEAR_MM = 32.65;
+	const POCKET_GAP_MM = 30.65;
+
+	it('the clear width between col_guide_outer_l and col_guide_outer_r is the authored 32.65 mm', () => {
+		const doc = readCollisionDoc();
+		const outerL = doc.nodes.find((n) => n.name === 'col_guide_outer_l')!;
+		const outerR = doc.nodes.find((n) => n.name === 'col_guide_outer_r')!;
+		expect(outerL, 'col_guide_outer_l missing').toBeDefined();
+		expect(outerR, 'col_guide_outer_r missing').toBeDefined();
+		const measuredMm = outerR.bboxMm.min.x - outerL.bboxMm.max.x;
+		expect(
+			measuredMm,
+			`the centre channel between the two outer guides measures ${measuredMm.toFixed(3)} mm; AC 8 pins it at ${CHANNEL_CLEAR_MM} mm. Narrowing it is a deliberate geometry change -- update this pin and re-measure test/drain-routing.test.ts's AC 8 bounds in the same pass.`,
+		).toBeCloseTo(CHANNEL_CLEAR_MM, 2);
+	});
+
+	it('the pocket posts, not the outer guides, are the narrowest point a centre-draining ball must thread -- and that point still clears the reference ball', () => {
+		const doc = readCollisionDoc();
+		const postL = doc.nodes.find((n) => n.name === 'col_post_pocket_l')!;
+		const postR = doc.nodes.find((n) => n.name === 'col_post_pocket_r')!;
+		expect(postL, 'col_post_pocket_l missing').toBeDefined();
+		expect(postR, 'col_post_pocket_r missing').toBeDefined();
+		const gapMm = postR.bboxMm.min.x - postL.bboxMm.max.x;
+		expect(
+			gapMm,
+			`the pocket-post gap measures ${gapMm.toFixed(3)} mm; the seeding script derives it as 40.65 - 2*POCKET_OFFSET_ALONG_MM - 2*POST_RADIUS_MM = ${POCKET_GAP_MM} mm`,
+		).toBeCloseTo(POCKET_GAP_MM, 2);
+		expect(
+			gapMm,
+			'sanity: the posts must be the true bottleneck, narrower than the outer-guide channel -- otherwise this pin measures the wrong thing',
+		).toBeLessThan(CHANNEL_CLEAR_MM);
+		expect(
+			gapMm,
+			`the narrowest point of the centre channel (${gapMm.toFixed(3)} mm) must stay clear of the ${TABLE.reference.ballMm} mm reference ball`,
+		).toBeGreaterThan(TABLE.reference.ballMm);
+	});
+});

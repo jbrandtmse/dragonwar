@@ -189,14 +189,21 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		const { physics, flipperMechanics } = buildFlipperHarness();
 		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 
-		// A ball is present and pressing against the bat throughout -- the
-		// bat-angle claim must hold under load, not in a vacuum. This is a
-		// fixed contact-force probe, unlike "(b)" below, which now settles its
-		// ball onto the bat by physics rather than placing one in contact
-		// directly (code review, 2026-08-30: the comment previously claimed
-		// equivalence with "(b)", which stopped being true once "(b)" was
-		// reworked for DW-77 -- the claim here is narrower: SOME contact load,
-		// not a reproduction of (b)'s settled-arrangement methodology).
+		// A ball is spawned in contact with the bat at t = 0. It is thrown
+		// clear by the rising bat within ~40 ticks and never returns, so the
+		// load is TRANSIENT -- it is not "pressing against the bat
+		// throughout", which is what this comment claimed until code review
+		// on 2026-08-31 measured it through this same harness: t=50
+		// (205.90, 136.28), t=100 (220.97, 232.53), t=500 (196.95, 745.48),
+		// t=5000 (213.20, -1674.14) -- and buildFlipperHarness() deliberately
+		// has no createDeviceMechanics, so a departed ball free-falls forever
+		// rather than parking. Nothing below asserts the ball at all, and its
+		// own measured angular contribution (~0.00015 deg) is two orders of
+		// magnitude under the 0.01 deg bound, so what this test genuinely
+		// pins is the BAT-ANGLE claim, with a brief contact perturbation at
+		// the start of the stroke. The sustained, genuinely loaded cradle is
+		// "(b)" below, which settles its ball by physics and asserts contact,
+		// drift, speed and the trough observable directly (DW-77, DW-110).
 		spawnBallAt(physics, 195, 85, 'CradleBall');
 
 		const angles: number[] = [];

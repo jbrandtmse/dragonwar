@@ -590,8 +590,17 @@ def main():
 		story's own AC 7 routing test), not guaranteed by construction --
 		see the constants block's own note on why that is the sanctioned
 		choice here."""
+		if len(points) < 2:
+			raise ValueError(f'add_outlane_return_channel({side}): needs at least 2 waypoints, got {len(points)}')
 		for i in range(len(points) - 1):
-			name = f'col_channel_{side}' if len(points) == 2 else f'col_channel_{side}_{i + 1}'
+			# Always the INDEXED form. The un-indexed name was reachable only
+			# with exactly two waypoints, so a future edit that dropped the
+			# knee would silently rename every node in the committed document
+			# (col_channel_l_1/_2 -> col_channel_l) and break every name-based
+			# assertion with no lint or compile error. Both call sites pass
+			# three waypoints, so this is byte-identical for the committed
+			# artifacts (code review, 2026-08-31).
+			name = f'col_channel_{side}_{i + 1}'
 			add_channel_rail(name, points[i], points[i + 1], GUIDE_T_MM)
 
 	def add_drain_triangle_side(side, tip_x, outlane_outer_wall_x, outlane_toward_wall):

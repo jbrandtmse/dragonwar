@@ -44,7 +44,9 @@ in CI rather than silent.
   under "Both renderer paths" below, and its own machine/OS/browser row
   belongs with that dated entry when it is run.
 - Date: 2026-08-29 (UTC); re-measured 2026-08-30 (Story 2.1a, the drain
-  triangle and the flipper reconciliation) on the same host.
+  triangle and the flipper reconciliation) and again 2026-08-31 (Story 2.1a
+  rework iteration 3 — the `DW-119` outlane routing fix and `DW-118`'s
+  re-measured light tap), both on the same host.
 - Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic2`.
 
 ## Items

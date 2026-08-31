@@ -57,7 +57,7 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 	});
 
 	it('the cradling entry carries its OWN measured numbers, not merely "some number followed by mm"', () => {
-		// Review finding, this pass: flipper snap pins 90.0000/90.7916 and
+		// Review finding, this pass: flipper snap pins 109.3221/139.1871 and
 		// rejection/rebound pins 0.7560/0.7183, but cradling was pinned only by
 		// /\d+(\.\d+)?\s*mm/ -- so the 5 s drift and release-drain figures could
 		// drift out of truth silently while this file stayed green.
