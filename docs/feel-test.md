@@ -46,7 +46,12 @@ in CI rather than silent.
 - Date: 2026-08-29 (UTC); re-measured 2026-08-30 (Story 2.1a, the drain
   triangle and the flipper reconciliation) and again 2026-08-31 (Story 2.1a
   rework iteration 3 — the `DW-119` outlane routing fix and `DW-118`'s
-  re-measured light tap), both on the same host.
+  re-measured light tap), both on the same host. Story 2.1a rework iteration
+  4 regenerated the `.blend` and re-exported both artifacts again the same
+  day (`BOTTOM_WALL_DRAIN_DROP_MM`, the `DW-119` bottom-wall slope): every
+  figure below was re-verified green against that document and none of them
+  moved, because that change touches only `col_wall_bottom_l/_r`'s top edge
+  and neither the cradle pocket nor the flipper is anywhere near it.
 - Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic2`.
 
 ## Items

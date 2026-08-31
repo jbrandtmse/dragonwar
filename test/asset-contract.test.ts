@@ -425,3 +425,59 @@ describe('asset contract -- Story 2.1a AC 8: the centre channel clear width is p
 		).toBeGreaterThan(TABLE.reference.ballMm);
 	});
 });
+
+describe('asset contract -- Story 2.1a AC 10: each bottom wall has its top edge pinned DIMENSIONALLY as a ramp toward the drain aperture', () => {
+	// Code review, 2026-08-31 (iteration 4, final pass). AC 10's only pin is
+	// test/drain-routing.test.ts's behavioural sweep, in exactly the shape AC
+	// 8's own pin was found wanting four describes above: it observes where a
+	// released ball ends up, never the authored geometry that gets it there.
+	// The whole DW-119 residual fix is ONE number -- BOTTOM_WALL_DRAIN_DROP_MM
+	// in tools/make-placeholder-blend.py -- and this solver's gravity has no
+	// x-component, so if that number ever returns to 0 the top face is a dead
+	// flat ledge again and a resting ball is stranded for good. This gate
+	// measures the ramp itself, in the same shape as the tip-gap, outlane-width
+	// and centre-channel gates above, so the failure names the cause rather
+	// than reporting an opaque "never drained".
+	//
+	// mutation: set BOTTOM_WALL_DRAIN_DROP_MM back to 0.0 in the seeding
+	// script and re-export (equivalently: raise either wall's drain-facing
+	// top vertex from y = -10 to y = 0 in the committed collision document)
+	// -> the drop assertion goes red reporting 0.000 against 10.
+	const DRAIN_DROP_MM = 10.0; // tools/make-placeholder-blend.py's BOTTOM_WALL_DRAIN_DROP_MM
+	const WALLS = [
+		{ name: 'col_wall_bottom_l', drainFacing: 'max' as const },
+		{ name: 'col_wall_bottom_r', drainFacing: 'min' as const },
+	];
+
+	it.each(WALLS)('$name slopes from y = 0 at its outlane-facing end down to y = -10 at the drain aperture', ({ name, drainFacing }) => {
+		const doc = readCollisionDoc();
+		const node = doc.nodes.find((n) => n.name === name);
+		expect(node, `${name} missing from the committed collision document`).toBeDefined();
+		const footprint = node!.footprintMm!;
+		expect(footprint, `${name} must be a wall with a footprint`).toBeDefined();
+
+		// The top edge is the pair of vertices with the greatest y at each end
+		// of the wall's span: the outlane-facing end (the boundary the outlane
+		// geometry assumes, authored at y = 0) and the drain-facing end, which
+		// is max.x on the left wall and min.x on the right.
+		const drainX = drainFacing === 'max' ? Math.max(...footprint.map((v) => v.x)) : Math.min(...footprint.map((v) => v.x));
+		const outlaneX = drainFacing === 'max' ? Math.min(...footprint.map((v) => v.x)) : Math.max(...footprint.map((v) => v.x));
+		const topYAt = (x: number) => Math.max(...footprint.filter((v) => Math.abs(v.x - x) < 1e-6).map((v) => v.y));
+		const outlaneTopY = topYAt(outlaneX);
+		const drainTopY = topYAt(drainX);
+		const dropMm = outlaneTopY - drainTopY;
+
+		expect(
+			outlaneTopY,
+			`${name}'s outlane-facing top corner must stay at y = 0 -- the boundary col_guide_divider_* and the outlane gap are authored against`,
+		).toBeCloseTo(0, 3);
+		expect(
+			dropMm,
+			`${name}'s top edge drops ${dropMm.toFixed(3)} mm from its outlane-facing end (x = ${outlaneX}) to the drain aperture (x = ${drainX}); AC 10 pins that at BOTTOM_WALL_DRAIN_DROP_MM = ${DRAIN_DROP_MM} mm. A flat (0 mm) edge is the DW-119 residual: gravity here is pure down-slope with no x-component, so a resting ball on a flat face never moves again.`,
+		).toBeCloseTo(DRAIN_DROP_MM, 3);
+		expect(
+			dropMm,
+			`${name}: the ramp must run DOWNHILL toward the drain aperture, not away from it`,
+		).toBeGreaterThan(0);
+	});
+});

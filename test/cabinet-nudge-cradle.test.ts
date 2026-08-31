@@ -91,6 +91,8 @@ function ballSpeed(ball: Ball): number {
 const BURST_TICKS = new Set(Array.from({ length: 10 }, (_, i) => 100 + i * 2));
 const FIRST_NUDGE_TICK = 100;
 const OBSERVE_TICK = 300;
+/** Length of runCradle()'s own recorded measurement window, in ticks. Every tick offset above indexes into it. */
+const MEASURE_TICKS = 600;
 const DEPARTED_DRIFT_MM = 20;
 const CONTROL_STILL_ON_BAT_DRIFT_MM = 10;
 
@@ -165,7 +167,7 @@ function runCradle(nudge: boolean): RunResult {
 
 	const drifts: number[] = [];
 	const speeds: number[] = [];
-	for (let i = 1; i <= 600; i++) {
+	for (let i = 1; i <= MEASURE_TICKS; i++) {
 		tick += 1;
 		const frame: InputFrame = nudge && BURST_TICKS.has(i) ? { ...held, nudge_up: true } : held;
 		rig.flipperMechanics.applyFrame(tick, frame, { l: true, r: true });
@@ -198,7 +200,16 @@ describe('sim/physics/cabinet -- AC 2: a nudge frees a ball resting on a raised 
 		// samples by the window-relative counter, not the absolute tick), so
 		// the message named the wrong clock. Guards a future edit of
 		// FIRST_NUDGE_TICK, not today's constant.
-		expect(arrangeTick, 'the arrange tick must be strictly inside the first 1000 ticks (1 s) of the measurement window').toBeLessThan(1000);
+		//
+		// Code review 2026-08-31 (iteration 4, final pass): the bound was
+		// 1000, which is LOOSER than what the code structurally permits and
+		// so could never be the assertion that reports the problem --
+		// runCradle() records only MEASURE_TICKS samples and driftAt()/
+		// speedAt() index them with a non-null assertion, so any
+		// FIRST_NUDGE_TICK past that window crashes on `undefined` several
+		// lines below before this bound is ever consulted. Re-pointed at the
+		// window it is actually guarding, which is a bound that can fail.
+		expect(arrangeTick, `the arrange tick must fall strictly inside runCradle()'s own ${MEASURE_TICKS}-tick measurement window -- past it, driftAt()/speedAt() read off the end of the recording`).toBeLessThan(MEASURE_TICKS);
 		// "In contact, within tolerance of its placement, and not already
 		// departing" -- both runs are bit-identical up to here (the burst has
 		// not started), so both are checked.

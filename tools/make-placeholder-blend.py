@@ -262,6 +262,28 @@ KNEE_DROP_MM = 55.0
 # channel, which this task must not move (its own clearance math above
 # operates on the wall's BOTTOM edge and swept inner corner, both left
 # untouched here -- only the TOP edge's outer endpoint moves).
+#
+# Code review 2026-08-31 (iteration 4, final pass) -- THE LOWER BOUND, which
+# the reasoning above does not state and which is the one that actually
+# binds. Dropping the top edge does not only tilt the face: it also opens
+# the throat a draining ball has to pass through between this wall and the
+# AT-REST bat above it. Measured on the committed geometry, that throat is
+# 27.1272 mm against a 26.99 mm reference ball -- 0.137 mm of margin, the
+# tightest clearance anywhere on the game's own default ball path. Solving
+# it for the drop: the at-rest left tip circle sits at table (207.33, 23.90)
+# with end radius 7.5581, this wall's drain-facing top corner at (200, -d),
+# so a ball fits only while sqrt(7.33^2 + (23.90 + d)^2) - 7.5581 > 26.99,
+# i.e. only while **d > 9.863 mm**. The right side is the mirror image and
+# gives the same figure. So 10.0 is not merely "well short of 12" -- it is
+# 0.137 mm above a hard floor, and reducing it toward what the paragraph
+# above would suggest is safe (5 mm, say) closes the throat below a ball
+# diameter and reintroduces the DW-119 jam at the drain end of both walls.
+# Both ends of that range are now pinned by tests rather than by this
+# comment alone: test/asset-contract.test.ts's AC 10 dimensional gate pins
+# the 10 mm drop itself, and test/flipper-sweep-clearance.test.ts's
+# drain-end throat gate pins the 26.99 mm floor with a message that names
+# this constant. Widening the drop instead is bounded by WALL_T_MM as
+# described above.
 BOTTOM_WALL_DRAIN_DROP_MM = 10.0
 
 

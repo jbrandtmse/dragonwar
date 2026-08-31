@@ -189,9 +189,16 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		const { physics, flipperMechanics } = buildFlipperHarness();
 		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 
-		// A ball is spawned in contact with the bat at t = 0. It is thrown
-		// clear by the rising bat within ~40 ticks and never returns, so the
-		// load is TRANSIENT -- it is not "pressing against the bat
+		// A ball is spawned just clear of the bat at t = 0 -- measured at the
+		// 2026-08-31 iteration-4 review against the rest-pose modelled body
+		// (axis (170, 70) -> (207.33, 23.90), half-width 12.16 mm at the
+		// nearest axis point): the (195, 85) spawn's centre is 28.87 mm from
+		// that axis, i.e. 3.22 mm of clear air, so contact begins only once
+		// the bat rises into it, not at t = 0. (The two previous review
+		// passes both rewrote this sentence and both left it saying "in
+		// contact at t = 0"; it never was.) The ball is then thrown clear by
+		// the rising bat within ~40 ticks and never returns, so the load is
+		// TRANSIENT -- it is not "pressing against the bat
 		// throughout", which is what this comment claimed until code review
 		// on 2026-08-31 measured it through this same harness: t=50
 		// (205.90, 136.28), t=100 (220.97, 232.53), t=500 (196.95, 745.48),

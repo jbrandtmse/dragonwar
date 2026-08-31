@@ -41,6 +41,7 @@ import { buildFlipperConfig } from '../src/sim/physics/flipper/flipper-config';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { fromPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { degToRad } from '../src/sim/physics/math/float';
+import { TABLE } from '../src/sim/table/dragonwar';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 
@@ -114,6 +115,11 @@ function distanceToConvexPolygon(point: { x: number; y: number }, footprintMm: R
 const CASES = [
 	{ side: 'l' as const, key: 'flipper_l' as const, postName: 'col_post_pocket_l', guideName: 'col_guide_outer_l' },
 	{ side: 'r' as const, key: 'flipper_r' as const, postName: 'col_post_pocket_r', guideName: 'col_guide_outer_r' },
+];
+
+const THROAT_CASES = [
+	{ side: 'l' as const, wallName: 'col_wall_bottom_l' },
+	{ side: 'r' as const, wallName: 'col_wall_bottom_r' },
 ];
 
 describe('the flipper bat clears the drain-triangle pocket post and outer guide across the FULL stroke, not just the two settled endpoints (DW-111)', () => {
@@ -235,5 +241,72 @@ describe('the flipper bat clears the drain-triangle pocket post and outer guide 
 			minGuideClearanceMm,
 			`${guideName}: the swept modelled body's clearance narrowed below the pinned minimum (worst-case clearance ${minGuideClearanceMm.toFixed(3)} mm; negative means overlap)`,
 		).toBeGreaterThan(15);
+	});
+});
+
+describe('the drain-end throat between the AT-REST bat and each bottom wall stays wider than the reference ball (Story 2.1a AC 10 / AC 7, DW-119)', () => {
+	// Code review, 2026-08-31 (iteration 4, final pass). Every ball that
+	// drains off a bottom wall's new ramp has to pass between that wall and
+	// the AT-REST bat above it -- and that throat is the tightest clearance
+	// anywhere on the game's own default ball path. Measured on the committed
+	// geometry: 27.1272 mm, against a 26.99 mm reference ball. 0.137 mm.
+	//
+	// It is also, silently, the real constraint on
+	// tools/make-placeholder-blend.py's BOTTOM_WALL_DRAIN_DROP_MM. Solving
+	// the throat for the drop shows it must exceed 9.863 mm for a ball to fit
+	// through AT ALL; the shipped value is 10.0. The seeding script's own
+	// comment justifies 10.0 only against an UPPER bound ("kept well short of
+	// the full WALL_T_MM (12 mm) depth"), and says nothing about the lower
+	// one -- so a future author reading that comment could reduce the drop to
+	// a value that looks safer by its stated reasoning and reintroduce the
+	// DW-119 jam at the drain end of both walls. This gate names that
+	// constraint where the geometry can be measured, so the failure reports
+	// the throat rather than an opaque "never drained".
+	//
+	// mutation: reduce BOTTOM_WALL_DRAIN_DROP_MM from 10.0 to 9.0 in the
+	// seeding script and re-export (equivalently: raise either wall's
+	// drain-facing top vertex from y = -10 to y = -9 in the committed
+	// collision document) -> this assertion goes red reporting a throat
+	// below the 26.99 mm reference ball.
+	it.each(THROAT_CASES)('$side: the at-rest bat body clears $wallName by more than one ball diameter', ({ side, wallName }) => {
+		const rawNodes = loadRawNodes();
+		const wallFootprint = findFootprintMm(rawNodes, wallName);
+
+		const tuning = resolveTuning();
+		const { flippers } = loadCollision(loadDoc());
+		const flipper = flippers.find((f) => f.side === side);
+		if (!flipper) {
+			throw new Error(`expected a "${side}"-side flipper in the loaded collision document, found none`);
+		}
+		const config = buildFlipperConfig(flipper, tuning);
+		const baseRadiusMm = config.baseRadius * MM_PER_VU;
+		const endRadiusMm = config.endRadius * MM_PER_VU;
+		const centerMm = fromPhysics({ x: config.center.x, y: config.center.y, z: 0 });
+		// The bat at REST is the worst case: the stroke lifts it away from the
+		// bottom wall, so every other angle clears by more (measured: 65.5 mm
+		// at end-of-stroke on the left, 64.7 mm on the right).
+		const restRad = config.angleStart;
+		const tipMm = fromPhysics({
+			x: config.center.x + config.flipperRadius * Math.sin(restRad),
+			y: config.center.y - config.flipperRadius * Math.cos(restRad),
+			z: 0,
+		});
+
+		// Same tapered-capsule metric the stroke test above uses: sample the
+		// pivot-to-tip axis and subtract lerp(baseRadius, endRadius, t), which
+		// is exactly the body's own half-width at that axis point.
+		const AXIS_SAMPLES = 400; // finer than the stroke test's 40 -- one angle, so the sampling cost is trivial and the reported figure is sharp
+		let throatMm = Infinity;
+		for (let sample = 0; sample <= AXIS_SAMPLES; sample++) {
+			const t = sample / AXIS_SAMPLES;
+			const pointMm = { x: centerMm.x + (tipMm.x - centerMm.x) * t, y: centerMm.y + (tipMm.y - centerMm.y) * t };
+			const radiusAtTMm = baseRadiusMm + (endRadiusMm - baseRadiusMm) * t;
+			throatMm = Math.min(throatMm, distanceToConvexPolygon(pointMm, wallFootprint) - radiusAtTMm);
+		}
+
+		expect(
+			throatMm,
+			`the gap between the at-rest ${side} bat's modelled body and ${wallName} measures ${throatMm.toFixed(4)} mm; a ball draining off that wall's ramp must fit through it, and the reference ball is ${TABLE.reference.ballMm} mm across. The margin here is deliberately thin (measured 27.1272 mm as authored) and is what really bounds BOTTOM_WALL_DRAIN_DROP_MM from below -- see this describe block's own comment before widening or narrowing either.`,
+		).toBeGreaterThan(TABLE.reference.ballMm);
 	});
 });
