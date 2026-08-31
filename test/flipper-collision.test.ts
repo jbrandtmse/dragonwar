@@ -21,12 +21,14 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { loadCollision } from '../src/sim/physics/loader';
 import { createFlipperMechanics } from '../src/sim/physics/flippers';
+import { buildFlipperConfig } from '../src/sim/physics/flipper/flipper-config';
+import { degToRad } from '../src/sim/physics/math/float';
 import { FlipperHit } from '../src/sim/physics/flipper/flipper-hit';
 import { createDeviceMechanics, type BallStepMovement } from '../src/sim/physics/devices';
 import { NO_FRAME } from '../src/sim/loop';
 import { TUNING, resolveTuning } from '../src/sim/table/tuning';
-import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from '../src/sim/physics/constants';
-import { fromPhysics, toPhysics } from '../src/sim/table/frames';
+import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST, PHYS_TOUCH } from '../src/sim/physics/constants';
+import { fromPhysics, toPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
@@ -48,7 +50,14 @@ function buildFlipperHarness() {
 	physics.setGravity(TABLE.reference.pitchDeg, DEFAULT_TABLE_GRAVITY * GRAVITYCONST);
 	const tuning = resolveTuning();
 	const flipperMechanics = createFlipperMechanics({ physics, flippers, tuning });
-	const leftPivotXMm = flippers.find((f) => f.side === 'l')!.pivotMm.x;
+	// DW-112: a named diagnostic instead of a bare `!` non-null assertion, so
+	// a missing/renamed "l"-side flipper node reports which node was expected
+	// rather than an unhelpful "Cannot read properties of undefined".
+	const leftFlipper = flippers.find((f) => f.side === 'l');
+	if (!leftFlipper) {
+		throw new Error('expected a "l"-side flipper (col_flipper_l) in the loaded collision document, found none');
+	}
+	const leftPivotXMm = leftFlipper.pivotMm.x;
 	return { physics, flipperMechanics, leftPivotXMm };
 }
 
@@ -70,6 +79,16 @@ function ballPosMm(ball: Ball) {
 }
 
 const BALL_RADIUS_MM = TABLE.reference.ballMm / 2;
+// A resting contact in this solver is not a zero gap: PHYS_TOUCH is the
+// separation the ported contact handler maintains and treats as touching
+// (src/sim/physics/constants.ts, ported verbatim under AD-15). Measured on
+// the committed geometry the cradled ball sits 0.0195 mm off the bat's
+// surface -- 0.036 VU, inside PHYS_TOUCH's 0.05 VU. Contact is therefore
+// "centre within one ball radius PLUS that solver-defined skin", never a
+// hand-picked slack: the alternative this discriminates against (the ball
+// resting on col_post_pocket_l with the bat never touching it) is off by
+// millimetres, not hundredths.
+const CONTACT_TOLERANCE_MM = BALL_RADIUS_MM + PHYS_TOUCH * MM_PER_VU;
 
 /**
  * Story 2.1a (DW-72, DW-77): settles a ball into the left bat's cradle
@@ -244,12 +263,69 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		for (const spawned of [...physics.balls]) {
 			physics.removeBall(spawned);
 		}
-		const leftPivotXMm = flippers.find((f) => f.side === 'l')!.pivotMm.x;
-		return { physics, flipperMechanics, deviceMechanics, leftPivotXMm };
+		// DW-112: named diagnostic, see buildFlipperHarness() above.
+		const leftFlipper = flippers.find((f) => f.side === 'l');
+		if (!leftFlipper) {
+			throw new Error('expected a "l"-side flipper (col_flipper_l) in the loaded collision document, found none');
+		}
+		const leftPivotXMm = leftFlipper.pivotMm.x;
+		return { physics, flipperMechanics, deviceMechanics, leftPivotXMm, leftConfig: buildFlipperConfig(leftFlipper, tuning) };
+	}
+
+	/**
+	 * Code review 2026-08-31 (DW-110): AC 2 says "still in contact with the
+	 * bat", and the shipped test asserted that through a drift/speed proxy
+	 * alone. The ledger's proposed remedy -- surfacing the ported
+	 * `FlipperMover.isInContact` through `FlipperMechanics` -- does NOT
+	 * answer this question: that flag means the BAT is resting against its
+	 * own end-of-stroke STOPPER (`flipper-mover.ts`'s own "resolve contacts
+	 * with stoppers" block, set true whenever the angle is pinned at
+	 * angleMin/angleMax with torque pushing into it), and is true for a
+	 * raised bat with no ball anywhere near it. Surfacing it would have
+	 * produced a confidently green assertion about a different fact.
+	 *
+	 * The observable AC 2 actually names is geometric, and the modelled body
+	 * is fully derived from values already in scope: a tapered capsule from
+	 * `center` (radius `baseRadius`) to the tip centre at
+	 * `center + flipperRadius * (sin a, -cos a)` (radius `endRadius`). For
+	 * two circles of radii rb, re a distance L apart, the external tangent
+	 * line's distance from the axis point at parameter t is EXACTLY
+	 * `lerp(rb, re, t)`, so sampling the axis and comparing against that
+	 * lerp measures the true distance from the ball centre to the body's
+	 * surface -- caps included. Returns that distance in table mm; "in
+	 * contact" is it being within one ball radius.
+	 *
+	 * This is what discriminates the case the negative control cannot: a
+	 * ball resting on `col_post_pocket_l` / `col_guide_outer_l` with the
+	 * raised bat merely closing the escape path but never touching it would
+	 * drift ~0 while held (the shipped positive assertions) AND drain when
+	 * released (the negative control), yet AC 2's contact clause would be
+	 * false.
+	 */
+	function distanceToBatBodyMm(config: ReturnType<typeof buildFlipperConfig>, angleDeg: number, ballMm: { x: number; y: number }): number {
+		const angleRad = degToRad(angleDeg);
+		const centerMm = fromPhysics({ x: config.center.x, y: config.center.y, z: 0 });
+		const tipMm = fromPhysics({
+			x: config.center.x + config.flipperRadius * Math.sin(angleRad),
+			y: config.center.y - config.flipperRadius * Math.cos(angleRad),
+			z: 0,
+		});
+		const baseRadiusMm = config.baseRadius * MM_PER_VU;
+		const endRadiusMm = config.endRadius * MM_PER_VU;
+		let minSurfaceDistanceMm = Infinity;
+		const SAMPLES = 200;
+		for (let i = 0; i <= SAMPLES; i++) {
+			const t = i / SAMPLES;
+			const axisX = centerMm.x + (tipMm.x - centerMm.x) * t;
+			const axisY = centerMm.y + (tipMm.y - centerMm.y) * t;
+			const radiusAtTMm = baseRadiusMm + (endRadiusMm - baseRadiusMm) * t;
+			minSurfaceDistanceMm = Math.min(minSurfaceDistanceMm, Math.hypot(ballMm.x - axisX, ballMm.y - axisY) - radiusAtTMm);
+		}
+		return minSurfaceDistanceMm;
 	}
 
 	it('(b) AC 2: a ball the physics settles into the cradle pocket by itself stays in contact through a full 5 s (5000 ticks) hold, drift under one ball radius, at rest, and no bd_trough slot closes', () => {
-		const { physics, flipperMechanics, deviceMechanics, leftPivotXMm } = buildCradleHarness();
+		const { physics, flipperMechanics, deviceMechanics, leftPivotXMm, leftConfig } = buildCradleHarness();
 		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 
 		const { ball, tick: arrangedTick, settledPos } = arrangeCradleBall(physics, flipperMechanics, leftPivotXMm, 'CradleBall');
@@ -259,16 +335,33 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		let maxDriftMm = 0;
 		let driftAtFiveSeconds = 0;
 		let speedAtFiveSeconds = 0;
+		let batSurfaceGapAtFiveSecondsMm = Infinity;
+		let maxBatSurfaceGapMm = -Infinity;
 		for (let i = 1; i <= 5000; i++) {
 			tick += 1;
 			flipperMechanics.applyFrame(tick, held, { l: true, r: true });
+			const beforeMm = ballPosMm(ball);
 			physics.step();
 			const pos = ballPosMm(ball);
+			// Code review 2026-08-31: the hold loop must run the SAME device
+			// pipeline the negative control below runs, or `bd_trough`'s slot
+			// state and `physics.balls` cannot change no matter what the ball
+			// does -- and the two trough assertions at the end of this test
+			// would be structurally unable to fail (Rule 19). `detectEntries`
+			// is what parks a ball that reaches the trough; without it the
+			// "no slot may close" claim is asserted against a pipeline that
+			// was never given the chance to close one.
+			if (physics.balls.includes(ball)) {
+				deviceMechanics.detectEntries(tick, [{ ball, beforeMm, afterMm: pos } satisfies BallStepMovement]);
+			}
 			const driftMm = Math.hypot(pos.x - settledPos.x, pos.y - settledPos.y);
 			maxDriftMm = Math.max(maxDriftMm, driftMm);
+			const gapMm = distanceToBatBodyMm(leftConfig, flipperMechanics.state.l.angleDeg, pos);
+			maxBatSurfaceGapMm = Math.max(maxBatSurfaceGapMm, gapMm);
 			if (i === 5000) {
 				driftAtFiveSeconds = driftMm;
 				speedAtFiveSeconds = ballSpeed(ball);
+				batSurfaceGapAtFiveSecondsMm = gapMm;
 			}
 		}
 
@@ -282,6 +375,29 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		expect(maxDriftMm, `drift from the settled position must stay under one ball radius (${BALL_RADIUS_MM} mm) for the whole 5 s hold`).toBeLessThan(BALL_RADIUS_MM);
 		expect(driftAtFiveSeconds, 'drift specifically AT 5 s must stay under one ball radius').toBeLessThan(BALL_RADIUS_MM);
 		expect(speedAtFiveSeconds, 'the ball must be at rest at 5 s').toBeLessThan(2);
+		// AC 2's "still in contact with the bat", asserted DIRECTLY against
+		// the modelled body rather than inferred from drift and speed
+		// (DW-110; see distanceToBatBodyMm()'s own comment for why the
+		// ported mover's `isInContact` flag does not answer this).
+		expect(
+			batSurfaceGapAtFiveSecondsMm,
+			`at 5 s the ball must still be touching the bat: its centre must lie within one ball radius plus PHYS_TOUCH (${CONTACT_TOLERANCE_MM.toFixed(4)} mm) of the modelled body's surface, measured ${batSurfaceGapAtFiveSecondsMm.toFixed(4)} mm`,
+		).toBeLessThanOrEqual(CONTACT_TOLERANCE_MM);
+		// ...and the ball never breaks away at any point in between. AC 2
+		// itself only names the 5 s checkpoint, so this continuous claim is
+		// bounded by the resting contact's own measured jitter rather than
+		// by PHYS_TOUCH: a solver resting contact ripples by hundredths of a
+		// millimetre (measured worst case across the whole 5000-tick hold:
+		// 0.0349 mm of separation), while the failure this discriminates --
+		// the ball resting on col_post_pocket_l / col_guide_outer_l with the
+		// raised bat merely closing the escape path and never touching it --
+		// is off by MILLIMETRES. 0.1 mm sits between the two by two orders
+		// of magnitude on the far side and three on the near side.
+		const maxSeparationMm = maxBatSurfaceGapMm - BALL_RADIUS_MM;
+		expect(
+			maxSeparationMm,
+			`contact with the bat must never be lost during the hold; worst-case separation between the ball's surface and the bat's was ${maxSeparationMm.toFixed(4)} mm`,
+		).toBeLessThan(0.1);
 		expect(physics.balls, 'the ball must still be simulated -- not parked or despawned').toContain(ball);
 		expect(
 			deviceMechanics.parkingSlots.bd_trough.filter(Boolean).length,

@@ -119,7 +119,14 @@ function runCradle(nudge: boolean): RunResult {
 	// DW-77: a ball merely placed near the pocket does not reproduce the
 	// same tight equilibrium a physics-settled one does.
 	const { flippers } = loadCollision(loadDoc());
-	const leftPivotXMm = flippers.find((f) => f.side === 'l')!.pivotMm.x;
+	// DW-112: a named diagnostic instead of a bare `!` non-null assertion, so
+	// a missing/renamed "l"-side flipper node reports which node was expected
+	// rather than an unhelpful "Cannot read properties of undefined".
+	const leftFlipper = flippers.find((f) => f.side === 'l');
+	if (!leftFlipper) {
+		throw new Error('expected a "l"-side flipper (col_flipper_l) in the loaded collision document, found none');
+	}
+	const leftPivotXMm = leftFlipper.pivotMm.x;
 
 	let tick = 0;
 	for (let t = 1; t <= 60; t++) {
@@ -179,11 +186,19 @@ function runCradle(nudge: boolean): RunResult {
 }
 
 describe('sim/physics/cabinet -- AC 2: a nudge frees a ball resting on a raised bat', () => {
-	it('arrange: the ball is genuinely still on the bat, strictly inside the first 1 s of the hold, the tick before the burst\'s first rising edge (both runs, identically seeded)', () => {
+	it('arrange: the ball is genuinely still on the bat, strictly inside the first 1 s of the MEASUREMENT window, the tick before the burst\'s first rising edge (both runs, identically seeded)', () => {
 		const nudged = runCradle(true);
 		const control = runCradle(false);
 		const arrangeTick = FIRST_NUDGE_TICK - 1;
-		expect(arrangeTick, "the arrange tick must be strictly inside the first 1000 ticks (1 s) of the ball's own hold").toBeLessThan(1000);
+		// Code review 2026-08-31: this bounds the 600-tick MEASUREMENT window
+		// that opens once runCradle() has settled the ball -- not the hold as
+		// a whole, which by then already spans 60 + ARRANGE_TICKS ticks.
+		// BURST_TICKS, FIRST_NUDGE_TICK and OBSERVE_TICK are all offsets into
+		// that same window (runCradle() indexes the burst and the recorded
+		// samples by the window-relative counter, not the absolute tick), so
+		// the message named the wrong clock. Guards a future edit of
+		// FIRST_NUDGE_TICK, not today's constant.
+		expect(arrangeTick, 'the arrange tick must be strictly inside the first 1000 ticks (1 s) of the measurement window').toBeLessThan(1000);
 		// "In contact, within tolerance of its placement, and not already
 		// departing" -- both runs are bit-identical up to here (the burst has
 		// not started), so both are checked.

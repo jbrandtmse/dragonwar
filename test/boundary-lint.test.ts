@@ -17,6 +17,7 @@ const FIXTURES_ROOT = path.join(REPO_ROOT, 'test', 'fixtures', 'boundary');
 const COVERAGE_GAP_ROOT = path.join(FIXTURES_ROOT, 'coverage-gap');
 const SIM_CYCLE_ROOT = path.join(FIXTURES_ROOT, 'sim-cycle');
 const TABLE_REACHES_PHYSICS_ROOT = path.join(FIXTURES_ROOT, 'table-reaches-physics');
+const PHYSICS_AUTHORED_CYCLE_ROOT = path.join(FIXTURES_ROOT, 'physics-authored-cycle');
 const SUPPRESSION_ROOT = path.join(FIXTURES_ROOT, 'suppression');
 const EXEMPTION_EXACT_ROOT = path.join(FIXTURES_ROOT, 'exemption-exact');
 const EXEMPTION_NEAR_MISS_ROOT = path.join(FIXTURES_ROOT, 'exemption-near-miss');
@@ -195,6 +196,27 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/sim-cycle (DW-37: no
 		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
 		expect(stderr).toContain('[no-circular]');
 		expect(stderr).toContain('src/sim/contracts/a.ts');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/physics-authored-cycle (DW-105: the narrowed no-circular rule)', () => {
+	it('exits 2 and reports no-circular for a cycle spanning an AUTHORED physics module and a frozen port', () => {
+		// Code review 2026-08-31: Story 2.1a narrowed `no-circular` from a
+		// directory-wide `from: { pathNot: "^src/sim/physics/" }` ORIGIN
+		// exemption to a `to: { pathNot: PORTED_PHYSICS_FILE_PATTERN }`
+		// TARGET exemption (DW-105), and the same diff broke the one real
+		// cycle that narrowing exposed. That left the rule change itself
+		// unpinned: the only no-circular fixture in the repo (`sim-cycle`)
+		// lives under `src/sim/contracts/`, which the SUPERSEDED rule caught
+		// just as well, so restoring the old exemption failed nothing and
+		// the suite stayed green. Verified: under
+		// `from: { pathNot: "^src/sim/physics/" }` this fixture reports "OK
+		// -- no violations"; under the shipped rule it reports the cycle.
+		const { status, stderr } = run([PHYSICS_AUTHORED_CYCLE_ROOT]);
+		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
+		expect(stderr).toContain('[no-circular]');
+		expect(stderr).toContain('src/sim/physics/loader/index.ts');
+		expect(stderr).toContain('src/sim/physics/ball/ball-hit.ts');
 	});
 });
 

@@ -1108,7 +1108,7 @@ describe('src/sim/physics/loader -- addBox() emits edge primitives, paired with 
 		};
 	}
 
-	/** Counts `HitObject.contact()` calls whose receiver is one of `ctors` (the shared base method, per-subclass only distinguishable by `this`'s own constructor -- neither `HitLineZ` nor `HitLine3D` overrides it individually). Restores the original on return; call the returned `stop()` before reading a final count. */
+	/** Counts `HitObject.contact()` calls whose receiver is one of `ctors` (the shared base method, per-subclass only distinguishable by `this`'s own constructor). Restores the original on return; call the returned `stop()` before reading a final count. */
 	function spyOnContactsOf(...ctors: Array<new (...args: never[]) => unknown>): { count: () => number; stop: () => void } {
 		let count = 0;
 		const original = HitObject.prototype.contact;
@@ -1121,14 +1121,90 @@ describe('src/sim/physics/loader -- addBox() emits edge primitives, paired with 
 		return { count: () => count, stop: () => { HitObject.prototype.contact = original; } };
 	}
 
-	it('a ball rolling at deck height into a box EDGE (not a face) reaches HitLineZ or HitLine3D (collide() or a genuine resting contact())', () => {
+	/**
+	 * Counts `collide()` and `contact()` calls on `HitLineZ`/`HitLine3D`
+	 * receivers **that belong to the synthetic box itself**, identified by
+	 * their own `hitBBox` lying inside the box's physics-space bounds.
+	 *
+	 * Code review 2026-08-31: the previous form counted EVERY `HitLineZ` /
+	 * `HitLine3D` in the loaded scene, and the graze path below necessarily
+	 * overlaps this story's own `col_post_pocket_l` (an octagon centred
+	 * table (237.875, 94), circumradius 4) and `col_guide_outer_l` (table
+	 * x 234.875..240.875, y 94..420) -- both `wall` nodes, and `addWall()`
+	 * emits one `HitLineZ` PER FOOTPRINT VERTEX (twelve between them). The
+	 * corner being grazed sits at table (236.875, 82.5), only ~7.5 mm from
+	 * the post's own lower edge, so a 13.495 mm-radius ball cannot reach it
+	 * without also reaching those wall corners -- the assertion was
+	 * therefore satisfiable with no box edge primitive firing at all.
+	 * DEMONSTRATED: with `addBox()`'s entire edge-primitive block deleted,
+	 * the unscoped test still passed. Scoping by receiver bbox is what makes
+	 * the spec's own recorded `DW-59` mutation ("revert `addBox()` to
+	 * triangles only -> the box-edge test records zero edge collisions")
+	 * actually reproducible.
+	 */
+	function spyOnBoxEdgePrimitives(loPhysics: { x: number; y: number; z: number }, hiPhysics: { x: number; y: number; z: number }): { count: () => number; stop: () => void } {
+		// Vertex2D/Vertex3D round to float32, so a corner primitive's own
+		// hitBBox lands a few 1e-5 VU outside the double-precision bounds
+		// computed here. 1e-3 VU (~0.0005 mm) absorbs that while staying
+		// three orders of magnitude inside the ~13.9 VU gap to the nearest
+		// foreign primitive (col_post_pocket_l's lowest corner).
+		const EPS = 1e-3;
+		let count = 0;
+		const belongsToBox = (hit: HitObject): boolean => {
+			const b = hit.hitBBox;
+			return (
+				b.left >= loPhysics.x - EPS && b.right <= hiPhysics.x + EPS &&
+				b.top >= loPhysics.y - EPS && b.bottom <= hiPhysics.y + EPS &&
+				b.zlow >= loPhysics.z - EPS && b.zhigh <= hiPhysics.z + EPS
+			);
+		};
+		const tally = function (this: HitObject): void {
+			if ((this instanceof HitLineZ || this instanceof HitLine3D) && belongsToBox(this)) {
+				count += 1;
+			}
+		};
+		const originalContact = HitObject.prototype.contact;
+		const originalLineZCollide = HitLineZ.prototype.collide;
+		const originalLine3DCollide = HitLine3D.prototype.collide;
+		HitObject.prototype.contact = function (this: HitObject, ...args: [CollisionEvent, number, PlayerPhysics]) {
+			tally.call(this);
+			return originalContact.apply(this, args);
+		};
+		HitLineZ.prototype.collide = function (this: HitLineZ, ...args: [CollisionEvent]) {
+			tally.call(this);
+			return originalLineZCollide.apply(this, args);
+		};
+		HitLine3D.prototype.collide = function (this: HitLine3D, ...args: [CollisionEvent]) {
+			tally.call(this);
+			return originalLine3DCollide.apply(this, args);
+		};
+		return {
+			count: () => count,
+			stop: () => {
+				HitObject.prototype.contact = originalContact;
+				HitLineZ.prototype.collide = originalLineZCollide;
+				HitLine3D.prototype.collide = originalLine3DCollide;
+			},
+		};
+	}
+
+	/** The synthetic box's own physics-space bounds, normalised (toPhysics() flips y, so min/max swap on that axis). */
+	function syntheticBoxPhysicsBounds(): { lo: { x: number; y: number; z: number }; hi: { x: number; y: number; z: number } } {
+		const a = toPhysics({ x: SYNTHETIC_BOX.bboxMm.min.x, y: SYNTHETIC_BOX.bboxMm.max.y, z: SYNTHETIC_BOX.bboxMm.min.z });
+		const b = toPhysics({ x: SYNTHETIC_BOX.bboxMm.max.x, y: SYNTHETIC_BOX.bboxMm.min.y, z: SYNTHETIC_BOX.bboxMm.max.z });
+		return {
+			lo: { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), z: Math.min(a.z, b.z) },
+			hi: { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y), z: Math.max(a.z, b.z) },
+		};
+	}
+
+	it('a ball rolling at deck height into a box EDGE (not a face) reaches HitLineZ or HitLine3D (collide() or a genuine resting contact()) -- counted ONLY on the synthetic box\'s own primitives', () => {
 		const doc = loadMutableCommittedDoc();
 		doc.nodes.push(SYNTHETIC_BOX);
 		const { physics } = loadCollision(doc);
 
-		const lineZCollideSpy = vi.spyOn(HitLineZ.prototype, 'collide');
-		const line3DCollideSpy = vi.spyOn(HitLine3D.prototype, 'collide');
-		const edgeContacts = spyOnContactsOf(HitLineZ, HitLine3D);
+		const { lo, hi } = syntheticBoxPhysicsBounds();
+		const edgeHitsOnTheBox = spyOnBoxEdgePrimitives(lo, hi);
 
 		const radiusVu = TABLE.reference.ballMm / 2 / MM_PER_VU;
 		const data = new BallData(radiusVu, 1, 1);
@@ -1141,12 +1217,12 @@ describe('src/sim/physics/loader -- addBox() emits edge primitives, paired with 
 			for (let i = 0; i < 100; i++) {
 				physics.step();
 			}
-			const edgeHits = lineZCollideSpy.mock.calls.length + line3DCollideSpy.mock.calls.length + edgeContacts.count();
-			expect(edgeHits, 'the box edge must be reachable -- neither corner primitive registered a collide() or a contact()').toBeGreaterThan(0);
+			expect(
+				edgeHitsOnTheBox.count(),
+				'the box edge must be reachable -- no edge primitive BELONGING TO THE SYNTHETIC BOX registered a collide() or a contact() (nearby wall corners are deliberately not counted)',
+			).toBeGreaterThan(0);
 		} finally {
-			lineZCollideSpy.mockRestore();
-			line3DCollideSpy.mockRestore();
-			edgeContacts.stop();
+			edgeHitsOnTheBox.stop();
 		}
 	});
 
