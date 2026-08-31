@@ -2,9 +2,9 @@
 title: 'Story 2.1a: The drain triangle, the cradle pocket and the flipper''s real dimensions'
 type: 'feature'
 created: '2026-08-30'
-status: 'in-progress'
-baseline_revision: '3da659da59702a57fe1018f41578506f3296098b'
-baseline_commit: '3da659da59702a57fe1018f41578506f3296098b'
+status: 'done'
+baseline_revision: 'e8b3225651701e1d0c07d1e61b50f24402e0f01d'
+baseline_commit: 'e8b3225651701e1d0c07d1e61b50f24402e0f01d'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -82,6 +82,72 @@ deferred:
       already touches TUNING and re-derives goldens is the safer path.
     location: 'src/sim/table/tuning.ts:342'
     severity: low
+  - summary: >-
+      Five Python bytecode-cache files stayed tracked in git despite this
+      pass's new .gitignore rule for __pycache__/ and *.pyc.
+    evidence: |-
+      git ls-files shows five .pyc files under .claude/skills/bmad-retrospective
+      and .claude/skills/bmad-sprint-planning committed since the repository's
+      first commit -- an accidental bulk-add, not deliberate vendoring, and
+      exactly the class of regenerable, machine-specific artifact this pass's
+      new .gitignore entry objects to. .gitignore only governs untracked
+      files, so a git rm --cached is required to actually remove them from
+      the tree; unrelated to tools/export.py's task 21 fix, so left for a
+      dedicated repo-hygiene pass rather than folded into this rework.
+    location: >-
+      .claude/skills/bmad-retrospective/scripts/__pycache__/,
+      .claude/skills/bmad-sprint-planning/scripts/__pycache__/
+    severity: low
+  - summary: >-
+      The new .gitignore comment's stated rationale for __pycache__/ may not
+      hold for tools/export.py and tools/make-placeholder-blend.py.
+    evidence: |-
+      The comment says running these scripts directly "leaves a __pycache__/
+      beside them," but Python's __main__ execution does not write a .pyc for
+      the top-level script itself -- only importing it as a module does, and
+      both scripts import only stdlib modules plus Blender's bundled
+      bpy/bmesh/mathutils (no local project modules), so neither path
+      obviously produces a __pycache__/ beside tools/. The one place that does
+      import export.py as a module, test/fixtures/export-py/write-failure-harness.py,
+      already guards against exactly that with sys.dont_write_bytecode = True.
+      Unverified against a live run of pnpm export:assets, and this .gitignore
+      change was already committed by the lead as separate bookkeeping (HEAD
+      d41225e) before this rework dispatch, outside task 21's own scope.
+    location: '.gitignore (the __pycache__/*.pyc comment added at HEAD d41225e)'
+    severity: low
+  - summary: >-
+      cycle-log-epic-2.md logs a runtime_lock_released for Story 2.1a's
+      adr_verifications stage with no matching runtime_lock_acquired entry.
+    evidence: |-
+      grep for runtime_lock in cycle-log-epic-2.md shows Story 2.0's three
+      acquire/release pairs but only a bare runtime_lock_released (no
+      acquired_at) for Story 2.1a; Rule 12 asks for the lifecycle to be logged
+      on each transition. The gap is in already-committed lead/orchestration
+      bookkeeping from the adr_verifications stage that ran before this
+      rework's re-dispatch, not something task 21's code change touches, and
+      the surrounding entries (adr_verifications_complete, adr_gate_defect_found)
+      already narrate what happened during that window.
+    location: '_bmad-output/implementation-artifacts/cycle-log-epic-2.md:69'
+    severity: low
+  - summary: >-
+      Task 21's new CR-byte regression test only runs inside the
+      Blender-gated describe.skipIf block, so it never executes in CI.
+    evidence: |-
+      CI has no Blender (this story's own Boundaries & Constraints, and the
+      AD-gate defect entry's own ci_impact=none note), so every test in that
+      describe.skipIf(!blenderPath) block -- including the new CR-byte test --
+      is CI-invisible by inheritance; a developer machine with Blender is the
+      only place this regression class gets caught. The underlying write path
+      (json.dump + f.write to a 'w'-mode file handle) has no bpy dependency,
+      so a lightweight Blender-independent unit test of just the newline
+      behavior was possible (precedent: test/export-py-hull.test.ts already
+      tests export.py's Blender-free helpers directly) and would give
+      CI-visible protection; none was added. Not specific to task 21 -- every
+      test in the pre-existing Blender-gated block shares this same CI blind
+      spot -- so restructuring it is a suite-wide test-architecture change
+      out of proportion for this bounded rework iteration.
+    location: 'test/export-py.test.ts:137 (the new CR-byte test, inside the pre-existing describe.skipIf(!blenderPath) block at :102)'
+    severity: medium
 ---
 
 <intent-contract>
@@ -267,6 +333,26 @@ Deferred (see frontmatter `deferred:` for the full entries): the cradle "still i
 
 Rejected as noise, already adequately disclosed in the diff/spec, or not real: the placeholder rubber-post radius's narrow clearance margin (already disclosed as deliberately undersized placeholder geometry); the right outlane's clear width measured against an interior wall rather than the true perimeter wall (already explained in the diff's own code comment and this spec's Design Notes); the elasticity-falloff test's narrowed impact-speed range (disclosed reasoning in the diff); the I/O matrix's "1 s and 5 s" reporting granularity (AC 2 itself only requires the 5 s checkpoint, and the implementation's continuous max-drift tracking subsumes two discrete samples); process commentary about golden verification and suite-count evidence not appearing inside the diff text itself (independently re-verified directly by this review pass, not merely inferred); `AUTHORED_FILES` growing from eleven to twelve and the `DW-105` dependency-cycle refactor reading as outside the intent-contract excerpt (both are spec-authorized by Task 11, outside the excerpt handed to the intent-alignment auditor); only the left flipper/pocket being exercised by new tests (matches Story 1.6's own established precedent, not a deviation); `test/table.test.ts`'s self-referential-input case not discriminating the DW-33 fix (the reviewing subagent confirmed this against the spec's own Mutations entry, which never claimed that test does); an implicit `else` branch in `add_drain_triangle_side()`'s `side === 'l'` check (theoretical -- both call sites pass hardcoded literals).
 
+### 2026-08-31 — Review pass (iteration 2, task 21 / AD-gate rework)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3 (high 0, medium 2, low 1)
+- defer: 4 (high 0, medium 1, low 3)
+- reject: 5 (high 0, medium 0, low 5)
+- addressed_findings:
+  - `[medium]` `[patch]` The new task-21 regression test (`test/export-py.test.ts`, "a fresh collision.json export contains no carriage-return byte...") could pass vacuously if `export.py` exited 0 but wrote an empty or missing `dragonwar.collision.json` -- added an `existsSync` guard naming the missing path and a `freshDoc.length > 0` guard before the CR-byte assertion (edge-case-hunter).
+  - `[medium]` `[patch]` The spec's own `## Verification` Mutations list had no entry that actually exercises task 21's fix -- the only candidate, AC 6's entry, mutates a different failure mode (stale committed artifact vs. the writer's `newline` argument) and doesn't touch `newline='\n'` at all (verification-gap, corroborated by intent-alignment's "B" divergence). Performed the real mutation: removed `newline='\n'` from `tools/export.py`'s collision-document writer, ran `test/export-py.test.ts` with `BLENDER` exported, observed the new CR-byte test go RED on this Windows host (`expected 1 to be -1`, CR byte at offset 1), reverted the code, and confirmed via `git status --short` and `git diff --stat` that the tree was byte-identical to before the mutation. Added a dedicated Mutations entry recording this.
+  - `[low]` `[patch]` `test/export-py-hull.test.ts:11`'s live prose still said "the 21 Blender-gated tests" after task 21 grew that `describe.skipIf` block to 22 cases -- updated the figure and added a one-line note of the count's provenance; left the historical Story-1.8 Code-Map quote at `:3-8` (which literally said "21 it() blocks" as of that story) untouched, matching the precedent `test/export-py-skip-visibility.test.ts` itself already set for distinguishing a historical quote from live prose (blind-hunter).
+
+### Verification performed for this pass
+- `pnpm typecheck` -- clean (all three projects).
+- `pnpm lint:boundaries` -- OK, 83 files, no violations.
+- `pnpm check:headers` and `pnpm check:attributions` -- both OK.
+- `pnpm test` with `BLENDER` exported -- **77 files / 995 passed / 0 skipped**, 0 failures (up from 994 passed at iteration-1 `dev_complete`; the +1 is task 21's own new CR-byte test, already present in the diff under review, not added by this pass).
+- `pnpm check:ad7` -- confirmed still exits 1, naming `AD-7`, `DW-70` and `bd_trough` verbatim in the assertion message (Story 2.5's deliverable; not touched).
+- `pnpm build && pnpm check:dist && pnpm check:size` -- all OK (`check:size` measured 0.841 MB against a 2.750 MB budget).
+- The task-21 mutation above (`patch` item 2) is the Rule 19 falsifiability demonstration for this iteration's own pinning test.
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).** **AD-11** (Blender owns placement; `TABLE` owns wiring; `export.py` enforces; `col_` prefixes and the ported primitive set) governs AC 1 and AC 6. **AD-10** (one canonical frame; geometry authored unpitched; `TABLE.reference` asserted) governs AC 1 and AC 3 — the x-extent assertion stays exactly as written, which is why the box, not the body, is the fixed side of the reconciliation. **AD-5** (the flipper is the ported `FlipperMover`; MPF figures are calibration references, never parameters) governs AC 2 and AC 3: the reconciliation is a *geometry* correction on the config side and must not retune `strength`, `rampUp`, `torqueDamping` or `sweepDeg`. **AD-15** (ported solver constants; tunables carry `source` and `confidence`; do-not-invent numbers ship `unverified`; replays and headless tests are first-class) governs the three new tunables and task 18. **AD-16** (three complementary provenance gates; boundaries linted by dependency-cruiser; ported files keep their notices) governs `DW-105` and the frozen-port constraint. **AD-1** (fixed dependency direction; `sim/**` is DOM- and Babylon-free) governs the `LoadedFlipper` hoist. **AD-6** is touched read-only: `bd_trough` is used as the cradle test's departure observable and no device behaviour changes. No AC contradicts any AD's Rule, and no new or amended AD is required — so **Rule 20 does not fire** and the spine is not edited by this story.
@@ -306,6 +392,7 @@ Rejected as noise, already adequately disclosed in the diff/spec, or not real: t
 - AC 4 -- remove `col_flipper_l` from the collision document handed to `createLoop()` -> `loadFlipper()`'s `findNode()` throws `required node "col_flipper_l" is missing from the collision document` before the loop can boot, naming it (empirically verified during code review, 2026-08-30: removing a drain-triangle guide/post node instead does NOT throw -- the loader's generic `col_` dispatch loop processes whatever nodes are present and has no completeness manifest for guides/posts, by the same AD-11 "generic by prefix and shape" design that lets this story add new node names with no export-side change; AC 4's own claim is about the flipper's boot path specifically, which this corrected mutation actually exercises).
 - AC 5 -- no mutation (it is the gate itself).
 - AC 6 -- edit one vertex in the seeding script without re-exporting -> `test/export-py.test.ts`'s byte-identity gate goes red naming the stale artifact.
+- Task 21 (iteration 2 AD-gate item) -- in `tools/export.py`'s collision-document writer, remove the `newline='\n'` argument from the `open(tmp_collision_path, 'w', encoding='utf-8', newline='\n')` call, reverting to Python's platform-dependent default -> on this Windows host, `test/export-py.test.ts`'s new CR-byte regression test ("a fresh collision.json export contains no carriage-return byte anywhere...") goes red, reporting a carriage-return byte at offset 1 (`expected 1 to be -1`); reverted immediately after, `git status --short` and `git diff --stat` confirmed byte-identical to before the mutation (review pass, 2026-08-31). This is a distinct mutation from AC 6's: AC 6's edit-without-re-export trips the byte-identity gate against the *committed* artifact and never touches the writer's `newline` argument, so it does not exercise task 21's fix -- this entry closes that gap (raised by `verification-gap` and `intent-alignment` review layers, Rule 19).
 - `DW-52` -- feed `addWall()` a footprint with one reflex vertex -> throws naming the node and the vertex index; the convex control still loads.
 - `DW-59` -- revert `addBox()` to triangles only -> the box-edge test records zero edge collisions, exactly as the paired DW-7 control does.
 - `DW-55` -- set a non-identity `playfieldRoot.position` before `applyPitch()` -> throws naming the node.
@@ -342,6 +429,19 @@ goldens' headers (`assetHash`, `gameStart.tuning`, `expectedHash`/`expectedGameS
 the recorded scenario actually touches the new geometry) and re-verified every per-golden
 scenario assertion still describes what happens, not just that the hashes agree.
 
+**Iteration 2 addition (task 21 / the `[AD gate]` acceptance item).** The lead's AD-tooled
+verification of AC 1/AC 3/AC 6 exposed a real, pre-existing defect (since Story 1.4, commit
+`2b6600b`): `tools/export.py`'s collision-document writer opened the file in Python text mode,
+so on Windows every `\n` it wrote became `\r\n`, while `.gitattributes` pins the committed
+artifact to a bare LF -- making `test/export-py.test.ts`'s byte-identity gate fail on any clean
+checkout with Blender resolvable. Fixed by adding `newline='\n'` to that `open()` call
+(`tools/export.py:567`), and pinned with a new platform-independent regression test asserting no
+CR byte (0x0D) appears anywhere in a fresh export, growing the Blender-gated `describe.skipIf`
+block from 21 to 22 `it()` cases (`test/export-py.test.ts`, with the count propagated through
+`test/export-py-skip-visibility.test.ts`'s structural pin and `expectedSkips` formula). No
+production code outside `tools/export.py` shares this defect (only one `'w'`-mode `open()` call
+exists in the whole Python tree).
+
 **Files changed** (repo-relative from `C:/git/dragonwar/.worktrees/epic-2`):
 - `ATTRIBUTIONS.md` -- re-dated/re-described the three `## Generated content` rows for the `.blend`/`.glb`/collision json, before regeneration (CLAUDE.md hard gate).
 - `assets/src/dragonwar.blend` -- regenerated headlessly; carries the drain-triangle geometry and reconciled flipper boxes.
@@ -363,12 +463,20 @@ scenario assertion still describes what happens, not just that the hashes agree.
 - `test/replays/*.golden.json` (all 5) -- refreshed `assetHash`/`gameStart.tuning` and, where the scenario touches the new geometry, `expectedHash`/`expectedGameStateHash`; `transitions`/`coilPrologue` byte-identical.
 - `tools/dependency-cruiser.config.mjs` -- `no-circular` narrowed to exempt ported files as cycle targets, not the whole `physics/` directory as an origin (`DW-105`).
 - `tools/make-placeholder-blend.py` -- drain-triangle authoring; dead `pivot_x` parameter removed (review patch).
-- `_bmad-output/implementation-artifacts/spec-2-1a-...md` (this file) -- `baseline_revision`, status transitions, Review Triage Log, `deferred:` list, this section.
+- `tools/export.py` (iteration 2) -- collision-document writer now opens with `newline='\n'`, closing the AD-gate LF/CRLF defect (task 21).
+- `test/export-py.test.ts` (iteration 2) -- new platform-independent CR-byte regression test (task 21), hardened this pass with `existsSync`/non-empty guards against a vacuous pass.
+- `test/export-py-skip-visibility.test.ts` (iteration 2) -- structural pin and `expectedSkips` formula updated 21 -> 22 to match the new test.
+- `test/export-py-hull.test.ts` (iteration 2, this review pass) -- live "21 Blender-gated tests" prose corrected to 22; the historical Story-1.8 Code-Map quote left untouched.
+- `_bmad-output/implementation-artifacts/spec-2-1a-...md` (this file) -- `baseline_revision`, status transitions, Review Triage Log (both passes), `deferred:` list (8 entries total), this section.
 
-**Review findings breakdown.** Four review layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment) ran in parallel against the full diff. 6 findings triaged `patch` and fixed in this pass (0 high, 4 medium, 2 low) -- see `## Review Triage Log` for the itemized list, including one attempted patch (a `tuning.ts` provenance-string typo) that was reverted after it broke all 5 golden headers' stale-check parity and re-routed to `defer`. 4 findings triaged `defer`, recorded in frontmatter `deferred:` (0 high, 1 medium, 3 low). 11 findings triaged `reject` (noise, already disclosed in the diff/spec, or not real -- see the triage log for the itemized reasoning). 0 `intent_gap`, 0 `bad_spec`.
+**Review findings breakdown.**
 
-**Follow-up review recommendation:** `true`. This pass's own patched findings: 0 high, 4 medium, 2 low -- score `3*4 + 1*2 = 14` (>= 5).
+*Iteration 1 pass* (blind-hunter, edge-case-hunter, verification-gap, intent-alignment against the full task 1-20 diff): 6 findings triaged `patch` and fixed (0 high, 4 medium, 2 low) -- see `## Review Triage Log`'s first entry, including one attempted patch (a `tuning.ts` provenance-string typo) reverted after it broke all 5 golden headers' stale-check parity and re-routed to `defer`. 4 findings triaged `defer` (0 high, 1 medium, 3 low). 11 findings triaged `reject`. 0 `intent_gap`, 0 `bad_spec`.
 
-**Verification performed.** Ran the full `## Verification` command list independently (not just the implementation subagent's own report): Blender regeneration and `pnpm export:assets` both exit 0 and reproduce byte-identical output; `pnpm typecheck`, `lint:boundaries`, `check:headers`, `check:attributions` all clean; `pnpm test` -- 77 files / 994 passing / 0 skipped (Blender resolvable this run; baseline was 77/955/21) after the review-pass patches, with zero failures; `pnpm check:ad7` still exits 1 naming `AD-7`/`DW-70`/`bd_trough` (confirmed not a regression); `pnpm build && pnpm check:dist && pnpm check:size` all exit 0. Matrix Test Audit: all 11 I/O & Edge-Case Matrix rows covered by a passing test; one gap found (the "Reconciled bat" row had no literal span-equality assertion) and closed by adding one directly. Performed live Rule 19 mutation demonstrations for AC 1, AC 2 (via the implementation subagent, reported), AC 3, AC 4 (corrected), and DW-55's second branch (all applied, observed red, reverted, tree confirmed clean after each). Manual checks: read all five goldens' per-golden scenario assertions after the header refresh -- all still describe the same event at the same tick, not just a hash match.
+*Iteration 2 pass* (same four layers, against the task-21/AD-gate diff, this dispatch): 3 findings triaged `patch` and fixed (0 high, 2 medium, 1 low) -- see `## Review Triage Log`'s second entry: a vacuous-pass guard added to the new CR-byte test (edge-case-hunter), a missing Rule 19 mutation entry for task 21 filled in by actually performing the mutation and recording it (verification-gap, corroborated by intent-alignment), and a stale test-count reference corrected (blind-hunter). 4 findings triaged `defer` (0 high, 1 medium, 3 low), appended to frontmatter `deferred:`. 5 findings triaged `reject`. 0 `intent_gap`, 0 `bad_spec`.
 
-**Residual risks.** Deferred to the frontmatter `deferred:` list (see above and the ledger harvest that follows): (1) the cradle's "still in contact" claim is proxy-asserted (drift/speed) rather than querying the ported mover's own `isInContact` field directly; (2) no automated test verifies the flipper's swept body clears the new guides/posts across the *full* stroke, only at the two settled endpoints -- indirect evidence exists (exact end-of-stroke angles hold), but a future tuning change to `sweepDeg`/`endRadiusRatio`/post placement could reintroduce an undetected clip; (3) three test-only non-null assertions on the left flipper lookup throw an unhelpful generic error if that node is ever missing (low practical risk -- other tests would fail first with a clear message); (4) the `tuning.ts` provenance-string typo, whose safe fix requires a golden-header refresh out of proportion to its severity. None of these block any AC or the suite's green state.
+**Follow-up review recommendation:** `true`. This (most recent) pass's own patched findings: 0 high, 2 medium, 1 low -- score `3*2 + 1*1 = 7` (>= 5). (Iteration 1's own pass separately scored `3*4 + 1*2 = 14`, also >= 5.)
+
+**Verification performed.** Iteration 1's independent run (Blender regeneration, `pnpm export:assets`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, full Matrix Test Audit, and per-AC Rule 19 mutations for AC 1/2/3/4/`DW-55`) is recorded above and unchanged by this pass. This pass (iteration 2, `BLENDER` exported) re-ran the full command list after applying its own patches: `pnpm typecheck` clean; `pnpm lint:boundaries` OK (83 files, no violations); `pnpm check:headers` and `pnpm check:attributions` OK; `pnpm test` -- **77 files / 995 passed / 0 skipped**, zero failures (up from 994 at iteration-1 `dev_complete`; the +1 is task 21's own CR-byte test, already present in the diff under review before this pass started); `pnpm check:ad7` confirmed still exits 1 naming `AD-7`/`DW-70`/`bd_trough` verbatim (not touched, not a regression); `pnpm build && pnpm check:dist && pnpm check:size` all exit 0 (`check:size`: 0.841 MB / 2.750 MB budget). Performed the task-21 Rule 19 mutation live: removed `newline='\n'` from `tools/export.py`'s writer, ran the CR-byte test with `BLENDER` exported, observed RED (`expected 1 to be -1`, CR at offset 1), reverted, and confirmed `git status --short`/`git diff --stat` byte-identical to before the mutation. Manual checks from iteration 1 (goldens' per-golden scenario assertions) stand; no golden-affecting change was made this pass.
+
+**Residual risks.** Deferred to the frontmatter `deferred:` list (8 entries total; see above): from iteration 1 -- (1) the cradle's "still in contact" claim is proxy-asserted (drift/speed) rather than querying the ported mover's own `isInContact` field directly; (2) no automated test verifies the flipper's swept body clears the new guides/posts across the *full* stroke, only at the two settled endpoints; (3) three test-only non-null assertions on the left flipper lookup throw an unhelpful generic error if that node is ever missing; (4) the `tuning.ts` provenance-string typo, whose safe fix requires a golden-header refresh out of proportion to its severity. From iteration 2 -- (5) five already-tracked `__pycache__/*.pyc` files remain committed despite the new `.gitignore` rule (pre-existing repo hygiene, unrelated to task 21); (6) that `.gitignore` rule's own rationale comment may not accurately describe why these two scripts leave a `__pycache__/` beside them; (7) `cycle-log-epic-2.md`'s Story 2.1a `runtime_lock_released` entry has no matching `runtime_lock_acquired` entry; (8) task 21's new CR-byte test only runs inside the Blender-gated block, so it stays CI-invisible like every other test in that block (CI has no Blender) -- a Blender-independent unit test of the write path was possible but not added. None of these block any AC or the suite's green state.

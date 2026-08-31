@@ -6,14 +6,15 @@
 // blender-resolve.test.ts:117 -- the last is win32-only, so local skips 21
 // and CI skips 22)." Two gated groups exist:
 //   - test/export-py.test.ts's ONE `describe.skipIf(!blenderPath)` block,
-//     holding a FIXED, PINNED count of `it()` cases (21) -- skipped entirely
-//     when Blender is not resolvable on this machine.
+//     holding a FIXED, PINNED count of `it()` cases (22, as of Story 2.1a
+//     task 21's LF regression pin -- was 21 through Story 1.8/1.10) --
+//     skipped entirely when Blender is not resolvable on this machine.
 //   - test/blender-resolve.test.ts's ONE `it.skipIf(process.platform !==
 //     'win32')` case -- skipped on every non-Windows runner (CI's own
 //     ubuntu-latest included).
 // (test/export-py-version-gate.test.ts's OWN two `describe.skipIf(!pythonCmd)`
 // blocks are Python-gated, not Blender-gated, and are not part of this
-// story's Blender-specific "21 / 22" figure -- excluded here for the same
+// story's Blender-specific "22 / 23" figure -- excluded here for the same
 // reason the Code Map itself only lists them as related context, not as
 // part of the count.)
 //
@@ -60,14 +61,18 @@ function extractDescribeBlock(source: string, openingLineText: string): string {
 }
 
 describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count is pinned and proven, never silent', () => {
-	it('structural pin: test/export-py.test.ts\'s ONE Blender-gated describe.skipIf block holds EXACTLY 21 it() cases', () => {
+	it('structural pin: test/export-py.test.ts\'s ONE Blender-gated describe.skipIf block holds EXACTLY 22 it() cases', () => {
 		const source = readFileSync(path.join(REPO_ROOT, 'test', 'export-py.test.ts'), 'utf8');
 		const block = extractDescribeBlock(source, "describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated");
-		// `it(` only -- this block's own 21 cases are all plain `it(`, never
+		// `it(` only -- this block's own 22 cases are all plain `it(`, never
 		// `it.skipIf(`; matching on the more specific token avoids double
 		// counting or catching an unrelated `it(` inside a nested string.
+		// Story 2.1a (task 21, iteration 2) added the 22nd case: a
+		// platform-independent regression pin for tools/export.py's
+		// newline='\n' fix (the collision-document writer no longer depends
+		// on the host's text-mode line-ending translation).
 		const count = countOccurrences(block, /\n\tit\(/g);
-		expect(count, 'the Blender-gated block\'s own it() count changed -- update this pin (and the "21"/"22" figures in this file\'s and the Code Map\'s own prose) deliberately, not silently').toBe(21);
+		expect(count, 'the Blender-gated block\'s own it() count changed -- update this pin (and the "22"/"23" figures in this file\'s and the Code Map\'s own prose) deliberately, not silently').toBe(22);
 	});
 
 	it('structural pin: test/blender-resolve.test.ts holds EXACTLY ONE win32-only it.skipIf case', () => {
@@ -110,12 +115,15 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 			}
 		}
 		const isWin32 = process.platform === 'win32';
-		const expectedSkips = (blenderResolvable ? 0 : 21) + (isWin32 ? 0 : 1) + (pythonAvailable ? 0 : 4);
+		// Story 2.1a (task 21, iteration 2): the Blender-gated block grew from
+		// 21 to 22 cases (the new LF regression pin above), so this term moves
+		// from 21 to 22 deliberately, matching the structural pin above.
+		const expectedSkips = (blenderResolvable ? 0 : 22) + (isWin32 ? 0 : 1) + (pythonAvailable ? 0 : 4);
 
 		// eslint-disable-next-line no-console
 		console.log(
 			`[export-py-skip-visibility] this run: platform=${process.platform} blenderResolvable=${blenderResolvable} pythonAvailable=${pythonAvailable} -- expected skip count = ${expectedSkips} ` +
-			`(${blenderResolvable ? 0 : 21} Blender-gated + ${isWin32 ? 0 : 1} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
+			`(${blenderResolvable ? 0 : 22} Blender-gated + ${isWin32 ? 0 : 1} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
 		);
 
 		// `DW-107` (Story 1.10 follow-up): the skip count is read from vitest's

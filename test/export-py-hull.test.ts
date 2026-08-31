@@ -8,10 +8,11 @@
 // python3 import"). This is the Blender-free unit test the Code Map calls
 // for, over fixture polygons, exercising both hull helpers directly through
 // a real Python interpreter -- not under `ubuntu-latest`'s "no Blender at
-// all", so it runs in CI (unlike the 21 Blender-gated tests it does NOT
-// replace or subsume: those still need a real .blend document and Blender's
-// own mesh/material/property machinery for everything BEYOND these two pure
-// helpers).
+// all", so it runs in CI (unlike the 22 Blender-gated tests it does NOT
+// replace or subsume -- was 21 through Story 1.8/1.10, now 22 after Story
+// 2.1a task 21's LF regression pin: those still need a real .blend document
+// and Blender's own mesh/material/property machinery for everything BEYOND
+// these two pure helpers).
 //
 // Skips (never fails) when no plain python3/python is on PATH -- matching
 // test/export-py-version-gate.test.ts's own rule: this suite must never turn

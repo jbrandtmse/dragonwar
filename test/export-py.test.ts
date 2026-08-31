@@ -134,6 +134,46 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		).toBe(0);
 	});
 
+	it('a fresh collision.json export contains no carriage-return byte anywhere, on any host platform (task 21 regression pin, iteration 2)', () => {
+		// export.py used to open the collision document in Python TEXT mode with
+		// the default newline=None, which translates every '\n' the writer emits
+		// to os.linesep -- '\r\n' on Windows -- while .gitattributes pins the
+		// committed artifact to a bare LF (`* text=auto eol=lf`). The sibling
+		// byte-identity test above only catches the resulting drift AFTER a
+		// fresh `git checkout --` of public/assets/dragonwar.collision.json (git
+		// re-normalises the working-tree file back to LF, so the next export's
+		// CRLF output then disagrees with it); on an ordinary working tree that
+		// already holds a CRLF copy from a prior un-fixed export, the two CRLF
+		// buffers compare equal and nothing goes red (empirically verified this
+		// story's AD-tooled iteration-2 pass: `git checkout --` was required to
+		// expose it). This test instead asserts a platform-independent
+		// invariant directly on the fresh bytes -- no CR anywhere -- so the LF
+		// guarantee cannot regress silently regardless of checkout order or
+		// what the working tree already contains.
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(BLEND_PATH, outDir);
+		expect(status, `stderr: ${stderr}`).toBe(0);
+
+		const outputCollisionPath = path.join(outDir, 'dragonwar.collision.json');
+		expect(
+			existsSync(outputCollisionPath),
+			`export.py exited 0 but did not write ${outputCollisionPath} -- stderr: ${stderr}`,
+		).toBe(true);
+
+		const freshDoc = readFileSync(outputCollisionPath);
+		expect(
+			freshDoc.length,
+			'dragonwar.collision.json was written empty -- the CR-byte check below would pass vacuously against an empty buffer, so guard against that first.',
+		).toBeGreaterThan(0);
+
+		const crIndex = freshDoc.indexOf(0x0d);
+		expect(
+			crIndex,
+			`dragonwar.collision.json contains a carriage-return byte (0x0D) at offset ${crIndex} -- ` +
+				'tools/export.py must write the collision document with newline=\'\\n\' so line endings never depend on the host platform.',
+		).toBe(-1);
+	});
+
 	it('the real pnpm export:assets entry point (runExportAssets(), not just this file’s own hand-rolled spawnSync helper) succeeds end to end', () => {
 		// test/export-py.test.ts's own runExportPy() above independently
 		// hand-rolls an equivalent spawnSync call with its own argument list --

@@ -554,7 +554,17 @@ def run(argv):
 	# this project targets.
 	try:
 		export_glb(tmp_glb_path, dump)
-		with open(tmp_collision_path, 'w', encoding='utf-8') as f:
+		# newline='\n' pins the writer to a bare line feed on every platform.
+		# Python's default text-mode newline translation (newline=None) maps
+		# every '\n' written to os.linesep, so this same call emitted '\r\n'
+		# on Windows while .gitattributes pins the committed artifact to LF
+		# (`* text=auto eol=lf`) -- a real, pre-existing defect that
+		# test/export-py.test.ts's byte-identity gate only caught after a
+		# fresh `git checkout --` of the collision json (AD-tooled
+		# verification, this story's iteration 2). newline='\n' disables
+		# translation entirely, so the bytes written are the '\n' this
+		# function actually writes, regardless of host platform.
+		with open(tmp_collision_path, 'w', encoding='utf-8', newline='\n') as f:
 			json.dump(collision_doc, f, indent=2, sort_keys=True)
 			f.write('\n')
 		os.replace(tmp_glb_path, out_glb_path)
