@@ -920,11 +920,11 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 
 **Given** the drain triangle placed in Story 2.1a
 **When** the shot map is drawn
-**Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-6/FR-27 decision in `docs/decisions.md`) `[AMENDED 2026-08-31 — see the story change log below]`, the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, pop bumpers, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
+**Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-6/FR-27 decision in `docs/decisions.md`) `[AMENDED 2026-08-31 — see the story change log below]`, the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, **three pop bumpers** `[AMENDED 2026-08-31 — see the story change log below]`, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
 
 **Given** every device has a switch
 **When** `TABLE.switches` is completed
-**Then** it declares `s_loop_l_in/out`, `s_loop_r_in/out`, `s_spinner`, `s_ramp_enter/made`, `s_dragon_[d,r,a,g,o,n]`, `s_dragon_body`, `s_lock_lane`, `s_lock_1..3`, `s_top_1..3`, `s_inlane_l/r`, `s_outlane_l/r`, `s_sling_l/r`, `s_pop_*`, `s_drain` with the `settleTicks` class per device, plus `bd_lock` (capacity 3, `c_mouth`, `ballSearchOrder`) and the coils `c_sling_l/r`, `c_pop_*`, `c_dragon_bank_reset`, `c_mouth`
+**Then** it declares `s_loop_l_in/out`, `s_loop_r_in/out`, `s_spinner`, `s_ramp_enter/made`, `s_dragon_[d,r,a,g,o,n]`, `s_dragon_body`, `s_lock_lane`, `s_lock_1..3`, `s_top_1..3`, `s_inlane_l/r`, `s_outlane_l/r`, `s_sling_l/r`, `s_pop_1..3` `[AMENDED 2026-08-31 — see the story change log below]`, `s_drain` with the `settleTicks` class per device, plus `bd_lock` (capacity 3, `c_mouth`, `ballSearchOrder`) and the coils `c_sling_l/r`, `c_pop_1..3` `[AMENDED 2026-08-31 — see the story change log below]`, `c_dragon_bank_reset`, `c_mouth`
 **And** `export.py` validates the `.blend` against the updated `TABLE` dump and both loaders load it
 
 **Given** a replay of the fastest ball a full-strength plunge and flipper hit can produce
@@ -938,7 +938,7 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 
 **Given** the fixed camera from Story 1.4
 **When** the full geometry is in view
-**Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible and the Backglass quad occupies a strip at the top of the view
+**Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible `[AMENDED 2026-08-31 — see the story change log below]`
 
 **Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
 
@@ -950,6 +950,23 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 - DW-53: the placeholder table has no vertical containment — walls are 50 mm tall with no top cap, so a ball above that height leaves the field laterally (ledger; routed by decision_sheet 2026-08-30)
 
 **Change log**
+
+- **2026-08-31 — the Backglass clause moved out of AC 8 to Story 2.6, and the pop-bumper count fixed at three.**
+  Two author decisions taken at Story 2.1b's planning halt.
+  **AC 8** required "the Backglass quad occupies a strip at the top of the view", but no backglass or backbox
+  geometry existed anywhere: `cabinet_root` is authored childless, the committed `.glb` holds only the three
+  roots plus `vis_playfield`, `l_insert_left`, `bd_trough` and `bd_shooter`, and the only `backglass` token
+  under `src/` is a `.gitkeep` reading "Filled by Story 2.6". Story 2.6 *presupposed* the quad and authored
+  none, so the obligation was moved there rather than satisfied here — closing a real gap instead of
+  relocating one, and keeping a shot-map story from re-aiming a Story 1.4 camera as a side effect. AC 8 now
+  ends at "…are legible".
+  **The pop-bumper count** was stated in no artifact. FR-31 and PRD §211 say only "pop bumpers" while the same
+  sentence tags Top lanes `[ASSUMPTION: count]` at three and slingshots at two — a conspicuous omission, not an
+  implicit default, and a wildcard cannot be declared in `TABLE`. The author fixed it at **three**
+  (`s_pop_1..3` / `c_pop_1..3`), matching the Top-lane count and the standard arrangement for this shot
+  density. It is recorded in `TABLE` with `source` and `confidence` like the other unverified figures, so the
+  provenance is visible rather than looking like a fact somebody found.
+
 
 - **2026-08-31 — the Ramp return-side decision relabelled OQ-5 -> OQ-6 (cross-reference fix only; no work changes).**
   This criterion recorded the Ramp's return-inlane choice as "the OQ-5/FR-27 decision", but OQ-5 is a
@@ -1099,6 +1116,7 @@ So that I can read the game without instructions.
 **Given** `src/presentation/backglass/`
 **When** it renders
 **Then** it draws to a low-resolution dot-matrix canvas mapped onto the backbox quad visible at the top of the fixed view, with a visible dot grid and no smoothing
+**And** that backbox quad is **authored by this story** — no backglass or backbox geometry exists before it: `cabinet_root` is authored childless, and `src/presentation/backglass/` holds only a `.gitkeep` reading "Filled by Story 2.6" — so this story adds the `vis_` quad to the Blender source, re-exports, and, **if the quad does not fall inside the existing fixed view, re-aims the fixed camera**. Re-aiming moves a Story 1.4 deliverable: `createFixedCamera()`'s hand-picked `y=-700`/`z=1300` absolutes and the assertions at `test/scene-smoke.test.ts:311-336`. Both are in scope here; neither is a surprise to be discovered at review `[AMENDED 2026-08-31 — see the story change log below]`
 
 **Given** the snapshot's read-only `GameState`
 **When** a frame is applied
@@ -1115,6 +1133,19 @@ So that I can read the game without instructions.
 **Given** a `ModeView` is present in `modes[]`
 **When** the display renders
 **Then** it shows the highest-priority mode's name and any `timerTicks`, `value`, `charge` or `strikesRemaining` it publishes, converted to display units in presentation
+
+**Change log**
+
+- **2026-08-31 — this story now authors the backbox quad it had been assuming, and owns any camera re-aim.**
+  AC 1 mapped the dot-matrix canvas "onto the backbox quad visible at the top of the fixed view", but nothing
+  in the project ever created that quad: `cabinet_root` is authored childless, Story 1.4 promised one `vis_`
+  mesh and never mentions a backglass, and Story 5.3 models the backbox only in Epic 5 and is explicitly
+  non-blocking. Story 2.1b carried the same assumption in its own AC 8 and halted on it at planning. The
+  author moved the obligation here, where it is actually needed. AC 1 now states that this story adds the
+  `vis_` quad to the Blender source, re-exports, and re-aims the fixed camera if the quad falls outside the
+  current view — and says plainly that re-aiming moves a Story 1.4 deliverable (`createFixedCamera()`'s
+  `y=-700`/`z=1300` and `test/scene-smoke.test.ts:311-336`), so whoever runs this story knows it at planning
+  rather than discovering it at review.
 
 ### Story 2.7: Plunge, Skill shot and lane change
 
