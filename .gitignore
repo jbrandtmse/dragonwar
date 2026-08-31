@@ -25,3 +25,9 @@ pnpm-workspace.yaml
 # .blend and the exported .glb/.collision.json are what the pipeline reads.
 # Left untracked it shows up as a stray file at every commit gate.
 *.blend1
+
+# Python bytecode caches. tools/export.py and tools/make-placeholder-blend.py
+# are run directly (by pnpm export:assets and by Blender's --python), which
+# leaves a __pycache__/ beside them; it is regenerable and machine-specific.
+__pycache__/
+*.pyc
