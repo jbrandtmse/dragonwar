@@ -693,6 +693,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-0-epic-1-deferred-cleanup.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: Pre-existing at baseline c529d32: the identical wording already named the old filename, stale since Story 1.3 moved that scan to tools/boundary-lint.mjs. Story 2.0's mechanical path-token substitution carried the stale claim forward correctly without introducing it. Two-way door, comment wording only, about 2 lines
 - 2026-08-30T17:08:21Z status=open owner=2-0-epic-1-deferred-cleanup by=harvest note=in-story: Story 2.0's own ledger_adjudicated gate closes this after code review, either as a Fix Pack patch or by an honest re-own. It is the same duplicate-gate confusion AD-16 was rewritten to end, so fixing the wording is squarely in this story's intent
+- 2026-08-31T04:15:28Z status=resolved-by:2-0-epic-1-deferred-cleanup owner=2-0-epic-1-deferred-cleanup by=cr note=both lines now name tools/boundary-lint.mjs with an AD-16 pointer; mutation-free comment fix, suite 77/955/21 green
 
 ### DW-109: sprint-status.yaml's Epic 1 retro action item 5 (give test/sim-boundary.test.ts a deliberate owner) is still status open even though Story 2.0's completion fully resolves it
 - source: spec-2-0-epic-1-deferred-cleanup.md | severity: low | fix-risk: low | footprint: out-of-footprint

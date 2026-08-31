@@ -7,14 +7,16 @@
 // both step the identical, boundary-respecting scene (AD-1: the harness sits
 // outside sim/, but sim/ is the only thing it's allowed to depend on). Nothing
 // currently asserts this direction of the boundary --
-// test/port-provenance.test.ts checks the opposite direction (that files *under*
-// src/sim/ stay clean of DOM/engine globals), not that tools/spike-1/scene.ts
+// tools/boundary-lint.mjs checks the opposite direction (that files *under*
+// src/sim/ stay clean of DOM/engine globals; AD-16 makes that scan its gate,
+// and Story 1.3 moved it there), not that tools/spike-1/scene.ts
 // stays clean of imports from anywhere *outside* those two roots. A future edit
 // that reaches for, say, `@babylonjs/core` or a not-yet-built `src/sim/table/`
 // module directly from the harness would otherwise pass every existing test.
 //
-// Plain textual parsing only (no TypeScript compiler API), matching this
-// story's other Story-1.3-dependency-cruiser stand-in (test/port-provenance.test.ts).
+// Plain textual parsing only (no TypeScript compiler API), matching
+// tools/boundary-lint.mjs's own textual scans -- AD-16 requires exactly that
+// ("TypeScript 7.0 ships no compiler API, so no lint may depend on one").
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
