@@ -187,10 +187,29 @@ describe('test/replays/*.golden.json -- every golden replays to its recorded has
 // silently -- a golden that gains parity sensitivity must be taken off the
 // allowlist, and one that loses it must be added with a reason.
 describe('AC 5 parity-hash falsifiability: which goldens\' GameState-only hash actually depends on their own body', () => {
-	/** Goldens whose `finalGameStateHash` is provably INSENSITIVE to their own `transitions`, each with the reason. Measured 2026-08-29. */
+	/**
+	 * Goldens whose `finalGameStateHash` is provably INSENSITIVE to their own
+	 * `transitions`, each with the reason. Measured 2026-08-29; re-verified
+	 * 2026-08-31 after Story 2.1a task 25 (DW-119 residual) reshaped
+	 * col_wall_bottom_l/_r's own top edge from a dead-flat face into a ramp.
+	 *
+	 * `hold-and-release` REMOVED this pass: its own reason used to read "the
+	 * ball neither launches nor drains within this golden" -- true only
+	 * because, on the OLD flat-topped wall, a ball with no sideways force
+	 * ever reaching col_wall_bottom_l simply parked there forever, identically
+	 * whether or not the flipper had touched it first, within the golden's
+	 * 8110-tick window. The new sloped face gives every such ball a genuine,
+	 * non-zero drift toward the drain, and the flipper's own deflection
+	 * during the recorded hold measurably changes how fast it gets there:
+	 * WITH the body, the ball reaches bd_trough by tick 8110 (matching this
+	 * golden's own `description`, "drains shortly after release", which the
+	 * pre-fix geometry could not actually deliver inside the window);
+	 * WITHOUT it, the ball is still mid-drift, not yet parked or drained.
+	 * That is a genuine, desirable gain in parity-hash sensitivity, not a
+	 * scenario break -- the golden's own per-golden test below (contact,
+	 * hold, deflection) is unaffected.
+	 */
 	const PARITY_INERT: Readonly<Record<string, string>> = {
-		'hold-and-release':
-			'the flipper press/release moves the BALL and the bat; neither is part of GameState (flipper angle lives in Snapshot.mechanisms), and the ball neither launches nor drains within this golden, so tick/ballsInPlay/deviceSlots are identical with and without the body.',
 		'nudge-coupling':
 			'the nudge moves the cabinet and hence the ball, but Epic 1 has no tilt bob wired into GameState.machine.tilt for a single sub-threshold nudge, so nothing the nudge touches reaches GameState.',
 		'two-ball-collision':

@@ -218,13 +218,22 @@ describe('the flipper bat clears the drain-triangle pocket post and outer guide 
 			minSampledAngleDeg,
 			`the stroke must reach the end-of-stroke stop (|90| deg) within the sampled window; closest sampled |angle| was ${minSampledAngleDeg.toFixed(4)} deg`,
 		).toBeLessThan(90.01);
+		// Code review 2026-08-31 (rework iteration 4, task 28): both bounds used to
+		// be an exact `>= 0`, so a body that grazes a post or guide at precisely
+		// 0.000 mm -- or a redesign that halves the real margin -- would pass
+		// silently, and no measured worst-case number was pinned anywhere. Measured
+		// this pass (both sides symmetric): post clearance 14.1945 mm, guide
+		// clearance 17.0770 mm. Pinned a few mm below each measurement --
+		// comfortably clear of the AXIS_SAMPLES=40 sampling step (~1.48 mm of the
+		// pivot-to-tip axis per sample) and of ordinary solver float noise across
+		// hosts, while still catching a margin roughly halved or worse.
 		expect(
 			minPostClearanceMm,
-			`${postName}: the swept modelled body overlaps this post at some point across the stroke (worst-case clearance ${minPostClearanceMm.toFixed(3)} mm; negative means overlap)`,
-		).toBeGreaterThanOrEqual(0);
+			`${postName}: the swept modelled body's clearance narrowed below the pinned minimum (worst-case clearance ${minPostClearanceMm.toFixed(3)} mm; negative means overlap)`,
+		).toBeGreaterThan(12);
 		expect(
 			minGuideClearanceMm,
-			`${guideName}: the swept modelled body overlaps this guide at some point across the stroke (worst-case clearance ${minGuideClearanceMm.toFixed(3)} mm; negative means overlap)`,
-		).toBeGreaterThanOrEqual(0);
+			`${guideName}: the swept modelled body's clearance narrowed below the pinned minimum (worst-case clearance ${minGuideClearanceMm.toFixed(3)} mm; negative means overlap)`,
+		).toBeGreaterThan(15);
 	});
 });

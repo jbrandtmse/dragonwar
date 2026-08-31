@@ -18,9 +18,15 @@
 // "sim-boundary" also spelling two unrelated names) was not corrupted by
 // an over-broad find/replace, that the three AD-16 gates all survived the
 // rename and none was quietly retired, that the renamed file's structural
-// shape -- three describe blocks, 101 tests (56 / 1 / 44) -- is unchanged,
-// and that its AC-2 ownership header still says what AD-16 requires it to
-// say. Five invariants, five tests below. Each was confirmed falsifiable
+// shape -- at Story 2.0, three describe blocks, 101 tests (56 / 1 / 44) --
+// is unchanged EXCEPT by deliberate, disclosed later additions (Story 2.1a
+// task 11 raised the header-provenance block 56 -> 57 for a new authored
+// file; task 29 added a fourth describe block, 3 tests, comparing this
+// file's AUTHORED_FILES against tools/dependency-cruiser.config.mjs's own
+// copy -- current true shape: four describe blocks, 105 tests
+// (57 / 1 / 44 / 3)), and that its AC-2 ownership header still says what
+// AD-16 requires it to say. Five invariants, five tests below. Each was
+// confirmed falsifiable
 // by a real, reverted mutation (see the spec's `## Verification` section
 // for the mutation lines).
 //
@@ -185,7 +191,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		expect(ad16, 'AD-16 must still forbid retiring any of the three gates').toMatch(/none may be retired/i);
 	});
 
-	it('test/port-provenance.test.ts still reports its pre-rename structural shape: three describe blocks, 101 tests (56 / 1 / 44)', { timeout: 180_000 }, () => {
+	it('test/port-provenance.test.ts still reports its current, deliberately-updated structural shape: four describe blocks, 105 tests (57 / 1 / 44 / 3)', { timeout: 180_000 }, () => {
 		const result = spawnSync(
 			process.execPath,
 			[resolveVitestBin(), 'run', 'test/port-provenance.test.ts', '--reporter=json'],
@@ -227,8 +233,16 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		// loaded-flipper.ts` (DW-105's hoisted-out `LoadedFlipper` leaf module)
 		// is a new, genuinely authored file under src/sim/physics/**, which
 		// the SHAPE_NOTE below anticipates by name.
-		expect(report.numTotalTests, `total test count must stay 102. ${SHAPE_NOTE}`).toBe(102);
-		expect(report.numPassedTests, `all 102 tests must pass. ${SHAPE_NOTE}`).toBe(102);
+		//
+		// Story 2.1a, rework iteration 4, task 29 (review finding): added a
+		// FOURTH top-level describe block ("AUTHORED_PHYSICS_FILES ... agrees
+		// with AUTHORED_FILES ...", 3 tests) asserting `tools/dependency-
+		// cruiser.config.mjs`'s own AUTHORED_PHYSICS_FILES list agrees with
+		// this file's AUTHORED_FILES -- a genuine new assertion, not file-count
+		// drift, so it raises the block count (3 -> 4) and the total (102 -> 105)
+		// deliberately, exactly as this note anticipates.
+		expect(report.numTotalTests, `total test count must stay 105. ${SHAPE_NOTE}`).toBe(105);
+		expect(report.numPassedTests, `all 105 tests must pass. ${SHAPE_NOTE}`).toBe(105);
 
 		const byTopDescribe = new Map<string, number>();
 		for (const file of report.testResults) {
@@ -239,7 +253,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		}
 		const found = `found: ${[...byTopDescribe.keys()].join(' | ')}`;
 
-		expect(byTopDescribe.size, `expected exactly 3 top-level describe blocks; ${found}`).toBe(3);
+		expect(byTopDescribe.size, `expected exactly 4 top-level describe blocks; ${found}`).toBe(4);
 		expect(byTopDescribe.get('src/sim/physics/** header provenance (AD-16)'), `${SHAPE_NOTE} ${found}`).toBe(57);
 		expect(
 			// Rule 14: the em dash is escaped, never a literal byte.
@@ -252,6 +266,10 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 			),
 			`${SHAPE_NOTE} ${found}`,
 		).toBe(44);
+		expect(
+			byTopDescribe.get('AUTHORED_PHYSICS_FILES (tools/dependency-cruiser.config.mjs) agrees with AUTHORED_FILES (this file)'),
+			`${SHAPE_NOTE} ${found}`,
+		).toBe(3);
 	});
 
 	it("AC 2: test/port-provenance.test.ts's header still names Story 2.0 as its owner, the four things it asserts, and the two it does not", () => {

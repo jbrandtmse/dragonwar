@@ -46,11 +46,19 @@
 // none does today, this narrowing alone was sufficient once the hoist above
 // broke the one real cycle), while a cycle that touches even one authored
 // file -- including one under `src/sim/physics/` itself, unlike the old
-// exemption -- still fails. This list mirrors (never imports, to keep this
-// config file's own dependency-free contract) `test/port-provenance.test.ts`'s
-// `AUTHORED_FILES`; a stale or typo'd entry there is caught by that test's own
-// "every entry names a real file" assertion, not by this file.
-const AUTHORED_PHYSICS_FILES = [
+// exemption -- still fails. This list mirrors `test/port-provenance.test.ts`'s
+// `AUTHORED_FILES`, and this config file still imports nothing of its own
+// (the dependency-free contract above is about THIS file's imports, not
+// about a test importing this file's own exported data). It is `export`ed
+// (task 29, review finding, rework iteration 4) precisely so
+// test/port-provenance.test.ts can import it and assert it agrees with its
+// own AUTHORED_FILES / AUTHORED_FILES_LOCAL -- this comment used to claim
+// that drift here "is caught by that test", which was never true:
+// port-provenance guarded only its own two hand-maintained copies against
+// each other, never against this one. A stale or typo'd entry here silently
+// became cycle-exempt as a target with no lint or compile error until that
+// test existed.
+export const AUTHORED_PHYSICS_FILES = [
 	'loader/index',
 	'loader/loaded-flipper',
 	'switches',

@@ -50,10 +50,37 @@ import {
 	STATICTIME,
 	VELOCITY_EPSILON,
 } from '../src/sim/physics/constants';
+import { AUTHORED_PHYSICS_FILES as AUTHORED_PHYSICS_FILES_NO_EXT } from '../tools/dependency-cruiser.config.mjs';
 import { listFilesRecursive } from './util/list-files';
 
 const SIM_ROOT = path.resolve(__dirname, '..', 'src', 'sim');
 const PHYSICS_ROOT = path.resolve(SIM_ROOT, 'physics');
+
+// The ONE canonical list of authored (never-ported) files under
+// src/sim/physics/**, relative to PHYSICS_ROOT, POSIX-separated. Both
+// describe blocks below (`AUTHORED_FILES`, `AUTHORED_FILES_LOCAL`) derive
+// their own `Set` from this single array instead of hand-copying it a
+// second time -- the two previously WERE independent hand-copies with
+// nothing asserting they agreed (task 29, review finding, rework iteration
+// 4). `tools/dependency-cruiser.config.mjs`'s own `AUTHORED_PHYSICS_FILES`
+// is a THIRD, necessarily separate copy (extension-stripped, and that file
+// must stay import-free per its own header) -- the
+// "agrees with dependency-cruiser's list" describe block below asserts that
+// one against this one directly, closing the gap the drift could hide in.
+const AUTHORED_PHYSICS_FILE_RELATIVE_PATHS: readonly string[] = [
+	'loader/index.ts',
+	'loader/loaded-flipper.ts',
+	'switches.ts',
+	'devices.ts',
+	'machine.ts',
+	'flipper/flipper-config.ts',
+	'flippers.ts',
+	'plunger.ts',
+	'cabinet/slam.ts',
+	'cabinet/index.ts',
+	'hop.ts',
+	'geometry.ts',
+];
 
 describe('src/sim/physics/** header provenance (AD-16)', () => {
 	const PORT_MARKER = '// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0';
@@ -94,20 +121,7 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	// header at the TOP and must NOT carry either port signal (asserted, not
 	// returned past, so the authored branch can never report as a pass while
 	// checking nothing).
-	const AUTHORED_FILES = new Set([
-		'loader/index.ts',
-		'loader/loaded-flipper.ts',
-		'switches.ts',
-		'devices.ts',
-		'machine.ts',
-		'flipper/flipper-config.ts',
-		'flippers.ts',
-		'plunger.ts',
-		'cabinet/slam.ts',
-		'cabinet/index.ts',
-		'hop.ts',
-		'geometry.ts',
-	]);
+	const AUTHORED_FILES = new Set(AUTHORED_PHYSICS_FILE_RELATIVE_PATHS);
 
 	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
 	const isDeclaredAuthored = (relative: string): boolean => AUTHORED_FILES.has(toPosix(relative));
@@ -387,20 +401,7 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 	};
 
 	const toPosixLocal = (relative: string): string => relative.split(path.sep).join('/');
-	const AUTHORED_FILES_LOCAL = new Set([
-		'loader/index.ts',
-		'loader/loaded-flipper.ts',
-		'switches.ts',
-		'devices.ts',
-		'machine.ts',
-		'flipper/flipper-config.ts',
-		'flippers.ts',
-		'plunger.ts',
-		'cabinet/slam.ts',
-		'cabinet/index.ts',
-		'hop.ts',
-		'geometry.ts',
-	]);
+	const AUTHORED_FILES_LOCAL = new Set(AUTHORED_PHYSICS_FILE_RELATIVE_PATHS);
 	const physicsFilesLocal = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 	const declaredPorts = physicsFilesLocal
 		.map((f) => toPosixLocal(path.relative(PHYSICS_ROOT, f)))
@@ -439,4 +440,34 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 			).toBe(expectedHash);
 		});
 	}
+});
+
+// Task 29 (review finding, rework iteration 4): tools/dependency-cruiser.config.mjs
+// carries its own AUTHORED_PHYSICS_FILES list (used to exempt authored physics
+// files from the DW-105 no-circular rule's ported-target carve-out), extension-
+// stripped and necessarily separate from this file's own AUTHORED_FILES /
+// AUTHORED_FILES_LOCAL (that config must stay import-free -- see its own header
+// comment). That config's own comment used to claim this drift "is caught by
+// that test", which was never true: nothing here compared the two lists. This
+// closes the gap directly, against the SAME canonical array AUTHORED_FILES and
+// AUTHORED_FILES_LOCAL both derive from above, so a new authored physics file
+// added to one list and forgotten in the other fails loudly here instead of
+// silently leaving a real cycle's target un-exempted (or over-exempted).
+describe('AUTHORED_PHYSICS_FILES (tools/dependency-cruiser.config.mjs) agrees with AUTHORED_FILES (this file)', () => {
+	it('sanity: both lists are non-empty, or the comparison below is vacuous', () => {
+		expect(AUTHORED_PHYSICS_FILE_RELATIVE_PATHS.length).toBeGreaterThan(0);
+		expect(AUTHORED_PHYSICS_FILES_NO_EXT.length).toBeGreaterThan(0);
+	});
+
+	it('every dependency-cruiser AUTHORED_PHYSICS_FILES entry, with its .ts extension restored, names a file declared in AUTHORED_FILES here', () => {
+		const withExt = AUTHORED_PHYSICS_FILES_NO_EXT.map((f: string) => `${f}.ts`);
+		const missing = withExt.filter((f: string) => !AUTHORED_PHYSICS_FILE_RELATIVE_PATHS.includes(f));
+		expect(missing, `dependency-cruiser declares these as authored, but AUTHORED_PHYSICS_FILE_RELATIVE_PATHS here does not: ${missing.join(', ')}`).toEqual([]);
+	});
+
+	it('every AUTHORED_FILES entry here, extension-stripped, is declared in dependency-cruiser\'s AUTHORED_PHYSICS_FILES', () => {
+		const stripped = AUTHORED_PHYSICS_FILE_RELATIVE_PATHS.map((f) => f.replace(/\.ts$/, ''));
+		const missing = stripped.filter((f) => !AUTHORED_PHYSICS_FILES_NO_EXT.includes(f));
+		expect(missing, `this file declares these as authored, but tools/dependency-cruiser.config.mjs's AUTHORED_PHYSICS_FILES does not: ${missing.join(', ')}`).toEqual([]);
+	});
 });

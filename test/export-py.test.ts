@@ -300,6 +300,14 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		// of a triangular footprint would still report a 4-corner rectangle
 		// (the bbox of the triangle); the hull reduction must report the true
 		// 3-point shape.
+		//
+		// Mutation target is col_wall_top, not col_wall_bottom_l: Story 2.1a
+		// task 25 (DW-119) reshaped col_wall_bottom_l's own footprint into a
+		// four-point convex quad whose top edge slopes toward the drain
+		// aperture, so the mutator's position-matched corner collapse (see its
+		// own header comment) no longer lands on an existing vertex there.
+		// col_wall_top is a plain, untouched axis-aligned box, which is all
+		// this mutation needs.
 		const mutated = mutateBlend('angled-wall-footprint');
 		const outDir = freshTmpDir();
 		const { status, stderr } = runExportPy(mutated, outDir);
@@ -308,9 +316,9 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		const doc = JSON.parse(readFileSync(path.join(outDir, 'dragonwar.collision.json'), 'utf8')) as {
 			nodes: Array<{ name: string; footprintMm?: Array<{ x: number; y: number }> }>;
 		};
-		const node = doc.nodes.find((n) => n.name === 'col_wall_bottom_l');
-		expect(node, 'col_wall_bottom_l missing from the mutated export').toBeDefined();
-		expect(node!.footprintMm, 'col_wall_bottom_l must still carry a footprintMm').toBeDefined();
+		const node = doc.nodes.find((n) => n.name === 'col_wall_top');
+		expect(node, 'col_wall_top missing from the mutated export').toBeDefined();
+		expect(node!.footprintMm, 'col_wall_top must still carry a footprintMm').toBeDefined();
 		expect(
 			node!.footprintMm!.length,
 			`expected a 3-point triangular footprint, got ${node!.footprintMm!.length} points -- the hull reduction is not representing the mesh's true (angled) shape`,

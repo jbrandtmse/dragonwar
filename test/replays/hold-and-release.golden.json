@@ -368,7 +368,7 @@
     "physicsSeed": 999,
     "tickHz": 1000,
     "tableHash": "5985b9f7",
-    "assetHash": "8f2d2ec0",
+    "assetHash": "3806f64",
     "physicsVersion": "v1-c5990f6c"
   },
   "transitions": [
@@ -410,7 +410,7 @@
     }
   ],
   "durationTicks": 8110,
-  "expectedHash": "7a1031c7",
-  "expectedGameStateHash": "872c62ad",
+  "expectedHash": "76862475",
+  "expectedGameStateHash": "d4cd4fcd",
   "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:326-329, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed."
 }

@@ -147,8 +147,15 @@ def mutate_angled_wall_footprint():
 	# order): every vertex sitting at (x_max, y_min) -- at both z_low and
 	# z_high -- is moved onto (x_max, y_max), collapsing the "x = x_max" face
 	# onto the "x = x_max, y = y_max" edge and leaving three distinct
-	# footprint corners instead of four.
-	obj = bpy.data.objects['col_wall_bottom_l']
+	# footprint corners instead of four. Requires a genuine axis-aligned
+	# rectangular box in the mesh's own local coordinates, so the collapse
+	# lands exactly on an existing vertex rather than merely relocating one --
+	# col_wall_top is used here (retargeted from col_wall_bottom_l by Story
+	# 2.1a task 25: that wall's own footprint is no longer a simple rectangle
+	# -- its top edge slopes toward the drain aperture, DW-119 -- so this
+	# same position-matching collapse would move a corner onto empty space
+	# instead of an existing vertex and stop producing a triangle at all).
+	obj = bpy.data.objects['col_wall_top']
 	mesh = obj.data
 	xs = sorted({round(v.co.x, 6) for v in mesh.vertices})
 	ys = sorted({round(v.co.y, 6) for v in mesh.vertices})

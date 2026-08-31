@@ -368,7 +368,7 @@
     "physicsSeed": 999,
     "tickHz": 1000,
     "tableHash": "5985b9f7",
-    "assetHash": "8f2d2ec0",
+    "assetHash": "3806f64",
     "physicsVersion": "v1-c5990f6c"
   },
   "transitions": [],
@@ -390,8 +390,8 @@
       "coil": "c_autolaunch"
     }
   ],
-  "durationTicks": 6000,
-  "expectedHash": "fde093a0",
-  "expectedGameStateHash": "bc9b2b6b",
-  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:326-329, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed."
+  "durationTicks": 3400,
+  "expectedHash": "257375f2",
+  "expectedGameStateHash": "8ea42430",
+  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:326-329, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed. durationTicks shortened from 6000 to 3400 by Story 2.1a task 25 (DW-119 residual): the pre-fix col_wall_bottom_l/_r had a dead-flat top face that stranded a resting ball forever, so this golden's own two balls could safely stay in play for the full original 6000 ticks. The fix (a genuine slope toward the drain aperture) now lets a ball that ends up on that ledge actually reach bd_trough -- measured this pass, the lead ball (id 0) drains at tick 3636. That is DW-119 working as intended, not a regression, but it falls outside what this golden claims (\"both balls survive to the end\"), which was never about drain routing. 3400 keeps a comfortable margin after the last close-approach event (measured: rebound detected by tick 2929, minimum separation ~26.99 mm at tick 2999) and well before the tick-3636 drain, so the full collision claim (momentum transferred, no overlap, no sticking, both balls present) is still demonstrated in its entirety."
 }

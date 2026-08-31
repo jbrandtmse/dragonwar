@@ -169,7 +169,7 @@ POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y 
 # temporarily moved out of reach, the same shallow rail re-tested in
 # isolation) confirmed it carries the ball to the aperture cleanly once
 # nothing else is nearby -- the fix therefore had to remove that face from
-# reach, not out-race it. add_bottom_wall_trapezoid() (below) does exactly
+# reach, not out-race it. add_bottom_wall_quad() (below) does exactly
 # that, chamfering col_wall_bottom_l/_r's own inner corner away from the
 # outlane by BOTTOM_SWEEP_MM.
 #
@@ -193,7 +193,7 @@ POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y 
 # removes the one nearby surface a lone rail's own face could ever pinch
 # against: a SINGLE rail, bent once (KNEE_DROP_MM below) to clear
 # col_wall_bottom_l/_r's own remaining, unavoidable TOP corner too (the one
-# add_bottom_wall_trapezoid()'s chamfer cannot move, since it still blocks
+# add_bottom_wall_quad()'s chamfer cannot move, since it still blocks
 # an on-deck ball crossing y = 0 outside the outlane). No second rail
 # "fully encloses" the ball, so its exit X is verified empirically (this
 # story's own AC 7 routing test) rather than guaranteed by construction --
@@ -202,7 +202,7 @@ POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y 
 # BOTTOM_SWEEP_MM: how far col_wall_bottom_l/_r's own bottom (y = -WALL_T_MM)
 # inner corner sweeps away from the outlane, versus its TOP (y = 0) inner
 # corner, turning that wall's inner edge from a vertical face into a
-# diagonal one -- see add_bottom_wall_trapezoid()'s own doc comment for the
+# diagonal one -- see add_bottom_wall_quad()'s own doc comment for the
 # full mechanism this closes. Sized with margin past the rail's own knee
 # (KNEE_DROP_MM below, whose own corner reaches ~55 mm from the true
 # perimeter): 90 mm keeps col_wall_bottom_l/_r's own bottom-inner corner
@@ -233,6 +233,36 @@ CHANNEL_RIGHT_X_END_MM = 304.9
 # point on that segment's own face can be within one ball radius of the
 # corner at the same time.
 KNEE_DROP_MM = 55.0
+
+# Story 2.1a task 25 (DW-119 residual, HIGH): col_wall_bottom_l/_r's own TOP
+# edge -- the face a ball descending from up-table actually rests against --
+# used to run dead flat at y = 0 across its whole ~165 mm span (outlane
+# boundary to drain-aperture boundary). This solver's gravity is pure
+# down-slope with NO x-component (TABLE.reference.pitchDeg tilts only the y
+# axis), so a flat, x-axis-parallel face gives a resting ball zero tangential
+# force in any direction -- it stops the instant it arrives and never moves
+# again (measured: parked at y = 13.49-13.50 mm, one ball radius above the
+# flat face, for x anywhere along the span; a 120 s run showed it creeping
+# AWAY from the drain at ~0.5 mm/s if anything, not toward it). A surface
+# NORMAL with an x-component is the only thing that can move a ball sideways
+# under this gravity model, so the fix angles the top edge itself: it still
+# starts at y = 0 at the outlane-facing end (unchanged -- this is the
+# boundary the outlane geometry above already assumes), but now descends
+# BOTTOM_WALL_DRAIN_DROP_MM by the drain-facing end, turning the face from a
+# horizontal line into a shallow ramp whose downhill direction runs toward
+# the drain aperture. A ball resting anywhere on it now has a genuine
+# tangential component of gravity pulling it toward the drain end, and once
+# it reaches that end it simply runs off the segment's own finite extent into
+# the untouched DRAIN_X0_MM..DRAIN_X1_MM aperture -- the same mechanism the
+# outlane's own gap (col_wall_bottom_l/_r starting only at OUTLANE_WIDTH_MM,
+# never covering x < that) already relies on. Kept well short of the full
+# WALL_T_MM (12 mm) depth so the new drain-side corner stays a real, non-
+# degenerate edge clear of the wall's own bottom (y = -WALL_T_MM) edge, and
+# far too small a y-excursion to reach anywhere near the below-deck return
+# channel, which this task must not move (its own clearance math above
+# operates on the wall's BOTTOM edge and swept inner corner, both left
+# untouched here -- only the TOP edge's outer endpoint moves).
+BOTTOM_WALL_DRAIN_DROP_MM = 10.0
 
 
 def octagon_points_mm(center_mm, radius_mm):
@@ -439,16 +469,14 @@ def main():
 	# Story 2.1a task-22 constants block explains why not: widening it
 	# removes wall coverage a ball can rest on during ordinary gameplay well
 	# outside the true outlane, reproduced directly this task's own
-	# implementation pass). Each is now a TRAPEZOID, not a box: its TOP edge
-	# (y = 0) still runs the full OUTLANE_WIDTH_MM..DRAIN_X0_MM span, exactly
-	# preserving what it always blocked on-deck, but its INNER (outlane-side)
-	# edge sweeps BOTTOM_SWEEP_MM further away from the outlane as it
-	# descends to y = -WALL_T_MM, so its own vertical face -- which a ball
-	# descending the return channel used to be able to reach (within one
-	# ball radius in X, for any Y within one ball radius of this wall's own
-	# y range -- i.e. well past y = -WALL_T_MM alone) and settle into a
-	# genuine resting graze against -- no longer exists anywhere near the
-	# channel at all. Found and verified this task's own implementation
+	# implementation pass). Each is a QUAD, not a box: its INNER
+	# (outlane-side) edge sweeps BOTTOM_SWEEP_MM further away from the
+	# outlane as it descends to y = -WALL_T_MM, so its own vertical face --
+	# which a ball descending the return channel used to be able to reach
+	# (within one ball radius in X, for any Y within one ball radius of this
+	# wall's own y range -- i.e. well past y = -WALL_T_MM alone) and settle
+	# into a genuine resting graze against -- no longer exists anywhere near
+	# the channel at all. Found and verified this task's own implementation
 	# pass: a two-segment channel rail that instead tried to simply
 	# out-race this wall's OLD vertical face (a steep entrance dropping
 	# clear of it before turning shallow) still failed for a release close
@@ -456,17 +484,27 @@ def main():
 	# travel through the channel's own redirect to reach the wall's old
 	# reach at all) -- removing the reachable face itself, not merely
 	# out-running it, is what actually closes the defect.
-	def add_bottom_wall_trapezoid(name, inner_x_mm, outer_x_mm, sweep_toward_mm):
+	#
+	# Story 2.1a task 25 (DW-119 residual, HIGH): the TOP edge -- the face a
+	# ball descending from up-table actually rests against -- is no longer
+	# flat. It still starts at y = 0 at the outlane-facing (inner) end,
+	# unchanged, but now descends BOTTOM_WALL_DRAIN_DROP_MM by the
+	# drain-facing (outer) end, so the whole span is a shallow ramp toward
+	# the aperture instead of a dead-flat ledge -- see this file's own
+	# constants block for why a flat face traps a ball outright under this
+	# solver's x-component-free gravity, and why the drop is sized well
+	# short of the full WALL_T_MM depth.
+	def add_bottom_wall_quad(name, inner_x_mm, outer_x_mm, sweep_toward_mm, drain_drop_mm):
 		top_inner = (inner_x_mm, 0.0)
-		top_outer = (outer_x_mm, 0.0)
+		top_outer = (outer_x_mm, -drain_drop_mm)
 		bottom_outer = (outer_x_mm, -WALL_T_MM)
 		bottom_inner = (inner_x_mm + sweep_toward_mm, -WALL_T_MM)
 		wall = new_prism_mesh(name, [top_inner, top_outer, bottom_outer, bottom_inner], 0.0, WALL_H_MM, parent=playfield_root)
 		set_props(wall, col_shape='wall', surface='wood', phys_material='default')
 		return wall
 
-	add_bottom_wall_trapezoid('col_wall_bottom_l', OUTLANE_WIDTH_MM, DRAIN_X0_MM, BOTTOM_SWEEP_MM)
-	add_bottom_wall_trapezoid('col_wall_bottom_r', LANE_X0_MM - OUTLANE_WIDTH_MM, DRAIN_X1_MM, -BOTTOM_SWEEP_MM)
+	add_bottom_wall_quad('col_wall_bottom_l', OUTLANE_WIDTH_MM, DRAIN_X0_MM, BOTTOM_SWEEP_MM, BOTTOM_WALL_DRAIN_DROP_MM)
+	add_bottom_wall_quad('col_wall_bottom_r', LANE_X0_MM - OUTLANE_WIDTH_MM, DRAIN_X1_MM, -BOTTOM_SWEEP_MM, BOTTOM_WALL_DRAIN_DROP_MM)
 
 	# ---- col_lane_deflector: angled triangular prism at the top of the
 	# plunger lane (Story 1.5, provisional placeholder geometry not derived
@@ -565,7 +603,7 @@ def main():
 		(col_lane_deflector, task 22's own rationale block above). NOTE:
 		this rail alone does not prevent a ball from RESTING against
 		col_wall_bottom_l/_r's own face in a genuine, near-stationary graze
-		-- that is what add_bottom_wall_trapezoid()'s own chamfer (this
+		-- that is what add_bottom_wall_quad()'s own chamfer (this
 		file's Story 2.1a task-22 constants block, BOTTOM_SWEEP_MM) exists
 		to rule out; see its own comment for the mechanism, found and
 		verified this task's own implementation pass by direct
