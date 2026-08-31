@@ -1054,6 +1054,7 @@ So that a complete game is playable from Start to the last ball.
 - DW-70: `GameState.machine.deviceSlots` is written by `sim/loop` after `rules.step()` returns, not derived inside `sim/rules/ball-controller.ts` as AD-7 and this story both require; `pnpm check:ad7` is deliberately red until this story fixes it, and `test/ad7-device-slots.test.ts` (which currently asserts the failure exists) must be updated in the same change (ledger; routed by decision_sheet 2026-08-30)
 - DW-85: the roll-and-drain golden contributes zero unique discriminating signal — its terminal `GameState` equals its own starting state, so a defect that perturbs the trajectory but converges back leaves the hashed final state unchanged (ledger; routed by decision_sheet 2026-08-30)
 - DW-87: `PHYSICS_VERSION` hashes only the 13 AD-15-pinned solver constants, so editing any other integration-affecting constant breaks every golden as a bare hash mismatch instead of a named re-record (ledger; routed by decision_sheet 2026-08-30)
+- DW-113: `tuning.ts`'s `flipperTipGapMm` provenance sentence is missing a connector; the fix is blocked outside this story because TUNING `source` strings are embedded verbatim in every golden's `header.gameStart.tuning`, so correcting it requires refreshing all five golden headers in the same pass (ledger; routed by harvest 2026-08-31)
 
 ### Story 2.6: The DMD Backglass
 

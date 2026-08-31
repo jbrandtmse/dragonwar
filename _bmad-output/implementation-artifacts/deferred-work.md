@@ -699,3 +699,23 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-0-epic-1-deferred-cleanup.md | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: The action item epic-1-retro-item-5-give-test-sim-boundary-test-ts-a-deliber remains status: open in sprint-status.yaml. Story 2.0 delivered the rename plus the documented owner line, which is the whole of what the item asked for
 - 2026-08-30T17:08:28Z status=dropped owner=2-0-epic-1-deferred-cleanup by=harvest note=action_item: not a ledger item to fix. It is already tracked in sprint-status.yaml action_items and is closed by the Epic 2 retrospective WITH THE AUTHOR, never silently by a runner (kit rule). Filing it as a second tracker would be the duplicate-tracking anti-pattern. Recorded here only so the harvest is complete; the runner reports it done in its completion contract
+
+### DW-110: AC 2's 'still in contact with the bat' claim is asserted through a drift/speed proxy because FlipperMover's public isInContact boolean is not surfaced through createFlipperMechanics()'s FlipperMechanics interface
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: test/flipper-collision.test.ts's (b) AC 2 test infers contact from drift under one ball radius plus near-zero speed; flipper-mover.ts:97 already sets isInContact per tick but no public accessor exposes it
+- 2026-08-31T07:19:09Z status=open owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=in-story: Story 2.1a's own ledger_adjudicated gate closes this after code review, either by widening the mechanics contract or by an honest re-own
+
+### DW-111: No standing test verifies the flipper's swept modelled body clears the new drain-triangle guides and posts across the full stroke -- only the two settled endpoints are covered
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: The bat's tip circle sweeps from about 141 deg to 90 deg past col_post_pocket_l/r and col_guide_outer_l/r which sit close to that sweep by design; the diff's own comments say clearance was verified empirically by hand during planning, not by a standing test, so a future change to sweepDeg, endRadiusRatio or the post constants could reintroduce a clip undetected
+- 2026-08-31T07:19:10Z status=open owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=in-story MED in-footprint with low fix-risk: Rule 15 makes this fix-now, not deferrable -- the code review or a Fix Pack iteration must add the clearance test
+
+### DW-112: Three test-only non-null assertions on flippers.find(f => f.side === 'l') throw a generic TypeError instead of a named diagnostic if the left flipper node is ever missing or renamed
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: test/cabinet-nudge-cradle.test.ts:122 and test/flipper-collision.test.ts:51,242 all write flippers.find((f) => f.side === 'l')!.pivotMm.x; other tests would fail with a clear message first so practical risk is low
+- 2026-08-31T07:19:10Z status=open owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=in-story two-way door, about 3 lines: fix in the Fix Pack iteration or close with a probe at adjudication
+
+### DW-113: tuning.ts's flipperTipGapMm provenance sentence is missing a connector and reads as a grammar error
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: Attempted as a review-pass patch and reverted: TUNING entry source strings are embedded verbatim in every golden replay's header.gameStart.tuning, so editing this one string breaks all 5 goldens' stale-header parity check (33 failures observed). A safe fix must refresh the 5 golden headers in the same pass
+- 2026-08-31T07:19:10Z status=routed owner=2-5-start-hot-seat-and-the-ball-lifecycle by=harvest note=routed to Story 2.5 because 2.5 already owns the real golden re-record; a cosmetic tuning.ts string edit is only cheap inside a pass that re-derives the goldens anyway
