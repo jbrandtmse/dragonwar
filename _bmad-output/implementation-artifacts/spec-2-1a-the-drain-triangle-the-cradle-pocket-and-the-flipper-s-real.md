@@ -1,0 +1,234 @@
+---
+title: 'Story 2.1a: The drain triangle, the cradle pocket and the flipper''s real dimensions'
+type: 'feature'
+created: '2026-08-30'
+status: 'ready-for-dev'
+review_loop_iteration: 0
+followup_review_recommended: false
+context:
+  - '{project-root}/CLAUDE.md'
+  - '{project-root}/AGENTS.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/spec-2-0-epic-1-deferred-cleanup.md'
+warnings: ['oversized']
+deferred: []
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** The playfield carries no geometry beside either flipper, so no cradle pocket exists and a ball on a raised bat rolls off after ~1.2-1.9 s (`DW-72`). Worse, the bat itself is wrong twice over: the modelled collision body runs 91.875 mm — 12.5 mm longer than the 79.375 mm box `assertReferenceDimensions()` pins as the bat (`DW-78`) — and the test that claims to prove cradling spawns its ball ~9 mm *inside* that body, so it measures embedded-ball ejection rather than a resting contact (`DW-77`). Every later Epic 2 story draws its shot map on this geometry.
+
+**Approach:** Author the drain triangle — flipper tip gap, both outlane widths, the inlane guides and every post — in `assets/src/dragonwar.blend` through its reviewable seeding script, re-export both artifacts, and reconcile the flipper's modelled body with the authored box by insetting the pivot one `baseRadius` while leaving the pivot's table-frame position untouched. Then prove the pocket: a ball settled onto a raised bat by physics (never placed inside it) stays in the pocket for a full 5 simulated seconds.
+
+## Boundaries & Constraints
+
+**Always:**
+- **Blender owns placement (AD-11).** Geometry changes are authored in `tools/make-placeholder-blend.py`, the `.blend` is regenerated headlessly, and **both** `public/assets/dragonwar.glb` and `public/assets/dragonwar.collision.json` are re-exported through `pnpm export:assets` and committed together. Never hand-edit either artifact. Blender 5.2.1 LTS is present on this host but **not** on `PATH`: pass it through the `BLENDER` environment variable (`tools/blender.mjs` `resolveBlender()`); **never hardcode the path into a tracked file** (the orchestrator's standing constraint, `cycle-log-epic-1.md:88`).
+- **`TABLE.reference` is untouchable.** `playfieldMm 514.4 x 1066.8`, `ballMm 26.99`, `pitchDeg 6.5`, `flipperBatIn 3.125` stay exactly as they are, and `assertReferenceDimensions()` must keep measuring each `col_flipper_*` node's **x extent** as `flipperBatIn * 25.4 = 79.375` mm within `TOLERANCE_MM = 0.1` (AD-10, DW-48).
+- **The authored box is the whole rubbered bat.** After reconciliation the modelled body span (`baseRadius + flipperRadius + endRadius`) equals the box's x extent exactly. FR-4 says the bat is "3.125 in **rubbered**", i.e. overall, so the pivot sits one `baseRadius` in from the box's outer end and the base circle no longer protrudes behind authored geometry.
+- **The pivot's table-frame position does not move.** Left pivot stays at table x = 170.0, right at x = 344.4 (spacing 174.4 mm, inside the only sourced placement figure — 173.0-177.8 mm, `research/.../digests/geometry-r2-1.md:13`, confidence medium). The boxes move outward by `baseRadius` so the pivot lands where it already is. This keeps `angleEnd = atan2(dx, -dy)` and therefore the 90 deg / -90 deg end-of-stroke and ~141 deg / ~-141 deg rest angles unchanged.
+- **Guides end at rubber.** Every ball guide's free end terminates at a post node carrying `surface: 'rubber_post'`. No guide may end on a `metal` or `wood` surface.
+- **Every authored wall footprint is convex.** `tools/export.py`'s `wall_footprint_mm()` silently replaces a concave footprint with its convex hull, and `addWall()`'s centroid orientation is only correct for a convex polygon (`DW-52`). Curves are authored as a chain of convex prisms, never one concave mesh.
+- **Do-not-invent numbers ship `unverified` (AD-15).** The flipper tip gap and both outlane widths carry `confidence: 'unverified'` in `src/sim/table/tuning.ts` with a `source` string that states the derivation and its provenance.
+- **Ported files stay frozen (DW-79).** Only the eleven `AUTHORED_FILES` under `src/sim/physics/` may be edited (`test/port-provenance.test.ts:97-108`). `flipper-mover.ts`, `flipper-hit.ts` and `game/player-physics.ts` are frozen ports — reconcile in `flipper-config.ts` / `loader/index.ts` instead.
+- **Non-ASCII in source via escape sequences only** (Rule 14). Prose files are exempt.
+- **`ATTRIBUTIONS.md` before the file (CLAUDE.md hard gate).** Re-date and re-describe the three `## Generated content` rows (`:69`, `:70`, `:71`) for the `.blend`, the `.glb` and the collision json **before** regenerating them. Nothing automated catches a missed re-date (`DW-50`, owned by Story 6.7).
+- **The suite stays green.** Baseline is 77 files / 955 passing / 21 skipped. `pnpm check:ad7` must **still exit 1** naming `AD-7`, `DW-70` and `bd_trough` — that red is Story 2.5's deliverable and a green `check:ad7` is a regression.
+
+**Block If:**
+- A golden replay's **scenario** can no longer be produced by the new geometry — e.g. `roll-and-drain`'s ball no longer reaches `bd_trough` by tick 8200, or a per-golden checkpoint assertion in `test/replay-goldens.test.ts` (`:440`, `:467`, `:568`, `:584`, `:599`) becomes false. Refreshing a stale header and re-deriving an expected hash after a deliberate geometry change is sanctioned; silently rewriting a golden whose *claim* has died is not. HALT naming the golden and the assertion.
+- Reconciling the pivot cannot keep both the modelled span at 79.375 mm and `assertReferenceDimensions()` green without changing `TABLE.reference` or an AD.
+- The 5 s cradle cannot be produced by any convex, rubber-terminated pocket drawn within the authored outlane and inlane widths — i.e. proving it would require changing a solver constant, a frozen port, or the pitch. HALT rather than tune physics to reach the criterion.
+- Blender cannot be resolved through `BLENDER`, or `pnpm export:assets` cannot reproduce the committed artifacts, so the `.blend` and the exported artifacts would have to diverge.
+
+**Never:**
+- Never source a Bally (or any commercial) playfield template, DXF or SVG. PRD OQ-6 was partly resolved 2026-08-27: **geometry is drawn from the reference dimensions alone**.
+- Never author the Loops, the Ramp, the Dragon, the Lock lane, the DRAGON bank, the Top lanes, the slingshot or pop **bodies**, or any `sw_`/`s_`/`c_` declaration for them — that is Story 2.1b. This story adds no switch, no coil and no ball device.
+- Never run the seven-shot Lawlor feel ritual or touch the camera framing (Story 2.1b, `epics.md:915`). The stale traceability row `epics.md:235` mapping FR-32 to "2.1" does not move FR-32 here.
+- Never touch `DW-70` / `check:ad7` (Story 2.5), `DW-58`/`DW-65`/`DW-67`/`DW-68`/`DW-46`/`DW-53` (Story 2.1b), or `NOTICE`'s vpinball claim `DW-82` (Story 6.7).
+- Never re-record a golden's `transitions` or remove a `coilPrologue` — Story 2.5 owns that.
+- Never introduce a new `phys_material`. Steel-on-rubber restitution and friction are on the PRD's do-not-invent list; posts carry `phys_material: 'default'` until a measured rubber material arrives with the slingshots.
+- Never edit `_bmad-output/implementation-artifacts/deferred-work.md` directly.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Drain triangle loads | Regenerated `dragonwar.collision.json` with the new guide and post nodes | `loadCollision()` returns every new `col_` node; `assertReferenceDimensions()` passes unchanged; both flipper boxes still measure 79.375 mm on x | Missing node or unknown property throws at load (AD-11 fail-fast) |
+| Guides end at rubber (AC 1) | The committed collision document | Every ball-guide node's free end has a post node with `surface: 'rubber_post'` within one post radius; no guide end is bare | Test names the guide whose end is bare |
+| Reconciled bat (`DW-78`) | `loadFlipper()` + `buildFlipperConfig()` over the new boxes | `baseRadius + flipperRadius + endRadius === box x extent === 79.375` mm for both bats; `pivotMm.x` still 170.0 / 344.4; end-of-stroke still 90 / -90 deg | Assertion names the bat and the measured span |
+| Settled resting contact (`DW-77`) | Ball released **clear of** the raised bat's modelled body, at a position derived from the collision document | Physics settles it onto the bat within the arrange window; the arrange asserts contact and near-zero speed **before** the measurement window opens | If it never settles, the arrange fails loudly rather than measuring free travel |
+| 5 s cradle (AC 2, `DW-72`) | Left flipper key held 5000 ticks with the ball settled in the pocket | Ball stays in the pocket: drift from its **settled** position under one ball radius, speed at rest, still in contact with the bat, and no `bd_trough` slot closes | Test reports drift, speed and trough state at 1 s and 5 s |
+| Cradle negative control | Same run with the flipper key released | The ball leaves the pocket and reaches `bd_trough` — proving the held-bat result is not produced by the guide alone | — |
+| Non-convex wall footprint (`DW-52`) | A collision document whose `footprintMm` has a reflex vertex | `addWall()` throws at load naming the node and the offending vertex index | Load-time throw (AD-16 error convention) |
+| Box edge coverage (`DW-59`) | A ball rolling at deck height into a `box` node's edge | The edge primitive fires; the paired control against the 12-triangle-only construction records zero collisions | — |
+| `applyPitch()` precondition (`DW-55`) | `playfield_root` with a non-identity authored transform | Throws naming the node instead of silently overwriting it | Presentation load-time throw |
+| `deepFreeze` pre-frozen child (`DW-33`) | `deepFreeze(Object.freeze({ inner: { a: 1 } }))` | `inner` is frozen; mutation throws in strict mode; a self-referential input terminates | — |
+| Golden headers | Collision document and `TUNING` both changed | All five goldens carry the live `assetHash` and `gameStart.tuning`; every scenario assertion still passes | A dead scenario is a **Block If**, not a hash edit |
+
+</intent-contract>
+
+## Code Map
+
+Every anchor below was read during planning at `2338423` (tree clean, branch `DW-1-epic2`).
+
+**Asset authoring — the only sanctioned path into the geometry**
+
+- `tools/make-placeholder-blend.py` — the reviewable record of the `.blend`; Story 1.5 already re-ran it to change geometry, so it is the established edit point despite its "one-shot" header.
+  - `:45-87` constants block (`PLAYFIELD_W_MM 514.4`, `FLIPPER_BAT_MM 79.375`, `BALL_MM 26.99`, `WALL_T_MM 12`, `WALL_H_MM 50`, `LANE_CLEAR_MM 34`, `DRAIN_X0_MM 200`, `DRAIN_X1_MM 314.4`) — new drain-triangle constants go here.
+  - `:132-172` `_prism_bmesh()` / `new_prism_mesh()` — **the helper for every guide and post**: an arbitrary plan-view polygon extruded in z.
+  - `:267-278` the wall table (`(name, min_mm, max_mm)` tuples) — straight, axis-aligned walls only.
+  - `:280-301` `col_lane_deflector` — the angled-prism prototype: identity object transform with angled **mesh vertices**, which is what survives `export.py`'s rotation guard. Copy this shape.
+  - `:303-320` `col_flipper_l` / `col_flipper_r` — the two boxes that move outward by `baseRadius`.
+  - `:197-199` `set_props()` — writes `col_shape`, `surface`, `phys_material`.
+  - `:406-417` the presentation selection list — `col_`/`sw_` are excluded from the glb by design; do not add new collision nodes there.
+- `tools/export.py` — validation is generic by prefix and `col_shape`, so **new `wall` nodes need no export change**. `:38` `COL_SHAPES = {'plane','wall','box'}`; `:157-197` `validate_properties` (`surface` from `CONTACT_SURFACES`, `phys_material` from `TABLE.physMaterials`); `:215-266` `validate_col_geometry_reducible` (MESH only; world matrix must be diagonal; walls need non-degenerate x and y extent); `:340-386` `wall_footprint_mm()` — **convex hull, CCW, lexicographic-first**; `:389-413` `build_collision_nodes()`.
+- `tools/export-assets.mjs` / `tools/blender.mjs:112` `resolveBlender()` — `pnpm export:assets`; env `BLENDER` first. Blender 5.2.1 LTS is installed on this host outside `PATH` (see the cycle log's `tooling_backstop_received` entry); resolve it through the env var only.
+- `public/assets/dragonwar.collision.json` — 12 `col_` nodes today. Wall node shape: `bboxMm`, `footprintMm` (closed CCW ring, no repeated point), `name`, `physMaterial`, `shape`, `surface`, `zLowMm`, `zHighMm`. Box node shape: `bboxMm`, `name`, `physMaterial`, `shape`, `surface`. Load-bearing extents: drain aperture x **200 - 314.4** at y -12..0; `col_flipper_l` x **170 - 249.375**, `col_flipper_r` x **265.025 - 344.4**, both y 57.5-82.5 (centreline y = **70**, half-width **12.5**), z 0-20; current tip gap **15.65 mm**, *narrower than the 26.99 mm ball*, so a centre drain is impossible today.
+- `src/sim/contracts/events.ts:30-46` — `CONTACT_SURFACES`, `rubber_post` at `:32`. Nothing in the repo uses `rubber_post` yet; `surface: 'rubber_post'` validates with **zero** code change.
+
+**The flipper reconciliation (`DW-78`)**
+
+- `src/sim/physics/loader/index.ts:585-622` `loadFlipper()` — `:604-608` pivot = the box x-end **farther from the playfield x-centre**, tip = the other end; `:614-616` `pivotMm`/`lengthMm = b.max.x - b.min.x`; `:617` `halfWidthMm = (b.max.y - b.min.y) / 2`. **This is where the `baseRadius` inset belongs.**
+- `src/sim/physics/flipper/flipper-config.ts:97-149` `buildFlipperConfig()` — `:113` `angleEnd = Math.atan2(dx, -dy)`; `:115-124` `angleStart` from `sweepDeg`; `:126` `baseRadiusMm = flipper.halfWidthMm`; `:127` `endRadiusMm = baseRadiusMm * endRadiusRatio`; **`:134` `flipperRadiusMm = Math.max(flipper.lengthMm - endRadiusMm, 0.01)`** — the defect line; `:140` `center: Vertex2D(pivotPhys.x, pivotPhys.y)`.
+- `src/sim/physics/flipper/flipper-mover.ts:104,108-109,130,134` — **FROZEN**. `hitCircleBase` is a full circle of `baseRadius` at the pivot, so the body reaches `baseRadius` behind it and `flipperRadius + endRadius` ahead; `inertia = (1/3) * mass * flipperRadius^2`, so a changed `flipperRadius` moves the overshoot margin.
+- `src/sim/physics/loader/index.ts:335-368` `assertReferenceDimensions()` (called `:660`), `:57` `TOLERANCE_MM = 0.1`, `:326-333` `assertClose()`; `:353-367` the per-bat x-extent check (DW-48).
+- Arithmetic to reproduce: `baseRadius 12.5`, `endRadius = 12.5 * 13/21.5 = 7.5581`, today `flipperRadius = 71.8169` and span **91.875**; target `flipperRadius = 79.375 - 12.5 - 7.5581 = 59.3169` and span **79.375**. New boxes: left x **157.5 - 236.875**, right x **277.525 - 356.9**; pivots unchanged at 170.0 / 344.4; resulting tip gap **40.65 mm** (~1.5 ball widths).
+
+**The cradle test (`DW-77`, `DW-72`)**
+
+- `test/flipper-collision.test.ts` — `:46-52` `buildFlipperHarness()` (**no `createDeviceMechanics`**, so a departing ball free-falls forever — the 4292 mm figure is a harness artifact); `:54-61` `spawnBallAt()`; `:83` `END_OF_STROKE_ANGLE_DEG = 90`; `:134` the cradle test; **`:148` `spawnBallAt(physics, 195, 85, 'CradleBall')`** with a comment falsely claiming the point is derived from geometry — ~9.3 mm inside the tapered body; `:179-180` the 1 s bounds (`maxSpeed < 2`, `drift < 35`); `:193-194` the 5 s negative (`drift > 500`, `speed > 10`) that AC 2 replaces; `:197-260` driven-strike and at-rest control at `(210, 85)`; `:316-393` the DW-60 block — **the only place in this file that builds `createDeviceMechanics`, and the pattern to reuse** (`detectEntries`, `parkingSlots.bd_trough`, `applyCommands`).
+- `test/cabinet-nudge-cradle.test.ts:100` — inherits the identical embedded spawn; `:73-78` its constants; `:129-136` arrange guards; `:143-152` the departed/control assertions. Must be re-derived the same way.
+- `_bmad-output/implementation-artifacts/probe-1-6-cradle-energy.txt` — the ports dissipate energy rather than injecting it, a control ball that never touches a flipper runs away *faster*, and the roll-off is missing geometry, not a port defect.
+- Loop-tier harness for the Integration AC: `createLoop({ collisionDoc })` then `loop.advance(ticks, transitions)`, reading `out.snapshot.mechanisms.flippers.l.angleDeg` (pattern at `test/flipper-mover.test.ts:38-40`).
+
+**The five ledger side-quests**
+
+- `DW-52` — `src/sim/physics/loader/index.ts:476-522` `addWall()`; `:489-492` the vertex-mean centroid; `:446-474` `orientedEdge()` (all points already in **physics** space, and `toPhysics()` reverses winding — assert convexity over the **table-frame** `footprintMm`, not `physicsPoints`); `:517-521` the per-vertex `HitLineZ` emit.
+- `DW-59` — same file `:541-576` `addBox()` (**not** `:409-444`; the ledger anchor is stale). Emits 12 `HitTriangle`s only; `:530-539` `outwardTriangle()`. **Zero live callers today** — `:686-701` dispatch `continue`s both flipper boxes (DW-60). Available primitives: `HitLine3D` (`src/sim/physics/hit-line-3d.ts:29`, arbitrary orientation), `HitLineZ` (`hit-line-z.ts:29`), `HitPoint` (`hit-point.ts:31`); the loader currently imports only `HitLineZ`/`HitPlane`/`HitTriangle`/`LineSeg` at `:46-49`. The DW-7 precedent to copy verbatim in shape: rationale comment `:507-516`, and the **paired** tests `test/collision-loader.test.ts:268-310` (edge fires against a deck-height roller) + `:311-373` (the same approach against the pre-change construction records **zero** collisions).
+- `DW-55` — `src/presentation/scene/playfield.ts:76-86` `applyPitch()`: reads `nodes.pivotPitch.position` (a **local** translation) and assigns `playfieldRoot.rotationQuaternion` and `.position` outright. Doc comment `:63-75` states the identity-root precondition that is asserted nowhere. Call sites `src/host/boot.ts:19,240` and `src/presentation/scene/create-engine.ts:65,183,279,283`. Tests `test/scene-smoke.test.ts:198-262` and `:264-305` (the off-axis case whose comment says "Epic 2 moves the pivot").
+- `DW-33` — `src/sim/table/dragonwar.ts:65-73` `deepFreeze()`; `DeepReadonly<T>` at `:58-62`. The `!Object.isFrozen(value)` gate is **both** the short-circuit bug and the only cycle guard, so the fix needs a `WeakSet` visited set. Three call sites: `dragonwar.ts:85`, `tuning.ts:85`, `tuning.ts:508` — and **`tuning.ts:505-507` carries a comment that explicitly relies on the short-circuit; update it.** Tests `test/table.test.ts:32-46`, `test/tuning.test.ts:106,411-417`; neither exercises a pre-frozen or cyclic input.
+- `DW-105` — `tools/dependency-cruiser.config.mjs:116-136` `no-circular`, whose `from: { pathNot: '^src/sim/physics/' }` exempts the whole directory as a cycle **origin**. The real cycle, all four edges verified: `flipper/flipper-config.ts:38` -> `loader/index.ts:45` -> `game/player-physics.ts:101` -> `flipper/flipper-mover.ts:65` -> back. Edges 1 and 2 sit in **authored** files; edges 3 and 4 sit in **frozen** ports. `LoadedFlipper` is declared at `loader/index.ts:134-153` and consumed by `flipper-config.ts:38,97` and `flippers.ts:27,78,119,122,130` — hoisting it into a leaf module breaks edge 1 without touching a port. `AUTHORED_FILES` lives in `test/port-provenance.test.ts:97-108` (and `:389-401`), **not** in the lint config. `test/boundary-lint.test.ts:192-197` + `test/fixtures/boundary/sim-cycle/` pin that the rule fires at all.
+
+**Recorded artifacts this story invalidates**
+
+- `test/replays/*.golden.json` (5: `roll-and-drain`, `hold-and-release`, `full-plunge`, `nudge-coupling`, `two-ball-collision`), each with `assetHash: "a1ee6e8e"` at `:356` and the whole resolved tuning embedded under `header.gameStart.tuning`. `src/sim/loop/replay.ts:213-253` `assertHeaderMatchesLiveEnvironment()` throws `StaleReplayHeaderError` on a changed `assetHash` (`:227-239`) **and** on changed `gameStart.tuning` (`:245-252`), before any hash is computed — so **both** a geometry change and a new tunable break all five. `assetHash()` at `:144-146` hashes the parsed document, not file bytes. There is deliberately **no** re-record script (`src/host/boot.ts:263-268`); the expected values are re-derived by running the replay and reading the actual values off the failing assertion.
+- `test/flipper-mover.test.ts:215,233,270-272,381-384` — the DW-80 overshoot margin `toBeCloseTo(0.0416, 3)` depends on `inertia = (1/3) m r^2`, so a changed `flipperRadius` moves it. Rest/end angles should survive because the pivot->tip **direction** is unchanged.
+- `docs/feel-test.md` + `test/feel-test-docs.test.ts` — `:59-73` the Cradling section must contain `27.5`, `4292` and `dw-72`; `:81-88` the Flipper-snap section must contain `90.0416` and `104.3998`; `:206-224` every item's first entry must read `pending-author`. The **measured build-side numbers** are this story's to update; the **author verdicts stay `pending-author`**.
+- `test/collision-loader.test.ts:487-497` — `left.pivotMm.x 170.0`, `left.tipMm.x 249.375`, `right.pivotMm.x 344.4`, `right.tipMm.x 265.025`, `halfWidthMm 12.5`. Only the two **tip** pins move.
+- `test/asset-contract.test.ts:189-205` (per-bat x extent = 79.375, must still pass), `:209-245` (trough zones tile 200 -> 314.4), `:248-284` (deflector and wall-footprint invariants).
+- `test/export-py.test.ts:111-134` — re-exporting the committed `.blend` must reproduce **both** artifacts byte-for-byte. Blender-gated, so it runs locally and skips in CI.
+- `test/export-py-skip-visibility.test.ts:113` — `expectedSkips = (blenderResolvable ? 0 : 21) + ...`. **Adding any Blender-gated test changes the 21 and this formula must be updated deliberately** (its own message says so).
+- `test/hop-control.test.ts:114,193,222,245`, `test/hop-machine-step.test.ts:131-132`, `test/flipper-collision.test.ts:207,236` — all spawn at `(210, 85)` over the old bat; re-derive from the collision document if the new bat no longer underlies that point.
+- `test/scene-smoke.test.ts:311-336` — all 8 corners of `vis_playfield`'s bbox must project inside the fixed camera's NDC.
+
+**Read-only evidence (no edit required)**
+
+- `TABLE` needs **no** new entry: `src/sim/table/dragonwar.ts:205-207` states generic collision geometry is validated by grammar and `col_shape` alone. Leaving `TABLE` unchanged keeps `tableHash` stable.
+- `pnpm check:ad7` exits 1 by design (`test/fixtures/dw70-ad7/ad7-device-slots.harness.ts:126`); `test/ad7-device-slots.test.ts` asserts that failure, so `pnpm test` stays green.
+- `tools/check-attributions.mjs` only validates `package.json` dependencies — it never reads the `## Generated content` table, so the re-date is discipline, not a gate.
+- The only sourced figures: tip gap 9.5-12.7 mm (`digests/geometry-r1-1.md:91,204`, **low**, *derived* and narrower than a ball, so unusable as authored truth); inlane/outlane width 1-3/8 in = 34.9 mm (`digests/geometry-r2-1.md:16,78`, **low**, no left/right split); pivot spacing 173.0-177.8 mm (`geometry-r2-1.md:13`, **medium**). **No figure exists anywhere for inlane guide geometry, for any post position, or for the cradle tolerance.**
+
+## Tasks & Acceptance
+
+**Execution:**
+
+1. `ATTRIBUTIONS.md` — re-date and rewrite the three `## Generated content` rows (`:69`, `:70`, `:71`) to describe the drain-triangle geometry, **before** regenerating any asset. Rationale: CLAUDE.md's hard gate says the entry lands before the file.
+2. `src/sim/table/tuning.ts` — add `flipperTipGapMm`, `outlaneWidthLeftMm` and `outlaneWidthRightMm` as `entry(value, source, 'unverified')`. Each `source` states how the value was reached and cites the artifact it came from (or that none exists). Rationale: AD-15 and AC 1; `…Mm` avoids the `…Ms` auto-conversion at `:464-493`.
+3. `tools/make-placeholder-blend.py` — author the drain triangle: both flipper boxes moved outward by `baseRadius` so the pivots stay at x 170.0 / 344.4; two outlanes at the authored widths; two inlanes; the inlane/outlane divider guides and the outer guides, each as a chain of **convex** prisms via `new_prism_mesh()`; and a post at every guide's free end carrying `surface: 'rubber_post'`, `phys_material: 'default'`. The pocket beside each flipper must be closed enough at its throat that a ball settled on the raised bat cannot roll out. Rationale: AD-11 — Blender owns placement, and this script is its reviewable record.
+4. `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json` — regenerate the `.blend` headlessly, then `BLENDER=<host path> pnpm export:assets`, and commit all three together. Rationale: `test/export-py.test.ts:111-134` requires the committed artifacts to be the exact export of the committed `.blend`.
+5. `src/sim/physics/loader/index.ts` — `loadFlipper()`: inset the pivot one `baseRadius` from the box's outer end so `pivotMm` lands at the authored pivot, and expose the bat's overall length so the config can derive `flipperRadius` from it. Keep `assertReferenceDimensions()`'s x-extent check as-is. Closes **`DW-78`** (half). Rationale: the box is the whole rubbered bat.
+6. `src/sim/physics/flipper/flipper-config.ts:134` — derive `flipperRadiusMm = lengthMm - baseRadiusMm - endRadiusMm` so `baseRadius + flipperRadius + endRadius` equals the box exactly. Closes **`DW-78`**. Rationale: `flipper-mover.ts` is frozen, so the span must be corrected on the config side.
+7. `src/sim/physics/loader/index.ts` `addWall()` — assert the table-frame `footprintMm` is a strictly convex, CCW ring before computing the centroid; throw naming the node and the offending vertex index. Closes **`DW-52`**. Rationale: the centroid orientation is only valid for a convex footprint, and this story authors the first non-rectangular footprints.
+8. `src/sim/physics/loader/index.ts` `addBox()` — emit edge primitives (vertical edges as `HitLineZ`, horizontal edges as `HitLine3D`) alongside the 12 triangles, following the DW-7 rationale at `:507-516`. Closes **`DW-59`**. Rationale: a box's edges are uncovered exactly the way a wall's corners were.
+9. `src/presentation/scene/playfield.ts` `applyPitch()` — assert on first application that `playfieldRoot` carries an identity transform and that `pivotPitch` shares its parent; throw naming the node. Closes **`DW-55`**. Rationale: the `P - R*P` correction is valid only under those preconditions, true today by authoring accident.
+10. `src/sim/table/dragonwar.ts:65-73` `deepFreeze()` — freeze unconditionally and move cycle safety to a `WeakSet` visited set; update the dependent comment at `src/sim/table/tuning.ts:505-507`. Closes **`DW-33`**. Rationale: `DeepReadonly<T>` currently claims immutability the helper does not deliver for children of a pre-frozen node.
+11. `src/sim/physics/loader/` + `tools/dependency-cruiser.config.mjs:116-136` — hoist `LoadedFlipper` (and any sibling type it drags) out of `loader/index.ts` into a leaf module re-exported from `loader/index.ts`, breaking the `flipper-config -> loader` edge; then narrow `no-circular` so authored physics files **are** cycle origins (exclude the ported files as cycle *targets* instead of exempting the directory as an origin). Closes **`DW-105`**; if a real cycle survives that spans only frozen ports, record why under Design Notes instead of forcing it. Rationale: the directory-wide carve-out hides authored-to-ported cycles.
+12. `test/flipper-collision.test.ts` — rework the cradle test: build the harness **with** `createDeviceMechanics` so a departing ball reaches `bd_trough`; release the ball from a point derived from the collision document that is **clear of** the modelled body; assert it has settled into contact at near-zero speed before the measurement window opens; then hold the flipper key for 5000 ticks and assert AC 2. Add the key-released negative control. Closes **`DW-77`** and **`DW-72`**. Rationale: the current spawn measures embedded-ball ejection in a harness with no trough.
+13. `test/cabinet-nudge-cradle.test.ts` — re-derive its spawn the same way and re-measure its four constants. Closes **`DW-77`** (second inheritor).
+14. `test/collision-loader.test.ts` — re-measure the two `tipMm.x` pins; add the `DW-52` convexity cases (a reflex footprint throws; a convex one does not) and the `DW-59` paired box-edge cases (edge fires / pre-change construction records zero).
+15. `test/asset-contract.test.ts` — add the AC 1 gates: every ball-guide node's free end has a `rubber_post` post node within one post radius; the measured flipper tip gap equals `TUNING.flipperTipGapMm`; each measured outlane clear width equals its tunable. Rationale: pins the `unverified` tunables to the geometry so neither can drift.
+16. `test/table.test.ts` / `test/tuning.test.ts` — add the `DW-33` cases: a pre-frozen sub-object's child is frozen, and a self-referential input terminates.
+17. `test/scene-smoke.test.ts` — add the `DW-55` cases: a non-identity `playfield_root` throws; the existing pitch behaviour is unchanged.
+18. `test/replays/*.golden.json` (all five) — refresh each header's `assetHash` and `gameStart.tuning` to the live values and re-derive `expectedHash` / `expectedGameStateHash`, leaving `transitions` and `coilPrologue` untouched. Then **re-run every per-golden scenario assertion** and confirm each still describes what happens. Rationale: a deliberate geometry and tuning change is exactly what the `StaleReplayHeaderError` message instructs; a dead scenario is a Block If.
+19. `docs/feel-test.md` — rewrite the Cradling item's build-side measurements to the new figures and record that `DW-72` is closed here; update the Flipper-snap figures if the overshoot margin moved. Leave every author verdict `pending-author`.
+20. `test/feel-test-docs.test.ts`, `test/flipper-mover.test.ts`, `test/export-py-skip-visibility.test.ts` — update the pinned figures and, only if Blender-gated tests were added, the skip-count formula. Each update is deliberate and its message says so.
+
+**Acceptance Criteria:**
+
+- **AC 1 (epics.md:843-845).** Given `assets/src/dragonwar.blend`, when the drain triangle is drawn, then the flipper tip gap, the two outlane widths, the inlane guides and every post position are authored as `col_` primitives; the tip gap is recorded in `src/sim/table/tuning.ts` with `confidence: 'unverified'`; and every guide's free end terminates at a node whose `surface` is `rubber_post`, never `metal` or `wood`.
+- **AC 2 (epics.md:847-850, `DW-72`).** Given the authored guides and posts and the ported `FlipperMover`, when a ball that physics has settled into a resting contact on a raised bat is held with the flipper key for a full 5000 ticks, then at 5 s it is still in contact with the bat, its drift from the **settled** position is under one ball radius derived from `TABLE.reference.ballMm`, its speed is at rest, and no `bd_trough` slot has closed — and the same arrangement with the key released reaches `bd_trough`.
+- **AC 3 (`DW-78`).** Given the regenerated collision document, when `loadFlipper()` and `buildFlipperConfig()` run, then for both bats `baseRadius + flipperRadius + endRadius` equals the node's x extent within `TOLERANCE_MM`, `pivotMm.x` is unchanged at 170.0 / 344.4, `assertReferenceDimensions()` passes, and the end-of-stroke angles are still 90 / -90 deg.
+- **AC 4 (Integration, Rule 1).** Given `createLoop({ collisionDoc })` over the regenerated document — the real fixed-step conductor, not the bespoke harness — when a ball is served and the left flipper key is held, then the loop boots without a load-time throw, `snapshot.mechanisms.flippers.l.angleDeg` reaches the reconciled end-of-stroke angle, and `FrameOutput` carries no unexpected event. Consumer: `sim/loop`.
+- **AC 5.** Given the whole suite, when `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm test`, `pnpm build`, `pnpm check:dist` and `pnpm check:size` run, then all pass; the suite reports no fewer than 77 files and 955 passing with no test deleted, skipped or weakened to reach it; any change to the 21 skips is explained by a deliberately added Blender-gated test with `test/export-py-skip-visibility.test.ts:113`'s `expectedSkips` formula updated to match; and `pnpm check:ad7` still exits 1 naming `AD-7`, `DW-70` and `bd_trough`.
+- **AC 6.** Given the committed `.blend`, when `pnpm export:assets` runs with `BLENDER` set, then it reproduces the committed `.glb` and collision json byte-for-byte (`test/export-py.test.ts:111-134`), and no tracked source, config or test file contains a Blender executable path (the env var is the only channel).
+
+## Spec Change Log
+
+## Review Triage Log
+
+## Design Notes
+
+**Governing architecture decisions (Rule 6).** **AD-11** (Blender owns placement; `TABLE` owns wiring; `export.py` enforces; `col_` prefixes and the ported primitive set) governs AC 1 and AC 6. **AD-10** (one canonical frame; geometry authored unpitched; `TABLE.reference` asserted) governs AC 1 and AC 3 — the x-extent assertion stays exactly as written, which is why the box, not the body, is the fixed side of the reconciliation. **AD-5** (the flipper is the ported `FlipperMover`; MPF figures are calibration references, never parameters) governs AC 2 and AC 3: the reconciliation is a *geometry* correction on the config side and must not retune `strength`, `rampUp`, `torqueDamping` or `sweepDeg`. **AD-15** (ported solver constants; tunables carry `source` and `confidence`; do-not-invent numbers ship `unverified`; replays and headless tests are first-class) governs the three new tunables and task 18. **AD-16** (three complementary provenance gates; boundaries linted by dependency-cruiser; ported files keep their notices) governs `DW-105` and the frozen-port constraint. **AD-1** (fixed dependency direction; `sim/**` is DOM- and Babylon-free) governs the `LoadedFlipper` hoist. **AD-6** is touched read-only: `bd_trough` is used as the cradle test's departure observable and no device behaviour changes. No AC contradicts any AD's Rule, and no new or amended AD is required — so **Rule 20 does not fire** and the spine is not edited by this story.
+
+**Why the box is the fixed side of `DW-78`.** FR-4 (`epics.md:36`) says the bat is "3.125 in **rubbered**" — an overall dimension, not a pivot-to-tip one — and AD-10 has the loader assert exactly that against the authored node. So the 79.375 mm box is the whole rubbered bat and the modelled body must fit it, which is what "the modelled collision body reconciled with the box the reference-dimension assertion pins" asks for. Insetting the pivot *without* moving the boxes would drop pivot spacing to 149.4 mm, outside the only sourced placement figure, for no gain; moving the boxes outward by `baseRadius` instead leaves the pivot exactly where Story 1.4 put it (174.4 mm spacing, inside 173.0-177.8 mm), leaves the pivot-to-tip **direction** unchanged so every measured angle survives, and widens the tip gap from an impossible 15.65 mm — narrower than the ball — to 40.65 mm, which is what makes a centre drain, and therefore a drain triangle, mean anything. The alternative of growing the box to 91.875 mm was rejected because it breaks AD-10's node-length assertion and would make the bat 3.62 in rubbered.
+
+**Why the cradle tolerance is derived, not chosen.** No artifact states a cradle tolerance (`epics.md:849` says only "unchanged within tolerance"), and `DW-77`'s complaint is precisely that the shipped 35 mm bound "admits more than one ball diameter of roll". The tolerance is therefore expressed as one ball radius derived from `TABLE.reference.ballMm`, never a bare literal, and it is joined by two observables the old test could not produce: continued contact with the bat, and `bd_trough` staying open. The measurement window opens only after physics has settled the ball, so the figures describe a resting contact rather than de-embedding.
+
+**Integration ACs (Rule 1).** This story introduces one shared module — the leaf module receiving `LoadedFlipper` (task 11) — and three shared tunables. **AC 4** is the Integration AC: `sim/loop`'s `createLoop()` consumes the regenerated collision document and the reconciled flipper config and produces the observable effect that the bat reaches its end-of-stroke angle through the real conductor. **AC 1**'s guide-and-post gates and **AC 3**'s span check are consumer-side assertions over the committed artifact, not over the loader's internal state.
+
+**Consumed-by:** Story 2.1b (draws the Loops, Ramp, Dragon, Lock lane, DRAGON bank and Top lanes onto this drain triangle, and completes `TABLE.switches`); Story 2.2 (slingshots and pop bumpers land against these guides and posts); Story 2.3 (drop targets, spinner and Lock in physics); Story 2.5 (owns the golden re-record and the `bd_trough` device-slot fix, `DW-70`). **Consumes:** Story 1.4's export pipeline and both loaders; Story 1.5's `bd_trough`, `sw_trough_*` zones and `createDeviceMechanics`; Story 1.6's ported `FlipperMover`, `createFlipperMechanics` and the cradle test it bounded to 1 s; Story 1.8's replay goldens and `assetHash` handshake; Story 2.0's renamed structural provenance gate.
+
+**Ledger inbox (Rule 17).** All eight owned entries are addressed; none is declined. `DW-72` -> AC 2 + task 12. `DW-77` -> tasks 12, 13. `DW-78` -> AC 3 + tasks 5, 6. `DW-52` -> task 7 + task 14. `DW-55` -> task 9 + task 17. `DW-59` -> task 8 + task 14. `DW-33` -> task 10 + task 16 (ledger-only, beyond the six routed into `epics.md`, per Rule 17 (1b)'s overflow). `DW-105` -> task 11, with the escape hatch that a surviving cycle spanning only frozen ports is recorded here rather than forced.
+
+**Human-only work.** No AC in this story requires the physical Reference machine or Apple hardware, so nothing here is `pending-author`. The adjacent human-owned item is `docs/feel-test.md`'s **verdicts**, which stay `pending-author` (the precedent is Story 1.9 AC 5 and Story 2.1b AC 6); this story updates only the build-side measured numbers beside them. The seven-shot Lawlor ritual (FR-32) belongs to Story 2.1b and is out of scope here despite the stale traceability row at `epics.md:235`.
+
+**Golden replays are refreshed, not re-recorded.** `transitions` and `coilPrologue` are recorded input and stay byte-identical; `assetHash`, `gameStart.tuning` and the two expected hashes are derived output and move whenever the world deliberately moves. Story 2.5 still owns the real re-record — removing the prologue once Start serves through the rules layer (`test/replay-goldens.test.ts:33-34`).
+
+## Verification
+
+**Commands:**
+
+- `"$BLENDER" --background --factory-startup --python tools/make-placeholder-blend.py` -- expected: exit 0; rewrites `assets/src/dragonwar.blend`. `$BLENDER` is this host's Blender 5.2.1 LTS executable, recorded in the `tooling_backstop_received` entry at `_bmad-output/implementation-artifacts/cycle-log-epic-1.md:88`; export it in the shell, never write it into a source, config or test file.
+- `BLENDER="$BLENDER" pnpm export:assets` -- expected: exit 0; rewrites `public/assets/dragonwar.glb` and `public/assets/dragonwar.collision.json`.
+- `pnpm typecheck` -- expected: all three projects clean.
+- `pnpm lint:boundaries` -- expected: exit 0 with the narrowed `no-circular` rule in force.
+- `pnpm check:headers` and `pnpm check:attributions` -- expected: exit 0.
+- `pnpm test` -- expected: at or above 77 files / 955 passing / 21 skipped, zero failures, no test deleted or skipped to get there.
+- `pnpm check:ad7` -- expected: **exit 1**, naming `AD-7`, `DW-70` and `bd_trough`. A green run is a regression.
+- `pnpm build && pnpm check:dist && pnpm check:size` -- expected: exit 0 for each.
+
+**Mutations (Rule 19 — one per AC, applied, observed red, reverted, tree verified byte-identical):**
+
+- AC 1 -- change one guide-end post's `surface` from `rubber_post` to `metal` in the seeding script and re-export -> the guide-end gate in `test/asset-contract.test.ts` goes red naming that guide.
+- AC 2 -- delete the post that closes the left pocket's throat from the seeding script and re-export -> the 5 s cradle test goes red on drift (and the trough observable closes).
+- AC 3 -- revert `flipper-config.ts`'s `flipperRadiusMm` to `lengthMm - endRadiusMm` -> the span assertion goes red reporting 91.875 against 79.375.
+- AC 4 -- remove one authored `col_` guide node from the collision document handed to `createLoop()` -> the loop's load-time node check throws naming it.
+- AC 5 -- no mutation (it is the gate itself).
+- AC 6 -- edit one vertex in the seeding script without re-exporting -> `test/export-py.test.ts`'s byte-identity gate goes red naming the stale artifact.
+- `DW-52` -- feed `addWall()` a footprint with one reflex vertex -> throws naming the node and the vertex index; the convex control still loads.
+- `DW-59` -- revert `addBox()` to triangles only -> the box-edge test records zero edge collisions, exactly as the paired DW-7 control does.
+- `DW-55` -- set a non-identity `playfieldRoot.position` before `applyPitch()` -> throws naming the node.
+- `DW-33` -- revert `deepFreeze()` to the `!Object.isFrozen` short-circuit -> the pre-frozen-child test goes red on the successful mutation.
+- `DW-105` -- restore `from: { pathNot: '^src/sim/physics/' }` -> `pnpm lint:boundaries` stops reporting the authored cycle the narrowed rule now catches.
+
+**Manual checks:**
+
+- Open the regenerated `.glb` figures in the scene smoke output and confirm the drain triangle reads as a drain triangle: two outlanes, two inlanes, guides ending at posts, and a visible pocket beside each flipper.
+- Read each of the five goldens' per-golden scenario assertions after the header refresh and confirm the described event still happens at the described tick, rather than only that the hashes agree.
+
+## Auto Run Result
+
+Status: ready-for-dev
+Blocking condition: none
+
+Planning stage only -- `Halt after planning.` was directed by the dispatch, so the
+workflow halted at the READY-FOR-DEVELOPMENT gate and no implementation was performed.
+The epic context at `_bmad-output/implementation-artifacts/epic-2-context.md` was reused,
+not recompiled. Previous-story continuity came from
+`_bmad-output/implementation-artifacts/spec-2-0-epic-1-deferred-cleanup.md` (`status: done`).
+All eight ledger entries owned by this story key (`DW-33`, `DW-52`, `DW-55`, `DW-59`,
+`DW-72`, `DW-77`, `DW-78`, `DW-105`) are addressed by a cited task or acceptance criterion;
+none is declined.
