@@ -719,3 +719,23 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: Attempted as a review-pass patch and reverted: TUNING entry source strings are embedded verbatim in every golden replay's header.gameStart.tuning, so editing this one string breaks all 5 goldens' stale-header parity check (33 failures observed). A safe fix must refresh the 5 golden headers in the same pass
 - 2026-08-31T07:19:10Z status=routed owner=2-5-start-hot-seat-and-the-ball-lifecycle by=harvest note=routed to Story 2.5 because 2.5 already owns the real golden re-record; a cosmetic tuning.ts string edit is only cheap inside a pass that re-derives the goldens anyway
+
+### DW-114: Task 21's carriage-return regression pin lives inside test/export-py.test.ts's Blender-gated describe.skipIf block, so CI -- which has no Blender -- never executes it and the LF writer guarantee is unenforced on the platform the project ships from
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: The pin re-exports the .blend to get a fresh document, which needs Blender, so describe.skipIf(!blenderPath) skips it in CI. A gate that cannot fail on the shipping platform is close to no gate. The committed public/assets/dragonwar.collision.json is itself in the repo, so a plain non-Blender test could assert it carries no 0x0D byte and would run everywhere
+- 2026-08-31T08:26:46Z status=open owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=in-story MED, low fix-risk, two-way door of roughly ten lines: add a Blender-free companion assertion over the COMMITTED artifact so the guarantee is enforced in CI too. Raised independently by the orchestrator and by this story's own intent-alignment layer
+
+### DW-115: Five compiled Python bytecode files under .claude/skills/ were tracked in git despite being regenerable machine-and-version-specific artifacts (cpython-311)
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: git ls-files showed 5 .pyc files under .claude/skills/bmad-retrospective and bmad-sprint-planning; their .py sources are all tracked so the caches are pure noise
+- 2026-08-31T08:26:46Z status=resolved-by:2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=closed in this same pass: git rm --cached on all five, plus __pycache__/ and *.pyc added to .gitignore; sprint_plan.py re-run afterwards and still valid. Reported as a footprint extension since .claude/ is outside the epic's paths_hint and no epic contends for it
+
+### DW-116: The .gitignore comment added for __pycache__/ asserts that running tools/export.py and tools/make-placeholder-blend.py directly leaves a cache beside them
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: Flagged by a review layer as possibly not holding
+- 2026-08-31T08:26:46Z status=by-design owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=verified empirically twice this session: a tools/__pycache__/ directory appeared in the working tree after the Blender and export runs and showed as an untracked stray at a commit gate, which is exactly what the comment describes
+
+### DW-117: cycle-log-epic-2.md carried a runtime_lock_released for Story 2.1a's adr_verifications stage with no matching runtime_lock_acquired
+- source: spec-2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: Two review layers and the orchestrator independently found the orphaned release line, timestamped after the next stage_spawned entry
+- 2026-08-31T08:26:46Z status=resolved-by:2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real owner=2-1a-the-drain-triangle-the-cradle-pocket-and-the-flipper-s-real by=harvest note=lead telemetry error, not a code defect: the lock WAS claimed atomically on disk but the acquire line was never written. Corrected by a report_error entry at 2026-08-31T06:05:00Z plus a properly logged acquire/release pair around the iteration-2 AD gate re-run. Lock dir verified empty
