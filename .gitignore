@@ -18,3 +18,10 @@ pnpm-workspace.yaml
 # disk for that purpose, but never in the repository -- they accumulate one set
 # per upgrade and were purged by hand on 2026-08-30.
 *.bak-*
+
+# Blender writes a <name>.blend1 backup beside every .blend it saves, so any
+# headless run of tools/make-placeholder-blend.py leaves one in assets/src/.
+# It is a regenerable editor artifact, never project input; the committed
+# .blend and the exported .glb/.collision.json are what the pipeline reads.
+# Left untracked it shows up as a stray file at every commit gate.
+*.blend1

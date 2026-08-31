@@ -2,7 +2,7 @@
 title: 'Story 2.1a: The drain triangle, the cradle pocket and the flipper''s real dimensions'
 type: 'feature'
 created: '2026-08-30'
-status: 'done'
+status: 'in-progress'
 baseline_revision: '3da659da59702a57fe1018f41578506f3296098b'
 baseline_commit: '3da659da59702a57fe1018f41578506f3296098b'
 review_loop_iteration: 0
@@ -226,6 +226,12 @@ Every anchor below was read during planning at `2338423` (tree clean, branch `DW
 19. `docs/feel-test.md` — rewrite the Cradling item's build-side measurements to the new figures and record that `DW-72` is closed here; update the Flipper-snap figures if the overshoot margin moved. Leave every author verdict `pending-author`.
 20. `test/feel-test-docs.test.ts`, `test/flipper-mover.test.ts`, `test/export-py-skip-visibility.test.ts` — update the pinned figures and, only if Blender-gated tests were added, the skip-count formula. Each update is deliberate and its message says so.
 
+21. `tools/export.py:557` -- open the collision document with `newline` pinned to a single line feed so the writer stops depending on the host platform. Rationale: the AD gate below. Add whatever regression pin the implementation judges right so the LF guarantee cannot silently regress; `test/export-py.test.ts`'s existing byte-identity test already goes red once the committed artifact and a fresh export disagree, but it only does so after a checkout, which is what let this hide.
+
+- [ ] [AD gate] `tools/export.py:557` writes `public/assets/dragonwar.collision.json` through Python text mode, so on Windows every `
+` becomes `
+`. `.gitattributes` pins `* text=auto eol=lf`, so git stores and checks the file out as LF. `test/export-py.test.ts`'s `Buffer.compare(fresh, committed)` therefore FAILS on any clean checkout that has Blender resolvable -- verified by the lead this session: after `git checkout -- public/assets/dragonwar.collision.json` the gate went red with "public/assets/dragonwar.collision.json is stale", and adding a line-feed `newline` argument to that `open()` call made it pass 22/22. The defect is pre-existing (introduced with the byte-compare in Story 1.4, commit `2b6600b`) and hid because the working tree kept the CRLF file `export.py` had just written, which matched a fresh CRLF export; git normalised LF into the blob at commit time. CI never caught it because CI has no Blender and the test skips there. Fix the writer, keep the committed artifacts as they are (they are already LF and correct), and re-run the Blender-gated tests with `BLENDER` exported to confirm.
+
 **Acceptance Criteria:**
 
 - **AC 1 (epics.md:843-845).** Given `assets/src/dragonwar.blend`, when the drain triangle is drawn, then the flipper tip gap, the two outlane widths, the inlane guides and every post position are authored as `col_` primitives; the tip gap is recorded in `src/sim/table/tuning.ts` with `confidence: 'unverified'`; and every guide's free end terminates at a node whose `surface` is `rubber_post`, never `metal` or `wood`.
@@ -236,6 +242,9 @@ Every anchor below was read during planning at `2338423` (tree clean, branch `DW
 - **AC 6.** Given the committed `.blend`, when `pnpm export:assets` runs with `BLENDER` set, then it reproduces the committed `.glb` and collision json byte-for-byte (`test/export-py.test.ts:111-134`), and no tracked source, config or test file contains a Blender executable path (the env var is the only channel).
 
 ## Spec Change Log
+
+- 2026-08-31 (lead, AD gate, iteration 2): re-opened at `status: in-progress` and added task 21 after the lead's AD-tooled verification exposed a real pre-existing defect in `tools/export.py`'s collision-document writer (platform-dependent line endings vs the repo's LF pin). AC 1, AC 3 and AC 6 each demonstrated their named mutation red and reverted byte-identically before the failure was found; the failure is not a mutation but a genuine defect the revert made visible.
+
 
 ## Review Triage Log
 
