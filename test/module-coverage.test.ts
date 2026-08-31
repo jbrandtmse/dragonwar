@@ -42,9 +42,11 @@
 // its own real, exercising test this same story (DW-6,
 // test/object-pool.test.ts). Two real, additional unreached modules were
 // found that Part D did not name (`src/host/boot.ts`, `src/host/build-info.ts`)
-// plus a third port file (`sim/physics/hit-line-3d.ts`) alongside Part D's
-// four other dead ported primitives -- a newly-unreached module now fails
-// loudly rather than silently, which is this test's whole point.
+// alongside Part D's four other dead ported primitives -- a newly-unreached
+// module now fails loudly rather than silently, which is this test's whole
+// point. (Story 2.1a's own DW-59 wired `sim/physics/hit-line-3d.ts` into
+// `loader/index.ts`'s `addBox()`, so it moved OFF this allowlist -- this
+// same test's "no stale entry" assertion caught that reachability change.)
 
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -76,8 +78,6 @@ const ALLOWLIST_REASONS: Readonly<Record<string, string>> = {
 		'a vpx-js port for the slingshot\'s own animation; DragonWar has no slingshot yet (a later epic\'s device) -- only reachable, if at all, through line-seg-slingshot.ts below, which is itself unreached.',
 	'src/sim/physics/hit-3dpoly.ts':
 		'a vpx-js port for 3D-polygon (ramp) collision; Epic 1\'s collision loader (sim/physics/loader) only ever constructs the wall/box/plane primitive set the placeholder table declares (AD-11) -- no ramp geometry exists yet to reach this hit-testing path.',
-	'src/sim/physics/hit-line-3d.ts':
-		'a vpx-js port for 3D line-segment collision (used by ramp wire geometry upstream); same reason as hit-3dpoly.ts above -- no table geometry constructing it exists in Epic 1.',
 	'src/sim/physics/line-seg-slingshot.ts':
 		'a vpx-js port for the slingshot\'s own line-segment collision; same reason as anim-slingshot.ts above -- no slingshot device exists on this placeholder table.',
 };

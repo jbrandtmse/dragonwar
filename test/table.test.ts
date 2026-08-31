@@ -8,7 +8,7 @@
 // with a type-level negative.
 
 import { describe, expect, it } from 'vitest';
-import { TABLE } from '../src/sim/table/dragonwar';
+import { TABLE, deepFreeze } from '../src/sim/table/dragonwar';
 import type {
 	BallDeviceName,
 	CoilName,
@@ -42,6 +42,26 @@ describe('TABLE -- no Table interface, loader API, plugin API or runtime table s
 		expect(() => {
 			(TABLE.ballDevices.bd_trough.slots as unknown as string[]).push('s_trough_5');
 		}).toThrow();
+	});
+});
+
+describe('deepFreeze() -- DW-33: freezing is unconditional; only cycles are guarded', () => {
+	it('a PRE-FROZEN sub-object handed in still gets its own children frozen (the previous !Object.isFrozen(value) short-circuit skipped this entirely)', () => {
+		const input = Object.freeze({ inner: { a: 1 } });
+		const frozen = deepFreeze(input);
+		expect(Object.isFrozen(frozen), 'sanity: the pre-frozen root stays frozen').toBe(true);
+		expect(Object.isFrozen(frozen.inner), 'the pre-frozen root\'s OWN CHILD must also end up frozen').toBe(true);
+		expect(() => {
+			(frozen.inner as unknown as { a: number }).a = 2;
+		}, 'mutating the child must throw in strict mode once it is actually frozen').toThrow();
+	});
+
+	it('a self-referential input terminates instead of recursing forever', () => {
+		const cyclic: { self?: unknown } = {};
+		cyclic.self = cyclic;
+		expect(() => deepFreeze(cyclic)).not.toThrow();
+		expect(Object.isFrozen(cyclic)).toBe(true);
+		expect(cyclic.self).toBe(cyclic);
 	});
 });
 

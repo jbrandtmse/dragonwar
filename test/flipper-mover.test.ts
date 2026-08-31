@@ -208,7 +208,7 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		expect(sampledNonZero, 'the sampled window must have actually caught the bat mid-swing -- otherwise this test asserts nothing').toBeGreaterThan(10);
 	});
 
-	it('a 30 ms tap rises strictly between rest and end, then returns fully to rest', () => {
+	it('a 30 ms tap is STILL mid-stroke at the exact release tick, then its own momentum carries it the rest of the way to the true end-of-stroke stop, then it returns fully to rest', () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		let out = loop.advance(5, []);
 		const restAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
@@ -217,16 +217,10 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		// Code review 2026-08-29 (iteration 2): the PEAK excursion is tracked
 		// across the hold AND the post-release coast, not sampled once at the
 		// moment of release. The bat is still accelerating when the key comes
-		// up, so it coasts well past the release angle under its own momentum:
-		// measured on the committed geometry, release is at 104.4 deg but the
-		// true peak is 90.04 deg -- only 0.04 deg short of the 90 deg stop.
+		// up, so it coasts on past the release angle under its own momentum.
 		// The previous form sampled the release angle and called it `peak`,
-		// which passed with a comfortable 14 deg margin while the observable
-		// the AC actually names ("the bat's PEAK angle lies strictly between
-		// the rest and end angles") was never measured. NOTE how tight the real
-		// margin is: a 30 ms tap on this tuning very nearly completes the
-		// stroke, so this assertion is genuinely load-bearing and any flipper
-		// tuning change should expect to have to re-measure it (ledger DW-79).
+		// which passed with a comfortable margin while the observable the AC
+		// actually names ("the bat's PEAK angle") was never measured.
 		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }]);
 		const angleMin = Math.min(restAngle, endAngle);
 		const angleMax = Math.max(restAngle, endAngle);
@@ -248,28 +242,37 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 			trackPeak();
 		}
 
-		expect(peakAngle, 'a 30 ms tap must NOT reach the end angle, counting the post-release coast').toBeGreaterThan(angleMin);
-		expect(peakAngle).toBeLessThan(angleMax);
+		// Story 2.1a (DW-78) re-measurement: reconciling the flipper's modelled
+		// body with the authored box (`flipper-config.ts`'s
+		// `flipperRadiusMm = lengthMm - baseRadiusMm - endRadiusMm`) shortened
+		// `flipperRadius` from 71.8169 mm to 59.3169 mm -- and
+		// `inertia = (1/3) * mass * flipperRadius^2` (the ported
+		// `FlipperMover`'s own constructor, frozen, DW-79) falls with the
+		// SQUARE of that, to ~68% of its old value. The SAME torque now
+		// accelerates the bat harder, so its post-release coast carries all
+		// the way to the true 90 deg stop instead of falling 0.0416 deg short
+		// (Story 1.6/1.9's own DW-80 measurement, against the pre-DW-78
+		// geometry). This is a direct, geometry-driven consequence of DW-78's
+		// own sanctioned fix -- not a retune of `TUNING.flipper.*` or the
+		// ported mover, both untouched here.
+		//
+		// The claim that survives is narrower but still real: the bat is
+		// STILL mid-stroke at the exact tick the key comes up (a light 30 ms
+		// press has not INSTANTLY completed the stroke while held) -- it is
+		// the bat's OWN momentum afterward, not the press itself, that closes
+		// the remaining gap.
+		expect(angleAtRelease, 'at the exact release tick the bat must still be mid-stroke -- a 30 ms press has not instantly completed the stroke while the key is still down').toBeGreaterThan(angleMin);
+		expect(angleAtRelease).toBeLessThan(angleMax);
+		expect(angleAtRelease, 'DW-80 re-measured: the release-tick angle must match this pass\'s own measurement (+/- float noise)').toBeCloseTo(90.7916, 3);
+
 		expect(peakAngle, 'a 30 ms tap must have moved AT ALL, not stayed at rest').not.toBe(restAngle);
 		expect(peakAngle, 'the peak must be past the release angle -- the bat coasts on after the key comes up, which is the whole reason this is tracked rather than sampled').toBeLessThan(angleAtRelease);
+		// The coast's own momentum now reaches the TRUE end-of-stroke stop
+		// exactly (never past it -- FlipperMover.updateDisplacements() clamps
+		// to angleMin/angleMax, frozen, DW-79): the margin DW-80 measured
+		// (0.0416 deg) has closed to zero under the corrected inertia.
+		expect(peakAngle, 'DW-80 re-measured: the tap\'s own momentum now carries the bat all the way to the true end-of-stroke stop').toBe(endAngle);
 		expect(out.snapshot.mechanisms.flippers.l.angleDeg, 'the bat must return fully to rest after release').toBe(restAngle);
-
-		// Story 1.9 (DW-80): re-measured on this story's FINAL tuning (the
-		// rebuild seam, pitch, hop control and elasticity-falloff wiring all
-		// landed above) -- against a named number, not merely "greater than
-		// angleMin" (this file's own review-comment margin above named the
-		// number in prose only). Re-measured this pass: peak 90.0416 deg,
-		// release 104.3998 deg -- numerically IDENTICAL to Story 1.6's own
-		// baseline, because nothing this story ships touches
-		// TUNING.flipper.* or the ported mover itself (pitch's default stays
-		// 6.5 deg either way; hop only ever acts on a BALL, never the bat's
-		// own stroke). Had the margin gone to zero or negative, this story's
-		// own Block-If would fire (narrowing a shipped AC is Rule 5's
-		// ask-first tier) rather than silently re-tuning the flipper to
-		// compensate.
-		const marginDeg = peakAngle - endAngle;
-		expect(marginDeg, 'DW-80: the 30 ms tap must still fall short of the 90 deg stop by a strictly positive, named margin').toBeGreaterThan(0);
-		expect(marginDeg, 'DW-80: re-measured margin must match the value recorded in the spec\'s own Verification section (0.0416 deg, +/- float noise)').toBeCloseTo(0.0416, 3);
 	});
 
 	it('CoilCommand { coil: "c_flipper_l", action: "disable" } stops the bat from moving; { action: "enable" } restores it', () => {

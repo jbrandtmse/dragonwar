@@ -290,3 +290,82 @@ describe('asset contract -- TABLE.physMaterials <-> TUNING.materials drift pin',
 		expect(Object.keys(TABLE.physMaterials).sort()).toEqual(Object.keys(TUNING.materials).sort());
 	});
 });
+
+describe('asset contract -- Story 2.1a AC 1: every ball-guide free end terminates at a rubber_post (DW-72, DW-77)', () => {
+	it('every col_guide_* node\'s two free ends each have a rubber_post node within one post radius', () => {
+		const doc = readCollisionDoc();
+		const guides = doc.nodes.filter((n) => n.name.startsWith('col_guide_'));
+		expect(guides.length, 'sanity: at least one guide must be authored').toBeGreaterThan(0);
+		const posts = doc.nodes.filter((n) => n.surface === 'rubber_post');
+		expect(posts.length, 'sanity: at least one rubber_post node must be authored').toBeGreaterThan(0);
+
+		// Every authored guide in this story is a straight, axis-aligned
+		// prism running along y (constant x-range) -- its two FREE ends are
+		// therefore its own bboxMm y-extremes, at its own x centreline.
+		for (const guide of guides) {
+			const { min, max } = guide.bboxMm;
+			const centreX = (min.x + max.x) / 2;
+			for (const endY of [min.y, max.y]) {
+				let nearestDistance = Infinity;
+				let nearestName = '(none)';
+				let nearestRadius = 0;
+				for (const post of posts) {
+					const postCentreX = (post.bboxMm.min.x + post.bboxMm.max.x) / 2;
+					const postCentreY = (post.bboxMm.min.y + post.bboxMm.max.y) / 2;
+					const postRadiusMm = (post.bboxMm.max.x - post.bboxMm.min.x) / 2;
+					const distance = Math.hypot(centreX - postCentreX, endY - postCentreY);
+					if (distance < nearestDistance) {
+						nearestDistance = distance;
+						nearestName = post.name;
+						nearestRadius = postRadiusMm;
+					}
+				}
+				expect(
+					nearestDistance,
+					`${guide.name}'s free end at table (${centreX.toFixed(2)}, ${endY.toFixed(2)}) has no rubber_post within one post radius -- nearest is "${nearestName}" at ${nearestDistance.toFixed(2)} mm (post radius ${nearestRadius.toFixed(2)} mm)`,
+				).toBeLessThanOrEqual(nearestRadius + 0.5); // 0.5 mm float-noise margin
+			}
+		}
+	});
+
+	it('no guide-end post carries surface metal or wood -- every one is rubber_post by construction', () => {
+		const doc = readCollisionDoc();
+		const posts = doc.nodes.filter((n) => n.name.startsWith('col_post_'));
+		expect(posts.length).toBeGreaterThan(0);
+		for (const post of posts) {
+			expect(post.surface, `${post.name}: guide-end posts must never carry metal or wood`).toBe('rubber_post');
+		}
+	});
+});
+
+describe('asset contract -- Story 2.1a AC 1: the flipper tip gap and both outlane widths match their tunables (DW-72, DW-78)', () => {
+	it('the measured flipper tip gap (right bat\'s tip minus left bat\'s tip, at end-of-stroke) equals TUNING.flipperTipGapMm', () => {
+		const doc = readCollisionDoc();
+		const left = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperL)!;
+		const right = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperR)!;
+		expect(left, 'col_flipper_l missing').toBeDefined();
+		expect(right, 'col_flipper_r missing').toBeDefined();
+		const measuredGapMm = right.bboxMm.min.x - left.bboxMm.max.x;
+		expect(measuredGapMm).toBeCloseTo(TUNING.flipperTipGapMm.value, 1);
+	});
+
+	it('the measured LEFT outlane clear width (col_wall_left\'s interior face to col_guide_divider_l\'s outlane-facing face) equals TUNING.outlaneWidthLeftMm', () => {
+		const doc = readCollisionDoc();
+		const wallLeft = doc.nodes.find((n) => n.name === 'col_wall_left')!;
+		const dividerL = doc.nodes.find((n) => n.name === 'col_guide_divider_l')!;
+		expect(wallLeft, 'col_wall_left missing').toBeDefined();
+		expect(dividerL, 'col_guide_divider_l missing').toBeDefined();
+		const measuredMm = dividerL.bboxMm.min.x - wallLeft.bboxMm.max.x;
+		expect(measuredMm).toBeCloseTo(TUNING.outlaneWidthLeftMm.value, 1);
+	});
+
+	it('the measured RIGHT outlane clear width (col_wall_lane\'s main-field face to col_guide_divider_r\'s outlane-facing face) equals TUNING.outlaneWidthRightMm', () => {
+		const doc = readCollisionDoc();
+		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane')!;
+		const dividerR = doc.nodes.find((n) => n.name === 'col_guide_divider_r')!;
+		expect(wallLane, 'col_wall_lane missing').toBeDefined();
+		expect(dividerR, 'col_guide_divider_r missing').toBeDefined();
+		const measuredMm = wallLane.bboxMm.min.x - dividerR.bboxMm.max.x;
+		expect(measuredMm).toBeCloseTo(TUNING.outlaneWidthRightMm.value, 1);
+	});
+});

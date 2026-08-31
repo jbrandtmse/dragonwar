@@ -329,6 +329,31 @@ export const TUNING = deepFreeze({
 	nudgeImpulseMs: entry(25, 'vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)', 'medium'),
 
 	/**
+	 * Story 2.1a (AD-15, AC 1): the drain triangle's three do-not-invent
+	 * figures -- none is on the PRD addendum's do-not-invent list by name,
+	 * but each is a geometric figure this story authors rather than
+	 * transcribes from a verified source, so every one ships `unverified`
+	 * per this story's own "Always" rule. `…Mm`, not `…Ms` -- these are
+	 * millimetre lengths, not durations, so none trips `resolveTuning()`'s
+	 * `…Ms` -> `…Ticks` conversion.
+	 */
+	flipperTipGapMm: entry(
+		40.65,
+		'authored: derived arithmetic, not a second invented figure -- the gap between the right bat\'s tip (col_flipper_r.bboxMm.min.x = 277.525 mm) and the left bat\'s tip (col_flipper_l.bboxMm.max.x = 236.875 mm) at end-of-stroke, both a direct consequence of DW-78\'s reconciliation (each box moved outward by baseRadius = 12.5 mm around its own unchanged pivot). No planning artifact states a tip gap the sourced 9.5-12.7 mm figure (digests/geometry-r1-1.md:91,204, low confidence) is narrower than the 26.99 mm reference ball and therefore unusable as authored truth (Code Map, "Read-only evidence")',
+		'unverified',
+	),
+	outlaneWidthLeftMm: entry(
+		34.9,
+		'authored: no sourced figure carries a left/right split -- the closest artifact is geometry-r2-1.md:16,78\'s 1-3/8 in = 34.9 mm inlane/outlane width (low confidence, no side named), adopted here as the LEFT outlane\'s clear width, measured from col_wall_left\'s interior face (table x = 0) to col_guide_divider_l\'s outlane-facing face (tools/make-placeholder-blend.py)',
+		'unverified',
+	),
+	outlaneWidthRightMm: entry(
+		34.9,
+		'authored: the same geometry-r2-1.md low-confidence 1-3/8 in = 34.9 mm figure as outlaneWidthLeftMm, adopted symmetrically for the RIGHT outlane -- but measured from col_wall_lane\'s main-field face (table x = LANE_X0_MM = 468.4 mm), not the true right perimeter wall, because the plunger lane already claims the space between col_wall_lane and that wall (tools/make-placeholder-blend.py, add_drain_triangle_side())',
+		'unverified',
+	),
+
+	/**
 	 * Story 1.7 (AD-5, AD-15): the ported plumb-bob tilt pendulum
 	 * (`sim/physics/cabinet/plumb-bob.ts`, transcribing `PlumbHandler.{h,cpp}`).
 	 * `rodLengthM`, `cabAccelScale`, `dampingCoef0`, `dampingCoef1` and
@@ -502,9 +527,13 @@ export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = T
 	}
 
 	// DW-34, "unfrozen resolveTuning() result": deep-frozen exactly like
-	// `TUNING` itself (`deepFreeze()` short-circuits on the already-frozen
-	// pieces spread in from `tuning`, so this only does new work for
-	// `scalarTicks`/`switchSettleTicksByClass`, freshly built above).
+	// `TUNING` itself. Story 2.1a (DW-33): `deepFreeze()` no longer skips a
+	// subtree merely because its root arrives already frozen -- freezing is
+	// unconditional now, and only a genuine cycle (its own `visited`
+	// `WeakSet`) is ever skipped -- so this call re-walks the already-frozen
+	// pieces spread in from `tuning` too (harmless: `Object.freeze()` is
+	// idempotent), not only the freshly built `scalarTicks`/
+	// `switchSettleTicksByClass`.
 	return deepFreeze({
 		...tuning,
 		...(scalarTicks as ResolvedScalarTicks),

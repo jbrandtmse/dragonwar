@@ -36,6 +36,7 @@
 # `--background` invocation does not reliably provide, while the data API
 # works identically headless or interactive.
 
+import math
 import os
 
 import bpy
@@ -85,6 +86,53 @@ DRAIN_X1_MM = 314.4
 # guard -- which inspects only the object's world matrix -- still passes.
 DEFLECTOR_BASE_Y_MM = 976.0
 DEFLECTOR_TOP_Y_MM = 1010.0
+
+# ---------------------------------------------------------------------------
+# Story 2.1a -- the drain triangle: both outlanes, both inlanes, the
+# inlane/outlane divider guides, the inlane's own outer guide (the one that
+# closes each flipper's cradle-pocket throat) and a rubber post at every
+# guide's free end (DW-72, DW-77, DW-78). Authored from the reference
+# dimensions alone -- no Bally template, PRD OQ-6 -- and from the flipper
+# mover's own derived geometry (never a second, independently invented
+# figure).
+#
+# The pocket closes at the bat's TIP, not its pivot -- this story's own
+# physics probes (not merely derived by inspection) found the pivot end
+# unusable: `hitCircleBase` is a FULL CIRCLE of radius `baseRadius`, always
+# centred at the pivot regardless of stroke angle, so any post close enough
+# to catch a ball there combines with that angle-invariant circle into a
+# permanent geometric trap -- the ball never left even after the flipper
+# mover's own angle genuinely returned to rest, which fails AC 2's negative
+# control ("the same arrangement with the key released reaches bd_trough")
+# outright. The bat's TIP -- its end circle, radius `endRadius`, centred
+# `flipperRadius` from the pivot -- genuinely SWEEPS with the stroke: at the
+# raised end-of-stroke angle its outer edge reaches `flipperRadius +
+# endRadius` from the pivot (matching the committed box's own tip edge
+# exactly); at rest it swings well clear. A post placed just past that
+# raised-angle reach, verified against the swept envelope by hand from the
+# same atan2(dx, -dy) convention `flipper-config.ts`'s header documents, can
+# only ever meet the tip circle AT the raised angle, never the pivot's own
+# fixed base circle and never the swinging arm at any other angle.
+# ---------------------------------------------------------------------------
+GUIDE_T_MM = WALL_T_MM  # divider-guide wall thickness -- matches every other authored wall
+OUTER_GUIDE_T_MM = 6.0  # the TIP-side outer guide is deliberately thinner than GUIDE_T_MM: it sits inside the reconciled 40.65 mm tip gap between the two raised bats (DW-78), and that gap must stay clear enough for a ball to pass even with both flippers held (this story's own centre-drain acceptance case) -- see POST_RADIUS_MM/POCKET_OFFSET_ALONG_MM's own note for the shared clearance budget.
+OUTLANE_WIDTH_MM = 34.9  # authored, unverified -- see src/sim/table/tuning.ts's outlaneWidthLeftMm/outlaneWidthRightMm for the full provenance note (geometry-r2-1.md's low-confidence 1-3/8 in figure, adopted symmetrically for both sides)
+POST_RADIUS_MM = 4.0  # placeholder rubber-post radius. Deliberately SMALLER than a typical real post (which runs 12-16 mm across the rubber sleeve): this same radius closes the pivot-side divider guide's own free ends AND the tip-side pocket, and the pocket sits inside the reconciled 40.65 mm tip gap (DW-78) -- verified this story's own planning pass: with POCKET_OFFSET_ALONG_MM below, the two tip-side posts leave 40.65 - 2*1 - 2*4 = 30.65 mm of clear surface-to-surface gap between them, comfortably above the 26.99 mm reference ball, so a centre-aimed ball still passes with both flippers raised.
+GUIDE_Y_TOP_MM = 420.0  # this story's own placeholder guide extent -- Story 2.1b draws the rest of the shot map above this
+DIVIDER_Y_BOTTOM_MM = 120.0  # the outlane/inlane divider guide's own (higher, less pocket-critical) lower end
+POCKET_OFFSET_ALONG_MM = 1.0  # pocket post centre, offset from the bat's own TIP further toward playfield centre (this story's own physics probes: the pivot end's base circle is angle-invariant and traps a ball regardless of stroke, so the pocket closes at the tip instead -- see add_drain_triangle_side()'s own doc comment). Kept small, together with the reduced POST_RADIUS_MM above, so the two posts never narrow the reconciled tip gap below the reference ball's own diameter.
+POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y (flipper centreline) UP-TABLE (away from the drain)
+
+
+def octagon_points_mm(center_mm, radius_mm):
+	"""Eight plan-view points approximating a circular post -- convex by
+	construction (every interior angle is 135 deg), the placeholder shape for
+	every rubber post this story authors."""
+	cx, cy = center_mm
+	return [
+		(cx + radius_mm * math.cos(i * math.pi / 4), cy + radius_mm * math.sin(i * math.pi / 4))
+		for i in range(8)
+	]
 
 
 def clear_scene():
@@ -301,23 +349,118 @@ def main():
 	set_props(col_lane_deflector, col_shape='wall', surface='wood', phys_material='default')
 
 	# ---- Flippers: box shape, axis-aligned so their bounding box is exactly
-	# the authored bat length (unpitched, no rotation) ----
+	# the authored bat length (unpitched, no rotation). Story 2.1a (DW-78):
+	# the box is the WHOLE rubbered bat (FR-4, "3.125 in rubbered"), so it is
+	# authored to extend BASE_RADIUS_MM beyond each pivot instead of ending
+	# exactly at it -- the pivot sits one baseRadius in from the box's outer
+	# end, matching the modelled collision body (a baseRadius circle at the
+	# pivot + a flipperRadius arm + an endRadius tip) exactly, instead of the
+	# base circle protruding behind authored geometry. The pivot's own
+	# table-frame position (left 170.0, right 344.4) is UNCHANGED -- only the
+	# box moves outward around it, which is also why the pivot SPACING here
+	# stays 174.4 mm, inside the only sourced placement figure (173.0-177.8
+	# mm). See src/sim/physics/loader/index.ts's loadFlipper() and this
+	# story's spec Design Notes, "Why the box is the fixed side of DW-78". ----
 	flipper_y0, flipper_y1 = 57.5, 82.5
 	flipper_z0, flipper_z1 = 0.0, 20.0
+	BASE_RADIUS_MM = (flipper_y1 - flipper_y0) / 2  # 12.5 -- half the bat's own width, the pivot's own base-circle radius
 	left_pivot_x = 170.0
 	right_pivot_x = PLAYFIELD_W_MM - left_pivot_x
 	col_flipper_l = new_box_mesh(
 		'col_flipper_l',
-		(left_pivot_x, flipper_y0, flipper_z0), (left_pivot_x + FLIPPER_BAT_MM, flipper_y1, flipper_z1),
+		(left_pivot_x - BASE_RADIUS_MM, flipper_y0, flipper_z0),
+		(left_pivot_x - BASE_RADIUS_MM + FLIPPER_BAT_MM, flipper_y1, flipper_z1),
 		parent=playfield_root,
 	)
 	set_props(col_flipper_l, col_shape='box', surface='flipper', phys_material='flipper_rubber')
 	col_flipper_r = new_box_mesh(
 		'col_flipper_r',
-		(right_pivot_x - FLIPPER_BAT_MM, flipper_y0, flipper_z0), (right_pivot_x, flipper_y1, flipper_z1),
+		(right_pivot_x + BASE_RADIUS_MM - FLIPPER_BAT_MM, flipper_y0, flipper_z0),
+		(right_pivot_x + BASE_RADIUS_MM, flipper_y1, flipper_z1),
 		parent=playfield_root,
 	)
 	set_props(col_flipper_r, col_shape='box', surface='flipper', phys_material='flipper_rubber')
+
+	# ---- The drain triangle (Story 2.1a): both outlanes, both inlanes, the
+	# divider guide between them, the outer guide that closes each flipper's
+	# cradle-pocket throat, and a rubber post at every guide's free end. See
+	# this file's constants block above for the derivation of every figure
+	# here. `flipper_y_mid` is the flipper centreline both bats already share
+	# (57.5..82.5), read once rather than repeating the literal. ----
+	flipper_y_mid = (flipper_y0 + flipper_y1) / 2  # 70.0
+
+	def add_guide_wall(name, x0, x1, y0, y1):
+		wall = new_prism_mesh(name, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
+		return wall
+
+	def add_rubber_post(name, center_mm):
+		post = new_prism_mesh(name, octagon_points_mm(center_mm, POST_RADIUS_MM), 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(post, col_shape='wall', surface='rubber_post', phys_material='default')
+		return post
+
+	def add_drain_triangle_side(side, tip_x, outlane_outer_wall_x, outlane_toward_wall):
+		"""`outlane_toward_wall` is +1 if the outlane's outer wall sits at a
+		HIGHER x than the outlane itself (the right side, against
+		col_wall_lane's main-field face), else -1 (the left side, against
+		col_wall_left's interior face). `toward_centre_sign` is the direction,
+		from the bat's own TIP, that points further toward the playfield
+		centre -- verified empirically (this story's own physics probes, not
+		merely derived by inspection): the base circle at the PIVOT is
+		angle-invariant (always present, full circle, regardless of stroke
+		position), so a post placed close enough to combine with it forms a
+		permanent trap that a held/released comparison can never
+		discriminate -- AC 2's own negative control ("the same arrangement
+		with the key released reaches bd_trough") would never pass. The pivot
+		END of the bat is therefore the WRONG side to close (Design Notes,
+		"Why the pocket closes at the tip, not the pivot"). The TIP end's
+		circle, by contrast, genuinely MOVES with the stroke (it sweeps from
+		the bat's own raised position, at radius flipperRadius + endRadius
+		from the pivot, down to its rest position well clear of this post) --
+		closing the throat there makes the pocket exist only while the flipper
+		actually holds it shut."""
+		toward_centre_sign = 1.0 if side == 'l' else -1.0
+
+		# Divider guide: separates the outlane (against outlane_outer_wall_x)
+		# from the inlane. Its outlane-facing face sits OUTLANE_WIDTH_MM
+		# (src/sim/table/tuning.ts's outlaneWidthLeftMm/outlaneWidthRightMm)
+		# from that wall.
+		divider_face_x = outlane_outer_wall_x - outlane_toward_wall * OUTLANE_WIDTH_MM
+		if outlane_toward_wall > 0:
+			divider_x0, divider_x1 = divider_face_x - GUIDE_T_MM, divider_face_x
+		else:
+			divider_x0, divider_x1 = divider_face_x, divider_face_x + GUIDE_T_MM
+		add_guide_wall(f'col_guide_divider_{side}', divider_x0, divider_x1, DIVIDER_Y_BOTTOM_MM, GUIDE_Y_TOP_MM)
+		divider_cx = (divider_x0 + divider_x1) / 2
+		add_rubber_post(f'col_post_divider_{side}_lo', (divider_cx, DIVIDER_Y_BOTTOM_MM))
+		add_rubber_post(f'col_post_divider_{side}_hi', (divider_cx, GUIDE_Y_TOP_MM))
+
+		# Outer guide: the inlane's own inner boundary, running down to close
+		# the cradle pocket's throat just past the flipper's TIP (DW-72) --
+		# see this function's own doc comment for why the tip, not the pivot.
+		# Offset from the bat's own committed tip (tip_x, the box's own inner
+		# edge) further toward the playfield centre and up-table, into the
+		# quadrant the swept end circle's own maximum reach (radius
+		# flipperRadius + endRadius from the pivot, reached only at the
+		# raised end-of-stroke angle) never crosses -- verified this story's
+		# own planning pass, not merely asserted.
+		pocket_post_x = tip_x + toward_centre_sign * POCKET_OFFSET_ALONG_MM
+		pocket_post_y = flipper_y_mid + POCKET_OFFSET_UP_MM
+		outer_x0 = pocket_post_x - OUTER_GUIDE_T_MM / 2
+		outer_x1 = pocket_post_x + OUTER_GUIDE_T_MM / 2
+		add_guide_wall(f'col_guide_outer_{side}', outer_x0, outer_x1, pocket_post_y, GUIDE_Y_TOP_MM)
+		add_rubber_post(f'col_post_pocket_{side}', (pocket_post_x, pocket_post_y))
+		add_rubber_post(f'col_post_outer_{side}_hi', (pocket_post_x, GUIDE_Y_TOP_MM))
+
+	# Left: outlane measured from col_wall_left's interior face (x = 0); tip
+	# is the box's own inner edge (nearer the playfield centre).
+	add_drain_triangle_side('l', left_pivot_x - BASE_RADIUS_MM + FLIPPER_BAT_MM, 0.0, -1.0)
+	# Right: outlane measured from col_wall_lane's main-field face (x =
+	# LANE_X0_MM) -- the plunger lane already claims the space between that
+	# wall and the true right perimeter wall, so the right outlane sits
+	# inboard of it rather than mirroring the left side's true-perimeter
+	# anchor (this story's spec Design Notes explain the asymmetry).
+	add_drain_triangle_side('r', right_pivot_x + BASE_RADIUS_MM - FLIPPER_BAT_MM, LANE_X0_MM, 1.0)
 
 	# ---- Switch zones: box shape, paired with their TABLE switch ----
 	sw_shooter_lane = new_box_mesh(

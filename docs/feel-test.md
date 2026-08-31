@@ -28,9 +28,9 @@ in CI rather than silent.
 
 | Item | Measured build-side number | Golden | First entry |
 |---|---|---|---|
-| Cradling | Ball-on-bat drift ≤ 35 mm through the first simulated second (measured 27.5 mm); measurably departed by 5 s (measured ~4292 mm) — DW-72's 1 s bound, owed to Story 2.1 for the real 5 s pocket | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
-| Flipper snap | 30 ms tap: release 104.3998°, true peak 90.0416° — a margin of 0.0416° short of the 90° stop (DW-80, closed) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
-| Rejection/rebound | Rebound-to-impact ratio at 1000/3000/5000 mm/s: 0.7584 / 0.7150 / 0.6886 (strictly decreasing, default `elasticityFalloff` 0.15); flat control at `elasticityFalloff` 0: 0.7819 / 0.7777 / 0.7776. Hop: `hopControl` 0 → max ball height 13.53 mm (no hop); default 0.35 → 25.41 mm, an 11.88 mm margin, nothing above the glass (400 mm) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Cradling | The real 5 s cradle, DW-72 closed: a ball the physics settles (never placed) into the drain triangle's tip-side pocket drifts under 0.2 mm over the full 5000-tick held hold (measured 0.172 mm), then reaches `bd_trough` within a generous window when released instead (measured tick 591) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Flipper snap | 30 ms tap: still mid-stroke at the exact release tick (measured 90.7916°, between rest 141° and end 90°); its own momentum now carries it the rest of the way to the TRUE end-of-stroke stop (peak 90.0000°, DW-80's 0.0416° margin closed to zero — DW-78's reconciliation shortened `flipperRadius`, so `inertia = (1/3) m flipperRadius²` fell to ~68% of its old value) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Rejection/rebound | Rebound-to-impact ratio at 1000/2000/3000 mm/s (re-measured this story at these three speeds — 5000 mm/s now lands too close to the reconciled bat's own tapered tip for a consistent face hit): 0.7560 / 0.7347 / 0.7183 (strictly decreasing, default `elasticityFalloff` 0.15); flat control at `elasticityFalloff` 0: 0.7789 / 0.7777 / 0.7775. Hop: `hopControl` 0 → max ball height 13.53 mm (no hop); default 0.35 → 24.53 mm, an 11.00 mm margin, nothing above the glass (400 mm) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
 
 ## Environment
 
@@ -43,20 +43,26 @@ in CI rather than silent.
   (`?renderer=webgl2` and the default path) is recorded as `pending-author`
   under "Both renderer paths" below, and its own machine/OS/browser row
   belongs with that dated entry when it is run.
-- Date: 2026-08-29 (UTC).
-- Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic1`.
+- Date: 2026-08-29 (UTC); re-measured 2026-08-30 (Story 2.1a, the drain
+  triangle and the flipper reconciliation) on the same host.
+- Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic2`.
 
 ## Items
 
-**Cradling.** A ball resting on a raised, held flipper bat. This epic's
-placeholder table has no pocket geometry beside either flipper (no inlane
-guide or post — Epic 1 context), so a real, multi-second cradle does not
-exist here; the machinable claim is bounded to the first simulated second
-(DW-72), and the full 5 s claim is Story 2.1's, against the real playfield.
+**Cradling.** A ball the physics settles, by itself, into the cradle pocket
+beside a raised, held flipper bat. Story 2.1a authors the drain-triangle
+geometry that closes that pocket (the outlanes, inlanes, divider and outer
+guides, and a rubber post at the bat's own tip) and proves the full 5 s hold
+`DW-72` names — closed this story, on evidence against the real playfield
+rather than Epic 1's bounded 1 s claim.
 
 **Flipper snap.** The ported `FlipperMover`'s response to a light, 30 ms tap
-— rises strictly between rest and the end-of-stroke angle, never completing
-the stroke, then returns fully to rest (`DW-80`).
+(`DW-80`) — still mid-stroke at the exact tick the key comes up, then its own
+momentum carries it the rest of the way under `updateDisplacements()`'s own
+clamp. Story 2.1a's flipper reconciliation (`DW-78`) lowered `flipperRadius`,
+and therefore the ported mover's own `inertia = (1/3) m flipperRadius²`, so
+the coast now reaches the true end-of-stroke stop exactly rather than falling
+0.0416° short.
 
 **Rejection/rebound.** How a ball leaves the flipper rubber on contact:
 `materials.flipper_rubber.elasticityFalloff` (AC 3, "the primary feel knob")
@@ -79,44 +85,63 @@ rather than fabricated.
 
 ### Cradling
 
-`pending-author`. Build-side measurement: with the left flipper held raised
-and a ball placed against its face (`test/flipper-collision.test.ts`'s own
-"(b)" case), drift stays ≤ 35 mm (measured 27.5 mm) through the first
-simulated second, then measurably exceeds 500 mm (measured ~4292 mm) by 5 s
-— the ball departs because this epic's placeholder table has no pocket
-geometry (the 1 s bound is DW-72's, owed to Story 2.1 for the real 5 s
-pocket), not because of a defect in the ported flipper (the bat is provably
-static while held: `test/flipper-collision.test.ts`'s own "(a)" case,
-unmoving within 0.01° for the full 5 s hold). Golden:
+`pending-author`. Build-side measurement, re-measured 2026-08-30 (Story
+2.1a, DW-72 closed): a ball is never placed on the raised bat — it is
+DROPPED, clear of the modelled body, and the physics settles it into the
+drain triangle's tip-side pocket by itself (`test/flipper-collision.test.ts`'s
+`arrangeCradleBall()`). Held for the full 5000-tick (5 s) hold, drift from
+the settled position stays under 0.2 mm (measured 0.172 mm, against a
+one-ball-radius bound of 13.495 mm) and speed stays at rest (measured
+0.139 VU/T) throughout — the pocket closes at the bat's own TIP, not its
+pivot (the pivot's own `hitCircleBase` is a full circle, angle-invariant
+regardless of stroke, so a pocket that closed there would trap a ball
+permanently and could never pass the discriminating negative below). The
+SAME arrangement, released instead of held, reaches `bd_trough` within a
+generous window (measured tick 591 after release) — proving the 5 s hold is
+produced by the guide AND the flipper together, not by the static guide
+alone. Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json)
 (`fs.existsSync`-checked by `test/feel-test-docs.test.ts`).
 
 ### Flipper snap
 
-`pending-author`. Build-side measurement (DW-80, closed this story): a 30 ms
-tap releases the bat at 104.3998°, which coasts under its own momentum to a
-true peak of 90.0416° — a margin of 0.0416° short of the 90° end-of-stroke
-stop, then returns fully to rest. Re-measured on this story's final tuning
-(the rebuild seam, pitch, hop control and elasticity falloff all land in this
-story) and found numerically identical to Story 1.6's own baseline, because
-none of this story's tunables touch `TUNING.flipper.*` or the ported mover.
-Golden:
+`pending-author`. Build-side measurement (`DW-80`, closed Story 1.6/1.9;
+re-measured 2026-08-30, Story 2.1a's `DW-78` reconciliation): a 30 ms tap is
+STILL mid-stroke at the exact release tick (measured 90.7916°, strictly
+between rest 141° and end 90°) — a light press has not instantly completed
+the stroke while the key is still down. Its own momentum then carries it,
+under the ported mover's own end-of-stroke clamp, the rest of the way to the
+TRUE end-of-stroke stop: peak 90.0000° exactly, where Story 1.6/1.9 measured
+90.0416° (a 0.0416° margin) against the pre-reconciliation geometry. Root
+cause, not a retune: `DW-78` shortened the modelled body's own
+`flipperRadius` from 71.8169 mm to 59.3169 mm to match the authored box
+exactly, and the ported `FlipperMover`'s own (frozen, DW-79)
+`inertia = (1/3) mass * flipperRadius²` falls with the square of that, to
+~68% of its old value — the same torque now accelerates the bat harder.
+Neither `TUNING.flipper.*` nor the ported mover itself changed. Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json).
 
 ### Rejection/rebound
 
-`pending-author`. Build-side measurement: three impact speeds
-(1000/3000/5000 mm/s) driven into the flipper rubber at the shipped default
-falloff (0.15) give a strictly decreasing rebound-to-impact ratio — 0.7584,
-0.7150, 0.6886 — while a falloff-0 control over the identical three speeds
-gives a flat ratio (0.7819, 0.7777, 0.7776), the discriminator that makes
-"decreases with speed" falsifiable rather than an artifact of the solver's
-ordinary velocity-dependent contact response (AC 3). Separately, the paired
-`hopControl = 0` vs. default (0.35) stress replay of hard flipper hits: at
+`pending-author`. Build-side measurement, re-measured 2026-08-30 (Story
+2.1a): three impact speeds — 1000/2000/3000 mm/s, not the superseded
+1000/3000/5000 mm/s (`DW-78`'s reconciliation shortened the rest bat's own
+reach, and 5000 mm/s now lands too close to the tapered tip for a consistent
+face hit across all three speeds; the spawn also moved from table x = 210 to
+x = 195 for the same reason) — driven into the flipper rubber at the shipped
+default falloff (0.15) give a strictly decreasing rebound-to-impact ratio —
+0.7560, 0.7347, 0.7183 — while a falloff-0 control over the identical three
+speeds gives a flat ratio (0.7789, 0.7777, 0.7775), the discriminator that
+makes "decreases with speed" falsifiable rather than an artifact of the
+solver's ordinary velocity-dependent contact response (AC 3). Separately, the
+paired `hopControl = 0` vs. default (0.35) stress replay of hard flipper
+hits (unaffected by the spawn-point change, still at table (210, 85)): at
 `hopControl = 0`, max observed ball height 13.53 mm (the resting height,
 13.495 mm, within a small contact epsilon — exactly zero hops); at the
-shipped default, 25.41 mm — an 11.88 mm margin, comfortably clear of the
-glass at 400 mm (AC 2). Golden:
+shipped default, 24.53 mm — an 11.00 mm margin (was 11.88 mm against the
+pre-reconciliation geometry — the harder-accelerating bat above changes
+strike dynamics slightly), comfortably clear of the glass at 400 mm (AC 2).
+Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json).
 
 ## Both renderer paths (build side, the lead's own per-story smoke)

@@ -223,8 +223,12 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		// the same way PORT_BODY_HASHES is updated: never silently.
 		const SHAPE_NOTE =
 			'test/port-provenance.test.ts changed shape. If you added a file under src/sim/physics/** or declared a new port, update these counts deliberately; otherwise an assertion has been lost.';
-		expect(report.numTotalTests, `total test count must stay 101. ${SHAPE_NOTE}`).toBe(101);
-		expect(report.numPassedTests, `all 101 tests must pass. ${SHAPE_NOTE}`).toBe(101);
+		// Story 2.1a deliberately raised these counts by one: `loader/
+		// loaded-flipper.ts` (DW-105's hoisted-out `LoadedFlipper` leaf module)
+		// is a new, genuinely authored file under src/sim/physics/**, which
+		// the SHAPE_NOTE below anticipates by name.
+		expect(report.numTotalTests, `total test count must stay 102. ${SHAPE_NOTE}`).toBe(102);
+		expect(report.numPassedTests, `all 102 tests must pass. ${SHAPE_NOTE}`).toBe(102);
 
 		const byTopDescribe = new Map<string, number>();
 		for (const file of report.testResults) {
@@ -236,7 +240,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		const found = `found: ${[...byTopDescribe.keys()].join(' | ')}`;
 
 		expect(byTopDescribe.size, `expected exactly 3 top-level describe blocks; ${found}`).toBe(3);
-		expect(byTopDescribe.get('src/sim/physics/** header provenance (AD-16)'), `${SHAPE_NOTE} ${found}`).toBe(56);
+		expect(byTopDescribe.get('src/sim/physics/** header provenance (AD-16)'), `${SHAPE_NOTE} ${found}`).toBe(57);
 		expect(
 			// Rule 14: the em dash is escaped, never a literal byte.
 			byTopDescribe.get('src/sim/physics/constants.ts \u2014 AD-15 verbatim solver constants pin'),

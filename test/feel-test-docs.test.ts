@@ -57,19 +57,19 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 	});
 
 	it('the cradling entry carries its OWN measured numbers, not merely "some number followed by mm"', () => {
-		// Review finding, this pass: flipper snap pins 90.0416/104.3998 and
-		// rejection/rebound pins 0.7584/0.6886, but cradling was pinned only by
-		// /\d+(\.\d+)?\s*mm/ -- so 27.5 mm and ~4292 mm could drift out of
-		// truth silently while this file stayed green.
+		// Review finding, this pass: flipper snap pins 90.0000/90.7916 and
+		// rejection/rebound pins 0.7560/0.7183, but cradling was pinned only by
+		// /\d+(\.\d+)?\s*mm/ -- so the 5 s drift and release-drain figures could
+		// drift out of truth silently while this file stayed green.
 		//
 		// mutation: change the cradling drift figure in docs/feel-test.md ->
 		// this test goes red.
 		const section = raw.slice(raw.indexOf('### Cradling'), raw.indexOf('### Flipper snap'));
 		expect(section.length, 'the cradling section must exist and be non-empty').toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n, 'the first-second drift figure (mm)').toMatch(/27\.5/);
-		expect(n, 'the 5 s departure figure (mm)').toMatch(/4292/);
-		expect(n.toLowerCase(), 'cradling is bounded by DW-72, which the entry must name').toContain('dw-72');
+		expect(n, 'the 5 s held-hold drift figure (mm)').toMatch(/0\.172/);
+		expect(n, 'the released-drain tick figure').toMatch(/591/);
+		expect(n.toLowerCase(), 'cradling is closed by DW-72, which the entry must name').toContain('dw-72');
 	});
 
 	it('the cradling entry carries a measured build-side number (drift in mm)', () => {
@@ -82,8 +82,8 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 		const section = raw.slice(raw.indexOf('### Flipper snap'), raw.indexOf('### Rejection/rebound'));
 		expect(section.length).toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n).toMatch(/90\.0416/);
-		expect(n).toMatch(/104\.3998/);
+		expect(n).toMatch(/90\.0000/);
+		expect(n).toMatch(/90\.7916/);
 		expect(n.toLowerCase()).toContain('dw-80');
 	});
 
@@ -91,8 +91,8 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 		const section = raw.slice(raw.indexOf('### Rejection/rebound'), raw.indexOf('## Both renderer paths'));
 		expect(section.length).toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n).toMatch(/0\.7584/);
-		expect(n).toMatch(/0\.6886/);
+		expect(n).toMatch(/0\.7560/);
+		expect(n).toMatch(/0\.7183/);
 		expect(n.toLowerCase()).toContain('mm');
 	});
 });

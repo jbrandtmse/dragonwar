@@ -61,6 +61,49 @@ export function resolvePlayfieldNodes(scene: Scene): PlayfieldNodes {
 }
 
 /**
+ * Story 2.1a (DW-55): the set of `playfieldRoot` nodes this file has already
+ * asserted the precondition below against -- `applyPitch()` is called every
+ * frame (`src/host/boot.ts`) with the SAME `nodes` object, and every call
+ * after the first legitimately leaves `playfieldRoot` non-identity (that IS
+ * the pitch this function applies), so the precondition can only ever hold
+ * on the FIRST call for a given node. A `WeakSet` keyed on the node itself
+ * (not a module-level boolean) so two independent scenes -- as in this
+ * file's own test suite -- are asserted independently.
+ */
+const assertedPlayfieldRoots = new WeakSet<TransformNode>();
+
+/**
+ * Throws naming `playfieldRoot` if it does not carry an identity world
+ * transform, or naming `pivotPitch` if it does not share `playfieldRoot`'s
+ * own parent -- the two preconditions the `P - R*P` correction below is only
+ * valid under (DW-55): geometry is authored unpitched (AD-10), so
+ * `playfieldRoot` must still be at the identity the FIRST time pitch is ever
+ * applied to it, and `pivotPitch`'s position must be read in the SAME space
+ * `playfieldRoot`'s own correction is computed in.
+ */
+function assertPitchPreconditions(nodes: PlayfieldNodes): void {
+	if (assertedPlayfieldRoots.has(nodes.playfieldRoot)) {
+		return;
+	}
+	const world = nodes.playfieldRoot.computeWorldMatrix(true);
+	if (!world.isIdentity()) {
+		throw new Error(
+			`playfield.ts: applyPitch(): "${nodes.playfieldRoot.name}" (TABLE.nodes.playfieldRoot) does not carry an ` +
+			`identity transform on its first pitch application -- geometry is authored unpitched (AD-10), and the ` +
+			`"rotate about an external point" correction this function applies is only valid starting from identity.`,
+		);
+	}
+	if (nodes.pivotPitch.parent !== nodes.playfieldRoot.parent) {
+		throw new Error(
+			`playfield.ts: applyPitch(): "${nodes.pivotPitch.name}" (TABLE.nodes.pivotPitch) does not share ` +
+			`"${nodes.playfieldRoot.name}"'s (TABLE.nodes.playfieldRoot) own parent -- pivotPitch.position must be ` +
+			`readable in the same space playfieldRoot's own correction is computed in.`,
+		);
+	}
+	assertedPlayfieldRoots.add(nodes.playfieldRoot);
+}
+
+/**
  * Rotates `nodes.playfieldRoot` by `pitchDeg` about the scene X axis
  * (unaffected by `toScene()`'s permutation -- table +X is scene +X
  * unchanged), pivoting about `nodes.pivotPitch`'s CURRENT position rather
@@ -72,8 +115,14 @@ export function resolvePlayfieldNodes(scene: Scene): PlayfieldNodes {
  * a rotation ABOUT that point rather than merely a rotation plus an
  * unrelated offset. `nodes.cabinetRoot` is never referenced here, so its
  * world matrix is unaffected by any call to this function.
+ *
+ * Story 2.1a (DW-55): asserts its own precondition on the FIRST call for a
+ * given `nodes.playfieldRoot` (see `assertPitchPreconditions()` above) --
+ * every later call, called every frame from `src/host/boot.ts` with the same
+ * node, is exempt, since by then `playfieldRoot` is deliberately non-identity.
  */
 export function applyPitch(nodes: PlayfieldNodes, pitchDeg: number): void {
+	assertPitchPreconditions(nodes);
 	const pivotPosition = nodes.pivotPitch.position.clone();
 	const angleRad = (pitchDeg * Math.PI) / 180;
 	const rotation = Quaternion.RotationAxis(Vector3.Right(), angleRad);

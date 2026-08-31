@@ -2,16 +2,85 @@
 title: 'Story 2.1a: The drain triangle, the cradle pocket and the flipper''s real dimensions'
 type: 'feature'
 created: '2026-08-30'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '3da659da59702a57fe1018f41578506f3296098b'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-2-0-epic-1-deferred-cleanup.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      The cradle "still in contact with the bat" claim (AC 2) is asserted via
+      a drift/speed proxy rather than a direct query of ball-flipper contact
+      state.
+    evidence: |-
+      test/flipper-collision.test.ts's "(b) AC 2" test infers continued
+      contact from drift staying under one ball radius and speed staying near
+      zero, reasoned equivalent in an inline comment ("if it had lost contact
+      it would have kept moving"). The ported FlipperMover already exposes a
+      public isInContact boolean (src/sim/physics/flipper/flipper-mover.ts:97,
+      set true/false per tick in updateVelocities()), but it is not surfaced
+      through createFlipperMechanics()'s public FlipperMechanics interface
+      (only applyFrame()/state are exposed), so no test can query it directly
+      today without widening that contract.
+    location: test/flipper-collision.test.ts (the "(b) AC 2" test)
+    severity: low
+  - summary: >-
+      No automated test verifies the flipper's swept modelled body clears the
+      new drain-triangle guides/posts across the full stroke, only at the two
+      settled endpoints.
+    evidence: |-
+      The bat's tip circle sweeps from rest (~141 deg) to end-of-stroke
+      (90 deg) at radius flipperRadius + endRadius from the pivot. The new
+      col_post_pocket_l/r and col_guide_outer_l/r sit close to that sweep by
+      design (Design Notes, "Why the pocket closes at the tip, not the
+      pivot"), and the diff's own comments say clearance was "verified
+      empirically" / "by hand" during planning, not by a standing test. The
+      existing flipper-mover.test.ts tests do exercise the full stroke against
+      the real committed geometry and land on exact expected angles (90.7916
+      deg at release, 90.0000 deg at peak), which would very likely be
+      disrupted by a mid-stroke clip -- indirect evidence, not a dedicated
+      geometric clearance check. A future change to sweepDeg, endRadiusRatio,
+      or the post placement constants could reintroduce a clip undetected.
+    location: tools/make-placeholder-blend.py (add_drain_triangle_side()); no covering test
+    severity: medium
+  - summary: >-
+      Three test-only non-null assertions on `flippers.find(f => f.side ===
+      'l')` throw a generic TypeError instead of a named diagnostic if the
+      left flipper node is ever missing or renamed.
+    evidence: |-
+      test/cabinet-nudge-cradle.test.ts:122, test/flipper-collision.test.ts:51
+      and :242 all write `flippers.find((f) => f.side === 'l')!.pivotMm.x`.
+      If col_flipper_l ever went missing from the committed collision
+      document, dozens of other tests (including collision-loader.test.ts's
+      own `expect(left, 'no "l"-side flipper').toBeDefined()`) would already
+      fail with a clear message first, so the practical risk is low, but
+      these three sites would themselves report an unhelpful
+      "Cannot read properties of undefined" if reached in isolation.
+    location: >-
+      test/cabinet-nudge-cradle.test.ts:122,
+      test/flipper-collision.test.ts:51,242
+    severity: low
+  - summary: >-
+      A missing connector in `tuning.ts`'s `flipperTipGapMm` provenance
+      sentence reads as a grammar error ("states a tip gap the sourced
+      9.5-12.7 mm figure").
+    evidence: |-
+      Attempted as a review-pass patch and reverted: that `source` string is
+      embedded verbatim in every golden replay's header.gameStart.tuning, so
+      editing it changes the live resolveTuning() output and breaks all 5
+      goldens' stale-header parity check (test/replay-goldens.test.ts,
+      test/replay-parity-orchestration.test.ts -- 33 failures observed).
+      A safe fix requires refreshing all 5 golden headers' embedded tuning
+      snapshot in the same pass, which is out of proportion for a low-severity
+      typo found via drive-by review; bundling it with a future story that
+      already touches TUNING and re-derives goldens is the safer path.
+    location: 'src/sim/table/tuning.ts:342'
+    severity: low
 ---
 
 <intent-contract>
@@ -169,6 +238,25 @@ Every anchor below was read during planning at `2338423` (tree clean, branch `DW
 
 ## Review Triage Log
 
+### 2026-08-31 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6 (high 0, medium 4, low 2)
+- defer: 4 (high 0, medium 1, low 3)
+- reject: 11
+- addressed_findings:
+  - `[medium]` `[patch]` `test/cabinet-nudge-cradle.test.ts`'s `runCradle()` settle guard checked only ball speed before accepting an arrangement as settled, unlike its sibling `arrangeCradleBall()`'s speed-AND-drift-over-lookback discipline -- added the same drift check.
+  - `[medium]` `[patch]` The new AC 3 span test (`test/collision-loader.test.ts`) asserted only `baseRadius + flipperRadius + endRadius === lengthMm`, which holds by algebraic construction regardless of whether `baseRadius`/`endRadius` are themselves derived correctly -- strengthened to also pin `baseRadius`/`endRadius` to their own expected mm values; verified by mutation (a `baseRadius` derivation bug now goes red where it previously would not have).
+  - `[medium]` `[patch]` The spec's own `## Verification` Mutations entry for AC 4 claimed removing a drain-triangle guide node makes `createLoop()`'s "load-time node check" throw -- empirically false (the loader's generic `col_` dispatch has no completeness manifest for guides/posts, by the same AD-11 generic-by-prefix design). Corrected the entry to a mutation that actually discriminates AC 4's own pinning tests (removing `col_flipper_l`, which does throw via `findNode()`).
+  - `[medium]` `[patch]` `applyPitch()`'s second precondition branch (DW-55, `pivotPitch`/`playfieldRoot` parent mismatch) had zero test coverage -- only the identity-transform branch was tested. Added a discriminating case; verified by mutation (disabling the branch's condition goes red).
+  - `[low]` `[patch]` `flipper-collision.test.ts` test "(a)"'s comment claimed its ball placement was "exactly like the '(b)' test below," which stopped being true once "(b)" was reworked (DW-77) to settle a ball by physics instead of placing one in contact -- corrected the comment; the test's own claim (bat holds its angle under load) is unaffected either way.
+  - `[low]` `[patch]` `tools/make-placeholder-blend.py`'s `add_drain_triangle_side()` carried a `pivot_x` parameter never referenced in the function body -- removed it and updated both call sites.
+  - `[low]` attempted-then-reverted: a garbled connector in `tuning.ts`'s `flipperTipGapMm` provenance sentence looked like a trivial prose fix, but that `source` string is embedded verbatim in every golden's `header.gameStart.tuning`, and editing it broke all 5 goldens' stale-header parity (`test/replay-goldens.test.ts`, `test/replay-parity-orchestration.test.ts` -- 33 failures). Reverted to keep the suite green; re-routed to `defer` since a safe fix requires refreshing all 5 golden headers in the same pass, which is out of proportion for a low-severity typo found via drive-by review.
+
+Deferred (see frontmatter `deferred:` for the full entries): the cradle "still in contact" claim is asserted via a drift/speed proxy rather than a direct query of the ported `FlipperMover.isInContact` field (already exists, not surfaced through the mechanics snapshot); no automated test verifies the flipper's swept capsule clears the new drain-triangle guides/posts across the full stroke (only indirect empirical evidence via exact end-of-stroke angle assertions); three test-only non-null assertions (`flippers.find(f => f.side === 'l')!`) throw a generic error instead of a named diagnostic if a flipper node is ever missing/renamed; the `tuning.ts` provenance-sentence typo above.
+
+Rejected as noise, already adequately disclosed in the diff/spec, or not real: the placeholder rubber-post radius's narrow clearance margin (already disclosed as deliberately undersized placeholder geometry); the right outlane's clear width measured against an interior wall rather than the true perimeter wall (already explained in the diff's own code comment and this spec's Design Notes); the elasticity-falloff test's narrowed impact-speed range (disclosed reasoning in the diff); the I/O matrix's "1 s and 5 s" reporting granularity (AC 2 itself only requires the 5 s checkpoint, and the implementation's continuous max-drift tracking subsumes two discrete samples); process commentary about golden verification and suite-count evidence not appearing inside the diff text itself (independently re-verified directly by this review pass, not merely inferred); `AUTHORED_FILES` growing from eleven to twelve and the `DW-105` dependency-cycle refactor reading as outside the intent-contract excerpt (both are spec-authorized by Task 11, outside the excerpt handed to the intent-alignment auditor); only the left flipper/pocket being exercised by new tests (matches Story 1.6's own established precedent, not a deviation); `test/table.test.ts`'s self-referential-input case not discriminating the DW-33 fix (the reviewing subagent confirmed this against the spec's own Mutations entry, which never claimed that test does); an implicit `else` branch in `add_drain_triangle_side()`'s `side === 'l'` check (theoretical -- both call sites pass hardcoded literals).
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).** **AD-11** (Blender owns placement; `TABLE` owns wiring; `export.py` enforces; `col_` prefixes and the ported primitive set) governs AC 1 and AC 6. **AD-10** (one canonical frame; geometry authored unpitched; `TABLE.reference` asserted) governs AC 1 and AC 3 — the x-extent assertion stays exactly as written, which is why the box, not the body, is the fixed side of the reconciliation. **AD-5** (the flipper is the ported `FlipperMover`; MPF figures are calibration references, never parameters) governs AC 2 and AC 3: the reconciliation is a *geometry* correction on the config side and must not retune `strength`, `rampUp`, `torqueDamping` or `sweepDeg`. **AD-15** (ported solver constants; tunables carry `source` and `confidence`; do-not-invent numbers ship `unverified`; replays and headless tests are first-class) governs the three new tunables and task 18. **AD-16** (three complementary provenance gates; boundaries linted by dependency-cruiser; ported files keep their notices) governs `DW-105` and the frozen-port constraint. **AD-1** (fixed dependency direction; `sim/**` is DOM- and Babylon-free) governs the `LoadedFlipper` hoist. **AD-6** is touched read-only: `bd_trough` is used as the cradle test's departure observable and no device behaviour changes. No AC contradicts any AD's Rule, and no new or amended AD is required — so **Rule 20 does not fire** and the spine is not edited by this story.
@@ -205,7 +293,7 @@ Every anchor below was read during planning at `2338423` (tree clean, branch `DW
 - AC 1 -- change one guide-end post's `surface` from `rubber_post` to `metal` in the seeding script and re-export -> the guide-end gate in `test/asset-contract.test.ts` goes red naming that guide.
 - AC 2 -- delete the post that closes the left pocket's throat from the seeding script and re-export -> the 5 s cradle test goes red on drift (and the trough observable closes).
 - AC 3 -- revert `flipper-config.ts`'s `flipperRadiusMm` to `lengthMm - endRadiusMm` -> the span assertion goes red reporting 91.875 against 79.375.
-- AC 4 -- remove one authored `col_` guide node from the collision document handed to `createLoop()` -> the loop's load-time node check throws naming it.
+- AC 4 -- remove `col_flipper_l` from the collision document handed to `createLoop()` -> `loadFlipper()`'s `findNode()` throws `required node "col_flipper_l" is missing from the collision document` before the loop can boot, naming it (empirically verified during code review, 2026-08-30: removing a drain-triangle guide/post node instead does NOT throw -- the loader's generic `col_` dispatch loop processes whatever nodes are present and has no completeness manifest for guides/posts, by the same AD-11 "generic by prefix and shape" design that lets this story add new node names with no export-side change; AC 4's own claim is about the flipper's boot path specifically, which this corrected mutation actually exercises).
 - AC 5 -- no mutation (it is the gate itself).
 - AC 6 -- edit one vertex in the seeding script without re-exporting -> `test/export-py.test.ts`'s byte-identity gate goes red naming the stale artifact.
 - `DW-52` -- feed `addWall()` a footprint with one reflex vertex -> throws naming the node and the vertex index; the convex control still loads.
@@ -221,14 +309,56 @@ Every anchor below was read during planning at `2338423` (tree clean, branch `DW
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
-Planning stage only -- `Halt after planning.` was directed by the dispatch, so the
-workflow halted at the READY-FOR-DEVELOPMENT gate and no implementation was performed.
-The epic context at `_bmad-output/implementation-artifacts/epic-2-context.md` was reused,
-not recompiled. Previous-story continuity came from
-`_bmad-output/implementation-artifacts/spec-2-0-epic-1-deferred-cleanup.md` (`status: done`).
-All eight ledger entries owned by this story key (`DW-33`, `DW-52`, `DW-55`, `DW-59`,
-`DW-72`, `DW-77`, `DW-78`, `DW-105`) are addressed by a cited task or acceptance criterion;
-none is declined.
+**Summary of implemented change.** Authored the drain triangle in `tools/make-placeholder-blend.py`
+(two outlanes, two inlanes, their divider/outer guides as convex prisms, and a `rubber_post`
+at every guide's free end), reconciled both flipper boxes outward by `baseRadius` around their
+unchanged pivots (`DW-78`), regenerated `assets/src/dragonwar.blend` and re-exported
+`public/assets/dragonwar.collision.json` (the `.glb` came out byte-identical -- `col_`/`sw_`
+nodes are excluded from it by design). On the physics side: `loadFlipper()` insets the pivot
+one `baseRadius` from the box's outer edge and `flipper-config.ts` derives `flipperRadiusMm`
+as `lengthMm - baseRadiusMm - endRadiusMm` so the modelled body's span exactly matches the
+authored box. Added `addWall()`'s convexity/CCW guard (`DW-52`), `addBox()`'s edge primitives
+(`DW-59`), `applyPitch()`'s two-branch precondition (`DW-55`), `deepFreeze()`'s unconditional-
+freeze-plus-`WeakSet`-cycle-guard rewrite (`DW-33`), and hoisted `LoadedFlipper` into a new leaf
+module to break a real dependency cycle, narrowing `dependency-cruiser`'s `no-circular` rule to
+match (`DW-105`). Reworked the cradle test (`test/flipper-collision.test.ts`) to settle a ball
+onto the raised bat by physics (never placed inside it) and hold it a full 5000 ticks in the
+pocket the new tip-side guide/post close, with a release-drains negative control (`DW-72`,
+`DW-77`); re-derived `test/cabinet-nudge-cradle.test.ts` the same way. Refreshed all five replay
+goldens' headers (`assetHash`, `gameStart.tuning`, `expectedHash`/`expectedGameStateHash` where
+the recorded scenario actually touches the new geometry) and re-verified every per-golden
+scenario assertion still describes what happens, not just that the hashes agree.
+
+**Files changed** (repo-relative from `C:/git/dragonwar/.worktrees/epic-2`):
+- `ATTRIBUTIONS.md` -- re-dated/re-described the three `## Generated content` rows for the `.blend`/`.glb`/collision json, before regeneration (CLAUDE.md hard gate).
+- `assets/src/dragonwar.blend` -- regenerated headlessly; carries the drain-triangle geometry and reconciled flipper boxes.
+- `public/assets/dragonwar.collision.json` -- re-exported; 12 new `col_` nodes (4 guide walls, 8 rubber-post caps), 2 existing flipper box extents moved.
+- `docs/feel-test.md` -- rewrote the Cradling/Flipper-snap/Rejection-rebound build-side measurements to this story's figures; author verdicts left `pending-author`.
+- `src/presentation/scene/playfield.ts` -- `applyPitch()`'s new two-branch precondition (identity transform + shared parent), `DW-55`.
+- `src/sim/physics/flipper/flipper-config.ts` -- `flipperRadiusMm` now subtracts `baseRadiusMm` too, closing `DW-78`.
+- `src/sim/physics/loader/index.ts` -- `loadFlipper()`'s pivot inset; `addWall()`'s convexity guard (`DW-52`); `addBox()`'s edge primitives (`DW-59`); `LoadedFlipper` re-exported from the new leaf module.
+- `src/sim/physics/loader/loaded-flipper.ts` (new) -- `LoadedFlipper` hoisted out of `loader/index.ts` to break a real dependency cycle (`DW-105`).
+- `src/sim/table/dragonwar.ts` -- `deepFreeze()` freezes unconditionally, cycle safety moved to a `WeakSet` (`DW-33`).
+- `src/sim/table/tuning.ts` -- added `flipperTipGapMm`/`outlaneWidthLeftMm`/`outlaneWidthRightMm`, each `unverified` with a sourced-or-derived provenance string.
+- `test/asset-contract.test.ts` -- AC 1 gates: every guide free end has a `rubber_post` within one post radius; measured tip gap and outlane widths match their tunables.
+- `test/cabinet-nudge-cradle.test.ts` -- re-derived spawn/constants against the new geometry; settle guard strengthened with a drift check (review patch).
+- `test/collision-loader.test.ts` -- re-measured tip pins; added `DW-52`/`DW-59` cases; added and then strengthened the AC 3 span-reconciliation test (review patch).
+- `test/elasticity-falloff.test.ts` -- re-derived impact speeds/spawn point against the reconciled bat.
+- `test/feel-test-docs.test.ts`, `test/flipper-mover.test.ts`, `test/table.test.ts`, `test/scene-smoke.test.ts` -- updated pinned figures; added `DW-33`/`DW-55` cases (the latter's second branch added as a review patch).
+- `test/flipper-collision.test.ts` -- reworked cradle test (`DW-72`/`DW-77`); corrected test "(a)"'s stale comment (review patch).
+- `test/module-coverage.test.ts`, `test/port-provenance.test.ts`, `test/story-2-0-rename-provenance.test.ts` -- accommodate the new `loaded-flipper.ts` file and the twelfth `AUTHORED_FILES` entry.
+- `test/replays/*.golden.json` (all 5) -- refreshed `assetHash`/`gameStart.tuning` and, where the scenario touches the new geometry, `expectedHash`/`expectedGameStateHash`; `transitions`/`coilPrologue` byte-identical.
+- `tools/dependency-cruiser.config.mjs` -- `no-circular` narrowed to exempt ported files as cycle targets, not the whole `physics/` directory as an origin (`DW-105`).
+- `tools/make-placeholder-blend.py` -- drain-triangle authoring; dead `pivot_x` parameter removed (review patch).
+- `_bmad-output/implementation-artifacts/spec-2-1a-...md` (this file) -- `baseline_revision`, status transitions, Review Triage Log, `deferred:` list, this section.
+
+**Review findings breakdown.** Four review layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment) ran in parallel against the full diff. 6 findings triaged `patch` and fixed in this pass (0 high, 4 medium, 2 low) -- see `## Review Triage Log` for the itemized list, including one attempted patch (a `tuning.ts` provenance-string typo) that was reverted after it broke all 5 golden headers' stale-check parity and re-routed to `defer`. 4 findings triaged `defer`, recorded in frontmatter `deferred:` (0 high, 1 medium, 3 low). 11 findings triaged `reject` (noise, already disclosed in the diff/spec, or not real -- see the triage log for the itemized reasoning). 0 `intent_gap`, 0 `bad_spec`.
+
+**Follow-up review recommendation:** `true`. This pass's own patched findings: 0 high, 4 medium, 2 low -- score `3*4 + 1*2 = 14` (>= 5).
+
+**Verification performed.** Ran the full `## Verification` command list independently (not just the implementation subagent's own report): Blender regeneration and `pnpm export:assets` both exit 0 and reproduce byte-identical output; `pnpm typecheck`, `lint:boundaries`, `check:headers`, `check:attributions` all clean; `pnpm test` -- 77 files / 994 passing / 0 skipped (Blender resolvable this run; baseline was 77/955/21) after the review-pass patches, with zero failures; `pnpm check:ad7` still exits 1 naming `AD-7`/`DW-70`/`bd_trough` (confirmed not a regression); `pnpm build && pnpm check:dist && pnpm check:size` all exit 0. Matrix Test Audit: all 11 I/O & Edge-Case Matrix rows covered by a passing test; one gap found (the "Reconciled bat" row had no literal span-equality assertion) and closed by adding one directly. Performed live Rule 19 mutation demonstrations for AC 1, AC 2 (via the implementation subagent, reported), AC 3, AC 4 (corrected), and DW-55's second branch (all applied, observed red, reverted, tree confirmed clean after each). Manual checks: read all five goldens' per-golden scenario assertions after the header refresh -- all still describe the same event at the same tick, not just a hash match.
+
+**Residual risks.** Deferred to the frontmatter `deferred:` list (see above and the ledger harvest that follows): (1) the cradle's "still in contact" claim is proxy-asserted (drift/speed) rather than querying the ported mover's own `isInContact` field directly; (2) no automated test verifies the flipper's swept body clears the new guides/posts across the *full* stroke, only at the two settled endpoints -- indirect evidence exists (exact end-of-stroke angles hold), but a future tuning change to `sweepDeg`/`endRadiusRatio`/post placement could reintroduce an undetected clip; (3) three test-only non-null assertions on the left flipper lookup throw an unhelpful generic error if that node is ever missing (low practical risk -- other tests would fail first with a clear message); (4) the `tuning.ts` provenance-string typo, whose safe fix requires a golden-header refresh out of proportion to its severity. None of these block any AC or the suite's green state.

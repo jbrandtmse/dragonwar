@@ -61,12 +61,36 @@ export type DeepReadonly<T> = T extends (...args: never[]) => unknown
 		? { readonly [K in keyof T]: DeepReadonly<T[K]> }
 		: T;
 
-/** Exported so `sim/table/tuning.ts` freezes `TUNING` the same way, rather than duplicating this logic. */
-export function deepFreeze<T>(value: T): DeepReadonly<T> {
-	if (value !== null && (typeof value === 'object' || typeof value === 'function') && !Object.isFrozen(value)) {
+/**
+ * Exported so `sim/table/tuning.ts` freezes `TUNING` the same way, rather
+ * than duplicating this logic.
+ *
+ * Story 2.1a (DW-33): `visited` (a `WeakSet`, never surfaced to a caller --
+ * every external call site omits it and gets the default) is the ONLY cycle
+ * guard now; freezing itself is unconditional. The previous
+ * `!Object.isFrozen(value)` gate did BOTH jobs at once, and that conflation
+ * was the defect: a value that arrives ALREADY frozen (e.g.
+ * `Object.freeze({ inner: { a: 1 } })`, handed to this function un-descended)
+ * short-circuited on that very first check and never recursed into `inner`
+ * at all -- `DeepReadonly<T>`'s own type claims every descendant is
+ * `readonly`, a claim this function did not keep. `Object.freeze()` is
+ * idempotent (freezing an already-frozen object is a harmless no-op), so
+ * calling it unconditionally costs nothing and fixes that gap; the
+ * `visited` set exists purely so a SELF-REFERENTIAL input (a value that
+ * reaches itself again through its own descendants) terminates instead of
+ * recursing forever, which is the one thing `Object.freeze()`'s own
+ * idempotence cannot provide by itself.
+ */
+export function deepFreeze<T>(value: T, visited: WeakSet<object> = new WeakSet()): DeepReadonly<T> {
+	if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+		const asObject = value as unknown as object;
+		if (visited.has(asObject)) {
+			return value as DeepReadonly<T>;
+		}
+		visited.add(asObject);
 		Object.freeze(value);
 		for (const key of Object.keys(value)) {
-			deepFreeze((value as Record<string, unknown>)[key]);
+			deepFreeze((value as Record<string, unknown>)[key], visited);
 		}
 	}
 	return value as DeepReadonly<T>;

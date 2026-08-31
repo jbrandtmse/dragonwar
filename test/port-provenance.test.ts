@@ -96,6 +96,7 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	// checking nothing).
 	const AUTHORED_FILES = new Set([
 		'loader/index.ts',
+		'loader/loaded-flipper.ts',
 		'switches.ts',
 		'devices.ts',
 		'machine.ts',
@@ -388,6 +389,7 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 	const toPosixLocal = (relative: string): string => relative.split(path.sep).join('/');
 	const AUTHORED_FILES_LOCAL = new Set([
 		'loader/index.ts',
+		'loader/loaded-flipper.ts',
 		'switches.ts',
 		'devices.ts',
 		'machine.ts',

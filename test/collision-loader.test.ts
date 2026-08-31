@@ -16,13 +16,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadCollision } from '../src/sim/physics/loader';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { MM_PER_VU, fromPhysics, toPhysics } from '../src/sim/table/frames';
-import { TUNING } from '../src/sim/table/tuning';
+import { TUNING, resolveTuning } from '../src/sim/table/tuning';
+import { buildFlipperConfig } from '../src/sim/physics/flipper/flipper-config';
 import { HitPoint } from '../src/sim/physics/hit-point';
 import { HitLineZ } from '../src/sim/physics/hit-line-z';
+import { HitLine3D } from '../src/sim/physics/hit-line-3d';
 import { LineSeg } from '../src/sim/physics/line-seg';
 import { HitTriangle } from '../src/sim/physics/hit-triangle';
+import { HitObject } from '../src/sim/physics/hit-object';
 import { PlayerPhysics } from '../src/sim/physics/game/player-physics';
 import { HitPlane } from '../src/sim/physics/hit-plane';
+import type { CollisionEvent } from '../src/sim/physics/collision-event';
 import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
@@ -487,14 +491,59 @@ describe('src/sim/physics/loader -- flippers are surfaced, not registered as sta
 		expect(left!.zLowMm).toBeCloseTo(0, 1);
 		expect(left!.zHighMm).toBeCloseTo(20, 1);
 
-		// The pivot is the end FARTHER from the playfield x-centre (this
-		// story's own Design Notes): col_flipper_l spans x [170, 249.375] --
-		// its pivot is the near-170 end, its tip the near-249.375 end.
-		// col_flipper_r spans x [265.025, 344.4] -- mirrored.
+		// Story 2.1a (DW-78): the box is the WHOLE rubbered bat, moved outward
+		// by baseRadius (12.5 mm) around each pivot -- col_flipper_l now spans
+		// x [157.5, 236.875] and col_flipper_r spans x [277.525, 356.9]. The
+		// pivot is INSET one baseRadius from the box's own outer end, so it
+		// still lands at the same table-frame position (170.0 / 344.4) this
+		// story leaves unchanged; only the two TIP pins move (149.375 mm
+		// closer to the box's own outer edge than the pivot on the left, its
+		// mirror on the right).
 		expect(left!.pivotMm.x).toBeCloseTo(170.0, 1);
-		expect(left!.tipMm.x).toBeCloseTo(249.375, 1);
+		expect(left!.tipMm.x).toBeCloseTo(236.875, 1);
 		expect(right!.pivotMm.x).toBeCloseTo(344.4, 1);
-		expect(right!.tipMm.x).toBeCloseTo(265.025, 1);
+		expect(right!.tipMm.x).toBeCloseTo(277.525, 1);
+	});
+
+	it('AC 3 (DW-78): baseRadius + flipperRadius + endRadius reconciles to the box\'s own x extent, within TOLERANCE_MM, for both bats', () => {
+		// The literal equality AC 3 names -- direct and discriminating against
+		// the pre-DW-78 defect (flipperRadiusMm = lengthMm - endRadiusMm alone,
+		// overshooting the box by baseRadius: 91.875 mm against the authored
+		// 79.375 mm). buildFlipperConfig() is exercised here directly rather
+		// than only through its downstream physics/angle effects.
+		//
+		// Code review (2026-08-30): flipperRadiusMm is DEFINED as
+		// `lengthMm - baseRadiusMm - endRadiusMm`, so the span equality alone
+		// would hold by algebraic construction even if baseRadius/endRadius
+		// were themselves derived wrong -- flipperRadius would silently absorb
+		// the error. baseRadius and endRadius are pinned to their own expected
+		// mm values below (this story's spec, "Arithmetic to reproduce") so a
+		// defect in EITHER derivation is caught here too, not just the
+		// three-way sum.
+		const TOLERANCE_MM = 0.1;
+		const EXPECTED_BASE_RADIUS_MM = 12.5;
+		const EXPECTED_END_RADIUS_MM = 12.5 * (13.0 / 21.5);
+		const doc = loadCommittedDoc();
+		const { flippers } = loadCollision(doc);
+		const tuning = resolveTuning();
+
+		expect(flippers).toHaveLength(2);
+		for (const flipper of flippers) {
+			const config = buildFlipperConfig(flipper, tuning);
+			const baseRadiusMm = config.baseRadius * MM_PER_VU;
+			const endRadiusMm = config.endRadius * MM_PER_VU;
+			const spanMm = (config.baseRadius + config.flipperRadius + config.endRadius) * MM_PER_VU;
+			expect(baseRadiusMm, `${flipper.name}: baseRadius measured ${baseRadiusMm.toFixed(4)} mm`).toBeCloseTo(EXPECTED_BASE_RADIUS_MM, 2);
+			expect(endRadiusMm, `${flipper.name}: endRadius measured ${endRadiusMm.toFixed(4)} mm`).toBeCloseTo(EXPECTED_END_RADIUS_MM, 2);
+			expect(
+				spanMm,
+				`${flipper.name}: baseRadius+flipperRadius+endRadius measured ${spanMm.toFixed(3)} mm against the box's own x extent of ${flipper.lengthMm.toFixed(3)} mm`,
+			).toBeCloseTo(flipper.lengthMm, 1);
+			expect(
+				Math.abs(spanMm - flipper.lengthMm),
+				`${flipper.name}: span drift exceeds TOLERANCE_MM (${TOLERANCE_MM} mm)`,
+			).toBeLessThan(TOLERANCE_MM);
+		}
 	});
 
 	it('a ball fired at col_flipper_l\'s OLD static-box face location never triggers HitTriangle.collide() -- the box is gone, not merely slotted', () => {
@@ -960,5 +1009,211 @@ describe('src/sim/physics/loader -- the plunger lane is still TRAVERSABLE after 
 			clean,
 			`the 20 mm lane produced a clean traversal (travelled ${travelledMm} mm, min x ${minXMm}) -- the widened-lane assertions above are not discriminating`,
 		).toBe(false);
+	});
+});
+
+describe('src/sim/physics/loader -- addWall() rejects a non-convex footprint (DW-52)', () => {
+	it('throws naming the node and the offending vertex index when a wall footprint has a reflex vertex', () => {
+		const doc = loadMutableCommittedDoc();
+		const wallNode = doc.nodes.find((n) => n.name === 'col_guide_divider_l')!;
+		expect(wallNode.shape).toBe('wall');
+		const footprint = wallNode.footprintMm as Array<{ x: number; y: number }>;
+		expect(footprint.length, 'sanity: a rectangular divider guide has exactly 4 footprint points').toBe(4);
+		// Push the SECOND point inward, past the line through its two
+		// neighbours -- a classic reflex (concave) vertex on an otherwise
+		// convex rectangle.
+		const reflexIndex = 1;
+		const centroidX = footprint.reduce((sum, p) => sum + p.x, 0) / footprint.length;
+		const centroidY = footprint.reduce((sum, p) => sum + p.y, 0) / footprint.length;
+		footprint[reflexIndex] = {
+			x: footprint[reflexIndex].x + (centroidX - footprint[reflexIndex].x) * 1.5,
+			y: footprint[reflexIndex].y + (centroidY - footprint[reflexIndex].y) * 1.5,
+		};
+
+		try {
+			loadCollision(doc);
+			expect.fail('loadCollision() should have thrown on a reflex footprint vertex');
+		} catch (err) {
+			const message = (err as Error).message;
+			expect(message).toContain('col_guide_divider_l');
+			expect(message, 'the throw must name the offending VERTEX INDEX').toMatch(/vertex \d/);
+			expect(message).toMatch(/convex/i);
+		}
+	});
+
+	it('the SAME node, still convex (unmutated), loads without throwing -- proving the guard above is discriminating, not vacuously always-throw', () => {
+		const doc = loadCommittedDoc();
+		expect(() => loadCollision(doc)).not.toThrow();
+	});
+});
+
+describe('src/sim/physics/loader -- addBox() emits edge primitives, paired with the DW-7 approach (DW-59)', () => {
+	// Mirrors the DW-7 pair above, adapted for a box's INTERIOR corner rather
+	// than a wall's free end -- verified this story's own planning pass:
+	// unlike a wall's corner (DW-7, where two INDEPENDENT finite LineSegs
+	// happen to meet at a free end), a box's edge is the SHARED boundary of
+	// TWO CONTIGUOUS triangulated faces that extend right up to it with no
+	// gap -- HitTriangle's own hitTest() (this file's own source) does
+	// strict barycentric clamping with no edge/vertex fallback, so a ball
+	// approaching along the corner's exact diagonal bisector lands EXACTLY
+	// on the shared boundary (u = 0 or v = 0), which the inclusive
+	// `u >= 0 && v >= 0` check still counts as a hit; and holding one table
+	// axis fixed within a ball radius of the corner touches the FACE whose
+	// bound spans that fixed axis for as long as the ball's swept axis
+	// remains inside the box's own footprint. The gap DW-59 closes is
+	// reachable only by a ball whose path stays OUTSIDE the box's footprint
+	// on BOTH axes at every sampled instant -- a chord tangent to a circle
+	// of radius less than one ball radius around the corner, offset from the
+	// exact diagonal so it never converges on the corner point itself. Uses
+	// the committed col_flipper_l box's own corner (its far top-right, table
+	// (236.875, 82.5)) as a real, already-authored box corner -- reached via
+	// a SYNTHETIC node pushed through loadMutableCommittedDoc() (the same
+	// seam Fix Pack 27c's own winding-regression guard uses), so this
+	// exercises the real addBox() path exactly as the committed document
+	// would, without depending on the flipper boxes' own DW-60 dispatch
+	// (which never reaches addBox() at all).
+	const CORNER_MM = { x: 236.875, y: 82.5 };
+	const SYNTHETIC_BOX = {
+		name: 'col_test_synthetic_box_dw59',
+		shape: 'box' as const,
+		surface: 'wood',
+		physMaterial: 'default',
+		bboxMm: { min: { x: 157.5, y: 57.5, z: 0.0 }, max: { x: CORNER_MM.x, y: CORNER_MM.y, z: 20.0 } },
+	};
+
+	/**
+	 * A chord tangent to a 10 mm circle around the corner (comfortably
+	 * inside one ball radius, 13.495 mm) at the 45 deg point, spanning +/-5
+	 * local units either side of the tangent point -- so its start (local
+	 * (2.07, 12.07) from the corner) and end (local (12.07, 2.07)) both stay
+	 * strictly inside the quadrant table x > 236.875 AND table y > 82.5, the
+	 * ENTIRE approach, never touching either adjacent face's own bound.
+	 * Measured this story's own planning pass: this produces zero
+	 * HitTriangle.collide()/contact() calls but real HitLineZ.contact()
+	 * calls (a genuine, if glancing, resting contact -- the same kind of
+	 * event a ball ROLLING, rather than crashing, into an edge produces).
+	 */
+	function grazeEdge(radiusVu: number): { start: Vertex3D; velocity: Vertex3D } {
+		const startTableMm = { x: CORNER_MM.x + 2.07, y: CORNER_MM.y + 12.07, z: radiusVu * MM_PER_VU };
+		const endTableMm = { x: CORNER_MM.x + 12.07, y: CORNER_MM.y + 2.07, z: radiusVu * MM_PER_VU };
+		const startPhysics = toPhysics(startTableMm);
+		const endPhysics = toPhysics(endTableMm);
+		const dx = endPhysics.x - startPhysics.x;
+		const dy = endPhysics.y - startPhysics.y;
+		const len = Math.hypot(dx, dy) || 1;
+		const speed = 3;
+		return {
+			start: new Vertex3D(startPhysics.x, startPhysics.y, startPhysics.z),
+			velocity: new Vertex3D((dx / len) * speed, (dy / len) * speed, 0),
+		};
+	}
+
+	/** Counts `HitObject.contact()` calls whose receiver is one of `ctors` (the shared base method, per-subclass only distinguishable by `this`'s own constructor -- neither `HitLineZ` nor `HitLine3D` overrides it individually). Restores the original on return; call the returned `stop()` before reading a final count. */
+	function spyOnContactsOf(...ctors: Array<new (...args: never[]) => unknown>): { count: () => number; stop: () => void } {
+		let count = 0;
+		const original = HitObject.prototype.contact;
+		HitObject.prototype.contact = function (this: HitObject, ...args: [CollisionEvent, number, PlayerPhysics]) {
+			if (ctors.some((ctor) => this instanceof ctor)) {
+				count += 1;
+			}
+			return original.apply(this, args);
+		};
+		return { count: () => count, stop: () => { HitObject.prototype.contact = original; } };
+	}
+
+	it('a ball rolling at deck height into a box EDGE (not a face) reaches HitLineZ or HitLine3D (collide() or a genuine resting contact())', () => {
+		const doc = loadMutableCommittedDoc();
+		doc.nodes.push(SYNTHETIC_BOX);
+		const { physics } = loadCollision(doc);
+
+		const lineZCollideSpy = vi.spyOn(HitLineZ.prototype, 'collide');
+		const line3DCollideSpy = vi.spyOn(HitLine3D.prototype, 'collide');
+		const edgeContacts = spyOnContactsOf(HitLineZ, HitLine3D);
+
+		const radiusVu = TABLE.reference.ballMm / 2 / MM_PER_VU;
+		const data = new BallData(radiusVu, 1, 1);
+		const { start, velocity } = grazeEdge(radiusVu);
+		const state = new BallState('BoxEdgeBall', start);
+		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
+		physics.addBall(ball);
+
+		try {
+			for (let i = 0; i < 100; i++) {
+				physics.step();
+			}
+			const edgeHits = lineZCollideSpy.mock.calls.length + line3DCollideSpy.mock.calls.length + edgeContacts.count();
+			expect(edgeHits, 'the box edge must be reachable -- neither corner primitive registered a collide() or a contact()').toBeGreaterThan(0);
+		} finally {
+			lineZCollideSpy.mockRestore();
+			line3DCollideSpy.mockRestore();
+			edgeContacts.stop();
+		}
+	});
+
+	it('the SAME rolling-ball approach produces ZERO collide()/contact() calls against a 12-HitTriangle-only construction -- proving the defect was real, not merely that the new primitives happen to fire', () => {
+		// A minimal standalone scene (not the committed geometry): a floor, a
+		// glass ceiling, and the SAME box's 12 faces as HitTriangles ONLY
+		// (addBox()'s own pre-DW-59 shape, reproduced by hand here since the
+		// real loader now always emits both) -- fired at by the identical
+		// edge-grazing approach.
+		const radiusVu = TABLE.reference.ballMm / 2 / MM_PER_VU;
+		const minPhysics = toPhysics({ x: SYNTHETIC_BOX.bboxMm.min.x, y: SYNTHETIC_BOX.bboxMm.max.y, z: SYNTHETIC_BOX.bboxMm.min.z });
+		const maxPhysics = toPhysics({ x: SYNTHETIC_BOX.bboxMm.max.x, y: SYNTHETIC_BOX.bboxMm.min.y, z: SYNTHETIC_BOX.bboxMm.max.z });
+		// toPhysics() flips y, so min/max swap on that axis -- normalise here
+		// rather than reasoning about the flip at every call site below.
+		const lo = { x: Math.min(minPhysics.x, maxPhysics.x), y: Math.min(minPhysics.y, maxPhysics.y), z: Math.min(minPhysics.z, maxPhysics.z) };
+		const hi = { x: Math.max(minPhysics.x, maxPhysics.x), y: Math.max(minPhysics.y, maxPhysics.y), z: Math.max(minPhysics.z, maxPhysics.z) };
+
+		const c000 = new Vertex3D(lo.x, lo.y, lo.z);
+		const c100 = new Vertex3D(hi.x, lo.y, lo.z);
+		const c010 = new Vertex3D(lo.x, hi.y, lo.z);
+		const c110 = new Vertex3D(hi.x, hi.y, lo.z);
+		const c001 = new Vertex3D(lo.x, lo.y, hi.z);
+		const c101 = new Vertex3D(hi.x, lo.y, hi.z);
+		const c011 = new Vertex3D(lo.x, hi.y, hi.z);
+		const c111 = new Vertex3D(hi.x, hi.y, hi.z);
+		// The EXACT face/winding table addBox() itself uses (this file's own
+		// source, loader/index.ts) -- reproduced here as the "12 triangles
+		// only" construction DW-59 supersedes, not re-derived independently.
+		const triangles = [
+			[c100, c110, c111], [c100, c111, c101], // +X
+			[c000, c001, c011], [c000, c011, c010], // -X
+			[c010, c011, c111], [c010, c111, c110], // table +Y -> physics -Y
+			[c000, c100, c101], [c000, c101, c001], // table -Y -> physics +Y
+			[c001, c101, c111], [c001, c111, c011], // +Z
+			[c000, c010, c110], [c000, c110, c100], // -Z
+		].map((rgv) => new HitTriangle(rgv));
+
+		const physics = new PlayerPhysics();
+		const playfield = new HitPlane(new Vertex3D(0, 0, 1), 0);
+		playfield.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
+		physics.setPlayfieldHit(playfield);
+		const topGlass = new HitPlane(new Vertex3D(0, 0, -1), -500);
+		topGlass.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
+		physics.setTopGlassHit(topGlass);
+		for (const tri of triangles) {
+			tri.setElasticity(0.3, 0).setFriction(0.3).setScatter(0);
+			physics.addStaticHitObject(tri);
+		}
+		physics.finalizeStatics();
+
+		const triangleCollideSpy = vi.spyOn(HitTriangle.prototype, 'collide');
+		const triangleContacts = spyOnContactsOf(HitTriangle);
+		const data = new BallData(radiusVu, 1, 1);
+		const { start, velocity } = grazeEdge(radiusVu);
+		const state = new BallState('BoxEdgeBallControl', start);
+		const ball = new Ball(0, data, state, velocity, TABLE_DATA);
+		physics.addBall(ball);
+
+		try {
+			for (let i = 0; i < 100; i++) {
+				physics.step();
+			}
+			expect(triangleCollideSpy, 'the pre-DW-59 (triangles-only) construction must NOT catch this edge-grazing approach via collide()').not.toHaveBeenCalled();
+			expect(triangleContacts.count(), 'nor via a resting contact() -- this is the DW-59 defect, reproduced directly rather than merely asserted').toBe(0);
+		} finally {
+			triangleCollideSpy.mockRestore();
+			triangleContacts.stop();
+		}
 	});
 });

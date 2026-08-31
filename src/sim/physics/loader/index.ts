@@ -44,6 +44,7 @@
 
 import { PlayerPhysics } from '../game/player-physics';
 import { HitLineZ } from '../hit-line-z';
+import { HitLine3D } from '../hit-line-3d';
 import { HitPlane } from '../hit-plane';
 import { HitTriangle } from '../hit-triangle';
 import { LineSeg } from '../line-seg';
@@ -53,6 +54,13 @@ import { TABLE } from '../../table/dragonwar';
 import { MM_PER_IN, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
 import { TUNING, resolveTuning, type ResolvedTuning } from '../../table/tuning';
 import type { BallDeviceName, SwitchName } from '../../table/names';
+import type { LoadedFlipper } from './loaded-flipper';
+
+// Story 2.1a (DW-105): `LoadedFlipper` itself is declared in the leaf module
+// `./loaded-flipper` and re-exported here so every existing `from '../loader'`
+// import keeps working -- see that module's own header for why it was
+// hoisted out of this file.
+export type { LoadedFlipper } from './loaded-flipper';
 
 const TOLERANCE_MM = 0.1;
 
@@ -120,29 +128,6 @@ export interface LoadedSwitchZone {
 export interface LoadedDevice {
 	readonly name: BallDeviceName;
 	readonly ejectPose: { readonly posMm: Vec3; readonly dir: Vec3 };
-}
-
-/**
- * A flipper node's derived pivot/tip/length/half-width/z-range (Story 1.6,
- * task 8b): `col_flipper_l`/`col_flipper_r` are surfaced here instead of
- * being dispatched to `addBox()` -- a moving bat must not ALSO exist as 24
- * static `HitTriangle`s (that static box is ledger `DW-60`). See this file's
- * header, "How the bat is derived from the committed box" in this story's
- * Design Notes, and `sim/physics/flipper/flipper-config.ts`, which turns this
- * into the ported mover's `FlipperConfig`.
- */
-export interface LoadedFlipper {
-	readonly name: string;
-	readonly side: 'l' | 'r';
-	/** The end FARTHER from the playfield x-centre -- the bat's fixed rotation axis. */
-	readonly pivotMm: Vec3;
-	/** The opposite end -- the bat's free (moving) tip. */
-	readonly tipMm: Vec3;
-	readonly lengthMm: number;
-	readonly halfWidthMm: number;
-	readonly zLowMm: number;
-	readonly zHighMm: number;
-	readonly physMaterial?: string;
 }
 
 export interface LoadedCollision {
@@ -473,8 +458,42 @@ function orientedEdge(p1: Vec2Mm, p2: Vec2Mm, centroid: Vec2Mm): [Vec2Mm, Vec2Mm
 	return dot >= 0 ? [p1, p2] : [p2, p1];
 }
 
+/**
+ * DW-52: `addWall()`'s centroid orientation (`orientedEdge()` below) is only
+ * correct for a CONVEX footprint -- a reflex vertex puts the polygon's
+ * vertex-mean centroid outside the shape near that vertex, which flips the
+ * "away from centroid" outward test for the edges nearest it. `tools/
+ * export.py`'s `wall_footprint_mm()` always emits a convex, counter-clockwise
+ * hull, so this only ever fires against a hand-edited or corrupted document
+ * (AD-16 Conventions: load-time paths throw) -- Story 2.1a authors the
+ * FIRST non-rectangular footprints beyond the one pinned deflector, so this
+ * guard is no longer merely theoretical. Checked over the TABLE-frame
+ * `footprintMm` (never `physicsPoints`): `toPhysics()` reverses winding
+ * (this file's header), so a footprint that is convex and CCW in the table
+ * frame is convex but CLOCKWISE after conversion -- testing convexity in the
+ * frame the document actually authors it in is what makes "the offending
+ * vertex index" mean the same thing to a human reading the source document.
+ */
+function assertConvexCcwFootprint(nodeName: string, footprint: readonly Vec2Mm[]): void {
+	const n = footprint.length;
+	for (let i = 0; i < n; i++) {
+		const a = footprint[i];
+		const b = footprint[(i + 1) % n];
+		const c = footprint[(i + 2) % n];
+		const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+		if (cross <= 0) {
+			const offendingIndex = (i + 1) % n;
+			throw new Error(
+				`loadCollision(): wall node "${nodeName}" has a non-convex footprint at vertex ${offendingIndex} ` +
+				`(${JSON.stringify(b)}) -- footprintMm must be a strictly convex, counter-clockwise ring (DW-52)`,
+			);
+		}
+	}
+}
+
 function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
 	const footprint = node.footprintMm!;
+	assertConvexCcwFootprint(node.name, footprint);
 	const zLowVu = toPhysics({ x: 0, y: 0, z: node.zLowMm! }).z;
 	const zHighVu = toPhysics({ x: 0, y: 0, z: node.zHighMm! }).z;
 
@@ -573,13 +592,41 @@ function addBox(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource:
 			physics.addStaticHitObject(triangle);
 		}
 	}
+
+	// DW-59: the same corner gap DW-7 already closed for walls (this file's
+	// header) -- 12 HitTriangles alone cover every FACE but leave every EDGE
+	// uncovered, and a ball rolling at deck height reaches an edge exactly
+	// the way it reaches a wall corner. Four VERTICAL edges (fixed x/y, z
+	// spanning zLow..zHigh) as HitLineZ, the identical primitive addWall()
+	// already uses for its own corners; eight HORIZONTAL edges (four per z
+	// level) as HitLine3D, the arbitrary-orientation primitive a
+	// vertical-only HitLineZ cannot represent.
+	const zLowVu = Math.min(c000.z, c001.z);
+	const zHighVu = Math.max(c000.z, c001.z);
+	for (const corner of [c000, c100, c010, c110]) {
+		const hitLineZ = new HitLineZ(new Vertex2D(corner.x, corner.y), zLowVu, zHighVu);
+		applyMaterial(materialsSource, hitLineZ, node.physMaterial, node.name);
+		physics.addStaticHitObject(hitLineZ);
+	}
+	const horizontalEdges: ReadonlyArray<readonly [Vertex3D, Vertex3D]> = [
+		[c000, c100], [c100, c110], [c110, c010], [c010, c000], // bottom face (z = min)
+		[c001, c101], [c101, c111], [c111, c011], [c011, c001], // top face (z = max)
+	];
+	for (const [a, b] of horizontalEdges) {
+		const hitLine3D = new HitLine3D(a, b);
+		applyMaterial(materialsSource, hitLine3D, node.physMaterial, node.name);
+		physics.addStaticHitObject(hitLine3D);
+	}
 }
 
 // ---------------------------------------------------------------------------
-// Flipper extraction (Story 1.6): derives a LoadedFlipper from the committed
-// box's own bboxMm -- see this file's header and LoadedFlipper's own doc
-// comment. No figure is invented: pivot/tip/length/half-width/z-range are all
-// direct reads of the committed geometry.
+// Flipper extraction (Story 1.6; reconciled by Story 2.1a, DW-78): derives a
+// LoadedFlipper from the committed box's own bboxMm -- see this file's header
+// and LoadedFlipper's own doc comment. No figure is invented:
+// pivot/tip/length/half-width/z-range are all direct reads of the committed
+// geometry (`lengthMm` and `halfWidthMm` are direct box measurements;
+// `pivotMm` is the box's own outer end INSET by `halfWidthMm`, itself a
+// direct box measurement -- never a second, independently authored figure).
 // ---------------------------------------------------------------------------
 
 function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): LoadedFlipper {
@@ -596,17 +643,31 @@ function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): Load
 	// and material").
 	resolveMaterial(TUNING.materials, node.physMaterial, node.name);
 
-	// The pivot is the end FARTHER from the playfield x-centre (this file's
-	// own header: "x = 170 for the left bat, x = 344.4 for the right --
-	// equivalently the left bat's min.x and the right bat's max.x"), computed
-	// from the actual measured distances rather than hard-coded per side, so
-	// a re-authored (but still axis-aligned) box is still read correctly.
+	// The box's own OUTER end is the one FARTHER from the playfield
+	// x-centre (this file's own header: "x = 170 for the left bat, x = 344.4
+	// for the right -- equivalently the left bat's min.x and the right bat's
+	// max.x"), computed from the actual measured distances rather than
+	// hard-coded per side, so a re-authored (but still axis-aligned) box is
+	// still read correctly. The INNER end is the bat's free tip.
 	const centreX = TABLE.reference.playfieldMm.w / 2;
 	const distMin = Math.abs(b.min.x - centreX);
 	const distMax = Math.abs(b.max.x - centreX);
-	const pivotX = distMin >= distMax ? b.min.x : b.max.x;
-	const tipX = distMin >= distMax ? b.max.x : b.min.x;
+	const outerIsMin = distMin >= distMax;
+	const outerX = outerIsMin ? b.min.x : b.max.x;
+	const tipX = outerIsMin ? b.max.x : b.min.x;
 	const centreY = (b.min.y + b.max.y) / 2;
+
+	// DW-78: the authored box is the WHOLE rubbered bat (FR-4, "3.125 in
+	// rubbered"), so the pivot -- the mover's actual, fixed rotation axis --
+	// sits one baseRadius (the box's own half-width) IN from the box's
+	// outer end, never AT it (which is what let the modelled body's base
+	// circle protrude 12.5 mm behind authored geometry before this story).
+	// The inset moves TOWARD the tip, so it lands at the pivot's own
+	// unchanged table-frame position (left 170.0 mm, right 344.4 mm) exactly
+	// because `tools/make-placeholder-blend.py` authored the box to extend
+	// that same baseRadius beyond it in the first place.
+	const halfWidthMm = (b.max.y - b.min.y) / 2;
+	const pivotX = outerIsMin ? outerX + halfWidthMm : outerX - halfWidthMm;
 
 	return {
 		name: node.name,
@@ -614,7 +675,7 @@ function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): Load
 		pivotMm: { x: pivotX, y: centreY, z: b.min.z },
 		tipMm: { x: tipX, y: centreY, z: b.min.z },
 		lengthMm: b.max.x - b.min.x,
-		halfWidthMm: (b.max.y - b.min.y) / 2,
+		halfWidthMm,
 		zLowMm: b.min.z,
 		zHighMm: b.max.z,
 		physMaterial: node.physMaterial,

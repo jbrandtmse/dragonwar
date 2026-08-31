@@ -35,7 +35,14 @@ import { degToRad } from '../math/float';
 import { Vertex2D } from '../math/vertex2d';
 import { MM_PER_VU, toPhysics } from '../../table/frames';
 import type { ResolvedTuning } from '../../table/tuning';
-import type { LoadedFlipper } from '../loader';
+// Story 2.1a (DW-105): imported from the leaf module directly, NOT from
+// '../loader' (loader/index.ts) -- that module imports game/player-physics.ts,
+// which imports the frozen port flipper-mover.ts, which imports back from
+// THIS file, closing a real dependency cycle. Importing the leaf module
+// instead means this file never imports loader/index.ts at all, so the cycle
+// has no edge left to close on. See src/sim/physics/loader/loaded-flipper.ts's
+// own header.
+import type { LoadedFlipper } from '../loader/loaded-flipper';
 
 /**
  * The plain-data geometry/kinematic-range config `FlipperMover`/`FlipperHit`
@@ -125,13 +132,15 @@ export function buildFlipperConfig(flipper: LoadedFlipper, tuning: ResolvedTunin
 
 	const baseRadiusMm = flipper.halfWidthMm;
 	const endRadiusMm = baseRadiusMm * tuning.flipper.endRadiusRatio.value;
-	// The tip's OUTER edge (the committed box's own far end) sits at
-	// flipperRadius + endRadius from the pivot (upstream's own "center-to-center
-	// radius" convention for flipperRadius) -- so flipperRadius is the
-	// committed length minus the derived endRadius, never a second invented
-	// figure. Floored well above zero so a pathological (near-zero) box can
-	// never produce a degenerate or negative arm.
-	const flipperRadiusMm = Math.max(flipper.lengthMm - endRadiusMm, 0.01);
+	// DW-78: `flipper.lengthMm` is the committed box's OWN full x extent --
+	// the whole rubbered bat (FR-4), not a pivot-to-tip distance -- so the
+	// modelled body (baseRadius circle + flipperRadius arm + endRadius tip)
+	// must subtract BOTH derived radii from it, not endRadius alone, or the
+	// base circle overshoots the box by baseRadius (DW-78's defect: a
+	// 91.875 mm modelled span against a 79.375 mm authored box). Floored
+	// well above zero so a pathological (near-zero) box can never produce a
+	// degenerate or negative arm.
+	const flipperRadiusMm = Math.max(flipper.lengthMm - baseRadiusMm - endRadiusMm, 0.01);
 
 	const zLow = toPhysics({ x: 0, y: 0, z: flipper.zLowMm }).z;
 	const zHigh = toPhysics({ x: 0, y: 0, z: flipper.zHighMm }).z;

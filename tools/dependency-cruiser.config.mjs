@@ -31,6 +31,42 @@
 // substring match still finds the real `@babylonjs/<pkg>/` segment nested at
 // the end of the resolved path under any package manager's layout.
 
+// Story 2.1a (DW-105): the `no-circular` rule below used to exempt the whole
+// `src/sim/physics/` directory as a cycle ORIGIN, which hid a real cycle
+// spanning two AUTHORED files (`flipper/flipper-config.ts`,
+// `loader/index.ts`) and two FROZEN ports (`game/player-physics.ts`,
+// `flipper/flipper-mover.ts`) -- the directory-wide carve-out could not tell
+// an authored-to-ported cycle apart from the 33 real internal cycles the
+// upstream engine's OWN structure carries (every one of them both FROM and
+// TO a frozen port). Narrowed here to the opposite shape: every file is a
+// cycle origin, and only a PORTED physics file (declared authored files
+// excluded) is exempted as a cycle TARGET -- so a cycle entirely within
+// frozen ports still stays quiet (Design Notes: "if a real cycle survives
+// that spans only frozen ports, record why here instead of forcing it" --
+// none does today, this narrowing alone was sufficient once the hoist above
+// broke the one real cycle), while a cycle that touches even one authored
+// file -- including one under `src/sim/physics/` itself, unlike the old
+// exemption -- still fails. This list mirrors (never imports, to keep this
+// config file's own dependency-free contract) `test/port-provenance.test.ts`'s
+// `AUTHORED_FILES`; a stale or typo'd entry there is caught by that test's own
+// "every entry names a real file" assertion, not by this file.
+const AUTHORED_PHYSICS_FILES = [
+	'loader/index',
+	'loader/loaded-flipper',
+	'switches',
+	'devices',
+	'machine',
+	'flipper/flipper-config',
+	'flippers',
+	'plunger',
+	'cabinet/slam',
+	'cabinet/index',
+	'hop',
+	'geometry',
+];
+const PORTED_PHYSICS_FILE_PATTERN =
+	`^src/sim/physics/(?!(?:${AUTHORED_PHYSICS_FILES.join('|').replace(/\//g, '\\/')})\\.tsx?$).+\\.tsx?$`;
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 export default {
 	options: {
@@ -119,20 +155,24 @@ export default {
 				"AD-1: the layer graph is a DAG -- a dependency cycle anywhere under src/ means two " +
 				"modules cannot be reasoned about independently, which the seam contracts exist to " +
 				"prevent. dependency-cruiser's own built-in cycle detector (`to.circular: true`), not a " +
-				"hand-rolled graph walk. `from.pathNot` excludes src/sim/physics/** -- measured during " +
-				"this story's implementation: the vpx-js/vpinball-ported time-of-impact core carries 33 " +
-				"real internal cycles (e.g. ball-hit.ts <-> player-physics.ts, hit-kd.ts <-> hit-kd-node.ts), " +
-				"every one of them both FROM and TO a src/sim/physics/** module -- the upstream engine's " +
-				"own structure, not DragonWar's, and every file in the cycle is a DW-79-frozen port body " +
-				"(test/port-provenance.test.ts's PORT_BODY_HASHES); breaking one means editing a frozen port " +
-				"and re-pinning its hash, which this story's own Block If rules out. Excluding physics/ as " +
-				"a CYCLE ORIGIN still catches every cycle this rule exists for: one introduced among the " +
-				"seam contracts, or one that newly drags host/, presentation/, sim/table/, sim/rules/ or " +
-				"sim/loop/ into a cycle touching physics/ -- such a cycle's edge FROM the non-physics side " +
-				"still matches this rule and still fails.",
+				"hand-rolled graph walk. Story 2.1a (DW-105) narrowed this rule: every file, INCLUDING " +
+				"every authored src/sim/physics/** module, is now a cycle origin (the previous " +
+				"directory-wide `from.pathNot` exemption hid a real cycle spanning two authored files and " +
+				"two frozen ports -- see this file's own header comment above). `to.pathNot` now excludes " +
+				"only the declared PORTED files (PORTED_PHYSICS_FILE_PATTERN) as a cycle TARGET: the " +
+				"vpx-js/vpinball-ported time-of-impact core carries 33 real internal cycles (e.g. " +
+				"ball-hit.ts <-> player-physics.ts, hit-kd.ts <-> hit-kd-node.ts), every one of them both " +
+				"FROM and TO a DW-79-frozen port body (test/port-provenance.test.ts's PORT_BODY_HASHES); " +
+				"breaking one means editing a frozen port and re-pinning its hash, which this story's own " +
+				"Block If rules out. This still catches every cycle this rule exists for: one introduced " +
+				"among the seam contracts, one that newly drags host/, presentation/, sim/table/, " +
+				"sim/rules/ or sim/loop/ into a cycle touching physics/, AND -- unlike the previous " +
+				"exemption -- one introduced between an AUTHORED physics/ file and a frozen port, because " +
+				"an authored file is never in PORTED_PHYSICS_FILE_PATTERN and so never exempted as a " +
+				"target.",
 			severity: 'error',
-			from: { pathNot: '^src/sim/physics/' },
-			to: { circular: true },
+			from: {},
+			to: { circular: true, pathNot: PORTED_PHYSICS_FILE_PATTERN },
 		},
 		{
 			name: 'sim-table-no-physics-rules-loop',

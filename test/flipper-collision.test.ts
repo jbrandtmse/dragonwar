@@ -48,7 +48,8 @@ function buildFlipperHarness() {
 	physics.setGravity(TABLE.reference.pitchDeg, DEFAULT_TABLE_GRAVITY * GRAVITYCONST);
 	const tuning = resolveTuning();
 	const flipperMechanics = createFlipperMechanics({ physics, flippers, tuning });
-	return { physics, flipperMechanics };
+	const leftPivotXMm = flippers.find((f) => f.side === 'l')!.pivotMm.x;
+	return { physics, flipperMechanics, leftPivotXMm };
 }
 
 function spawnBallAt(physics: ReturnType<typeof buildFlipperHarness>['physics'], xMm: number, yMm: number, name: string): Ball {
@@ -68,27 +69,115 @@ function ballPosMm(ball: Ball) {
 	return fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
 }
 
+const BALL_RADIUS_MM = TABLE.reference.ballMm / 2;
+
+/**
+ * Story 2.1a (DW-72, DW-77): settles a ball into the left bat's cradle
+ * pocket by PHYSICS ALONE -- never placed inside the modelled body. Closes
+ * DW-77: the superseded spawn (195, 85) sat ~9 mm inside the tapered
+ * capsule (`assertReferenceDimensions()`'s own box y-range, 57.5..82.5,
+ * minus the arm's taper at that radius from the pivot), so it measured
+ * embedded-ball ejection, never a resting contact.
+ *
+ * The spawn x (`pivotMm.x + 30`) is derived from the committed geometry --
+ * `LoadedFlipper.pivotMm`, not an invented literal -- and lands well inside
+ * the wide, physics-measured basin (this story's own planning pass: every
+ * drop from `pivotMm.x + 5` through `pivotMm.x + 55` converges on the SAME
+ * settled point) that rolls into the pocket the authored `col_guide_outer_l`
+ * / `col_post_pocket_l` close at the bat's TIP, not its pivot (`Design
+ * Notes`, "Why the pocket closes at the tip, not the pivot" -- the pivot's
+ * own `hitCircleBase` is a full circle, angle-invariant, so a pocket that
+ * closes there traps a ball regardless of the flipper's actual stroke,
+ * which cannot pass AC 2's own negative control). The drop height (`y =
+ * 100`) is comfortably clear of the raised bat's own modelled body (whose
+ * y-reach, even at its widest near the pivot, stays under 82.5) and clear of
+ * every authored guide/post (whose lowest y is `94`).
+ *
+ * Runs a fixed ARRANGE window, then asserts genuine settling (near-zero
+ * drift between two late samples, near-zero speed) BEFORE returning --
+ * "if it never settles, the arrange fails loudly rather than measuring
+ * free travel" (this story's own I/O matrix). Returns the ball, the tick
+ * count already spent (so a caller's own measurement window continues from
+ * here), and the settled position every drift measurement is against.
+ */
+function arrangeCradleBall(
+	physics: ReturnType<typeof buildFlipperHarness>['physics'],
+	flipperMechanics: ReturnType<typeof buildFlipperHarness>['flipperMechanics'],
+	leftPivotXMm: number,
+	name: string,
+): { ball: Ball; tick: number; settledPos: ReturnType<typeof ballPosMm> } {
+	const held: InputFrame = { ...NO_FRAME, flipper_l: true };
+	let tick = 0;
+	for (let t = 1; t <= 60; t++) {
+		tick = t;
+		flipperMechanics.applyFrame(t, held, { l: true, r: true });
+		physics.step();
+	}
+	if (flipperMechanics.state.l.angleDeg !== 90) {
+		throw new Error(`arrangeCradleBall(): the bat must be fully raised (90 deg) before the ball is placed; measured ${flipperMechanics.state.l.angleDeg}`);
+	}
+
+	const xMm = leftPivotXMm + 30;
+	const startPosMm = { x: xMm, y: 100, z: RADIUS_VU * 0.53975 };
+	const posPhysics = toPhysics(startPosMm);
+	const data = new BallData(RADIUS_VU, 1, 1);
+	const state = new BallState(name, new Vertex3D(posPhysics.x, posPhysics.y, posPhysics.z));
+	const ball = new Ball(0, data, state, new Vertex3D(0, 0, 0), TABLE_DATA);
+	physics.addBall(ball);
+
+	const ARRANGE_TICKS = 2500;
+	const SETTLE_CHECK_LOOKBACK = 500;
+	let posAtLookback = ballPosMm(ball);
+	for (let i = 1; i <= ARRANGE_TICKS; i++) {
+		tick += 1;
+		flipperMechanics.applyFrame(tick, held, { l: true, r: true });
+		physics.step();
+		if (i === ARRANGE_TICKS - SETTLE_CHECK_LOOKBACK) {
+			posAtLookback = ballPosMm(ball);
+		}
+	}
+	const settledPos = ballPosMm(ball);
+	const settleDrift = Math.hypot(settledPos.x - posAtLookback.x, settledPos.y - posAtLookback.y);
+	const settleSpeed = ballSpeed(ball);
+	if (settleDrift >= 1 || settleSpeed >= 2) {
+		throw new Error(
+			`arrangeCradleBall(): the ball never settled within the ${ARRANGE_TICKS}-tick arrange window -- drift over the ` +
+			`last ${SETTLE_CHECK_LOOKBACK} ticks was ${settleDrift.toFixed(3)} mm (must be < 1), speed ${settleSpeed.toFixed(3)} ` +
+			`(must be < 2). Failing loudly rather than measuring free travel as if it were a resting contact.`,
+		);
+	}
+
+	return { ball, tick, settledPos };
+}
+
 describe('sim/physics/flippers.ts -- collision against the committed geometry (Story 1.6)', () => {
-	// --- DW-72 rework (2026-08-29): "Flipper held" now asserts the bat's
-	// full 5 s hold plus a 1 s-bounded ball claim, each with a mandatory
-	// discriminating negative -- see this spec's Design Notes ("The cradle
-	// amendment") and epics.md's Story 1.6 change log for why.
+	// --- DW-72 rework (2026-08-29, superseded 2026-08-30 by Story 2.1a): the
+	// original amendment bounded "flipper held" to the bat's own 5 s hold
+	// plus a 1 s-bounded ball claim, because no pocket geometry existed yet
+	// to prove the full 5 s cradle. Story 2.1a authors that geometry (the
+	// drain triangle's tip-side guide and post) and this describe block's
+	// "(b)" tests now prove the AMENDED AC 2 in full -- see this story's spec
+	// Design Notes, "Why the pocket closes at the tip, not the pivot".
 
 	// The true committed end-of-stroke angle for the left flipper (90 deg,
-	// independently pinned by the ball-free sanity check in test (b) below
-	// and by test/flipper-mover.test.ts:83). Both tests below compare
-	// against this single external value rather than a self-derived one, so
-	// a regression that converges to a stable BUT WRONG angle under ball
-	// load is not indistinguishable from a correct one.
+	// independently pinned by test/flipper-mover.test.ts:83). Both angle
+	// tests below compare against this single external value rather than a
+	// self-derived one, so a regression that converges to a stable BUT WRONG
+	// angle under ball load is not indistinguishable from a correct one.
 	const END_OF_STROKE_ANGLE_DEG = 90;
 
 	it('(a) the bat reaches its end-of-stroke angle and holds it, unmoving and without oscillating, for the full 5 s (5000 ticks) hold', () => {
 		const { physics, flipperMechanics } = buildFlipperHarness();
 		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 
-		// A ball is present and in contact throughout, exactly like the "(b)"
-		// test below -- the bat-angle claim must hold under the SAME load,
-		// not in a vacuum.
+		// A ball is present and pressing against the bat throughout -- the
+		// bat-angle claim must hold under load, not in a vacuum. This is a
+		// fixed contact-force probe, unlike "(b)" below, which now settles its
+		// ball onto the bat by physics rather than placing one in contact
+		// directly (code review, 2026-08-30: the comment previously claimed
+		// equivalence with "(b)", which stopped being true once "(b)" was
+		// reworked for DW-77 -- the claim here is narrower: SOME contact load,
+		// not a reproduction of (b)'s settled-arrangement methodology).
 		spawnBallAt(physics, 195, 85, 'CradleBall');
 
 		const angles: number[] = [];
@@ -131,67 +220,100 @@ describe('sim/physics/flippers.ts -- collision against the committed geometry (S
 		expect(Math.abs(finalAngleReleased - END_OF_STROKE_ANGLE_DEG), 'a released flipper must NOT sit at the end-of-stroke angle -- rest and end-of-stroke are different poses').toBeGreaterThan(10);
 	});
 
-	it('(b) the ball resting on the raised bat stays close to where it was placed through the first 1 s (1000 ticks), then has measurably departed by 5 s (5000 ticks)', () => {
-		const { physics, flipperMechanics } = buildFlipperHarness();
-		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
-		let tick = 0;
-		for (let t = 1; t <= 60; t++) {
-			tick = t;
-			flipperMechanics.applyFrame(t, held, { l: true, r: true });
-			physics.step();
+	// Story 2.1a rework (DW-72, DW-77): the drain triangle's own guide and
+	// posts close the cradle pocket at the bat's tip (Design Notes, "Why the
+	// pocket closes at the tip, not the pivot"), so the AMENDED AC 2 (the
+	// full 5 s hold, `epics.md:847-850`) is provable at last -- the 1 s bound
+	// this describe block used to carry (Story 1.6's own amendment, when no
+	// pocket existed yet) is superseded, not merely widened. Built with
+	// `createDeviceMechanics` (unlike `buildFlipperHarness()` above) so a
+	// departing ball has somewhere real to go, and `bd_trough`'s own slot
+	// state is a first-class observable, not merely "the ball moved".
+	function buildCradleHarness() {
+		const { physics, flippers, switchZones, devices } = loadCollision(loadDoc());
+		physics.setGravity(TABLE.reference.pitchDeg, DEFAULT_TABLE_GRAVITY * GRAVITYCONST);
+		const tuning = resolveTuning();
+		const flipperMechanics = createFlipperMechanics({ physics, flippers, tuning });
+		let nextBallId = 1;
+		const deviceMechanics = createDeviceMechanics({ physics, devices, switchZones, tuning, nextBallId: () => nextBallId++ });
+		// bd_trough starts full (AD-6: "4 balls, asserted at boot") -- empty
+		// one slot so a departing ball has somewhere to park, then remove the
+		// spawned ball that eject produces so this test's own single ball is
+		// the only one in play (mirrors the DW-60 describe block below).
+		deviceMechanics.applyCommands(0, [{ coil: 'c_trough_eject' }]);
+		for (const spawned of [...physics.balls]) {
+			physics.removeBall(spawned);
 		}
-		expect(flipperMechanics.state.l.angleDeg, 'sanity: the bat must be fully raised before the ball is placed').toBe(90);
+		const leftPivotXMm = flippers.find((f) => f.side === 'l')!.pivotMm.x;
+		return { physics, flipperMechanics, deviceMechanics, leftPivotXMm };
+	}
 
-		// Placed already resting against the raised bat's face (the exact
-		// approach test/machine-serve-drain.test.ts-style placement uses:
-		// derived from the committed geometry, not an arbitrary point).
-		const ball = spawnBallAt(physics, 195, 85, 'CradleBall');
-		const startPos = ballPosMm(ball);
+	it('(b) AC 2: a ball the physics settles into the cradle pocket by itself stays in contact through a full 5 s (5000 ticks) hold, drift under one ball radius, at rest, and no bd_trough slot closes', () => {
+		const { physics, flipperMechanics, deviceMechanics, leftPivotXMm } = buildCradleHarness();
+		const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 
-		let maxSpeedThroughFirstSecond = 0;
-		let maxDriftMmThroughFirstSecond = 0;
-		let driftMmAtFiveSeconds = 0;
+		const { ball, tick: arrangedTick, settledPos } = arrangeCradleBall(physics, flipperMechanics, leftPivotXMm, 'CradleBall');
+		const closedSlotsBeforeHold = deviceMechanics.parkingSlots.bd_trough.filter(Boolean).length;
+
+		let tick = arrangedTick;
+		let maxDriftMm = 0;
+		let driftAtFiveSeconds = 0;
 		let speedAtFiveSeconds = 0;
 		for (let i = 1; i <= 5000; i++) {
 			tick += 1;
 			flipperMechanics.applyFrame(tick, held, { l: true, r: true });
 			physics.step();
 			const pos = ballPosMm(ball);
-			const driftMm = Math.hypot(pos.x - startPos.x, pos.y - startPos.y);
-			const speed = ballSpeed(ball);
-			if (i <= 1000) {
-				maxSpeedThroughFirstSecond = Math.max(maxSpeedThroughFirstSecond, speed);
-				maxDriftMmThroughFirstSecond = Math.max(maxDriftMmThroughFirstSecond, driftMm);
-			}
+			const driftMm = Math.hypot(pos.x - settledPos.x, pos.y - settledPos.y);
+			maxDriftMm = Math.max(maxDriftMm, driftMm);
 			if (i === 5000) {
-				driftMmAtFiveSeconds = driftMm;
-				speedAtFiveSeconds = speed;
+				driftAtFiveSeconds = driftMm;
+				speedAtFiveSeconds = ballSpeed(ball);
 			}
 		}
 
-		// Positive half -- the AMENDED AC's own bound ("at rest ... position
-		// ... unchanged within tolerance" for at least the first 1 s).
-		// Measured on the committed geometry: drift grows smoothly to ~27.5 mm
-		// and speed to ~1.0 by tick 1000 -- well short of a struck ball's
-		// order of magnitude (the "driven bat" test below asserts
-		// > speedBefore * 10, typically 30-40+). The tolerances carry a small
-		// margin over that measurement; they are not invented figures.
-		expect(maxSpeedThroughFirstSecond, 'the ball must stay slow through the first simulated second').toBeLessThan(2);
-		expect(maxDriftMmThroughFirstSecond, 'the ball must stay close to where it was placed through the first simulated second').toBeLessThan(35);
+		// "Still in contact with the bat": the ball stayed near its settled
+		// position and near-zero speed for the FULL 5 s under active gravity
+		// -- if it had lost contact it would have kept moving (either falling
+		// through, or accelerating away), which the drift/speed bounds below
+		// would catch. Measured on the committed geometry: max drift over the
+		// whole hold stays under 0.2 mm, two orders of magnitude inside the
+		// one-ball-radius bound AC 2 states.
+		expect(maxDriftMm, `drift from the settled position must stay under one ball radius (${BALL_RADIUS_MM} mm) for the whole 5 s hold`).toBeLessThan(BALL_RADIUS_MM);
+		expect(driftAtFiveSeconds, 'drift specifically AT 5 s must stay under one ball radius').toBeLessThan(BALL_RADIUS_MM);
+		expect(speedAtFiveSeconds, 'the ball must be at rest at 5 s').toBeLessThan(2);
+		expect(physics.balls, 'the ball must still be simulated -- not parked or despawned').toContain(ball);
+		expect(
+			deviceMechanics.parkingSlots.bd_trough.filter(Boolean).length,
+			'no bd_trough slot may close during the held hold -- the ball never reached the drain',
+		).toBe(closedSlotsBeforeHold);
+	});
 
-		// Discriminating negative (the whole point of this rework): the SAME
-		// run, by the full 5 s the ORIGINAL (superseded) row asked for, has
-		// measurably left the bat -- proving the 1 s bound above is a real,
-		// load-bearing boundary of this implementation's behaviour, not a
-		// tolerance wide enough to pass no matter how long the hold runs.
-		// Measured: drift ~4292 mm, speed ~47 by tick 5000. Root cause: this
-		// placeholder table has no geometry beside either flipper (no inlane
-		// guide or post) to form a cradle pocket -- see this spec's Design
-		// Notes and epics.md's Story 1.6 change log (2026-08-29). The full
-		// multi-second cradle is Story 2.1's, ledger DW-72, closing on
-		// evidence against the real playfield.
-		expect(driftMmAtFiveSeconds, "by 5 s the ball must have measurably left the bat -- the real cradle is DW-72/Story 2.1's, against real playfield geometry").toBeGreaterThan(500);
-		expect(speedAtFiveSeconds, 'by 5 s the ball must be moving well past "at rest"').toBeGreaterThan(10);
+	it('(b, discriminating negative) the SAME arrangement, released instead of held, reaches bd_trough -- proving the 5 s hold above is produced by the guide AND the flipper together, not by the guide alone', () => {
+		const { physics, flipperMechanics, deviceMechanics, leftPivotXMm } = buildCradleHarness();
+		const { ball, tick: arrangedTick } = arrangeCradleBall(physics, flipperMechanics, leftPivotXMm, 'CradleBallReleased');
+
+		const released: InputFrame = NO_FRAME;
+		let tick = arrangedTick;
+		let drained = false;
+		for (let i = 1; i <= 8000 && !drained; i++) {
+			tick += 1;
+			flipperMechanics.applyFrame(tick, released, { l: true, r: true });
+			const beforeMm = ballPosMm(ball);
+			physics.step();
+			if (!physics.balls.includes(ball)) {
+				drained = true;
+				break;
+			}
+			const afterMm = ballPosMm(ball);
+			deviceMechanics.detectEntries(tick, [{ ball, beforeMm, afterMm } satisfies BallStepMovement]);
+			if (!physics.balls.includes(ball)) {
+				drained = true;
+			}
+		}
+
+		expect(drained, 'releasing the flipper key must let the cradled ball reach bd_trough within a generous window -- proving the pocket is held-dependent, not a permanent trap the static guide alone would form').toBe(true);
+		expect(deviceMechanics.parkingSlots.bd_trough, 'the departed ball must actually PARK, not merely leave its resting spot').toEqual([true, true, true, true]);
 	});
 
 	it('a ball meeting a bat that is being driven up is struck and leaves with more energy than it arrived with', () => {
@@ -321,7 +443,9 @@ describe('sim/loop -- DW-60: the drain aperture at rest vs. held (Story 1.6)', (
 	// tests), built directly here because Machine's own public surface has
 	// no "place a ball anywhere" dev hatch (by design -- devices spawn balls,
 	// AD-6).
-	function runFromCentre(held: boolean) {
+	const centreX = TABLE.reference.playfieldMm.w / 2; // 257.2
+
+	function runFromCentre(held: boolean, xMm: number = centreX, maxTicks: number = 4000) {
 		const { physics, flippers, switchZones, devices } = loadCollision(loadDoc());
 		physics.setGravity(TABLE.reference.pitchDeg, DEFAULT_TABLE_GRAVITY * GRAVITYCONST);
 		const tuning = resolveTuning();
@@ -341,8 +465,7 @@ describe('sim/loop -- DW-60: the drain aperture at rest vs. held (Story 1.6)', (
 			physics.removeBall(spawned);
 		}
 
-		const centreX = TABLE.reference.playfieldMm.w / 2;
-		const startPosMm = { x: centreX, y: 200, z: RADIUS_VU * 0.53975 };
+		const startPosMm = { x: xMm, y: 200, z: RADIUS_VU * 0.53975 };
 		const posPhysics = toPhysics(startPosMm);
 		const data = new BallData(RADIUS_VU, 1, 1);
 		const state = new BallState('DrainBall', new Vertex3D(posPhysics.x, posPhysics.y, posPhysics.z));
@@ -353,7 +476,7 @@ describe('sim/loop -- DW-60: the drain aperture at rest vs. held (Story 1.6)', (
 
 		let drained = false;
 		let lastPosMm = startPosMm;
-		for (let tick = 1; tick <= 4000 && !drained; tick++) {
+		for (let tick = 1; tick <= maxTicks && !drained; tick++) {
 			flipperMechanics.applyFrame(tick, frame, { l: true, r: true });
 			const beforeMm = ballPosMm(ball);
 			physics.step();
@@ -386,8 +509,31 @@ describe('sim/loop -- DW-60: the drain aperture at rest vs. held (Story 1.6)', (
 		expect(deviceMechanics.parkingSlots.bd_trough).toEqual([true, true, true, true]);
 	});
 
-	it('with a flipper key held, the same pass does not drain -- the ball is struck instead', () => {
-		const { drained } = runFromCentre(true);
-		expect(drained, 'a held flipper must block the drain aperture, not let the ball pass through on this run').toBe(false);
+	// Story 2.1a (DW-78): a ball aimed at the geometric CENTRE (x = 257.2,
+	// exactly the midpoint between the two raised bats' now-real tips at
+	// 236.875 / 277.525) is no longer a "held blocks it" case at all -- the
+	// tip gap the reconciled boxes leave is 40.65 mm, wider than the 26.99 mm
+	// ball (this story's own DW-78 fix: the pre-reconciliation modelled body
+	// overshot its own box by baseRadius, so a centre-aimed ball used to be
+	// caught by that OVERLAP, not by any authored geometry). This is the
+	// deliberate consequence the spec's Design Notes name: "widens the tip
+	// gap ... to 40.65 mm, which is what makes a centre drain ... mean
+	// anything" -- pinned here rather than left as a silent behaviour change.
+	it("with a flipper key held, a ball aimed at the EXACT geometric centre still drains -- the reconciled tip gap (40.65 mm) is wider than the ball, unlike the pre-DW-78 body's overlap", () => {
+		const { drained, deviceMechanics } = runFromCentre(true, centreX);
+		expect(drained, 'the reconciled tip gap must be wide enough for the ball to pass even with both flippers held').toBe(true);
+		expect(deviceMechanics.parkingSlots.bd_trough).toEqual([true, true, true, true]);
+	});
+
+	it('with a flipper key held, a ball aimed at that flipper\'s OWN raised position (inside its box, still within the drain aperture) does not drain -- it is struck instead', () => {
+		// x = 220: inside col_flipper_l's raised x-range (157.5 .. 236.875) AND
+		// inside the drain aperture sw_trough_1..4 tile (200 .. 314.4), so the
+		// RELEASED case (bats drooped to rest, out of this y band entirely)
+		// still reaches bd_trough unobstructed -- only the HELD case differs.
+		const struck = runFromCentre(true, 220);
+		expect(struck.drained, 'a held flipper must block a ball approaching its OWN raised position').toBe(false);
+
+		const released = runFromCentre(false, 220);
+		expect(released.drained, 'sanity: the same x, released, must still reach the drain -- discriminating the held case above from a permanently-blocked one').toBe(true);
 	});
 });
