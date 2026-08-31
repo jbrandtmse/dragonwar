@@ -920,7 +920,7 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 
 **Given** the drain triangle placed in Story 2.1a
 **When** the shot map is drawn
-**Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-5/FR-27 decision in `docs/decisions.md`), the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, pop bumpers, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
+**Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-6/FR-27 decision in `docs/decisions.md`) `[AMENDED 2026-08-31 — see the story change log below]`, the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, pop bumpers, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
 
 **Given** every device has a switch
 **When** `TABLE.switches` is completed
@@ -950,6 +950,17 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 - DW-53: the placeholder table has no vertical containment — walls are 50 mm tall with no top cap, so a ball above that height leaves the field laterally (ledger; routed by decision_sheet 2026-08-30)
 
 **Change log**
+
+- **2026-08-31 — the Ramp return-side decision relabelled OQ-5 -> OQ-6 (cross-reference fix only; no work changes).**
+  This criterion recorded the Ramp's return-inlane choice as "the OQ-5/FR-27 decision", but OQ-5 is a
+  different question. The spine's Deferred note defines **OQ-6** as the playfield geometry itself --
+  "flipper tip gap, outlane widths, post positions, loop entries, **ramp height**, Dragon placement" --
+  while AR-37 and this story's own later criterion use **OQ-5** for whether the Lock lane carries both
+  lock and mode start. FR-27 itself says the return side is "decided in epic 2 geometry", which is OQ-6
+  territory. Both labels could not denote the same decision, and the same conflation had propagated into
+  the compiled `epic-2-context.md`. Caught by Story 2.1b's planning pass; the work described is
+  unchanged either way, so this is a label correction, not an amendment to the promise.
+
 
 - **2026-08-30 — created as the receiving half of the Story 2.1 split.** See Story 2.1a's
   change log for the rationale and the criterion-by-criterion partition.
