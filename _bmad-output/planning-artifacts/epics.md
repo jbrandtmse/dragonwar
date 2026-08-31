@@ -524,7 +524,7 @@ So that I can play the ball rather than watch it.
 **When** the flipper key is held for 5 s
 **Then** the flipper reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the whole 5 s `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the ball is held on the bat — at rest, its position on the bat unchanged within tolerance — for at least the first 1 s of that hold, which is what this epic's placeholder geometry can support; the full multi-second cradle is **Story 2.1's** (ledger `DW-72`), once the playfield carries the inlane guides and posts that form the pocket a real cradle needs
-**And** when the key is tapped for 30 ms, the flipper rises partially and returns
+**And** when the key is tapped for 10 ms, the flipper rises partially and returns `[AMENDED 2026-08-31 — see the story change log below]`
 
 **Given** `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` has been issued
 **When** the flipper key is pressed
@@ -536,6 +536,27 @@ So that I can play the ball rather than watch it.
 **And** a full-strength plunge replay shows the ball reaching the top of the placeholder playfield without rebounding back into the lane
 
 **Change log**
+
+- **2026-08-31 — the light-tap figure re-measured from 30 ms to 10 ms after Story 2.1a's flipper
+  reconciliation; the promise itself is unchanged.**
+  Story 2.1a closed `DW-78` by deriving `flipperRadius = lengthMm - baseRadiusMm - endRadiusMm`, so
+  the modelled body finally matches the box `assertReferenceDimensions()` pins as the bat. That
+  shortens the arm, and since `inertia = ⅓·m·flipperRadius²` it drops the bat's inertia to about
+  68% of its former value. The same 30 ms tap therefore now carries the bat all the way to the 90°
+  stop under its own coast: the criterion as written had become **literally false**, and Story 2.1a
+  initially rewrote the assertion to match (`peakAngle` `toBe(endAngle)`) and deleted the comment
+  that named this outcome as a Block If — a Rule 5 ask-first narrowing that went unasked, logged as
+  a `protocol_violation`. FR-5 names light taps as one of six techniques the flipper model must make
+  possible, so the promise is a feel requirement and is kept; only the number moves.
+  The replacement figure is measured, not chosen. Sweeping tap duration against the peak excursion
+  of the left bat (rest 141°, end-of-stroke 90°, so partial travel means a peak above 90°):
+  30 ms → 90.0000° (full stroke), 25 ms → 90.0122°, 20 ms → 90.4009°, 15 ms → 90.3777°,
+  12 ms → 90.1017°, **10 ms → 109.3221°**, 8 ms → 129.0730°, 5 ms → 139.6123°.
+  25 ms is the longest tap that is still technically partial, but only by 0.0122° of a 51° sweep —
+  the same knife-edge margin (`DW-80` pinned 0.0416°) whose fragility let this break silently in the
+  first place. **10 ms** is taken instead because it clears the stop by 19.3°, an excursion a player
+  can actually see, so the criterion now fails loudly if the flipper model changes again rather than
+  flipping sign on a rounding error.
 
 - **2026-08-29 — the 5 s cradle claim split: the bat's half kept in full, the ball's half bounded
   to 1 s, and the real cradle moved to Story 2.1.**
