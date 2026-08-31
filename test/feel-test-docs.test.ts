@@ -78,13 +78,20 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 		expect(normalize(section)).toMatch(/\d+(\.\d+)?\s*mm/);
 	});
 
-	it('the flipper-snap entry carries the DW-80 measured numbers (release/peak angles in degrees)', () => {
+	it('the flipper-snap entry carries the DW-118 measured numbers (release/peak angles in degrees)', () => {
+		// Story 2.1a rework iteration 3 (DW-118): the 30 ms tap's own coast
+		// now reaches the end-of-stroke stop EXACTLY under DW-78's
+		// reconciliation, so it no longer demonstrates FR-5's light-tap
+		// promise -- the example duration moved to 10 ms, and the pinned
+		// figures below moved with it (139.1871 deg release, 109.3221 deg
+		// peak). See test/flipper-mover.test.ts's own header for the full
+		// measured sweep across every duration tried.
 		const section = raw.slice(raw.indexOf('### Flipper snap'), raw.indexOf('### Rejection/rebound'));
 		expect(section.length).toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n).toMatch(/90\.0000/);
-		expect(n).toMatch(/90\.7916/);
-		expect(n.toLowerCase()).toContain('dw-80');
+		expect(n).toMatch(/109\.3221/);
+		expect(n).toMatch(/139\.1871/);
+		expect(n.toLowerCase()).toContain('dw-118');
 	});
 
 	it('the rejection/rebound entry carries the elasticity-falloff ratios and the hop-control margin', () => {

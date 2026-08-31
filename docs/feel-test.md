@@ -29,7 +29,7 @@ in CI rather than silent.
 | Item | Measured build-side number | Golden | First entry |
 |---|---|---|---|
 | Cradling | The real 5 s cradle, DW-72 closed: a ball the physics settles (never placed) into the drain triangle's tip-side pocket drifts under 0.2 mm over the full 5000-tick held hold (measured 0.172 mm), then reaches `bd_trough` within a generous window when released instead (measured tick 591) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
-| Flipper snap | 30 ms tap: still mid-stroke at the exact release tick (measured 90.7916°, between rest 141° and end 90°); its own momentum now carries it the rest of the way to the TRUE end-of-stroke stop (peak 90.0000°, DW-80's 0.0416° margin closed to zero — DW-78's reconciliation shortened `flipperRadius`, so `inertia = (1/3) m flipperRadius²` fell to ~68% of its old value) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Flipper snap | 10 ms tap (DW-118; 30 ms is no longer usable — DW-78's reconciliation now carries its coast to the stop EXACTLY, and 25 ms clears it by only 0.0122°, the same knife-edge that let 30 ms break silently): still mid-stroke at the exact release tick (measured 139.1871°, between rest 141° and end 90°); its own momentum carries it to a peak of 109.3221°, a real ~19.3° clear of the end-of-stroke stop — DW-78's reconciliation shortened `flipperRadius`, so `inertia = (1/3) m flipperRadius²` fell to ~68% of its old value | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
 | Rejection/rebound | Rebound-to-impact ratio at 1000/2000/3000 mm/s (re-measured this story at these three speeds — 5000 mm/s now lands too close to the reconciled bat's own tapered tip for a consistent face hit): 0.7560 / 0.7347 / 0.7183 (strictly decreasing, default `elasticityFalloff` 0.15); flat control at `elasticityFalloff` 0: 0.7789 / 0.7777 / 0.7775. Hop: `hopControl` 0 → max ball height 13.53 mm (no hop); default 0.35 → 24.53 mm, an 11.00 mm margin, nothing above the glass (400 mm) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
 
 ## Environment
@@ -56,13 +56,17 @@ guides, and a rubber post at the bat's own tip) and proves the full 5 s hold
 `DW-72` names — closed this story, on evidence against the real playfield
 rather than Epic 1's bounded 1 s claim.
 
-**Flipper snap.** The ported `FlipperMover`'s response to a light, 30 ms tap
-(`DW-80`) — still mid-stroke at the exact tick the key comes up, then its own
-momentum carries it the rest of the way under `updateDisplacements()`'s own
-clamp. Story 2.1a's flipper reconciliation (`DW-78`) lowered `flipperRadius`,
-and therefore the ported mover's own `inertia = (1/3) m flipperRadius²`, so
-the coast now reaches the true end-of-stroke stop exactly rather than falling
-0.0416° short.
+**Flipper snap.** The ported `FlipperMover`'s response to a light, 10 ms tap
+(`DW-118`) — still mid-stroke at the exact tick the key comes up, then its own
+momentum carries it partway toward the end-of-stroke stop under
+`updateDisplacements()`'s own clamp, clearing it by a real, comfortable
+margin. Story 2.1a's flipper reconciliation (`DW-78`) lowered
+`flipperRadius`, and therefore the ported mover's own
+`inertia = (1/3) m flipperRadius²`, so a 30 ms tap's coast now reaches the
+true end-of-stroke stop EXACTLY rather than falling 0.0416° short — FR-5's
+light-tap promise survives, but only a shorter tap still demonstrates it, so
+the example duration moved to 10 ms (`epics.md`'s Story 1.6 AC amended
+accordingly, under a one-time scoped grant).
 
 **Rejection/rebound.** How a ball leaves the flipper rubber on contact:
 `materials.flipper_rubber.elasticityFalloff` (AC 3, "the primary feel knob")
@@ -106,19 +110,27 @@ alone. Golden:
 ### Flipper snap
 
 `pending-author`. Build-side measurement (`DW-80`, closed Story 1.6/1.9;
-re-measured 2026-08-30, Story 2.1a's `DW-78` reconciliation): a 30 ms tap is
-STILL mid-stroke at the exact release tick (measured 90.7916°, strictly
-between rest 141° and end 90°) — a light press has not instantly completed
-the stroke while the key is still down. Its own momentum then carries it,
-under the ported mover's own end-of-stroke clamp, the rest of the way to the
-TRUE end-of-stroke stop: peak 90.0000° exactly, where Story 1.6/1.9 measured
-90.0416° (a 0.0416° margin) against the pre-reconciliation geometry. Root
-cause, not a retune: `DW-78` shortened the modelled body's own
-`flipperRadius` from 71.8169 mm to 59.3169 mm to match the authored box
-exactly, and the ported `FlipperMover`'s own (frozen, DW-79)
-`inertia = (1/3) mass * flipperRadius²` falls with the square of that, to
-~68% of its old value — the same torque now accelerates the bat harder.
-Neither `TUNING.flipper.*` nor the ported mover itself changed. Golden:
+re-measured 2026-08-30, Story 2.1a's `DW-78` reconciliation; re-measured
+again 2026-08-31, Story 2.1a rework iteration 3, `DW-118`): `DW-78`
+shortened the modelled body's own `flipperRadius` from 71.8169 mm to
+59.3169 mm to match the authored box exactly, and the ported
+`FlipperMover`'s own (frozen, DW-79) `inertia = (1/3) mass * flipperRadius²`
+falls with the square of that, to ~68% of its old value — the same torque
+now accelerates the bat harder. A 30 ms tap's own post-release coast no
+longer merely nears the 90° stop (Story 1.6/1.9's own 0.0416° margin); it
+reaches it EXACTLY, and 25 ms only narrowly avoids the same fate (0.0122°
+short of a full stroke) — so the light-tap example moved to a duration whose
+margin is real, not a knife-edge: a 10 ms tap is STILL mid-stroke at the
+exact release tick (measured 139.1871°, strictly between rest 141° and end
+90°) — a light press has not instantly completed the stroke while the key is
+still down. Its own momentum then carries it, under the ported mover's own
+end-of-stroke clamp, to a peak of 109.3221° — a comfortable ~19.3° clear of
+the 90° stop, never reaching it. `epics.md`'s Story 1.6 AC was amended
+30 ms → 10 ms by the lead under a one-time scoped grant, with the full
+measured sweep (30/25/20/15/12/10/8/5 ms) recorded in that story's change
+log; FR-5's light-tap promise is unchanged, only the demonstrating duration
+moved. Neither `TUNING.flipper.*` nor the ported mover itself changed.
+Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json).
 
 ### Rejection/rebound

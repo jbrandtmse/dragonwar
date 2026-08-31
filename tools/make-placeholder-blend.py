@@ -123,6 +123,117 @@ DIVIDER_Y_BOTTOM_MM = 120.0  # the outlane/inlane divider guide's own (higher, l
 POCKET_OFFSET_ALONG_MM = 1.0  # pocket post centre, offset from the bat's own TIP further toward playfield centre (this story's own physics probes: the pivot end's base circle is angle-invariant and traps a ball regardless of stroke, so the pocket closes at the tip instead -- see add_drain_triangle_side()'s own doc comment). Kept small, together with the reduced POST_RADIUS_MM above, so the two posts never narrow the reconciled tip gap below the reference ball's own diameter.
 POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y (flipper centreline) UP-TABLE (away from the drain)
 
+# ---------------------------------------------------------------------------
+# Story 2.1a task 22 (DW-119): the below-deck outlane return channel. Both
+# outlanes used to dead-end on col_wall_bottom_l/_r -- a ball released there
+# came to rest against the wall and stayed (measured: parked one ball radius
+# above y = 0), because gravity here has no X-component at all, only Y and Z
+# (the table's pitch axis), so nothing ever pushed it sideways toward the
+# drain aperture without a wall to redirect it.
+#
+# A real machine solves this by dropping the outlane ball through the
+# playfield into a subway that delivers it to the same trough the centre
+# drain feeds -- the flippers physically occupy the direct on-deck path from
+# an outlane to centre, so going under is the only route that does not
+# require moving the flippers or the drain aperture. This is modelled the
+# same way: col_wall_bottom_l/_r each open a gap EXACTLY as wide as the
+# outlane above them, no wider (see the wall table below -- widening it any
+# further removes wall coverage from the CENTRE/inlane area a ball can rest
+# on during ordinary, unrelated gameplay, reproduced directly this task's
+# own implementation pass: a first attempt that widened the gap broke an
+# existing golden replay whose ball rests well outside the true outlane's
+# own width). A single rail per side (add_outlane_return_channel()), on the
+# side of the gap TOWARD the true perimeter, picks the ball up on the far
+# side of that gap and walks it into the SAME untouched
+# DRAIN_X0_MM..DRAIN_X1_MM aperture the centre drain already uses -- never a
+# new hole, never a moved trough zone.
+#
+# Getting here took three rejected designs, all found empirically this
+# task's own implementation pass, not by inspection:
+#
+# (1) A single straight rail alone. col_wall_bottom_l/_r's own face
+# (unwidened, right at the true outlane boundary) is reachable by a ball's
+# CENTRE anywhere within one ball radius (~13.5 mm) of that face in X, for
+# ANY Y within one ball radius of that wall's OWN y in [-12, 0] -- i.e. Y
+# roughly in [-25.5, +13.5], not merely [-12, 0], because the ball's own
+# body extends a radius past its centre. A rail shallow enough to also
+# reach the drain aperture within the trough zones' own y budget (~68 mm
+# over ~200 mm of X) does not clear that widened Y reach before its own X
+# has already carried the ball into the wall's X reach -- the ball settles
+# into a genuine resting GRAZE simultaneously against BOTH faces (near-zero
+# relative velocity, a real two-wall pinch, not "a shallow wall alone") and
+# never reaches the rest of the channel. Reproduced directly: the identical
+# lock persisted, at the identical table position, regardless of the rail's
+# own slope, including a manifestly steep 45 deg one -- proving the shallow
+# angle itself was never the defect. A diagnostic (col_wall_bottom_l's face
+# temporarily moved out of reach, the same shallow rail re-tested in
+# isolation) confirmed it carries the ball to the aperture cleanly once
+# nothing else is nearby -- the fix therefore had to remove that face from
+# reach, not out-race it. add_bottom_wall_trapezoid() (below) does exactly
+# that, chamfering col_wall_bottom_l/_r's own inner corner away from the
+# outlane by BOTTOM_SWEEP_MM.
+#
+# (2) A SECOND, parallel rail added on the centre side, to "fully enclose"
+# the ball -- rejected twice over. A steep (45 deg) shared entrance shrinks
+# the two rails' own PERPENDICULAR interior width to
+# OUTLANE_WIDTH_MM * cos(entrance angle), 24.68 mm at 45 deg: narrower than
+# the 26.99 mm reference ball itself, physically impossible to pass through
+# (reproduced directly: wedged at the entrance's own start corner). A wider,
+# funnelled second rail (starting wide of the first, narrowing to the exit)
+# fixed THAT, but a ball on the first rail's own face was then, at some
+# point along the run, always within one ball radius of the second rail's
+# own corner or back edge too (both rails are convex QUADS, not bare lines
+# -- add_channel_rail()'s own thickness, offset straight down, still puts a
+# second real corner within reach at certain angles) -- a genuine two-wall
+# pinch again, just between this story's OWN two rails rather than against
+# col_wall_bottom_l/_r. Reproduced at three different attempted offsets,
+# each relocating the identical pinch rather than removing it.
+#
+# The design that actually ships is (1) alone, once (2)'s own chamfer
+# removes the one nearby surface a lone rail's own face could ever pinch
+# against: a SINGLE rail, bent once (KNEE_DROP_MM below) to clear
+# col_wall_bottom_l/_r's own remaining, unavoidable TOP corner too (the one
+# add_bottom_wall_trapezoid()'s chamfer cannot move, since it still blocks
+# an on-deck ball crossing y = 0 outside the outlane). No second rail
+# "fully encloses" the ball, so its exit X is verified empirically (this
+# story's own AC 7 routing test) rather than guaranteed by construction --
+# sanctioned by this task's own text ("the mechanism is yours to choose").
+#
+# BOTTOM_SWEEP_MM: how far col_wall_bottom_l/_r's own bottom (y = -WALL_T_MM)
+# inner corner sweeps away from the outlane, versus its TOP (y = 0) inner
+# corner, turning that wall's inner edge from a vertical face into a
+# diagonal one -- see add_bottom_wall_trapezoid()'s own doc comment for the
+# full mechanism this closes. Sized with margin past the rail's own knee
+# (KNEE_DROP_MM below, whose own corner reaches ~55 mm from the true
+# perimeter): 90 mm keeps col_wall_bottom_l/_r's own bottom-inner corner
+# (34.9 + 90 = 124.9 mm on the left; the mirror image on the right) on the
+# FAR side of the rail's own knee corner, so the two never geometrically
+# overlap -- confirmed directly against the exported collision document,
+# not by inspection alone.
+BOTTOM_SWEEP_MM = 90.0
+
+# CHANNEL_Y_END_MM sits comfortably inside the trough zones' own Y range
+# (-80..0, sw_trough_1..4), far short of -80, so the ball's X has already
+# caught up to the aperture long before its Y could run past that box.
+# CHANNEL_LEFT_X_END_MM/CHANNEL_RIGHT_X_END_MM (each rail's own exit X) sit
+# inside the aperture as a whole (200..314.4). Both, like DRAIN_X0_MM/
+# LANE_CLEAR_MM above, are authored placeholder figures, not derived from
+# any acceptance criterion.
+CHANNEL_Y_END_MM = -75.0
+CHANNEL_LEFT_X_END_MM = 205.0
+CHANNEL_RIGHT_X_END_MM = 304.9
+
+# KNEE_DROP_MM: how far (in both X and Y -- a 45 deg knee, matching the
+# proven col_lane_deflector's own angle) the rail's first segment runs
+# before bending to the shallow angle used for the rest of the channel --
+# see the constants block's own rejected-design (1) above for why a bend is
+# needed at all. 55 mm puts col_wall_bottom_l/_r's own unavoidable
+# TOP-inner corner (34.9 mm from the true perimeter, at y = 0) well over
+# two ball radii (26.99 mm) from the rail's own first-segment line, so no
+# point on that segment's own face can be within one ball radius of the
+# corner at the same time.
+KNEE_DROP_MM = 55.0
+
 
 def octagon_points_mm(center_mm, radius_mm):
 	"""Eight plan-view points approximating a circular post -- convex by
@@ -317,13 +428,45 @@ def main():
 		('col_wall_top', (0, PLAYFIELD_H_MM, 0), (PLAYFIELD_W_MM, PLAYFIELD_H_MM + WALL_T_MM, WALL_H_MM)),
 		('col_wall_right', (PLAYFIELD_W_MM, 0, 0), (PLAYFIELD_W_MM + WALL_T_MM, PLAYFIELD_H_MM, WALL_H_MM)),
 		('col_wall_lane', (LANE_X0_MM, 0, 0), (LANE_X0_MM + WALL_T_MM, LANE_WALL_TOP_Y_MM, WALL_H_MM)),
-		('col_wall_bottom_l', (-WALL_T_MM, -WALL_T_MM, 0), (DRAIN_X0_MM, 0, WALL_H_MM)),
-		('col_wall_bottom_r', (DRAIN_X1_MM, -WALL_T_MM, 0), (LANE_X0_MM, 0, WALL_H_MM)),
 		('col_wall_lane_bottom', (LANE_X0_MM, -WALL_T_MM, 0), (PLAYFIELD_W_MM + WALL_T_MM, 0, WALL_H_MM)),
 	]
 	for name, min_mm, max_mm in walls:
 		wall = new_box_mesh(name, min_mm, max_mm, parent=playfield_root)
 		set_props(wall, col_shape='wall', surface='wood', phys_material='default')
+
+	# Story 2.1a task 22 (DW-119): col_wall_bottom_l/_r -- a gap exactly as
+	# wide as the outlane directly above it, no wider (this file's own
+	# Story 2.1a task-22 constants block explains why not: widening it
+	# removes wall coverage a ball can rest on during ordinary gameplay well
+	# outside the true outlane, reproduced directly this task's own
+	# implementation pass). Each is now a TRAPEZOID, not a box: its TOP edge
+	# (y = 0) still runs the full OUTLANE_WIDTH_MM..DRAIN_X0_MM span, exactly
+	# preserving what it always blocked on-deck, but its INNER (outlane-side)
+	# edge sweeps BOTTOM_SWEEP_MM further away from the outlane as it
+	# descends to y = -WALL_T_MM, so its own vertical face -- which a ball
+	# descending the return channel used to be able to reach (within one
+	# ball radius in X, for any Y within one ball radius of this wall's own
+	# y range -- i.e. well past y = -WALL_T_MM alone) and settle into a
+	# genuine resting graze against -- no longer exists anywhere near the
+	# channel at all. Found and verified this task's own implementation
+	# pass: a two-segment channel rail that instead tried to simply
+	# out-race this wall's OLD vertical face (a steep entrance dropping
+	# clear of it before turning shallow) still failed for a release close
+	# enough to the wall already at drop time (the ball never needs to
+	# travel through the channel's own redirect to reach the wall's old
+	# reach at all) -- removing the reachable face itself, not merely
+	# out-running it, is what actually closes the defect.
+	def add_bottom_wall_trapezoid(name, inner_x_mm, outer_x_mm, sweep_toward_mm):
+		top_inner = (inner_x_mm, 0.0)
+		top_outer = (outer_x_mm, 0.0)
+		bottom_outer = (outer_x_mm, -WALL_T_MM)
+		bottom_inner = (inner_x_mm + sweep_toward_mm, -WALL_T_MM)
+		wall = new_prism_mesh(name, [top_inner, top_outer, bottom_outer, bottom_inner], 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface='wood', phys_material='default')
+		return wall
+
+	add_bottom_wall_trapezoid('col_wall_bottom_l', OUTLANE_WIDTH_MM, DRAIN_X0_MM, BOTTOM_SWEEP_MM)
+	add_bottom_wall_trapezoid('col_wall_bottom_r', LANE_X0_MM - OUTLANE_WIDTH_MM, DRAIN_X1_MM, -BOTTOM_SWEEP_MM)
 
 	# ---- col_lane_deflector: angled triangular prism at the top of the
 	# plunger lane (Story 1.5, provisional placeholder geometry not derived
@@ -399,6 +542,58 @@ def main():
 		set_props(post, col_shape='wall', surface='rubber_post', phys_material='default')
 		return post
 
+	def add_channel_rail(name, p0, p1, thickness_mm):
+		"""A single thin wall whose collision edge runs exactly along the line
+		p0 -> p1, extending thickness_mm further STRAIGHT DOWN (more
+		negative Y, deeper below the visible playfield) rather than
+		perpendicular to the line. The shallow (well under 45 deg) segments
+		this file authors have a perpendicular that points mostly STRAIGHT
+		UP -- offsetting that way would push the wall's own far corner back
+		above its own start Y, risking overlap with whatever sits just
+		above it (confirmed by inspecting the exported collision document
+		for an earlier, perpendicular-offset attempt, not merely by
+		inspection of the authoring code). Downward-only offsetting keeps
+		the whole wall at or below the line's own y at every point, so it
+		can only ever touch a neighbour at a single shared corner, never
+		overlap it -- and the ball only ever meets the p0->p1 edge itself
+		(export.py's wall reduction turns every footprint edge into its own
+		oriented collision line, so which way the "back" of the quad
+		extends does not change what the FRONT edge blocks). Always a plane
+		quadrilateral (a rectangle, since the offset is a constant vector)
+		-- convex by construction, the same identity-transform/angled-mesh-
+		vertices technique as every other angled wall this file authors
+		(col_lane_deflector, task 22's own rationale block above). NOTE:
+		this rail alone does not prevent a ball from RESTING against
+		col_wall_bottom_l/_r's own face in a genuine, near-stationary graze
+		-- that is what add_bottom_wall_trapezoid()'s own chamfer (this
+		file's Story 2.1a task-22 constants block, BOTTOM_SWEEP_MM) exists
+		to rule out; see its own comment for the mechanism, found and
+		verified this task's own implementation pass by direct
+		perpendicular-distance measurement against every nearby edge, not
+		by assumption."""
+		outer0 = (p0[0], p0[1] - thickness_mm)
+		outer1 = (p1[0], p1[1] - thickness_mm)
+		wall = new_prism_mesh(name, [p0, p1, outer1, outer0], 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
+		return wall
+
+	def add_outlane_return_channel(side, points):
+		"""Story 2.1a task 22 (DW-119) -- see this file's own constants block
+		("the below-deck outlane return channel") for the full rationale,
+		including the two rejected designs (a second, parallel rail among
+		them) this single rail replaces. `points` is a list of 2+ (x, y)
+		waypoints; one rail segment (add_channel_rail()) is authored between
+		every consecutive pair, so the rail can bend -- here, exactly once
+		(KNEE_DROP_MM), to clear col_wall_bottom_l/_r's own unavoidable TOP
+		corner. A single rail does not "fully enclose" the ball the way a
+		matched pair would, so its exit X is verified empirically (this
+		story's own AC 7 routing test), not guaranteed by construction --
+		see the constants block's own note on why that is the sanctioned
+		choice here."""
+		for i in range(len(points) - 1):
+			name = f'col_channel_{side}' if len(points) == 2 else f'col_channel_{side}_{i + 1}'
+			add_channel_rail(name, points[i], points[i + 1], GUIDE_T_MM)
+
 	def add_drain_triangle_side(side, tip_x, outlane_outer_wall_x, outlane_toward_wall):
 		"""`outlane_toward_wall` is +1 if the outlane's outer wall sits at a
 		HIGHER x than the outlane itself (the right side, against
@@ -461,6 +656,34 @@ def main():
 	# inboard of it rather than mirroring the left side's true-perimeter
 	# anchor (this story's spec Design Notes explain the asymmetry).
 	add_drain_triangle_side('r', right_pivot_x + BASE_RADIUS_MM - FLIPPER_BAT_MM, LANE_X0_MM, 1.0)
+
+	# Story 2.1a task 22 (DW-119): the below-deck return channel that makes
+	# each outlane actually reach bd_trough -- see the constants block above
+	# ("the below-deck outlane return channel") for the rationale and the
+	# two rejected designs (a second, parallel rail among them) this single-
+	# rail-per-side shape replaces. Each rail bends once, KNEE_DROP_MM short
+	# in both X and Y (steep enough -- dx = dy, the same 45 deg
+	# col_lane_deflector's own proven deflector already uses -- that
+	# col_wall_bottom_l/_r's own unavoidable TOP corner clears two ball
+	# radii from this first segment's own line, so no point on the rail's
+	# own face can be within one ball radius of that corner at the same
+	# time), then continues at the SAME shallow angle used throughout this
+	# file, proven safe in isolation once nothing else is nearby (this
+	# task's own diagnostic: col_wall_bottom_l temporarily moved out of
+	# reach, the shallow angle alone carried the ball to the aperture
+	# cleanly). Both exits land inside the SAME untouched drain aperture,
+	# split left/right of its own centre.
+	def build_channel_rail_points(gap_x_mm, toward_centre_sign, exit_x_mm):
+		"""toward_centre_sign is +1 if the centre (and therefore every
+		subsequent waypoint) lies at HIGHER x than gap_x_mm (the left side),
+		else -1 (the right side)."""
+		p0 = (gap_x_mm, -WALL_T_MM)
+		knee = (gap_x_mm + toward_centre_sign * KNEE_DROP_MM, -WALL_T_MM - KNEE_DROP_MM)
+		exit_point = (exit_x_mm, CHANNEL_Y_END_MM)
+		return [p0, knee, exit_point]
+
+	add_outlane_return_channel('l', build_channel_rail_points(0.0, 1.0, CHANNEL_LEFT_X_END_MM))
+	add_outlane_return_channel('r', build_channel_rail_points(LANE_X0_MM, -1.0, CHANNEL_RIGHT_X_END_MM))
 
 	# ---- Switch zones: box shape, paired with their TABLE switch ----
 	sw_shooter_lane = new_box_mesh(
