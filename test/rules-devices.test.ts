@@ -29,7 +29,7 @@ function machine(overrides: Partial<MachineState> = {}): MachineState {
 		tilt: { tilted: false, slamTilted: false },
 		multiball: null,
 		highscores: [],
-		deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false] },
+		deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
 		...overrides,
 	};
 }

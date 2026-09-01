@@ -32,9 +32,19 @@ import { BallState } from '../src/sim/physics/ball/ball-state';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
 import type { CoilCommand, GameState } from '../src/sim/table/names';
+import { nodeBboxMm, switchZoneMm } from './util/collision-doc';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
+
+// DW-65: the plunger-lane divider's main-field face, derived from the
+// committed collision document rather than the literal 468.4 -- a genuine
+// geometry change (moving col_wall_lane) now tracks automatically instead of
+// silently breaking this test for the wrong reason.
+const LANE_X0_MM = nodeBboxMm('col_wall_lane').min.x;
+// The sw_shooter_lane switch zone's own x range -- the same defect class as
+// LANE_X0_MM above (task 21), derived rather than hardcoded.
+const SHOOTER_LANE_ZONE = switchZoneMm('sw_shooter_lane');
 
 function loadDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
@@ -345,10 +355,10 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		}
 		const ball = out.snapshot.balls[0];
 		expect(ball, 'the ball must still be in play after settling').toBeDefined();
-		expect(ball!.pos.x).toBeGreaterThanOrEqual(484.4);
-		expect(ball!.pos.x).toBeLessThanOrEqual(510.4);
-		expect(ball!.pos.y).toBeGreaterThanOrEqual(10);
-		expect(ball!.pos.y).toBeLessThanOrEqual(60);
+		expect(ball!.pos.x).toBeGreaterThanOrEqual(SHOOTER_LANE_ZONE.minMm.x);
+		expect(ball!.pos.x).toBeLessThanOrEqual(SHOOTER_LANE_ZONE.maxMm.x);
+		expect(ball!.pos.y).toBeGreaterThanOrEqual(SHOOTER_LANE_ZONE.minMm.y);
+		expect(ball!.pos.y).toBeLessThanOrEqual(SHOOTER_LANE_ZONE.maxMm.y);
 		expect(out.snapshot.mechanisms.devices.bd_shooter.slots).toEqual([true]);
 	});
 
@@ -409,13 +419,13 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		for (let i = 0; i < 400 && !reachedMainField; i++) {
 			out = loop.advance(16.667, []);
 			const ball = out.snapshot.balls[0];
-			// The plunger-lane divider's main-field face is at table x = 468.4
-			// (LANE_X0_MM) -- reaching below it means the ball left the lane.
-			if (ball && ball.pos.x < 468.4) {
+			// The plunger-lane divider's main-field face -- reaching below it
+			// means the ball left the lane (DW-65: derived, not the literal 468.4).
+			if (ball && ball.pos.x < LANE_X0_MM) {
 				reachedMainField = true;
 			}
 		}
-		expect(reachedMainField, `the ball never crossed the plunger-lane divider's main-field face (x = 468.4); last known position: ${JSON.stringify(out.snapshot.balls[0]?.pos)}`).toBe(true);
+		expect(reachedMainField, `the ball never crossed the plunger-lane divider's main-field face (x = ${LANE_X0_MM}); last known position: ${JSON.stringify(out.snapshot.balls[0]?.pos)}`).toBe(true);
 	});
 
 	// Story 1.6 update: this scenario used to let the launched ball bounce
@@ -490,7 +500,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 			const ball = machine.balls[0];
 			if (ball) {
 				const posMm = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
-				if (posMm.x < 468.4) {
+				if (posMm.x < LANE_X0_MM) {
 					reachedMainField = true;
 				}
 			}

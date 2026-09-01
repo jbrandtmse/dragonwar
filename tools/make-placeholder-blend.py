@@ -1,18 +1,26 @@
 # DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 #
-# Story 1.4 -- the ONE-TIME seeding script that built the committed
-# assets/src/dragonwar.blend. Run once, headlessly, through Blender 5.2+:
+# Story 1.4 -- the ONLY sanctioned edit point for assets/src/dragonwar.blend.
+# Run headlessly through Blender 5.2+ every time the geometry changes:
 #
 #   blender --background --factory-startup --python tools/make-placeholder-blend.py
 #
-# From the moment assets/src/dragonwar.blend is committed, AD-11 makes the
-# `.blend` itself the sole source of truth -- Epic 2 edits it directly in
-# Blender's UI. This script is kept afterwards only as the reviewable record
-# of how the placeholder was made (a binary .blend is not a reviewable diff)
-# and as a way to regenerate a placeholder from nothing; it is NOT a build
-# step, and no npm script or CI step runs it (mirrors how Story 1.2 framed
-# tools/make-placeholder-glb.mjs, with the difference that this one is
-# honest about being one-shot).
+# Corrected 2026-08-31 (Story 2.1b, task 1): this header used to call itself
+# a "ONE-TIME seeding script", claiming the `.blend` becomes the sole source
+# of truth once committed and gets edited directly in Blender's UI from then
+# on. Git history already contradicted that the moment it was written --
+# every commit that ever changed the `.blend` also changed this script, in
+# lockstep (`424c0b8`, `a93d375`, `da129bf`, `494113f`, `046af7a`, `0ae3eed`,
+# and every Story 2.1a/2.1b commit since) -- and AD-11's own rule ("Blender
+# owns placement... the export script is the contract's enforcer") never
+# said "until Epic 2". The `.blend` is a generated BINARY: it has no
+# reviewable diff, so this script is the actual, permanent, reviewable
+# record of every position, mesh and switch zone the table carries. The
+# correct workflow is, and has always been: edit a constant or a drawing
+# function here, re-run this script, then `pnpm export:assets` -- never
+# hand-edit the `.blend` in Blender's UI and never hand-edit the exported
+# `.glb`/`.collision.json`. Not an npm script and not a CI step (CI has no
+# Blender); a developer runs it locally, with `BLENDER` exported.
 #
 # Authored entirely in the table frame (AD-10): millimetres-as-metres/1000,
 # right-handed, origin bottom-left nearest the player, X right, Y up the
@@ -61,6 +69,17 @@ PLAYFIELD_THICKNESS_MM = 19.0
 GLASS_Z_MM = 400.0
 GLASS_THICKNESS_MM = 10.0
 
+# Story 2.1b task 10 (DW-53): the true perimeter walls (left, top, right, and
+# the plunger-lane wall separating it from the main field) now reach the
+# glass -- derived from GLASS_Z_MM, not a second invented figure -- so a ball
+# driven laterally at z = 200 mm (well above WALL_H_MM = 50) cannot escape
+# the table through what used to be an open-topped boundary. Interior guides
+# (the drain-triangle guides, the loop guides, the Dragon's legs, the DRAGON
+# bank, the Ramp channel) stay at WALL_H_MM = 50 so the Ramp -- authored at
+# deck height, see RAMP_HEIGHT_MM's own note -- and a ball's normal arc over
+# a guide are never blocked by a wall taller than gameplay needs.
+PERIMETER_WALL_H_MM = GLASS_Z_MM
+
 # col_wall_lane's interior (lane-facing) clearance, main-field wall to
 # right-perimeter wall. Widened from the original 20 mm (Review Findings,
 # HIGH): once tools/export.py's wall reduction preserves real thickness
@@ -75,17 +94,17 @@ LANE_WALL_TOP_Y_MM = 950.0  # gap above this lets a launched ball cross into the
 DRAIN_X0_MM = 200.0
 DRAIN_X1_MM = 314.4
 
-# col_lane_deflector -- Story 1.5, provisional placeholder geometry not
-# derived from any acceptance criterion (DW-58): the plunger lane has no
-# deflector at the top, so a launched ball runs to the top wall and returns
-# straight down the lane rather than entering the main field. A triangular
-# prism whose hypotenuse runs from low-right to high-left turns a ball
-# travelling up the lane toward -x, above LANE_WALL_TOP_Y_MM. Authored with
-# an IDENTITY object transform and ANGLED MESH VERTICES (never a rotated
-# object) so tools/export.py's validate_col_geometry_reducible() rotation
-# guard -- which inspects only the object's world matrix -- still passes.
-DEFLECTOR_BASE_Y_MM = 976.0
-DEFLECTOR_TOP_Y_MM = 1010.0
+# col_lane_deflector -- Story 1.5's provisional placeholder is RETIRED this
+# story (DW-58): with the Left/Right Loops drawn (Story 2.1b, below), the
+# Right Loop's own upper arc now does the job the deflector was standing in
+# for -- a ball launched up the plunger lane crosses LANE_WALL_TOP_Y_MM = 950
+# (where col_wall_lane itself stops) directly into the Right Loop's own lane
+# (occupying x in [406.4, 418.4] at this height once past the funnel), which
+# is what a real machine's own upper arc does, rather than a dedicated
+# deflector wall. `bd_trough`'s eject pose at the lane foot is the real
+# kicker position and is required by AD-6 to lie inside sw_shooter_lane
+# (test/device-eject-pose.test.ts:63-64) -- it is derived from the shooter
+# lane's own geometry, never invented, and is unaffected by this retirement.
 
 # ---------------------------------------------------------------------------
 # Story 2.1a -- the drain triangle: both outlanes, both inlanes, the
@@ -122,6 +141,139 @@ GUIDE_Y_TOP_MM = 420.0  # this story's own placeholder guide extent -- Story 2.1
 DIVIDER_Y_BOTTOM_MM = 120.0  # the outlane/inlane divider guide's own (higher, less pocket-critical) lower end
 POCKET_OFFSET_ALONG_MM = 1.0  # pocket post centre, offset from the bat's own TIP further toward playfield centre (this story's own physics probes: the pivot end's base circle is angle-invariant and traps a ball regardless of stroke, so the pocket closes at the tip instead -- see add_drain_triangle_side()'s own doc comment). Kept small, together with the reduced POST_RADIUS_MM above, so the two posts never narrow the reconciled tip gap below the reference ball's own diameter.
 POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y (flipper centreline) UP-TABLE (away from the drain)
+
+# ---------------------------------------------------------------------------
+# Story 2.1b -- the rest of the shot map, drawn above GUIDE_Y_TOP_MM = 420:
+# both Loops, the spinner, the Ramp, the off-centre Dragon with the Lock lane
+# between its legs, the six-target DRAGON bank, three Top lanes, two
+# slingshots and three pop bumpers. Every figure below is AUTHORED -- no
+# source anywhere in the repository states a loop width, a ramp height, a
+# Dragon footprint, a bank pitch, a Top-lane spacing, a sling span or a pop
+# radius (verified against the research digests, this story's own planning
+# pass) -- so each carries a one-line comment naming what it is and what
+# would confirm it, matching AD-15's "do-not-invent numbers ship unverified"
+# discipline even though these are millimetre figures, not TUNING entries
+# (TABLE has no per-figure provenance mechanism; TABLE.authoredCounts below
+# is the one exception, for the pop-bumper COUNT specifically, per the
+# author's 2026-08-31 instruction -- see dragonwar.ts).
+# ---------------------------------------------------------------------------
+
+# Loops (task 3): the loop's clear lane width, authored WIDER than
+# OUTLANE_WIDTH_MM (34.9 mm) on purpose -- the loop carries the spinner gate
+# body (below) partway along its run, and 34.9 mm leaves only ~4 mm of ball
+# clearance on each side even with nothing else in the lane, which is too
+# tight to also host an obstruction. 50 mm leaves room for the spinner stub
+# to protrude from one wall without narrowing the remaining clear path below
+# the reference ball's own diameter (26.99 mm). Would be confirmed by a
+# measured real orbit-lane width once a Reference-machine dimension exists.
+LOOP_LANE_CLEAR_MM = 50.0
+# The loop's own outer arc, offset in from the perimeter wall's interior face
+# by LOOP_LANE_CLEAR_MM at the top of the table -- the top connector's own
+# lane-facing (south) face.
+LOOP_TOP_INNER_Y_MM = PLAYFIELD_H_MM - LOOP_LANE_CLEAR_MM  # 1016.8
+# Where each loop's lane widens from the OUTLANE-width funnel mouth (sharing
+# the existing col_post_divider_*_hi post's own span, so no new post is
+# needed at the bottom -- task 3: "from the two *_divider_*_hi posts") out to
+# the full LOOP_LANE_CLEAR_MM run.
+LOOP_FUNNEL_Y0_MM = GUIDE_Y_TOP_MM  # 420 -- starts exactly at the existing post
+LOOP_FUNNEL_Y1_MM = 500.0  # authored -- a short, gentle widening run
+
+# Spinner (task 4, Left Loop only -- SPEC CAP-26 success clause,
+# machine-behaviour.md:72). A thin stub protruding from the loop guide's own
+# inner face, narrow enough that the reference ball still clears the
+# remaining lane width comfortably (LOOP_LANE_CLEAR_MM - SPINNER_PROTRUDE_MM
+# = 38 mm, above the 26.99 mm reference ball) -- this story draws the gate
+# body and its sw_spinner zone only; the mechanical spin/revolution count is
+# Story 2.3's (AD-6).
+SPINNER_PROTRUDE_MM = 12.0
+SPINNER_Y_MM = 648.0  # authored -- roughly midway along the Left Loop's straight run, between sw_loop_l_in and sw_loop_l_out
+
+# Ramp (task 5): entrance right of centre (> PLAYFIELD_W_MM / 2 = 257.2 mm)
+# so the LEFT flipper shoots it (FR-27) -- see docs/decisions.md for the
+# return-inlane choice (OQ-6). The collision primitive set has no sloped-
+# plane shape (export.py's COL_SHAPES/validate_col_shapes restrict
+# shape='plane' to a z-normal horizontal plane, and the loader's plane-node
+# whitelist admits only col_playfield/col_glass -- loader/index.ts:748-756),
+# so the Ramp bed is authored as an ordinary deck-height convex-prism channel
+# (surface='ramp' on its walls for the contact-sound channel only) rather
+# than a literal 3D incline; "authored height and gradient" below is the
+# figure a later story's visual ramp mesh would use, recorded honestly as
+# unverified rather than modelled physically, since this collision model
+# cannot express it yet.
+RAMP_LANE_CLEAR_MM = 34.0  # authored -- comparable to a real ramp entrance width, narrower than the loop
+RAMP_ENTER_X_MM = 372.0  # authored -- right of centre (> 257.2); pushed right of the DRAGON bank's own column (below) so neither shadows the other
+RAMP_ENTER_Y_MM = 470.0
+RAMP_TOP_Y_MM = 825.0
+RAMP_HEIGHT_MM = 90.0  # authored -- the visual ramp's rise, unused by this collision model (see the note above); would be confirmed by a Reference-machine measurement once art replaces the placeholder (Story 5.x)
+RAMP_GRADIENT = 0.20  # authored -- rise over run, unused by this collision model, same provenance note as RAMP_HEIGHT_MM
+
+# Dragon (task 6): off-centre so a rejection deflects to a flipper
+# (decisions-rejected.md:14, machine-behaviour.md:9) -- the RIGHT flipper
+# takes it straight and the LEFT flipper backhands it, which places the body
+# LEFT of PLAYFIELD_W_MM / 2 = 257.2 mm.
+DRAGON_CENTER_X_MM = 170.0  # authored -- left of centre
+LOCK_LANE_CLEAR_MM = 40.0  # authored -- "a narrow lane admitting a precise shot", narrower than every other lane this story draws
+DRAGON_LEG_W_MM = 60.0  # authored -- each leg's own footprint width
+DRAGON_LEG_Y0_MM = 480.0
+DRAGON_LEG_Y1_MM = 620.0
+DRAGON_MOUTH_Y_MM = 650.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the Mouth"
+
+# DRAGON bank (task 7): six target faces spelling D-R-A-G-O-N, legible from
+# the fixed camera, left of the Ramp's own channel so neither crosses the
+# other.
+DRAGON_BANK_Y0_MM = 700.0
+DRAGON_BANK_Y1_MM = 708.0
+# Story 2.1b planning-pass finding (verified empirically, not by inspection):
+# the Dragon's own legs are REAL solid col_ bodies spanning the FULL
+# interior height (z 0..WALL_H_MM) across x in [90, 150] (left) and
+# [190, 250] (right), y in [480, 620] -- a bank starting at x = 90 (this
+# constant's own original value) put four of its six targets directly
+# behind that shadow, physically unreachable by any straight shot from
+# below regardless of the bank's own y (driving a ball at the measured
+# maximum speed through the real createMachine() pipeline showed it
+# deflecting off a leg's top edge well short of the bank -- this file's own
+# switch-zone placement note beside sw_dragon_body_l/r explains the
+# one-ball-radius reachability limit the SAME mistake nearly repeated here).
+# The bank's own x-span is therefore anchored clear of BOTH legs (> 250) and
+# the Ramp is pushed right of it in turn (RAMP_ENTER_X_MM, above) so neither
+# shadows the other.
+DRAGON_BANK_X0_MM = 255.0
+DRAGON_BANK_PITCH_MM = 14.0  # authored -- centre-to-centre spacing between the six targets, narrowed to fit clear of both legs and the Ramp
+DRAGON_BANK_TARGET_W_MM = 11.0
+
+# Top lanes (task 7): three, in the upper field on the launched ball's own
+# path (above the Ramp and the pop nest, below the loop's own top connector).
+TOP_LANE_Y0_MM = 950.0
+TOP_LANE_Y1_MM = 1000.0
+TOP_LANE_DIVIDER_XS_MM = (95.0, 195.0, 295.0, 395.0)  # four dividers -> three lanes
+TOP_LANE_DIVIDER_T_MM = 8.0
+
+# Slingshots (task 8): above the inlanes, clear of the flipper's own swept
+# envelope and the reconciled tip gap (2.1a's own bound, this story's own
+# "Always" rule) -- verified against test/flipper-sweep-clearance.test.ts.
+SLING_Y0_MM = 420.0
+SLING_Y1_MM = 455.0
+SLING_L_X0_MM, SLING_L_X1_MM = 70.0, 130.0
+SLING_R_X0_MM, SLING_R_X1_MM = 360.0, 410.0
+
+# Pop bumpers (task 8): a nest of exactly three (author-decided 2026-08-31 --
+# see ## Boundaries & Constraints and TABLE.authoredCounts in dragonwar.ts).
+POP_BUMPER_RADIUS_MM = 20.0  # authored -- a common pop-bumper body radius
+# Switch-zone half-extent around each pop's own centre. Verified this story's
+# own planning pass, not merely derived by inspection: a ball's own CENTRE
+# can never approach closer than POP_BUMPER_RADIUS_MM + one ball radius
+# (20 + 13.495 = 33.495 mm) to the post's centre before its surface contacts
+# the solid body -- a zone half-extent at or below that (25 mm, this
+# constant's own original value) puts the box's own STRAIGHT EDGES entirely
+# inside the unreachable disc (only the box's own CORNERS, at
+# half_extent * sqrt(2), reach past it), so a ball approaching dead-centre
+# from any single direction never enters the zone at all (driving a ball at
+# a pop through the real createMachine() pipeline showed zero switch events
+# despite a visibly close pass -- the same reachability class of mistake
+# sw_dragon_body_l/_r and sw_dragon_* nearly repeated, this file's own notes
+# beside them). 38 mm clears the 33.495 mm reach limit on every edge, not
+# only at the corners.
+POP_ZONE_HALF_MM = 38.0
 
 # ---------------------------------------------------------------------------
 # Story 2.1a task 22 (DW-119): the below-deck outlane return channel. Both
@@ -474,12 +626,17 @@ def main():
 	)
 	set_props(col_glass, col_shape='plane', col_normal_z=-1, surface='glass', phys_material='default')
 
-	# ---- Perimeter + plunger-lane walls, wall shape, with a drain gap ----
+	# ---- Perimeter + plunger-lane walls, wall shape, with a drain gap.
+	# Story 2.1b (DW-53): col_wall_left/_top/_right/_lane -- the true
+	# perimeter, plus the wall separating the plunger lane from the main
+	# field -- now reach PERIMETER_WALL_H_MM (the glass); col_wall_lane_bottom
+	# is not a true perimeter wall (it sits below the shooter lane, well clear
+	# of anywhere a ball travels above WALL_H_MM) and stays at WALL_H_MM. ----
 	walls = [
-		('col_wall_left', (-WALL_T_MM, 0, 0), (0, PLAYFIELD_H_MM, WALL_H_MM)),
-		('col_wall_top', (0, PLAYFIELD_H_MM, 0), (PLAYFIELD_W_MM, PLAYFIELD_H_MM + WALL_T_MM, WALL_H_MM)),
-		('col_wall_right', (PLAYFIELD_W_MM, 0, 0), (PLAYFIELD_W_MM + WALL_T_MM, PLAYFIELD_H_MM, WALL_H_MM)),
-		('col_wall_lane', (LANE_X0_MM, 0, 0), (LANE_X0_MM + WALL_T_MM, LANE_WALL_TOP_Y_MM, WALL_H_MM)),
+		('col_wall_left', (-WALL_T_MM, 0, 0), (0, PLAYFIELD_H_MM, PERIMETER_WALL_H_MM)),
+		('col_wall_top', (0, PLAYFIELD_H_MM, 0), (PLAYFIELD_W_MM, PLAYFIELD_H_MM + WALL_T_MM, PERIMETER_WALL_H_MM)),
+		('col_wall_right', (PLAYFIELD_W_MM, 0, 0), (PLAYFIELD_W_MM + WALL_T_MM, PLAYFIELD_H_MM, PERIMETER_WALL_H_MM)),
+		('col_wall_lane', (LANE_X0_MM, 0, 0), (LANE_X0_MM + WALL_T_MM, LANE_WALL_TOP_Y_MM, PERIMETER_WALL_H_MM)),
 		('col_wall_lane_bottom', (LANE_X0_MM, -WALL_T_MM, 0), (PLAYFIELD_W_MM + WALL_T_MM, 0, WALL_H_MM)),
 	]
 	for name, min_mm, max_mm in walls:
@@ -528,28 +685,9 @@ def main():
 	add_bottom_wall_quad('col_wall_bottom_l', OUTLANE_WIDTH_MM, DRAIN_X0_MM, BOTTOM_SWEEP_MM, BOTTOM_WALL_DRAIN_DROP_MM)
 	add_bottom_wall_quad('col_wall_bottom_r', LANE_X0_MM - OUTLANE_WIDTH_MM, DRAIN_X1_MM, -BOTTOM_SWEEP_MM, BOTTOM_WALL_DRAIN_DROP_MM)
 
-	# ---- col_lane_deflector: angled triangular prism at the top of the
-	# plunger lane (Story 1.5, provisional placeholder geometry not derived
-	# from any acceptance criterion -- DW-58). Identity transform, angled MESH
-	# vertices -- see this file's constants block above for why. The
-	# hypotenuse runs from high-left (LANE_X0_MM + WALL_T_MM, DEFLECTOR_TOP_Y_MM
-	# -- the lower x, higher y point) to low-right (PLAYFIELD_W_MM,
-	# DEFLECTOR_BASE_Y_MM -- the higher x, lower y point; review finding
-	# 2026-08-28 corrected this comment's labels, which had both points
-	# backwards -- the constants block above already had it right: "low-right
-	# to high-left"), turning a ball travelling up the lane (+Y) toward -X,
-	# into the main field. ----
-	col_lane_deflector = new_prism_mesh(
-		'col_lane_deflector',
-		[
-			(LANE_X0_MM + WALL_T_MM, DEFLECTOR_TOP_Y_MM),
-			(PLAYFIELD_W_MM, DEFLECTOR_BASE_Y_MM),
-			(PLAYFIELD_W_MM, DEFLECTOR_TOP_Y_MM),
-		],
-		0.0, WALL_H_MM,
-		parent=playfield_root,
-	)
-	set_props(col_lane_deflector, col_shape='wall', surface='wood', phys_material='default')
+	# col_lane_deflector is retired (DW-58, this file's own header comment
+	# beside DRAIN_X0_MM/DRAIN_X1_MM). The Right Loop's own upper arc, drawn
+	# below, takes over its job.
 
 	# ---- Flippers: box shape, axis-aligned so their bounding box is exactly
 	# the authored bat length (unpitched, no rotation). Story 2.1a (DW-78):
@@ -754,6 +892,205 @@ def main():
 	add_outlane_return_channel('l', build_channel_rail_points(0.0, 1.0, CHANNEL_LEFT_X_END_MM))
 	add_outlane_return_channel('r', build_channel_rail_points(LANE_X0_MM, -1.0, CHANNEL_RIGHT_X_END_MM))
 
+	# =========================================================================
+	# Story 2.1b -- the rest of the shot map, above GUIDE_Y_TOP_MM = 420. Every
+	# figure is authored (see this file's own Story 2.1b constants block,
+	# above, for the full provenance discipline). Insertion point per the
+	# spec's own Code Map: after the drain triangle and its below-deck return
+	# channels, before the switch-zone block.
+	# =========================================================================
+
+	def add_box_wall(name, x0, x1, y0, y1, surface):
+		"""A rectangular col_ 'wall' node spanning z in [0, WALL_H_MM] -- the
+		shared shape every interior guide, target face, divider and gate body
+		this story draws is built from (col_guide_divider_l/r's own prototype,
+		2.1a's add_guide_wall(), generalised over `surface` so this story's
+		many surface classes -- 'dragon', 'target', 'ramp', 'rubber_band',
+		'bumper', 'plastic' -- share one call site)."""
+		wall = new_prism_mesh(name, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface=surface, phys_material='default')
+		return wall
+
+	# ---- Left and Right Loops (task 3, CAP-26): a chain of convex prisms
+	# from the two EXISTING col_post_divider_*_hi posts (2.1a, y = 420) up
+	# each side of the table and across the top, so a full orbit passes both
+	# (LOOP_LANE_CLEAR_MM wide once past the funnel; the perimeter walls --
+	# col_wall_left/_top, and col_wall_lane on the right, LANE_X0_MM's own
+	# face -- are the loop's OUTER boundary, the same one-wall-plus-perimeter
+	# shape 2.1a's own outlane/inlane divider uses, so only the INNER guide is
+	# drawn here). Both free ends terminate at the existing rubber posts --
+	# no new post is needed at the bottom, and the guide never has a free end
+	# at the top, because the two sides join across the top connector. ----
+	def add_loop_funnel(name, divider_x0, divider_x1, loop_x0, loop_x1):
+		"""The trapezoid connecting the divider guide's own OUTLANE_WIDTH_MM
+		span (at y = LOOP_FUNNEL_Y0_MM, flush with the existing post) to the
+		wider LOOP_LANE_CLEAR_MM span (at y = LOOP_FUNNEL_Y1_MM) -- a single
+		convex quad, the same angled-prism technique col_lane_deflector
+		proved (identity object transform, angled mesh vertices)."""
+		points = [
+			(divider_x0, LOOP_FUNNEL_Y0_MM), (divider_x1, LOOP_FUNNEL_Y0_MM),
+			(loop_x1, LOOP_FUNNEL_Y1_MM), (loop_x0, LOOP_FUNNEL_Y1_MM),
+		]
+		wall = new_prism_mesh(name, points, 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
+		return wall
+
+	# Left: the 2.1a divider guide's own span is x in [OUTLANE_WIDTH_MM,
+	# OUTLANE_WIDTH_MM + GUIDE_T_MM] = [34.9, 46.9]; the loop's own
+	# lane-facing face sits LOOP_LANE_CLEAR_MM from col_wall_left's interior
+	# face (x = 0).
+	left_divider_x0, left_divider_x1 = OUTLANE_WIDTH_MM, OUTLANE_WIDTH_MM + GUIDE_T_MM
+	loop_l_x0, loop_l_x1 = LOOP_LANE_CLEAR_MM, LOOP_LANE_CLEAR_MM + GUIDE_T_MM
+	add_loop_funnel('col_loop_l_funnel', left_divider_x0, left_divider_x1, loop_l_x0, loop_l_x1)
+	add_box_wall('col_loop_l', loop_l_x0, loop_l_x1, LOOP_FUNNEL_Y1_MM, LOOP_TOP_INNER_Y_MM, 'plastic')
+
+	# Right: the 2.1a divider guide's own span is x in [LANE_X0_MM -
+	# OUTLANE_WIDTH_MM - GUIDE_T_MM, LANE_X0_MM - OUTLANE_WIDTH_MM] =
+	# [421.5, 433.5]; the loop's own lane-facing face sits LOOP_LANE_CLEAR_MM
+	# from col_wall_lane's main-field face (x = LANE_X0_MM = 468.4), the same
+	# asymmetric anchor 2.1a's own add_drain_triangle_side() uses for the
+	# right outlane.
+	right_divider_x1 = LANE_X0_MM - OUTLANE_WIDTH_MM
+	right_divider_x0 = right_divider_x1 - GUIDE_T_MM
+	loop_r_x1 = LANE_X0_MM - LOOP_LANE_CLEAR_MM
+	loop_r_x0 = loop_r_x1 - GUIDE_T_MM
+	add_loop_funnel('col_loop_r_funnel', right_divider_x0, right_divider_x1, loop_r_x0, loop_r_x1)
+	add_box_wall('col_loop_r', loop_r_x0, loop_r_x1, LOOP_FUNNEL_Y1_MM, LOOP_TOP_INNER_Y_MM, 'plastic')
+
+	# Top connector, joining both loops across the top of the table -- "both
+	# lanes join across the top so a full orbit passes both" (task 3).
+	add_box_wall(
+		'col_loop_top',
+		loop_l_x0 - 10.0, loop_r_x1 + 10.0,
+		LOOP_TOP_INNER_Y_MM - GUIDE_T_MM, LOOP_TOP_INNER_Y_MM,
+		'plastic',
+	)
+
+	# Spinner gate (task 4, Left Loop only -- SPEC CAP-26, machine-
+	# behaviour.md:72): a thin stub protruding from the loop guide's own
+	# inner face, narrow enough that the reference ball still clears the
+	# remaining lane width comfortably (see this file's constants block). No
+	# revolution counting here -- Story 2.3 owns the mechanical spin.
+	add_box_wall(
+		'col_spinner_l',
+		loop_l_x0 - SPINNER_PROTRUDE_MM, loop_l_x0,
+		SPINNER_Y_MM - 3.0, SPINNER_Y_MM + 3.0,
+		'rubber_band',
+	)
+
+	# DW-58's own consequence, verified empirically (this story's own planning
+	# pass, not merely derived by inspection): gravity has no x-component
+	# (2.1a's own Design Notes), so a ball launched dead straight up the
+	# plunger lane carries NO lateral drift at all -- open space alone past
+	# LANE_WALL_TOP_Y_MM does not "turn the ball into the field"; it needs an
+	# actual angled surface to deflect it sideways, exactly the job the
+	# retired col_lane_deflector did. The Right Loop's own upper arc supplies
+	# that surface -- an angled prism at the plunger lane's own top,
+	# geometrically identical to the retired deflector (same hypotenuse, low-
+	# right (PLAYFIELD_W_MM, ~976) to high-left (LANE_X0_MM + WALL_T_MM,
+	# ~1010)) but now authored as part of the loop rather than a standalone
+	# node, so DW-58's own claim ("the Right Loop's own upper arc turns the
+	# launched ball into the field") is genuinely true rather than merely
+	# asserted. Identity object transform, angled mesh vertices -- the same
+	# technique the retired node proved.
+	col_loop_r_deflector = new_prism_mesh(
+		'col_loop_r_deflector',
+		[
+			(LANE_X0_MM + WALL_T_MM, LOOP_TOP_INNER_Y_MM),
+			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM - 34.0),
+			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_loop_r_deflector, col_shape='wall', surface='wood', phys_material='default')
+
+	# ---- Ramp (task 5): entrance right of centre (> PLAYFIELD_W_MM / 2 =
+	# 257.2) so the LEFT flipper shoots it (FR-27; the return-inlane choice
+	# is recorded in docs/decisions.md, OQ-6). No sloped-plane primitive
+	# exists in this collision model (this file's constants block explains
+	# why), so the bed is an ordinary deck-height channel, surface='ramp' for
+	# the contact-sound channel only. Nothing crosses the plunger lane
+	# (LANE_X0_MM = 468.4): the whole channel and its return rail stay well
+	# under x = 400, clear of it and of the Right Loop's own lane. ----
+	ramp_lane_x0 = RAMP_ENTER_X_MM - RAMP_LANE_CLEAR_MM / 2
+	ramp_lane_x1 = RAMP_ENTER_X_MM + RAMP_LANE_CLEAR_MM / 2
+	add_box_wall('col_ramp_wall_l', ramp_lane_x0 - WALL_T_MM, ramp_lane_x0, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp')
+	add_box_wall('col_ramp_wall_r', ramp_lane_x1, ramp_lane_x1 + WALL_T_MM, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp')
+
+	# Return rail: a single bent rail, the exact add_channel_rail() technique
+	# 2.1a's own outlane return channel proved, from the top of the
+	# up-channel down into the RIGHT inlane -- landing well clear of both the
+	# Right Loop's own lane and the right slingshot.
+	ramp_return_points = [
+		(ramp_lane_x1, RAMP_TOP_Y_MM),
+		(ramp_lane_x1 + 40.0, RAMP_TOP_Y_MM - 37.0),
+		(ramp_lane_x1 + 23.0, SLING_Y1_MM + 15.0),
+	]
+	for i in range(len(ramp_return_points) - 1):
+		add_channel_rail(f'col_ramp_return_{i + 1}', ramp_return_points[i], ramp_return_points[i + 1], WALL_T_MM)
+
+	# ---- Dragon body + Lock lane (task 6, AD-6): off-centre (left of
+	# PLAYFIELD_W_MM / 2 = 257.2 -- decisions-rejected.md:14,
+	# machine-behaviour.md:9: the RIGHT flipper takes it straight, the LEFT
+	# flipper backhands it), the Lock lane between its legs admitting a
+	# precise shot, a body face a slightly-off shot strikes instead (FR-29).
+	# bd_lock is authored at the Mouth pose above the body, aimed DOWN-TABLE
+	# toward the flippers -- AD-6: "the Lock's pose IS the Mouth". ----
+	lock_lane_x0 = DRAGON_CENTER_X_MM - LOCK_LANE_CLEAR_MM / 2
+	lock_lane_x1 = DRAGON_CENTER_X_MM + LOCK_LANE_CLEAR_MM / 2
+	dragon_leg_l_x0, dragon_leg_l_x1 = lock_lane_x0 - DRAGON_LEG_W_MM, lock_lane_x0
+	dragon_leg_r_x0, dragon_leg_r_x1 = lock_lane_x1, lock_lane_x1 + DRAGON_LEG_W_MM
+	add_box_wall('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon')
+	add_box_wall('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon')
+
+	bd_lock = new_empty('bd_lock', (DRAGON_CENTER_X_MM, DRAGON_MOUTH_Y_MM, BALL_MM / 2), parent=playfield_root)
+	# local +Y (the eject-direction convention every bd_ empty in this file
+	# shares) rotated 180 deg about Z lands on world -Y -- down-table, toward
+	# the flippers (AD-6: "the Lock's pose IS the Mouth").
+	bd_lock.rotation_euler = (0.0, 0.0, math.pi)
+
+	# ---- DRAGON bank (task 7): six standup target faces spelling
+	# D-R-A-G-O-N, left of the Ramp's own channel so neither crosses the
+	# other. Drop/reset mechanics are Story 2.3's; these are ordinary
+	# collidable bodies here. ----
+	DRAGON_LETTERS = ('d', 'r', 'a', 'g', 'o', 'n')
+	for i, letter in enumerate(DRAGON_LETTERS):
+		cx = DRAGON_BANK_X0_MM + i * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM / 2
+		add_box_wall(
+			f'col_dragon_{letter}',
+			cx - DRAGON_BANK_TARGET_W_MM / 2, cx + DRAGON_BANK_TARGET_W_MM / 2,
+			DRAGON_BANK_Y0_MM, DRAGON_BANK_Y1_MM,
+			'target',
+		)
+
+	# ---- Top lanes (task 7): three, in the upper field on the launched
+	# ball's own path (above the Ramp and the pop nest, below the loop's own
+	# top connector). ----
+	for i, x_centre in enumerate(TOP_LANE_DIVIDER_XS_MM):
+		add_box_wall(
+			f'col_top_divider_{i + 1}',
+			x_centre - TOP_LANE_DIVIDER_T_MM / 2, x_centre + TOP_LANE_DIVIDER_T_MM / 2,
+			TOP_LANE_Y0_MM, TOP_LANE_Y1_MM,
+			'plastic',
+		)
+
+	# ---- Slingshots (task 8): above the inlanes -- verified against
+	# test/flipper-sweep-clearance.test.ts that neither enters the bat's
+	# swept envelope nor narrows the 0.137 mm drain-end throat (both sit well
+	# above GUIDE_Y_TOP_MM's own pocket geometry). ----
+	add_box_wall('col_sling_l', SLING_L_X0_MM, SLING_L_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band')
+	add_box_wall('col_sling_r', SLING_R_X0_MM, SLING_R_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band')
+
+	# ---- Pop bumpers (task 8): a nest of exactly three (author-decided
+	# 2026-08-31 -- TABLE.authoredCounts.popBumpers records the count and its
+	# provenance). Octagon posts, the same shape add_rubber_post() uses,
+	# scaled to a pop-bumper-sized radius. ----
+	POP_POSITIONS_MM = ((130.0, 800.0), (230.0, 800.0), (180.0, 870.0))
+	for i, center in enumerate(POP_POSITIONS_MM):
+		post = new_prism_mesh(f'col_pop_{i + 1}', octagon_points_mm(center, POP_BUMPER_RADIUS_MM), 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(post, col_shape='wall', surface='bumper', phys_material='default')
+
 	# ---- Switch zones: box shape, paired with their TABLE switch ----
 	sw_shooter_lane = new_box_mesh(
 		'sw_shooter_lane', (LANE_X0_MM + WALL_T_MM + 4, 10, 0), (PLAYFIELD_W_MM - 4, 60, 30),
@@ -785,6 +1122,110 @@ def main():
 			parent=playfield_root,
 		)
 		set_props(sw, col_shape='box', switch=switch_name, surface='metal', phys_material='default')
+
+	# ---- Story 2.1b: the shot-map switch zones, one per zone-requiring
+	# switch (Design Notes, "Which switches require a zone" -- everything
+	# except button, cabinet-mechanism and parking-device-slot switches --
+	# AD-2's own three-source partition). Sized generously so a
+	# maximum-speed ball's per-tick swept segment can never straddle a zone
+	# (AC 2, AC 5) -- verified by test/switch-max-speed.test.ts. sw_ zones
+	# cannot be rotated (export.py:252-256), so every one below is an
+	# axis-aligned box. ----
+	def add_switch_zone(name, switch_name, min_mm, max_mm):
+		sw = new_box_mesh(name, min_mm, max_mm, parent=playfield_root)
+		set_props(sw, col_shape='box', switch=switch_name, surface='metal', phys_material='default')
+		return sw
+
+	# Loops
+	add_switch_zone('sw_loop_l_in', 's_loop_l_in', (2, 425, 0), (32, 475, 30))
+	add_switch_zone('sw_loop_l_out', 's_loop_l_out', (5, 820, 0), (45, 880, 30))
+	add_switch_zone('sw_loop_r_in', 's_loop_r_in', (436, 425, 0), (466, 475, 30))
+	add_switch_zone('sw_loop_r_out', 's_loop_r_out', (423, 820, 0), (463, 880, 30))
+	add_switch_zone('sw_spinner', 's_spinner', (5, 635, 0), (45, 662, 30))
+
+	# Ramp
+	add_switch_zone('sw_ramp_enter', 's_ramp_enter', (ramp_lane_x0 + 2, RAMP_ENTER_Y_MM + 5, 0), (ramp_lane_x1 - 2, RAMP_ENTER_Y_MM + 40, 30))
+	add_switch_zone('sw_ramp_made', 's_ramp_made', (ramp_lane_x0 + 2, RAMP_TOP_Y_MM - 35, 0), (ramp_lane_x1 - 2, RAMP_TOP_Y_MM - 3, 30))
+
+	# Dragon body + Lock lane. The legs are REAL solid col_ bodies (a
+	# standup-class switch backed by a wall the ball actually rams into, not
+	# an open lane it passes through) -- a ball's own CENTRE can never
+	# approach closer than one ball radius (BALL_MM / 2 = 13.495 mm) to the
+	# leg's front face (DRAGON_LEG_Y0_MM = 480) before its surface contacts
+	# the solid geometry and the collision response turns it back. A zone
+	# placed AT or BEHIND that face (as an earlier pass of this script did)
+	# is therefore physically unreachable and can never register at any
+	# speed -- found and verified this story's own planning pass, driving a
+	# ball at the measured maximum speed through createMachine() and
+	# observing zero switch events despite the ball visibly approaching the
+	# target (test/switch-max-speed.test.ts's own end-to-end case). Both
+	# zones below sit entirely BEFORE the face, with a safety margin under
+	# the ball-radius reach limit.
+	BALL_RADIUS_MM = BALL_MM / 2
+	dragon_body_zone_y1 = DRAGON_LEG_Y0_MM - BALL_RADIUS_MM - 1.5
+	dragon_body_zone_y0 = dragon_body_zone_y1 - 35.0
+	add_switch_zone('sw_dragon_body_l', 's_dragon_body', (dragon_leg_l_x0 + 4, dragon_body_zone_y0, 0), (dragon_leg_l_x1 - 4, dragon_body_zone_y1, 50))
+	add_switch_zone('sw_dragon_body_r', 's_dragon_body', (dragon_leg_r_x0 + 4, dragon_body_zone_y0, 0), (dragon_leg_r_x1 - 4, dragon_body_zone_y1, 50))
+	add_switch_zone('sw_lock_lane', 's_lock_lane', (lock_lane_x0 + 2, 500, 0), (lock_lane_x1 - 2, 560, 30))
+	LOCK_SLOT_NAMES = ('s_lock_1', 's_lock_2', 's_lock_3')
+	for i, switch_name in enumerate(LOCK_SLOT_NAMES):
+		slot_y0 = DRAGON_MOUTH_Y_MM - 20.0 + i * 17.0
+		add_switch_zone(f'sw_lock_{i + 1}', switch_name, (lock_lane_x0, slot_y0, 0), (lock_lane_x1, slot_y0 + 14.0, 30))
+
+	# DRAGON bank -- one zone per target, same x span as its col_ face. Same
+	# reachability fix as sw_dragon_body_l/r above: each target is a REAL
+	# solid drop_target-class body, so the zone sits entirely BEFORE
+	# DRAGON_BANK_Y0_MM, clear of the one-ball-radius approach limit, rather
+	# than overlapping the target's own (physically unreachable) footprint.
+	dragon_bank_zone_y1 = DRAGON_BANK_Y0_MM - BALL_RADIUS_MM - 1.5
+	dragon_bank_zone_y0 = dragon_bank_zone_y1 - 30.0
+	for i, letter in enumerate(DRAGON_LETTERS):
+		cx = DRAGON_BANK_X0_MM + i * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM / 2
+		add_switch_zone(
+			f'sw_dragon_{letter}', f's_dragon_{letter}',
+			(cx - DRAGON_BANK_TARGET_W_MM / 2 - 2, dragon_bank_zone_y0, 0),
+			(cx + DRAGON_BANK_TARGET_W_MM / 2 + 2, dragon_bank_zone_y1, 30),
+		)
+
+	# Top lanes -- one zone per gap between consecutive dividers.
+	TOP_LANE_NAMES = ('s_top_1', 's_top_2', 's_top_3')
+	for i, switch_name in enumerate(TOP_LANE_NAMES):
+		lane_x0 = TOP_LANE_DIVIDER_XS_MM[i] + TOP_LANE_DIVIDER_T_MM / 2
+		lane_x1 = TOP_LANE_DIVIDER_XS_MM[i + 1] - TOP_LANE_DIVIDER_T_MM / 2
+		add_switch_zone(f'sw_top_{i + 1}', switch_name, (lane_x0, TOP_LANE_Y0_MM + 5, 0), (lane_x1, TOP_LANE_Y1_MM - 5, 30))
+
+	# Inlanes / outlanes -- 2.1a's own drain-triangle geometry, this story's
+	# own switches (Epic 1 never named them; the geometry has always been
+	# there since 2.1a).
+	add_switch_zone('sw_inlane_l', 's_inlane_l', (left_divider_x1 + 2, 150, 0), (left_divider_x1 + 40, 200, 30))
+	add_switch_zone('sw_inlane_r', 's_inlane_r', (right_divider_x0 - 40, 150, 0), (right_divider_x0 - 2, 200, 30))
+	add_switch_zone('sw_outlane_l', 's_outlane_l', (2, 150, 0), (left_divider_x0 - 2, 200, 30))
+	add_switch_zone('sw_outlane_r', 's_outlane_r', (right_divider_x1 + 2, 150, 0), (LANE_X0_MM - 2, 200, 30))
+
+	# Slingshots and pop bumpers
+	# Same reachability fix as sw_dragon_body_l/_r and the pop zones above:
+	# both slingshots are REAL solid col_ bodies (standup class), so a zone
+	# overlapping the body's own footprint (this zone's original span,
+	# SLING_Y0_MM - 4 .. SLING_Y1_MM + 4) sits at or behind the one-ball-
+	# radius approach limit and is physically unreachable from below. The
+	# zone sits entirely BEFORE the sling's own front face instead.
+	sling_zone_y1 = SLING_Y0_MM - BALL_RADIUS_MM - 1.5
+	sling_zone_y0 = sling_zone_y1 - 25.0
+	add_switch_zone('sw_sling_l', 's_sling_l', (SLING_L_X0_MM - 4, sling_zone_y0, 0), (SLING_L_X1_MM + 4, sling_zone_y1, 30))
+	add_switch_zone('sw_sling_r', 's_sling_r', (SLING_R_X0_MM - 4, sling_zone_y0, 0), (SLING_R_X1_MM + 4, sling_zone_y1, 30))
+	for i, center in enumerate(POP_POSITIONS_MM):
+		add_switch_zone(
+			f'sw_pop_{i + 1}', f's_pop_{i + 1}',
+			(center[0] - POP_ZONE_HALF_MM, center[1] - POP_ZONE_HALF_MM, 0),
+			(center[0] + POP_ZONE_HALF_MM, center[1] + POP_ZONE_HALF_MM, 30),
+		)
+
+	# Drain -- the "ball reached the aperture" edge, distinct from
+	# sw_trough_1..4 (the PARKING device's own slot switches, excluded from
+	# the generic tracker by AD-6): sited right where the ball crosses off
+	# the visible deck, one tick's margin above the trough zones' own y = 0
+	# ceiling.
+	add_switch_zone('sw_drain', 's_drain', (DRAIN_X0_MM, -5, 0), (DRAIN_X1_MM, 15, 30))
 
 	# ---- Ball devices: empties at their authored eject pose ----
 	# bd_trough -- Story 1.5 (DW-51, DW-58): relocated from the original
@@ -839,13 +1280,14 @@ def main():
 	set_props(l_insert_left, lightgroup='lg_inserts')
 
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):
-	# the three roots, vis_playfield, l_insert_left, bd_trough, bd_shooter.
-	# col_/sw_ nodes are excluded -- collision scaffolding, never rendered. ----
+	# the three roots, vis_playfield, l_insert_left, bd_trough, bd_shooter,
+	# bd_lock (Story 2.1b). col_/sw_ nodes are excluded -- collision
+	# scaffolding, never rendered. ----
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	presentation_objects = [
 		playfield_root, cabinet_root, pivot_pitch,
-		vis_playfield, l_insert_left, bd_trough, bd_shooter,
+		vis_playfield, l_insert_left, bd_trough, bd_shooter, bd_lock,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

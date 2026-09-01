@@ -58,10 +58,10 @@ function toAbsolute(p) {
 	return path.isAbsolute(p) ? p : path.resolve(p);
 }
 
-function pathCandidates(env) {
+function pathCandidates(env, platform = process.platform) {
 	const pathVar = env.PATH ?? env.Path ?? env.path ?? '';
 	const dirs = pathVar.split(path.delimiter).filter((d) => d.length > 0);
-	const exeName = process.platform === 'win32' ? 'blender.exe' : 'blender';
+	const exeName = platform === 'win32' ? 'blender.exe' : 'blender';
 	return dirs.map((dir) => path.join(dir, exeName));
 }
 
@@ -81,20 +81,17 @@ function expandBlenderFoundationDir(baseDir) {
 		.map((entry) => path.join(baseDir, entry.name, 'blender.exe'));
 }
 
-function conventionalCandidates(env) {
-	if (process.platform === 'win32') {
-		const candidates = [...expandBlenderFoundationDir('C:\\Program Files\\Blender Foundation')];
-		const localAppData = env.LOCALAPPDATA
-			?? (env.USERPROFILE ? path.join(env.USERPROFILE, 'AppData', 'Local') : undefined);
-		if (localAppData) {
-			candidates.push(...expandBlenderFoundationDir(path.join(localAppData, 'Programs', 'Blender Foundation')));
-		}
-		return candidates;
-	}
-	if (process.platform === 'darwin') {
-		return ['/Applications/Blender.app/Contents/MacOS/Blender'];
-	}
-	// Linux and every other POSIX platform.
+// DW-46: a per-platform base directory an injected `env`/`platform` can
+// steer -- `resolveBlender()`'s own `platform` parameter (defaulting to
+// `process.platform`) is what lets test/blender-resolve.test.ts exercise
+// every branch (Windows localized-path, darwin, Linux) unconditionally, on
+// whatever host actually runs the suite, rather than only the one branch
+// matching the real `process.platform`.
+function darwinBase() {
+	return '/Applications';
+}
+
+function linuxCandidates() {
 	return [
 		'/usr/bin/blender',
 		'/usr/local/bin/blender',
@@ -103,13 +100,70 @@ function conventionalCandidates(env) {
 	];
 }
 
+function conventionalCandidates(env, platform = process.platform) {
+	if (platform === 'win32') {
+		// DW-46: `env.ProgramFiles` (and the x86 sibling `env['ProgramFiles(x86)']`)
+		// are the Windows environment variables an ACTUAL installation reports
+		// through -- 'C:\Program Files\Blender Foundation' is an English/
+		// C:-drive assumption that a non-English Windows install (whose
+		// Program Files directory is itself localized, e.g. "C:\Programme" on
+		// German Windows) or one installed to a non-system drive never
+		// matches. Both env vars are read FIRST; the historical hardcoded
+		// literal stays as a LAST-RESORT fallback (never removed -- an
+		// environment with neither variable set, unusual but not impossible,
+		// still gets a candidate), and every base is de-duplicated so an
+		// ordinary Windows box (where `ProgramFiles` already equals the
+		// literal) does not probe the same directory twice.
+		const baseDirs = [];
+		if (env.ProgramFiles) {
+			baseDirs.push(env.ProgramFiles);
+		}
+		if (env['ProgramFiles(x86)']) {
+			baseDirs.push(env['ProgramFiles(x86)']);
+		}
+		baseDirs.push('C:\\Program Files');
+
+		const seenBlenderFoundationDirs = new Set();
+		const candidates = [];
+		for (const baseDir of baseDirs) {
+			const blenderFoundationDir = path.join(baseDir, 'Blender Foundation');
+			if (seenBlenderFoundationDirs.has(blenderFoundationDir)) {
+				continue;
+			}
+			seenBlenderFoundationDirs.add(blenderFoundationDir);
+			candidates.push(...expandBlenderFoundationDir(blenderFoundationDir));
+		}
+
+		const localAppData = env.LOCALAPPDATA
+			?? (env.USERPROFILE ? path.join(env.USERPROFILE, 'AppData', 'Local') : undefined);
+		if (localAppData) {
+			candidates.push(...expandBlenderFoundationDir(path.join(localAppData, 'Programs', 'Blender Foundation')));
+		}
+		return candidates;
+	}
+	if (platform === 'darwin') {
+		// A literal forward-slash join, deliberately NOT path.join(): this is a
+		// POSIX path regardless of which OS is actually running this code
+		// (test/blender-resolve.test.ts exercises the darwin branch by
+		// injecting `platform`, unconditionally, on whatever host runs the
+		// suite -- path.join() would use THAT host's own separator, silently
+		// producing a backslash-joined path on a win32 test runner).
+		return [`${darwinBase()}/Blender.app/Contents/MacOS/Blender`];
+	}
+	// Linux and every other POSIX platform.
+	return linuxCandidates();
+}
+
 /**
  * Resolves an absolute path to a Blender executable, or throws
  * `BlenderNotFoundError` naming every candidate tried. `env` is injectable
  * (defaults to `process.env`) so tests can drive every branch without
- * mutating the real environment.
+ * mutating the real environment. `platform` is injectable too (DW-46,
+ * defaults to `process.platform`) so test/blender-resolve.test.ts can
+ * exercise the Windows, darwin and Linux candidate branches unconditionally,
+ * on whatever host actually runs the suite.
  */
-export function resolveBlender(env = process.env) {
+export function resolveBlender(env = process.env, platform = process.platform) {
 	const candidates = [];
 
 	if (env.BLENDER) {
@@ -122,7 +176,7 @@ export function resolveBlender(env = process.env) {
 		throw new BlenderNotFoundError(candidates);
 	}
 
-	const pathCands = pathCandidates(env);
+	const pathCands = pathCandidates(env, platform);
 	candidates.push(...pathCands);
 	for (const candidate of pathCands) {
 		if (isExecutableCandidate(candidate)) {
@@ -130,7 +184,7 @@ export function resolveBlender(env = process.env) {
 		}
 	}
 
-	const conventional = conventionalCandidates(env);
+	const conventional = conventionalCandidates(env, platform);
 	candidates.push(...conventional);
 	for (const candidate of conventional) {
 		if (isExecutableCandidate(candidate)) {

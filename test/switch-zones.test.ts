@@ -137,20 +137,28 @@ describe('createSwitchTracker() -- a parking device\'s slot switches are NEVER e
 // because neither passes through physics's hysteresis/debounce pipeline at
 // all"). AD-2's other three classes (standup 8 ms, drop_target 20 ms,
 // bumper_skirt 2 ms) have real non-zero defaults, transcribed verbatim from
-// the architecture spine, but NO switch in Epic 1's TABLE carries any of
-// them -- they exist only for Epic 2's standup targets, drop targets and
-// bumpers. The consequence: createSwitchTracker()'s own settleTicks > 0
-// branch (the multi-tick hysteresis window this story's own task 14 built --
-// "maintain per-switch inside/outside state with the settleTicks for that
-// switch's settleClass") has NEVER been exercised by any test in this
-// project, real or synthetic, since every switch anyone has ever driven
-// through this tracker settles in 0 ticks. This describe block drives the
-// SAME generic tracker with an OVERRIDDEN settleTicks value for a real
-// switch name ('s_start', whose actual settleClass stays 'button' in the
-// real TABLE -- only the TUNING VALUE passed in is synthetic, not the table
-// lookup), closing that gap without touching src/** or needing a future
-// Epic 2 switch to exist yet.
-describe('createSwitchTracker() -- non-zero settleTicks classes (debounce/hysteresis, AD-2, task 14)', () => {
+// the architecture spine; Story 2.1b is the first to give a REAL switch one
+// of them (six DRAGON-bank targets carry 'drop_target', two slingshots and
+// the Dragon body carry 'standup', three pops carry 'bumper_skirt'). This
+// describe block drives the SAME generic tracker with an OVERRIDDEN
+// settleTicks value for a real switch name ('s_start', whose actual
+// settleClass stays 'button' in the real TABLE -- only the TUNING VALUE
+// passed in is synthetic, not the table lookup) to pin the exact tick
+// arithmetic deterministically, and closes with one case driven against a
+// REAL 'drop_target' switch and its REAL resolved TUNING value, the case
+// that was genuinely impossible before this story: no switch anywhere in
+// the project carried a non-zero settleClass, so the make-debounce defect
+// (DW-67) had no switch through which a fast crossing could ever vanish
+// entirely.
+//
+// DW-67 (AD-2, AMENDED 2026-09-01): "settleTicks gates the BREAK, never the
+// MAKE." Every case below pins that directly: a raw closure LATCHES on the
+// very tick it first appears (immediate make, no debounce at all), and only
+// the OPENING (the raw test reading outside for settleTicks CONSECUTIVE
+// ticks) is debounced. A bounce inside the BREAK window (raw flips back to
+// true before the window completes) cancels it outright -- AD-2's hysteresis
+// confirms a NEW state, it does not remember how close a bounce came.
+describe('createSwitchTracker() -- non-zero settleTicks classes (DW-67: settleTicks gates the BREAK, never the MAKE)', () => {
 	function tuningWithButtonSettleTicks(settleTicks: number) {
 		return {
 			...TUNING,
@@ -161,81 +169,120 @@ describe('createSwitchTracker() -- non-zero settleTicks classes (debounce/hyster
 		};
 	}
 
-	it('a raw transition that reverts to the reported value BEFORE the settle window elapses never emits an edge -- a filtered bounce, not a delayed one', () => {
+	it('a raw closure LATCHES immediately, on the very tick it is first observed -- no debounce on the make at all', () => {
 		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
 		const tracker = createSwitchTracker(zones, tuningWithButtonSettleTicks(3));
 
+		// Tick 1: raw becomes true. Under the OLD (make-debounced) semantics
+		// this would still be pending, three ticks short of settling. Under
+		// the current (AMENDED) semantics it emits immediately.
+		const events = tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]);
+		expect(events).toEqual([{ type: 'switch', switch: 's_start', closed: true, tick: 1 }]);
+		expect(tracker.currentState('s_start')).toBe(true);
+	});
+
+	it('the BREAK (raw opening) is what settleTicks gates: held for exactly settleTicks ticks before closed:false emits, never one tick early, never one tick late', () => {
+		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
+		const tracker = createSwitchTracker(zones, tuningWithButtonSettleTicks(3));
+
+		// Tick 1: the make -- immediate.
+		expect(tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([
+			{ type: 'switch', switch: 's_start', closed: true, tick: 1 },
+		]);
+		// Tick 2: a GENUINE full exit (both endpoints outside) -- raw becomes
+		// false, differing from reported (true): the break countdown begins
+		// (pendingSince = 2).
+		expect(tracker.step(2, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Tick 3: elapsed = 1 -- still short of 3.
+		expect(tracker.step(3, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Tick 4: elapsed = 2 -- still one short. The off-by-one guard: a `>`
+		// instead of `>=` bug would still pass at tick 5, but a window that
+		// fired ONE TICK EARLY would already have fired here.
+		expect(tracker.step(4, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		expect(tracker.currentState('s_start'), 'must still report closed until the break window completes').toBe(true);
+		// Tick 5: elapsed = 3 -- the window completes exactly here.
+		expect(tracker.step(5, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([
+			{ type: 'switch', switch: 's_start', closed: false, tick: 5 },
+		]);
+		expect(tracker.currentState('s_start')).toBe(false);
+		// Tick 6: already reported open -- staying outside produces no further edges.
+		expect(tracker.step(6, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+	});
+
+	it('a contact bounce on the break (raw flickers false-then-true inside the break window) cancels it outright: no edge pair, the switch stays reported closed', () => {
+		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
+		const tracker = createSwitchTracker(zones, tuningWithButtonSettleTicks(3));
+
+		// Tick 1: the make -- immediate.
+		expect(tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([
+			{ type: 'switch', switch: 's_start', closed: true, tick: 1 },
+		]);
+		// Tick 2: a genuine exit begins the break countdown (pendingSince = 2).
+		expect(tracker.step(2, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Tick 3: elapsed = 1 -- still short of 3.
+		expect(tracker.step(3, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Tick 4: raw bounces back to true (a contact bounce, the segment
+		// re-crosses back into the zone) -- raw === reported (still true, it
+		// never actually settled to false), so the pending break is CANCELLED
+		// outright, not merely paused. If it were only paused, a buggy
+		// implementation might resume counting from 1 once raw goes false
+		// again below, settling by tick 8 instead of the correct tick 9.
+		expect(
+			tracker.step(4, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]),
+			'the bounce itself must emit no edge at all -- the switch was never reported open',
+		).toEqual([]);
+		expect(tracker.currentState('s_start'), 'the switch stays reported closed through the whole bounce').toBe(true);
+
+		// Tick 5: a genuine exit again -- this is a NEW break window (pendingSince = 5).
+		expect(tracker.step(5, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Ticks 6, 7: elapsed 1, 2 -- still short of the NEW window's 3 ticks.
+		// A "resumed counting" bug (resuming from the FIRST exit's elapsed = 1
+		// at tick 3, instead of starting a fresh window at tick 5) would fire
+		// by tick 6 instead of tick 8.
+		expect(tracker.step(6, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		expect(tracker.step(7, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Tick 8: elapsed = 3 since the SECOND exit (tick 5) -- settles here.
+		expect(tracker.step(8, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([
+			{ type: 'switch', switch: 's_start', closed: false, tick: 8 },
+		]);
+	});
+
+	// The case that was previously impossible (DW-67's own signature defect):
+	// no switch anywhere in the project carried a non-zero settleClass before
+	// this story, so a crossing shorter than settleTicks + 1 ticks against a
+	// real settling switch could never even be exercised. `s_dragon_d` is a
+	// REAL TABLE.switches entry (settleClass 'drop_target', 20 ms default =
+	// 20 ticks at TICK_HZ = 1000) and this drives the REAL resolved TUNING
+	// value -- no synthetic override.
+	it('a crossing shorter than settleTicks + 1 ticks against a REAL drop_target (20 ms) switch emits exactly one make -- the defect this story closes', () => {
+		expect(TABLE.switches.s_dragon_d.settleClass).toBe('drop_target');
+		const settleTicks = TUNING.switchSettleTicksByClass.drop_target.value;
+		expect(settleTicks).toBe(20);
+
+		const zones = [zone('sw_dragon_d', 's_dragon_d', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
+		const tracker = createSwitchTracker(zones, TUNING);
+
 		const events: unknown[] = [];
-		// Tick 1: enters the zone (raw becomes true, reported is still false --
-		// pending, not yet settled at 3 ticks).
+		// A crossing lasting only 2 ticks -- far shorter than settleTicks + 1
+		// (21). Tick 1: enters (raw true, differs from reported false) ->
+		// under the OLD make-debounced semantics this would still be pending
+		// at tick 1 and NEVER settle before the ball has already left, so
+		// NOTHING would ever be emitted. Under the current semantics it
+		// latches immediately.
 		events.push(...tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 2: still inside (pending continues, elapsed = 1 < 3).
+		// Tick 2: still inside (segment starts inside, still reads closed --
+		// no new edge, already reported true).
 		events.push(...tracker.step(2, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 3: a GENUINE full exit -- both endpoints outside the zone (not
-		// merely starting inside, which the swept-segment test would still
-		// read as "closed", per the 0 ms settle-class test above) -- so raw
-		// returns to false, which equals reported: the pending transition is
-		// cancelled outright, not merely paused. Well BEFORE the window would
-		// have elapsed (2 < 3) anyway.
+		// Tick 3: a genuine exit -- the ball has left the zone entirely. The
+		// break countdown begins; it will not complete for 20 more ticks.
 		events.push(...tracker.step(3, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
-		// Ticks 4-6: stays outside. If the bounce had left any residual pending
-		// state, it could still (wrongly) fire here.
-		for (let tick = 4; tick <= 6; tick++) {
+		for (let tick = 4; tick <= 23; tick++) {
 			events.push(...tracker.step(tick, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
 		}
 
-		expect(events, 'a sub-window bounce must never reach reported').toEqual([]);
-		expect(tracker.currentState('s_start')).toBe(false);
-	});
-
-	it('a raw transition that persists for exactly settleTicks ticks emits exactly one edge, on the tick the window completes -- never one tick early, never one tick late', () => {
-		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
-		const tracker = createSwitchTracker(zones, tuningWithButtonSettleTicks(3));
-
-		// Tick 1: raw becomes true (pendingSince = 1).
-		expect(tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([]);
-		// Tick 2: elapsed = 1 -- still short of 3.
-		expect(tracker.step(2, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([]);
-		// Tick 3: elapsed = 2 -- still one short. This is the off-by-one guard:
-		// a `>` instead of `>=` bug would still pass at tick 4, but a settle
-		// window that fired ONE TICK EARLY would already have fired here.
-		expect(tracker.step(3, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([]);
-		expect(tracker.currentState('s_start'), 'must not report closed before the window completes').toBe(false);
-		// Tick 4: elapsed = 3 -- the window completes exactly here.
-		expect(tracker.step(4, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([
-			{ type: 'switch', switch: 's_start', closed: true, tick: 4 },
+		expect(events).toEqual([
+			{ type: 'switch', switch: 's_dragon_d', closed: true, tick: 1 },
+			{ type: 'switch', switch: 's_dragon_d', closed: false, tick: 23 },
 		]);
-		expect(tracker.currentState('s_start')).toBe(true);
-		// Tick 5: already reported -- staying inside produces no further edges.
-		expect(tracker.step(5, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([]);
-	});
-
-	it('a bounce mid-window restarts the settle timer from the LATEST raw change, not the original one -- "cancelled, not merely paused"', () => {
-		const zones = [zone('sw_test', 's_start', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
-		const tracker = createSwitchTracker(zones, tuningWithButtonSettleTicks(3));
-
-		const events: unknown[] = [];
-		// Tick 1: raw true (pendingSince = 1).
-		events.push(...tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 2: still true (elapsed = 1).
-		events.push(...tracker.step(2, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 3: a GENUINE full exit -- both endpoints outside the zone --
-		// bounces back to false (= reported), cancelling the window entirely.
-		// If elapsed were merely PAUSED rather than cancelled, a buggy
-		// implementation might resume counting from 2 once raw goes true
-		// again below, reaching the 3-tick threshold by tick 5 instead of the
-		// correct tick 7.
-		events.push(...tracker.step(3, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
-		// Tick 4: raw true again (the segment re-crosses into the zone,
-		// ending inside) -- this is a NEW pending window (pendingSince = 4).
-		events.push(...tracker.step(4, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Ticks 5, 6: elapsed 1, 2 -- still short of the NEW window's 3 ticks.
-		events.push(...tracker.step(5, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		events.push(...tracker.step(6, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		expect(events, 'must not have settled yet by tick 6 (a "resumed counting" bug would fire by tick 5)').toEqual([]);
-		// Tick 7: elapsed = 3 since the SECOND transition (tick 4) -- settles here.
-		events.push(...tracker.step(7, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-
-		expect(events).toEqual([{ type: 'switch', switch: 's_start', closed: true, tick: 7 }]);
 	});
 });

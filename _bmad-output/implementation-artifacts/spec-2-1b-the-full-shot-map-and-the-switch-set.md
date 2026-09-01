@@ -2,7 +2,7 @@
 title: 'Story 2.1b: The full shot map and the switch set'
 type: 'feature'
 created: '2026-08-31'
-status: 'in-progress'
+status: 'blocked'
 baseline_revision: '7cbb9e3d97dfa23263ceb8fe7687191d6f7c9279'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -334,6 +334,28 @@ Blocking condition: none
 Planning completed on the 2026-08-31 re-dispatch. Both intent gaps below were answered by the author, applied into the preserved `<intent-contract>`, and are now carried through the whole spec (see the newest `## Spec Change Log` entry). The invocation directed `Halt after planning.`, so the run halts here with the spec ready for the lead's validation gate; nothing was implemented and nothing was committed.
 
 One item is **reported, not blocking**, for the lead: the frozen I/O matrix's last row names a `SwitchEvent` in `FrameOutput`, an API that does not exist. It was the previous plan pass's own wording rather than a shipped criterion, so the intent-contract is preserved verbatim and the Integration AC is re-sited under `## Design Notes` onto the tier that actually owns `SwitchEvent`. See the Integration ACs note.
+
+### Implement-stage halt, 2026-09-01
+
+Status: blocked
+
+Blocking condition: implementation verification failed
+
+The implementation subagent completed all 29 tasks (12a/12b/16a/26a included), the geometry, registry, `DW-67` switch-tracker fix, and documentation this spec calls for. Re-run independently by the implement-stage orchestrator: `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers` and `pnpm check:attributions` all pass clean. `pnpm check:ad7` still correctly exits 1 naming `AD-7`/`DW-70`/`bd_trough` -- no regression.
+
+`pnpm test` (with `BLENDER` exported) reports **86 files / 1175 tests, 4 failing, 1171 passing** -- all four failures in `test/replay-goldens.test.ts`, against the `roll-and-drain` and `hold-and-release` goldens:
+
+- `roll-and-drain`: the ball no longer drains within the golden's recorded `durationTicks` (still in play at the tick bound; confirmed by extending the run, it drains ~50-100 ticks past the bound).
+- `hold-and-release`: the raised flipper bat no longer measurably deflects the ball against the no-flipper control (observed divergence 0.0269 mm; the pinned threshold is >5 mm).
+- Both goldens also now fail the AC 5 parity-hash falsifiability check: their `finalGameStateHash` no longer changes when `transitions` are stripped -- they have become parity-inert without being declared so on `PARITY_INERT`.
+
+Root cause, per the implementation subagent's diagnosis: Blender's `bpy.data.objects` iteration order is alphabetical and reshuffles on every regeneration, which moves every *existing* collision node's array position in the exported document even though none of those nodes' own geometry changed. The ported physics broadphase is order-sensitive to that reshuffle for these two chaotic (multi-contact) scenarios, so byte-identical recorded input (`transitions`/`coilPrologue`, unchanged as required) now plays out a genuinely different trajectory.
+
+The only way to turn these four tests green is one of the three things this story's own `## Boundaries & Constraints` -> `Block If` list names as a stop condition: change a golden's `durationTicks`, its `PARITY_INERT` membership, or a per-golden scenario assertion. The `Never` list separately forbids re-recording a golden ("Story 2.5 owns the real re-record"), and AC 10 requires the full suite to report zero failures. This is a verification failure the story cannot resolve within its own mandate -- not a judgment call to paper over with a code comment or a `deferred:` entry.
+
+All other `## Verification` commands pass. All 44 changed/added files (implementation subagent's diff plus this frontmatter/result update) are left **uncommitted** in the working tree for the lead -- no commit was made; build-auto commits only at finalize, which this run never reached.
+
+Left for the lead to decide: (a) treat the golden drift as in-scope groundwork for Story 2.5 and pull the affected header/duration/`PARITY_INERT` updates forward with an explicit amendment here, or (b) investigate stabilising `tools/export.py`'s collision-node ordering (e.g. a stable sort key independent of Blender's `bpy.data.objects` iteration) so unrelated existing nodes' array indices do not shift when new geometry is added -- not explored by the implementation subagent and not a task this spec named.
 
 ---
 

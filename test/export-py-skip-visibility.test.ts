@@ -9,9 +9,10 @@
 //     holding a FIXED, PINNED count of `it()` cases (22, as of Story 2.1a
 //     task 21's LF regression pin -- was 21 through Story 1.8/1.10) --
 //     skipped entirely when Blender is not resolvable on this machine.
-//   - test/blender-resolve.test.ts's ONE `it.skipIf(process.platform !==
-//     'win32')` case -- skipped on every non-Windows runner (CI's own
-//     ubuntu-latest included).
+//   - test/blender-resolve.test.ts's `it.skipIf(process.platform !==
+//     'win32')` cases (THREE as of Story 2.1b task 20's DW-46 fix -- was
+//     ONE through Story 1.8/2.1a) -- skipped on every non-Windows runner
+//     (CI's own ubuntu-latest included).
 // (test/export-py-version-gate.test.ts's OWN two `describe.skipIf(!pythonCmd)`
 // blocks are Python-gated, not Blender-gated, and are not part of this
 // story's Blender-specific "22 / 23" figure -- excluded here for the same
@@ -75,10 +76,18 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 		expect(count, 'the Blender-gated block\'s own it() count changed -- update this pin (and the "22"/"23" figures in this file\'s and the Code Map\'s own prose) deliberately, not silently').toBe(22);
 	});
 
-	it('structural pin: test/blender-resolve.test.ts holds EXACTLY ONE win32-only it.skipIf case', () => {
+	it('structural pin: test/blender-resolve.test.ts holds EXACTLY THREE win32-only it.skipIf cases', () => {
+		// Story 2.1b task 20 (DW-46): grew from 1 to 3 -- the ORIGINAL
+		// LOCALAPPDATA-based conventional-install case, plus two new cases
+		// asserting env.ProgramFiles and env['ProgramFiles(x86)'] are honoured
+		// (a localized, non-"Program Files" Windows install). Deliberately
+		// still win32-gated: Windows-specific env vars, asserted against the
+		// real win32 conventionalCandidates() branch, not the injectable-
+		// platform branches (which are asserted unconditionally, on any host,
+		// in this same file's own DW-46 darwin/Linux cases below).
 		const source = readFileSync(path.join(REPO_ROOT, 'test', 'blender-resolve.test.ts'), 'utf8');
 		const count = countOccurrences(source, /it\.skipIf\(process\.platform !== 'win32'\)/g);
-		expect(count, 'blender-resolve.test.ts\'s win32-only skipIf count changed -- update this pin deliberately').toBe(1);
+		expect(count, 'blender-resolve.test.ts\'s win32-only skipIf count changed -- update this pin (and the expectedSkips formula below) deliberately').toBe(3);
 	});
 
 	// Review finding 2026-08-29: this file was written to close "coverage
@@ -118,12 +127,14 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 		// Story 2.1a (task 21, iteration 2): the Blender-gated block grew from
 		// 21 to 22 cases (the new LF regression pin above), so this term moves
 		// from 21 to 22 deliberately, matching the structural pin above.
-		const expectedSkips = (blenderResolvable ? 0 : 22) + (isWin32 ? 0 : 1) + (pythonAvailable ? 0 : 4);
+		// Story 2.1b task 20 (DW-46): the win32-only term grew from 1 to 3,
+		// matching the structural pin above.
+		const expectedSkips = (blenderResolvable ? 0 : 22) + (isWin32 ? 0 : 3) + (pythonAvailable ? 0 : 4);
 
 		// eslint-disable-next-line no-console
 		console.log(
 			`[export-py-skip-visibility] this run: platform=${process.platform} blenderResolvable=${blenderResolvable} pythonAvailable=${pythonAvailable} -- expected skip count = ${expectedSkips} ` +
-			`(${blenderResolvable ? 0 : 22} Blender-gated + ${isWin32 ? 0 : 1} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
+			`(${blenderResolvable ? 0 : 22} Blender-gated + ${isWin32 ? 0 : 3} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
 		);
 
 		// `DW-107` (Story 1.10 follow-up): the skip count is read from vitest's

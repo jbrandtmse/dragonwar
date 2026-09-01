@@ -187,6 +187,18 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		c_flipper_r: true,
 		c_trough_eject: true,
 		c_autolaunch: true,
+		// Story 2.1b: the new hardware coils default enabled too, the same as
+		// every existing one -- AD-5's own rule gates actuation by
+		// enable/disable, default enabled, and this story authors only the
+		// bodies and the coil names; slingshot/pop/bank-reset/Mouth actuation
+		// is Story 2.2/2.3's.
+		c_sling_l: true,
+		c_sling_r: true,
+		c_pop_1: true,
+		c_pop_2: true,
+		c_pop_3: true,
+		c_dragon_bank_reset: true,
+		c_mouth: true,
 	};
 
 	function step(tick: number, frame: InputFrame, commands: readonly CoilCommand[]): MachineStepResult {

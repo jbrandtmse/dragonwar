@@ -1,0 +1,15 @@
+# Decisions: the shot map (Story 2.1b)
+
+Recorded per this story's AC 7 and the author's 2026-08-31 instruction, in
+the same four-column form as
+`_bmad-output/specs/spec-dragonwar/decisions-rejected.md`. Dates are when
+the author (or, where explicitly marked, the implementing pass under a
+standing author instruction) decided.
+
+| Decision | Chosen | Rejected / deferred | Why |
+| --- | --- | --- | --- |
+| Ramp return inlane (OQ-6, FR-27) | Right inlane (2026-09-01) | Left inlane | The Ramp's entrance sits right of centre (x = 315 mm > 257.2 mm) so the left flipper shoots it; routing the return rail to the RIGHT inlane keeps the whole channel on the table's right side, clear of the off-centre Dragon's own territory (left of centre) and the DRAGON bank, rather than crossing the playfield twice. |
+| Lock lane / mode start (OQ-5) | The Lock lane carries both the lock and the mode start | A separate `sw_scoop`/`bd_scoop` with the Mouth as eject only | Stories 2.3, 2.4, 3.2 and 3.4 are all written against `lock_lane_entered`, `bd_lock` and `c_mouth`; 3.4's multi-candidate mode select parks the ball in `bd_lock` during `modeSelectMs` before the Mouth ejects; AD-18's Lock arbiter has four outcomes and no scoop variant; and no `bd_scoop`/`sw_scoop`/`s_scoop`/`c_scoop` token exists anywhere in `epics.md` outside this story's own fallback clause. Confirming the drawn geometry: the Lock lane (`LOCK_LANE_CLEAR_MM = 40 mm`, between the Dragon's two legs) is a real, precise shot distinct from the DRAGON bank and the loops, so nothing forces the fallback. |
+| Spinner placement | Left Loop only | Both loops; Right Loop only | SPEC CAP-26's own success clause and `machine-behaviour.md:72` settle the PRD's `[ASSUMPTION: the Left Loop]` — the spinner sits partway up the Left Loop's straight run (`SPINNER_Y_MM = 648`), a thin stub protruding from the loop guide's own inner face. |
+| Dragon's side | Left of centre (x = 170 mm < 257.2 mm) | Right of centre; dead-centre | `decisions-rejected.md:14` and `machine-behaviour.md:9`: a rejection must deflect to a flipper, never straight down the middle. Left of centre means the RIGHT flipper takes a Dragon-body rejection straight and the LEFT flipper backhands it — dead-centre (already rejected in the product-level decisions log) has no backhand and rejects to the drain. |
+| Pop-bumper count | Three (`s_pop_1..3` / `c_pop_1..3`) (author, 2026-08-31) | Any other count; leaving it a wildcard | No artifact anywhere states a pop-bumper count — FR-31/CAP-31 name only "pop bumpers", while the SAME sentence tags the neighbouring Top lanes `[ASSUMPTION: count]` and settles them at three, and settles the slingshots at two. Three matches the Top-lane count and is the standard arrangement for this shot density. Recorded in `TABLE.authoredCounts.popBumpers` with `source`/`confidence: 'unverified'` (AD-15), pinned by `test/table.test.ts` against the declared `s_pop_*`/`c_pop_*` sets so the record can never silently drift from what it documents. |

@@ -119,6 +119,30 @@ export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolved
 					continue;
 				}
 
+				// DW-67 (AD-2, AMENDED 2026-09-01): "settleTicks gates the BREAK,
+				// never the MAKE." A raw closure LATCHES immediately, on the very
+				// tick it is first observed -- no debounce at all. Debouncing the
+				// make instead is exactly the defect this fix closes: a zone
+				// crossing shorter than settleTicks + 1 ticks (a fast ball through
+				// an 8 ms standup or a 20 ms drop target) would settle its
+				// "pending" window only after the ball had already left, so no
+				// `closed: true` edge -- and therefore no `closed: false` either --
+				// would ever be emitted at all, falsifying FR-11 ("no ball is ever
+				// lost by a missed switch at any ball speed the Physics core can
+				// produce") the moment the first such switch existed. Only the
+				// OPENING (raw === false) still runs the settle window below, so a
+				// contact bounce on the way OUT (a flicker back to raw === true
+				// inside the break window) still cancels it via the reported-value
+				// branch above, restarting the window rather than emitting a
+				// premature break.
+				if (raw) {
+					tracked.reported = true;
+					tracked.pendingSince = null;
+					tracked.pendingValue = null;
+					events.push({ type: 'switch', switch: name, closed: true, tick });
+					continue;
+				}
+
 				if (tracked.pendingValue !== raw) {
 					tracked.pendingSince = tick;
 					tracked.pendingValue = raw;
@@ -126,10 +150,10 @@ export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolved
 
 				const elapsedTicks = tick - (tracked.pendingSince as number);
 				if (elapsedTicks >= tracked.settleTicks) {
-					tracked.reported = raw;
+					tracked.reported = false;
 					tracked.pendingSince = null;
 					tracked.pendingValue = null;
-					events.push({ type: 'switch', switch: name, closed: raw, tick });
+					events.push({ type: 'switch', switch: name, closed: false, tick });
 				}
 			}
 			return events;

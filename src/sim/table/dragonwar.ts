@@ -43,6 +43,24 @@ export type SettleClass =
 	| 'slam';
 
 /**
+ * Story 2.1b (task 12a): moved DOWN from `sim/table/tuning.ts`, which
+ * re-exports it, so `TABLE.authoredCounts` (below) can carry the exact same
+ * `{ value, source, confidence }` provenance shape `TuningEntry<T>` uses,
+ * without `dragonwar.ts` importing FROM `tuning.ts` (which already imports
+ * `SettleClass` from here -- the reverse direction would be a cycle). The
+ * rough provenance scale the PRD addendum's own tuning table uses in prose
+ * (high/medium/low measurement confidence, or an authored default).
+ */
+export type Confidence = 'high' | 'medium' | 'low' | 'unverified';
+
+/** The `{ value, source, confidence }` shape both `TUNING` (`tuning.ts`'s `TuningEntry<T>`) and `TABLE.authoredCounts` (below) carry -- declared once here so neither has to import the other's copy. */
+export interface AuthoredEntry<T> {
+	readonly value: T;
+	readonly source: string;
+	readonly confidence: Confidence;
+}
+
+/**
  * Recursively `Object.freeze`s `value` and every plain-object / array it
  * reaches, and returns it re-typed as `Readonly` deep-down via `DeepReadonly`
  * -- identity-typed, so `TABLE`'s literal (`as const`) types are unaffected
@@ -127,6 +145,51 @@ export const TABLE = deepFreeze({
 		s_trough_4: { settleClass: 'rollover' },
 		s_tilt_bob: { settleClass: 'tilt_bob' },
 		s_slam_tilt: { settleClass: 'slam' },
+
+		// Story 2.1b -- the rest of the shot map (epics.md:927). The
+		// `settleClass` mapping and its rationale are this story's spec Design
+		// Notes, "The settleClass mapping, and why": `rollover` (0 ms) for
+		// every simple ball-presence lever (loops, ramp, lock lane and its
+		// slots, top lanes, inlanes/outlanes, the drain); `standup` (8 ms) for
+		// the Dragon body and both slingshots (a slingshot leaf against
+		// rubber is the same mechanical class as a standup target's leaf, and
+		// no artifact names a dedicated class for it); `drop_target` (20 ms)
+		// for the six DRAGON-bank targets; `bumper_skirt` (2 ms) for the pops
+		// (Story 2.2's own AC names this class explicitly). `s_spinner` stays
+		// `rollover` deliberately -- any settle would swallow revolutions,
+		// and revolution counting is Story 2.3's mechanical state, not a
+		// debounce.
+		s_loop_l_in: { settleClass: 'rollover' },
+		s_loop_l_out: { settleClass: 'rollover' },
+		s_loop_r_in: { settleClass: 'rollover' },
+		s_loop_r_out: { settleClass: 'rollover' },
+		s_spinner: { settleClass: 'rollover' },
+		s_ramp_enter: { settleClass: 'rollover' },
+		s_ramp_made: { settleClass: 'rollover' },
+		s_dragon_d: { settleClass: 'drop_target' },
+		s_dragon_r: { settleClass: 'drop_target' },
+		s_dragon_a: { settleClass: 'drop_target' },
+		s_dragon_g: { settleClass: 'drop_target' },
+		s_dragon_o: { settleClass: 'drop_target' },
+		s_dragon_n: { settleClass: 'drop_target' },
+		s_dragon_body: { settleClass: 'standup' },
+		s_lock_lane: { settleClass: 'rollover' },
+		s_lock_1: { settleClass: 'rollover' },
+		s_lock_2: { settleClass: 'rollover' },
+		s_lock_3: { settleClass: 'rollover' },
+		s_top_1: { settleClass: 'rollover' },
+		s_top_2: { settleClass: 'rollover' },
+		s_top_3: { settleClass: 'rollover' },
+		s_inlane_l: { settleClass: 'rollover' },
+		s_inlane_r: { settleClass: 'rollover' },
+		s_outlane_l: { settleClass: 'rollover' },
+		s_outlane_r: { settleClass: 'rollover' },
+		s_sling_l: { settleClass: 'standup' },
+		s_sling_r: { settleClass: 'standup' },
+		s_pop_1: { settleClass: 'bumper_skirt' },
+		s_pop_2: { settleClass: 'bumper_skirt' },
+		s_pop_3: { settleClass: 'bumper_skirt' },
+		s_drain: { settleClass: 'rollover' },
 	},
 
 	// No coil-specific descriptor fields exist yet -- Epic 1 names each coil
@@ -137,6 +200,18 @@ export const TABLE = deepFreeze({
 		c_flipper_r: {} as Record<string, never>,
 		c_trough_eject: {} as Record<string, never>,
 		c_autolaunch: {} as Record<string, never>,
+
+		// Story 2.1b -- hardware coils for the new devices. Actuation
+		// (slingshot/pop kick, drop-target reset, the Mouth eject) is Story
+		// 2.2/2.3's; this story only declares the names and the bodies they
+		// energise.
+		c_sling_l: {} as Record<string, never>,
+		c_sling_r: {} as Record<string, never>,
+		c_pop_1: {} as Record<string, never>,
+		c_pop_2: {} as Record<string, never>,
+		c_pop_3: {} as Record<string, never>,
+		c_dragon_bank_reset: {} as Record<string, never>,
+		c_mouth: {} as Record<string, never>,
 	},
 
 	ballDevices: {
@@ -184,7 +259,60 @@ export const TABLE = deepFreeze({
 			// same `s_shooter_lane` zone it enters through.
 			servesInto: 's_shooter_lane',
 		},
+
+		// Story 2.1b (AD-6): the Lock -- capacity 3 ("two held plus one
+		// staging", AD-6's own rule text), slots in fill order, ejecting
+		// through `c_mouth` at the Mouth pose. No `servesInto`: the Mouth
+		// ejects onto open playfield toward the flippers, not into a
+		// zone-bounded destination (unlike bd_trough's kick into the shooter
+		// lane).
+		bd_lock: {
+			kind: 'parking',
+			capacity: 3,
+			slots: ['s_lock_1', 's_lock_2', 's_lock_3'],
+			ejectCoil: 'c_mouth',
+			// AD-6: ball search is tick-timed pulses ending in the one command
+			// that lets physics despawn a loose ball. Two eject attempts before
+			// recovering, the same authored default `bd_trough` uses above -- no
+			// artifact states a pulse count for the Lock either.
+			ballSearchOrder: [
+				{ action: 'pulse', coil: 'c_mouth' },
+				{ action: 'pulse', coil: 'c_mouth' },
+				{ action: 'recover' },
+			],
+		},
 	},
+
+	/**
+	 * Story 2.1b (task 12a, AD-15): registry facts recorded with the same
+	 * `{ value, source, confidence }` provenance shape `TUNING` uses for
+	 * do-not-invent figures, so an authored COUNT (as opposed to a switch or
+	 * coil name, which the registry already types exactly) reads as an
+	 * authored decision rather than a sourced fact. `popBumpers` is the only
+	 * entry: the author fixed the pop-bumper count at three on 2026-08-31 (no
+	 * artifact ever states a count -- see docs/decisions.md), and per-entry
+	 * provenance on the pop switches/coils themselves is impossible (`coils`
+	 * above is typed `Record<string, never>`, which forbids adding a field to
+	 * ANY coil entry). `test/table.test.ts` pins `popBumpers.value` against
+	 * the actual count of `s_pop_*` keys in `switches` above and `c_pop_*`
+	 * keys in `coils` above, so this record can never silently drift from the
+	 * switch/coil set it documents. **Not** part of `buildTableDump()`
+	 * (`tools/export-assets.mjs`): a provenance record is not geometry, and
+	 * `export.py` has no business validating it. **Consequence, and it is
+	 * deliberate**: `tableHash()` hashes the whole `TABLE`
+	 * (`src/sim/loop/replay.ts`), so this block's `source` prose is inside
+	 * every golden's identity -- a later wording edit re-breaks all five
+	 * golden headers, exactly as editing any other tunable's `source` string
+	 * does, because the authored count really is part of the table's own
+	 * identity.
+	 */
+	authoredCounts: {
+		popBumpers: {
+			value: 3,
+			source: 'authored 2026-08-31: no artifact states a pop-bumper count -- FR-31/CAP-31 name only "pop bumpers", while the same sentence tags the neighbouring Top lanes [ASSUMPTION: count] and settles them at three, and settles the slingshots at two (epics.md, Story 2.1b Gap 2). Three matches the Top-lane count and is the standard arrangement for this shot density.',
+			confidence: 'unverified',
+		},
+	} satisfies Readonly<Record<'popBumpers', AuthoredEntry<number>>>,
 
 	/** AD-9: the architectural GI channels, set once per phase via `GiCommand.level`. */
 	giChannels: {

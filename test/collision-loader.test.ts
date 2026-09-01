@@ -77,7 +77,18 @@ describe('src/sim/physics/loader -- loadCollision() over the committed dragonwar
 		expect(physics).toBeDefined();
 		expect(switchZones.length).toBeGreaterThan(0);
 
-		const expectedSwitchZoneNames = ['sw_shooter_lane', 'sw_trough_1', 'sw_trough_2', 'sw_trough_3', 'sw_trough_4'];
+		// Story 2.1b: the full shot map's zones, on top of Epic 1's five.
+		const expectedSwitchZoneNames = [
+			'sw_shooter_lane', 'sw_trough_1', 'sw_trough_2', 'sw_trough_3', 'sw_trough_4',
+			'sw_loop_l_in', 'sw_loop_l_out', 'sw_loop_r_in', 'sw_loop_r_out', 'sw_spinner',
+			'sw_ramp_enter', 'sw_ramp_made',
+			'sw_dragon_body_l', 'sw_dragon_body_r', 'sw_lock_lane', 'sw_lock_1', 'sw_lock_2', 'sw_lock_3',
+			'sw_dragon_d', 'sw_dragon_r', 'sw_dragon_a', 'sw_dragon_g', 'sw_dragon_o', 'sw_dragon_n',
+			'sw_top_1', 'sw_top_2', 'sw_top_3',
+			'sw_inlane_l', 'sw_inlane_r', 'sw_outlane_l', 'sw_outlane_r',
+			'sw_sling_l', 'sw_sling_r', 'sw_pop_1', 'sw_pop_2', 'sw_pop_3',
+			'sw_drain',
+		];
 		expect(switchZones.map((z) => z.name).sort()).toEqual([...expectedSwitchZoneNames].sort());
 
 		for (const zone of switchZones) {
@@ -266,6 +277,18 @@ describe('src/sim/physics/loader -- devices parsing (Story 1.5, first reader of 
 		const doc = loadMutableCommittedDoc() as unknown as { devices: Array<{ name: string }> };
 		doc.devices[0].name = 'bd_not_a_real_device';
 		expect(() => loadCollision(doc)).toThrowError(/bd_not_a_real_device/);
+	});
+
+	// DW-69, task 19: the REVERSE of the case above -- every TABLE.ballDevices
+	// key must appear in document.devices, not merely every document entry a
+	// known TABLE name. Before this check, removing bd_lock from the document
+	// (a stale export, or a typo'd node name in the .blend) loaded silently,
+	// with the failure surfacing only on the first pulse of c_mouth as a
+	// permanent runtime eject_failed and no load-time signal at all (AD-17).
+	it('DW-69: throws at load time naming a TABLE.ballDevices entry with no matching document.devices entry, rather than degrading to a runtime eject_failed', () => {
+		const doc = loadMutableCommittedDoc() as unknown as { devices: Array<{ name: string }> };
+		doc.devices = doc.devices.filter((d) => d.name !== 'bd_lock');
+		expect(() => loadCollision(doc)).toThrowError(/bd_lock/);
 	});
 });
 

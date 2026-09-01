@@ -26,11 +26,18 @@
 // owed to Story 1.9's own feel ritual (`docs/feel-test.md`) for ratification
 // against the Reference machine.
 
-import { deepFreeze, type SettleClass } from './dragonwar';
+import { deepFreeze, type Confidence, type SettleClass } from './dragonwar';
 import { TICK_HZ } from '../contracts/time';
 
-/** The rough provenance scale the PRD addendum's own tuning table uses in prose (high/medium/low measurement confidence, or an authored default). */
-export type Confidence = 'high' | 'medium' | 'low' | 'unverified';
+// Story 2.1b (task 12a): `Confidence` moved DOWN into `dragonwar.ts`, beside
+// `SettleClass`, so `TABLE.authoredCounts` can carry the same
+// `{ value, source, confidence }` shape `TuningEntry<T>` does. This file
+// already imports FROM `dragonwar.ts` (for `deepFreeze`/`SettleClass`), so
+// declaring `Confidence` here and importing it the OTHER way (dragonwar.ts
+// -> tuning.ts) would be a cycle -- re-exporting the moved type here instead
+// keeps the two existing call sites (`src/host/dev/tuning-panel.ts:22`,
+// `test/tuning.test.ts:13`) importing it from `./tuning` unchanged.
+export type { Confidence };
 
 /** Every tunable carries its value alongside where it came from and how sure that source is (AD-15). */
 export interface TuningEntry<T> {

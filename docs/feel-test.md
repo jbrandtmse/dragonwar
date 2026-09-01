@@ -184,3 +184,81 @@ Both runs, and the three Reference-machine verdicts above, are the author's
 to record as dated entries once performed; this document's own dated-entry
 format is what that later run appends to, never rewriting the entries above
 it.
+
+## 2026-09-01 -- Story 2.1b: the shot map (AC 6, the seven-shot Lawlor ritual)
+
+`pending-author`. Story 2.1b draws the rest of the shot map and completes
+the switch/coil registry -- this pipeline cannot close AC 6, the Lawlor
+"every miss returns playable" ritual (FR-32), which is judged against the
+physical Reference machine (Stern *Dungeons & Dragons*) exactly as
+Cradling/Flipper snap/Rejection above are. The seven entries below land the
+build-side geometry they will be judged against; each records where the most
+common miss goes and none may be a centre drain, per the epic's own
+requirement. The `sprint-status.yaml` action item `epic-2-retro-item-10`
+tracks this as an open author task.
+
+### Left Loop
+
+`pending-author`. Geometry: a chain of convex prisms from
+`col_post_divider_l_hi` (the existing 2.1a post at table y = 420) up the
+left side of the table (`col_loop_l_funnel`, `col_loop_l`) and across the
+top (`col_loop_top`), joining the Right Loop -- a full orbit passes both.
+`s_loop_l_in`/`s_loop_l_out` mark entry and exit; the spinner
+(`col_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
+routing verified in `test/shot-routing.test.ts`. Golden:
+[`test/replays/roll-and-drain.golden.json`](../test/replays/roll-and-drain.golden.json).
+
+### Right Loop
+
+`pending-author`. Mirrors the Left Loop from `col_post_divider_r_hi`, and
+its own upper arc (`col_loop_r`, `col_loop_r_deflector`) is what turns a
+launched ball into the field now that `col_lane_deflector` is retired
+(DW-58) -- verified directly: a full-strength plunge crosses
+`LANE_WALL_TOP_Y_MM = 950` and is deflected off the plunger lane into the
+open field (`test/plunger.test.ts`, `test/machine-serve-drain.test.ts`).
+`s_loop_r_in`/`s_loop_r_out` mark entry and exit. Golden:
+[`test/replays/full-plunge.golden.json`](../test/replays/full-plunge.golden.json).
+
+### Ramp
+
+`pending-author`. Entrance right of centre (`RAMP_ENTER_X_MM = 315` >
+`PLAYFIELD_W_MM / 2 = 257.2`) so the LEFT flipper shoots it; a return rail
+(the `add_channel_rail()` technique 2.1a's own outlane return channel
+proved) carries the ball back down into the RIGHT inlane (`docs/decisions.md`
+records the OQ-6 choice and why). `s_ramp_enter`/`s_ramp_made` mark entry and
+completion. No sloped-plane primitive exists in this collision model (see
+`tools/make-placeholder-blend.py`'s own constants-block note), so the bed is
+authored at deck height with `surface = 'ramp'`; `RAMP_HEIGHT_MM`/
+`RAMP_GRADIENT` are recorded, unverified figures for a future visual mesh.
+
+### Dragon
+
+`pending-author`. Off-centre, left of `PLAYFIELD_W_MM / 2 = 257.2`
+(`DRAGON_CENTER_X_MM = 170`) so a rejection deflects to a flipper -- the
+right flipper takes it straight, the left flipper backhands it
+(`decisions-rejected.md:14`, `machine-behaviour.md:9`). Two legs
+(`col_dragon_leg_l/r`) flank the Lock lane; `s_dragon_body` (standup class)
+catches a slightly-off shot against either leg's face.
+
+### Lock lane
+
+`pending-author`. The narrow gap between the Dragon's legs
+(`LOCK_LANE_CLEAR_MM = 40`), `s_lock_lane` confirming a clean pass-through,
+`bd_lock` (the Mouth) parking up to 3 balls above the legs and ejecting
+through `c_mouth` aimed down-table at the flippers (AD-6). OQ-5 (the Lock
+lane carries both the lock and the mode start) is recorded in
+`docs/decisions.md`.
+
+### DRAGON bank
+
+`pending-author`. Six standup faces spelling D-R-A-G-O-N
+(`col_dragon_d/r/a/g/o/n`, `s_dragon_d/r/a/g/o/n`, `settleClass:
+'drop_target'`), left of the Ramp's own channel so neither crosses the
+other. Drop/reset mechanics are Story 2.3's; this story authors the bodies,
+zones and registry entries only.
+
+### Top lanes
+
+`pending-author`. Three lanes (`col_top_divider_1..4`, `s_top_1..3`) in the
+upper field, on a launched ball's own path -- above the Ramp and the pop
+nest, below the loop's own top connector.

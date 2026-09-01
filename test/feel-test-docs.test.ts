@@ -230,3 +230,32 @@ describe('docs/feel-test.md -- the Reference-machine verdict is the author\'s ow
 		}
 	});
 });
+
+// Story 2.1b, AC 6: "docs/feel-test.md gains a per-shot Lawlor entry (Left
+// Loop, Right Loop, Ramp, Dragon, Lock lane, DRAGON bank, Top lanes)."
+//
+// Falsifiability (spec ## Verification, AC 6): "mutation: remove one shot's
+// section from docs/feel-test.md -> the per-shot presence assertion goes red
+// naming that shot."
+describe('docs/feel-test.md -- Story 2.1b: the seven-shot Lawlor entry (AC 6)', () => {
+	const raw = readFileSync(DOC_PATH, 'utf8');
+
+	const SHOTS = ['Left Loop', 'Right Loop', 'Ramp', 'Dragon', 'Lock lane', 'DRAGON bank', 'Top lanes'] as const;
+
+	it.each(SHOTS)('has a "### %s" section', (shot) => {
+		expect(raw, `docs/feel-test.md is missing the "### ${shot}" section`).toContain(`### ${shot}`);
+	});
+
+	it('every shot section reads pending-author -- the ritual is author-owned (FR-32), the pipeline cannot close it', () => {
+		const headings = SHOTS.map((shot) => `### ${shot}`);
+		for (let i = 0; i < headings.length; i++) {
+			const start = raw.indexOf(headings[i]!);
+			expect(start, `heading "${headings[i]}" must exist`).toBeGreaterThanOrEqual(0);
+			// The next heading of any level (### or ##) bounds this section.
+			const rest = raw.slice(start + headings[i]!.length);
+			const nextHashIdx = rest.search(/\n#{2,3}\s/);
+			const section = nextHashIdx === -1 ? rest : rest.slice(0, nextHashIdx);
+			expect(section, `"${headings[i]}" must read pending-author`).toContain('pending-author');
+		}
+	});
+});

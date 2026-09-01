@@ -796,5 +796,24 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 		};
 	});
 
+	// DW-69: the REVERSE of the check just above -- every TABLE.ballDevices
+	// entry must have a matching document.devices entry, not merely every
+	// document entry a known TABLE name. Before this check, a `TABLE`
+	// registry entry with no `.blend` object behind it (a typo'd node name,
+	// or a device declared in TypeScript before its Blender counterpart was
+	// drawn) loaded successfully with a silently short `devices` array --
+	// the wiring only failed later, at the first `pulse` of that device's
+	// eject coil, as a permanent runtime `eject_failed` with no load-time
+	// signal at all. AD-17 requires load-time faults to reach the boot error
+	// panel instead.
+	const loadedDeviceNames = new Set(devices.map((device) => device.name));
+	for (const deviceName of Object.keys(TABLE.ballDevices) as BallDeviceName[]) {
+		if (!loadedDeviceNames.has(deviceName)) {
+			throw new Error(
+				`loadCollision(): TABLE.ballDevices declares "${deviceName}", but the collision document has no matching devices[] entry (DW-69) -- add a "${deviceName}" empty to assets/src/dragonwar.blend and re-export`,
+			);
+		}
+	}
+
 	return { physics, switchZones, devices, flippers };
 }

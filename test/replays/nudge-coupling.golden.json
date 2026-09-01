@@ -367,8 +367,8 @@
     },
     "physicsSeed": 999,
     "tickHz": 1000,
-    "tableHash": "5985b9f7",
-    "assetHash": "3806f64",
+    "tableHash": "25cea71",
+    "assetHash": "ffbdbc0e",
     "physicsVersion": "v1-c5990f6c"
   },
   "transitions": [
@@ -393,7 +393,7 @@
     }
   ],
   "durationTicks": 800,
-  "expectedHash": "66a2e1b2",
-  "expectedGameStateHash": "d6dc07ef",
-  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:326-329, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed."
+  "expectedHash": "f68acc72",
+  "expectedGameStateHash": "489afd8f",
+  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:326-329, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed. Story 2.1b (2026-09-01): header.tableHash/assetHash refreshed against the completed shot-map registry and collision document (TABLE gains ~31 switches, 7 coils and bd_lock; the collision document gains ~27 col_ nodes), header.gameStart.tuning unchanged (no TUNING value moved). expectedHash/expectedGameStateHash moved: bd_lock adds an empty-slots entry to every snapshot's machine.deviceSlots, changing GameState's own shape regardless of trajectory, and Blender's bpy.data.objects iterates alphabetically (not creation order), so the ~27 new col_ names reorder every EXISTING node's position in the exported collision document's nodes[] array even though no existing node's own geometry changed -- the ported physics engine's broadphase is order-sensitive to that reorder. This golden's own recorded scenario was re-verified against the refreshed run and still holds at the recorded transitions/coilPrologue/durationTicks (byte-identical, untouched)."
 }

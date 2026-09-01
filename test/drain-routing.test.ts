@@ -36,30 +36,14 @@ import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
+import { nodeBboxMm } from './util/collision-doc';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
 const RADIUS_VU = TABLE.reference.ballMm / 2 / 0.53975;
 
-interface CollisionDocForTest {
-	nodes: Array<{ name: string; bboxMm: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } }>;
-}
-
 function loadDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
-}
-
-function readCollisionDoc(): CollisionDocForTest {
-	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
-}
-
-function nodeBboxMm(name: string) {
-	const doc = readCollisionDoc();
-	const node = doc.nodes.find((n) => n.name === name);
-	if (!node) {
-		throw new Error(`nodeBboxMm(): expected a "${name}" node in the committed collision document, found none`);
-	}
-	return node.bboxMm;
 }
 
 function ballPosMm(ball: Ball) {

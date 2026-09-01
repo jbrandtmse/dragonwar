@@ -245,30 +245,20 @@ describe('asset contract -- Story 1.5: the drain aperture is tiled with no gap (
 	});
 });
 
-describe('asset contract -- Story 1.5: col_lane_deflector is present with a real, angled footprint (DW-58)', () => {
-	it('col_lane_deflector exists, is wall-shaped, and its footprint is a non-axis-aligned three-point polygon', () => {
+describe('asset contract -- Story 2.1b task 9: col_lane_deflector is RETIRED (DW-58)', () => {
+	// Mutation: reintroduce col_lane_deflector in the seeding script and
+	// re-export -> this assertion goes red naming it present.
+	it('col_lane_deflector no longer exists -- the Right Loop\'s own upper arc turns a launched ball into the field instead', () => {
 		const doc = readCollisionDoc();
 		const node = doc.nodes.find((n) => n.name === 'col_lane_deflector');
-		expect(node, 'col_lane_deflector missing from the collision document').toBeDefined();
-		expect(node!.shape).toBe('wall');
-		expect(node!.footprintMm, 'col_lane_deflector must carry a footprintMm polygon').toBeDefined();
-		const footprint = node!.footprintMm!;
-		expect(footprint.length, 'the deflector is a triangular prism -- its plan-view footprint must have exactly 3 points').toBe(3);
+		expect(node, 'col_lane_deflector must be retired (DW-58) -- the Right Loop replaces its job').toBeUndefined();
+	});
 
-		// "Not axis-aligned": at least one edge is neither horizontal nor
-		// vertical -- the property an axis-aligned bounding-box reduction
-		// could never produce, and the reason task 2's hull reduction exists.
-		let hasDiagonalEdge = false;
-		for (let i = 0; i < footprint.length; i++) {
-			const a = footprint[i];
-			const b = footprint[(i + 1) % footprint.length];
-			const dx = Math.abs(a.x - b.x);
-			const dy = Math.abs(a.y - b.y);
-			if (dx > 1e-6 && dy > 1e-6) {
-				hasDiagonalEdge = true;
-			}
-		}
-		expect(hasDiagonalEdge, `footprint ${JSON.stringify(footprint)} has no diagonal edge -- it reduces to an axis-aligned shape`).toBe(true);
+	it('the Right Loop\'s own guide occupies the space above LANE_WALL_TOP_Y_MM (y = 950) that used to hold the deflector', () => {
+		const doc = readCollisionDoc();
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		expect(loopR, 'col_loop_r missing from the collision document').toBeDefined();
+		expect(loopR!.bboxMm.max.y, 'the Right Loop guide must reach up past where the plunger-lane wall stops (y = 950)').toBeGreaterThan(950);
 	});
 });
 
@@ -479,5 +469,116 @@ describe('asset contract -- Story 2.1a AC 10: each bottom wall has its top edge 
 			dropMm,
 			`${name}: the ramp must run DOWNHILL toward the drain aperture, not away from it`,
 		).toBeGreaterThan(0);
+	});
+});
+
+// Story 2.1b task 25 -- AC 1's DIMENSIONAL half (the second half; task 16a's
+// test/shot-routing.test.ts is the behavioural half -- neither alone closes
+// AC 1, per this story's own spec text and 2.1a's own precedent, where
+// dimensional checks all passed over outlanes that could not route a ball).
+// review date: 2026-09-01. mutation (per gate, following :373-390's own
+// convention): moving the authored constant the gate reads changes the
+// measured figure, so the gate goes red naming the feature -- verified for
+// each gate below by tracing the constant it reads back to
+// tools/make-placeholder-blend.py's own authored value.
+describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dimensions (AC 1 dimensional half)', () => {
+	it('the Left Loop\'s clear lane width (col_wall_left\'s interior face to col_loop_l\'s own face) is the authored 50 mm (LOOP_LANE_CLEAR_MM)', () => {
+		const doc = readCollisionDoc();
+		const loopL = doc.nodes.find((n) => n.name === 'col_loop_l');
+		expect(loopL, 'col_loop_l missing').toBeDefined();
+		// mutation: change LOOP_LANE_CLEAR_MM in the seeding script and
+		// re-export -> this measured width moves with it.
+		expect(loopL!.bboxMm.min.x, 'col_loop_l\'s own inner (lane-facing) face').toBeCloseTo(50, 1);
+	});
+
+	it('the Ramp entrance\'s clear width (between its two up-channel walls) is the authored 34 mm (RAMP_LANE_CLEAR_MM)', () => {
+		const doc = readCollisionDoc();
+		const wallL = doc.nodes.find((n) => n.name === 'col_ramp_wall_l');
+		const wallR = doc.nodes.find((n) => n.name === 'col_ramp_wall_r');
+		expect(wallL, 'col_ramp_wall_l missing').toBeDefined();
+		expect(wallR, 'col_ramp_wall_r missing').toBeDefined();
+		const clearWidth = wallR!.bboxMm.min.x - wallL!.bboxMm.max.x;
+		expect(clearWidth, 'the Ramp\'s own clear channel width').toBeCloseTo(34, 1);
+	});
+
+	it('the Lock lane\'s clear width (between the Dragon\'s two legs) is the authored 40 mm (LOCK_LANE_CLEAR_MM)', () => {
+		const doc = readCollisionDoc();
+		const legL = doc.nodes.find((n) => n.name === 'col_dragon_leg_l');
+		const legR = doc.nodes.find((n) => n.name === 'col_dragon_leg_r');
+		expect(legL, 'col_dragon_leg_l missing').toBeDefined();
+		expect(legR, 'col_dragon_leg_r missing').toBeDefined();
+		const clearWidth = legR!.bboxMm.min.x - legL!.bboxMm.max.x;
+		expect(clearWidth, 'the Lock lane\'s own clear width').toBeCloseTo(40, 1);
+	});
+
+	it('the Dragon\'s own centreline sits left of the playfield centre (PLAYFIELD_W_MM / 2 = 257.2), the off-centre placement FR-29 requires', () => {
+		const doc = readCollisionDoc();
+		const legL = doc.nodes.find((n) => n.name === 'col_dragon_leg_l');
+		const legR = doc.nodes.find((n) => n.name === 'col_dragon_leg_r');
+		expect(legL, 'col_dragon_leg_l missing').toBeDefined();
+		expect(legR, 'col_dragon_leg_r missing').toBeDefined();
+		const centreX = (legL!.bboxMm.min.x + legR!.bboxMm.max.x) / 2;
+		expect(centreX, 'the Dragon\'s own centreline (authored DRAGON_CENTER_X_MM)').toBeCloseTo(170, 1);
+		expect(centreX, 'the Dragon must sit left of the playfield centre (257.2 mm) -- the right flipper takes a rejection straight, the left flipper backhands it').toBeLessThan(TABLE.reference.playfieldMm.w / 2);
+	});
+
+	it('the DRAGON bank\'s own outer-to-outer width (six targets, col_dragon_d through col_dragon_n) matches the authored pitch and target width', () => {
+		const doc = readCollisionDoc();
+		const first = doc.nodes.find((n) => n.name === 'col_dragon_d');
+		const last = doc.nodes.find((n) => n.name === 'col_dragon_n');
+		expect(first, 'col_dragon_d missing').toBeDefined();
+		expect(last, 'col_dragon_n missing').toBeDefined();
+		const width = last!.bboxMm.max.x - first!.bboxMm.min.x;
+		// DRAGON_BANK_X0_MM=255, pitch=14mm x 5 gaps + target width 11mm = 70 + 11 = 81 mm outer-to-outer.
+		expect(width, 'the DRAGON bank\'s own outer-to-outer span (col_dragon_d\'s left edge to col_dragon_n\'s right edge)').toBeCloseTo(81, 1);
+	});
+
+	it('the three Top lanes\' own divider spacing (centre to centre) is the authored 100 mm pitch', () => {
+		const doc = readCollisionDoc();
+		const dividers = [1, 2, 3, 4].map((i) => doc.nodes.find((n) => n.name === `col_top_divider_${i}`));
+		for (const [i, divider] of dividers.entries()) {
+			expect(divider, `col_top_divider_${i + 1} missing`).toBeDefined();
+		}
+		const centres = dividers.map((d) => (d!.bboxMm.min.x + d!.bboxMm.max.x) / 2);
+		for (let i = 0; i < centres.length - 1; i++) {
+			expect(centres[i + 1] - centres[i], `divider ${i + 1}->${i + 2} spacing`).toBeCloseTo(100, 1);
+		}
+	});
+
+	it('the four true perimeter walls (left, top, right, lane) now reach the glass (DW-53: PERIMETER_WALL_H_MM = GLASS_Z_MM = 400), while col_wall_lane_bottom -- not a true perimeter wall -- stays at the interior WALL_H_MM = 50', () => {
+		const doc = readCollisionDoc();
+		for (const name of ['col_wall_left', 'col_wall_top', 'col_wall_right', 'col_wall_lane']) {
+			const node = doc.nodes.find((n) => n.name === name);
+			expect(node, `${name} missing`).toBeDefined();
+			expect(node!.bboxMm.max.z, `${name}'s own height`).toBeCloseTo(400, 1);
+		}
+		const laneBottom = doc.nodes.find((n) => n.name === 'col_wall_lane_bottom');
+		expect(laneBottom, 'col_wall_lane_bottom missing').toBeDefined();
+		expect(laneBottom!.bboxMm.max.z, 'col_wall_lane_bottom is not a true perimeter wall and stays at the interior height').toBeCloseTo(50, 1);
+	});
+
+	// The switch-zone completeness assertion (AC 2): sw_ entries live in
+	// doc.switchZones as minMm/maxMm and have NO bboxMm -- read from there,
+	// never doc.nodes.
+	it('every zone-requiring switch (AD-2\'s three-source partition: not button, not tilt_bob/slam, not a parking-device slot) has at least one sw_ zone naming it', () => {
+		const doc = readCollisionDoc();
+		const parkingDeviceSlots = new Set<string>();
+		for (const device of Object.values(TABLE.ballDevices)) {
+			if (device.kind === 'parking') {
+				for (const slot of device.slots) {
+					parkingDeviceSlots.add(slot);
+				}
+			}
+		}
+		const excludedClasses = new Set(['button', 'tilt_bob', 'slam']);
+		const zoneRequired = Object.entries(TABLE.switches)
+			.filter(([name, entry]) => !excludedClasses.has(entry.settleClass) && !parkingDeviceSlots.has(name))
+			.map(([name]) => name);
+		expect(zoneRequired.length, 'sanity: the shot map must have added zone-requiring switches').toBeGreaterThanOrEqual(29);
+
+		const presentSwitches = new Set(doc.switchZones.map((z) => z.switch));
+		for (const switchName of zoneRequired) {
+			expect(presentSwitches.has(switchName), `switch "${switchName}" requires a zone but no sw_ object in the committed document names it`).toBe(true);
+		}
 	});
 });

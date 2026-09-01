@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TABLE, deepFreeze } from '../src/sim/table/dragonwar';
+import { resolveTuning } from '../src/sim/table/tuning';
 import type {
 	BallDeviceName,
 	CoilName,
@@ -65,8 +66,8 @@ describe('deepFreeze() -- DW-33: freezing is unconditional; only cycles are guar
 	});
 });
 
-describe('TABLE.switches -- every Epic 1 switch, each with a settleClass', () => {
-	const expectedSwitches: SwitchName[] = [
+describe('TABLE.switches -- Epic 1\'s eleven, each with a settleClass', () => {
+	const epic1Switches: SwitchName[] = [
 		's_start',
 		's_flipper_l',
 		's_flipper_r',
@@ -80,11 +81,7 @@ describe('TABLE.switches -- every Epic 1 switch, each with a settleClass', () =>
 		's_slam_tilt',
 	];
 
-	it('has exactly the eleven Epic 1 switches', () => {
-		expect(Object.keys(TABLE.switches).sort()).toEqual([...expectedSwitches].sort());
-	});
-
-	it.each(expectedSwitches)('%s carries a settleClass', (name) => {
+	it.each(epic1Switches)('%s carries a settleClass', (name) => {
 		expect(typeof TABLE.switches[name].settleClass).toBe('string');
 		expect(TABLE.switches[name].settleClass.length).toBeGreaterThan(0);
 	});
@@ -94,11 +91,114 @@ describe('TABLE.switches -- every Epic 1 switch, each with a settleClass', () =>
 	});
 });
 
-describe('TABLE.coils -- the four Epic 1 coils', () => {
-	const expectedCoils: CoilName[] = ['c_flipper_l', 'c_flipper_r', 'c_trough_eject', 'c_autolaunch'];
+// Story 2.1b: the full shot map's switch set (epics.md:927), completed on
+// top of Epic 1's eleven above -- named exactly, not merely counted, so a
+// renamed or dropped switch fails naming which one, not just the total.
+describe('TABLE.switches -- Story 2.1b completes the shot map\'s switch set (AC 3)', () => {
+	const shotMapSwitches: SwitchName[] = [
+		's_loop_l_in', 's_loop_l_out', 's_loop_r_in', 's_loop_r_out', 's_spinner',
+		's_ramp_enter', 's_ramp_made',
+		's_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n', 's_dragon_body',
+		's_lock_lane', 's_lock_1', 's_lock_2', 's_lock_3',
+		's_top_1', 's_top_2', 's_top_3',
+		's_inlane_l', 's_inlane_r', 's_outlane_l', 's_outlane_r',
+		's_sling_l', 's_sling_r',
+		's_pop_1', 's_pop_2', 's_pop_3',
+		's_drain',
+	];
 
-	it('has exactly the four Epic 1 coils', () => {
+	it('has exactly Epic 1\'s eleven plus the shot map\'s switches, nothing more, nothing fewer', () => {
+		const epic1Switches: SwitchName[] = [
+			's_start', 's_flipper_l', 's_flipper_r', 's_plunger', 's_shooter_lane',
+			's_trough_1', 's_trough_2', 's_trough_3', 's_trough_4', 's_tilt_bob', 's_slam_tilt',
+		];
+		expect(Object.keys(TABLE.switches).sort()).toEqual([...epic1Switches, ...shotMapSwitches].sort());
+	});
+
+	it.each(shotMapSwitches)('%s carries a settleClass', (name) => {
+		expect(typeof TABLE.switches[name].settleClass).toBe('string');
+		expect(TABLE.switches[name].settleClass.length).toBeGreaterThan(0);
+	});
+
+	// AC 3 mutation (spec ## Verification): change s_dragon_d's settleClass
+	// from drop_target to rollover -> this assertion goes red naming
+	// s_dragon_d, because 'rollover' !== 'drop_target'.
+	it('the six DRAGON-bank targets carry settleClass drop_target (20 ms default), which resolves to a non-zero settleTicks', () => {
+		for (const name of ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'] as const) {
+			expect(TABLE.switches[name].settleClass, `${name} must carry settleClass 'drop_target'`).toBe('drop_target');
+		}
+		const resolved = resolveTuning();
+		expect(resolved.switchSettleTicksByClass.drop_target.value, 'drop_target must resolve to a non-zero settleTicks').toBeGreaterThan(0);
+	});
+
+	it('the Dragon body and both slingshots carry settleClass standup (8 ms default)', () => {
+		expect(TABLE.switches.s_dragon_body.settleClass).toBe('standup');
+		expect(TABLE.switches.s_sling_l.settleClass).toBe('standup');
+		expect(TABLE.switches.s_sling_r.settleClass).toBe('standup');
+	});
+
+	it('the three pop bumpers carry settleClass bumper_skirt (2 ms default)', () => {
+		for (const name of ['s_pop_1', 's_pop_2', 's_pop_3'] as const) {
+			expect(TABLE.switches[name].settleClass).toBe('bumper_skirt');
+		}
+	});
+
+	it('the spinner stays rollover deliberately -- any settle would swallow revolutions', () => {
+		expect(TABLE.switches.s_spinner.settleClass).toBe('rollover');
+	});
+});
+
+describe('TABLE.coils -- Epic 1\'s four plus Story 2.1b\'s new hardware coils', () => {
+	const expectedCoils: CoilName[] = [
+		'c_flipper_l', 'c_flipper_r', 'c_trough_eject', 'c_autolaunch',
+		'c_sling_l', 'c_sling_r', 'c_pop_1', 'c_pop_2', 'c_pop_3', 'c_dragon_bank_reset', 'c_mouth',
+	];
+
+	it('has exactly the eleven coils, nothing more, nothing fewer', () => {
 		expect(Object.keys(TABLE.coils).sort()).toEqual([...expectedCoils].sort());
+	});
+});
+
+describe('TABLE.ballDevices.bd_lock -- Story 2.1b (AD-6)', () => {
+	it('is a parking device, capacity 3, slots in fill order, ejecting through c_mouth', () => {
+		const lock = TABLE.ballDevices.bd_lock;
+		expect(lock.kind).toBe('parking');
+		expect(lock.capacity).toBe(3);
+		expect(lock.slots).toEqual(['s_lock_1', 's_lock_2', 's_lock_3']);
+		expect(lock.ejectCoil).toBe('c_mouth');
+		expect(lock.ballSearchOrder.length).toBeGreaterThan(0);
+		expect(lock.ballSearchOrder.at(-1)).toEqual({ action: 'recover' });
+	});
+
+	it('carries no servesInto -- the Mouth ejects onto open playfield, not into a zone', () => {
+		expect((TABLE.ballDevices.bd_lock as { servesInto?: string }).servesInto).toBeUndefined();
+	});
+});
+
+// Task 12b: the pop-bumper count recorded in TABLE.authoredCounts must never
+// silently drift from the switch/coil set it documents (AD-15).
+describe('TABLE.authoredCounts.popBumpers -- Story 2.1b task 12a/12b (AD-15)', () => {
+	it('records value 3, confidence unverified, with a non-empty source', () => {
+		expect(TABLE.authoredCounts.popBumpers.value).toBe(3);
+		expect(TABLE.authoredCounts.popBumpers.confidence).toBe('unverified');
+		expect(TABLE.authoredCounts.popBumpers.source.length).toBeGreaterThan(0);
+	});
+
+	// Mutation (spec ## Verification, "AC 3 (provenance half)"): change
+	// TABLE.authoredCounts.popBumpers.value from 3 to 4 without touching the
+	// switch set -> this assertion goes red naming the mismatch; delete one
+	// s_pop_* entry -> the same assertion goes red from the other direction.
+	it('agrees with the declared s_pop_* switch set and c_pop_* coil set -- a record that can drift from what it documents is worse than none', () => {
+		const popSwitches = Object.keys(TABLE.switches).filter((name) => name.startsWith('s_pop_'));
+		const popCoils = Object.keys(TABLE.coils).filter((name) => name.startsWith('c_pop_'));
+		expect(popSwitches.length, `TABLE.authoredCounts.popBumpers.value (${TABLE.authoredCounts.popBumpers.value}) must equal the number of s_pop_* switches`).toBe(TABLE.authoredCounts.popBumpers.value);
+		expect(popCoils.length, `TABLE.authoredCounts.popBumpers.value (${TABLE.authoredCounts.popBumpers.value}) must equal the number of c_pop_* coils`).toBe(TABLE.authoredCounts.popBumpers.value);
+	});
+
+	it('is NOT part of buildTableDump()\'s emitted key set -- a provenance record is not geometry', async () => {
+		const { buildTableDump } = await import('../tools/export-assets.mjs');
+		const dump = buildTableDump();
+		expect(Object.prototype.hasOwnProperty.call(dump, 'authoredCounts')).toBe(false);
 	});
 });
 

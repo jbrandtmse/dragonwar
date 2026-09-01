@@ -285,6 +285,41 @@ def validate_ball_devices_present(dump):
 			fail(f'required ball device "{device_name}" (TABLE.ballDevices) has no matching object in the .blend')
 
 
+def validate_switch_zones_present(dump):
+	"""Story 2.1b task 18 -- the switch-zone completeness check,
+	validate_ball_devices_present()'s own shape applied to sw_ zones instead
+	of bd_ devices. A TABLE.switches entry requires a zone unless AD-2 already
+	gives it another source (Design Notes, "Which switches require a zone"):
+	a BUTTON switch (settleClass 'button', emitted by sim/loop from
+	InputFrame transitions), a CABINET-MECHANISM switch (settleClass
+	'tilt_bob'/'slam', emitted by the cabinet oscillator), or a
+	PARKING-DEVICE SLOT switch (already excluded from the generic tracker by
+	sim/physics/switches.ts's parkingDeviceOwnedSwitches(), which reads
+	TABLE.ballDevices) -- derived here from the SAME dump, never a second,
+	independently maintained list that could drift from it."""
+	parking_slots = set()
+	for device in dump['ballDevices'].values():
+		if device.get('kind') == 'parking':
+			parking_slots.update(device.get('slots', []))
+
+	excluded_classes = {'button', 'tilt_bob', 'slam'}
+	zone_required = {
+		name for name, entry in dump['switches'].items()
+		if entry.get('settleClass') not in excluded_classes and name not in parking_slots
+	}
+
+	present = {
+		obj['switch'] for obj in bpy.data.objects
+		if obj.name.startswith('sw_') and 'switch' in obj.keys()
+	}
+	for switch_name in sorted(zone_required):
+		if switch_name not in present:
+			fail(
+				f'switch "{switch_name}" requires a switch zone (its settleClass is not button/tilt_bob/slam, and it '
+				f'is not a parking-device slot), but no sw_ object in the .blend names it (AC 2)',
+			)
+
+
 # ---------------------------------------------------------------------------
 # World-space geometry helpers (millimetres, table frame -- computed from
 # world matrices in Python, never from the glb).
@@ -380,6 +415,28 @@ def wall_footprint_mm(obj):
 		fail(
 			f'node "{obj.name}" is a wall whose convex hull has {len(hull)} point(s) -- '
 			f'at least 3 are required to enclose any area',
+		)
+
+	# Story 2.1b task 17 (DW-68): a concave footprint (an L, U or notched
+	# shape) must never export silently as a filled block. Before this
+	# check, `_convex_hull_2d()`'s own result was used unconditionally --
+	# every vertex the hull DROPPED (a reflex-angle vertex, on the wrong
+	# side of the hull's own boundary) simply vanished, and the resulting
+	# collision geometry was the CONVEX HULL of the intended shape, not the
+	# shape itself. The hull dropping any of the mesh's own distinct
+	# plan-view points is exactly the signature of a non-convex outline (a
+	# genuinely convex mesh's hull always retains every one of its own
+	# distinct points -- `_convex_hull_2d()`'s `cross(...) <= 0` test only
+	# ever removes a point that is either interior to, or exactly colinear
+	# on an edge of, the hull built from the OTHER points, neither of which
+	# a strictly convex, non-degenerate authored footprint like every wall
+	# in this project's committed geometry ever produces).
+	if len(hull) < len(world_points):
+		dropped = len(world_points) - len(hull)
+		fail(
+			f'node "{obj.name}" has a non-convex plan-view footprint: its convex hull keeps {len(hull)} of its '
+			f'{len(world_points)} distinct plan-view point(s) ({dropped} vertex/vertices dropped) -- every wall '
+			f'footprint must be convex (AD-11); decompose an L, U or notched shape into several convex col_ nodes (DW-68)',
 		)
 
 	hull = _rotate_to_lexicographic_first(hull)
@@ -512,6 +569,7 @@ def run(argv):
 	validate_properties(dump)
 	validate_node_presence(dump)
 	validate_ball_devices_present(dump)
+	validate_switch_zones_present(dump)
 
 	export_objects = [obj for obj in bpy.data.objects if is_presentation_object(obj)]
 	exported_meshes = [obj for obj in export_objects if obj.type == 'MESH']

@@ -29,6 +29,21 @@
         }
       },
       "name": "bd_shooter"
+    },
+    {
+      "ejectPose": {
+        "dir": {
+          "x": 0.0,
+          "y": -1.0,
+          "z": 0.0
+        },
+        "posMm": {
+          "x": 170.0,
+          "y": 650.0,
+          "z": 13.495
+        }
+      },
+      "name": "bd_lock"
     }
   ],
   "frame": "table",
@@ -182,6 +197,310 @@
       "physMaterial": "default",
       "shape": "wall",
       "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 294.0,
+          "y": 708.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 283.0,
+          "y": 700.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 283.0,
+          "y": 700.0
+        },
+        {
+          "x": 294.0,
+          "y": 700.0
+        },
+        {
+          "x": 294.0,
+          "y": 708.0
+        },
+        {
+          "x": 283.0,
+          "y": 708.0
+        }
+      ],
+      "name": "col_dragon_a",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "target",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 266.0,
+          "y": 708.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 255.0,
+          "y": 700.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 255.0,
+          "y": 700.0
+        },
+        {
+          "x": 266.0,
+          "y": 700.0
+        },
+        {
+          "x": 266.0,
+          "y": 708.0
+        },
+        {
+          "x": 255.0,
+          "y": 708.0
+        }
+      ],
+      "name": "col_dragon_d",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "target",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 308.0,
+          "y": 708.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 297.0,
+          "y": 700.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 297.0,
+          "y": 700.0
+        },
+        {
+          "x": 308.0,
+          "y": 700.0
+        },
+        {
+          "x": 308.0,
+          "y": 708.0
+        },
+        {
+          "x": 297.0,
+          "y": 708.0
+        }
+      ],
+      "name": "col_dragon_g",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "target",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 150.0,
+          "y": 620.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 90.0,
+          "y": 480.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 90.0,
+          "y": 480.0
+        },
+        {
+          "x": 150.0,
+          "y": 480.0
+        },
+        {
+          "x": 150.0,
+          "y": 620.0
+        },
+        {
+          "x": 90.0,
+          "y": 620.0
+        }
+      ],
+      "name": "col_dragon_leg_l",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "dragon",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 250.0,
+          "y": 620.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 190.0,
+          "y": 480.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 190.0,
+          "y": 480.0
+        },
+        {
+          "x": 250.0,
+          "y": 480.0
+        },
+        {
+          "x": 250.0,
+          "y": 620.0
+        },
+        {
+          "x": 190.0,
+          "y": 620.0
+        }
+      ],
+      "name": "col_dragon_leg_r",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "dragon",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 336.0,
+          "y": 708.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 325.0,
+          "y": 700.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 325.0,
+          "y": 700.0
+        },
+        {
+          "x": 336.0,
+          "y": 700.0
+        },
+        {
+          "x": 336.0,
+          "y": 708.0
+        },
+        {
+          "x": 325.0,
+          "y": 708.0
+        }
+      ],
+      "name": "col_dragon_n",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "target",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 322.0,
+          "y": 708.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 311.0,
+          "y": 700.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 311.0,
+          "y": 700.0
+        },
+        {
+          "x": 322.0,
+          "y": 700.0
+        },
+        {
+          "x": 322.0,
+          "y": 708.0
+        },
+        {
+          "x": 311.0,
+          "y": 708.0
+        }
+      ],
+      "name": "col_dragon_o",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "target",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 280.0,
+          "y": 708.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 269.0,
+          "y": 700.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 269.0,
+          "y": 700.0
+        },
+        {
+          "x": 280.0,
+          "y": 700.0
+        },
+        {
+          "x": 280.0,
+          "y": 708.0
+        },
+        {
+          "x": 269.0,
+          "y": 708.0
+        }
+      ],
+      "name": "col_dragon_r",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "target",
       "zHighMm": 50.0,
       "zLowMm": 0.0
     },
@@ -400,34 +719,224 @@
     {
       "bboxMm": {
         "max": {
+          "x": 62.0,
+          "y": 1016.8,
+          "z": 50.0
+        },
+        "min": {
+          "x": 50.0,
+          "y": 500.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 50.0,
+          "y": 500.0
+        },
+        {
+          "x": 62.0,
+          "y": 500.0
+        },
+        {
+          "x": 62.0,
+          "y": 1016.8
+        },
+        {
+          "x": 50.0,
+          "y": 1016.8
+        }
+      ],
+      "name": "col_loop_l",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 62.0,
+          "y": 500.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 34.9,
+          "y": 420.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 34.9,
+          "y": 420.0
+        },
+        {
+          "x": 46.9,
+          "y": 420.0
+        },
+        {
+          "x": 62.0,
+          "y": 500.0
+        },
+        {
+          "x": 50.0,
+          "y": 500.0
+        }
+      ],
+      "name": "col_loop_l_funnel",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 418.4,
+          "y": 1016.8,
+          "z": 50.0
+        },
+        "min": {
+          "x": 406.4,
+          "y": 500.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 406.4,
+          "y": 500.0
+        },
+        {
+          "x": 418.4,
+          "y": 500.0
+        },
+        {
+          "x": 418.4,
+          "y": 1016.8
+        },
+        {
+          "x": 406.4,
+          "y": 1016.8
+        }
+      ],
+      "name": "col_loop_r",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
           "x": 514.4,
-          "y": 1010.0,
+          "y": 1016.8,
           "z": 50.0
         },
         "min": {
           "x": 480.4,
-          "y": 976.0,
+          "y": 982.8,
           "z": 0.0
         }
       },
       "footprintMm": [
         {
           "x": 480.4,
-          "y": 1010.0
+          "y": 1016.8
         },
         {
           "x": 514.4,
-          "y": 976.0
+          "y": 982.8
         },
         {
           "x": 514.4,
-          "y": 1010.0
+          "y": 1016.8
         }
       ],
-      "name": "col_lane_deflector",
+      "name": "col_loop_r_deflector",
       "physMaterial": "default",
       "shape": "wall",
       "surface": "wood",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 433.5,
+          "y": 500.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 406.4,
+          "y": 420.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 406.4,
+          "y": 500.0
+        },
+        {
+          "x": 421.5,
+          "y": 420.0
+        },
+        {
+          "x": 433.5,
+          "y": 420.0
+        },
+        {
+          "x": 418.4,
+          "y": 500.0
+        }
+      ],
+      "name": "col_loop_r_funnel",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 428.4,
+          "y": 1016.8,
+          "z": 50.0
+        },
+        "min": {
+          "x": 40.0,
+          "y": 1004.8,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 40.0,
+          "y": 1004.8
+        },
+        {
+          "x": 428.4,
+          "y": 1004.8
+        },
+        {
+          "x": 428.4,
+          "y": 1016.8
+        },
+        {
+          "x": 40.0,
+          "y": 1016.8
+        }
+      ],
+      "name": "col_loop_top",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
       "zHighMm": 50.0,
       "zLowMm": 0.0
     },
@@ -454,6 +963,168 @@
       "physMaterial": "default",
       "shape": "plane",
       "surface": "wood"
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 150.0,
+          "y": 820.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 110.0,
+          "y": 780.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 110.0,
+          "y": 800.0
+        },
+        {
+          "x": 115.8579,
+          "y": 785.8579
+        },
+        {
+          "x": 130.0,
+          "y": 780.0
+        },
+        {
+          "x": 144.1421,
+          "y": 785.8579
+        },
+        {
+          "x": 150.0,
+          "y": 800.0
+        },
+        {
+          "x": 144.1421,
+          "y": 814.1421
+        },
+        {
+          "x": 130.0,
+          "y": 820.0
+        },
+        {
+          "x": 115.8579,
+          "y": 814.1421
+        }
+      ],
+      "name": "col_pop_1",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "bumper",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 250.0,
+          "y": 820.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 210.0,
+          "y": 780.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 210.0,
+          "y": 800.0
+        },
+        {
+          "x": 215.8579,
+          "y": 785.8579
+        },
+        {
+          "x": 230.0,
+          "y": 780.0
+        },
+        {
+          "x": 244.1421,
+          "y": 785.8579
+        },
+        {
+          "x": 250.0,
+          "y": 800.0
+        },
+        {
+          "x": 244.1421,
+          "y": 814.1421
+        },
+        {
+          "x": 230.0,
+          "y": 820.0
+        },
+        {
+          "x": 215.8579,
+          "y": 814.1421
+        }
+      ],
+      "name": "col_pop_2",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "bumper",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 200.0,
+          "y": 890.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 160.0,
+          "y": 850.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 160.0,
+          "y": 870.0
+        },
+        {
+          "x": 165.8579,
+          "y": 855.8578
+        },
+        {
+          "x": 180.0,
+          "y": 850.0
+        },
+        {
+          "x": 194.1421,
+          "y": 855.8578
+        },
+        {
+          "x": 200.0,
+          "y": 870.0
+        },
+        {
+          "x": 194.1421,
+          "y": 884.1422
+        },
+        {
+          "x": 180.0,
+          "y": 890.0
+        },
+        {
+          "x": 165.8579,
+          "y": 884.1422
+        }
+      ],
+      "name": "col_pop_3",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "bumper",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
     },
     {
       "bboxMm": {
@@ -890,6 +1561,424 @@
     {
       "bboxMm": {
         "max": {
+          "x": 429.0,
+          "y": 825.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 389.0,
+          "y": 776.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 389.0,
+          "y": 813.0
+        },
+        {
+          "x": 429.0,
+          "y": 776.0
+        },
+        {
+          "x": 429.0,
+          "y": 788.0
+        },
+        {
+          "x": 389.0,
+          "y": 825.0
+        }
+      ],
+      "name": "col_ramp_return_1",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 429.0,
+          "y": 788.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 412.0,
+          "y": 458.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 412.0,
+          "y": 458.0
+        },
+        {
+          "x": 429.0,
+          "y": 776.0
+        },
+        {
+          "x": 429.0,
+          "y": 788.0
+        },
+        {
+          "x": 412.0,
+          "y": 470.0
+        }
+      ],
+      "name": "col_ramp_return_2",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 355.0,
+          "y": 825.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 343.0,
+          "y": 470.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 343.0,
+          "y": 470.0
+        },
+        {
+          "x": 355.0,
+          "y": 470.0
+        },
+        {
+          "x": 355.0,
+          "y": 825.0
+        },
+        {
+          "x": 343.0,
+          "y": 825.0
+        }
+      ],
+      "name": "col_ramp_wall_l",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "ramp",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 401.0,
+          "y": 825.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 389.0,
+          "y": 470.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 389.0,
+          "y": 470.0
+        },
+        {
+          "x": 401.0,
+          "y": 470.0
+        },
+        {
+          "x": 401.0,
+          "y": 825.0
+        },
+        {
+          "x": 389.0,
+          "y": 825.0
+        }
+      ],
+      "name": "col_ramp_wall_r",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "ramp",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 130.0,
+          "y": 455.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 70.0,
+          "y": 420.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 70.0,
+          "y": 420.0
+        },
+        {
+          "x": 130.0,
+          "y": 420.0
+        },
+        {
+          "x": 130.0,
+          "y": 455.0
+        },
+        {
+          "x": 70.0,
+          "y": 455.0
+        }
+      ],
+      "name": "col_sling_l",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "rubber_band",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 410.0,
+          "y": 455.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 360.0,
+          "y": 420.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 360.0,
+          "y": 420.0
+        },
+        {
+          "x": 410.0,
+          "y": 420.0
+        },
+        {
+          "x": 410.0,
+          "y": 455.0
+        },
+        {
+          "x": 360.0,
+          "y": 455.0
+        }
+      ],
+      "name": "col_sling_r",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "rubber_band",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 50.0,
+          "y": 651.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 38.0,
+          "y": 645.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 38.0,
+          "y": 645.0
+        },
+        {
+          "x": 50.0,
+          "y": 645.0
+        },
+        {
+          "x": 50.0,
+          "y": 651.0
+        },
+        {
+          "x": 38.0,
+          "y": 651.0
+        }
+      ],
+      "name": "col_spinner_l",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "rubber_band",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 99.0,
+          "y": 1000.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 91.0,
+          "y": 950.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 91.0,
+          "y": 950.0
+        },
+        {
+          "x": 99.0,
+          "y": 950.0
+        },
+        {
+          "x": 99.0,
+          "y": 1000.0
+        },
+        {
+          "x": 91.0,
+          "y": 1000.0
+        }
+      ],
+      "name": "col_top_divider_1",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 199.0,
+          "y": 1000.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 191.0,
+          "y": 950.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 191.0,
+          "y": 950.0
+        },
+        {
+          "x": 199.0,
+          "y": 950.0
+        },
+        {
+          "x": 199.0,
+          "y": 1000.0
+        },
+        {
+          "x": 191.0,
+          "y": 1000.0
+        }
+      ],
+      "name": "col_top_divider_2",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 299.0,
+          "y": 1000.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 291.0,
+          "y": 950.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 291.0,
+          "y": 950.0
+        },
+        {
+          "x": 299.0,
+          "y": 950.0
+        },
+        {
+          "x": 299.0,
+          "y": 1000.0
+        },
+        {
+          "x": 291.0,
+          "y": 1000.0
+        }
+      ],
+      "name": "col_top_divider_3",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 399.0,
+          "y": 1000.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 391.0,
+          "y": 950.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 391.0,
+          "y": 950.0
+        },
+        {
+          "x": 399.0,
+          "y": 950.0
+        },
+        {
+          "x": 399.0,
+          "y": 1000.0
+        },
+        {
+          "x": 391.0,
+          "y": 1000.0
+        }
+      ],
+      "name": "col_top_divider_4",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
           "x": 200.0,
           "y": 0.0,
           "z": 50.0
@@ -968,7 +2057,7 @@
         "max": {
           "x": 480.4,
           "y": 950.0,
-          "z": 50.0
+          "z": 400.0
         },
         "min": {
           "x": 468.4,
@@ -998,7 +2087,7 @@
       "physMaterial": "default",
       "shape": "wall",
       "surface": "wood",
-      "zHighMm": 50.0,
+      "zHighMm": 400.0,
       "zLowMm": 0.0
     },
     {
@@ -1044,7 +2133,7 @@
         "max": {
           "x": 0.0,
           "y": 1066.8,
-          "z": 50.0
+          "z": 400.0
         },
         "min": {
           "x": -12.0,
@@ -1074,7 +2163,7 @@
       "physMaterial": "default",
       "shape": "wall",
       "surface": "wood",
-      "zHighMm": 50.0,
+      "zHighMm": 400.0,
       "zLowMm": 0.0
     },
     {
@@ -1082,7 +2171,7 @@
         "max": {
           "x": 526.4,
           "y": 1066.8,
-          "z": 50.0
+          "z": 400.0
         },
         "min": {
           "x": 514.4,
@@ -1112,7 +2201,7 @@
       "physMaterial": "default",
       "shape": "wall",
       "surface": "wood",
-      "zHighMm": 50.0,
+      "zHighMm": 400.0,
       "zLowMm": 0.0
     },
     {
@@ -1120,7 +2209,7 @@
         "max": {
           "x": 514.4,
           "y": 1078.8,
-          "z": 50.0
+          "z": 400.0
         },
         "min": {
           "x": 0.0,
@@ -1150,7 +2239,7 @@
       "physMaterial": "default",
       "shape": "wall",
       "surface": "wood",
-      "zHighMm": 50.0,
+      "zHighMm": 400.0,
       "zLowMm": 0.0
     }
   ],
@@ -1161,6 +2250,396 @@
     }
   },
   "switchZones": [
+    {
+      "maxMm": {
+        "x": 296.0,
+        "y": 685.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 281.0,
+        "y": 655.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_a",
+      "shape": "box",
+      "switch": "s_dragon_a"
+    },
+    {
+      "maxMm": {
+        "x": 146.0,
+        "y": 465.005,
+        "z": 50.0
+      },
+      "minMm": {
+        "x": 94.0,
+        "y": 430.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_body_l",
+      "shape": "box",
+      "switch": "s_dragon_body"
+    },
+    {
+      "maxMm": {
+        "x": 246.0,
+        "y": 465.005,
+        "z": 50.0
+      },
+      "minMm": {
+        "x": 194.0,
+        "y": 430.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_body_r",
+      "shape": "box",
+      "switch": "s_dragon_body"
+    },
+    {
+      "maxMm": {
+        "x": 268.0,
+        "y": 685.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 253.0,
+        "y": 655.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_d",
+      "shape": "box",
+      "switch": "s_dragon_d"
+    },
+    {
+      "maxMm": {
+        "x": 310.0,
+        "y": 685.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 295.0,
+        "y": 655.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_g",
+      "shape": "box",
+      "switch": "s_dragon_g"
+    },
+    {
+      "maxMm": {
+        "x": 338.0,
+        "y": 685.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 323.0,
+        "y": 655.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_n",
+      "shape": "box",
+      "switch": "s_dragon_n"
+    },
+    {
+      "maxMm": {
+        "x": 324.0,
+        "y": 685.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 309.0,
+        "y": 655.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_o",
+      "shape": "box",
+      "switch": "s_dragon_o"
+    },
+    {
+      "maxMm": {
+        "x": 282.0,
+        "y": 685.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 267.0,
+        "y": 655.005,
+        "z": 0.0
+      },
+      "name": "sw_dragon_r",
+      "shape": "box",
+      "switch": "s_dragon_r"
+    },
+    {
+      "maxMm": {
+        "x": 314.4,
+        "y": 15.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 200.0,
+        "y": -5.0,
+        "z": 0.0
+      },
+      "name": "sw_drain",
+      "shape": "box",
+      "switch": "s_drain"
+    },
+    {
+      "maxMm": {
+        "x": 86.9,
+        "y": 200.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 48.9,
+        "y": 150.0,
+        "z": 0.0
+      },
+      "name": "sw_inlane_l",
+      "shape": "box",
+      "switch": "s_inlane_l"
+    },
+    {
+      "maxMm": {
+        "x": 419.5,
+        "y": 200.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 381.5,
+        "y": 150.0,
+        "z": 0.0
+      },
+      "name": "sw_inlane_r",
+      "shape": "box",
+      "switch": "s_inlane_r"
+    },
+    {
+      "maxMm": {
+        "x": 190.0,
+        "y": 644.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 150.0,
+        "y": 630.0,
+        "z": 0.0
+      },
+      "name": "sw_lock_1",
+      "shape": "box",
+      "switch": "s_lock_1"
+    },
+    {
+      "maxMm": {
+        "x": 190.0,
+        "y": 661.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 150.0,
+        "y": 647.0,
+        "z": 0.0
+      },
+      "name": "sw_lock_2",
+      "shape": "box",
+      "switch": "s_lock_2"
+    },
+    {
+      "maxMm": {
+        "x": 190.0,
+        "y": 678.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 150.0,
+        "y": 664.0,
+        "z": 0.0
+      },
+      "name": "sw_lock_3",
+      "shape": "box",
+      "switch": "s_lock_3"
+    },
+    {
+      "maxMm": {
+        "x": 188.0,
+        "y": 560.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 152.0,
+        "y": 500.0,
+        "z": 0.0
+      },
+      "name": "sw_lock_lane",
+      "shape": "box",
+      "switch": "s_lock_lane"
+    },
+    {
+      "maxMm": {
+        "x": 32.0,
+        "y": 475.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 2.0,
+        "y": 425.0,
+        "z": 0.0
+      },
+      "name": "sw_loop_l_in",
+      "shape": "box",
+      "switch": "s_loop_l_in"
+    },
+    {
+      "maxMm": {
+        "x": 45.0,
+        "y": 880.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 5.0,
+        "y": 820.0,
+        "z": 0.0
+      },
+      "name": "sw_loop_l_out",
+      "shape": "box",
+      "switch": "s_loop_l_out"
+    },
+    {
+      "maxMm": {
+        "x": 466.0,
+        "y": 475.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 436.0,
+        "y": 425.0,
+        "z": 0.0
+      },
+      "name": "sw_loop_r_in",
+      "shape": "box",
+      "switch": "s_loop_r_in"
+    },
+    {
+      "maxMm": {
+        "x": 463.0,
+        "y": 880.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 423.0,
+        "y": 820.0,
+        "z": 0.0
+      },
+      "name": "sw_loop_r_out",
+      "shape": "box",
+      "switch": "s_loop_r_out"
+    },
+    {
+      "maxMm": {
+        "x": 32.9,
+        "y": 200.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 2.0,
+        "y": 150.0,
+        "z": 0.0
+      },
+      "name": "sw_outlane_l",
+      "shape": "box",
+      "switch": "s_outlane_l"
+    },
+    {
+      "maxMm": {
+        "x": 466.4,
+        "y": 200.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 435.5,
+        "y": 150.0,
+        "z": 0.0
+      },
+      "name": "sw_outlane_r",
+      "shape": "box",
+      "switch": "s_outlane_r"
+    },
+    {
+      "maxMm": {
+        "x": 168.0,
+        "y": 838.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 92.0,
+        "y": 762.0,
+        "z": 0.0
+      },
+      "name": "sw_pop_1",
+      "shape": "box",
+      "switch": "s_pop_1"
+    },
+    {
+      "maxMm": {
+        "x": 268.0,
+        "y": 838.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 192.0,
+        "y": 762.0,
+        "z": 0.0
+      },
+      "name": "sw_pop_2",
+      "shape": "box",
+      "switch": "s_pop_2"
+    },
+    {
+      "maxMm": {
+        "x": 218.0,
+        "y": 908.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 142.0,
+        "y": 832.0,
+        "z": 0.0
+      },
+      "name": "sw_pop_3",
+      "shape": "box",
+      "switch": "s_pop_3"
+    },
+    {
+      "maxMm": {
+        "x": 387.0,
+        "y": 510.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 357.0,
+        "y": 475.0,
+        "z": 0.0
+      },
+      "name": "sw_ramp_enter",
+      "shape": "box",
+      "switch": "s_ramp_enter"
+    },
+    {
+      "maxMm": {
+        "x": 387.0,
+        "y": 822.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 357.0,
+        "y": 790.0,
+        "z": 0.0
+      },
+      "name": "sw_ramp_made",
+      "shape": "box",
+      "switch": "s_ramp_made"
+    },
     {
       "maxMm": {
         "x": 510.4,
@@ -1175,6 +2654,96 @@
       "name": "sw_shooter_lane",
       "shape": "box",
       "switch": "s_shooter_lane"
+    },
+    {
+      "maxMm": {
+        "x": 134.0,
+        "y": 405.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 66.0,
+        "y": 380.005,
+        "z": 0.0
+      },
+      "name": "sw_sling_l",
+      "shape": "box",
+      "switch": "s_sling_l"
+    },
+    {
+      "maxMm": {
+        "x": 414.0,
+        "y": 405.005,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 356.0,
+        "y": 380.005,
+        "z": 0.0
+      },
+      "name": "sw_sling_r",
+      "shape": "box",
+      "switch": "s_sling_r"
+    },
+    {
+      "maxMm": {
+        "x": 45.0,
+        "y": 662.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 5.0,
+        "y": 635.0,
+        "z": 0.0
+      },
+      "name": "sw_spinner",
+      "shape": "box",
+      "switch": "s_spinner"
+    },
+    {
+      "maxMm": {
+        "x": 191.0,
+        "y": 995.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 99.0,
+        "y": 955.0,
+        "z": 0.0
+      },
+      "name": "sw_top_1",
+      "shape": "box",
+      "switch": "s_top_1"
+    },
+    {
+      "maxMm": {
+        "x": 291.0,
+        "y": 995.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 199.0,
+        "y": 955.0,
+        "z": 0.0
+      },
+      "name": "sw_top_2",
+      "shape": "box",
+      "switch": "s_top_2"
+    },
+    {
+      "maxMm": {
+        "x": 391.0,
+        "y": 995.0,
+        "z": 30.0
+      },
+      "minMm": {
+        "x": 299.0,
+        "y": 955.0,
+        "z": 0.0
+      },
+      "name": "sw_top_3",
+      "shape": "box",
+      "switch": "s_top_3"
     },
     {
       "maxMm": {
