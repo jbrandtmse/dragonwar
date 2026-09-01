@@ -2,7 +2,8 @@
 title: 'Story 2.1b: The full shot map and the switch set'
 type: 'feature'
 created: '2026-08-31'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '7cbb9e3d97dfa23263ceb8fe7687191d6f7c9279'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
