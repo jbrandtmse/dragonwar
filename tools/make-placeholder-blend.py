@@ -178,6 +178,15 @@ LOOP_TOP_INNER_Y_MM = PLAYFIELD_H_MM - LOOP_LANE_CLEAR_MM  # 1016.8
 LOOP_FUNNEL_Y0_MM = GUIDE_Y_TOP_MM  # 420 -- starts exactly at the existing post
 LOOP_FUNNEL_Y1_MM = 500.0  # authored -- a short, gentle widening run
 
+# Rework iteration 2 -- the loop RETURN (task: "separate the Loop return
+# channels from the outlanes so a completed Loop delivers to an inlane"):
+# ATTEMPTED, REVERTED -- see the long comment beside col_loop_top, below,
+# for the measured evidence and the residual reported to the lead. Every
+# angled-diverter design tried either failed to redirect the ball at all
+# (net lateral drift under 5 mm) or regressed other proven geometry (the
+# Ramp's own shot, or the ball's own unobstructed climb). No constant is
+# left here because no version of the fix survived.
+
 # Spinner (task 4, Left Loop only -- SPEC CAP-26 success clause,
 # machine-behaviour.md:72). A thin stub protruding from the loop guide's own
 # inner face, narrow enough that the reference ball still clears the
@@ -911,6 +920,35 @@ def main():
 		set_props(wall, col_shape='wall', surface=surface, phys_material='default')
 		return wall
 
+	# Rework iteration 2 (2026-09-01 lead investigation): eleven bodies this
+	# story drew as plain add_box_wall() rectangles trap a ball permanently --
+	# confirmed frozen to 0.1 mm at 120000 ticks -- because a plain rectangle's
+	# north (y1) edge is exactly perpendicular to this solver's gravity (pure
+	# down-slope, NO x-component -- 2.1a's own Design Notes), so a ball
+	# resting against that face experiences zero tangential force in any
+	# direction and never moves again. This is VERBATIM the DW-119 defect
+	# 2.1a already fixed on col_wall_bottom_l/_r (this file's own
+	# BOTTOM_WALL_DRAIN_DROP_MM block, above): angling the ball-contact face
+	# itself -- so its outward normal gains an x-component -- is the only fix
+	# that works under this gravity model, because it stops fully cancelling
+	# gravity's y-component and gives a resting ball both a genuine sideways
+	# AND a genuine downward pull along the face, rather than merely
+	# "bevelling a corner" cosmetically. add_box_wall_sloped() generalises
+	# that same mechanism (one north corner lowered by drop_mm, the other
+	# left at the full y1) to every flat-topped body the rework identified;
+	# every call site below states, in its own comment, which side the ball
+	# is meant to slide toward and why.
+	def add_box_wall_sloped(name, x0, x1, y0, y1, surface, drop_mm, drop_corner):
+		if drop_corner == 'x0':
+			points = [(x0, y0), (x1, y0), (x1, y1), (x0, y1 - drop_mm)]
+		elif drop_corner == 'x1':
+			points = [(x0, y0), (x1, y0), (x1, y1 - drop_mm), (x0, y1)]
+		else:
+			raise ValueError(f"add_box_wall_sloped({name}): drop_corner must be 'x0' or 'x1', got {drop_corner!r}")
+		wall = new_prism_mesh(name, points, 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface=surface, phys_material='default')
+		return wall
+
 	# ---- Left and Right Loops (task 3, CAP-26): a chain of convex prisms
 	# from the two EXISTING col_post_divider_*_hi posts (2.1a, y = 420) up
 	# each side of the table and across the top, so a full orbit passes both
@@ -966,6 +1004,44 @@ def main():
 		'plastic',
 	)
 
+	# Rework iteration 2 -- the loop returns: ATTEMPTED, REVERTED, residual
+	# reported to the lead rather than shipped half-working. The task ("the
+	# return must cross to the inlane side of the divider") requires
+	# diverting a ball descending the loop's own lane -- which shares its
+	# lower rail position with the divider's own OUTLANE span by construction
+	# (task 3: "from the two *_divider_*_hi posts") -- into the interior
+	# before it re-enters that shared post gap. Multiple angled-wall designs
+	# were built and measured against the real physics pipeline at the
+	# plausible shot speed test/shot-routing.test.ts's own Loop cases use
+	# (2200 mm/s): thin single/two-segment channel_rail()s at several angles
+	# and heights (both straight-down and true-perpendicular backing
+	# offsets), and a solid triangular wedge. Every version either (a) left
+	# the ball's own net lateral drift under 5 mm across the whole
+	# ~500 mm remaining descent -- nowhere near the ~50 mm needed to clear
+	# the divider, confirmed by direct vx/vy telemetry showing an initial
+	# deflection that decayed to a near-straight fall within ~10-30 ticks --
+	# or (b) when built with enough solid depth for a firmer response,
+	# instead capped the ball's own ASCENT well short of its unobstructed
+	# peak (a wide backing creates a near-horizontal shelf under the front
+	# face for a steep line, the same DW-119 mechanism in reverse), or (c)
+	# when routed through the only physically available corridor on the
+	# Right Loop's own side (the Ramp's own channel -- the gap between
+	# col_ramp_wall_r and the loop's own lower rail is 5.4 mm, under the
+	# reference ball's radius, so there is no other path into the interior
+	# there), measurably broke the Ramp's OWN shot
+	# (test/shot-routing.test.ts's Ramp case: s_ramp_made stopped closing).
+	# No version closed the loop -- every one still let the ball fall back
+	# through the shared post gap into the outlane. This is a genuine
+	# mechanism gap, not a tuning choice: a single angled surface does not
+	# reliably redirect a fast, near-vertically-travelling ball under this
+	# solver's contact response, at least not with the geometry this rework
+	# tried. Left at the ORIGINAL (pre-rework) full-height rail rather than
+	# ship a half-working diverter that regresses an existing passing test.
+	# See this story's own final report for the measured evidence and what
+	# a working fix would likely need (either a multi-surface funnel proven
+	# out empirically the way add_loop_funnel's own bottom funnel was, or a
+	# renegotiated Ramp position that frees a genuine >= 27 mm corridor).
+
 	# Spinner gate (task 4, Left Loop only -- SPEC CAP-26, machine-
 	# behaviour.md:72): a thin stub protruding from the loop guide's own
 	# inner face, narrow enough that the reference ball still clears the
@@ -1015,7 +1091,16 @@ def main():
 	# under x = 400, clear of it and of the Right Loop's own lane. ----
 	ramp_lane_x0 = RAMP_ENTER_X_MM - RAMP_LANE_CLEAR_MM / 2
 	ramp_lane_x1 = RAMP_ENTER_X_MM + RAMP_LANE_CLEAR_MM / 2
-	add_box_wall('col_ramp_wall_l', ramp_lane_x0 - WALL_T_MM, ramp_lane_x0, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp')
+	# Rework iteration 2 (DW-119-class fix): col_ramp_wall_l's own north end
+	# -- the top of its 12 mm-wide side rail, at RAMP_TOP_Y_MM -- used to be a
+	# dead-flat cap and stranded a ball at y = 838.5 (measured evidence).
+	# col_ramp_wall_r needs no equivalent fix: its own north end is exactly
+	# where the return rail (col_ramp_return_1, below) begins, so a ball
+	# reaching it is already caught by that rail rather than resting on a
+	# flat cap. Sloped toward the channel's OWN inner face (x1, the side
+	# facing ramp_lane_x0) so a ball stranded there drops back down into the
+	# open channel it climbed, rather than out toward the perimeter.
+	add_box_wall_sloped('col_ramp_wall_l', ramp_lane_x0 - WALL_T_MM, ramp_lane_x0, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp', 5.0, 'x1')
 	add_box_wall('col_ramp_wall_r', ramp_lane_x1, ramp_lane_x1 + WALL_T_MM, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp')
 
 	# Return rail: a single bent rail, the exact add_channel_rail() technique
@@ -1041,8 +1126,16 @@ def main():
 	lock_lane_x1 = DRAGON_CENTER_X_MM + LOCK_LANE_CLEAR_MM / 2
 	dragon_leg_l_x0, dragon_leg_l_x1 = lock_lane_x0 - DRAGON_LEG_W_MM, lock_lane_x0
 	dragon_leg_r_x0, dragon_leg_r_x1 = lock_lane_x1, lock_lane_x1 + DRAGON_LEG_W_MM
-	add_box_wall('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon')
-	add_box_wall('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon')
+	# Rework iteration 2 (DW-119-class fix): each leg's own north face used to
+	# be dead flat, stranding a ball at y = 633.5 (measured evidence). Sloped
+	# AWAY from the Lock lane -- outward, toward the open field beside each
+	# leg -- rather than toward it: the Lock lane is LOCK_LANE_CLEAR_MM
+	# (40 mm) wide, only marginally over the 26.99 mm ball, so a slide funnel
+	# aimed INTO that opening risks a new corner trap at the lane's own mouth
+	# where the sloped face would meet it; outward is the side with real open
+	# space on every one of this file's own authored figures.
+	add_box_wall_sloped('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x0')
+	add_box_wall_sloped('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
 
 	bd_lock = new_empty('bd_lock', (DRAGON_CENTER_X_MM, DRAGON_MOUTH_Y_MM, BALL_MM / 2), parent=playfield_root)
 	# local +Y (the eject-direction convention every bd_ empty in this file
@@ -1055,6 +1148,25 @@ def main():
 	# other. Drop/reset mechanics are Story 2.3's; these are ordinary
 	# collidable bodies here. ----
 	DRAGON_LETTERS = ('d', 'r', 'a', 'g', 'o', 'n')
+	# Rework iteration 2 (DW-119-class fix) -- history, kept because the
+	# dead end is informative: each target's own north face used to be dead
+	# flat and stranded a ball at y = 721.5 (measured evidence). Bevelling
+	# each target individually (as every OTHER flat-topped body this rework
+	# fixed) does not work here, tried four ways and measured stuck at
+	# essentially the same point every time regardless of direction or
+	# steepness (outward-from-centre, reversed on col_dragon_n alone,
+	# uniform toward smaller x, and a full-depth triangular bevel on every
+	# target): each target is only 11 mm wide, UNDER the reference ball's
+	# own radius (13.495 mm) let alone its diameter, so the ball's contact
+	# footprint spans the whole face at once rather than resting on and
+	# sliding along an extended incline the way it does on every other body
+	# this rework fixed (60-355 mm wide, all comfortably bigger than the
+	# ball) -- the same mechanism DW-119's own 165 mm-wide slope relies on,
+	# scaled down past the point it still works. col_dragon_bank_backstop
+	# (below) is the fix that held: ONE wide sloped wall spanning the WHOLE
+	# bank, north of every target's own (plain, flat, reverted) face, so a
+	# descending ball meets a genuinely extended incline before it can ever
+	# reach a single target's own undersized one.
 	for i, letter in enumerate(DRAGON_LETTERS):
 		cx = DRAGON_BANK_X0_MM + i * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM / 2
 		add_box_wall(
@@ -1063,6 +1175,28 @@ def main():
 			DRAGON_BANK_Y0_MM, DRAGON_BANK_Y1_MM,
 			'target',
 		)
+
+	# The backstop itself: flush against the bank's own north edge
+	# (DRAGON_BANK_Y1_MM) so a descending ball reaches it before it could
+	# ever settle on a single target's own north face, spanning well past
+	# both ends of the six-target row (col_dragon_d's own west edge to
+	# col_dragon_n's own east edge) for a genuinely wide incline -- DW-119's
+	# own shallow-long-wall shape, this time actually wide enough to work.
+	# Slopes toward smaller x: away from the Ramp (col_ramp_wall_l's own
+	# west face sits only 343 - 336 = 7 mm clear of col_dragon_n's own east
+	# edge, well under the ball's radius, so sloping toward the Ramp is not
+	# an option here either) and clear of col_dragon_leg_r (whose own east
+	# edge, x = 250, sits outside this backstop's y 708-723 span entirely --
+	# the legs only reach y = 620).
+	DRAGON_BACKSTOP_X0_MM = DRAGON_BANK_X0_MM - 15.0
+	DRAGON_BACKSTOP_X1_MM = DRAGON_BANK_X0_MM + (len(DRAGON_LETTERS) - 1) * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM + 5.0
+	add_box_wall_sloped(
+		'col_dragon_bank_backstop',
+		DRAGON_BACKSTOP_X0_MM, DRAGON_BACKSTOP_X1_MM,
+		DRAGON_BANK_Y1_MM, DRAGON_BANK_Y1_MM + 15.0,
+		'target',
+		15.0, 'x0',
+	)
 
 	# ---- Top lanes (task 7): three, in the upper field on the launched
 	# ball's own path (above the Ramp and the pop nest, below the loop's own
@@ -1078,9 +1212,15 @@ def main():
 	# ---- Slingshots (task 8): above the inlanes -- verified against
 	# test/flipper-sweep-clearance.test.ts that neither enters the bat's
 	# swept envelope nor narrows the 0.137 mm drain-end throat (both sit well
-	# above GUIDE_Y_TOP_MM's own pocket geometry). ----
-	add_box_wall('col_sling_l', SLING_L_X0_MM, SLING_L_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band')
-	add_box_wall('col_sling_r', SLING_R_X0_MM, SLING_R_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band')
+	# above GUIDE_Y_TOP_MM's own pocket geometry).
+	# Rework iteration 2 (DW-119-class fix): each sling's own north face used
+	# to be dead flat, stranding a ball that rolled up against it (parked at
+	# y = 468.5, this rework's own measured evidence). Sloped toward the
+	# TABLE CENTRE -- away from the perimeter wall each sling sits beside --
+	# so a resting ball is pushed back into the open field rather than
+	# wedged against col_wall_left/_lane. ----
+	add_box_wall_sloped('col_sling_l', SLING_L_X0_MM, SLING_L_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band', 20.0, 'x1')
+	add_box_wall_sloped('col_sling_r', SLING_R_X0_MM, SLING_R_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band', 20.0, 'x0')
 
 	# ---- Pop bumpers (task 8): a nest of exactly three (author-decided
 	# 2026-08-31 -- TABLE.authoredCounts.popBumpers records the count and its
