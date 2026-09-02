@@ -920,7 +920,7 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 
 **Given** the drain triangle placed in Story 2.1a
 **When** the shot map is drawn
-**Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-6/FR-27 decision in `docs/decisions.md`) `[AMENDED 2026-08-31 — see the story change log below]`, the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, **three pop bumpers** `[AMENDED 2026-08-31 — see the story change log below]`, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
+**Then** the Left Loop and Right Loop have entries and exits, and a plunged ball clears the Loop entrance and crosses the top of the playfield rather than falling into the Loop channel `[AMENDED 2026-09-01 — see the story change log below]`, one Ramp has an authored height and a decided return inlane (recorded as the OQ-6/FR-27 decision in `docs/decisions.md`) `[AMENDED 2026-08-31 — see the story change log below]`, the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, **three pop bumpers** `[AMENDED 2026-08-31 — see the story change log below]`, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
 
 **Given** every device has a switch
 **When** `TABLE.switches` is completed
@@ -979,8 +979,67 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
   unchanged either way, so this is a label correction, not an amendment to the promise.
 
 
+- **2026-09-01 — the Loop-return-to-inlane clause moved out to Story 2.1c (author's decision).**
+  The first criterion originally required the Loops' "exit paths feed straight toward the flippers".
+  Two implement iterations established that this is design work rather than map-drawing: every diverter
+  design measured produced under 5 mm of lateral drift where roughly 50 mm is needed, or capped the
+  ball's own ascent (the DW-119 mechanism in reverse), or broke the Ramp's own passing shot — the only
+  other corridor is a 5.4 mm gap, narrower than the ball's 13.495 mm radius — and moving
+  `col_guide_divider_r` wholesale wedged the ball permanently at (446, 429). Satisfying the clause needs
+  permission to move the Story 2.1a bounds or renegotiate the Ramp position, which 2.1b is forbidden to
+  do; Story 2.1c is chartered with those Block Ifs lifted. 2.1b keeps the shot map and switch set it has
+  actually delivered, plus the plunge/Loop path separation above.
+
 - **2026-08-30 — created as the receiving half of the Story 2.1 split.** See Story 2.1a's
   change log for the rationale and the criterion-by-criterion partition.
+
+### Story 2.1c: The Loop returns and the inlane feed
+
+As a player,
+I want a Loop I hit off a flipper to come back to an inlane so I can shoot it again,
+So that the Loops are combo shots the way they are on a real machine, instead of a one-way trip to an outlane.
+
+**Acceptance Criteria:**
+
+**Given** the shot map drawn in Story 2.1b
+**When** a ball is driven into the Left Loop or the Right Loop at a plausible flipper-shot speed
+**Then** the completed Loop delivers the ball to an inlane on the corresponding side and it arrives playable at a flipper, rather than descending an outlane
+**And** the plunge path established in Story 2.1b is preserved: a plunged ball still clears the Loop entrance and crosses the top of the playfield
+
+**Given** the Loop return geometry
+**When** the routing is authored
+**Then** it may move the Story 2.1a dimensional bounds and renegotiate the Ramp position if the routing genuinely requires it — these are **not** Block Ifs in this story — provided every change is recorded with its measurement and the drain triangle's own behavioural gates still pass
+
+**Given** the outlane path settles into its final shape
+**When** the switch zones are re-checked
+**Then** `s_drain` still closes for every ball that reaches `bd_trough` (the `DW-121` touch-up: Story 2.1b fixes the bypass against its own geometry, and this story must re-verify it against the routing it lands on)
+
+**Given** the routing change
+**When** the full suite runs
+**Then** every behavioural gate Story 2.1b shipped still passes — `test/shot-routing.test.ts`'s flipper-band and positional-progress assertions, `test/drain-routing.test.ts`, and `test/flipper-sweep-clearance.test.ts`'s throat and drop-bound gates — and any golden whose recorded trajectory the routing genuinely changes is re-recorded with its new trace shown correct, not merely green
+
+**Prerequisites:** Story 2.1b (the shot map, the switch set and the plunge path).
+
+**Story change log**
+
+- **2026-09-01 — chartered out of Story 2.1b (author's decision).** 2.1b's first acceptance criterion
+  required the Loops' "exit paths feed straight toward the flippers". Two implement iterations
+  established that this is genuine design work rather than map-drawing, and that it cannot be satisfied
+  inside 2.1b's Block Ifs. The measured evidence, carried here so it is not rediscovered:
+  every diverter design tried — thin and thick `add_channel_rail()`-style diverters at several angles and
+  heights, with both straight-down and true-perpendicular backing offsets, and a solid triangular wedge —
+  either produced **under 5 mm of net lateral drift** across the whole ~500 mm remaining descent (direct
+  vx/vy telemetry shows the initial deflection decaying to a near-straight fall within 10–30 ticks) where
+  roughly **50 mm** is needed to clear the divider; or, built with enough solid depth for a firmer
+  response, **capped the ball's own unobstructed ascent** well short of its peak (the `DW-119` mechanism
+  in reverse: a wide backing shelf under a steep face); or, routed through the only other physically
+  available corridor, **broke the Ramp's own passing shot** — the gap between `col_ramp_wall_r` and the
+  Loop's lower rail is **5.4 mm**, narrower than the ball's own 13.495 mm radius, so there is no path into
+  the interior there. A crude re-route moving `col_guide_divider_r` and its posts 34 mm right and
+  extending `col_wall_bottom_r` to meet it **wedged the ball permanently at (446, 429)**, never draining
+  in 12 000 ticks. A working fix likely needs a multi-surface funnel proven out empirically, the way the
+  bottom funnel under the drain triangle was, or a Ramp position that opens a genuine >= 27 mm corridor.
+  This story is chartered with the 2.1a bounds and the Ramp position explicitly negotiable.
 
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
