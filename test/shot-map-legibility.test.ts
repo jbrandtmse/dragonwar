@@ -122,17 +122,44 @@ describe('shot map legibility from the fixed camera (AC 8, task 26a)', () => {
 
 					let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 					for (const node of nodes) {
+						// QA gap closed (lead's AD gate, 2026-09-02): the ORIGINAL span
+						// clause measured only the UNION of every node's corners, which
+						// is unfalsifiable for a multi-node feature -- verified
+						// empirically (probe run, reverted before commit): shrinking all
+						// six DRAGON-bank targets to 0.1 mm points, still spread across
+						// the bank's own width, moved the union span only 0.0530/0.0519
+						// -> 0.0459/0.0444 (each individual shrunk node's OWN span
+						// measured ~0.00007/0.00018) and the union stayed comfortably
+						// above MIN_LEGIBLE_NDC_SPAN -- a bank rendered as six dots would
+						// have passed. So EACH node composing a multi-node feature must
+						// independently clear MIN_LEGIBLE_NDC_SPAN too, not just their
+						// union -- confirmed this catches the shrink (a shrunk node's own
+						// span of ~0.0002 fails it outright) while every REAL node here
+						// measures far above it already (DRAGON-bank targets: 0.0519;
+						// loop funnels: 0.132; ramp walls: 0.396; dragon legs: 0.191).
+						let nodeMinX = Infinity, nodeMaxX = -Infinity, nodeMinY = Infinity, nodeMaxY = -Infinity;
 						for (const cornerMm of corners(node.bboxMm)) {
 							const ndc = projectMm(cornerMm, playfieldNodes.playfieldRoot, viewProj);
 							expect(ndc.x, `${feature.name} (node "${node.name}") corner ${JSON.stringify(cornerMm)} projects outside the viewport on x (${ndc.x.toFixed(4)})`).toBeGreaterThanOrEqual(-1);
 							expect(ndc.x, `${feature.name} (node "${node.name}") corner ${JSON.stringify(cornerMm)} projects outside the viewport on x (${ndc.x.toFixed(4)})`).toBeLessThanOrEqual(1);
 							expect(ndc.y, `${feature.name} (node "${node.name}") corner ${JSON.stringify(cornerMm)} projects outside the viewport on y (${ndc.y.toFixed(4)})`).toBeGreaterThanOrEqual(-1);
 							expect(ndc.y, `${feature.name} (node "${node.name}") corner ${JSON.stringify(cornerMm)} projects outside the viewport on y (${ndc.y.toFixed(4)})`).toBeLessThanOrEqual(1);
+							nodeMinX = Math.min(nodeMinX, ndc.x);
+							nodeMaxX = Math.max(nodeMaxX, ndc.x);
+							nodeMinY = Math.min(nodeMinY, ndc.y);
+							nodeMaxY = Math.max(nodeMaxY, ndc.y);
 							minX = Math.min(minX, ndc.x);
 							maxX = Math.max(maxX, ndc.x);
 							minY = Math.min(minY, ndc.y);
 							maxY = Math.max(maxY, ndc.y);
 						}
+						const nodeSpanX = nodeMaxX - nodeMinX;
+						const nodeSpanY = nodeMaxY - nodeMinY;
+						const nodeMaxSpan = Math.max(nodeSpanX, nodeSpanY);
+						expect(
+							nodeMaxSpan,
+							`${feature.name} (node "${node.name}"): this SINGLE node's own projected span (x=${nodeSpanX.toFixed(4)}, y=${nodeSpanY.toFixed(4)}) must reach at least MIN_LEGIBLE_NDC_SPAN (${MIN_LEGIBLE_NDC_SPAN}) on at least one axis, or this body renders as a dot even if the feature's union span looks larger`,
+						).toBeGreaterThanOrEqual(MIN_LEGIBLE_NDC_SPAN);
 					}
 
 					const spanX = maxX - minX;
