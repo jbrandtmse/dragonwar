@@ -214,8 +214,6 @@ describe('AC 5 parity-hash falsifiability: which goldens\' GameState-only hash a
 			'the nudge moves the cabinet and hence the ball, but Epic 1 has no tilt bob wired into GameState.machine.tilt for a single sub-threshold nudge, so nothing the nudge touches reaches GameState.',
 		'two-ball-collision':
 			'its `transitions` array is empty by design -- the whole scenario is driven by the declared coilPrologue, so there is no body for the parity hash to be sensitive to.',
-		'roll-and-drain':
-			'Story 2.1b rework iteration 3 (2026-09-02) re-recorded this golden with an empty `transitions` array by design -- the plunge-routing fix (col_loop_r_deflector re-sited, col_loop_top shortened) lets the served ball cross the top and drain on its own, with NO flipper input needed or given, so the whole scenario is driven by its declared coilPrologue alone, the same shape two-ball-collision already uses.',
 	};
 
 	it.each(GOLDEN_NAMES)('%s: parity-hash sensitivity to its own transitions matches its declared status', (name) => {
