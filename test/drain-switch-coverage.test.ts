@@ -11,8 +11,11 @@
 // reached `bd_trough` with NO `s_drain` edge ever emitted, an FR-11-class
 // miss (a drain the drain switch never saw). The fix (`tools/
 // make-placeholder-blend.py`, beside `DRAIN_X0_MM`/`DRAIN_X1_MM`) widens
-// `sw_drain` to span the WHOLE below-deck corridor -- `x` in
-// `[0, PLAYFIELD_W_MM]`, `y` in `[-80, 15]` -- architecturally exact, not
+// `sw_drain` to span the below-deck corridor short of the shooter lane --
+// `x` in `[0, LANE_X0_MM]` (0..468.4, NOT the full `PLAYFIELD_W_MM`: a first
+// attempt spanning the whole width spuriously fired `s_drain` on an ordinary
+// trough eject, whose pose is x 497.4 / y 20, and was narrowed before
+// commit), `y` in `[-80, 15]` -- architecturally exact, not
 // merely generous: `y < 0` is reachable ONLY by falling through one of this
 // file's own three deck gaps (the centre aperture and the two outlane
 // gaps), since the playfield's own `y` range is `[0, PLAYFIELD_H_MM]`
@@ -103,7 +106,17 @@ function releaseAndWatchDrain(xMm: number, yMm: number, maxTicks: number) {
 				drainEvents.push({ closed: event.closed, tick: event.tick });
 			}
 		}
-		if (machine.deviceSlots.bd_trough?.some(Boolean)) {
+		// Code review 2026-09-02 (Rule 19): this was `.some(Boolean)`, which is
+		// TRUE from boot -- `createDeviceMechanics()` fills every parking
+		// device's slots (`devices.ts`), so `bd_trough` starts
+		// `[true,true,true,true]` and the harness's single `c_trough_eject`
+		// leaves `[true,true,true,false]`. The guard written to exclude a
+		// vacuous drain was therefore itself vacuous and could never fail.
+		// `.every(Boolean)` is the real observation: the released ball has
+		// parked only once occupancy has RETURNED to four, which is the shape
+		// `test/replay-goldens.test.ts` already uses (`toEqual([true, true,
+		// true, true])`).
+		if (machine.deviceSlots.bd_trough?.every(Boolean)) {
 			parkedInTrough = true;
 		}
 	}

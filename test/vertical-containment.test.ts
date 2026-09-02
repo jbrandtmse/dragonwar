@@ -139,7 +139,18 @@ describe('vertical containment above the interior guides (AC 9, DW-53)', () => {
 				r.maxXMm,
 				`must not cross x = ${TABLE.reference.playfieldMm.w} -- reached maxX ${r.maxXMm.toFixed(2)}, final ${JSON.stringify(r.finalMm)}`,
 			).toBeLessThanOrEqual(TABLE.reference.playfieldMm.w + 1);
-			expect(r.maxXMm, 'sanity: the ball must have travelled toward col_wall_right for this to be evidence').toBeGreaterThan(490);
+			// Code review 2026-09-02 (Rule 19): this guard used to read
+			// `toBeGreaterThan(490)`, which `sweep()` seeds to TRUE before
+			// physics runs (`maxXMm` starts at `startMm.x`, here 500), so it
+			// could never fail. col_wall_right's inner face is at x = 514.4 and
+			// the ball radius is 13.495, so a live ball driven at +x must reach
+			// a centre x of ~500.9 -- strictly PAST its own start. Asserting
+			// movement off the start position is the observation the guard was
+			// written to make.
+			expect(
+				r.maxXMm,
+				`sanity: the ball must have MOVED toward col_wall_right for this to be evidence -- maxX ${r.maxXMm.toFixed(2)} against a start of 500`,
+			).toBeGreaterThan(500);
 		});
 
 		it('top wall (col_wall_top): a ball driven toward the FAR end at z = 200 mm stays inside y <= playfieldMm.h', () => {

@@ -778,3 +778,18 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-1b-the-full-shot-map-and-the-switch-set.md | severity: high | fix-risk: med | footprint: in-story
 - evidence: lead investigation 2026-09-01 at d1bfcf3: full switch-closure trace of the roll-and-drain and hold-and-release goldens shows s_outlane_r closing and s_trough_4 reached with no s_drain make anywhere in the replay; s_drain, s_inlane_l, s_inlane_r and s_outlane_l never close
 - 2026-09-01T20:45:18Z status=open owner=2-1b-the-full-shot-map-and-the-switch-set by=harvest note=found while verifying the second implement halt's causal claim, not reported by either implement pass; a drain the drain switch never sees is an FR-11 class hole (no ball lost by a missed switch) and it is reachable on the CURRENT geometry by every plunge, so it is in-story rather than routed
+
+### DW-122: epics.md Story 2.3's acceptance criteria name col_dragon_body, a node Story 2.1b never authored -- the Dragon shipped as col_dragon_leg_l/col_dragon_leg_r with switch zones sw_dragon_body_l/_r
+- source: spec-2-1b-the-full-shot-map-and-the-switch-set.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: epics.md:1090 and :1945 require 'the col_dragon_body, sw_lock_lane and bd_lock nodes are unchanged or re-authored to the same names'; git grep col_dragon_body finds zero matches under src/, test/, tools/ or the committed collision document -- 2.3 will either fail that criterion or silently reinterpret it
+- 2026-09-02T22:16:33Z status=routed owner=2-3-drop-targets-the-spinner-and-the-lock-in-physics by=cr note=the switch s_dragon_body DOES exist; only the col_ node name differs -- 2.3's AC needs the real node names before its plan stage reads it
+
+### DW-123: Rework iteration 3 shortened col_loop_top's left end from x 40 to x 220 for the plunge fix, so col_loop_l no longer meets the top connector and task 3's 'both lanes join across the top so a full orbit passes both' clause is no longer delivered or tested
+- source: spec-2-1b-the-full-shot-map-and-the-switch-set.md | severity: med | fix-risk: med | footprint: in-epic
+- evidence: col_loop_top spans x 220-428.4 at y 1004.8-1016.8; col_loop_l tops out at y 1016.8 over x 50-62, so the two no longer meet. test/shot-routing.test.ts asserts each loop's own two switches separately -- no test shows one ball closing both s_loop_l_* and s_loop_r_*
+- 2026-09-02T22:16:41Z status=routed owner=2-1c-the-loop-returns-and-the-inlane-feed by=cr note=2.1c owns loop routing with the 2.1a bounds and the Ramp position explicitly negotiable, which is where re-joining the top belongs
+
+### DW-124: assets/src/dragonwar.blend is not byte-reproducible across regenerations while the derived .glb and .collision.json are, so every geometry story produces a spurious binary .blend diff no reviewer can read or verify
+- source: spec-2-1b-the-full-shot-map-and-the-switch-set.md | severity: low | fix-risk: high | footprint: in-epic
+- evidence: AD-11 makes the .blend the sole owner of geometry and requires all three artifacts committed together; Blender embeds session state in the file, so a no-op regen still changes bytes while export.py's deterministic writer reproduces the .glb and .collision.json exactly
+- 2026-09-02T22:16:49Z status=wontfix-accepted owner=2-1b-the-full-shot-map-and-the-switch-set by=cr note=reopen_if=a geometry story needs a reviewable .blend diff, or Blender gains a reproducible-save option; review the derived .collision.json instead, per this story's own manual-check note

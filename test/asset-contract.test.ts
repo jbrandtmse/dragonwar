@@ -260,6 +260,39 @@ describe('asset contract -- Story 2.1b task 9: col_lane_deflector is RETIRED (DW
 		expect(loopR, 'col_loop_r missing from the collision document').toBeDefined();
 		expect(loopR!.bboxMm.max.y, 'the Right Loop guide must reach up past where the plunger-lane wall stops (y = 950)').toBeGreaterThan(950);
 	});
+
+	// Code review 2026-09-02: retiring col_lane_deflector (task 9, correctly)
+	// also deleted this suite's ONLY committed-document proof that
+	// tools/export.py's wall_footprint_mm() emits a real plan polygon rather
+	// than an axis-aligned bounding box. The equivalent export-side check
+	// ("a wall with a genuinely angled mesh footprint exports a three-point
+	// footprintMm, not a four-corner bounding box") lives in
+	// test/export-py.test.ts, which is Blender-gated and therefore SKIPPED in
+	// CI -- so nothing CI-visible covered it any more. Re-pointed at
+	// col_loop_r_deflector, the node that took over the retired deflector's
+	// job and carries the same three-point angled footprint.
+	//
+	// mutation: make wall_footprint_mm() return its bbox corners instead of
+	// the hull -> this assertion goes red naming col_loop_r_deflector.
+	it('col_loop_r_deflector carries a real angled three-point footprint -- a bbox reduction could never produce it', () => {
+		const doc = readCollisionDoc();
+		const node = doc.nodes.find((n) => n.name === 'col_loop_r_deflector');
+		expect(node, 'col_loop_r_deflector missing from the collision document').toBeDefined();
+		expect(node!.shape).toBe('wall');
+		const footprint = node!.footprintMm;
+		expect(footprint, 'col_loop_r_deflector must carry a footprintMm polygon').toBeDefined();
+		expect(footprint!.length, 'the deflector is a triangular prism -- its plan-view footprint must have exactly 3 points').toBe(3);
+
+		let hasDiagonalEdge = false;
+		for (let i = 0; i < footprint!.length; i++) {
+			const a = footprint![i]!;
+			const b = footprint![(i + 1) % footprint!.length]!;
+			if (Math.abs(a.x - b.x) > 1e-6 && Math.abs(a.y - b.y) > 1e-6) {
+				hasDiagonalEdge = true;
+			}
+		}
+		expect(hasDiagonalEdge, `footprint ${JSON.stringify(footprint)} has no diagonal edge -- it reduces to an axis-aligned shape`).toBe(true);
+	});
 });
 
 describe('asset contract -- Story 1.5: every wall footprint has at least 3 points and a non-zero enclosed area', () => {

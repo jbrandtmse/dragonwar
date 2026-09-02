@@ -42,10 +42,29 @@ interface CollisionDocForTest {
 
 let cachedDoc: CollisionDocForTest | null = null;
 
-/** The committed `dragonwar.collision.json`, parsed once and cached -- every caller shares the same parsed object (never mutate the result). */
+/**
+ * Recursively freezes the parsed document. Code review 2026-09-02: the doc
+ * comment below promised every caller "the SAME frozen document", but
+ * nothing froze it -- the `readonly` modifiers on the interfaces above are
+ * TypeScript-only and erased at runtime, so one consumer mutating a node's
+ * `bboxMm` would silently change the geometry every later test in the same
+ * vitest worker reads. Freezing makes the promise real rather than
+ * aspirational.
+ */
+function deepFreezeDoc<T>(value: T): T {
+	if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+		Object.freeze(value);
+		for (const key of Object.keys(value as Record<string, unknown>)) {
+			deepFreezeDoc((value as Record<string, unknown>)[key]);
+		}
+	}
+	return value;
+}
+
+/** The committed `dragonwar.collision.json`, parsed once, deep-frozen and cached -- every caller shares the same frozen object, so no consumer can mutate the geometry out from under another. */
 export function readCollisionDoc(): CollisionDocForTest {
 	if (!cachedDoc) {
-		cachedDoc = JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as CollisionDocForTest;
+		cachedDoc = deepFreezeDoc(JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as CollisionDocForTest);
 	}
 	return cachedDoc;
 }

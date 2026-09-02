@@ -49,11 +49,11 @@ import { describe, expect, it } from 'vitest';
 import { createSwitchTracker } from '../src/sim/physics/switches';
 import { createMachine } from '../src/sim/physics/machine';
 import { NO_FRAME } from '../src/sim/loop';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import { toPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { readCollisionDoc } from './util/collision-doc';
-import { MEASURED_MAX_SPEED_MM_PER_S } from './util/max-speed';
+import { MEASURED_MAX_SPEED_MM_PER_S, MEASURED_PLUNGE_MAX_MM_PER_S } from './util/max-speed';
 import type { LoadedSwitchZone } from '../src/sim/physics/loader';
 import type { SwitchName } from '../src/sim/table/names';
 
@@ -140,6 +140,26 @@ describe('switch zones at the measured maximum speed (AC 5, AC 2) -- every zone-
 		.map((z) => ({ zoneName: z.name, switchName: z.switch as SwitchName }));
 
 	expect(zoneCases.length, 'sanity: the shot map must have added zone-requiring switches to sweep').toBeGreaterThanOrEqual(30);
+
+	// Code review 2026-09-02 (Rule 19): MEASURED_MAX_SPEED_MM_PER_S is a
+	// frozen literal in test/util/max-speed.ts, measured once against the
+	// plunge leg. Nothing tied it to the tunable it was measured FROM, so
+	// raising autolaunchSpeedMmPerS would leave every sweep below quietly
+	// running under the real maximum while still calling itself "the measured
+	// maximum speed" -- AC 5's whole claim. This pins the recorded figure to
+	// the live tunable, so a tuning change that invalidates the measurement
+	// fails here by name instead of silently.
+	//
+	// mutation: raise TUNING.autolaunchSpeedMmPerS.value above
+	// MEASURED_PLUNGE_MAX_MM_PER_S / 0.99 -> this assertion goes red naming
+	// both figures.
+	it('the recorded plunge maximum still covers the live autolaunch tunable it was measured from', () => {
+		const autolaunch = TUNING.autolaunchSpeedMmPerS.value;
+		expect(
+			MEASURED_PLUNGE_MAX_MM_PER_S,
+			`the recorded plunge maximum (${MEASURED_PLUNGE_MAX_MM_PER_S} mm/s, test/util/max-speed.ts) must still cover TUNING.autolaunchSpeedMmPerS (${autolaunch} mm/s) -- re-measure it if the tunable moved`,
+		).toBeGreaterThanOrEqual(autolaunch * 0.99);
+	});
 
 	it.each(zoneCases)('$zoneName ($switchName): exactly one make (immediate) and one break per pass at the measured maximum speed', ({ zoneName, switchName }) => {
 		const zoneDoc = doc.switchZones.find((z) => z.name === zoneName)!;

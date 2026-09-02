@@ -221,11 +221,17 @@ open field (`test/plunger.test.ts`, `test/machine-serve-drain.test.ts`).
 
 ### Ramp
 
-`pending-author`. Entrance right of centre (`RAMP_ENTER_X_MM = 315` >
+`pending-author`. Entrance right of centre (`RAMP_ENTER_X_MM = 372` >
 `PLAYFIELD_W_MM / 2 = 257.2`) so the LEFT flipper shoots it; a return rail
 (the `add_channel_rail()` technique 2.1a's own outlane return channel
-proved) carries the ball back down into the RIGHT inlane (`docs/decisions.md`
-records the OQ-6 choice and why). `s_ramp_enter`/`s_ramp_made` mark entry and
+proved) is intended to carry the ball back down into the RIGHT inlane
+(`docs/decisions.md` records the OQ-6 choice and why). **Code review
+2026-09-02: as drawn it does not yet do so** -- a ball released on the
+return rail routes `s_loop_r_in -> s_outlane_r -> s_drain`, never
+`s_inlane_r`, because the channel between `col_ramp_wall_r`'s right face
+(x = 401) and `col_ramp_return_2`'s left edge measures 11.5-26.0 mm over
+y 480-750, all under the 26.99 mm ball, so the rail's only passable side is
+its right one. The decision stands; the geometry has not delivered it yet. `s_ramp_enter`/`s_ramp_made` mark entry and
 completion. No sloped-plane primitive exists in this collision model (see
 `tools/make-placeholder-blend.py`'s own constants-block note), so the bed is
 authored at deck height with `surface = 'ramp'`; `RAMP_HEIGHT_MM`/

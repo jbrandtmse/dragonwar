@@ -15,6 +15,15 @@
 //
 // The plunge leg is the larger of the two; a small margin is added so the
 // derived tests genuinely exercise "at or above" the measured maximum.
-const MEASURED_PLUNGE_MAX_MM_PER_S = 2497.92;
+//
+// Code review 2026-09-02: both figures are FROZEN LITERALS -- nothing
+// re-measures them, so raising `autolaunchSpeedMmPerS`,
+// `plungerSpeedByHoldMs` or flipper strength would silently invalidate AC
+// 5's "at any ball speed the Physics core can produce" without any test
+// going red. `MEASURED_PLUNGE_MAX_MM_PER_S` is exported so
+// `test/switch-max-speed.test.ts` can pin it against the live tunable it
+// was measured from; the flipper leg has no single tunable to pin against
+// and remains a recorded measurement only.
+export const MEASURED_PLUNGE_MAX_MM_PER_S = 2497.92;
 const MEASURED_FLIPPER_MAX_MM_PER_S = 2085.54;
 export const MEASURED_MAX_SPEED_MM_PER_S = Math.max(MEASURED_PLUNGE_MAX_MM_PER_S, MEASURED_FLIPPER_MAX_MM_PER_S) * 1.02;

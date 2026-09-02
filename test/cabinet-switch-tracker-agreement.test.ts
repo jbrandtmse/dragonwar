@@ -72,6 +72,15 @@ describe('cabinet/index.ts stepLevel() agrees with switches.ts createSwitchTrack
 
 		const fromSwitchTracker = edgesFromSwitchTracker(rawSequence, settleTicks);
 		const fromStepLevel = edgesFromStepLevel(rawSequence, settleTicks);
+		// Code review 2026-09-02 (Rule 19): agreement alone is vacuous if BOTH
+		// implementations regress to emitting nothing -- `[] toEqual []`
+		// passes. This sequence contains a real make and a real settled break
+		// at every settleTicks under test, so both sides must produce edges
+		// for the comparison to mean anything.
+		expect(
+			fromSwitchTracker.length,
+			`sanity: the raw sequence must produce real edges at settleTicks=${settleTicks}, or "they agree" says nothing -- got ${JSON.stringify(fromSwitchTracker)}`,
+		).toBeGreaterThanOrEqual(2);
 		expect(fromStepLevel, `stepLevel() and createSwitchTracker() must agree for settleTicks=${settleTicks}`).toEqual(fromSwitchTracker);
 	});
 
