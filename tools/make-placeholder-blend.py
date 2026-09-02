@@ -187,6 +187,36 @@ LOOP_FUNNEL_Y1_MM = 500.0  # authored -- a short, gentle widening run
 # Ramp's own shot, or the ball's own unobstructed climb). No constant is
 # left here because no version of the fix survived.
 
+# Rework iteration 3 (author's answer A): how steep col_loop_r_deflector's
+# own hypotenuse must be for the PLUNGE to clear the Right Loop's own
+# entrance (col_loop_top's reach, x <= 428.4 + BALL_RADIUS_MM, y in roughly
+# [991, 1030]) instead of catching its top-right corner and rattling in the
+# loop's own pocket, which is what the previous (45 deg) angle measurably
+# did (this story's own rework-iteration-2 evidence: ~1300 stray ticks in
+# that pocket, zero ticks in the flipper band). Derived from this solver's
+# own measured contact response, not guessed: driving the OLD 45 deg
+# deflector and reading the ball's velocity the instant contact ends
+# (test harness, this story's own rework pass) gives a post-contact split of
+# ~79% of the incoming speed retained along the surface's own up-slope
+# tangent and ~30% reflected along its outward normal -- i.e. for an
+# incoming velocity aligned with +Y (a ball travelling dead straight up the
+# shooter lane, which is exactly this table's own case, gravity having no
+# x-component), the closed form is
+#   v'x = -1.09 * vy_in * sin(theta) * cos(theta)
+#   v'y =        vy_in * (0.79 * sin(theta)**2 - 0.30 * cos(theta)**2)
+# where theta is the hypotenuse's own angle from horizontal (45 deg for the
+# original deflector; verified this closed form reproduces the ORIGINAL
+# deflector's own measured post-contact velocity, (-736, +331) mm/s from an
+# incoming (0, +1354) mm/s, to within 1 mm/s on both axes). Solving it for
+# the SAME incoming speed at theta = 68 deg gives a far steeper climb
+# (v'y ~ 830 mm/s against the original's 331) while its own leftward
+# component (v'x ~ -502 mm/s) is still large enough to carry the ball well
+# past the Right Loop's own reach and, empirically (this story's own traced
+# run against the regenerated document), across the whole table and down
+# the left side -- see this file's own PLUNGE_DEFLECTOR_DROP_MM below for
+# the resulting geometry and the trace this angle was chosen against.
+PLUNGE_DEFLECTOR_DROP_MM = 50.0  # 34 mm run (the shooter lane's own clear width) at theta = atan(50/34) = 55.8 deg -- see the deflector's own node comment for why 85 (68.2 deg, tried first) is too steep: it lowers the hypotenuse's own low point (B) below LANE_WALL_TOP_Y_MM = 950, back into col_wall_lane's own reach, and a steep leftward bounce there rams the ball straight into that wall a few mm later, the same corner-trap class DW-119 already named elsewhere. 50 mm keeps the whole hypotenuse comfortably above 950 (B.y = 966.8) while still climbing far more than the original 34 mm did.
+
 # Spinner (task 4, Left Loop only -- SPEC CAP-26 success clause,
 # machine-behaviour.md:72). A thin stub protruding from the loop guide's own
 # inner face, narrow enough that the reference ball still clears the
@@ -997,9 +1027,43 @@ def main():
 
 	# Top connector, joining both loops across the top of the table -- "both
 	# lanes join across the top so a full orbit passes both" (task 3).
+	#
+	# Rework iteration 3 (surfaced while re-siting col_loop_r_deflector per
+	# answer A): this wall's own north face is dead flat, and a ball riding
+	# it (pressed against its edge by gravity, the same way any ball rests
+	# against a wall it cannot cross) slides along the ENTIRE flat edge
+	# rather than falling off partway -- there is no x-component to this
+	# table's gravity to make it "slide down" a flat edge, only whatever
+	# residual sideways speed it already had, decaying slowly under
+	# friction. Left at its original FULL span (task 3's own
+	# `loop_l_x0 - 10` to `loop_r_x1 + 10`, i.e. x = 40..428.4), a plunged
+	# ball rides this edge all the way to its LEFT end, landing in the Left
+	# Loop's own narrow lane -- which currently returns to the left OUTLANE,
+	# not the inlane (the Loop-return-to-inlane defect this story's own
+	# rework already investigated and, on the author's own instruction,
+	# moved OUT of this story's scope to Story 2.1c). A plunge that rides
+	# this edge that far therefore inherits 2.1c's own open defect, which
+	# this story may not fix here.
+	#
+	# The fix is DERIVED, not invented: shortened at the LEFT end only, from
+	# x = 40 to x = 220 -- clear of both loops' own rails (the Left Loop's
+	# at x = 50..62, the Right Loop's at x = 406.4..418.4, neither of which
+	# this wall needs to reach: `test/shot-routing.test.ts`'s own Left/Right
+	# Loop cases both close their `_in`/`_out` switches and finish well
+	# below y = 880, never touching this wall's own y = 1004.8..1016.8 band
+	# at all) -- and landing squarely inside the x-range
+	# `test/shot-routing.test.ts`'s own "descending release onto the
+	# rebevelled flat-topped bodies" sweep already proves makes genuine
+	# positional progress from directly above (x = 100..385, onto the
+	# slingshots, the Dragon's legs and the DRAGON bank) rather than
+	# stranding, this story's own rework-iteration-2 fix. A ball that falls
+	# off THIS wall's own new left end therefore falls into open field this
+	# story has already verified handles a descending ball correctly,
+	# instead of into the Left Loop's own lane, which this story has not
+	# fixed and may not fix here.
 	add_box_wall(
 		'col_loop_top',
-		loop_l_x0 - 10.0, loop_r_x1 + 10.0,
+		220.0, loop_r_x1 + 10.0,
 		LOOP_TOP_INNER_Y_MM - GUIDE_T_MM, LOOP_TOP_INNER_Y_MM,
 		'plastic',
 	)
@@ -1061,19 +1125,42 @@ def main():
 	# LANE_WALL_TOP_Y_MM does not "turn the ball into the field"; it needs an
 	# actual angled surface to deflect it sideways, exactly the job the
 	# retired col_lane_deflector did. The Right Loop's own upper arc supplies
-	# that surface -- an angled prism at the plunger lane's own top,
-	# geometrically identical to the retired deflector (same hypotenuse, low-
-	# right (PLAYFIELD_W_MM, ~976) to high-left (LANE_X0_MM + WALL_T_MM,
-	# ~1010)) but now authored as part of the loop rather than a standalone
-	# node, so DW-58's own claim ("the Right Loop's own upper arc turns the
-	# launched ball into the field") is genuinely true rather than merely
-	# asserted. Identity object transform, angled mesh vertices -- the same
-	# technique the retired node proved.
+	# that surface -- an angled prism at the plunger lane's own top, authored
+	# as part of the loop rather than a standalone node, so DW-58's own claim
+	# ("the Right Loop's own upper arc turns the launched ball into the
+	# field") is genuinely true rather than merely asserted.
+	#
+	# Rework iteration 3 (author's answer A, DW-121's sibling finding): the
+	# ORIGINAL hypotenuse here (a 45 deg angle, geometrically the retired
+	# col_lane_deflector's own proven angle) does deflect the ball sideways,
+	# but not steeply enough -- measured this story's own rework-iteration-2
+	# pass, a plunged ball's post-deflection velocity retained too little of
+	# its climb (+331 mm/s in Y against -736 mm/s in X) to clear the Right
+	# Loop's own entrance (col_loop_top's reach in x, up to
+	# 428.4 + BALL_RADIUS_MM) before its Y had already fallen back into that
+	# wall's own y-reach -- the ball caught col_loop_top's top-right corner
+	# instead of clearing it, and rattled in the Loop's own pocket for
+	# ~1300 ticks before falling back into the right outlane, never once
+	# reaching the flipper band. This is now a genuinely STEEPER hypotenuse
+	# (PLUNGE_DEFLECTOR_DROP_MM = 50 mm over the same 34 mm run, theta =
+	# 55.8 deg -- see that constant's own comment for the closed-form
+	# derivation from this solver's measured contact response, AND for why
+	# an even steeper 85 mm / 68.2 deg was tried first and rejected), which
+	# retains far more of the climb (measured against the regenerated
+	# document, this story's own trace: post-deflection velocity
+	# (-716, +644) mm/s, against the original 45 deg angle's own
+	# (-736, +331) mm/s), clearing the Right Loop's own entrance with margin
+	# and, empirically, crossing the whole table and descending the left
+	# side onto the left flipper -- see this story's own Spec Change Log /
+	# rework report for the measured trace (max Y, flipper-band ticks,
+	# closest approach to the left bat) this angle was chosen against.
+	# Identity object transform, angled mesh vertices -- the same technique
+	# the retired node proved.
 	col_loop_r_deflector = new_prism_mesh(
 		'col_loop_r_deflector',
 		[
 			(LANE_X0_MM + WALL_T_MM, LOOP_TOP_INNER_Y_MM),
-			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM - 34.0),
+			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM - PLUNGE_DEFLECTOR_DROP_MM),
 			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM),
 		],
 		0.0, WALL_H_MM,
@@ -1362,10 +1449,53 @@ def main():
 
 	# Drain -- the "ball reached the aperture" edge, distinct from
 	# sw_trough_1..4 (the PARKING device's own slot switches, excluded from
-	# the generic tracker by AD-6): sited right where the ball crosses off
-	# the visible deck, one tick's margin above the trough zones' own y = 0
-	# ceiling.
-	add_switch_zone('sw_drain', 's_drain', (DRAIN_X0_MM, -5, 0), (DRAIN_X1_MM, 15, 30))
+	# the generic tracker by AD-6).
+	#
+	# Rework iteration 3 (DW-121, author's answer B): widened from the
+	# original (DRAIN_X0_MM, -5, 0)..(DRAIN_X1_MM, 15, 30) -- sized only for
+	# the CENTRE drain's own near-vertical drop through the aperture -- to
+	# span the WHOLE below-deck corridor, x in [0, PLAYFIELD_W_MM], y in
+	# [-80, 15]. Measured evidence (this story's own rework pass): a ball
+	# descending the RIGHT OUTLANE crosses y = 0 at x ~ 445-448 (inside the
+	# outlane's own gap in col_wall_bottom_r, far outside the old zone's
+	# x band) and, by the time add_outlane_return_channel()'s own diagonal
+	# rail has carried its x back into [DRAIN_X0_MM, DRAIN_X1_MM], its y has
+	# already fallen to roughly -67 to -75 -- well under the old zone's
+	# y = -5 floor -- so it reached bd_trough with NO s_drain edge ever
+	# emitted (an FR-11 class miss: a drain the drain switch never saw). The
+	# left outlane's own return channel (build_channel_rail_points(0.0, ...))
+	# has the same shape, mirrored, and would miss the same way.
+	#
+	# The widened zone is not merely generous, it is architecturally exact
+	# for y < 0: that band is reachable ONLY by falling through one of this
+	# file's own three deck gaps (the centre aperture and the two outlane
+	# gaps in col_wall_bottom_l/_r) -- the playfield's own y range is
+	# [0, PLAYFIELD_H_MM] (AD-10), so no on-deck path ever puts a ball at
+	# y < 0 during ordinary play -- and it catches every drain path this
+	# file draws -- the centre aperture (a near-vertical crossing right at
+	# y = 0, the old zone's own case, still covered by the y <= 15 band
+	# above) and both outlane return channels (whose own diagonal rails run
+	# as low as CHANNEL_Y_END_MM = -75, comfortably inside the new -80
+	# floor, at every x along their own run). z stays 0..30 -- this
+	# collision model has no real Z-drop (col_playfield is a single plane,
+	# DW-120's own Design Notes), so a below-deck ball rests at the same
+	# ball-radius height as an on-deck one.
+	#
+	# The x range stops at LANE_X0_MM (468.4), NOT the full playfield width
+	# -- found and fixed during this rework's own verification pass (a
+	# false s_drain make surfaced at tick 581 of a bare trough-eject serve,
+	# nowhere near any drain): the FIRST version of this fix spanned
+	# x in [0, PLAYFIELD_W_MM], which reaches into the shooter lane itself
+	# (x ~ 480.4..514.4, BD_TROUGH_EJECT_X_MM = 497.4) -- a freshly served
+	# ball settles there at y ~ 13.5, inside the y <= 15 band above, so
+	# EVERY ordinary trough eject spuriously closed s_drain. The shooter
+	# lane is never part of any drain path (a ball there is freshly served
+	# or waiting to be plunged, AD-6), so excluding x > LANE_X0_MM loses no
+	# real drain coverage: both outlane channels stay at x <= LANE_X0_MM
+	# their entire run (the right one starts exactly there and only
+	# decreases), and the centre aperture sits at x in
+	# [DRAIN_X0_MM, DRAIN_X1_MM], both comfortably inside the narrower band.
+	add_switch_zone('sw_drain', 's_drain', (0.0, -80, 0), (LANE_X0_MM, 15, 30))
 
 	# ---- Ball devices: empties at their authored eject pose ----
 	# bd_trough -- Story 1.5 (DW-51, DW-58): relocated from the original
