@@ -28,6 +28,27 @@
 // (`test/switch-zones.test.ts`'s own synthetic-zone convention) -- see the
 // second describe block below, which asserts the OLD bounds miss the SAME
 // swept segment the real, widened zone catches.
+//
+// QA pass (2026-09-02): the widened `sw_drain` fully CONTAINS all four
+// `sw_trough_1..4` zones (`x 200-314.4, y -80..0`), and `s_drain` is
+// `settleClass: 'rollover'` (zero settle both ways, AD-2 AMENDED: "settleTicks
+// gates the break, never the make"). A ball resting in the trough forever
+// would therefore be the mirror of DW-121's own defect -- a rollover that
+// never opens. Settled EMPIRICALLY, not assumed: `devices.ts:325`'s
+// `detectEntries()` calls `physics.removeBall(movement.ball)` the tick a ball
+// is parked into a slot, which deletes it from `physics.balls` entirely --
+// not merely moves it. `switches.ts:108`'s `raw` test is
+// `movements.some(...)`, built fresh each tick from `physics.balls`
+// (`machine.ts:237-241`), so a parked ball contributes NOTHING to the next
+// tick's `movements` array at all, `raw` is `false`, and because `rollover`'s
+// `settleTicks` is `0` (`tuning.ts:179`), the break fires on that very next
+// tick -- confirmed by hand-running each case below and observing genuine
+// make/break pairs (e.g. the right-outlane case: make at tick 1179, break at
+// tick 1628, the ~450-tick gap being the ball's own dwell time travelling
+// through the below-deck corridor before it reaches `bd_trough`'s entry
+// zone). The three `it`s below now assert the break explicitly, not just the
+// make -- a switch that latched closed forever would pass the OLD assertions
+// unnoticed.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -90,31 +111,40 @@ function releaseAndWatchDrain(xMm: number, yMm: number, maxTicks: number) {
 }
 
 describe('sw_drain (DW-121): every drain path -- centre aperture and both outlane return channels -- surfaces an s_drain edge', () => {
-	it('a ball released in the LEFT outlane surfaces s_drain closed:true before parking in bd_trough', () => {
+	it('a ball released in the LEFT outlane surfaces s_drain closed:true then closed:false, and does not stay latched closed once parked (DW-121 break-edge gap)', () => {
 		const wallBbox = nodeBboxMm('col_wall_left');
 		const dividerBbox = nodeBboxMm('col_guide_divider_l');
 		const midXMm = (wallBbox.max.x + dividerBbox.min.x) / 2;
 		const { drainEvents, parkedInTrough } = releaseAndWatchDrain(midXMm, 300, 4000);
 		const makes = drainEvents.filter((e) => e.closed);
+		const breaks = drainEvents.filter((e) => !e.closed);
 		expect(makes.length, `s_drain must make at least once for a left-outlane drain -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
 		expect(parkedInTrough, 'the ball must actually have reached bd_trough for this to be a meaningful drain').toBe(true);
+		expect(breaks.length, `s_drain must ALSO break once the ball leaves the corridor and parks -- a rollover that never opens is DW-121's own defect mirrored (sw_drain now fully contains every sw_trough_* zone) -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
+		expect(drainEvents[drainEvents.length - 1]?.closed, `the LAST s_drain edge observed must be a break (closed:false), not a latched make -- observed: ${JSON.stringify(drainEvents)}`).toBe(false);
 	});
 
-	it('a ball released in the RIGHT outlane surfaces s_drain closed:true before parking in bd_trough (DW-121\'s own measured case)', () => {
+	it('a ball released in the RIGHT outlane surfaces s_drain closed:true then closed:false, and does not stay latched closed once parked (DW-121\'s own measured case, plus its break-edge gap)', () => {
 		const wallBbox = nodeBboxMm('col_wall_lane');
 		const dividerBbox = nodeBboxMm('col_guide_divider_r');
 		const midXMm = (dividerBbox.max.x + wallBbox.min.x) / 2;
 		const { drainEvents, parkedInTrough } = releaseAndWatchDrain(midXMm, 300, 4000);
 		const makes = drainEvents.filter((e) => e.closed);
+		const breaks = drainEvents.filter((e) => !e.closed);
 		expect(makes.length, `s_drain must make at least once for a right-outlane drain -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
 		expect(parkedInTrough, 'the ball must actually have reached bd_trough for this to be a meaningful drain').toBe(true);
+		expect(breaks.length, `s_drain must ALSO break once the ball leaves the corridor and parks -- a rollover that never opens is DW-121's own defect mirrored (sw_drain now fully contains every sw_trough_* zone) -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
+		expect(drainEvents[drainEvents.length - 1]?.closed, `the LAST s_drain edge observed must be a break (closed:false), not a latched make -- observed: ${JSON.stringify(drainEvents)}`).toBe(false);
 	});
 
-	it('the centre drain still surfaces s_drain closed:true, unaffected by the widened zone (regression guard)', () => {
+	it('the centre drain still surfaces s_drain closed:true then closed:false, unaffected by the widened zone (regression guard, plus its break-edge gap)', () => {
 		const { drainEvents, parkedInTrough } = releaseAndWatchDrain(257.2, 60, 2000);
 		const makes = drainEvents.filter((e) => e.closed);
+		const breaks = drainEvents.filter((e) => !e.closed);
 		expect(makes.length, `s_drain must still make for a centre drain -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
 		expect(parkedInTrough).toBe(true);
+		expect(breaks.length, `s_drain must ALSO break once the ball leaves the corridor and parks -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
+		expect(drainEvents[drainEvents.length - 1]?.closed, `the LAST s_drain edge observed must be a break (closed:false), not a latched make -- observed: ${JSON.stringify(drainEvents)}`).toBe(false);
 	});
 });
 
