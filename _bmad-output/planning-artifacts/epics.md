@@ -1083,6 +1083,7 @@ So that the Dragon's Lock is a working device instead of a hole that swallows th
 **When** the goldens are re-recorded
 **Then** all five are re-recorded under the author's grant of 2026-09-02, each traced correct **and** each still asserting its own subject
 **And** every golden's `notes` is corrected: all five currently claim `bd_lock` adds an *"empty"*-slots entry, when the real boot value is `[true, true, true]` -- wrong in the one detail the note exists to record. `stateHash()` hashes `machine.deviceSlots`, which is why all five move together.
+**And** `col_spinner_l` is renamed **`vis_spinner_l`** in the same re-export, so the rename rides this story's golden re-record instead of buying a second one -- AD-6 was amended 2026-09-03 to the pass-through model (a spinner is a gate the ball passes through, not a body it strikes), which makes the node intentionally non-colliding, and a node nothing collides with is not `col_` under AD-11's prefix contract. Story 2.1c left it named and commented in place for exactly this reason: the rename moves `assetHash` and breaks all five goldens on its own, and `bd_lock`'s boot-state fix above already breaks the same five, so batching costs one re-record rather than two. Story 2.3 still owns the spin and decay mechanism, driven off the `sw_spinner` zone crossing.
 
 **Ledger entries routed to this story** (Rule 17 (1b))
 
@@ -1155,6 +1156,11 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 **Given** three balls are parked in `bd_lock`
 **When** a fourth enters the lane
 **Then** physics parks nothing, the ball rests at the lane's entry, and the rules layer (Story 2.4) sees `device_ball_entered` with a slot beyond capacity so it can answer `device_overflow`
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-136: the DRAGON bank's reachable approach corridor limits direct-from-below reachability to two of its six targets, against this story's own "all six droppable" requirement -- the corridor from `col_guide_outer_r`'s east face (279.525) to the re-sited `col_sling_r`'s west face (314.0) is 34.475 mm, i.e. **7.485 mm of ball-centre freedom**, so only targets overlapping x ~280.5..314 can be struck directly. Pre-existing, not introduced by Story 2.1c's own fix (the bank moved because `col_ramp_wall_l` had to clear the widened Right Loop lane). The bank's shot-routing case asserts only "at least one DRAGON-bank target closes", so nothing catches it and no dimensional gate pins the corridor -- expect to re-solve the bank, the Ramp's west wall and `col_sling_r` together rather than move one body (ledger; routed by harvest 2026-09-03).
+- DW-135 (context, already closed `by-design`): AD-6 was amended 2026-09-03 to the **pass-through** spinner model -- a ball crossing `sw_spinner`'s zone imparts rotation and closes `s_spinner` once per revolution until it decays (FR-26). **This story owns the spin and decay mechanism**, driven off that zone crossing, not off a collision with a body: thirteen-plus rigid-body variants were measured in Story 2.1c and every one that touched the ball stalled it permanently. `col_spinner_l` is renamed `vis_spinner_l` in Story 2.1d.
 
 ### Story 2.4: The devices-and-shots layer
 

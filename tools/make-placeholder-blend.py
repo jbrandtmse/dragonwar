@@ -1639,6 +1639,31 @@ def main():
 	# story needs a different mechanism than a static collision stub in
 	# either of this lane's two ball paths -- a compliant/hinged spinner
 	# simulation, or a location this investigation did not test).
+	#
+	# [RESOLVED 2026-09-03 -- AD-6 AMENDED; author's decision on the
+	# runner's Clarification] The premise above is corrected, not waived.
+	# prd.md:71 puts the Spinner on one of the two Loops while AD-6 used
+	# to require it to spin "from ball contact"; on this geometry both
+	# cannot hold, and the thirteen-plus stalls above are WHY. A real
+	# spinner is a freely-rotating GATE the ball passes THROUGH, not an
+	# obstacle it strikes -- so AD-6's Rule now reads pass-through: a ball
+	# crossing sw_spinner's zone imparts rotation proportional to entry
+	# speed and closes s_spinner once per revolution until it decays
+	# (FR-26 awards per rotation). The analytic swept-segment zone
+	# (AD-11) is therefore the CORRECT model, not a workaround, and every
+	# variant above was failing for the right reason. This body is now
+	# INTENTIONALLY non-colliding, so the code-review finding is closed
+	# by-design rather than high_waived. Story 2.3 owns the spin/decay
+	# mechanism, driven off the zone crossing.
+	#
+	# [RENAME PENDING -- col_spinner_l -> vis_spinner_l] A node nothing
+	# collides with is not col_ under AD-11's prefix contract, so this
+	# name is wrong as it stands. It is NOT renamed here on purpose: the
+	# rename changes the collision document and therefore assetHash,
+	# breaking all five goldens. The device-behaviour story already breaks
+	# the same five for bd_lock's own boot-state fix under its widened
+	# grant, so batching the rename there costs ONE golden re-record
+	# instead of two. Carried explicitly in that story's epics.md block.
 	add_box_wall(
 		'col_spinner_l',
 		0.0, SPINNER_PROTRUDE_MM,
