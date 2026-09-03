@@ -450,42 +450,104 @@ function assertNotStillInPlay(result: ShotResult, label: string): void {
 	).not.toBe('still_in_play');
 }
 
-describe('shot routing (AC 1/AC 3 behavioural half) -- Left Loop', () => {
-	it.each([
-		{ label: 'centred entry', x: 20 },
-		{ label: 'biased entry', x: 16 },
-	])('$label: s_loop_l_in then s_loop_l_out close in order, the completed Loop feeds the left inlane, and the ball reaches the left flipper band', ({ x }) => {
-		const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 6000, ['s_loop_l_in', 's_loop_l_out', 's_inlane_l']);
-		const inIdx = result.firstMakes.indexOf('s_loop_l_in');
-		const outIdx = result.firstMakes.indexOf('s_loop_l_out');
-		expect(inIdx, `s_loop_l_in must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
-		expect(outIdx, `s_loop_l_out must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
-		expect(outIdx, 's_loop_l_out must close AFTER s_loop_l_in (approach order)').toBeGreaterThan(inIdx);
-		// AC 3: a completed Loop must return the ball to the INLANE on its own
-		// side, not an outlane -- checked here (not deferred to task 14's
-		// entry-offset sweep) because it is this shot's own criterion, per
-		// AC 3's own text, not an additional observable bolted on later.
-		expect(result.firstMakes, `s_inlane_l must close -- the completed Loop must feed the left INLANE, not the outlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_l');
-		assertNotStranded(result, 'Left Loop');
-		assertReachesFlipperBand(result, 'Left Loop');
+/**
+ * Story 2.1c: the four Loop switches in orbit order, on ONE ball. Each name
+ * must close, and each must close after the one before it -- which is what
+ * makes the sequence an orbit rather than four unrelated makes.
+ */
+function assertOrbitOrder(result: ShotResult, order: readonly SwitchName[]): void {
+	const idx = order.map((name) => result.firstMakes.indexOf(name));
+	order.forEach((name, k) => {
+		expect(idx[k], `${name} must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 	});
+	for (let k = 1; k < order.length; k++) {
+		expect(
+			idx[k],
+			`${order[k]} must close AFTER ${order[k - 1]} (orbit approach order) -- makes: ${result.firstMakes.join(',')}`,
+		).toBeGreaterThan(idx[k - 1]!);
+	}
+}
+
+// Story 2.1c -- THE ORBIT. A Loop is an orbit (prd.md's own glossary, and
+// the spine's carried acceptance "orbit exits feed the flippers"): the ball
+// is shot up one lane, crosses the joined top, and descends the OTHER lane.
+// So the Right Loop feeds the LEFT inlane and the Left Loop feeds the RIGHT
+// one -- the opposite side, not the same side. Phase 1 authored these two
+// cases against the same-side reading, which is the reading the geometry
+// could not deliver and which the lead's own re-ordering retires; they are
+// corrected here, with the observable STRENGTHENED rather than relaxed: each
+// case now requires all FOUR Loop switches in approach order on ONE ball
+// (DW-123's own single-ball orbit, AC 7), the far side's inlane switch, and
+// a genuine flipper arrival, across a SWEEP of entry offsets rather than one
+// centreline.
+//
+// The entry band is measured, not assumed: the shot climbs the column
+// between the return rail's own tip and the lane's inner rail (see
+// LOOP_LANE_CLEAR_MM's own derivation in tools/make-placeholder-blend.py).
+// An offset outside that column is a MISS -- the ball never reaches the top
+// turn and comes straight back down its own lane -- which is correct
+// behaviour, not a defect, and is why the sweep samples inside the band
+// rather than across the whole lane.
+const LOOP_ENTRY_OFFSETS_MM = [28, 31, 34] as const;
+const laneX0Mm = nodeBboxMm('col_wall_lane').min.x;
+
+describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit', () => {
+	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, x })))(
+		'$label: one ball closes s_loop_l_in, s_loop_l_out, s_loop_r_out and s_loop_r_in in approach order, the orbit feeds the OPPOSITE (right) inlane, and the ball arrives playable at a bat',
+		({ x }) => {
+			const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 9000, ['s_loop_l_in', 's_loop_l_out', 's_inlane_r']);
+			assertOrbitOrder(result, ['s_loop_l_in', 's_loop_l_out', 's_loop_r_out', 's_loop_r_in']);
+			// Story 2.1c review fix (verification-gap finding): col_spinner_l
+			// moved this story from the loop guide's own inner face to the
+			// perimeter face; no test anywhere (registry-only checks in
+			// test/table.test.ts / test/collision-loader.test.ts aside) ever
+			// drove a ball through its actual physical location, so a
+			// measurement error in the relocation could silently stop the
+			// spinner from counting rollovers with a fully green suite.
+			// Verified empirically (this fix's own diagnostic pass) that
+			// s_spinner closes on the Left Loop's own ascending entry, at
+			// every offset in this sweep.
+			// mutation: move col_spinner_l's own x/y so it no longer sits
+			// inside this ascending column and re-export -> s_spinner is
+			// absent from firstMakes below.
+			expect(result.firstMakes, `s_spinner must close on the Left Loop's own ascending entry -- makes: ${result.firstMakes.join(',')}`).toContain('s_spinner');
+			expect(result.firstMakes, `s_inlane_r must close -- the Left Loop is an ORBIT and returns down the RIGHT lane, so it feeds the RIGHT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
+			assertNotStranded(result, 'Left Loop');
+			assertReachesFlipperBand(result, 'Left Loop');
+		},
+	);
 });
 
-describe('shot routing (AC 1/AC 3 behavioural half) -- Right Loop', () => {
-	it.each([
-		{ label: 'centred entry', x: 450 },
-		{ label: 'biased entry', x: 453 },
-	])('$label: s_loop_r_in then s_loop_r_out close in order, the completed Loop feeds the right inlane, and the ball reaches the right flipper band', ({ x }) => {
-		const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 6000, ['s_loop_r_in', 's_loop_r_out', 's_inlane_r']);
-		const inIdx = result.firstMakes.indexOf('s_loop_r_in');
-		const outIdx = result.firstMakes.indexOf('s_loop_r_out');
-		expect(inIdx, `s_loop_r_in must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
-		expect(outIdx, `s_loop_r_out must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
-		expect(outIdx, 's_loop_r_out must close AFTER s_loop_r_in (approach order)').toBeGreaterThan(inIdx);
-		// AC 3: see the Left Loop's own comment above.
-		expect(result.firstMakes, `s_inlane_r must close -- the completed Loop must feed the right INLANE, not the outlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
-		assertNotStranded(result, 'Right Loop');
-		assertReachesFlipperBand(result, 'Right Loop');
+describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Right Loop, the orbit', () => {
+	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, x: laneX0Mm - x })))(
+		'$label: one ball closes s_loop_r_in, s_loop_r_out, s_loop_l_out and s_loop_l_in in approach order, the orbit feeds the OPPOSITE (left) inlane, and the ball arrives playable at a bat',
+		({ x }) => {
+			const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 9000, ['s_loop_r_in', 's_loop_r_out', 's_inlane_l']);
+			assertOrbitOrder(result, ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in']);
+			expect(result.firstMakes, `s_inlane_l must close -- the Right Loop is an ORBIT and returns down the LEFT lane, so it feeds the LEFT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_l');
+			assertNotStranded(result, 'Right Loop');
+			assertReachesFlipperBand(result, 'Right Loop');
+		},
+	);
+});
+
+// DW-123, stated as its own case so the ledger entry has one assertion to
+// point at: ONE ball, all four Loop switches. Both describes above prove it
+// too, deliberately -- the ledger's own complaint was that no test anywhere
+// showed a single ball closing both Loops' pairs, and once the top connector
+// is re-joined the orbit makes that the ORDINARY case rather than a special
+// one.
+describe('shot routing (AC 7, DW-123) -- the re-joined top connector: ONE ball closes both Loops\' switches', () => {
+	it('a single Right Loop shot closes s_loop_r_in, s_loop_r_out, s_loop_l_out and s_loop_l_in in one run', () => {
+		const result = driveShotChecked({ x: laneX0Mm - 31, y: 415, z: 13.5 }, 2200, 0, 9000, ['s_loop_r_in', 's_loop_r_out']);
+		for (const name of ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in'] as const) {
+			expect(result.firstMakes, `${name} must close on THIS ball -- makes: ${result.firstMakes.join(',')}`).toContain(name);
+		}
+		// mutation: shorten col_loop_top's left end back to x = 220 in the
+		// seeding script and re-export -> this goes red (the ball drops into open
+		// field partway across instead of reaching the far lane), reproducing
+		// exactly the gap DW-123 records.
+		expect(result.firstMakes.indexOf('s_loop_l_in'), 'the far Loop\'s own entrance switch closes LAST -- the ball leaves the orbit through it').toBeGreaterThan(result.firstMakes.indexOf('s_loop_l_out'));
 	});
 });
 
@@ -495,7 +557,11 @@ describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
 		expect(TABLE.reference.playfieldMm.w / 2, 'sanity: the Ramp entrance must be right of centre').toBeLessThan(
 			doc.nodes.find((n) => n.name === 'col_ramp_wall_l')!.bboxMm.min.x,
 		);
-		const result = driveShotChecked({ x: 372, y: 465, z: 13.5 }, 2400, 0, 6000, ['s_ramp_enter', 's_ramp_made', 's_inlane_r']);
+		// Story 2.1c: the Ramp moved west (RAMP_ENTER_X_MM 372 -> 355) to free
+		// the widened Right Loop lane, and its entrance rose (RAMP_ENTER_Y_MM
+		// 470 -> 485) to clear the re-sited right slingshot; the release moves
+		// with it, and assertReleaseClear() is what caught both.
+		const result = driveShotChecked({ x: 355, y: 465, z: 13.5 }, 2400, 0, 9000, ['s_ramp_enter', 's_ramp_made', 's_inlane_r']);
 		const enterIdx = result.firstMakes.indexOf('s_ramp_enter');
 		const madeIdx = result.firstMakes.indexOf('s_ramp_made');
 		expect(enterIdx, `s_ramp_enter must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
@@ -514,6 +580,42 @@ describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
 		expect(result.firstMakes, `s_inlane_r must close -- the Ramp's return must feed the right INLANE (OQ-6/FR-27) -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 		assertNotStranded(result, 'Ramp');
 		assertReachesFlipperBand(result, 'Ramp');
+	});
+});
+
+// Story 2.1c's own I/O & Edge-Case Matrix, "Centre drain must not read as a
+// flipper feed" row -- the exact vacuity the pin repair (task 1) exists to
+// close: the OLD single FLIPPER_BAND (x 140..375) contained the centre
+// drain corridor (x 240.875..273.525, between col_guide_outer_l/r), so a
+// dead-centre drain satisfied "reached a flipper". FLIPPER_BAND_L/_R
+// (above) exclude that corridor BY CONSTRUCTION -- each band is anchored on
+// its own bat's x-span, and neither bat's x-span reaches the centre -- but
+// that structural guarantee was never exercised behaviourally until this
+// case: a ball genuinely released on the centreline and driven through the
+// real physics pipeline, read via the same ShotResult fields (terminal,
+// reachedFlipperBand) every other case in this file uses.
+describe('shot routing (matrix row: centre drain must not read as a flipper feed) -- dead-centre descent', () => {
+	it('a ball released on the centreline and descending straight through the centre drain corridor leaves play WITHOUT ever reaching a flipper band, classified centre_drain', () => {
+		// 257.2 -- TABLE.reference.playfieldMm.w / 2 -- sits inside the
+		// 240.875..273.525 corridor the matrix row names, symmetric between
+		// col_guide_outer_l/r (test/drain-routing.test.ts's own "centre
+		// channel" describe block already measured this exact release point
+		// clear, with 0.00 mm lateral drift and drainage by tick 911 -- this
+		// solver's gravity has no x-component, so a centred release cannot
+		// drift regardless of geometry).
+		const centreXMm = TABLE.reference.playfieldMm.w / 2;
+		// Near-zero initial speed: gravity alone drives the fall, the same
+		// "drop" convention the descending-release sweep below uses.
+		const result = driveShotChecked({ x: centreXMm, y: 200, z: 13.5 }, 1, 0, 6600, []);
+		expect(
+			result.leftPlay,
+			`the ball must leave play (drain) within the tick budget for this case to be evidence -- final pos: ${JSON.stringify(result.finalPosMm)}, terminal: "${result.terminal}"`,
+		).toBe(true);
+		expect(
+			result.reachedFlipperBand,
+			`a dead-centre descent must NEVER read as "reached a flipper" -- mutation: widen FLIPPER_BAND_L/_R back to the pre-2.1c span (x 140..375) -> this goes red, which is exactly the vacuity the repair closes; makes: ${result.firstMakes.join(',')}, final pos: ${JSON.stringify(result.finalPosMm)}`,
+		).toBe(false);
+		expect(result.terminal, `terminal must classify as centre_drain, not "flipper" -- makes: ${result.firstMakes.join(',')}`).toBe('centre_drain');
 	});
 });
 
@@ -562,8 +664,17 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => {
 	const bankLetters: readonly SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
 	it.each([
-		{ label: 'left-of-bank entry', x: 297 },
-		{ label: 'right-of-bank entry', x: 322 },
+		// Story 2.1c: the bank moved 20 mm west (DRAGON_BANK_X0_MM 255 -> 235)
+		// so col_ramp_wall_l could clear the widened Right Loop lane; both
+		// releases move with it, and the right one also has to stay clear of
+		// the re-sited col_sling_r (314..370.4).
+		// The reachable approach corridor to the bank is now bounded by
+		// col_guide_outer_r's own east face (279.5) and the re-sited
+		// col_sling_r's own west face (314), so both offsets sit inside it --
+		// x 293..300.5 for a ball's own centre. assertReleaseClear() rejected
+		// the wider pair this story first tried.
+		{ label: 'left column of the corridor', x: 294 },
+		{ label: 'right column of the corridor', x: 300 },
 	])('$label: at least one DRAGON-bank target closes, and the ball is not stranded', ({ x }) => {
 		const result = driveShotChecked({ x, y: 400, z: 13.5 }, 1600, 0, 5000, bankLetters);
 		const hitAny = result.firstMakes.some((s) => bankLetters.includes(s));
@@ -600,8 +711,13 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Top lanes', () => {
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- both slingshots', () => {
 	it.each([
-		{ label: 'left slingshot', x: 100, y: 370, dirDeg: -20, switchName: 's_sling_l' as SwitchName },
-		{ label: 'right slingshot', x: 385, y: 370, dirDeg: 20, switchName: 's_sling_r' as SwitchName },
+		// Story 2.1c: both slingshots moved inboard (the corridor between each
+		// divider guide and its own sling measured 23.1 mm on the left and
+		// 11.5 mm on the right against a 26.99 mm ball -- the inlanes were not
+		// merely unfed, they were physically unreachable). Both releases move
+		// with them, and both now clear the new col_guide_inlane_l/_r too.
+		{ label: 'left slingshot', x: 115, y: 370, dirDeg: -10, switchName: 's_sling_l' as SwitchName },
+		{ label: 'right slingshot', x: 350, y: 370, dirDeg: 10, switchName: 's_sling_r' as SwitchName },
 	])('$label: its own switch closes, and the miss reaches an inlane or drains rather than stranding', ({ x, y, dirDeg, switchName }) => {
 		const result = driveShotChecked({ x, y, z: 13.5 }, 1200, dirDeg, 5000, [switchName]);
 		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
@@ -616,7 +732,7 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumper
 		// Story 2.1c task 2: y moved from targetY-100 (700, unchanged) is fine
 		// here, but x moved 230 -> 220 -- (230, 700) sat 0.69 mm inside
 		// col_dragon_bank_backstop's own sloped corner (Code Map).
-		{ label: 'pop 2', x: 220, y: 700, switchName: 's_pop_2' as SwitchName },
+		{ label: 'pop 2', x: 200, y: 700, switchName: 's_pop_2' as SwitchName },
 		{ label: 'pop 3', x: 180, y: 770, switchName: 's_pop_3' as SwitchName },
 	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ x, y, switchName }) => {
 		const result = driveShotChecked({ x, y, z: 13.5 }, 1000, 0, 6600, [switchName]);
@@ -653,14 +769,27 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumper
 // (Code Map: "the descending sweep has no column there").
 describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- descending release onto the rebevelled flat-topped bodies', () => {
 	it.each([
-		{ label: 'left slingshot (col_sling_l)', x: 75, y: 472 },
-		{ label: 'right slingshot (col_sling_r)', x: 370, y: 472 },
+		// Story 2.1c: every column below is re-sited over the body it names,
+		// because this story moved most of them (both slingshots inboard, the
+		// Ramp west and up, the DRAGON bank west). Two NEW flat-topped bodies
+		// join the sweep as well -- col_ramp_turn's own cap and
+		// col_loop_r_lower's -- both authored by this story and both bevelled
+		// for the same DW-119 reason as the rest.
+		{ label: 'left slingshot (col_sling_l)', x: 115, y: 465 },
+		{ label: 'right slingshot (col_sling_r)', x: 350, y: 465 },
 		{ label: 'left Dragon leg (col_dragon_leg_l)', x: 120, y: 660 },
 		{ label: 'right Dragon leg (col_dragon_leg_r)', x: 220, y: 660 },
-		{ label: 'Ramp left wall (col_ramp_wall_l)', x: 349, y: 870 },
-		{ label: 'Ramp right wall cap (col_ramp_wall_r)', x: 391, y: 845 },
-		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', x: 260.5, y: 750 },
-		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 326, y: 750 },
+		{ label: 'Ramp left wall (col_ramp_wall_l)', x: 332, y: 880 },
+		{ label: 'Ramp right wall cap (col_ramp_wall_r)', x: 376, y: 758 },
+		{ label: 'Ramp top turn cap (col_ramp_turn)', x: 360, y: 895 },
+		// col_loop_r_lower's own cap has no column of its own: the gap between
+		// it and col_ramp_return_1 above measures 13 mm, under the reference
+		// ball, so nothing can be dropped onto it from directly above. It is
+		// exercised instead by the Ramp case, whose return lands on it and
+		// slides east off it on every made shot (traced).
+		{ label: 'Ramp return rail (col_ramp_return_1)', x: 396, y: 800 },
+		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', x: 240, y: 750 },
+		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 310, y: 750 },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ x, y }) => {
 		const result = driveShotChecked({ x, y, z: 13.5 }, 1, 0, 6600, []);
 		assertNotStranded(result, `Descending release (${x}, ${y})`);

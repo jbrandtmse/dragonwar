@@ -138,6 +138,21 @@ OUTER_GUIDE_T_MM = 6.0  # the TIP-side outer guide is deliberately thinner than 
 OUTLANE_WIDTH_MM = 34.9  # authored, unverified -- see src/sim/table/tuning.ts's outlaneWidthLeftMm/outlaneWidthRightMm for the full provenance note (geometry-r2-1.md's low-confidence 1-3/8 in figure, adopted symmetrically for both sides)
 POST_RADIUS_MM = 4.0  # placeholder rubber-post radius. Deliberately SMALLER than a typical real post (which runs 12-16 mm across the rubber sleeve): this same radius closes the pivot-side divider guide's own free ends AND the tip-side pocket, and the pocket sits inside the reconciled 40.65 mm tip gap (DW-78) -- verified this story's own planning pass: with POCKET_OFFSET_ALONG_MM below, the two tip-side posts leave 40.65 - 2*1 - 2*4 = 30.65 mm of clear surface-to-surface gap between them, comfortably above the 26.99 mm reference ball, so a centre-aimed ball still passes with both flippers raised.
 GUIDE_Y_TOP_MM = 420.0  # this story's own placeholder guide extent -- Story 2.1b draws the rest of the shot map above this
+# Story 2.1c: the OUTLANE/INLANE divider guide's own top is lowered from
+# GUIDE_Y_TOP_MM to 380 (the tip-side col_guide_outer_* pair keeps 420 --
+# that guide closes the cradle pocket and nothing here touches it). Measured
+# reason: the guide's own top post (col_post_divider_*_hi, POST_RADIUS_MM =
+# 4, so x 36.9..44.9 on the left) sat directly across the Loop lane's own
+# mouth. A ball entering the mouth has to clear that post by
+# BALL_RADIUS_MM + POST_RADIUS_MM = 17.5 mm, which left the lane's own
+# 50 mm mouth admitting a shot only at x <= 23.4 -- and the loop RETURN rail
+# below needs everything west of x = 30.5 to catch a descending ball. The
+# two demands overlapped, so no shot could enter a lane whose return was
+# diverted. Dropping the post 40 mm clears the mouth completely (the shot
+# passes it at y >= 400, the post's own top is 384) while leaving the
+# divider's own outlane-forming span, its lower post and both measured
+# outlane widths untouched.
+DIVIDER_Y_TOP_MM = 380.0
 DIVIDER_Y_BOTTOM_MM = 120.0  # the outlane/inlane divider guide's own (higher, less pocket-critical) lower end
 POCKET_OFFSET_ALONG_MM = 1.0  # pocket post centre, offset from the bat's own TIP further toward playfield centre (this story's own physics probes: the pivot end's base circle is angle-invariant and traps a ball regardless of stroke, so the pocket closes at the tip instead -- see add_drain_triangle_side()'s own doc comment). Kept small, together with the reduced POST_RADIUS_MM above, so the two posts never narrow the reconciled tip gap below the reference ball's own diameter.
 POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y (flipper centreline) UP-TABLE (away from the drain)
@@ -166,26 +181,157 @@ POCKET_OFFSET_UP_MM = 24.0  # pocket post centre, offset from the pivot's own y 
 # to protrude from one wall without narrowing the remaining clear path below
 # the reference ball's own diameter (26.99 mm). Would be confirmed by a
 # measured real orbit-lane width once a Reference-machine dimension exists.
-LOOP_LANE_CLEAR_MM = 50.0
+# Story 2.1c: widened from 50 mm. DERIVED, not preference. With the orbit
+# landing, each lane carries a ball in BOTH directions -- the shot climbing
+# it and the other Loop's return descending it -- and the two cannot share a
+# column, because the surface that carries the return inboard is, for a ball
+# travelling the other way, a ceiling. Writing t for the return rail's own
+# inboard tip and Wt for the top connector's own end (where the return drops
+# into the lane), the three clearances are: the return must reach the rail
+# (Wt drifts to <= t + BALL_R), the shot must pass east of the rail's tip
+# (>= t + BALL_R) and west of the connector's own end (<= Wt - BALL_R). That
+# leaves the shot a column exactly Wt - t - 2*BALL_R = Wt - t - 26.99 mm
+# wide, and Wt is itself capped at LANE_CLEAR - BALL_R by the lane's own
+# inner rail. At 50 mm the arithmetic closes to ZERO -- measured, not
+# inferred: every entry offset tried either stalled against the rail (peak
+# 492 mm against the 1016.8 mm the lane needs) or was missed by it and
+# returned to the outlane. 66 mm opens a 9 mm shot column with a 27.5 mm
+# catch zone below it, both comfortably resolvable.
+LOOP_LANE_CLEAR_MM = 66.0
 # The loop's own outer arc, offset in from the perimeter wall's interior face
 # by LOOP_LANE_CLEAR_MM at the top of the table -- the top connector's own
 # lane-facing (south) face.
-LOOP_TOP_INNER_Y_MM = PLAYFIELD_H_MM - LOOP_LANE_CLEAR_MM  # 1016.8
+# Story 2.1c: the TOP channel keeps its original 50 mm clear run -- it is
+# no longer tied to LOOP_LANE_CLEAR_MM, which the side lanes had to widen to
+# 66 mm to carry a ball in both directions. Deriving it from the widened
+# figure would have dropped this connector (and, with it,
+# col_loop_r_deflector, which is anchored on it) 16 mm down the table, to
+# within 0.8 mm of LANE_WALL_TOP_Y_MM -- the exact corner-trap the
+# deflector's own PLUNGE_DEFLECTOR_DROP_MM note rejects an 85 mm drop for.
+LOOP_TOP_CLEAR_MM = 50.0
+LOOP_TOP_INNER_Y_MM = PLAYFIELD_H_MM - LOOP_TOP_CLEAR_MM  # 1016.8
 # Where each loop's lane widens from the OUTLANE-width funnel mouth (sharing
 # the existing col_post_divider_*_hi post's own span, so no new post is
 # needed at the bottom -- task 3: "from the two *_divider_*_hi posts") out to
 # the full LOOP_LANE_CLEAR_MM run.
-LOOP_FUNNEL_Y0_MM = GUIDE_Y_TOP_MM  # 420 -- starts exactly at the existing post
+# Story 2.1c: the funnel no longer narrows the lane back onto the divider
+# guide's own OUTLANE span -- that is exactly what made a completed Loop a
+# one-way trip to the drain. It now bends the lane's INNER rail outward, so
+# the lane's own mouth sits over the INLANE and the descending orbit ball is
+# handed to col_guide_inlane_l/_r rather than to the outlane. y0 is dropped
+# from GUIDE_Y_TOP_MM (420) to 438 to leave room for the rubber post that
+# terminates the inlane guide's own upper end at 434 (POST_RADIUS_MM = 4).
+LOOP_FUNNEL_Y0_MM = 438.0
 LOOP_FUNNEL_Y1_MM = 500.0  # authored -- a short, gentle widening run
+# How far INBOARD (toward the table centre) the funnel's own bottom sits
+# from the loop rail's own top. Sized from the inlane's own clear width: the
+# channel between the divider guide's inboard face (46.9 left / 421.5 right)
+# and the inlane guide is LOOP_FUNNEL_OFFSET_MM + LOOP_LANE_CLEAR_MM -
+# OUTLANE_WIDTH_MM - GUIDE_T_MM = 39.1 mm, i.e. 12.1 mm of ball-centre
+# freedom for the 26.99 mm reference ball -- comfortably more than the
+# 7.9 mm the outlane itself offers, because a ball ARRIVES here across the
+# lane rather than dropping straight in.
+LOOP_FUNNEL_OFFSET_MM = 20.0
 
-# Rework iteration 2 -- the loop RETURN (task: "separate the Loop return
-# channels from the outlanes so a completed Loop delivers to an inlane"):
-# ATTEMPTED, REVERTED -- see the long comment beside col_loop_top, below,
-# for the measured evidence and the residual reported to the lead. Every
-# angled-diverter design tried either failed to redirect the ball at all
-# (net lateral drift under 5 mm) or regressed other proven geometry (the
-# Ramp's own shot, or the ball's own unobstructed climb). No constant is
-# left here because no version of the fix survived.
+# The loop RETURN rail (Story 2.1c). The lane's own outer boundary is the
+# perimeter wall, so the descending orbit ball has nothing to slide along
+# and drops straight into whatever is beneath it -- which was the outlane.
+# This rail is that missing surface: a plank across the lane, high end on
+# the perimeter wall, low end directly above the divider guide's own OUTER
+# face, so a ball descending ANYWHERE in the lane (ball centres run 13.5 to
+# 36.5 mm from the wall, and the rail's own line is within one ball radius
+# of every one of them) meets it and is carried inboard, leaving the rail
+# already moving across the divider rather than along it.
+#
+# The low end deliberately stops at OUTLANE_WIDTH_MM rather than reaching
+# the inlane: the gap between the rail's own low end and the divider guide's
+# own top post is what still lets a ball into the OUTLANE (a return that
+# does not carry drops there, exactly as it does on a real machine), and it
+# measures 470 - 420 = 50 mm, comfortably more than the reference ball.
+LOOP_RETURN_TOP_Y_MM = 530.0
+LOOP_RETURN_END_Y_MM = 470.0
+# How far INBOARD the rail's own tip reaches. Not a free choice: the rail
+# must catch every ball the orbit sends DOWN the lane (measured: the return
+# settles at x = 19..27 mm from the perimeter wall) while leaving the ball
+# SHOT UP the lane a clear column east of the tip (it needs the tip plus one
+# ball radius, 13.495 mm, and the lane's own inner rail costs another radius
+# off the far side). 17 mm catches everything up to x = 30.5 and leaves the
+# shot the column x = 30.5..36.5 -- both measured against the real pipeline,
+# not derived.
+LOOP_RETURN_END_X_MM = 14.0
+
+# The INLANE feed (Story 2.1c task 7). An inlane that merely receives the
+# ball is half a delivery: the left inlane's own channel discharges at
+# y = 200 onto col_wall_bottom_l, which is sloped toward the drain, so a
+# ball that closes s_inlane_l and then simply falls drains without ever
+# touching a bat. These two figures are the guide that carries it onto the
+# bat instead -- a shallow ramp in PLAN (this solver's gravity runs down
+# -y with no x-component, so an angled face is the only thing that moves a
+# resting ball sideways -- the DW-119 mechanism), from just inboard of the
+# divider guide down to just past the flipper's own pivot.
+INLANE_GUIDE_Y0_MM = 200.0  # the inlane guide's own lower free end
+INLANE_FEED_Y0_MM = 165.0   # the feed ramp's own high (inlane) end
+INLANE_FEED_Y1_MM = 115.0   # the feed ramp's own low (bat) end, left side
+INLANE_FEED_L_X0_MM = 52.0  # clear of col_guide_divider_l's own 46.9 face by 5.1 mm, so its own end post (r = 4) does not overlap the divider
+INLANE_FEED_L_X1_MM = 175.0  # 5 mm past the LEFT bat's own pivot (170.0): a ball leaving here is inside FLIPPER_BAND_L and still descending
+INLANE_FEED_R_X0_MM = 416.4  # mirror of the left figure about LANE_X0_MM -- the right inlane is anchored on col_wall_lane, not the true perimeter
+INLANE_FEED_R_X1_MM = 356.0  # 11.6 mm past the RIGHT bat's own pivot (344.4), on the pivot side: dropping a ball dead ON a pivot is a measured equilibrium (test/drain-routing.test.ts's own PIVOT_EXCLUDE_MM band), so the feed deliberately lands to one side of it
+INLANE_FEED_R_Y1_MM = 122.0  # the right feed's own low end -- shorter run than the left (the right inlane is 52 mm closer to its bat), so the ramp is a little steeper rather than a lot shallower
+
+# Story 2.1c -- the ORBIT. A Loop is an orbit (prd.md:71): up one lane,
+# ACROSS the joined top, and down the OTHER lane into that lane's own
+# inlane. Two prior iterations spent fifteen measured, fully-reverted
+# designs trying to make a ball reverse and cross ~50 mm laterally INSIDE
+# the lane it entered; that approach is retired. The three constants below
+# are what the orbit needs that the shot map did not have.
+#
+# (a) THE TOP TURN. Measured before anything was drawn (this story's own
+# diagnostic harness, driving the pin's own Right Loop case at 2200 mm/s):
+# a ball shot up either lane climbs DEAD STRAIGHT (vx reads exactly 0.0 for
+# the whole ~650-tick ascent -- this solver's gravity has no x-component),
+# bounces flat off col_wall_top (a horizontal face imparts no tangential
+# impulse) and descends the IDENTICAL column back into the outlane it came
+# from. Joining the top alone therefore delivers no orbit at all: the ball
+# never travels along it. col_loop_turn_l/_r are the surfaces that turn the
+# climb into a crossing -- the same angled-prism mechanism
+# col_loop_r_deflector already proves for the plunge, mirrored into each
+# lane's own top corner.
+#
+# The angle is DERIVED, not guessed. For an incoming velocity aligned with
+# +Y and a face at angle `theta` from horizontal, an elastic reflection
+# gives v' = (-v * sin(2*theta), -v * cos(2*theta)) -- so theta = 45 deg is
+# pure lateral (v'y = 0) and every degree past it trades crossing speed for
+# descent. Two constraints bracket it, both measured against the committed
+# document:
+#   * the deflected ball must clear col_loop_top's own north face
+#     (LOOP_TOP_INNER_Y_MM = 1016.8, so ball centre >= 1030.295) all the way
+#     to that wall's own end, or it clips the corner and rattles back;
+#   * the ball must reach the face before col_wall_top (ball centre max
+#     1053.305), or it never touches the turn at all.
+# The contact height for a ball climbing at table x is
+#   y_contact = LOOP_TURN_LOW_Y_MM + tan(theta) * run_x - BALL_RADIUS_MM /
+#               cos(theta)
+# (run_x measured from the turn's own low corner), so the usable entry band
+# is (1053.305 - 1030.295) / tan(theta) wide. 40 deg keeps 98.5% of the
+# climb as crossing speed while holding that band at ~27 mm -- wider than
+# the ~23 mm of ball-centre travel either lane actually offers.
+LOOP_TURN_ANGLE_DEG = 40.0
+# The turn's own LOW corner, at the perimeter wall each lane runs against.
+# Raised until the easternmost/westernmost ball a lane can carry is still
+# deflected above col_loop_top's own north face with margin: at 1044 the
+# measured contact height for a ball hugging the outer wall is 1037.7 mm,
+# which after the ~5 mm of drop across the run to col_loop_top's own end
+# leaves the ball's underside 2.5 mm clear of it.
+LOOP_TURN_LOW_Y_MM = 1036.0
+# Where the top connector STOPS, measured in from each perimeter wall. This
+# is the orbit's own hand-off point: a ball riding the connector's north
+# face leaves it here and drops into the lane below, already drifting toward
+# that perimeter wall (it is travelling outward along the top), which is the
+# same side the return rail waits on. It also fixes the shot's own column
+# (see LOOP_LANE_CLEAR_MM): the shot must pass WEST of this end on the left
+# and EAST of it on the right, so the end sits one ball radius plus margin
+# inboard of the lane's own inner rail.
+LOOP_TOP_END_X_MM = 50.0
 
 # Rework iteration 3 (author's answer A): how steep col_loop_r_deflector's
 # own hypotenuse must be for the PLUNGE to clear the Right Loop's own
@@ -240,9 +386,51 @@ SPINNER_Y_MM = 648.0  # authored -- roughly midway along the Left Loop's straigh
 # unverified rather than modelled physically, since this collision model
 # cannot express it yet.
 RAMP_LANE_CLEAR_MM = 34.0  # authored -- comparable to a real ramp entrance width, narrower than the loop
-RAMP_ENTER_X_MM = 372.0  # authored -- right of centre (> 257.2); pushed right of the DRAGON bank's own column (below) so neither shadows the other
-RAMP_ENTER_Y_MM = 470.0
+RAMP_ENTER_X_MM = 355.0  # authored -- right of centre (> 257.2); pushed right of the DRAGON bank's own column (below) so neither shadows the other
+# Story 2.1c: raised from 470. With both slingshots moved inboard to clear
+# the inlane mouths, col_sling_r's own sloped north face now runs directly
+# under the Ramp's own entrance, and a ball rolling down it wedged in the
+# corner between that face and col_ramp_wall_l's own bottom end -- measured,
+# parked at (348.6, 461.6). 485 leaves 33.5 mm of vertical clearance there,
+# comfortably over the 26.99 mm ball.
+RAMP_ENTER_Y_MM = 485.0
 RAMP_TOP_Y_MM = 825.0
+# Story 2.1c task 5. The Ramp's own return has never been deliverable: the
+# committed document had col_ramp_return_1/2 INTERPENETRATING col_loop_r
+# (144.000 mm2 and 53.706 mm2 of overlap, measured) and the channel they
+# formed was 11.5 mm wide at y = 480, sub-ball for essentially its whole
+# length. The reason is structural, not a drafting slip: the Ramp sits WEST
+# of the Right Loop's own inner rail and the right inlane is fed only from
+# EAST of it, so no rail routed down the corridor beside the Ramp can reach
+# the inlane at all -- it is walled off by col_loop_r above and by
+# col_guide_inlane_r below. A real ramp solves this the same way: its return
+# wireform CROSSES OVER the orbit. This collision model is a plan section
+# with no z, so the crossing is drawn as a gap in the loop rail at the
+# return's own height, with the rail split into two nodes either side of it.
+# The gap is above everything the orbit itself uses (the descending return
+# hugs the perimeter wall at x ~ 440-455 and the shot climbs at 431.9-440.9,
+# both measured, against a gap at x 390.4-402.4) so nothing leaks through it.
+RAMP_RETURN_GAP_Y0_MM = 750.0
+RAMP_RETURN_GAP_Y1_MM = 832.0
+# The Ramp's own east wall stops BELOW the crossing, so the turned ball has
+# somewhere to go. Above it the channel is open eastward, which is the whole
+# point: the return is the crossing, not a rail beside the Ramp.
+RAMP_WALL_R_TOP_Y_MM = 740.0
+# The turn at the top of the Ramp's own channel. Same angled-prism mechanism
+# as col_loop_turn_l/_r and col_loop_r_deflector: without it a made Ramp
+# shot simply flies out of the open top of the channel (traced on the
+# committed document: s_ramp_made closes at y = 790.9 and the ball keeps
+# climbing to y ~ 1032, well past the return, then falls into unrelated
+# geometry -- the fluke path Phase 1 recorded). A 45 deg face turns the
+# climb into a crossing, at a height that clears the Ramp's own east wall.
+RAMP_TURN_Y0_MM = 800.0  # swept 788/792/795/800/805 against the real pipeline; 800 is the only value tried at which EVERY in-channel entry offset (350..359 mm) lands the return inside sw_inlane_r rather than over col_guide_divider_r into the outlane
+# The crossing rail's own east end. Not load-bearing for a MADE shot -- the
+# turned ball clears it and lands in the loop lane directly, traced -- but it
+# is the catcher for a weaker one, and it stops the 6.4 mm slot between the
+# Ramp's own east wall and the Right Loop's lower rail from ever holding a
+# ball.
+RAMP_RETURN_END_X_MM = 402.0
+RAMP_RETURN_END_Y_MM = 770.0
 RAMP_HEIGHT_MM = 90.0  # authored -- the visual ramp's rise, unused by this collision model (see the note above); would be confirmed by a Reference-machine measurement once art replaces the placeholder (Story 5.x)
 RAMP_GRADIENT = 0.20  # authored -- rise over run, unused by this collision model, same provenance note as RAMP_HEIGHT_MM
 
@@ -276,7 +464,7 @@ DRAGON_BANK_Y1_MM = 708.0
 # The bank's own x-span is therefore anchored clear of BOTH legs (> 250) and
 # the Ramp is pushed right of it in turn (RAMP_ENTER_X_MM, above) so neither
 # shadows the other.
-DRAGON_BANK_X0_MM = 255.0
+DRAGON_BANK_X0_MM = 235.0
 DRAGON_BANK_PITCH_MM = 14.0  # authored -- centre-to-centre spacing between the six targets, narrowed to fit clear of both legs and the Ramp
 DRAGON_BANK_TARGET_W_MM = 11.0
 
@@ -284,7 +472,20 @@ DRAGON_BANK_TARGET_W_MM = 11.0
 # path (above the Ramp and the pop nest, below the loop's own top connector).
 TOP_LANE_Y0_MM = 950.0
 TOP_LANE_Y1_MM = 1000.0
-TOP_LANE_DIVIDER_XS_MM = (95.0, 195.0, 295.0, 395.0)  # four dividers -> three lanes
+# Story 2.1c review fix: divider 4 used to sit at x = 395 (the uniform 100 mm
+# pitch), footprint x 391..399 -- fully swallowed by col_loop_r once this
+# story widened the Right Loop's lane (LOOP_LANE_CLEAR_MM 50 -> 66) and moved
+# col_loop_r's west face to x = 390.4 (measured: 400 mm^2 solid-on-solid
+# interpenetration, found by review, confirmed against the committed
+# document -- col_top_divider_4's whole 8x50 mm footprint was inside
+# col_loop_r's, making it physically unreachable). Moved to 376.0 -- clears
+# col_loop_r's west face by 10.4 mm (380 -> 390.4) -- rather than shifting
+# all four dividers, which would instead collide col_top_divider_1 with the
+# symmetrically-widened col_loop_l (west edge 78, divider 1's old west edge
+# 91 leaves only 13 mm of margin to spend). Consequence, recorded: the
+# divider_3->divider_4 pitch is now 81 mm, not the other three gaps' 100 mm
+# (test/asset-contract.test.ts's own pitch gate updated to match).
+TOP_LANE_DIVIDER_XS_MM = (95.0, 195.0, 295.0, 376.0)  # four dividers -> three lanes; last gap 81 mm, not 100 (see above)
 TOP_LANE_DIVIDER_T_MM = 8.0
 
 # Slingshots (task 8): above the inlanes, clear of the flipper's own swept
@@ -292,8 +493,20 @@ TOP_LANE_DIVIDER_T_MM = 8.0
 # "Always" rule) -- verified against test/flipper-sweep-clearance.test.ts.
 SLING_Y0_MM = 420.0
 SLING_Y1_MM = 455.0
-SLING_L_X0_MM, SLING_L_X1_MM = 70.0, 130.0
-SLING_R_X0_MM, SLING_R_X1_MM = 360.0, 410.0
+# Story 2.1c: both slingshots move INBOARD. Measured on the committed
+# document before the move: the corridor between col_guide_divider_l's own
+# inboard face (46.9) and col_sling_l's own outboard face (70.0) is
+# 23.1 mm, against a 26.99 mm ball -- so the left inlane was not merely
+# unfed, it was physically UNREACHABLE from above, and the same held on the
+# right (421.5 - 410.0 = 11.5 mm). No return routing can deliver a ball
+# through a corridor narrower than the ball. Moved out to 92.0 / 376.4,
+# which is OUTLANE_WIDTH_MM + GUIDE_T_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM
+# from each side's own anchor -- flush with the inlane guide the funnel now
+# hands the ball to, so the sling sits just inboard of the inlane rather
+# than across its mouth. The right sling's own inboard end moves with it so
+# it keeps a comparable span.
+SLING_L_X0_MM, SLING_L_X1_MM = LOOP_LANE_CLEAR_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM, 130.0
+SLING_R_X0_MM, SLING_R_X1_MM = 314.0, LANE_X0_MM - LOOP_LANE_CLEAR_MM - LOOP_FUNNEL_OFFSET_MM - GUIDE_T_MM
 
 # Pop bumpers (task 8): a nest of exactly three (author-decided 2026-08-31 --
 # see ## Boundaries & Constraints and TABLE.authoredCounts in dragonwar.ts).
@@ -871,10 +1084,10 @@ def main():
 			divider_x0, divider_x1 = divider_face_x - GUIDE_T_MM, divider_face_x
 		else:
 			divider_x0, divider_x1 = divider_face_x, divider_face_x + GUIDE_T_MM
-		add_guide_wall(f'col_guide_divider_{side}', divider_x0, divider_x1, DIVIDER_Y_BOTTOM_MM, GUIDE_Y_TOP_MM)
+		add_guide_wall(f'col_guide_divider_{side}', divider_x0, divider_x1, DIVIDER_Y_BOTTOM_MM, DIVIDER_Y_TOP_MM)
 		divider_cx = (divider_x0 + divider_x1) / 2
 		add_rubber_post(f'col_post_divider_{side}_lo', (divider_cx, DIVIDER_Y_BOTTOM_MM))
-		add_rubber_post(f'col_post_divider_{side}_hi', (divider_cx, GUIDE_Y_TOP_MM))
+		add_rubber_post(f'col_post_divider_{side}_hi', (divider_cx, DIVIDER_Y_TOP_MM))
 
 		# Outer guide: the inlane's own inner boundary, running down to close
 		# the cradle pocket's throat just past the flipper's TIP (DW-72) --
@@ -989,15 +1202,68 @@ def main():
 	# drawn here). Both free ends terminate at the existing rubber posts --
 	# no new post is needed at the bottom, and the guide never has a free end
 	# at the top, because the two sides join across the top connector. ----
-	def add_loop_funnel(name, divider_x0, divider_x1, loop_x0, loop_x1):
-		"""The trapezoid connecting the divider guide's own OUTLANE_WIDTH_MM
-		span (at y = LOOP_FUNNEL_Y0_MM, flush with the existing post) to the
-		wider LOOP_LANE_CLEAR_MM span (at y = LOOP_FUNNEL_Y1_MM) -- a single
-		convex quad, the same angled-prism technique col_lane_deflector
-		proved (identity object transform, angled mesh vertices)."""
+	# Story 2.1c -- the funnel is now the lane's INNER rail bending outboard
+	# to the inlane, not a taper back onto the outlane. Two convex quads per
+	# side (this one and col_guide_inlane_*), joined at a rubber post, because
+	# a single body with the bend in it would not be convex (export.py:434-440
+	# fails naming the node and the dropped vertices).
+	def add_loop_funnel(name, loop_x0, loop_x1, mouth_x0, mouth_x1):
+		"""The trapezoid carrying the loop's own inner rail from its straight
+		run (LOOP_LANE_CLEAR_MM off the perimeter, at y = LOOP_FUNNEL_Y1_MM)
+		out to the inlane guide's own line (at y = LOOP_FUNNEL_Y0_MM). Its
+		outer face is what turns an ASCENDING shot -- entering the mouth over
+		the inlane -- back into the lane; its inner face is the inlane's own
+		upper wall."""
 		points = [
-			(divider_x0, LOOP_FUNNEL_Y0_MM), (divider_x1, LOOP_FUNNEL_Y0_MM),
-			(loop_x1, LOOP_FUNNEL_Y1_MM), (loop_x0, LOOP_FUNNEL_Y1_MM),
+			(loop_x0, LOOP_FUNNEL_Y1_MM), (loop_x1, LOOP_FUNNEL_Y1_MM),
+			(mouth_x1, LOOP_FUNNEL_Y0_MM), (mouth_x0, LOOP_FUNNEL_Y0_MM),
+		]
+		wall = new_prism_mesh(name, points, 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
+		return wall
+
+	# Story 2.1c -- the loop RETURN rail (see LOOP_RETURN_TOP_Y_MM's own
+	# derivation in the constants block). A plank across the lane, high end on
+	# the perimeter wall, low end above the divider guide's own outer face.
+	# The inboard end TAPERS TO A POINT rather than closing with a
+	# perpendicular end face. Measured, not styled: with a 12 mm end face at
+	# x = 34.9 the ball SHOT into the lane -- which arrives travelling up and
+	# inboard, the only direction a real flipper shot can take toward a lane
+	# this far off the flipper's own axis -- struck that face head-on and lost
+	# 87% of its speed (traced: (-1024, +1118) mm/s in, (+306, +803) out, then
+	# a second contact on the funnel, peak height 492 mm against the 1016.8 mm
+	# the lane needs). A tapered end presents only the rail's own north face
+	# to that ball, which it grazes and rides. Nothing about the DESCENT
+	# changes: the descending ball slides down that same north face and leaves
+	# at the tip either way.
+	def add_loop_return_rail(name, wall_x, end_x):
+		points = [
+			(wall_x, LOOP_RETURN_TOP_Y_MM),
+			(end_x, LOOP_RETURN_END_Y_MM),
+			(wall_x, LOOP_RETURN_TOP_Y_MM - GUIDE_T_MM),
+		]
+		wall = new_prism_mesh(name, points, 0.0, WALL_H_MM, parent=playfield_root)
+		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
+		return wall
+
+	# Story 2.1c -- the inlane's own inner guide and the feed ramp that
+	# carries an arriving ball onto the bat. Both are col_guide_* nodes and
+	# both terminate at rubber posts at their two free ends, per Story 2.1a
+	# AC 1 -- test/asset-contract.test.ts's own end-derivation is generalised
+	# in the same pass from "bbox y-extremes at the x centreline" (true only
+	# of a straight, axis-aligned, y-running prism) to "the midpoints of the
+	# footprint's own two shortest edges", which reproduces the old answer
+	# exactly for every guide 2.1a drew and is correct for an angled one too.
+	def add_inlane_guide(name, x0, x1):
+		wall = add_box_wall(name, x0, x1, INLANE_GUIDE_Y0_MM, LOOP_FUNNEL_Y0_MM - GUIDE_T_MM / 2 - POST_RADIUS_MM, 'plastic')
+		return wall
+
+	def add_inlane_feed(name, x_inlane, y_inlane, x_bat, y_bat):
+		points = [
+			(x_inlane, y_inlane),
+			(x_bat, y_bat),
+			(x_bat, y_bat - GUIDE_T_MM),
+			(x_inlane, y_inlane - GUIDE_T_MM),
 		]
 		wall = new_prism_mesh(name, points, 0.0, WALL_H_MM, parent=playfield_root)
 		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
@@ -1009,8 +1275,13 @@ def main():
 	# face (x = 0).
 	left_divider_x0, left_divider_x1 = OUTLANE_WIDTH_MM, OUTLANE_WIDTH_MM + GUIDE_T_MM
 	loop_l_x0, loop_l_x1 = LOOP_LANE_CLEAR_MM, LOOP_LANE_CLEAR_MM + GUIDE_T_MM
-	add_loop_funnel('col_loop_l_funnel', left_divider_x0, left_divider_x1, loop_l_x0, loop_l_x1)
-	add_box_wall('col_loop_l', loop_l_x0, loop_l_x1, LOOP_FUNNEL_Y1_MM, LOOP_TOP_INNER_Y_MM, 'plastic')
+	inlane_l_x0 = loop_l_x0 + LOOP_FUNNEL_OFFSET_MM
+	inlane_l_x1 = inlane_l_x0 + GUIDE_T_MM
+	add_loop_funnel('col_loop_l_funnel', loop_l_x0, loop_l_x1, inlane_l_x0, inlane_l_x1)
+	add_box_wall('col_loop_l', loop_l_x0, loop_l_x1, LOOP_FUNNEL_Y1_MM, LOOP_TOP_INNER_Y_MM - GUIDE_T_MM, 'plastic')
+	add_loop_return_rail('col_loop_l_return', 0.0, LOOP_RETURN_END_X_MM)
+	add_inlane_guide('col_guide_inlane_l', inlane_l_x0, inlane_l_x1)
+	add_inlane_feed('col_guide_inlane_feed_l', INLANE_FEED_L_X0_MM, INLANE_FEED_Y0_MM, INLANE_FEED_L_X1_MM, INLANE_FEED_Y1_MM)
 
 	# Right: the 2.1a divider guide's own span is x in [LANE_X0_MM -
 	# OUTLANE_WIDTH_MM - GUIDE_T_MM, LANE_X0_MM - OUTLANE_WIDTH_MM] =
@@ -1022,98 +1293,119 @@ def main():
 	right_divider_x0 = right_divider_x1 - GUIDE_T_MM
 	loop_r_x1 = LANE_X0_MM - LOOP_LANE_CLEAR_MM
 	loop_r_x0 = loop_r_x1 - GUIDE_T_MM
-	add_loop_funnel('col_loop_r_funnel', right_divider_x0, right_divider_x1, loop_r_x0, loop_r_x1)
-	add_box_wall('col_loop_r', loop_r_x0, loop_r_x1, LOOP_FUNNEL_Y1_MM, LOOP_TOP_INNER_Y_MM, 'plastic')
+	inlane_r_x1 = loop_r_x1 - LOOP_FUNNEL_OFFSET_MM
+	inlane_r_x0 = inlane_r_x1 - GUIDE_T_MM
+	add_loop_funnel('col_loop_r_funnel', loop_r_x1, loop_r_x0, inlane_r_x1, inlane_r_x0)
+	# Split at the Ramp's own return crossing (see RAMP_RETURN_GAP_Y0_MM).
+	add_box_wall('col_loop_r', loop_r_x0, loop_r_x1, RAMP_RETURN_GAP_Y1_MM, LOOP_TOP_INNER_Y_MM - GUIDE_T_MM, 'plastic')
+	# Sloped toward the lane (x1): a ball the Ramp's own crossing drops short
+	# would otherwise rest on this cap's dead-flat north face (DW-119).
+	add_box_wall_sloped('col_loop_r_lower', loop_r_x0, loop_r_x1, LOOP_FUNNEL_Y1_MM, RAMP_RETURN_GAP_Y0_MM, 'plastic', 6.0, 'x1')
+	add_loop_return_rail('col_loop_r_return', LANE_X0_MM, LANE_X0_MM - LOOP_RETURN_END_X_MM)
+	add_inlane_guide('col_guide_inlane_r', inlane_r_x0, inlane_r_x1)
+	add_inlane_feed('col_guide_inlane_feed_r', INLANE_FEED_R_X0_MM, INLANE_FEED_Y0_MM, INLANE_FEED_R_X1_MM, INLANE_FEED_R_Y1_MM)
 
-	# Top connector, joining both loops across the top of the table -- "both
-	# lanes join across the top so a full orbit passes both" (task 3).
+	# Every free end of the four new col_guide_* nodes terminates at a rubber
+	# post, the same POST_RADIUS_MM octagon 2.1a's own guides use.
+	for _name, _cx, _cy in (
+		('col_post_inlane_l_hi', (inlane_l_x0 + inlane_l_x1) / 2, LOOP_FUNNEL_Y0_MM - GUIDE_T_MM / 2),
+		('col_post_inlane_l_lo', (inlane_l_x0 + inlane_l_x1) / 2, INLANE_GUIDE_Y0_MM),
+		('col_post_inlane_r_hi', (inlane_r_x0 + inlane_r_x1) / 2, LOOP_FUNNEL_Y0_MM - GUIDE_T_MM / 2),
+		('col_post_inlane_r_lo', (inlane_r_x0 + inlane_r_x1) / 2, INLANE_GUIDE_Y0_MM),
+		('col_post_feed_l_hi', INLANE_FEED_L_X0_MM, INLANE_FEED_Y0_MM - GUIDE_T_MM / 2),
+		('col_post_feed_l_lo', INLANE_FEED_L_X1_MM, INLANE_FEED_Y1_MM - GUIDE_T_MM / 2),
+		('col_post_feed_r_hi', INLANE_FEED_R_X0_MM, INLANE_FEED_Y0_MM - GUIDE_T_MM / 2),
+		('col_post_feed_r_lo', INLANE_FEED_R_X1_MM, INLANE_FEED_R_Y1_MM - GUIDE_T_MM / 2),
+	):
+		add_rubber_post(_name, (_cx, _cy))
+
+	# Top connector (task 3) -- Story 2.1c, DW-123: RE-JOINED to col_loop_l.
+	# 2.1b shortened this wall's left end from x = 40 to x = 220 because a
+	# plunged ball rides its north face to whichever end it reaches, and the
+	# Left Loop's own lane then discharged into the left OUTLANE. That
+	# discharge is fixed below (col_loop_l_funnel now feeds the left inlane),
+	# so the two changes land together exactly as the story requires: the
+	# wall is restored to its full span and a ball that rides it off either
+	# end drops into a lane that returns it playable.
 	#
-	# Rework iteration 3 (surfaced while re-siting col_loop_r_deflector per
-	# answer A): this wall's own north face is dead flat, and a ball riding
-	# it (pressed against its edge by gravity, the same way any ball rests
-	# against a wall it cannot cross) slides along the ENTIRE flat edge
-	# rather than falling off partway -- there is no x-component to this
-	# table's gravity to make it "slide down" a flat edge, only whatever
-	# residual sideways speed it already had, decaying slowly under
-	# friction. Left at its original FULL span (task 3's own
-	# `loop_l_x0 - 10` to `loop_r_x1 + 10`, i.e. x = 40..428.4), a plunged
-	# ball rides this edge all the way to its LEFT end, landing in the Left
-	# Loop's own narrow lane -- which currently returns to the left OUTLANE,
-	# not the inlane (the Loop-return-to-inlane defect this story's own
-	# rework already investigated and, on the author's own instruction,
-	# moved OUT of this story's scope to Story 2.1c). A plunge that rides
-	# this edge that far therefore inherits 2.1c's own open defect, which
-	# this story may not fix here.
-	#
-	# The fix is DERIVED, not invented: shortened at the LEFT end only, from
-	# x = 40 to x = 220 -- clear of both loops' own rails (the Left Loop's
-	# at x = 50..62, the Right Loop's at x = 406.4..418.4, neither of which
-	# this wall needs to reach: `test/shot-routing.test.ts`'s own Left/Right
-	# Loop cases both close their `_in`/`_out` switches and finish well
-	# below y = 880, never touching this wall's own y = 1004.8..1016.8 band
-	# at all) -- and landing squarely inside the x-range
-	# `test/shot-routing.test.ts`'s own "descending release onto the
-	# rebevelled flat-topped bodies" sweep already proves makes genuine
-	# positional progress from directly above (x = 100..385, onto the
-	# slingshots, the Dragon's legs and the DRAGON bank) rather than
-	# stranding, this story's own rework-iteration-2 fix. A ball that falls
-	# off THIS wall's own new left end therefore falls into open field this
-	# story has already verified handles a descending ball correctly,
-	# instead of into the Left Loop's own lane, which this story has not
-	# fixed and may not fix here.
+	# The north face is deliberately left FLAT (no add_box_wall_sloped()
+	# bevel): the orbit crosses it in BOTH directions -- west-bound for a
+	# Right Loop shot, east-bound for a Left Loop shot -- so any slope would
+	# help one orbit and fight the other. What keeps it out of the DW-119
+	# flat-face trap is that nothing lands on it at rest: every ball that
+	# reaches this face arrives with the crossing speed col_loop_turn_l/_r
+	# gave it (measured >= 1100 mm/s), and both ends of the face open onto a
+	# lane rather than onto more flat wall. The descending-release sweep in
+	# test/shot-routing.test.ts covers the bodies a ball can genuinely be
+	# dropped onto from rest; this one sits above the whole playfield.
 	add_box_wall(
 		'col_loop_top',
-		220.0, loop_r_x1 + 10.0,
+		LOOP_TOP_END_X_MM, LANE_X0_MM - LOOP_TOP_END_X_MM,
 		LOOP_TOP_INNER_Y_MM - GUIDE_T_MM, LOOP_TOP_INNER_Y_MM,
 		'plastic',
 	)
 
-	# Rework iteration 2 -- the loop returns: ATTEMPTED, REVERTED, residual
-	# reported to the lead rather than shipped half-working. The task ("the
-	# return must cross to the inlane side of the divider") requires
-	# diverting a ball descending the loop's own lane -- which shares its
-	# lower rail position with the divider's own OUTLANE span by construction
-	# (task 3: "from the two *_divider_*_hi posts") -- into the interior
-	# before it re-enters that shared post gap. Multiple angled-wall designs
-	# were built and measured against the real physics pipeline at the
-	# plausible shot speed test/shot-routing.test.ts's own Loop cases use
-	# (2200 mm/s): thin single/two-segment channel_rail()s at several angles
-	# and heights (both straight-down and true-perpendicular backing
-	# offsets), and a solid triangular wedge. Every version either (a) left
-	# the ball's own net lateral drift under 5 mm across the whole
-	# ~500 mm remaining descent -- nowhere near the ~50 mm needed to clear
-	# the divider, confirmed by direct vx/vy telemetry showing an initial
-	# deflection that decayed to a near-straight fall within ~10-30 ticks --
-	# or (b) when built with enough solid depth for a firmer response,
-	# instead capped the ball's own ASCENT well short of its unobstructed
-	# peak (a wide backing creates a near-horizontal shelf under the front
-	# face for a steep line, the same DW-119 mechanism in reverse), or (c)
-	# when routed through the only physically available corridor on the
-	# Right Loop's own side (the Ramp's own channel -- the gap between
-	# col_ramp_wall_r and the loop's own lower rail is 5.4 mm, under the
-	# reference ball's radius, so there is no other path into the interior
-	# there), measurably broke the Ramp's OWN shot
-	# (test/shot-routing.test.ts's Ramp case: s_ramp_made stopped closing).
-	# No version closed the loop -- every one still let the ball fall back
-	# through the shared post gap into the outlane. This is a genuine
-	# mechanism gap, not a tuning choice: a single angled surface does not
-	# reliably redirect a fast, near-vertically-travelling ball under this
-	# solver's contact response, at least not with the geometry this rework
-	# tried. Left at the ORIGINAL (pre-rework) full-height rail rather than
-	# ship a half-working diverter that regresses an existing passing test.
-	# See this story's own final report for the measured evidence and what
-	# a working fix would likely need (either a multi-surface funnel proven
-	# out empirically the way add_loop_funnel's own bottom funnel was, or a
-	# renegotiated Ramp position that frees a genuine >= 27 mm corridor).
+	# Story 2.1c -- the orbit's own top turn (see LOOP_TURN_ANGLE_DEG's own
+	# derivation in the constants block). One angled prism per lane, tucked
+	# into that lane's own top corner against the perimeter wall it runs
+	# against, with the low corner at LOOP_TURN_LOW_Y_MM and the high corner
+	# meeting col_wall_top's own interior face. The ball climbing the lane
+	# strikes the hypotenuse -- a CEILING, whose outward normal points down
+	# and inboard, so gravity can never rest a ball against it (only a north
+	# face traps, DW-119) -- and leaves it travelling across the table at
+	# ~98.5% of its climb speed, landing on col_loop_top's own north face and
+	# riding it to the far lane.
+	loop_turn_run_mm = (PLAYFIELD_H_MM - LOOP_TURN_LOW_Y_MM) / math.tan(math.radians(LOOP_TURN_ANGLE_DEG))
+	col_loop_turn_l = new_prism_mesh(
+		'col_loop_turn_l',
+		[
+			(0.0, LOOP_TURN_LOW_Y_MM),
+			(loop_turn_run_mm, PLAYFIELD_H_MM),
+			(0.0, PLAYFIELD_H_MM),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_loop_turn_l, col_shape='wall', surface='plastic', phys_material='default')
+	# The right turn is anchored east to col_wall_lane's own OUTER face
+	# (LANE_X0_MM + WALL_T_MM) rather than left free-standing at the lane's
+	# own inner face: col_wall_lane itself stops at LANE_WALL_TOP_Y_MM = 950,
+	# so a prism ending at 468.4 would leave a bare vertical edge in open
+	# field. The extra 12 mm is pure ceiling, above the plunge path (the
+	# plunged ball is turned by col_loop_r_deflector at y ~968, measured, and
+	# is already travelling west well before it reaches this height).
+	col_loop_turn_r = new_prism_mesh(
+		'col_loop_turn_r',
+		[
+			(LANE_X0_MM, LOOP_TURN_LOW_Y_MM),
+			(LANE_X0_MM + WALL_T_MM, LOOP_TURN_LOW_Y_MM),
+			(LANE_X0_MM + WALL_T_MM, PLAYFIELD_H_MM),
+			(LANE_X0_MM - loop_turn_run_mm, PLAYFIELD_H_MM),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_loop_turn_r, col_shape='wall', surface='plastic', phys_material='default')
 
 	# Spinner gate (task 4, Left Loop only -- SPEC CAP-26, machine-
 	# behaviour.md:72): a thin stub protruding from the loop guide's own
 	# inner face, narrow enough that the reference ball still clears the
 	# remaining lane width comfortably (see this file's constants block). No
 	# revolution counting here -- Story 2.3 owns the mechanical spin.
+	# Story 2.1c: the stub moves from the loop guide's own inner face to the
+	# PERIMETER wall's face -- same lane, other side. Measured reason: with
+	# the orbit landing, the lane now carries a ball in both directions, and
+	# they use opposite sides of it (the shot climbs the inboard column, x
+	# 30.5..36.5, because the return rail below claims everything west of
+	# 30.5). A stub protruding from the inboard face put 12 mm of solid
+	# directly in the shot's own column -- traced: every Left Loop entry
+	# offset stalled against it at y = 632, against the 1016.8 mm the lane
+	# needs. On the perimeter face it sits in the RETURN's column instead,
+	# where the descending ball meets it on every orbit (s_spinner closes on
+	# the pass, measured), and the shot climbs clear.
 	add_box_wall(
 		'col_spinner_l',
-		loop_l_x0 - SPINNER_PROTRUDE_MM, loop_l_x0,
+		0.0, SPINNER_PROTRUDE_MM,
 		SPINNER_Y_MM - 3.0, SPINNER_Y_MM + 3.0,
 		'rubber_band',
 	)
@@ -1187,20 +1479,55 @@ def main():
 	# flat cap. Sloped toward the channel's OWN inner face (x1, the side
 	# facing ramp_lane_x0) so a ball stranded there drops back down into the
 	# open channel it climbed, rather than out toward the perimeter.
+	# Story 2.1c review fix: this call regressed to drop_corner='x0' (which
+	# drops the LOW, OUTER/perimeter-side corner -- see add_box_wall_sloped()'s
+	# own points construction -- sending a stranded ball toward the perimeter,
+	# exactly backwards from the comment above and from col_ramp_wall_l's
+	# pre-2.1c, correct behaviour). 'x1' (this wall's own inner/channel-facing
+	# edge, at ramp_lane_x0) restores the documented, correct slope.
 	add_box_wall_sloped('col_ramp_wall_l', ramp_lane_x0 - WALL_T_MM, ramp_lane_x0, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp', 5.0, 'x1')
-	add_box_wall('col_ramp_wall_r', ramp_lane_x1, ramp_lane_x1 + WALL_T_MM, RAMP_ENTER_Y_MM, RAMP_TOP_Y_MM, 'ramp')
+	# Story 2.1c task 9: col_ramp_wall_r's own north cap WAS dead flat, and
+	# the pin's own descending-release sweep proved it strands a ball there
+	# (Phase 1 red case 6: 0.00 mm of net progress over 6600 ticks, parked at
+	# y = 838.50). The old comment beside it argued the return rail caught
+	# such a ball first; the return rail did not reach it. Sloped toward the
+	# channel (x0) like col_ramp_wall_l, so a ball resting there drops back
+	# into the channel it climbed.
+	add_box_wall_sloped('col_ramp_wall_r', ramp_lane_x1, ramp_lane_x1 + WALL_T_MM, RAMP_ENTER_Y_MM, RAMP_WALL_R_TOP_Y_MM, 'ramp', 5.0, 'x0')
+
+	# The Ramp's own top turn (see RAMP_TURN_Y0_MM). Low corner on the
+	# channel's WEST side so the reflection sends the ball EAST, across the
+	# Right Loop's rail and into its lane.
+	col_ramp_turn = new_prism_mesh(
+		'col_ramp_turn',
+		[
+			(ramp_lane_x0, RAMP_TURN_Y0_MM),
+			(loop_r_x0, RAMP_TURN_Y0_MM + (loop_r_x0 - ramp_lane_x0)),
+			(loop_r_x0, RAMP_TURN_Y0_MM + (loop_r_x0 - ramp_lane_x0) + 26.0),
+			(ramp_lane_x0, RAMP_TURN_Y0_MM + (loop_r_x0 - ramp_lane_x0) + 6.0),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_ramp_turn, col_shape='wall', surface='ramp', phys_material='default')
 
 	# Return rail: a single bent rail, the exact add_channel_rail() technique
 	# 2.1a's own outlane return channel proved, from the top of the
 	# up-channel down into the RIGHT inlane -- landing well clear of both the
 	# Right Loop's own lane and the right slingshot.
-	ramp_return_points = [
-		(ramp_lane_x1, RAMP_TOP_Y_MM),
-		(ramp_lane_x1 + 40.0, RAMP_TOP_Y_MM - 37.0),
-		(ramp_lane_x1 + 23.0, SLING_Y1_MM + 15.0),
-	]
-	for i in range(len(ramp_return_points) - 1):
-		add_channel_rail(f'col_ramp_return_{i + 1}', ramp_return_points[i], ramp_return_points[i + 1], WALL_T_MM)
+	# Story 2.1c task 5 -- redrawn. One rail, from the top of the Ramp's own
+	# east wall across the gap in the Right Loop's rail and into the loop
+	# lane's own bottom, which is the only approach the right inlane has
+	# (see RAMP_RETURN_GAP_Y0_MM's own note). A ball leaving the rail's east
+	# end descends that lane, passes east of col_loop_r_funnel and lands in
+	# sw_inlane_r, then on col_guide_inlane_feed_r and onto the right bat --
+	# OQ-6/FR-27's decided right-inlane return, delivered.
+	add_channel_rail(
+		'col_ramp_return_1',
+		(ramp_lane_x1, RAMP_TURN_Y0_MM - 5.0),
+		(RAMP_RETURN_END_X_MM, RAMP_RETURN_END_Y_MM),
+		WALL_T_MM,
+	)
 
 	# ---- Dragon body + Lock lane (task 6, AD-6): off-centre (left of
 	# PLAYFIELD_W_MM / 2 = 257.2 -- decisions-rejected.md:14,
@@ -1221,7 +1548,15 @@ def main():
 	# aimed INTO that opening risks a new corner trap at the lane's own mouth
 	# where the sloped face would meet it; outward is the side with real open
 	# space on every one of this file's own authored figures.
-	add_box_wall_sloped('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x0')
+	# Story 2.1c: the LEFT leg's own slope is reversed, x0 -> x1. It used to
+	# push a resting ball OUTWARD (west), into what was then open field. With
+	# the Left Loop lane widened to LOOP_LANE_CLEAR_MM = 66, col_loop_l's own
+	# east face now sits 12 mm west of this leg, and a ball pushed that way
+	# wedges between the two -- measured, parked at (91.50, 614.72) for the
+	# whole budget, and it took six of test/shot-routing.test.ts's own cases
+	# down with it. Pushed toward the Lock lane instead, it drops into that
+	# lane's own 40 mm opening and carries on.
+	add_box_wall_sloped('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
 	add_box_wall_sloped('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
 
 	bd_lock = new_empty('bd_lock', (DRAGON_CENTER_X_MM, DRAGON_MOUTH_Y_MM, BALL_MM / 2), parent=playfield_root)
@@ -1364,10 +1699,16 @@ def main():
 		return sw
 
 	# Loops
-	add_switch_zone('sw_loop_l_in', 's_loop_l_in', (2, 425, 0), (32, 475, 30))
-	add_switch_zone('sw_loop_l_out', 's_loop_l_out', (5, 820, 0), (45, 880, 30))
-	add_switch_zone('sw_loop_r_in', 's_loop_r_in', (436, 425, 0), (466, 475, 30))
-	add_switch_zone('sw_loop_r_out', 's_loop_r_out', (423, 820, 0), (463, 880, 30))
+	# Story 2.1c: both Loops' own _in zones move from over the OUTLANE to over
+	# the lane's own new mouth -- which, since the funnel now bends the inner
+	# rail outboard, sits between the divider guide and the slingshot. Both a
+	# ball shot INTO the lane and a ball the orbit returns OUT of it pass
+	# through this same mouth, which is what makes the DW-123 single-ball
+	# orbit case (one ball closing all four Loop switches) observable at all.
+	add_switch_zone('sw_loop_l_in', 's_loop_l_in', (2, 425, 0), (loop_l_x0 - 10, 475, 30))
+	add_switch_zone('sw_loop_l_out', 's_loop_l_out', (5, 820, 0), (loop_l_x0 - 5, 880, 30))
+	add_switch_zone('sw_loop_r_in', 's_loop_r_in', (loop_r_x1 + 10, 425, 0), (LANE_X0_MM - 2, 475, 30))
+	add_switch_zone('sw_loop_r_out', 's_loop_r_out', (loop_r_x1 + 5, 820, 0), (LANE_X0_MM - 5, 880, 30))
 	add_switch_zone('sw_spinner', 's_spinner', (5, 635, 0), (45, 662, 30))
 
 	# Ramp

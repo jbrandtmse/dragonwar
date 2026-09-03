@@ -150,6 +150,31 @@ describe('sw_drain (DW-121): every drain path -- centre aperture and both outlan
 		expect(drainEvents[drainEvents.length - 1]?.closed, `the LAST s_drain edge observed must be a break (closed:false), not a latched make -- observed: ${JSON.stringify(drainEvents)}`).toBe(false);
 	});
 
+	// Story 2.1c task 13: AC 6 says s_drain closes and re-opens for EVERY ball
+	// that reaches bd_trough ON THE SETTLED ROUTING -- and this story adds a
+	// routing the three cases above never covered: the inlane feed. A ball the
+	// orbit delivers to an inlane rides col_guide_inlane_feed_* onto the bat,
+	// rolls off it and drains, which is a different path across the drain
+	// corridor from either outlane. Both sides are derived from the live
+	// geometry (the inlane's own channel midpoint), never a literal.
+	it.each([
+		{ side: 'LEFT' as const, guideName: 'col_guide_divider_l', railName: 'col_guide_inlane_l', inner: false },
+		{ side: 'RIGHT' as const, guideName: 'col_guide_divider_r', railName: 'col_guide_inlane_r', inner: true },
+	])('a ball released in the $side INLANE -- the routing this story delivers -- also surfaces s_drain closed:true then closed:false', ({ side, guideName, railName, inner }) => {
+		const dividerBbox = nodeBboxMm(guideName);
+		const railBbox = nodeBboxMm(railName);
+		const midXMm = inner
+			? (railBbox.max.x + dividerBbox.min.x) / 2
+			: (dividerBbox.max.x + railBbox.min.x) / 2;
+		const { drainEvents, parkedInTrough } = releaseAndWatchDrain(midXMm, 300, 6000);
+		const makes = drainEvents.filter((e) => e.closed);
+		const breaks = drainEvents.filter((e) => !e.closed);
+		expect(makes.length, `s_drain must make at least once for a ${side} inlane drain (released at x = ${midXMm.toFixed(2)}) -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
+		expect(parkedInTrough, `the ball must actually have reached bd_trough for this to be a meaningful drain (released at x = ${midXMm.toFixed(2)})`).toBe(true);
+		expect(breaks.length, `s_drain must ALSO break once the ball leaves the corridor and parks -- observed: ${JSON.stringify(drainEvents)}`).toBeGreaterThanOrEqual(1);
+		expect(drainEvents[drainEvents.length - 1]?.closed, `the LAST s_drain edge observed must be a break -- observed: ${JSON.stringify(drainEvents)}`).toBe(false);
+	});
+
 	it('the centre drain still surfaces s_drain closed:true then closed:false, unaffected by the widened zone (regression guard, plus its break-edge gap)', () => {
 		const { drainEvents, parkedInTrough } = releaseAndWatchDrain(257.2, 60, 2000);
 		const makes = drainEvents.filter((e) => e.closed);
@@ -170,8 +195,15 @@ describe('sw_drain (DW-121): the OLD (narrow) zone bounds would have missed the 
 		// DW-121's own measured swept segment (this story's rework report): a
 		// ball crossing the right outlane's own gap, from just above the
 		// aperture down into the below-deck return channel.
-		const before = { x: 446, y: 5, z: 13.5 };
-		const after = { x: 446, y: -70, z: 13.5 };
+		// Story 2.1c task 13: the x was a LITERAL 446 here, which would have
+		// stayed green over a path the geometry no longer had. It is now
+		// DERIVED from the live right outlane (col_guide_divider_r's own
+		// inner face to col_wall_lane's), so if a later story moves that lane
+		// the segment moves with it -- and if the lane stops existing, the
+		// derivation throws by name rather than quietly describing a fossil.
+		const outlaneMidXMm = (nodeBboxMm('col_guide_divider_r').max.x + nodeBboxMm('col_wall_lane').min.x) / 2;
+		const before = { x: outlaneMidXMm, y: 5, z: 13.5 };
+		const after = { x: outlaneMidXMm, y: -70, z: 13.5 };
 
 		expect(
 			segmentIntersectsBox(before, after, liveZone!.minMm, liveZone!.maxMm),

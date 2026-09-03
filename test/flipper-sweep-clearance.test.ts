@@ -112,9 +112,18 @@ function distanceToConvexPolygon(point: { x: number; y: number }, footprintMm: R
 	return minDistance;
 }
 
+// Story 2.1c task 12: the list was FIXED at two entries, so a new body drawn
+// near a bat could enter the swept envelope undetected -- and this story
+// draws exactly that, an inlane feed ramp that ends a few centimetres above
+// each pivot with a rubber post on its end. Both feeds and both end posts
+// join the list. The two 2.1a entries keep their own measured thresholds
+// (> 12 mm post, > 15 mm guide) untouched; the new pair carries its own,
+// pinned a few mm under this story's own measurement the same way.
 const CASES = [
-	{ side: 'l' as const, key: 'flipper_l' as const, postName: 'col_post_pocket_l', guideName: 'col_guide_outer_l' },
-	{ side: 'r' as const, key: 'flipper_r' as const, postName: 'col_post_pocket_r', guideName: 'col_guide_outer_r' },
+	{ side: 'l' as const, key: 'flipper_l' as const, postName: 'col_post_pocket_l', guideName: 'col_guide_outer_l', postMinMm: 12, guideMinMm: 15 },
+	{ side: 'r' as const, key: 'flipper_r' as const, postName: 'col_post_pocket_r', guideName: 'col_guide_outer_r', postMinMm: 12, guideMinMm: 15 },
+	{ side: 'l' as const, key: 'flipper_l' as const, postName: 'col_post_feed_l_lo', guideName: 'col_guide_inlane_feed_l', postMinMm: 12, guideMinMm: 12 },
+	{ side: 'r' as const, key: 'flipper_r' as const, postName: 'col_post_feed_r_lo', guideName: 'col_guide_inlane_feed_r', postMinMm: 12, guideMinMm: 12 },
 ];
 
 const THROAT_CASES = [
@@ -123,7 +132,7 @@ const THROAT_CASES = [
 ];
 
 describe('the flipper bat clears the drain-triangle pocket post and outer guide across the FULL stroke, not just the two settled endpoints (DW-111)', () => {
-	it.each(CASES)('$side flipper: the swept modelled body never overlaps $postName or $guideName at any sampled angle of the stroke', ({ side, key, postName, guideName }) => {
+	it.each(CASES)('$side flipper: the swept modelled body never overlaps $postName or $guideName at any sampled angle of the stroke', ({ side, key, postName, guideName, postMinMm, guideMinMm }) => {
 		const rawNodes = loadRawNodes();
 		const postFootprint = findFootprintMm(rawNodes, postName);
 		const guideFootprint = findFootprintMm(rawNodes, guideName);
@@ -236,11 +245,11 @@ describe('the flipper bat clears the drain-triangle pocket post and outer guide 
 		expect(
 			minPostClearanceMm,
 			`${postName}: the swept modelled body's clearance narrowed below the pinned minimum (worst-case clearance ${minPostClearanceMm.toFixed(3)} mm; negative means overlap)`,
-		).toBeGreaterThan(12);
+		).toBeGreaterThan(postMinMm);
 		expect(
 			minGuideClearanceMm,
 			`${guideName}: the swept modelled body's clearance narrowed below the pinned minimum (worst-case clearance ${minGuideClearanceMm.toFixed(3)} mm; negative means overlap)`,
-		).toBeGreaterThan(15);
+		).toBeGreaterThan(guideMinMm);
 	});
 });
 

@@ -322,13 +322,36 @@ describe('asset contract -- Story 2.1a AC 1: every ball-guide free end terminate
 		const posts = doc.nodes.filter((n) => n.surface === 'rubber_post');
 		expect(posts.length, 'sanity: at least one rubber_post node must be authored').toBeGreaterThan(0);
 
-		// Every authored guide in this story is a straight, axis-aligned
-		// prism running along y (constant x-range) -- its two FREE ends are
-		// therefore its own bboxMm y-extremes, at its own x centreline.
+		// Story 2.1c generalised this derivation. Story 2.1a's own guides were
+		// all straight, axis-aligned prisms running along y, so "the two free
+		// ends" could be read off the bounding box: its y-extremes, at the x
+		// centreline. This story authors an ANGLED guide -- the inlane feed
+		// ramp, whose whole job is to run diagonally from the inlane down to
+		// the bat -- and for that shape the bbox corners are not on the guide
+		// at all. The ends are now derived from the FOOTPRINT: every guide
+		// this file draws is a quad with two long side edges and two short END
+		// CAPS, so the free ends are the midpoints of the two SHORTEST edges.
+		// That reproduces the old answer EXACTLY for every 2.1a guide (a
+		// 12 mm-wide, 300 mm-long y-running prism's two shortest edges are its
+		// horizontal caps, whose midpoints are (centreX, minY) and
+		// (centreX, maxY)) and is correct for an angled one too.
+		const freeEndsMm = (footprint: ReadonlyArray<{ readonly x: number; readonly y: number }>): { x: number; y: number }[] => {
+			const edges = footprint.map((a, i) => {
+				const b = footprint[(i + 1) % footprint.length]!;
+				return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, len: Math.hypot(b.x - a.x, b.y - a.y) };
+			});
+			return edges
+				.slice()
+				.sort((a, b) => a.len - b.len)
+				.slice(0, 2)
+				.map((e) => e.mid);
+		};
+
 		for (const guide of guides) {
-			const { min, max } = guide.bboxMm;
-			const centreX = (min.x + max.x) / 2;
-			for (const endY of [min.y, max.y]) {
+			expect(guide.footprintMm, `${guide.name}: a col_guide_* node must carry a footprintMm polygon`).toBeDefined();
+			for (const end of freeEndsMm(guide.footprintMm!)) {
+				const centreX = end.x;
+				const endY = end.y;
 				let nearestDistance = Infinity;
 				let nearestName = '(none)';
 				let nearestRadius = 0;
@@ -515,13 +538,98 @@ describe('asset contract -- Story 2.1a AC 10: each bottom wall has its top edge 
 // each gate below by tracing the constant it reads back to
 // tools/make-placeholder-blend.py's own authored value.
 describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dimensions (AC 1 dimensional half)', () => {
-	it('the Left Loop\'s clear lane width (col_wall_left\'s interior face to col_loop_l\'s own face) is the authored 50 mm (LOOP_LANE_CLEAR_MM)', () => {
+	// Story 2.1c: 50 -> 66 mm, and the WHY is the point of the gate. Each
+	// Loop lane now carries a ball in both directions (the shot climbing it
+	// and the other Loop's orbit descending it), and the return rail that
+	// carries the descent inboard is a ceiling to anything climbing. The
+	// shot's own clear column is LANE_CLEAR minus the top connector's own end,
+	// the rail's own tip and two ball radii; at 50 mm it closes to zero,
+	// measured, and every entry offset stalled against the rail.
+	// mutation: change LOOP_LANE_CLEAR_MM in the seeding script and re-export
+	// -> this measured width moves with it.
+	it('each Loop\'s clear lane width (the perimeter wall\'s interior face to that Loop\'s own rail) is the authored 66 mm (LOOP_LANE_CLEAR_MM)', () => {
 		const doc = readCollisionDoc();
 		const loopL = doc.nodes.find((n) => n.name === 'col_loop_l');
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane');
 		expect(loopL, 'col_loop_l missing').toBeDefined();
-		// mutation: change LOOP_LANE_CLEAR_MM in the seeding script and
-		// re-export -> this measured width moves with it.
-		expect(loopL!.bboxMm.min.x, 'col_loop_l\'s own inner (lane-facing) face').toBeCloseTo(50, 1);
+		expect(loopR, 'col_loop_r missing').toBeDefined();
+		expect(wallLane, 'col_wall_lane missing').toBeDefined();
+		expect(loopL!.bboxMm.min.x, 'col_loop_l\'s own inner (lane-facing) face').toBeCloseTo(66, 1);
+		expect(wallLane!.bboxMm.min.x - loopR!.bboxMm.max.x, 'the Right Loop\'s own clear lane width').toBeCloseTo(66, 1);
+	});
+
+	// Story 2.1c task 15 -- the figures the orbit's own delivery depends on.
+	it('each Loop\'s return rail leaves the shot a clear column between its own tip and the lane\'s inner rail', () => {
+		const doc = readCollisionDoc();
+		const ballRadiusMm = TABLE.reference.ballMm / 2;
+		const railL = doc.nodes.find((n) => n.name === 'col_loop_l_return');
+		const railR = doc.nodes.find((n) => n.name === 'col_loop_r_return');
+		const loopL = doc.nodes.find((n) => n.name === 'col_loop_l');
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane');
+		expect(railL, 'col_loop_l_return missing').toBeDefined();
+		expect(railR, 'col_loop_r_return missing').toBeDefined();
+		// mutation: push LOOP_RETURN_END_X_MM inboard past the point the shot
+		// can pass, or narrow LOOP_LANE_CLEAR_MM back to 50, and re-export ->
+		// this column closes and the Loop cases in test/shot-routing.test.ts
+		// go red with the shot stalling against the rail.
+		const columnLMm = loopL!.bboxMm.min.x - railL!.bboxMm.max.x - 2 * ballRadiusMm;
+		const columnRMm = railR!.bboxMm.min.x - loopR!.bboxMm.max.x - 2 * ballRadiusMm;
+		expect(columnLMm, 'the LEFT Loop\'s own shot column, between col_loop_l_return\'s tip and col_loop_l').toBeGreaterThan(8);
+		expect(columnRMm, 'the RIGHT Loop\'s own shot column, between col_loop_r and col_loop_r_return\'s tip').toBeGreaterThan(8);
+	});
+
+	it('each inlane\'s clear channel (its divider guide to its inlane guide) passes the reference ball with margin', () => {
+		const doc = readCollisionDoc();
+		const dividerL = doc.nodes.find((n) => n.name === 'col_guide_divider_l')!;
+		const inlaneL = doc.nodes.find((n) => n.name === 'col_guide_inlane_l')!;
+		const dividerR = doc.nodes.find((n) => n.name === 'col_guide_divider_r')!;
+		const inlaneR = doc.nodes.find((n) => n.name === 'col_guide_inlane_r')!;
+		// mutation: move LOOP_FUNNEL_OFFSET_MM in so the inlane guide crowds
+		// the divider and re-export -> this goes red, and the orbit's own
+		// delivery in test/shot-routing.test.ts goes red with it.
+		expect(inlaneL.bboxMm.min.x - dividerL.bboxMm.max.x, 'the LEFT inlane\'s own clear channel').toBeCloseTo(39.1, 1);
+		expect(dividerR.bboxMm.min.x - inlaneR.bboxMm.max.x, 'the RIGHT inlane\'s own clear channel').toBeCloseTo(39.1, 1);
+	});
+
+	it('each inlane feed ramp ends over its own bat, so a ball that closes s_inlane_* is genuinely delivered to a flipper', () => {
+		const doc = readCollisionDoc();
+		const feedL = doc.nodes.find((n) => n.name === 'col_guide_inlane_feed_l')!;
+		const feedR = doc.nodes.find((n) => n.name === 'col_guide_inlane_feed_r')!;
+		const flipperL = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperL)!;
+		const flipperR = doc.nodes.find((n) => n.name === TABLE.nodes.colFlipperR)!;
+		// mutation: shift either feed's bat-side end outboard past its bat and
+		// re-export -> s_inlane_* still closes but the ball never reaches the
+		// band, which is exactly the half-delivery this story's Design Notes
+		// name as the "two obligations" failure.
+		expect(feedL.bboxMm.max.x, 'the LEFT feed\'s own bat-side end must lie over col_flipper_l').toBeGreaterThan(flipperL.bboxMm.min.x);
+		expect(feedL.bboxMm.max.x, 'the LEFT feed must not overshoot col_flipper_l').toBeLessThan(flipperL.bboxMm.max.x);
+		expect(feedR.bboxMm.min.x, 'the RIGHT feed\'s own bat-side end must lie over col_flipper_r').toBeGreaterThan(flipperR.bboxMm.min.x);
+		expect(feedR.bboxMm.min.x, 'the RIGHT feed must not overshoot col_flipper_r').toBeLessThan(flipperR.bboxMm.max.x);
+	});
+
+	it('the divider guides\' own tops sit below the slingshots, so each inlane mouth is genuinely reachable from the Loop\'s own return', () => {
+		const doc = readCollisionDoc();
+		const dividerL = doc.nodes.find((n) => n.name === 'col_guide_divider_l')!;
+		const dividerR = doc.nodes.find((n) => n.name === 'col_guide_divider_r')!;
+		const slingL = doc.nodes.find((n) => n.name === 'col_sling_l')!;
+		const slingR = doc.nodes.find((n) => n.name === 'col_sling_r')!;
+		// mutation: restore DIVIDER_Y_TOP_MM to GUIDE_Y_TOP_MM (420) and
+		// re-export -> the divider's own top post lands back across the Loop
+		// return's own path into the inlane and the return drops into the
+		// outlane instead.
+		expect(dividerL.bboxMm.max.y, 'col_guide_divider_l\'s own top (DIVIDER_Y_TOP_MM)').toBeCloseTo(380, 1);
+		expect(dividerR.bboxMm.max.y, 'col_guide_divider_r\'s own top (DIVIDER_Y_TOP_MM)').toBeCloseTo(380, 1);
+		expect(dividerL.bboxMm.max.y, 'the divider guide must end below the slingshot\'s own footprint').toBeLessThan(slingL.bboxMm.min.y);
+		// Story 2.1c review fix: the mirrored right-side relationship this gate
+		// exists to guarantee had no assertion at all -- dividerR was fetched
+		// only to pin its own y-value (above), never compared against slingR.
+		// mutation: restore DIVIDER_Y_TOP_MM to GUIDE_Y_TOP_MM (420) on the
+		// right side only and re-export -> this assertion goes red where the
+		// left-side one alone would not have caught a right-side-only
+		// regression.
+		expect(dividerR.bboxMm.max.y, 'the RIGHT divider guide must end below the RIGHT slingshot\'s own footprint').toBeLessThan(slingR.bboxMm.min.y);
 	});
 
 	it('the Ramp entrance\'s clear width (between its two up-channel walls) is the authored 34 mm (RAMP_LANE_CLEAR_MM)', () => {
@@ -566,16 +674,40 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		expect(width, 'the DRAGON bank\'s own outer-to-outer span (col_dragon_d\'s left edge to col_dragon_n\'s right edge)').toBeCloseTo(81, 1);
 	});
 
-	it('the three Top lanes\' own divider spacing (centre to centre) is the authored 100 mm pitch', () => {
+	it('the first two Top-lane divider gaps (centre to centre) are the authored 100 mm pitch; the third is not -- divider 4 was moved to clear the widened Right Loop rail', () => {
+		// Story 2.1c review fix: divider 4 used to sit at the uniform 100 mm
+		// pitch (x centre 395, footprint 391..399) -- fully swallowed by
+		// col_loop_r once this story widened the Right Loop's lane and moved
+		// col_loop_r's own west face to x = 390.4 (measured: a 400 mm^2
+		// solid-on-solid interpenetration, found by review). Moved to x centre
+		// 376 instead of shifting all four dividers, because shifting divider
+		// 1 left by the same amount would instead collide it with the
+		// symmetrically-widened col_loop_l (whose east face, 78, leaves only
+		// 13 mm of margin against divider 1's own 91 mm west edge -- not
+		// enough room to also open a 19 mm gap on the right). Pinned two ways:
+		// the two untouched gaps stay at the authored pitch, and divider 4 is
+		// asserted clear of col_loop_r's own live west face, so a future
+		// change to either constant is caught by whichever it actually moves.
+		// mutation: revert TOP_LANE_DIVIDER_XS_MM's 4th entry from 376.0 back
+		// to 395.0 and re-export -> the clearance assertion below goes red
+		// (divider 4's east edge, 399, would be 8.6 mm INSIDE col_loop_r's
+		// west face, not clear of it).
 		const doc = readCollisionDoc();
 		const dividers = [1, 2, 3, 4].map((i) => doc.nodes.find((n) => n.name === `col_top_divider_${i}`));
 		for (const [i, divider] of dividers.entries()) {
 			expect(divider, `col_top_divider_${i + 1} missing`).toBeDefined();
 		}
 		const centres = dividers.map((d) => (d!.bboxMm.min.x + d!.bboxMm.max.x) / 2);
-		for (let i = 0; i < centres.length - 1; i++) {
+		for (let i = 0; i < 2; i++) {
 			expect(centres[i + 1] - centres[i], `divider ${i + 1}->${i + 2} spacing`).toBeCloseTo(100, 1);
 		}
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		expect(loopR, 'col_loop_r missing').toBeDefined();
+		const divider4EastEdge = dividers[3]!.bboxMm.max.x;
+		expect(
+			loopR!.bboxMm.min.x - divider4EastEdge,
+			`col_top_divider_4's own east edge (${divider4EastEdge}) must clear col_loop_r's live west face (${loopR!.bboxMm.min.x}) -- 0 or negative means the divider is (partly or fully) buried inside the Loop rail and physically unreachable`,
+		).toBeGreaterThan(5);
 	});
 
 	it('the four true perimeter walls (left, top, right, lane) now reach the glass (DW-53: PERIMETER_WALL_H_MM = GLASS_Z_MM = 400), while col_wall_lane_bottom -- not a true perimeter wall -- stays at the interior WALL_H_MM = 50', () => {

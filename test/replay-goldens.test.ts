@@ -598,6 +598,42 @@ describe('full-plunge golden: the DW-66 observable (ball_launched + ballsInPlay)
 		const LANE_X0_MM = 468.4;
 		expect(result.finalSnapshot.balls[0]?.pos.x, 'the ball must have crossed the plunger-lane divider onto the main field by the end of the golden').toBeLessThan(LANE_X0_MM);
 	});
+
+	// Story 2.1c review fix (AC 4, verification-gap finding): AC 4 requires "a
+	// full-strength plunge... crosses the top of the playfield (max y above
+	// 1040 mm), reaches the flipper band" -- this story's own close-out entry
+	// found, via a Rule 19 mutation (reverting PLUNGE_DEFLECTOR_DROP_MM 50 ->
+	// 34), that NEITHER of this golden's two committed assertions (the
+	// ball_launched/ballsInPlay pair above, and pos.x < LANE_X0_MM in the
+	// first test) goes red against that exact regression -- a plunge that
+	// stalls at max y = 1037.65 mm (below the story's own stated threshold)
+	// instead of crossing the top still satisfies both. The red the close-out
+	// entry actually observed came from a manual, uncommitted `runReplay()`
+	// trace. This closes that gap: a standing, committed assertion on the
+	// golden's own max y, tracked per tick via `onTick` (the ball's position
+	// mid-run is not part of `finalSnapshot`, only its LAST position is).
+	// mutation: revert PLUNGE_DEFLECTOR_DROP_MM from 50 to 34 in
+	// tools/make-placeholder-blend.py and re-export -> maxYMm measures 1037.65
+	// (below 1040), and this assertion goes red where the two tests above do
+	// not.
+	it('the plunge crosses the top of the playfield (AC 4: max y above 1040 mm), tracked across the WHOLE run, not merely at the end', () => {
+		const golden = loadGolden('full-plunge');
+		let maxYMm = -Infinity;
+		const result = runReplay({
+			replay: toReplay(golden),
+			collisionDoc: loadCollisionDoc(),
+			durationTicks: golden.durationTicks,
+			coilPrologue: golden.coilPrologue,
+			onTick: (_tick, snapshot) => {
+				const y = snapshot.balls[0]?.pos.y;
+				if (y !== undefined) {
+					maxYMm = Math.max(maxYMm, y);
+				}
+			},
+		});
+		expect(result.finalSnapshot.game.machine.ballsInPlay, 'sanity: the ball must still be the one launched by this golden\'s own coilPrologue').toBe(1);
+		expect(maxYMm, `the plunge must cross the top of the playfield -- max y observed across the run was ${maxYMm.toFixed(2)} mm, against the playfield's own 1066.8 mm height and AC 4's own > 1040 mm criterion`).toBeGreaterThan(1040);
+	});
 });
 
 describe('nudge-coupling golden: the nudge genuinely diverged the ball from where it would otherwise rest', () => {

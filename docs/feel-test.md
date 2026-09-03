@@ -52,6 +52,21 @@ in CI rather than silent.
   figure below was re-verified green against that document and none of them
   moved, because that change touches only `col_wall_bottom_l/_r`'s top edge
   and neither the cradle pocket nor the flipper is anywhere near it.
+  Re-measured again 2026-09-03 (Story 2.1c, the orbit routing and the inlane
+  feed) on the same host: the drain triangle, the cradle pocket and both
+  flipper boxes are untouched by that change and every figure below was
+  re-verified green against the regenerated document, with the Loop, Ramp
+  and plunge entries updated where the routing genuinely moved them. The
+  plunge was re-measured under ONE named harness -- `runReplay()` over
+  `test/replays/roll-and-drain.golden.json`'s own header and coilPrologue
+  with its transitions removed, i.e. the real conductor and a real
+  autolaunch, never a hand-placed ball: it clears the Loop entrance (mouth
+  x 428.4-480.4) at tick 5595, crosses the top at max y 1053.19 mm, is in
+  the LEFT bat band for 326 ticks from tick 8639, and its closest approach
+  to the left bat's own box is 0.00 mm (it genuinely contacts the bat).
+  Neither of the two conflicting figures previously on record (574+ band
+  ticks / 7.9-20.4 mm, and 438 / 3.66 mm) is carried forward; this
+  measurement supersedes both.
 - Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic2`.
 
 ## Items
@@ -208,8 +223,24 @@ tracks this as an open author task.
 left side of the table (`col_loop_l_funnel`, `col_loop_l`) toward
 `col_loop_top`. [CORRECTED 2026-09-02: rework iteration 3 shortened
 `col_loop_top`'s own left end (x 40 -> 220) for the plunge-routing fix, so
-it no longer meets `col_loop_l` and a full orbit does not pass both Loops
-in the shipped geometry -- `DW-123`, routed to Story 2.1c.]
+it no longer met `col_loop_l` and a full orbit did not pass both Loops --
+`DW-123`, routed to Story 2.1c.] [RE-JOINED 2026-09-03 (Story 2.1c): the
+connector spans x 50 to 418.4 again and each Loop is a true ORBIT -- up one
+lane, across the joined top, down the OTHER lane into the OPPOSITE inlane.
+One ball now closes all four Loop switches in a single run. The lane widened
+50 -> 66 mm to carry a ball in both directions, `col_loop_l_return` hands
+the descending ball to the left inlane and `col_guide_inlane_feed_l` carries
+it onto the left bat; `col_spinner_l` moved from the loop guide's inner face
+to the perimeter face, clear of the widened lane. [CORRECTED 2026-09-03,
+review fix: this note previously claimed the spinner "closes on every orbit"
+-- measured false. `s_spinner` closes on the Left Loop's own ascending
+entry (verified, `test/shot-routing.test.ts`, every offset in the sweep),
+but does NOT close when the Left lane instead carries the Right Loop's own
+RETURN descent (verified false at every offset in that sweep too):
+`col_loop_l_return` hands the descending ball inboard, past
+`col_spinner_l`'s own column, before it reaches the spinner's y-position.
+So it counts a direct Left-Loop shot but not a Right-Loop orbit passing
+through the same lane -- asymmetric, not "every orbit".]
 `s_loop_l_in`/`s_loop_l_out` mark entry and exit; the spinner
 (`col_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
 routing verified in `test/shot-routing.test.ts`. Golden:
@@ -228,17 +259,22 @@ open field (`test/plunger.test.ts`, `test/machine-serve-drain.test.ts`).
 
 ### Ramp
 
-`pending-author`. Entrance right of centre (`RAMP_ENTER_X_MM = 372` >
+`pending-author`. Entrance right of centre (`RAMP_ENTER_X_MM = 355`, moved
+2026-09-03 from 372 to free the widened Right Loop lane, still >
 `PLAYFIELD_W_MM / 2 = 257.2`) so the LEFT flipper shoots it; a return rail
-(the `add_channel_rail()` technique 2.1a's own outlane return channel
-proved) is intended to carry the ball back down into the RIGHT inlane
-(`docs/decisions.md` records the OQ-6 choice and why). **Code review
-2026-09-02: as drawn it does not yet do so** -- a ball released on the
-return rail routes `s_loop_r_in -> s_outlane_r -> s_drain`, never
-`s_inlane_r`, because the channel between `col_ramp_wall_r`'s right face
-(x = 401) and `col_ramp_return_2`'s left edge measures 11.5-26.0 mm over
-y 480-750, all under the 26.99 mm ball, so the rail's only passable side is
-its right one. The decision stands; the geometry has not delivered it yet. `s_ramp_enter`/`s_ramp_made` mark entry and
+carries the ball back down into the RIGHT inlane (`docs/decisions.md`
+records the OQ-6 choice and why). **DELIVERED 2026-09-03 (Story 2.1c)**,
+replacing the 2026-09-02 code-review note that it was not: the old return
+rail's channel measured 11.5-26.0 mm over y 480-750, all under the 26.99 mm
+ball, and it interpenetrated `col_loop_r` by 144.000 mm2 besides. It is
+redrawn as a CROSSING, which is what a real ramp return is: `col_ramp_turn`
+(a 45 deg angled prism at the top of the Ramp's own channel) turns the climb
+into an eastward crossing, `col_ramp_wall_r` stops below it so the turned
+ball has somewhere to go, and `col_loop_r` is split into `col_loop_r` /
+`col_loop_r_lower` to leave a gap at the crossing's height. Measured:
+`s_ramp_enter -> s_ramp_made -> s_inlane_r`, then the right bat band, at
+every in-channel entry offset from 350 to 359 mm.
+`s_ramp_enter`/`s_ramp_made` mark entry and
 completion. No sloped-plane primitive exists in this collision model (see
 `tools/make-placeholder-blend.py`'s own constants-block note), so the bed is
 authored at deck height with `surface = 'ramp'`; `RAMP_HEIGHT_MM`/
