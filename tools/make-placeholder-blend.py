@@ -592,11 +592,24 @@ DRAGON_BANK_Y1_MM = 708.0
 # A's own east edge (279) falls 0.525 mm short of it, and only N's own west
 # 4 mm (310-314) reaches it before col_sling_r's own body starts -- D, R and
 # most of N remain a bank shot or an angled approach's own targets, not a
-# straight descending one. Same structural limit the pre-fix state had (the
-# corridor itself did not move), now ledgered as DW-135 (routed to Story
-# 2.2/2.3: "all six droppable" needs either the slingshot's own corridor
-# widened or an angled-shot approach, neither of which is this story's own
-# geometry to move).
+# straight descending one.
+# [CORRECTED 2026-09-03, code review pass 3] The two sentences that stood
+# here -- "UNAFFECTED by this X0/leg-width fix, since neither boundary of
+# that corridor moved" and "Same structural limit the pre-fix state had (the
+# corridor itself did not move)" -- are both FALSE, and the ledger entry and
+# spec text that repeat them inherit the error. Measured against this
+# story's own baseline (43a9c37): col_sling_r was x[360.000, 410.000] and is
+# now x[314.000, 370.400], so its west face -- the corridor's own EAST
+# boundary -- moved 46 mm west IN THIS STORY (SLING_R_X0_MM, below). The
+# corridor from col_guide_outer_r's east face (279.525, genuinely unmoved)
+# was therefore 80.475 mm before this story and is 34.475 mm after it.
+# Direct-from-below reachability fell from FOUR of six targets (the baseline
+# bank spanned D 255-266 ... N 325-336 against ball centres 293.020-346.505)
+# to TWO. This is a consequence this story INTRODUCED, not one it inherited,
+# and the spec's own Explicit permission block names col_sling_r among the
+# bodies it MAY move -- so "not this story's own geometry to move" was
+# wrong on both counts. Ledgered as DW-136 (the ledger, not this comment,
+# is authoritative on the id; see also SLING_R_X0_MM's own note).
 DRAGON_BANK_X0_MM = 240.0
 DRAGON_BANK_PITCH_MM = 14.0  # authored -- centre-to-centre spacing between the six targets, narrowed to fit clear of both legs and the Ramp
 DRAGON_BANK_TARGET_W_MM = 11.0
@@ -648,6 +661,31 @@ SLING_Y1_MM = 455.0
 # re-cut, because both slingshots are Story 2.2's hardware and their spans
 # are not this story's to re-derive -- but a later story sizing sling
 # geometry should not read "comparable" here and believe it.
+# [ADDED 2026-09-03, code review pass 3] SLING_R_X0_MM is the one figure in
+# this block that is a bare literal rather than a derivation, and it is the
+# most consequential thing this story moved on the right side: 360.0 -> 314.0
+# (measured against baseline 43a9c37's own committed document). It is
+# recorded here because the Always rule requires every moved bound to carry
+# its measurement, and this one carried none. Two measured consequences, both
+# of them this story's own and neither of them inherited:
+#   * DRAGON bank approach corridor (col_guide_outer_r east face 279.525 ->
+#     this face): 80.475 mm -> 34.475 mm, i.e. ball-centre freedom 53.485 mm
+#     -> 7.485 mm. Direct-from-below reachability 4 of 6 targets -> 2 (G, O).
+#     Ledgered DW-136.
+#   * The Ramp channel's own approach. To enter the channel at y = 485 a ball
+#     centre must be in [351.495, 358.505]; passing the slingshot's own band
+#     (y 420..455) admits centres only up to this face minus a ball radius,
+#     now 300.505 (was 346.505). The shortfall was 21.990 mm before this
+#     story and is 50.990 mm after it. Measured against the real physics
+#     pipeline at code review: 256 swept releases below the sling band
+#     (x 285..360 step 5, aim -20..+30 deg, 1800 and 2400 mm/s) close
+#     s_ramp_enter ZERO times. test/shot-routing.test.ts's Ramp case passes
+#     only because driveShot() repositions the ball at (355, 465), inside the
+#     ~2 mm slot above the sling that no shot can reach. Ledgered DW-137.
+# Neither consequence is a reason to revert this value blind -- the sling
+# moved to clear the widened Right Loop lane the orbit needs -- but the
+# right-side budget (sling span, Ramp walls, DRAGON bank, loop lane) has to
+# be re-solved together, which is a decision above this constant.
 SLING_L_X0_MM, SLING_L_X1_MM = LOOP_LANE_CLEAR_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM, 130.0
 SLING_R_X0_MM, SLING_R_X1_MM = 314.0, LANE_X0_MM - LOOP_LANE_CLEAR_MM - LOOP_FUNNEL_OFFSET_MM - GUIDE_T_MM
 
@@ -1635,7 +1673,7 @@ def main():
 	# beyond confirming a thin post there reverses the shot outright instead
 	# of grazing it. HALTED rather than forced, per the spec's own
 	# instruction for exactly this shape of conflict -- col_spinner_l remains
-	# dead geometry. Ledgered as DW-136 (Story 2.3's own mechanical-spin
+	# dead geometry. Ledgered as DW-135 (Story 2.3's own mechanical-spin
 	# story needs a different mechanism than a static collision stub in
 	# either of this lane's two ball paths -- a compliant/hinged spinner
 	# simulation, or a location this investigation did not test).

@@ -759,6 +759,41 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		expect(width, 'the DRAGON bank\'s own outer-to-outer span (col_dragon_d\'s left edge to col_dragon_n\'s right edge)').toBeCloseTo(81, 1);
 	});
 
+	// Story 2.1c code review pass 3: the pass-2 HIGH finding this rework
+	// closed -- DRAGON_BANK_X0_MM 255 -> 235 putting col_dragon_d wholly
+	// inside col_dragon_leg_r's own x-shadow -- had NO regression gate. Every
+	// existing gate is blind to it by construction: the Lock-lane width reads
+	// legL.max.x -> legR.min.x (the right leg grows eastward, so its width
+	// never enters), the Dragon centreline was deliberately re-derived from
+	// sw_lock_lane's own zone centre, the outer-to-outer span above is
+	// independent of X0, and the bank's own shot-routing case asserts only
+	// "at least one target closes". Reverting DRAGON_LEG_R_W_MM 45 -> 60
+	// therefore reburies col_dragon_d with the whole suite green. Its sibling
+	// finding from the same pass (col_top_divider_4 buried inside col_loop_r)
+	// DID get a gate, ten lines below; this is the matching half.
+	// mutation: revert DRAGON_LEG_R_W_MM 45 -> 60 and re-export -> the leg
+	// returns to x 190..250, col_dragon_d (240..251) is 10 mm inside it and
+	// col_dragon_r is clipped -> this goes red naming the overlap.
+	it('the DRAGON bank\'s westmost target clears col_dragon_leg_r\'s own shadow, and its eastmost clears col_ramp_wall_l (the pass-2 leg-shadow fix, pinned)', () => {
+		const doc = readCollisionDoc();
+		const first = doc.nodes.find((n) => n.name === 'col_dragon_d');
+		const last = doc.nodes.find((n) => n.name === 'col_dragon_n');
+		const legR = doc.nodes.find((n) => n.name === 'col_dragon_leg_r');
+		const rampWallL = doc.nodes.find((n) => n.name === 'col_ramp_wall_l');
+		expect(first, 'col_dragon_d missing').toBeDefined();
+		expect(last, 'col_dragon_n missing').toBeDefined();
+		expect(legR, 'col_dragon_leg_r missing').toBeDefined();
+		expect(rampWallL, 'col_ramp_wall_l missing').toBeDefined();
+		expect(
+			first!.bboxMm.min.x - legR!.bboxMm.max.x,
+			'col_dragon_d\'s own west edge must sit clear of col_dragon_leg_r\'s own east edge -- a bank target inside the leg\'s x-shadow is unreachable by any straight shot from below',
+		).toBeGreaterThan(0);
+		expect(
+			rampWallL!.bboxMm.min.x - last!.bboxMm.max.x,
+			'col_dragon_n\'s own east edge must sit clear of col_ramp_wall_l\'s own west face',
+		).toBeGreaterThan(0);
+	});
+
 	it('the first two Top-lane divider gaps (centre to centre) are the authored 100 mm pitch; the third is not -- divider 4 was moved to clear the widened Right Loop rail', () => {
 		// Story 2.1c review fix: divider 4 used to sit at the uniform 100 mm
 		// pitch (x centre 395, footprint 391..399) -- fully swallowed by
@@ -914,9 +949,19 @@ describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-tu
 		// (PLAYFIELD_H_MM itself, or col_wall_top's own authored position)
 		// drifting out of sync between the two authoring sites.
 		// mutation: none of the three named constants moves this -- change
-		// col_wall_top's own authored y position directly (a different
-		// constant, PLAYFIELD_H_MM's own definition or the wall's own call
-		// site) and re-export -> THIS goes red, naming the mismatch.
+		// col_wall_top's own authored y position directly, at the wall's own
+		// call site, and re-export -> THIS goes red, naming the mismatch.
+		// [CORRECTED 2026-09-03, code review pass 3] This note also offered
+		// "PLAYFIELD_H_MM's own definition" as a falsifier. It is not one:
+		// col_wall_top is authored at PLAYFIELD_H_MM (make-placeholder-blend
+		// .py, col_wall_top's own call) and BOTH turn prisms take
+		// PLAYFIELD_H_MM as their own high corner, so changing that constant
+		// moves both sides of this comparison by the same amount and the
+		// assertion stays green for every value of it. Only a source edit
+		// that replaces the symbol with a literal at ONE of the two sites can
+		// separate them -- which is the guard this pair actually provides.
+		// The same block's col_ramp_turn sibling below is unaffected: its
+		// claimed mutation IS a single-site source edit.
 		expect(turnL!.bboxMm.max.y, 'col_loop_turn_l must reach col_wall_top\'s own interior face').toBeCloseTo(wallTop!.bboxMm.min.y, 1);
 		expect(turnR!.bboxMm.max.y, 'col_loop_turn_r must reach col_wall_top\'s own interior face').toBeCloseTo(wallTop!.bboxMm.min.y, 1);
 	});

@@ -553,9 +553,21 @@ describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit
 			// Verified empirically (this fix's own diagnostic pass) that
 			// s_spinner closes on the Left Loop's own ascending entry, at
 			// every offset in this sweep.
-			// mutation: move col_spinner_l's own x/y so it no longer sits
-			// inside this ascending column and re-export -> s_spinner is
+			// mutation: narrow sw_spinner's own authored x-span off this
+			// ascending column (5..45 -> 5..20) and re-export -> s_spinner is
 			// absent from firstMakes below.
+			// [CORRECTED 2026-09-03, code review pass 3] This note used to
+			// name "move col_spinner_l's own x/y" as the falsifier. It is
+			// not one, and the generator's own note records the experiment
+			// that proves it: under the AMENDED AD-6 (2026-09-03) a spinner
+			// is a pass-through GATE, col_spinner_l is intentionally
+			// non-colliding, and DELETING it from the committed collision
+			// document leaves all three Left Loop orbit cases green including
+			// this line. What this assertion genuinely pins is the analytic
+			// swept-segment zone (AD-11) against the ascending column -- real
+			// coverage, but of sw_spinner, not of the col_ node's placement.
+			// Story 2.1d renames that node vis_spinner_l; do not read this
+			// line as a guard on it.
 			expect(result.firstMakes, `s_spinner must close on the Left Loop's own ascending entry -- makes: ${result.firstMakes.join(',')}`).toContain('s_spinner');
 			expect(result.firstMakes, `s_inlane_r must close -- the Left Loop is an ORBIT and returns down the RIGHT lane, so it feeds the RIGHT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 			assertNotStranded(result, 'Left Loop');
@@ -630,6 +642,25 @@ describe('shot routing (AC 7, DW-123) -- the re-joined top connector: ONE ball c
 // on a genuine silent stall (the DW-119 shape this sweep exists to catch).
 function assertLoopMissOutcome(result: ShotResult, label: string): void {
 	if (result.firstMakes.includes('s_shooter_lane')) {
+		// [STRENGTHENED 2026-09-03, code review pass 3] This used to be a
+		// bare `return`, which skipped BOTH liveness assertions below and so
+		// left the fourth row of this sweep -- the only one that actually
+		// takes this branch -- asserting nothing at all beyond
+		// assertReleaseClear(). The sneak-back IS a legitimate outcome, but
+		// it is a legitimate SPECIFIC outcome: the traced ball descends the
+		// whole shooter lane and settles at the plunger's own rest pose
+		// (x ~ 494..500, per this block's own note and nudge-coupling's own
+		// recorded resting x of ~497.4). Pin that, so a future change that
+		// closes s_shooter_lane and then strands the ball somewhere else --
+		// the DW-119 shape this sweep exists to catch -- still fails here.
+		expect(
+			result.finalPosMm,
+			`${label}: the shooter-lane sneak-back must end with a known position, not a null one`,
+		).not.toBeNull();
+		expect(
+			result.finalPosMm!.x,
+			`${label}: s_shooter_lane closed, so the ball must come to rest INSIDE the shooter lane (east of col_wall_lane's own west face at ${laneX0Mm}), not stranded elsewhere on the table -- final pos: ${JSON.stringify(result.finalPosMm)}, terminal: "${result.terminal}"`,
+		).toBeGreaterThan(laneX0Mm);
 		return;
 	}
 	assertNotStranded(result, label);
@@ -776,7 +807,10 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => {
 	const bankLetters: readonly SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
 	it.each([
-		// Story 2.1c: the bank moved 20 mm west (DRAGON_BANK_X0_MM 255 -> 235)
+		// Story 2.1c: the bank moved west (DRAGON_BANK_X0_MM 255 -> 235 in
+		// the first rework pass, then 235 -> 240 as shipped -- the leg-shadow
+		// re-solve; "255 -> 235" alone stood here until 2026-09-03, corrected
+		// at code review pass 3, no release point moved)
 		// so col_ramp_wall_l could clear the widened Right Loop lane; both
 		// releases move with it, and the right one also has to stay clear of
 		// the re-sited col_sling_r (314..370.4).
@@ -844,8 +878,8 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumper
 		// Story 2.1c task 2: y moved from targetY-100 (700, unchanged) is fine
 		// here, but x moved 230 -> 220 -- (230, 700) sat 0.69 mm inside
 		// col_dragon_bank_backstop's own sloped corner (Code Map). Then
-		// 220 -> 200 in Phase 2, when the DRAGON bank moved 20 mm west
-		// (DRAGON_BANK_X0_MM 255 -> 235) to clear the widened Right Loop
+		// 220 -> 200 in Phase 2, when the DRAGON bank moved west
+		// (DRAGON_BANK_X0_MM 255 -> 235, shipped 240) to clear the widened Right Loop
 		// lane and carried its backstop with it (x 240..341 -> 220..321),
 		// putting 220 back inside the same corner. [The "230 -> 220" half of
 		// this comment stood alone against a shipped 200 until 2026-09-03;
@@ -909,15 +943,32 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', x: 240, y: 750 },
 		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 310, y: 750 },
 		// Story 2.1c review fix (MED finding): col_loop_top's own north face
-		// (the re-joined DW-123 connector) is deliberately left flat and is
-		// 368.4 mm wide (x 50..418.4) -- by far the largest flat north face
-		// on the table, argued safe in this file's own generator comment
-		// ("the plunged ball is already travelling west well before it
-		// reaches this height") rather than tested. It sits directly under
-		// the 50 mm channel a plunged ball (and an orbiting ball crossing
-		// col_loop_turn_l/_r) rides through, so a ball CAN genuinely be
-		// above it. Two columns, away from both turns and away from the
-		// off-column sweep's own shooter-lane finding above.
+		// (the re-joined DW-123 connector) is 368.4 mm wide (x 50..418.4) --
+		// by far the largest north face on the table. It USED to be dead
+		// flat, argued safe in the generator's own comment ("the plunged ball
+		// is already travelling west well before it reaches this height")
+		// rather than tested; these two columns are what tested it, and they
+		// found the genuine DW-119 stall that flatness caused. It sits
+		// directly under the 50 mm channel a plunged ball (and an orbiting
+		// ball crossing col_loop_turn_l/_r) rides through, so a ball CAN
+		// genuinely be above it. Two columns, away from both turns and away
+		// from the off-column sweep's own shooter-lane finding above.
+		// [CORRECTED 2026-09-03, code review pass 3] The face is NO LONGER
+		// flat: the same rework that added these columns replaced it with a
+		// RIDGE_DROP_MM = 2.5 mm ridge peaking at x = 234.2, and these two
+		// columns are its pin. Re-verified at code review by mutating the
+		// committed collision document: flattening the ridge back to a quad
+		// turns exactly these two cases red and nothing else in this file,
+		// while test/asset-contract.test.ts stays 44/44 green (no dimensional
+		// gate reads the ridge). Steepening it to 5.0 mm instead turns the
+		// Left Loop's own 34 mm entry-offset case red, matching the sweep the
+		// generator records. Document reverted, SHA-256 byte-identical.
+		// Note the peak itself (x = 234.2) is an unstable equilibrium and is
+		// deliberately NOT sampled here: measured at code review, a ball set
+		// at rest exactly on it makes 0.05 mm of progress in 500 ticks, while
+		// 1 mm either side of it rolls off normally (26 mm). That is the
+		// knife-edge the generator's own note calls out, not a defect these
+		// columns should chase.
 		{ label: 'col_loop_top, west of centre', x: 150, y: 1035 },
 		{ label: 'col_loop_top, east of centre', x: 300, y: 1035 },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ x, y }) => {
