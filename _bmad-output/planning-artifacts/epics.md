@@ -1101,6 +1101,73 @@ So that the Dragon's Lock is a working device instead of a hole that swallows th
   extending the cap or re-scoping into 2.1c. The golden re-record moves here with the `bd_lock` fix, because
   `bd_lock` reaches all five goldens through `machine.deviceSlots`.
 
+### Story 2.1e: Every shot case proves its own start point is reachable
+
+As the author,
+I want every shot case in the routing harness to prove that a real ball can reach the point it starts from -- off a plunge or off a flipper -- rather than asserting from a ball placed there,
+So that a shot the table cannot actually deliver can never again pass as a working feature.
+
+**Context.** `driveShot()` **teleports** the ball to its release point, so every case in `test/shot-routing.test.ts` proves only what happens *after* that placement, never that the placement is reachable. Story 2.1c's Phase 1 repaired three defects of exactly this family -- most sharply, a release landing *inside* the zone under test, which AD-2 then latched as a make on drive tick 1. `assertReleaseClear()` (2.1c task 2) closed the "not inside a body or a zone" half of the gap. **`DW-137` is the second real defect to slip through the half that remains**: the Ramp channel is unreachable by any shot from below -- 256 swept releases close `s_ramp_enter` zero times -- yet its case passes because the harness teleports the ball into a ~2 mm slot above the slingshot that no shot can reach. Two full code-review passes and the original implementation all missed it, because nothing in the suite asks the question. This story is chartered separately from the corridor geometry so that a cross-cutting guarantee every later geometry story inherits does not compete for budget against one quadrant's re-solve.
+
+**Acceptance Criteria:**
+
+**Given** `driveShot()`'s teleport and a shot case that declares a release point
+**When** the case runs
+**Then** the harness also proves that release point is **reachable** -- a ball originating at a plunge or at either bat, under the real physics pipeline, arrives within a stated tolerance of it -- and a case whose start point no such ball can reach **fails, naming the case and the closest approach achieved**
+**And** the proof is a property of the harness, not of each case, so a new case added later inherits it without opting in
+
+**Given** the reachability check
+**When** it is applied to the committed geometry
+**Then** its verdict for every existing case is recorded -- which cases are genuinely reachable, and which (the Ramp, per `DW-137`) are not -- so the harness's own baseline is a measured fact rather than an assumption
+**And** any case it proves unreachable is marked as such against its owning ledger entry rather than deleted, weakened, or quietly re-pointed at a reachable start
+
+**Given** Rule 19
+**When** the reachability check ships
+**Then** it carries a demonstrated mutation of its own: move one genuinely-reachable case's release point into a region no ball can reach, observe the check go red naming that case and its closest approach, revert, and confirm the tree is byte-identical
+**And** the check cannot pass vacuously -- a run in which zero cases were actually evaluated fails loudly rather than reporting success
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-130: `col_guide_inlane_feed_r` can be shifted 20 mm or deleted outright with all routing cases green -- the behavioural observable cannot distinguish "delivered onto the bat" from "still on the ramp above it". Root cause is the same family as this story's charter: the dimensional gates catch it, the behavioural harness does not (ledger; routed by charter 2026-09-03).
+
+**Prerequisites:** Story 2.1c (the orbit routing and the repaired pin this harness extends).
+**RUN ORDER (set by the coordinator, survives a runner change): this story runs BEFORE Story 2.1f.** The corridor work needs reachability measurement anyway; running it first means 2.1f inherits a working gate instead of building one under geometry pressure. Independent of Story 2.1d; either may run relative to it.
+
+### Story 2.1f: The bottom-right corridor -- the Ramp and the DRAGON bank made reachable
+
+As a player,
+I want to be able to actually hit the Ramp and every target on the DRAGON bank from a flipper,
+So that two of the table's named shots stop being scenery I can see but never shoot.
+
+**Context.** The bottom-right quadrant's approach corridor is too narrow to admit a ball to either feature, and the two defects share one cause and one fix. Measured against the committed document: the corridor from `col_guide_outer_r`'s east face (279.525) to `col_sling_r`'s west face (314.0) is **34.475 mm**, i.e. **7.485 mm of ball-centre freedom**. Entering the Ramp channel needs a ball centre >= 351.495, so the Ramp is **50.990 mm out of reach** (`DW-137`); only DRAGON-bank targets overlapping x ~280.5..314 can be struck directly, so 2 of 6 are reachable (`DW-136`). **Neither is a regression Story 2.1c introduced**: the Ramp was already 21.990 mm short at that story's baseline (`43a9c37`) and has never been reachable in committed geometry. 2.1c deepened it by 29 mm as the direct, explicitly-granted consequence of widening the Loop lanes for the orbit, and moving `col_sling_r` back east re-narrows the very lane the orbit needs -- which is why this is chartered with a budget of its own rather than bolted onto a story whose delivered value it trades against.
+
+**Acceptance Criteria:**
+
+**Given** the bottom-right geometry
+**When** the corridor is re-solved -- the slingshot span, both Ramp walls, the DRAGON bank and the Loop lane budget together, not one body at a time
+**Then** a ball shot from a flipper reaches the Ramp channel and closes `s_ramp_enter`, proven by the Story 2.1e reachability harness rather than by a teleported release
+**And** the Ramp's return then delivers to the **right inlane**, closing `s_inlane_r` (`OQ-6`/FR-27) -- *moved here by amendment from Story 2.1c's AC 3, which could satisfy it only through the teleport*
+
+**Given** the same re-solve
+**When** the DRAGON bank is approached from below
+**Then** **all six** targets are directly strikable, as Story 2.3's own "all six droppable" requirement needs, and a dimensional gate pins the corridor width against its tunable so a later change cannot silently re-narrow it
+
+**Given** Story 2.1c's delivered orbit
+**When** this story moves any body the orbit's lanes depend on
+**Then** every orbit case still passes -- both Loops at all three entry offsets, the single-ball `DW-123` orbit, and the plunge path -- with no assertion weakened; **a re-solve that buys the Ramp by breaking the orbit is a Block If, not a trade to make silently**
+
+**Given** the deliberately-red corridor gate Story 2.1c ships
+**When** this story lands
+**Then** that gate goes **green because the corridor genuinely admits a ball**, and its intended-red documentation is removed in the same change
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-137: the Ramp channel is unreachable by any shot from below -- entering it needs a ball centre >= 351.495 while `col_sling_r`'s band admits only <= 300.505; 256 swept releases close `s_ramp_enter` zero times, and `test/shot-routing.test.ts`'s Ramp case passes only because `driveShot()` repositions the ball at (355, 465), inside a ~2 mm slot no shot can reach. Pre-existing (21.990 mm short at 2.1c's baseline), deepened to 50.990 mm by 2.1c's granted `col_sling_r` move (ledger; routed by charter 2026-09-03).
+- DW-136: the DRAGON bank's reachable approach corridor limits direct-from-below reachability to two of its six targets, against Story 2.3's "all six droppable" requirement. Same 34.475 mm corridor, same fix (ledger; re-owned from Story 2.3 by charter 2026-09-03, because the corridor is one problem and splitting it across two stories would have each re-solving the other's constraint).
+
+**Prerequisites:** Story 2.1e (the reachability harness -- this story's own ACs are stated in terms of it), and Story 2.1c (the orbit whose lane budget this re-solve must preserve).
+**RUN ORDER (set by the coordinator, survives a runner change): Story 2.1e runs BEFORE this story.**
+
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
 As a player,
@@ -1159,7 +1226,7 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 
 **Ledger entries routed to this story** (Rule 17 (1b))
 
-- DW-136: the DRAGON bank's reachable approach corridor limits direct-from-below reachability to two of its six targets, against this story's own "all six droppable" requirement -- the corridor from `col_guide_outer_r`'s east face (279.525) to the re-sited `col_sling_r`'s west face (314.0) is 34.475 mm, i.e. **7.485 mm of ball-centre freedom**, so only targets overlapping x ~280.5..314 can be struck directly. Pre-existing, not introduced by Story 2.1c's own fix (the bank moved because `col_ramp_wall_l` had to clear the widened Right Loop lane). The bank's shot-routing case asserts only "at least one DRAGON-bank target closes", so nothing catches it and no dimensional gate pins the corridor -- expect to re-solve the bank, the Ramp's west wall and `col_sling_r` together rather than move one body (ledger; routed by harvest 2026-09-03).
+- DW-136: **re-owned to Story 2.1f** (the bottom-right corridor) by charter 2026-09-03 -- the DRAGON bank's approach corridor and the Ramp's unreachability (`DW-137`) are one 34.475 mm corridor with one fix, so splitting them across two stories would have each re-solving the other's constraint. This story still depends on the outcome: its own "all six droppable" requirement is only satisfiable once 2.1f lands.
 - DW-135 (context, already closed `by-design`): AD-6 was amended 2026-09-03 to the **pass-through** spinner model -- a ball crossing `sw_spinner`'s zone imparts rotation and closes `s_spinner` once per revolution until it decays (FR-26). **This story owns the spin and decay mechanism**, driven off that zone crossing, not off a collision with a body: thirteen-plus rigid-body variants were measured in Story 2.1c and every one that touched the ball stalled it permanently. `col_spinner_l` is renamed `vis_spinner_l` in Story 2.1d.
 
 ### Story 2.4: The devices-and-shots layer

@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-03-2026 18:00
+last_updated: 09-03-2026 21:00
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -54,6 +54,8 @@ development_status:
   2-1b-the-full-shot-map-and-the-switch-set: done
   2-1c-the-loop-returns-and-the-inlane-feed: in-progress
   2-1d-device-behaviour-and-guide-terminations: backlog
+  2-1e-every-shot-case-proves-its-own-start-point-is-reachable: backlog
+  2-1f-the-bottom-right-corridor-the-ramp-and-the-dragon-bank-made: backlog
   2-2-slingshots-and-pop-bumpers-as-hardware-rules: backlog
   2-3-drop-targets-the-spinner-and-the-lock-in-physics: backlog
   2-4-the-devices-and-shots-layer: backlog
