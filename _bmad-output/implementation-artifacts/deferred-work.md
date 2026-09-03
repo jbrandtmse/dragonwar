@@ -807,3 +807,23 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-1b-the-full-shot-map-and-the-switch-set.md | severity: med | fix-risk: low | footprint: in-epic
 - evidence: lead adjudication 2026-09-03: grep of test/ finds no file citing DW-68; test/export-py.test.ts covers the hull reduction's success path (a 3-point triangular footprint) but not the concave rejection path
 - 2026-09-03T05:08:44Z status=routed owner=2-1d-device-behaviour-and-guide-terminations by=adjudication note=routed to 2.1d because that story already re-exports and already owes a demonstrated export-gate mutation for the rubber_post terminations, so the concave case is one more case in the same Blender-gated describe; remember test/export-py-skip-visibility.test.ts pins the exact case count and its expectedSkips formula, so adding a gated case means updating that pin deliberately
+
+### DW-126: col_loop_r_lower's DW-119 bevel has no test that would catch its removal or reversal
+- source: spec-2-1c-the-loop-returns-and-the-inlane-feed.md | severity: med | fix-risk: med | footprint: in-epic
+- evidence: The descending-release sweep in test/shot-routing.test.ts excludes this body -- no column reaches it directly; the only trajectory crossing it (full-strength Ramp shot) already carries momentum past the point a bevel-removal regression would register in assertNotStranded()'s trailing-window check. Closing it needs new empirical calibration (a release point and speed verified to land on the cap at low momentum), not a mechanical addition.
+- 2026-09-03T15:16:09Z status=routed owner=burndown by=harvest note=harvested from 2.1c spec frontmatter deferred:; med and NOT mechanical -- needs fresh empirical calibration, so it goes to Epic 2's own burn-down gate rather than being asserted into an existing sweep
+
+### DW-127: No dimensional gate exists for col_loop_turn_l/_r or col_ramp_turn's own constants, unlike nearly every other new load-bearing figure 2.1c adds
+- source: spec-2-1c-the-loop-returns-and-the-inlane-feed.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: Every sibling constant (lane widths, feed clearances, channel widths) got a test/asset-contract.test.ts gate with a // mutation: comment; LOOP_TURN_ANGLE_DEG / LOOP_TURN_LOW_Y_MM / RAMP_TURN_Y0_MM did not. Coverage-only -- the turn geometry IS behaviourally tested via the orbit's own switch-closure checks -- but a future perturbation would surface as an opaque routing failure rather than a named dimensional regression.
+- 2026-09-03T15:16:19Z status=routed owner=burndown by=harvest note=harvested from 2.1c spec frontmatter deferred:; mechanical and low fix-risk so it is a strong burn-down candidate -- three asserts in test/asset-contract.test.ts alongside the sibling gates
+
+### DW-128: test/asset-contract.test.ts freeEndsMm() assumes every col_guide_* footprint is a quad with two non-adjacent short edges, with no check that the assumption holds
+- source: spec-2-1c-the-loop-returns-and-the-inlane-feed.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: Every currently-committed guide footprint satisfies it, so this is theoretical hardening rather than a live defect -- a future, differently-shaped col_guide_* node would silently derive wrong free-end points instead of failing loudly.
+- 2026-09-03T15:16:19Z status=open owner=2-1c-the-loop-returns-and-the-inlane-feed by=harvest note=harvested from 2.1c spec frontmatter deferred:; location is a file this story touched so it is in-story and is adjudicated at 2.1c's own ledger_adjudicated gate, not carried to burndown (a LOW never owns burndown)
+
+### DW-129: 2.1c's frozen intent-contract I/O and Edge-Case Matrix rows 1-2 are still worded for the same-side Loop-return reading the story's own RE-ORDERED section retired
+- source: spec-2-1c-the-loop-returns-and-the-inlane-feed.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: Rows 1-2 read 'Right Loop return... s_inlane_r closes' and 'Left Loop return... s_inlane_l closes... left bat band' (same-side); the same frozen block's 'Full orbit (DW-123)' row is logically incompatible with a same-side reading, so the contradiction pre-dates the implementation pass. Resolved in substance -- PRD:71's glossary, ARCHITECTURE-SPINE.md:366, docs/decisions.md's topology row and the spec's own RE-ORDERED block all agree the Loops feed the OPPOSITE inlane.
+- 2026-09-03T15:16:27Z status=open owner=2-1c-the-loop-returns-and-the-inlane-feed by=harvest note=harvested from 2.1c spec frontmatter deferred:; the shipped tests assert the opposite-inlane behaviour so no code is wrong -- this is stale wording in this story's own artifact, adjudicated at 2.1c's own gate
