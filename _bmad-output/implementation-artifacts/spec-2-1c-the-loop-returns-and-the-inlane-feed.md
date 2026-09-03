@@ -2,7 +2,7 @@
 title: 'Story 2.1c: The Loop returns and the inlane feed'
 type: 'feature'
 created: '2026-09-03'
-status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: 'a93d44bbb21558a58aee4fc0a3d4fc2f99f9c2fa'
 baseline_commit: '43a9c3765ebf406642d2d0dbec5271caca94cd2e'
 review_loop_iteration: 1
@@ -22,7 +22,16 @@ deferred:
     evidence: |-
       Code review pass 2's HIGH finding 1, HALTED rather than fixed this
       rework pass (2026-09-03) -- full measurement record in this file's
-      own ## Spec Change Log dated entry. A plain box (several widths), an
+      own #### 2026-09-03 -- lead rework dispatch (final iteration): make the corridor defect visible instead of hidden
+
+The author chartered `DW-137` and `DW-136` out of this story into **Story 2.1f** (the bottom-right corridor), and moved this story's own Ramp clause out of AC 3 into 2.1f's block. This story therefore does **NOT** re-solve the corridor. It ships two things so the defect is measured and impossible to fix silently:
+
+- [ ] [Review][Fix] **Ship a DELIBERATELY-RED corridor gate, owned by Story 2.1f.** Assert the thing that ought to be true and is not: **the bottom-right approach corridor admits a ball**. Measured today from the committed document -- `col_guide_outer_r`'s east face 279.525 to `col_sling_r`'s west face 314.000 = **34.475 mm**, i.e. **7.485 mm of ball-centre freedom**, while entering the Ramp channel needs a centre >= 351.495 against an admitted maximum of 300.505: **50.990 mm out of reach**. **Do NOT write a test that pins 50.990 as an expected value and goes green** -- a test asserting a defect is correct is the laundering class this epic has hit six times, and Phase 1 of this very story existed to stamp it out. Use the **DW-70 pattern**, which is this repo's established precedent for a red that must persist across stories: an out-of-process check that asserts the corridor admits a 26.99 mm ball and **exits non-zero today**, plus a wrapper test that passes by asserting that failure **and that its message names `DW-137`, `2.1f` and the measured shortfall** -- exactly as `test/ad7-device-slots.test.ts` wraps `pnpm check:ad7` for DW-70. That keeps `pnpm test` and CI honestly green on a known, documented, intended-red while making the defect un-hideable. When Story 2.1f re-solves the corridor the underlying check goes green, the wrapper then goes red, and 2.1f's own AC 4 requires removing the intended-red documentation in the same change -- so the gate cannot be silently outlived. Wire the check into `package.json` alongside `check:ad7`, and document it as intended-red in the same place DW-70 is documented.
+- [ ] [Review][Fix] **De-vacuum the Ramp case in `test/shot-routing.test.ts`.** It currently reads as though the Ramp is a working shot, and passes only because `driveShot()` repositions the ball at (355, 465) -- inside a ~2 mm slot above the slingshot that 256 swept releases could not reach. AC 3 no longer carries the Ramp clause (moved to 2.1f by amendment), so the case must stop claiming a delivery this story does not make: rename it and rewrite its comment so it states plainly that it exercises **only the Ramp's return geometry from an acknowledged-unreachable placement**, cite `DW-137` and Story 2.1f, and keep its assertions (the return crossing IS built and verified -- do not weaken or delete them). No geometry change, no re-export, no golden hash moves.
+
+**Boundaries for this iteration (binding).** Do **NOT** move `col_sling_r`, the Ramp walls, the DRAGON bank, or any Loop-lane body -- that is Story 2.1f's chartered work and moving the sling back east re-narrows the very lane this story's orbit needs. Do **NOT** re-export geometry: `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json` and all five `test/replays/*.golden.json` must end byte-identical to HEAD. If either task above cannot be done without touching geometry, that is an `intent gap` HALT -- say so with your measurements rather than reaching for the geometry.
+
+## Spec Change Log dated entry. A plain box (several widths), an
       add_box_wall_sloped()-equivalent bevel in both directions, a
       full-height vertical wall, and a small octagonal rubber_post-style
       post (radii 4, 2 and 1 mm) were all swept against the real physics
