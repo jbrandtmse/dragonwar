@@ -990,6 +990,17 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
   do; Story 2.1c is chartered with those Block Ifs lifted. 2.1b keeps the shot map and switch set it has
   actually delivered, plus the plunge/Loop path separation above.
 
+- **2026-09-02 — closed on what it delivered; four criteria amended to match, and the rest split out.**
+  Code review left five unresolved HIGH findings after the three-iteration rework cap was exhausted. The author
+  split rather than extended: the Loop-return routing stays with Story 2.1c, and device behaviour plus guide
+  terminations move to the new Story 2.1d. Four of this story's own criteria were amended because they no
+  longer described what it promises: the first criterion's "exit paths feed straight toward the flippers"
+  clause moved to 2.1c; the switch-zone criterion read "exactly one `sw_` zone per zone-requiring switch",
+  which is false of the shipped artifact (`s_dragon_body` legitimately carries one zone per Dragon leg) and was
+  ungated; the feel-ritual criterion asserted a miss-destination judgement that is `pending-author` and
+  unwritten; and the suite criterion forbade the `durationTicks` and `PARITY_INERT` edits the author expressly
+  authorised, so a reader validating the story against it would have flagged sanctioned work as a violation.
+
 - **2026-08-30 — created as the receiving half of the Story 2.1 split.** See Story 2.1a's
   change log for the rationale and the criterion-by-criterion partition.
 
@@ -1000,6 +1011,11 @@ I want a Loop I hit off a flipper to come back to an inlane so I can shoot it ag
 So that the Loops are combo shots the way they are on a real machine, instead of a one-way trip to an outlane.
 
 **Acceptance Criteria:**
+
+**Given** `test/shot-routing.test.ts` as Story 2.1b left it
+**When** this story starts
+**Then** its pin is repaired **before any geometry work in this story** -- `assertReachesFlipperBandOrLeavesPlay` is `reachedFlipperBand || leftPlay` and `leftPlay` is set when the ball **drained**, so the two outcomes AC 1 exists to distinguish are today indistinguishable; it must assert `reachedFlipperBand` per shot where AC 1 requires it, keep `leftPlay` only as the terminal-outcome guard, and stop `driveShot()` teleporting the ball *inside* the zone it is meant to test (four of ten cases close their primary switch that way today)
+**And** the repaired pin is demonstrated red against the current geometry before it is used to judge any new geometry -- **this ordering is binding and survives a runner change**: if the pin is not repaired first, this story inherits a green test over the exact geometry it is chartered to fix, which is the `DW-119` failure a third time
 
 **Given** the shot map drawn in Story 2.1b
 **When** a ball is driven into the Left Loop or the Right Loop at a plausible flipper-shot speed
@@ -1040,6 +1056,44 @@ So that the Loops are combo shots the way they are on a real machine, instead of
   in 12 000 ticks. A working fix likely needs a multi-surface funnel proven out empirically, the way the
   bottom funnel under the drain triangle was, or a Ramp position that opens a genuine >= 27 mm corridor.
   This story is chartered with the 2.1a bounds and the Ramp position explicitly negotiable.
+
+### Story 2.1d: Device behaviour and guide terminations
+
+As a player,
+I want the Lock to actually hold and release balls, and every guide to end in a rubber post,
+So that the Dragon's Lock is a working device instead of a hole that swallows the ball, and the table has no bare metal guide ends to chew the ball on.
+
+**Acceptance Criteria:**
+
+**Given** `bd_lock` as Story 2.1b declared it
+**When** the machine boots
+**Then** its three slots are **empty**, not full -- `src/sim/physics/devices.ts` fills every device's slots unconditionally at construction, so the machine currently boots seven balls and a Lock-lane shot raises measured `device_overflow` events; a device's boot occupancy is a property of the device, not a constant
+
+**Given** a ball parked in `bd_lock`
+**When** `c_mouth` pulses
+**Then** exactly one ball leaves and stays out (AD-6, "one ball per pulse") -- the Mouth eject pose currently sits **inside** `sw_lock_2`, so `detectEntries()` re-parks the ejected ball on the same tick and the slots never change
+**And** the slot zones are bounded by the Lock lane's own geometry rather than sitting in open field where any passing ball is swallowed
+
+**Given** every guide drawn in Story 2.1b
+**When** the geometry is re-exported
+**Then** every guide's free end terminates at a node whose `surface` is `rubber_post` (FR-31, CAP-31, AD-11) -- Story 2.1b added **zero** `rubber_post` nodes, so its own AC 1 rule is unmet and its named mutation is unperformable
+**And** a gate asserts it, with a demonstrated mutation: change one guide-end post's `surface` from `rubber_post` to `metal` and re-export, and the gate goes red naming that guide
+
+**Given** the `bd_lock` boot-state fix
+**When** the goldens are re-recorded
+**Then** all five are re-recorded under the author's grant of 2026-09-02, each traced correct **and** each still asserting its own subject
+**And** every golden's `notes` is corrected: all five currently claim `bd_lock` adds an *"empty"*-slots entry, when the real boot value is `[true, true, true]` -- wrong in the one detail the note exists to record. `stateHash()` hashes `machine.deviceSlots`, which is why all five move together.
+
+**Prerequisites:** Story 2.1b (the registry and the geometry). Independent of Story 2.1c; either may run first.
+
+**Story change log**
+
+- **2026-09-02 -- chartered out of Story 2.1b (author's decision).** Story 2.1b's code review surfaced five
+  unresolved HIGH findings, of which the `bd_lock` boot state, the Mouth eject pose, the open-field slot zones
+  and the absent `rubber_post` terminations are device-behaviour and terminations work rather than shot-map
+  drawing. 2.1b had exhausted its three-iteration rework cap, and the author chose a third story over
+  extending the cap or re-scoping into 2.1c. The golden re-record moves here with the `bd_lock` fix, because
+  `bd_lock` reaches all five goldens through `machine.deviceSlots`.
 
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
