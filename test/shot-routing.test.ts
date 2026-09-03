@@ -694,8 +694,8 @@ describe('shot routing (AC 1 behavioural half, review fix) -- a Loop shot below 
 	});
 });
 
-describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
-	it('s_ramp_enter then s_ramp_made close in order (right of centre, the left flipper\'s own shot), and the ball reaches the right inlane feed onto the RIGHT flipper', () => {
+describe('shot routing (AC 1 behavioural half; Ramp RETURN GEOMETRY ONLY -- release point acknowledged unreachable, DW-137/Story 2.1f)', () => {
+	it('from a release point NO real shot can reach (DW-137), the Ramp\'s own return geometry still closes s_ramp_enter then s_ramp_made in order and delivers to the right inlane feed onto the RIGHT flipper', () => {
 		const doc = readCollisionDoc();
 		expect(TABLE.reference.playfieldMm.w / 2, 'sanity: the Ramp entrance must be right of centre').toBeLessThan(
 			doc.nodes.find((n) => n.name === 'col_ramp_wall_l')!.bboxMm.min.x,
@@ -704,6 +704,33 @@ describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
 		// the widened Right Loop lane, and its entrance rose (RAMP_ENTER_Y_MM
 		// 470 -> 485) to clear the re-sited right slingshot; the release moves
 		// with it, and assertReleaseClear() is what caught both.
+		//
+		// DW-137 (chartered out of this story into Story 2.1f, "The
+		// bottom-right corridor"): this release point is NOT reachable by any
+		// real shot. Measured directly from the committed geometry (see
+		// test/dw137-corridor-gate.test.ts and
+		// test/fixtures/dw137-corridor/ramp-corridor.harness.ts, this story's
+		// own deliberately-red corridor gate): a ball approaching from below
+		// cannot push its centre past x = 300.505 mm (col_sling_r's west face
+		// minus the ball radius), but entering the Ramp channel needs a centre
+		// of at least x = 351.495 mm (col_ramp_wall_l's east face plus the
+		// ball radius) -- a 50.990 mm shortfall. 256 swept releases close
+		// s_ramp_enter zero times. `assertReleaseClear()` below only guards
+		// against a release point embedded in geometry or inside the zone
+		// under test -- it does not (yet; that is Story 2.1e's own charter)
+		// prove a release point is reachable by a real shot, and this one is
+		// not: (355, 465) sits in a ~2 mm slot above the slingshot that no
+		// swept shot can reach.
+		//
+		// AC 3 no longer carries a Ramp clause (moved to Story 2.1f by
+		// amendment) -- this case does NOT claim the Ramp is a working shot.
+		// It exists only to verify the Ramp's own RETURN geometry (the
+		// crossing over the Right Loop, the descent to the right inlane and
+		// onto the right flipper) is built and correctly ordered, from a
+		// placement this story's own investigation has already proven
+		// unreachable. Do not read a pass here as "the Ramp is reachable" --
+		// Story 2.1f's own AC is what will prove that, through the Story 2.1e
+		// reachability harness.
 		const result = driveShotChecked({ x: 355, y: 465, z: 13.5 }, 2400, 0, 9000, ['s_ramp_enter', 's_ramp_made', 's_inlane_r']);
 		const enterIdx = result.firstMakes.indexOf('s_ramp_enter');
 		const madeIdx = result.firstMakes.indexOf('s_ramp_made');

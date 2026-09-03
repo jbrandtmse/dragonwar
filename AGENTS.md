@@ -18,7 +18,7 @@ An open-source pinball simulation: one original table, browser-first, Windows an
 ## Running and verifying
 
 - Resolve BMad config as `PYTHONIOENCODING=utf-8 uv run _bmad/scripts/resolve_config.py --project-root .` — plain `uv run` dies with a `UnicodeEncodeError` on the agent icons under a cp1252 console.
-- `package.json`'s twelve scripts, pnpm 11.24.0 / Vite 8.2.2 / Vitest 4.1.11 / TypeScript 7.0.2 / Node >=24 as the spine fixed them: `dev`, `typecheck` (`tsc --noEmit` over the three tsconfig projects), `test` (`vitest run`), `build`, `preview`, `check:dist`, `check:size`, `lint:boundaries`, `check:headers`, `check:attributions`, `export:assets`, `check:ad7`.
+- `package.json`'s thirteen scripts, pnpm 11.24.0 / Vite 8.2.2 / Vitest 4.1.11 / TypeScript 7.0.2 / Node >=24 as the spine fixed them: `dev`, `typecheck` (`tsc --noEmit` over the three tsconfig projects), `test` (`vitest run`), `build`, `preview`, `check:dist`, `check:size`, `lint:boundaries`, `check:headers`, `check:attributions`, `export:assets`, `check:ad7`, `check:corridor`. `check:ad7` (DW-70, Story 1.8) and `check:corridor` (DW-137, Story 2.1c, owned by Story 2.1f) are both intended-red: each is a live, documented defect, wired outside `pnpm test` and CI's fixed script list, with an in-suite wrapper test (`test/ad7-device-slots.test.ts`, `test/dw137-corridor-gate.test.ts`) that asserts the failure's own content rather than merely its exit code.
 - CI is `.github/workflows/ci.yml`: a `Checks` job (typecheck, boundary lint, licence headers, attribution ledger, test, build, static-bundle check, size budget, then uploads the Pages artifact on `main`) followed by a `Deploy to GitHub Pages` job gated on that job succeeding and on `main`.
 
 ## Conventions that differ from defaults
