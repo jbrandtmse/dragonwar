@@ -7,7 +7,7 @@ paradigm: 'Ports-and-adapters around a virtual pinball machine — Physics is th
 scope: 'DragonWar v1 whole system: physics core, rules layer, presentation, host loop, assets, persistence, build and deployment'
 status: final
 created: '2026-08-26'
-updated: '2026-09-01'
+updated: '2026-09-03'
 binds: [FR-1..FR-55, NFR-1..NFR-9, UJ-1..UJ-4]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-dragonwar-2026-08-26/prd.md
@@ -363,7 +363,7 @@ Environments: local (`vite dev`) and production (Pages on `main`). No staging; p
 - **Web Worker for the simulation** — v1 is main-thread; `sim/` is DOM-free so the move is a host change, and it must use `postMessage` snapshots — Pages cannot serve COOP/COEP, so no `SharedArrayBuffer`. Revisit if spike 1 or frame profiling shows the sim contending with rendering.
 - **Per-group lightmap bake pipeline** (Blender scripts, resolution, texture format, memory envelope — spike 2) — the asset contract (AD-11/12) is fixed; spike 2's light-group count is an input to the `TABLE.lightGroups` partition, which stays provisional until it runs.
 - **WebGPU-only quality** (more lights per batch, better shadows) — never a feature; only after the WebGL2 path is complete and equal in feel.
-- **Playfield geometry itself** (PRD OQ-6: flipper tip gap, outlane widths, post positions, loop entries, ramp height, Dragon placement) — the first design problem of epic 2, owned by the Blender source under AD-11. Acceptance carried from the brief: every shot passes Lawlor's miss test (a miss returns playable); orbit exits feed the flippers; guides end at rubber posts; the Dragon is off-centre with a right-flipper straight shot and a left-flipper backhand; spinner on one loop only; six-target drop bank. A Bally template DXF/SVG is the highest-value input and needs an `ATTRIBUTIONS.md` entry first.
+- **Playfield geometry itself** (PRD OQ-6: flipper tip gap, outlane widths, post positions, loop entries, ramp height, Dragon placement) — the first design problem of epic 2, owned by the Blender source under AD-11. Acceptance carried from the brief: every shot passes Lawlor's miss test (a miss returns playable); orbit exits feed the flippers -- and, **refined 2026-09-03 (Story 2.1c)**, each Loop is a true **orbit**: the ball goes up one side, **across the top**, and down the *other* side into the **opposite** inlane (PRD:71 defines a Loop as an orbit shot). The two lane rails must therefore be joined across the top; a Loop that returns down its own side into an outlane is not an orbit. Fifteen measured diverter designs failed trying to reverse a ball inside one lane before this was read correctly; guides end at rubber posts; the Dragon is off-centre with a right-flipper straight shot and a left-flipper backhand; spinner on one loop only; six-target drop bank. A Bally template DXF/SVG is the highest-value input and needs an `ATTRIBUTIONS.md` entry first.
 - **Mode-start device** (PRD OQ-5) — the Lock arbiter (AD-18) decides from state, so a separate scoop is a `TABLE` and geometry change, not an architecture change.
 - **Hop control mechanism** — one explicit tunable (AD-15); vpx-js has no such knob, and it must not be implemented as scatter or randomness (AD-3).
 - **Flipper hardware-rule calibration** (strength, ramp-up, EOS, return) and every scoring value — tunables under AD-15, frozen after playtest (PRD OQ-3).

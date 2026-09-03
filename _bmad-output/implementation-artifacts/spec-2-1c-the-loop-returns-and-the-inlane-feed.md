@@ -2,7 +2,7 @@
 title: 'Story 2.1c: The Loop returns and the inlane feed'
 type: 'feature'
 created: '2026-09-03'
-status: 'blocked' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: '0208054e86d1b5037227d7ab064462a7065e3ee7'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -191,6 +191,32 @@ Read at HEAD `5f7fc44` (tree clean, branch `DW-1-epic2`). Line anchors are curre
 19. `ATTRIBUTIONS.md` -- re-date the author-made `.blend` entry for this story's authoring pass, per CLAUDE.md's provenance rule, and correct any wording this story's geometry falsifies.
 20. `_bmad-output/implementation-artifacts/spec-2-1c-the-loop-returns-and-the-inlane-feed.md` (`## Spec Change Log`) -- run the full command list in `## Verification`, record each result there, and demonstrate every mutation below (applied, red observed, reverted, tree confirmed byte-identical). Re-measure the plunge with **one named harness** and record which -- the two figures on record (574+ vs 438 band ticks; 7.9..20.4 mm vs 3.66 mm) disagree and neither may be quoted as the baseline.
 
+### RE-ORDERED FOR THE ORBIT TOPOLOGY (lead, 2026-09-03) -- read this before any task below
+
+**The same-lane diverter approach is RETIRED. Do not attempt a sixteenth one.**
+
+Iterations 1 and 2 spent **fifteen** measured, fully-reverted designs trying to make a ball reverse and cross ~50 mm laterally *inside the lane it entered*, against a shared **1.42 mm** clearance budget. That was the wrong problem, and the project's own artifacts say so:
+
+- **`prd.md:71`** (glossary): *"**Loop** -- either of the two **orbit** shots (Left Loop, Right Loop); the Spinner is on one of them."*
+- **`ARCHITECTURE-SPINE.md:366`** (carried acceptance): *"every shot passes Lawlor's miss test (a miss returns playable); **orbit exits feed the flippers**"* -- now refined in the spine to state the opposite-inlane mapping explicitly.
+
+**A Loop is an orbit: up one side, ACROSS THE TOP, and down the *other* side into the OPPOSITE inlane.** The Right Loop feeds the **left** inlane; the Left Loop feeds the **right** inlane. The confirmed topology is recorded in `docs/decisions.md`.
+
+**The defect is that the lanes are not joined.** Measured on the committed document: `col_loop_l` is x 50.0-62.0, `col_loop_r` is x 406.4-418.4, both y 500-1016.8 -- but `col_loop_top` spans only **x 220.0-428.4**. It meets the right rail (428.4 past 418.4) and stops **158 mm short** of the left rail (62.0). So there is no orbit, and a ball up the Right Loop returns down the right side into the right outlane. That is the whole defect.
+
+**`DW-123` is therefore the FIX, not a cleanup item, and it is no longer sequenced last.**
+
+**The one hard constraint -- these must land as ONE change, not in sequence.** Story 2.1b shortened `col_loop_top`'s left end (x 40 -> 220) *precisely because* a plunged ball rode the flat ceiling to the left end and dropped into the Left Loop's then-outlane-routed lane. Re-joining the top without simultaneously fixing where the left lane discharges recreates that exact failure. So: **join the top AND route both lanes' bottoms to their opposite inlanes together.**
+
+The encouraging half: Story 2.1b's shipped plunge **already** crosses the top and descends left to the left flipper, so part of the left-hand path may already exist -- measure before you redraw it.
+
+**What to keep from the fifteen failures** (all in the `## Spec Change Log`): the corridor between `col_ramp_wall_r` and `col_loop_r` is genuinely crossable with real velocity once `col_ramp_wall_r` is raised clear -- iteration 2 proved that, and it then overshot into the Ramp's channel. The Ramp/Loop interpenetrations (`col_ramp_return_1` x `col_loop_r` = 144.000 mm^2; `col_ramp_return_2` x `col_loop_r` = 53.706 mm^2) and `col_ramp_wall_r`'s dead-flat north cap at y 825 are still real defects and still tasks.
+
+**Rework budget: RESET to three fresh iterations** by the author, because iterations 1 and 2 tested the hypothesis this re-ordering retires. The stop-and-surface discipline is unchanged: if the orbit approach does not converge in three, HALT and surface rather than pushing for convergence.
+
+**Phase 1 is done and committed. `test/shot-routing.test.ts` going RED on 6 cases is the deliverable.** If those six go green without the geometry changing, that is a regression to revert and log -- the same standing rule as `DW-70`. Never weaken those assertions to reach green.
+
+
 **Acceptance Criteria:**
 
 - **AC 1** -- Given `test/shot-routing.test.ts` as Story 2.1b left it, when this story starts, then its pin is repaired **before any geometry work**: `assertReachesFlipperBandOrLeavesPlay`'s `reachedFlipperBand || leftPlay` is replaced by an assertion on `reachedFlipperBand` for every shot whose criterion requires a flipper arrival, `leftPlay` survives only as the terminal-outcome guard, the flipper band no longer contains the centre drain corridor (x 240.875..273.525), and `driveShot()` no longer teleports the ball inside the zone the case asserts closes -- for the Left Loop, Right Loop, Ramp and both slingshot blocks, and for every release point embedded in a `col_` footprint.
@@ -203,6 +229,8 @@ Read at HEAD `5f7fc44` (tree clean, branch `DW-1-epic2`). Line anchors are curre
 - **AC 8** -- Given the full command suite, when it runs after the change with `BLENDER` exported, then it reports **no fewer than 87 files and 1191 passing with 0 skipped and 0 failing**, with no test deleted, skipped or weakened to reach it; every behavioural gate Story 2.1b shipped still passes; all five golden headers are refreshed and any golden whose recorded trajectory the routing genuinely changed is re-recorded with its new trace **shown correct before recording** and the reasoning written into its own `notes`, with no threshold lowered, no `PARITY_INERT` entry added to dodge a parity check and no scenario assertion weakened; `pnpm check:ad7` still exits 1 naming `AD-7`, `DW-70` and `bd_trough`; and `TABLE.shots` is still exactly `{}`.
 
 ## Spec Change Log
+
+- 2026-09-03 (lead, re-ordering for the orbit topology): the same-lane diverter approach is retired. `prd.md:71` defines a Loop as an orbit and `ARCHITECTURE-SPINE.md:366` requires orbit exits to feed the flippers; the author confirmed each Loop feeds the **opposite** inlane. The defect is the unjoined `col_loop_top` (x 220.0-428.4, meeting the right rail but 158 mm short of the left), so `DW-123` is the fix rather than a cleanup item, and the top join plus both lanes' inlane feeds must land as one change. Spine refined and `docs/decisions.md` updated. Rework budget reset to three by the author. Status reset to `in-progress`. No frozen section touched.
 
 - 2026-09-03 (lead, re-dispatch after the iteration-1 halt): phase 1 is **complete and committed** — the pin is repaired and correctly goes red on 6 cases. Phase 2 halted on a constraint this spec does not state; an **Explicit permission** block is added to `## Boundaries & Constraints` making clear that `col_loop_r`, `col_ramp_wall_r`, `col_sling_r` and the 2.1a bounds are all movable here. Status reset to `in-progress`. No frozen section touched.
 
