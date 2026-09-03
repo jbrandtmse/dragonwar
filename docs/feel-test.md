@@ -192,17 +192,24 @@ the switch/coil registry -- this pipeline cannot close AC 6, the Lawlor
 "every miss returns playable" ritual (FR-32), which is judged against the
 physical Reference machine (Stern *Dungeons & Dragons*) exactly as
 Cradling/Flipper snap/Rejection above are. The seven entries below land the
-build-side geometry they will be judged against; each records where the most
-common miss goes and none may be a centre drain, per the epic's own
-requirement. The `sprint-status.yaml` action item `epic-2-retro-item-10`
+build-side geometry they will be judged against. [AMENDED 2026-09-02, matching
+the spec's own AC 6 amendment: the miss-destination judgement itself --
+where each shot's most common miss goes, and that none may be a centre
+drain, per the epic's own requirement -- cannot be derived from geometry
+alone and is part of what stays `pending-author` until the Reference-machine
+ritual runs; this preamble states that rather than asserting a judgement
+nobody has made.] The `sprint-status.yaml` action item `epic-2-retro-item-10`
 tracks this as an open author task.
 
 ### Left Loop
 
 `pending-author`. Geometry: a chain of convex prisms from
 `col_post_divider_l_hi` (the existing 2.1a post at table y = 420) up the
-left side of the table (`col_loop_l_funnel`, `col_loop_l`) and across the
-top (`col_loop_top`), joining the Right Loop -- a full orbit passes both.
+left side of the table (`col_loop_l_funnel`, `col_loop_l`) toward
+`col_loop_top`. [CORRECTED 2026-09-02: rework iteration 3 shortened
+`col_loop_top`'s own left end (x 40 -> 220) for the plunge-routing fix, so
+it no longer meets `col_loop_l` and a full orbit does not pass both Loops
+in the shipped geometry -- `DW-123`, routed to Story 2.1c.]
 `s_loop_l_in`/`s_loop_l_out` mark entry and exit; the spinner
 (`col_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
 routing verified in `test/shot-routing.test.ts`. Golden:

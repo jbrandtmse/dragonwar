@@ -1084,6 +1084,11 @@ So that the Dragon's Lock is a working device instead of a hole that swallows th
 **Then** all five are re-recorded under the author's grant of 2026-09-02, each traced correct **and** each still asserting its own subject
 **And** every golden's `notes` is corrected: all five currently claim `bd_lock` adds an *"empty"*-slots entry, when the real boot value is `[true, true, true]` -- wrong in the one detail the note exists to record. `stateHash()` hashes `machine.deviceSlots`, which is why all five move together.
 
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-67: the switch tracker's MAKE side is correct after Story 2.1b (it latches on the observing tick, per the AD-2 amendment 2.1b wrote), but both trackers BREAK after `settleTicks`+1 outside ticks rather than `settleTicks` — DW-67's own off-by-one carried across to the break side (ledger; routed by adjudication 2026-09-02). No golden moves.
+- DW-125: `export.py`'s DW-68 non-convex-footprint rejection has no automated regression pin — the gate exists at `export.py:420-437` and was demonstrated firing at Story 2.1b's AD gate, but no test goes red if the check is removed (ledger; routed by adjudication 2026-09-02). This story already re-exports and already owes a demonstrated export-gate mutation for the `rubber_post` terminations, so the concave case is one more case in the same Blender-gated `describe` — note that `test/export-py-skip-visibility.test.ts` pins the exact case count and its `expectedSkips` formula, so adding a gated case means updating that pin deliberately.
+
 **Prerequisites:** Story 2.1b (the registry and the geometry). Independent of Story 2.1c; either may run first.
 
 **Story change log**
