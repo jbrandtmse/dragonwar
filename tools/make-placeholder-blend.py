@@ -220,7 +220,10 @@ LOOP_TOP_INNER_Y_MM = PLAYFIELD_H_MM - LOOP_TOP_CLEAR_MM  # 1016.8
 # the lane's own mouth sits over the INLANE and the descending orbit ball is
 # handed to col_guide_inlane_l/_r rather than to the outlane. y0 is dropped
 # from GUIDE_Y_TOP_MM (420) to 438 to leave room for the rubber post that
-# terminates the inlane guide's own upper end at 434 (POST_RADIUS_MM = 4).
+# terminates the inlane guide's own upper end at 432 (POST_RADIUS_MM = 4;
+# col_post_inlane_*_hi is authored at LOOP_FUNNEL_Y0_MM - GUIDE_T_MM / 2 =
+# 438 - 6 = 432, spanning y 428..436 -- the comment said 434 until it was
+# checked against the committed document at code review, 2026-09-03).
 LOOP_FUNNEL_Y0_MM = 438.0
 LOOP_FUNNEL_Y1_MM = 500.0  # authored -- a short, gentle widening run
 # How far INBOARD (toward the table centre) the funnel's own bottom sits
@@ -234,30 +237,49 @@ LOOP_FUNNEL_Y1_MM = 500.0  # authored -- a short, gentle widening run
 LOOP_FUNNEL_OFFSET_MM = 20.0
 
 # The loop RETURN rail (Story 2.1c). The lane's own outer boundary is the
-# perimeter wall, so the descending orbit ball has nothing to slide along
-# and drops straight into whatever is beneath it -- which was the outlane.
-# This rail is that missing surface: a plank across the lane, high end on
-# the perimeter wall, low end directly above the divider guide's own OUTER
-# face, so a ball descending ANYWHERE in the lane (ball centres run 13.5 to
-# 36.5 mm from the wall, and the rail's own line is within one ball radius
-# of every one of them) meets it and is carried inboard, leaving the rail
-# already moving across the divider rather than along it.
+# perimeter wall, so a ball descending the OUTER part of the lane has
+# nothing to slide along and drops straight into whatever is beneath it --
+# which was the outlane. This rail is that missing surface: a plank across
+# the lane's outer band, high end on the perimeter wall, low end above the
+# divider guide's own OUTER face, so a ball descending there meets it and is
+# carried inboard, leaving the rail already moving across the divider rather
+# than along it.
+#
+# [CORRECTED 2026-09-03, code review] This comment used to claim the rail
+# catches a ball descending ANYWHERE in the lane, quoting "ball centres run
+# 13.5 to 36.5 mm from the wall". That was the 50 mm lane's arithmetic; at
+# LOOP_LANE_CLEAR_MM = 66 the centres run 13.5..52.5, and the rail's reach
+# is only LOOP_RETURN_END_X_MM + BALL_RADIUS_MM = 27.5. Traced through the
+# real pipeline at every entry offset in test/shot-routing.test.ts's own
+# Right Loop sweep: the ORBIT's descent does not use this rail at all -- the
+# ball leaves col_loop_top at its own end (LOOP_TOP_END_X_MM = 50) and falls
+# with vx ~ 0 (no x-gravity), crossing this rail's own y-band at x = 52.0
+# to 52.1, some 38 mm east of the tip, straight into the inlane channel.
+# What the rail actually does, and is sized for, is bound the ASCENDING
+# shot's own column from the west (see LOOP_RETURN_END_X_MM below) and catch
+# a WEAKER return that comes back down its own lane near the wall.
 #
 # The low end deliberately stops at OUTLANE_WIDTH_MM rather than reaching
 # the inlane: the gap between the rail's own low end and the divider guide's
 # own top post is what still lets a ball into the OUTLANE (a return that
 # does not carry drops there, exactly as it does on a real machine), and it
-# measures 470 - 420 = 50 mm, comfortably more than the reference ball.
+# measures LOOP_RETURN_END_Y_MM - DIVIDER_Y_TOP_MM = 470 - 380 = 90 mm,
+# comfortably more than the reference ball. (It read "470 - 420 = 50 mm"
+# until this story dropped the divider's own top to DIVIDER_Y_TOP_MM;
+# corrected 2026-09-03, code review.)
 LOOP_RETURN_TOP_Y_MM = 530.0
 LOOP_RETURN_END_Y_MM = 470.0
-# How far INBOARD the rail's own tip reaches. Not a free choice: the rail
-# must catch every ball the orbit sends DOWN the lane (measured: the return
-# settles at x = 19..27 mm from the perimeter wall) while leaving the ball
-# SHOT UP the lane a clear column east of the tip (it needs the tip plus one
-# ball radius, 13.495 mm, and the lane's own inner rail costs another radius
-# off the far side). 17 mm catches everything up to x = 30.5 and leaves the
-# shot the column x = 30.5..36.5 -- both measured against the real pipeline,
-# not derived.
+# How far INBOARD the rail's own tip reaches. Not a free choice: it fixes
+# the WEST edge of the column the ball SHOT UP the lane has to climb (the
+# tip plus one ball radius, 13.495 mm), while the lane's own inner rail
+# costs another radius off the far side (LOOP_TOP_END_X_MM - BALL_RADIUS_MM
+# = 36.5). 14 mm therefore catches everything up to x = 27.5 and leaves the
+# shot the column x = 27.5..36.5 -- the same 9 mm figure LOOP_LANE_CLEAR_MM's
+# own derivation quotes, and the band test/shot-routing.test.ts's own
+# LOOP_ENTRY_OFFSETS_MM (28, 31, 34) samples. Measured against the real
+# pipeline, not derived. (This comment quoted a 17 mm tip and a
+# 30.5..36.5 column until 2026-09-03; the shipped value has been 14 mm --
+# corrected at code review, no geometry changed.)
 LOOP_RETURN_END_X_MM = 14.0
 
 # The INLANE feed (Story 2.1c task 7). An inlane that merely receives the
@@ -317,11 +339,19 @@ INLANE_FEED_R_Y1_MM = 122.0  # the right feed's own low end -- shorter run than 
 # the ~23 mm of ball-centre travel either lane actually offers.
 LOOP_TURN_ANGLE_DEG = 40.0
 # The turn's own LOW corner, at the perimeter wall each lane runs against.
-# Raised until the easternmost/westernmost ball a lane can carry is still
-# deflected above col_loop_top's own north face with margin: at 1044 the
-# measured contact height for a ball hugging the outer wall is 1037.7 mm,
-# which after the ~5 mm of drop across the run to col_loop_top's own end
-# leaves the ball's underside 2.5 mm clear of it.
+# Chosen so that every ball in the SHOT's own column (x = 27.5..36.5 mm from
+# the wall -- see LOOP_RETURN_END_X_MM) strikes the hypotenuse inside the
+# bracket the two constraints above define. Substituting into y_contact:
+#   run_x = 27.5 -> 1036 + 23.075 - 17.616 = 1041.5 mm
+#   run_x = 36.5 -> 1036 + 30.627 - 17.616 = 1049.0 mm
+# both comfortably inside [1030.295, 1053.305] -- 11.2 mm of margin above
+# col_loop_top's own north face at the low end of the column and 4.3 mm
+# below col_wall_top at the high end. [CORRECTED 2026-09-03, code review:
+# this derivation used to read "at 1044 the measured contact height for a
+# ball hugging the outer wall is 1037.7 mm", which is the arithmetic for a
+# 1044 mm low corner and for a wall-hugging ball the return rail's own
+# column no longer admits. The shipped value has been 1036.0; only the
+# comment moved.]
 LOOP_TURN_LOW_Y_MM = 1036.0
 # Where the top connector STOPS, measured in from each perimeter wall. This
 # is the orbit's own hand-off point: a ball riding the connector's north
@@ -386,6 +416,16 @@ SPINNER_Y_MM = 648.0  # authored -- roughly midway along the Left Loop's straigh
 # unverified rather than modelled physically, since this collision model
 # cannot express it yet.
 RAMP_LANE_CLEAR_MM = 34.0  # authored -- comparable to a real ramp entrance width, narrower than the loop
+# Story 2.1c: moved 372 -> 355 (west). The Right Loop lane widened to
+# LOOP_LANE_CLEAR_MM = 66, so col_loop_r's own west face came in to 390.4
+# and col_ramp_wall_r (ramp_lane_x1 .. +WALL_T_MM) had to clear it; the
+# whole channel moved west by the same 17 mm rather than narrowing
+# RAMP_LANE_CLEAR_MM, which test/asset-contract.test.ts still pins at 34.
+# Still right of centre (355 > 257.2), so the LEFT flipper still shoots it
+# and OQ-6's decided right-inlane return still holds. [The move was
+# recorded in docs/decisions.md and docs/feel-test.md but carried NO note
+# at the constant, which this story's own Always rule requires; added at
+# code review, 2026-09-03 -- no value moved.]
 RAMP_ENTER_X_MM = 355.0  # authored -- right of centre (> 257.2); pushed right of the DRAGON bank's own column (below) so neither shadows the other
 # Story 2.1c: raised from 470. With both slingshots moved inboard to clear
 # the inlane mouths, col_sling_r's own sloped north face now runs directly
@@ -461,9 +501,28 @@ DRAGON_BANK_Y1_MM = 708.0
 # deflecting off a leg's top edge well short of the bank -- this file's own
 # switch-zone placement note beside sw_dragon_body_l/r explains the
 # one-ball-radius reachability limit the SAME mistake nearly repeated here).
-# The bank's own x-span is therefore anchored clear of BOTH legs (> 250) and
-# the Ramp is pushed right of it in turn (RAMP_ENTER_X_MM, above) so neither
-# shadows the other.
+# The bank's own x-span was therefore anchored clear of BOTH legs (> 250)
+# and the Ramp pushed right of it in turn (RAMP_ENTER_X_MM, above) so
+# neither shadows the other.
+#
+# [FLAGGED 2026-09-03, code review -- the value below no longer satisfies
+# the paragraph above, and this comment is corrected here while the geometry
+# question goes to rework.] Story 2.1c moved this constant 255 -> 235 so
+# col_ramp_wall_l could clear the widened Right Loop lane. That is 15 mm
+# INSIDE the "> 250" bound this note derives, and it re-creates the exact
+# defect the note exists to prevent: measured against the committed
+# document, col_dragon_d now spans x 235..246, wholly inside
+# col_dragon_leg_r's own x-shadow (190..250, y 480..620, full interior
+# height), and col_dragon_r (249..260) is clipped by 1 mm. Separately, the
+# bank's reachable approach corridor -- col_guide_outer_r's east face
+# (279.525) to the re-sited col_sling_r's west face (314.0) -- is now
+# 34.475 mm, i.e. 7.485 mm of ball-centre freedom, from which only the
+# targets overlapping x ~ 280.5..314 (G, O, N) can be struck directly.
+# test/shot-routing.test.ts asserts only "at least one DRAGON-bank target
+# closes", so nothing catches this, and no dimensional gate pins the
+# corridor. Story 2.3 needs all six droppable. Do NOT simply restore 255:
+# the widened lane is what forced the move, so the bank, the Ramp's west
+# wall and the lane budget have to be re-solved together.
 DRAGON_BANK_X0_MM = 235.0
 DRAGON_BANK_PITCH_MM = 14.0  # authored -- centre-to-centre spacing between the six targets, narrowed to fit clear of both legs and the Ramp
 DRAGON_BANK_TARGET_W_MM = 11.0
@@ -499,12 +558,22 @@ SLING_Y1_MM = 455.0
 # 23.1 mm, against a 26.99 mm ball -- so the left inlane was not merely
 # unfed, it was physically UNREACHABLE from above, and the same held on the
 # right (421.5 - 410.0 = 11.5 mm). No return routing can deliver a ball
-# through a corridor narrower than the ball. Moved out to 92.0 / 376.4,
-# which is OUTLANE_WIDTH_MM + GUIDE_T_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM
-# from each side's own anchor -- flush with the inlane guide the funnel now
-# hands the ball to, so the sling sits just inboard of the inlane rather
-# than across its mouth. The right sling's own inboard end moves with it so
-# it keeps a comparable span.
+# through a corridor narrower than the ball. Moved out to 98.0 / 370.4,
+# which is LOOP_LANE_CLEAR_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM from each
+# side's own anchor -- flush with the inlane guide the funnel now hands the
+# ball to, so the sling sits just inboard of the inlane rather than across
+# its mouth.
+# [CORRECTED 2026-09-03, code review] This note read "Moved out to 92.0 /
+# 376.4, which is OUTLANE_WIDTH_MM + GUIDE_T_MM + LOOP_FUNNEL_OFFSET_MM +
+# GUIDE_T_MM" -- three different figures in one sentence: the shipped values
+# are 98.0 / 370.4 (confirmed against the committed document), and the
+# formula quoted evaluates to 78.9, not to either. Only the comment moved.
+# It also claimed the right sling "keeps a comparable span"; measured, the
+# spans are now col_sling_l 32.0 mm and col_sling_r 56.4 mm (they were 60
+# and 50 before), so the pair is markedly ASYMMETRIC. Recorded rather than
+# re-cut, because both slingshots are Story 2.2's hardware and their spans
+# are not this story's to re-derive -- but a later story sizing sling
+# geometry should not read "comparable" here and believe it.
 SLING_L_X0_MM, SLING_L_X1_MM = LOOP_LANE_CLEAR_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM, 130.0
 SLING_R_X0_MM, SLING_R_X1_MM = 314.0, LANE_X0_MM - LOOP_LANE_CLEAR_MM - LOOP_FUNNEL_OFFSET_MM - GUIDE_T_MM
 
@@ -1400,9 +1469,30 @@ def main():
 	# 30.5). A stub protruding from the inboard face put 12 mm of solid
 	# directly in the shot's own column -- traced: every Left Loop entry
 	# offset stalled against it at y = 632, against the 1016.8 mm the lane
-	# needs. On the perimeter face it sits in the RETURN's column instead,
-	# where the descending ball meets it on every orbit (s_spinner closes on
-	# the pass, measured), and the shot climbs clear.
+	# needs. On the perimeter face the shot climbs clear.
+	#
+	# [FLAGGED 2026-09-03, code review -- the claim removed from the two lines
+	# above was measured FALSE by this story's own review pass, and the
+	# retraction reached docs/feel-test.md but not this comment.] It read "it
+	# sits in the RETURN's column instead, where the descending ball meets it
+	# on every orbit (s_spinner closes on the pass, measured)". Measured
+	# against the committed document, NEITHER direction touches this body:
+	# the ascending shot's column is x 27.5..36.5, so its west surface is at
+	# x >= 14.005 against this stub's east face at SPINNER_PROTRUDE_MM = 12
+	# (2.5 mm clear at the closest offset), and the orbit's DESCENT falls at
+	# x = 52.0..52.3 (traced per tick, every offset), 40 mm clear. s_spinner
+	# still closes on a Left Loop shot only because sw_spinner is an analytic
+	# zone (x 5..45, y 635..662, authored from bare literals below and NOT
+	# moved by this story) that the ball crosses without contact -- AD-11's
+	# "a sw_ zone is a test against the swept segment, not a contact".
+	# Demonstrated at code review: DELETING col_spinner_l from the committed
+	# collision document leaves all three Left Loop orbit cases GREEN,
+	# including the s_spinner assertion added to pin this relocation. So the
+	# stub is currently dead geometry and Story 2.3's mechanical spin has
+	# nothing to spin. Routed to rework rather than patched here: putting it
+	# back in a ball's path is a lane-budget decision (it was moved off the
+	# inboard face precisely because it blocked the shot), needs a re-export,
+	# and moves every golden's assetHash.
 	add_box_wall(
 		'col_spinner_l',
 		0.0, SPINNER_PROTRUDE_MM,

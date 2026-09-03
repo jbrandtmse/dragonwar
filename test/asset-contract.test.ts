@@ -747,3 +747,94 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		}
 	});
 });
+
+// QA (Story 2.1c), 2026-09-03. Closes a real coverage gap the story's own
+// review pass found and deferred rather than fixed: nearly every other new
+// load-bearing figure this story adds got a dimensional gate in the shape of
+// task 25's own block above, with a `// mutation:` comment -- LOOP_TURN_ANGLE_DEG,
+// LOOP_TURN_LOW_Y_MM and RAMP_TURN_Y0_MM (tools/make-placeholder-blend.py's
+// own constants block, "Story 2.1c -- the ORBIT" / "The Ramp's own top
+// turn") did not. This is coverage-only -- the turn geometry is already
+// behaviourally exercised by the orbit's own pass/fail switch-closure checks
+// in test/shot-routing.test.ts -- but without a dimensional pin, a future
+// perturbation to any of these three constants would surface only as an
+// opaque routing failure (a Loop or Ramp case failing somewhere downstream)
+// rather than a named dimensional regression at its actual source. Values
+// below are read from the committed document, not re-derived independently
+// in this test, so a legitimate re-tuning of these constants (with its own
+// recorded measurement, per this story's own convention) updates one number
+// here rather than fighting an independent re-derivation.
+describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-turn dimensions are pinned (LOOP_TURN_ANGLE_DEG, LOOP_TURN_LOW_Y_MM, RAMP_TURN_Y0_MM)', () => {
+	const LOOP_TURN_ANGLE_DEG = 40.0;
+	const LOOP_TURN_LOW_Y_MM = 1036.0;
+	const RAMP_TURN_Y0_MM = 800.0;
+
+	it('col_loop_turn_l and col_loop_turn_r both start at LOOP_TURN_LOW_Y_MM and both reach col_wall_top\'s own interior face', () => {
+		const doc = readCollisionDoc();
+		const turnL = doc.nodes.find((n) => n.name === 'col_loop_turn_l');
+		const turnR = doc.nodes.find((n) => n.name === 'col_loop_turn_r');
+		const wallTop = doc.nodes.find((n) => n.name === 'col_wall_top');
+		expect(turnL, 'col_loop_turn_l missing').toBeDefined();
+		expect(turnR, 'col_loop_turn_r missing').toBeDefined();
+		expect(wallTop, 'col_wall_top missing').toBeDefined();
+		// mutation: change LOOP_TURN_LOW_Y_MM in the seeding script and
+		// re-export -> both of these go red together, reporting the new
+		// authored low corner instead of 1036.
+		expect(turnL!.bboxMm.min.y, 'col_loop_turn_l\'s own low corner (LOOP_TURN_LOW_Y_MM)').toBeCloseTo(LOOP_TURN_LOW_Y_MM, 1);
+		expect(turnR!.bboxMm.min.y, 'col_loop_turn_r\'s own low corner (LOOP_TURN_LOW_Y_MM)').toBeCloseTo(LOOP_TURN_LOW_Y_MM, 1);
+		// A turn that stops short of col_wall_top's own interior face leaves a
+		// gap a climbing ball can clip past instead of crossing.
+		expect(turnL!.bboxMm.max.y, 'col_loop_turn_l must reach col_wall_top\'s own interior face').toBeCloseTo(wallTop!.bboxMm.min.y, 1);
+		expect(turnR!.bboxMm.max.y, 'col_loop_turn_r must reach col_wall_top\'s own interior face').toBeCloseTo(wallTop!.bboxMm.min.y, 1);
+	});
+
+	it('each turn\'s own run length matches LOOP_TURN_ANGLE_DEG -- the angle that trades climb speed for crossing speed', () => {
+		const doc = readCollisionDoc();
+		const turnL = doc.nodes.find((n) => n.name === 'col_loop_turn_l');
+		const turnR = doc.nodes.find((n) => n.name === 'col_loop_turn_r');
+		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane');
+		const wallTop = doc.nodes.find((n) => n.name === 'col_wall_top');
+		expect(turnL, 'col_loop_turn_l missing').toBeDefined();
+		expect(turnR, 'col_loop_turn_r missing').toBeDefined();
+		expect(wallLane, 'col_wall_lane missing').toBeDefined();
+		const riseMm = wallTop!.bboxMm.min.y - LOOP_TURN_LOW_Y_MM;
+		const expectedRunMm = riseMm / Math.tan((LOOP_TURN_ANGLE_DEG * Math.PI) / 180);
+		const runL = turnL!.bboxMm.max.x - turnL!.bboxMm.min.x;
+		// col_loop_turn_r is anchored east to col_wall_lane's own OUTER face
+		// rather than left free-standing at the lane's inner face (its own
+		// authoring comment), so its bbox carries an extra WALL_T_MM of pure
+		// ceiling beyond the actual hypotenuse run -- measured here from the
+		// live document rather than a hard-coded 12, so a change to the wall
+		// thickness does not make this assertion fail for the wrong reason.
+		const wallTMm = wallLane!.bboxMm.max.x - wallLane!.bboxMm.min.x;
+		const runR = turnR!.bboxMm.max.x - turnR!.bboxMm.min.x - wallTMm;
+		// mutation: change LOOP_TURN_ANGLE_DEG in the seeding script (e.g. 40 ->
+		// 45) and re-export -> the measured run length no longer matches this
+		// derivation and both assertions go red; a shallower angle widens the
+		// run and leaves the deflected ball more climb speed and less crossing
+		// speed, changing which entry offsets the orbit can carry across.
+		expect(runL, `col_loop_turn_l's own run, derived from a ${LOOP_TURN_ANGLE_DEG} deg turn`).toBeCloseTo(expectedRunMm, 1);
+		expect(runR, `col_loop_turn_r's own run (bbox width less its own WALL_T_MM ceiling extension), mirrored`).toBeCloseTo(expectedRunMm, 1);
+	});
+
+	it('col_ramp_turn starts at RAMP_TURN_Y0_MM and its own east edge reaches col_loop_r\'s west face, so the crossing genuinely connects the Ramp\'s channel to the Loop\'s own lane', () => {
+		const doc = readCollisionDoc();
+		const rampTurn = doc.nodes.find((n) => n.name === 'col_ramp_turn');
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		expect(rampTurn, 'col_ramp_turn missing').toBeDefined();
+		expect(loopR, 'col_loop_r missing').toBeDefined();
+		// mutation: change RAMP_TURN_Y0_MM in the seeding script (e.g. 800 ->
+		// 780) and re-export -> this goes red reporting the new authored low
+		// corner instead of 800. A made Ramp shot reaching the turn at the
+		// wrong height either clips col_ramp_wall_r's own top (too low) or
+		// overshoots into open field above the crossing (too high) -- the
+		// exact fluke Phase 1's own diagnostic recorded before this node
+		// existed (s_ramp_made closing, then the ball climbing on past the
+		// return to y ~1032 and falling into unrelated geometry).
+		expect(rampTurn!.bboxMm.min.y, 'col_ramp_turn\'s own low corner (RAMP_TURN_Y0_MM)').toBeCloseTo(RAMP_TURN_Y0_MM, 1);
+		expect(
+			rampTurn!.bboxMm.max.x,
+			'col_ramp_turn\'s own east edge must reach col_loop_r\'s west face, or the crossing stops short of the lane it is meant to hand the ball into',
+		).toBeCloseTo(loopR!.bboxMm.min.x, 1);
+	});
+});

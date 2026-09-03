@@ -552,7 +552,7 @@ describe('shot routing (AC 7, DW-123) -- the re-joined top connector: ONE ball c
 });
 
 describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
-	it('s_ramp_enter then s_ramp_made close in order (right of centre, the left flipper\'s own shot), and the ball reaches the right inlane feed onto the left flipper', () => {
+	it('s_ramp_enter then s_ramp_made close in order (right of centre, the left flipper\'s own shot), and the ball reaches the right inlane feed onto the RIGHT flipper', () => {
 		const doc = readCollisionDoc();
 		expect(TABLE.reference.playfieldMm.w / 2, 'sanity: the Ramp entrance must be right of centre').toBeLessThan(
 			doc.nodes.find((n) => n.name === 'col_ramp_wall_l')!.bboxMm.min.x,
@@ -731,7 +731,13 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumper
 		{ label: 'pop 1', x: 130, y: 700, switchName: 's_pop_1' as SwitchName },
 		// Story 2.1c task 2: y moved from targetY-100 (700, unchanged) is fine
 		// here, but x moved 230 -> 220 -- (230, 700) sat 0.69 mm inside
-		// col_dragon_bank_backstop's own sloped corner (Code Map).
+		// col_dragon_bank_backstop's own sloped corner (Code Map). Then
+		// 220 -> 200 in Phase 2, when the DRAGON bank moved 20 mm west
+		// (DRAGON_BANK_X0_MM 255 -> 235) to clear the widened Right Loop
+		// lane and carried its backstop with it (x 240..341 -> 220..321),
+		// putting 220 back inside the same corner. [The "230 -> 220" half of
+		// this comment stood alone against a shipped 200 until 2026-09-03;
+		// completed at code review, no release point moved.]
 		{ label: 'pop 2', x: 200, y: 700, switchName: 's_pop_2' as SwitchName },
 		{ label: 'pop 3', x: 180, y: 770, switchName: 's_pop_3' as SwitchName },
 	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ x, y, switchName }) => {

@@ -228,19 +228,38 @@ it no longer met `col_loop_l` and a full orbit did not pass both Loops --
 connector spans x 50 to 418.4 again and each Loop is a true ORBIT -- up one
 lane, across the joined top, down the OTHER lane into the OPPOSITE inlane.
 One ball now closes all four Loop switches in a single run. The lane widened
-50 -> 66 mm to carry a ball in both directions, `col_loop_l_return` hands
-the descending ball to the left inlane and `col_guide_inlane_feed_l` carries
-it onto the left bat; `col_spinner_l` moved from the loop guide's inner face
-to the perimeter face, clear of the widened lane. [CORRECTED 2026-09-03,
-review fix: this note previously claimed the spinner "closes on every orbit"
--- measured false. `s_spinner` closes on the Left Loop's own ascending
-entry (verified, `test/shot-routing.test.ts`, every offset in the sweep),
-but does NOT close when the Left lane instead carries the Right Loop's own
-RETURN descent (verified false at every offset in that sweep too):
-`col_loop_l_return` hands the descending ball inboard, past
-`col_spinner_l`'s own column, before it reaches the spinner's y-position.
-So it counts a direct Left-Loop shot but not a Right-Loop orbit passing
-through the same lane -- asymmetric, not "every orbit".]
+50 -> 66 mm to carry a ball in both directions -- and note which direction is
+whose, because the two are easy to transpose: a LEFT Loop **shot** climbs
+this lane and exits at the RIGHT inlane onto the RIGHT bat, while the
+hardware at the bottom of this lane (`col_loop_l_return`, the left inlane
+channel, `col_guide_inlane_feed_l`) serves the RIGHT Loop's own return. That
+descending ball leaves `col_loop_top` at the connector's own end (x = 50)
+and falls into the left inlane channel, where `col_guide_inlane_feed_l`
+carries it onto the left bat. [CORRECTED 2026-09-03, code review: this
+sentence described the left lane's return hardware as the Left Loop's own
+outcome, inside the Left Loop entry, one line after stating that each Loop
+feeds the OPPOSITE inlane.]
+`col_spinner_l` moved from the loop guide's inner face to the perimeter
+face, clear of the widened lane. [CORRECTED 2026-09-03, review fix: this
+note previously claimed the spinner "closes on every orbit" -- measured
+false. `s_spinner` closes on the Left Loop's own ascending entry (verified,
+`test/shot-routing.test.ts`, every offset in the sweep), but does NOT close
+when the Left lane instead carries the Right Loop's own RETURN descent
+(verified false at every offset in that sweep too).] [CORRECTED AGAIN
+2026-09-03, code review: the *reason* recorded for that asymmetry was also
+wrong. It read "`col_loop_l_return` hands the descending ball inboard,
+past `col_spinner_l`'s own column, before it reaches the spinner's
+y-position" -- impossible in the direction of travel, since that rail sits
+at y 470-530 and the spinner at y 645-651, some 120 mm further UP the
+ball's path. Traced per tick through the real pipeline at every offset in
+the Right Loop sweep: the descending ball crosses the spinner's own y-band
+at x = 52.2-52.3 mm, about 7 mm outside `sw_spinner`'s own x-span (5-45),
+because it leaves `col_loop_top` at x = 50 and this solver's gravity has no
+x-component to carry it to the wall before it gets there. The same trace
+shows it never touches `col_loop_l_return` (x 0-14) either -- hence the
+correction to the sentence above. So the spinner counts a direct Left-Loop
+shot but not a Right-Loop orbit passing down the same lane -- asymmetric,
+not "every orbit".]
 `s_loop_l_in`/`s_loop_l_out` mark entry and exit; the spinner
 (`col_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
 routing verified in `test/shot-routing.test.ts`. Golden:
