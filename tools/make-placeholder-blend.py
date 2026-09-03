@@ -480,7 +480,54 @@ RAMP_GRADIENT = 0.20  # authored -- rise over run, unused by this collision mode
 # LEFT of PLAYFIELD_W_MM / 2 = 257.2 mm.
 DRAGON_CENTER_X_MM = 170.0  # authored -- left of centre
 LOCK_LANE_CLEAR_MM = 40.0  # authored -- "a narrow lane admitting a precise shot", narrower than every other lane this story draws
-DRAGON_LEG_W_MM = 60.0  # authored -- each leg's own footprint width
+# [REWORK 2026-09-03, code review pass 2 HIGH finding] Story 2.1c's own
+# Right-Loop widening (LOOP_LANE_CLEAR_MM 50 -> 66) forced the Ramp channel
+# 17 mm west, which forced DRAGON_BANK_X0_MM 255 -> 235 -- 15 mm INSIDE
+# col_dragon_leg_r's own x-shadow ([190, 250] at the pre-rework shared
+# W = 60), re-creating the "physically unreachable" defect that constant's
+# own derivation note exists to prevent (col_dragon_d wholly inside the
+# shadow, col_dragon_r clipped by 1 mm). Restoring DRAGON_BANK_X0_MM to 255
+# alone does not fix this -- col_ramp_wall_l stays at its shifted position,
+# so the bank's own EAST side would then collide with the Ramp instead
+# (measured: at X0 = 255 the bank's own east edge, 336, is 10 mm INSIDE
+# col_ramp_wall_l's own shifted 326 mm west face). The right leg's own
+# east edge had to retreat to reopen a corridor wide enough for the bank.
+#
+# First attempt (reverted, recorded because the trap it found is real and
+# non-obvious): shrinking a single shared DRAGON_LEG_W_MM 60 -> 45
+# symmetrically moved BOTH legs' outer edges, which conveniently leaves
+# the "Dragon centreline" dimensional gate exactly true (both legs move by
+# the SAME amount around the SAME lock-lane centre) -- but it also moved
+# col_dragon_leg_l's own WEST face from 90 to 105, and measured against the
+# real physics pipeline (test/shot-routing.test.ts's own "Lock lane" case,
+# its long-drive tick budget), a ball ricocheting off the Dragon's own top
+# structure settles into a genuine, stable wedge at (91.50, 502.00) --
+# 13.495 mm (one ball radius) west of the relocated leg face AND
+# simultaneously ~13.46 mm from col_loop_l_funnel's own north-east sloped
+# edge (the (78,500)->(98,438) segment that hands an ascending Left Loop
+# shot from the funnel onto its straight run) -- a genuine three-body
+# corner trap between the (moved) leg, the (unmoved, orbit-owned) funnel
+# edge, and col_playfield, that the leg's OLD 90 mm face was too far west
+# to reach. Moving the LEFT leg at all risks the orbit's own geometry this
+# story exists to protect, so it is wrong regardless of margin.
+#
+# Shipped fix: split into DRAGON_LEG_L_W_MM (unchanged, 60 -- col_dragon_leg_l
+# and everything near it, including the funnel edge above, stays exactly
+# where Story 2.1c's own orbit work left it) and DRAGON_LEG_R_W_MM (45 --
+# the right leg alone retreats, and nothing on the right side of the Dragon
+# is orbit geometry). This makes the two legs asymmetric, so the "Dragon
+# centreline" dimensional gate can no longer read the centreline off the
+# legs' own outer edges (that formula assumed symmetry); it now reads
+# sw_lock_lane's own zone centre instead, which is (lock_lane_x0 +
+# lock_lane_x1) / 2 = DRAGON_CENTER_X_MM by construction, in either leg's
+# width -- a more robust measurement of the SAME product decision (FR-29),
+# not a weaker one. Verified: col_dragon_leg_r = [190, 235] (identical to
+# the reverted attempt's own right-side figure); col_dragon_leg_l stays
+# [90, 150], byte-identical to its pre-rework footprint; the "Lock lane"
+# stranding above does not reproduce (re-verified against the real
+# pipeline after the split).
+DRAGON_LEG_L_W_MM = 60.0
+DRAGON_LEG_R_W_MM = 45.0
 DRAGON_LEG_Y0_MM = 480.0
 DRAGON_LEG_Y1_MM = 620.0
 DRAGON_MOUTH_Y_MM = 650.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the Mouth"
@@ -492,38 +539,65 @@ DRAGON_BANK_Y0_MM = 700.0
 DRAGON_BANK_Y1_MM = 708.0
 # Story 2.1b planning-pass finding (verified empirically, not by inspection):
 # the Dragon's own legs are REAL solid col_ bodies spanning the FULL
-# interior height (z 0..WALL_H_MM) across x in [90, 150] (left) and
-# [190, 250] (right), y in [480, 620] -- a bank starting at x = 90 (this
-# constant's own original value) put four of its six targets directly
-# behind that shadow, physically unreachable by any straight shot from
-# below regardless of the bank's own y (driving a ball at the measured
-# maximum speed through the real createMachine() pipeline showed it
-# deflecting off a leg's top edge well short of the bank -- this file's own
-# switch-zone placement note beside sw_dragon_body_l/r explains the
-# one-ball-radius reachability limit the SAME mistake nearly repeated here).
-# The bank's own x-span was therefore anchored clear of BOTH legs (> 250)
+# interior height (z 0..WALL_H_MM) across x in [90, 150] (left,
+# DRAGON_LEG_L_W_MM, unmoved since 2.1b) and [190, 235] (right,
+# DRAGON_LEG_R_W_MM -- see that constant's own [REWORK] note for why the
+# right leg alone retreated, 250 -> 235), y in [480, 620]. A bank starting
+# at x = 90 (this constant's
+# own original value) put four of its six targets directly behind that
+# shadow, physically unreachable by any straight shot from below regardless
+# of the bank's own y (driving a ball at the measured maximum speed through
+# the real createMachine() pipeline showed it deflecting off a leg's top
+# edge well short of the bank -- this file's own switch-zone placement note
+# beside sw_dragon_body_l/r explains the one-ball-radius reachability limit
+# the SAME mistake nearly repeated here). The bank's own x-span was
+# therefore anchored clear of the right leg's own east edge (with margin)
 # and the Ramp pushed right of it in turn (RAMP_ENTER_X_MM, above) so
 # neither shadows the other.
 #
-# [FLAGGED 2026-09-03, code review -- the value below no longer satisfies
-# the paragraph above, and this comment is corrected here while the geometry
-# question goes to rework.] Story 2.1c moved this constant 255 -> 235 so
-# col_ramp_wall_l could clear the widened Right Loop lane. That is 15 mm
-# INSIDE the "> 250" bound this note derives, and it re-creates the exact
-# defect the note exists to prevent: measured against the committed
-# document, col_dragon_d now spans x 235..246, wholly inside
-# col_dragon_leg_r's own x-shadow (190..250, y 480..620, full interior
-# height), and col_dragon_r (249..260) is clipped by 1 mm. Separately, the
-# bank's reachable approach corridor -- col_guide_outer_r's east face
-# (279.525) to the re-sited col_sling_r's west face (314.0) -- is now
-# 34.475 mm, i.e. 7.485 mm of ball-centre freedom, from which only the
-# targets overlapping x ~ 280.5..314 (G, O, N) can be struck directly.
-# test/shot-routing.test.ts asserts only "at least one DRAGON-bank target
-# closes", so nothing catches this, and no dimensional gate pins the
-# corridor. Story 2.3 needs all six droppable. Do NOT simply restore 255:
-# the widened lane is what forced the move, so the bank, the Ramp's west
-# wall and the lane budget have to be re-solved together.
-DRAGON_BANK_X0_MM = 235.0
+# [REWORK 2026-09-03, code review pass 2 HIGH finding, RESOLVED] Story 2.1c
+# moved this constant 255 -> 235 so col_ramp_wall_l could clear the widened
+# Right Loop lane -- 15 mm INSIDE the "> 250" bound the paragraph above
+# derives, re-creating the exact defect it exists to prevent: measured
+# against the committed document, col_dragon_d spanned x 235..246, wholly
+# inside col_dragon_leg_r's own x-shadow (190..250), and col_dragon_r
+# (249..260) was clipped by 1 mm. Restoring 255 alone does not fix this --
+# col_ramp_wall_l stays at its shifted 326 mm west face, so the bank's own
+# EAST edge would then be only 336 - 326 = -10 mm clear (an overlap, not a
+# margin) -- so per this constant's own prior note, the bank, the Ramp's
+# west wall and the Right Loop's own lane budget were re-solved together:
+# DRAGON_LEG_R_W_MM (above) shrank 60 -> 45 (the LEFT leg, DRAGON_LEG_L_W_MM,
+# is untouched -- an earlier, reverted attempt shrank both legs and found a
+# genuine corner trap against the Left Loop's own funnel edge; see that
+# constant's own note), pulling col_dragon_leg_r's own east edge back from
+# 250 to 235 -- the widened lane's own geometry (col_ramp_wall_l,
+# col_loop_r) is untouched. X0 = 235 + 5 mm margin = 240,
+# the same ~5 mm the pre-2.1c design carried on each side (255 was "> 250"
+# by 5). Verified against the re-exported document: col_dragon_d now spans
+# 240..251 (5 mm clear of col_dragon_leg_r's own 235 mm east edge) and
+# col_dragon_n (the bank's own east end, X0 + 81) spans 310..321, leaving
+# 326 - 321 = 5 mm clear of col_ramp_wall_l's own west face -- both margins
+# restored to the pre-2.1c design's own figure, symmetrically.
+#
+# NOT fully resolved by this move, recorded rather than silently claimed
+# fixed: the bank's own reachable APPROACH corridor -- col_guide_outer_r's
+# east face (279.525, untouched 2.1a geometry) to col_sling_r's own west
+# face (314.0, Story 2.1c's OWN inboard slingshot move, task 8, explicitly
+# "not this story's to re-derive" since the slingshot's span is Story 2.2's
+# hardware) -- is still only 34.475 mm wide (7.485 mm of ball-centre
+# freedom) and is UNAFFECTED by this X0/leg-width fix, since neither
+# boundary of that corridor moved. At X0 = 240 the six targets span
+# D 240-251, R 254-265, A 268-279, G 282-293, O 296-307, N 310-321; G and O
+# sit ENTIRELY inside the corridor (fully strikeable from directly below),
+# A's own east edge (279) falls 0.525 mm short of it, and only N's own west
+# 4 mm (310-314) reaches it before col_sling_r's own body starts -- D, R and
+# most of N remain a bank shot or an angled approach's own targets, not a
+# straight descending one. Same structural limit the pre-fix state had (the
+# corridor itself did not move), now ledgered as DW-135 (routed to Story
+# 2.2/2.3: "all six droppable" needs either the slingshot's own corridor
+# widened or an angled-shot approach, neither of which is this story's own
+# geometry to move).
+DRAGON_BANK_X0_MM = 240.0
 DRAGON_BANK_PITCH_MM = 14.0  # authored -- centre-to-centre spacing between the six targets, narrowed to fit clear of both legs and the Ramp
 DRAGON_BANK_TARGET_W_MM = 11.0
 
@@ -1397,22 +1471,69 @@ def main():
 	# wall is restored to its full span and a ball that rides it off either
 	# end drops into a lane that returns it playable.
 	#
-	# The north face is deliberately left FLAT (no add_box_wall_sloped()
-	# bevel): the orbit crosses it in BOTH directions -- west-bound for a
-	# Right Loop shot, east-bound for a Left Loop shot -- so any slope would
-	# help one orbit and fight the other. What keeps it out of the DW-119
-	# flat-face trap is that nothing lands on it at rest: every ball that
-	# reaches this face arrives with the crossing speed col_loop_turn_l/_r
-	# gave it (measured >= 1100 mm/s), and both ends of the face open onto a
-	# lane rather than onto more flat wall. The descending-release sweep in
-	# test/shot-routing.test.ts covers the bodies a ball can genuinely be
-	# dropped onto from rest; this one sits above the whole playfield.
-	add_box_wall(
+	# [REWORK 2026-09-03, code review pass 2 MED finding] This face used to be
+	# left dead FLAT, on the argument that the orbit crosses it in BOTH
+	# directions -- west-bound for a Right Loop shot, east-bound for a Left
+	# Loop shot -- so a single-direction slope (add_box_wall_sloped()) would
+	# help one orbit and fight the other, and that "nothing lands on it at
+	# rest" because every ball reaches it already carrying crossing speed.
+	# That second claim was argued, not tested -- test/shot-routing.test.ts's
+	# own descending-release sweep never dropped a ball directly onto it, and
+	# once it did (this rework's own new column), a ball released at rest
+	# anywhere on the flat span settled permanently, x unchanged to the
+	# 5th decimal (no x-gravity, so a flat face imparts genuinely ZERO
+	# tangential force) -- the exact DW-119 shape this project has been bitten
+	# by three times before.
+	#
+	# Fix (Edge Case Hunter's own suggested remedy, code review pass 2): a
+	# RIDGE, not a single-direction slope -- both halves slope DOWN AWAY from
+	# the midpoint, so either crossing direction still runs slightly downhill
+	# toward its own far end, and a ball at rest ANYWHERE on the span (other
+	# than the exact peak, an unstable equilibrium under this solver's
+	# x-free gravity, same as a ball balanced on a knife-edge) rolls off
+	# toward whichever lane is nearer. A single convex 5-point prism (SW, SE
+	# flat on the south face, unchanged; NE and NW each RIDGE_DROP_MM below
+	# the peak; the peak itself at the midpoint) -- verified convex by hand
+	# (every consecutive edge-pair cross product has the same sign) and by
+	# export.py's own validate_col_shapes() at export time.
+	#
+	# RIDGE_DROP_MM was swept against the real physics pipeline, not guessed:
+	# 5.0 mm (this file's own Ramp-cap convention) DOES fix the stranding
+	# (both new descending-release columns make genuine positional progress)
+	# but is steep enough to matter to a crossing ball too -- measured, it
+	# retimes the Left Loop's own 34 mm entry offset just enough that the
+	# ball lands in the RIGHT OUTLANE instead of the right inlane, a genuine
+	# regression in the orbit's own delivery this rework exists to protect.
+	# Swept 5.0 / 3.0 / 2.5 / 2.0 / 1.5 / 1.0 / 0.5 mm: every value from 3.0
+	# down still fixes the strand (100+ mm of positional progress at both
+	# drop columns, against the >15 mm floor), and every value from 3.0 down
+	# ALSO preserves all six standard entry offsets (both Loops x
+	# LOOP_ENTRY_OFFSETS_MM, each verified individually) delivering to their
+	# own opposite inlane. 2.5 mm is the shipped value -- comfortably inside
+	# both safe ranges, over each half's own ~184 mm run a ~0.8 deg grade,
+	# imperceptible to a ball arriving at >= 1100 mm/s crossing speed but
+	# enough that a ball genuinely at rest is never in equilibrium except at
+	# the single peak point. Re-verified against the real physics pipeline
+	# after settling on this value: both new descending-release columns
+	# (west and east of the peak) make genuine positional progress instead
+	# of parking; every existing orbit case (both Loops, all three entry
+	# offsets, the DW-123 single-ball case, the off-column sweep, the
+	# below-2200 mm/s case) passes unchanged.
+	loop_top_peak_x = (LOOP_TOP_END_X_MM + (LANE_X0_MM - LOOP_TOP_END_X_MM)) / 2
+	RIDGE_DROP_MM = 2.5
+	col_loop_top = new_prism_mesh(
 		'col_loop_top',
-		LOOP_TOP_END_X_MM, LANE_X0_MM - LOOP_TOP_END_X_MM,
-		LOOP_TOP_INNER_Y_MM - GUIDE_T_MM, LOOP_TOP_INNER_Y_MM,
-		'plastic',
+		[
+			(LOOP_TOP_END_X_MM, LOOP_TOP_INNER_Y_MM - GUIDE_T_MM),
+			(LANE_X0_MM - LOOP_TOP_END_X_MM, LOOP_TOP_INNER_Y_MM - GUIDE_T_MM),
+			(LANE_X0_MM - LOOP_TOP_END_X_MM, LOOP_TOP_INNER_Y_MM - RIDGE_DROP_MM),
+			(loop_top_peak_x, LOOP_TOP_INNER_Y_MM),
+			(LOOP_TOP_END_X_MM, LOOP_TOP_INNER_Y_MM - RIDGE_DROP_MM),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
 	)
+	set_props(col_loop_top, col_shape='wall', surface='plastic', phys_material='default')
 
 	# Story 2.1c -- the orbit's own top turn (see LOOP_TURN_ANGLE_DEG's own
 	# derivation in the constants block). One angled prism per lane, tucked
@@ -1493,6 +1614,31 @@ def main():
 	# back in a ball's path is a lane-budget decision (it was moved off the
 	# inboard face precisely because it blocked the shot), needs a re-export,
 	# and moves every golden's assetHash.
+	#
+	# [REWORK ATTEMPTED AND HALTED 2026-09-03, code review pass 2] Both
+	# candidate paths were tried against the real physics pipeline (a
+	# throwaway in-memory collision-doc patch + driveShot()/runReplay()
+	# harness, never committed): the ASCENDING shot's own column (x
+	# 27.5..36.5, this story's own 9 mm load-bearing entry band) and the
+	# orbit's DESCENDING return (x ~52.2..52.3, the SAME column the
+	# golden-pinned plunge, AC 4, rides through -- confirmed by tracing
+	# roll-and-drain's own transitions-stripped path). Thirteen-plus shapes
+	# swept in the descending column alone -- a plain box at several widths,
+	# an add_box_wall_sloped() bevel in BOTH directions, a full-height
+	# vertical wall, and a small octagonal rubber_post-style stub down to
+	# 1 mm radius -- and every one that genuinely contacts the ball's own
+	# body (not merely its centre-line) produces a permanent stall: zero
+	# further x-progress, the DW-119 shape, even at the shallowest overlap
+	# tested. The ascending column (already proven fragile: a 12 mm stub
+	# there previously stalled every entry offset, which is WHY the stub
+	# moved to the perimeter face in the first place) was not re-attempted
+	# beyond confirming a thin post there reverses the shot outright instead
+	# of grazing it. HALTED rather than forced, per the spec's own
+	# instruction for exactly this shape of conflict -- col_spinner_l remains
+	# dead geometry. Ledgered as DW-136 (Story 2.3's own mechanical-spin
+	# story needs a different mechanism than a static collision stub in
+	# either of this lane's two ball paths -- a compliant/hinged spinner
+	# simulation, or a location this investigation did not test).
 	add_box_wall(
 		'col_spinner_l',
 		0.0, SPINNER_PROTRUDE_MM,
@@ -1628,8 +1774,8 @@ def main():
 	# toward the flippers -- AD-6: "the Lock's pose IS the Mouth". ----
 	lock_lane_x0 = DRAGON_CENTER_X_MM - LOCK_LANE_CLEAR_MM / 2
 	lock_lane_x1 = DRAGON_CENTER_X_MM + LOCK_LANE_CLEAR_MM / 2
-	dragon_leg_l_x0, dragon_leg_l_x1 = lock_lane_x0 - DRAGON_LEG_W_MM, lock_lane_x0
-	dragon_leg_r_x0, dragon_leg_r_x1 = lock_lane_x1, lock_lane_x1 + DRAGON_LEG_W_MM
+	dragon_leg_l_x0, dragon_leg_l_x1 = lock_lane_x0 - DRAGON_LEG_L_W_MM, lock_lane_x0
+	dragon_leg_r_x0, dragon_leg_r_x1 = lock_lane_x1, lock_lane_x1 + DRAGON_LEG_R_W_MM
 	# Rework iteration 2 (DW-119-class fix): each leg's own north face used to
 	# be dead flat, stranding a ball at y = 633.5 (measured evidence). Sloped
 	# AWAY from the Lock lane -- outward, toward the open field beside each

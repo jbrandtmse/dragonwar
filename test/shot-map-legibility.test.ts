@@ -95,7 +95,13 @@ const FEATURES: readonly NamedFeature[] = [
 	{ name: 'Right flipper', nodeNames: ['col_flipper_r'] },
 	{ name: 'Dragon', nodeNames: ['col_dragon_leg_l', 'col_dragon_leg_r'] },
 	{ name: 'Left Loop', nodeNames: ['col_loop_l_funnel', 'col_loop_l'] },
-	{ name: 'Right Loop', nodeNames: ['col_loop_r_funnel', 'col_loop_r'] },
+	// Story 2.1c rework (code review pass 2 MED finding): this story split
+	// the Right Loop's own rail into col_loop_r (the upper segment, above
+	// the Ramp-return crossing gap) and col_loop_r_lower (y 500..750, below
+	// it), so the feature this test measures used to silently exclude
+	// col_loop_r_lower from its own legibility span. The mirror feature
+	// (Left Loop) is unaffected -- col_loop_l was never split.
+	{ name: 'Right Loop', nodeNames: ['col_loop_r_funnel', 'col_loop_r', 'col_loop_r_lower'] },
 	{ name: 'Ramp', nodeNames: ['col_ramp_wall_l', 'col_ramp_wall_r'] },
 	{ name: 'DRAGON bank', nodeNames: ['col_dragon_d', 'col_dragon_r', 'col_dragon_a', 'col_dragon_g', 'col_dragon_o', 'col_dragon_n'] },
 ];

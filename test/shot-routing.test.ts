@@ -139,8 +139,11 @@ interface ShotResult {
 	readonly finalSpeedMmPerS: number;
 	/** Sampled every `PROGRESS_SAMPLE_TICKS` ticks while still in play: `{tick, x, y}`. A ball bouncing in place (real instantaneous speed, near-zero NET displacement over a trailing window) is what `assertNotStranded` below reads this for -- Rework iteration 2, item (a). */
 	readonly positionSamples: readonly { readonly tick: number; readonly x: number; readonly y: number }[];
-	/** True if the ball's position ever fell within a flipper band while moving toward the flippers (table -y) at more than a genuine floor speed -- the observable AC 1's own Then clause names ("reaches the flipper-reachable band ... with a downward velocity"). */
+	/** True if the ball's position ever fell within EITHER flipper band while moving toward the flippers (table -y) at more than a genuine floor speed -- the observable AC 1's own Then clause names ("reaches the flipper-reachable band ... with a downward velocity"). Side-agnostic; used only for `terminal`'s own classification below. The routing clause (`assertReachesFlipperBand`) reads the side-specific fields instead -- see this file's own [CORRECTED] note above `FLIPPER_BAND_L`/`_R`. */
 	readonly reachedFlipperBand: boolean;
+	/** Same observable, split by which bat's own band it happened in -- Story 2.1c review fix (MED finding): AC 3's own "arrives playable at THAT SIDE'S bat band" needs to know which side, not just whether either one closed. */
+	readonly reachedFlipperBandL: boolean;
+	readonly reachedFlipperBandR: boolean;
 	/** Story 2.1c task 1 -- see `classifyTerminal()`'s own doc comment. */
 	readonly terminal: Terminal;
 }
@@ -152,20 +155,50 @@ const PROGRESS_SAMPLE_TICKS = 25;
  * from the committed document rather than invented -- replaces the single
  * `FLIPPER_BAND`, whose x span (140..375) contained the centre drain
  * corridor (x 240.875..273.525) and so was satisfied by a dead-centre
- * drain. y runs from the bat's own top edge through 145 mm ("above the bat
- * tops through 145 mm", spec task 1) -- the region a descending ball must
- * reach to be "playable at a flipper" per AC 1's own Then clause.
+ * drain. y runs from the bat's own top edge through the feed's own low
+ * (bat-side) end -- see the [CORRECTED] note below for why 145 mm flat was
+ * wrong -- the region a descending ball must reach to be "playable at a
+ * flipper" per AC 1's own Then clause.
+ *
+ * [CORRECTED 2026-09-03, code review pass 2 MED finding] This used to run
+ * y through a flat 145 mm on both sides, and `assertReachesFlipperBand`
+ * (below) used to OR the two bands together regardless of which side's
+ * shot was under test. Two compounding defects, both closed here:
+ *
+ * (1) Both bands' own y 82.5..145 overlapped col_guide_inlane_feed_l's own
+ * y 103..165 and col_guide_inlane_feed_r's own y 110..165 -- a ball still
+ * RIDING the feed rail, 20+ mm above the bat, already satisfied
+ * "reachedFlipperBand" (this is the root cause behind DW-130: the feed rail
+ * could be shifted 20 mm outboard, or deleted outright, with every routing
+ * case in this file still green, because the behavioural observable could
+ * not tell "delivered onto the bat" from "still on the ramp above it"). The
+ * band's own yMax is now each feed's own low (bat-side) end, read from the
+ * committed document -- a ball inside the band is necessarily BELOW the
+ * feed, no longer merely descending toward it.
+ *
+ * (2) `assertReachesFlipperBand` asserted `reachedFlipperBandL ||
+ * reachedFlipperBandR` -- so the Left Loop orbit case (which asserts
+ * `s_inlane_r` and is supposed to prove the ball reaches the RIGHT bat)
+ * would have passed on a ball that instead reached the LEFT bat, which is
+ * not the shot this case is pinning at all. Each shot's own routing clause
+ * now takes an explicit `side` and checks only that band.
  */
 const flipperLBox = nodeBboxMm('col_flipper_l');
 const flipperRBox = nodeBboxMm('col_flipper_r');
-const FLIPPER_BAND_L = { xMin: flipperLBox.min.x, xMax: flipperLBox.max.x, yMin: flipperLBox.max.y, yMax: 145 };
-const FLIPPER_BAND_R = { xMin: flipperRBox.min.x, xMax: flipperRBox.max.x, yMin: flipperRBox.max.y, yMax: 145 };
+const inlaneFeedLLowYMm = nodeBboxMm('col_guide_inlane_feed_l').min.y;
+const inlaneFeedRLowYMm = nodeBboxMm('col_guide_inlane_feed_r').min.y;
+const FLIPPER_BAND_L = { xMin: flipperLBox.min.x, xMax: flipperLBox.max.x, yMin: flipperLBox.max.y, yMax: inlaneFeedLLowYMm };
+const FLIPPER_BAND_R = { xMin: flipperRBox.min.x, xMax: flipperRBox.max.x, yMin: flipperRBox.max.y, yMax: inlaneFeedRLowYMm };
+
+type FlipperSide = 'l' | 'r';
+
+function inFlipperBandSide(x: number, y: number, side: FlipperSide): boolean {
+	const band = side === 'l' ? FLIPPER_BAND_L : FLIPPER_BAND_R;
+	return x >= band.xMin && x <= band.xMax && y >= band.yMin && y <= band.yMax;
+}
 
 function inFlipperBand(x: number, y: number): boolean {
-	return (
-		(x >= FLIPPER_BAND_L.xMin && x <= FLIPPER_BAND_L.xMax && y >= FLIPPER_BAND_L.yMin && y <= FLIPPER_BAND_L.yMax) ||
-		(x >= FLIPPER_BAND_R.xMin && x <= FLIPPER_BAND_R.xMax && y >= FLIPPER_BAND_R.yMin && y <= FLIPPER_BAND_R.yMax)
-	);
+	return inFlipperBandSide(x, y, 'l') || inFlipperBandSide(x, y, 'r');
 }
 
 // Story 2.1c task 1: the old condition (`vel.y > 0`) admitted 1e-9 -- a ball
@@ -222,7 +255,8 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 	let finalSpeedMmPerS = speedMmPerS;
 	let leftPlay = false;
 	const positionSamples: { tick: number; x: number; y: number }[] = [];
-	let reachedFlipperBand = false;
+	let reachedFlipperBandL = false;
+	let reachedFlipperBandR = false;
 
 	for (let i = 0; i < ticks; i++) {
 		tick += 1;
@@ -247,22 +281,23 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 		if (i % PROGRESS_SAMPLE_TICKS === 0) {
 			positionSamples.push({ tick, x: posMm.x, y: posMm.y });
 		}
-		if (
-			!reachedFlipperBand &&
-			inFlipperBand(posMm.x, posMm.y) &&
-			// toPhysics() flips table y -> physics -y (this file's own
-			// convention, above): table_vel_y = -physics_vel_y, so a
-			// POSITIVE physics vel.y is a NEGATIVE table vel.y -- moving
-			// DOWN the playfield, toward the flippers -- and now must clear
-			// a genuine speed floor (DESCENT_SPEED_FLOOR_MM_PER_S, above).
-			b.hit.vel.y > DESCENT_SPEED_FLOOR_VU_PER_T
-		) {
-			reachedFlipperBand = true;
+		// toPhysics() flips table y -> physics -y (this file's own
+		// convention, above): table_vel_y = -physics_vel_y, so a POSITIVE
+		// physics vel.y is a NEGATIVE table vel.y -- moving DOWN the
+		// playfield, toward the flippers -- and now must clear a genuine
+		// speed floor (DESCENT_SPEED_FLOOR_MM_PER_S, above).
+		const descending = b.hit.vel.y > DESCENT_SPEED_FLOOR_VU_PER_T;
+		if (!reachedFlipperBandL && inFlipperBandSide(posMm.x, posMm.y, 'l') && descending) {
+			reachedFlipperBandL = true;
+		}
+		if (!reachedFlipperBandR && inFlipperBandSide(posMm.x, posMm.y, 'r') && descending) {
+			reachedFlipperBandR = true;
 		}
 	}
 
+	const reachedFlipperBand = reachedFlipperBandL || reachedFlipperBandR;
 	const terminal = classifyTerminal(firstMakes, leftPlay, reachedFlipperBand);
-	return { firstMakes, leftPlay, finalPosMm, finalSpeedMmPerS, positionSamples, reachedFlipperBand, terminal };
+	return { firstMakes, leftPlay, finalPosMm, finalSpeedMmPerS, positionSamples, reachedFlipperBand, reachedFlipperBandL, reachedFlipperBandR, terminal };
 }
 
 // ---------------------------------------------------------------------------
@@ -427,11 +462,22 @@ function assertNotStranded(result: ShotResult, label: string): void {
 	).toBeGreaterThan(PROGRESS_MIN_DISPLACEMENT_MM);
 }
 
-/** The routing clause (AC 1, AC 3): the ball must genuinely arrive playable at a flipper -- `leftPlay` (a drain or a park) may never satisfy this. */
-function assertReachesFlipperBand(result: ShotResult, label: string): void {
+/**
+ * The routing clause (AC 1, AC 3): the ball must genuinely arrive playable
+ * at ITS SHOT'S OWN side's bat -- `leftPlay` (a drain or a park) may never
+ * satisfy this. Story 2.1c review fix (MED finding): this used to check
+ * `result.reachedFlipperBand` (either side, OR'd together), so a shot whose
+ * own criterion names a specific side (e.g. the Left Loop orbit's own
+ * `s_inlane_r` -> right bat) would have passed on a ball that instead
+ * reached the OTHER bat -- not the delivery the case is pinning. `side` is
+ * now required, not inferred or defaulted.
+ */
+function assertReachesFlipperBand(result: ShotResult, label: string, side: FlipperSide): void {
+	const band = side === 'l' ? FLIPPER_BAND_L : FLIPPER_BAND_R;
+	const reached = side === 'l' ? result.reachedFlipperBandL : result.reachedFlipperBandR;
 	expect(
-		result.reachedFlipperBand,
-		`${label}: the ball must reach a flipper-reachable band (left x [${FLIPPER_BAND_L.xMin}, ${FLIPPER_BAND_L.xMax}] or right x [${FLIPPER_BAND_R.xMin}, ${FLIPPER_BAND_R.xMax}], y [top-of-bat, 145]) moving downward at more than ${DESCENT_SPEED_FLOOR_MM_PER_S} mm/s -- terminal: "${result.terminal}", final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}`,
+		reached,
+		`${label}: the ball must reach the ${side === 'l' ? 'LEFT' : 'RIGHT'} flipper-reachable band (x [${band.xMin}, ${band.xMax}], y [top-of-bat, below the feed's own low end at ${band.yMax}]) moving downward at more than ${DESCENT_SPEED_FLOOR_MM_PER_S} mm/s -- terminal: "${result.terminal}", final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}, reached the OTHER side's band instead: ${side === 'l' ? result.reachedFlipperBandR : result.reachedFlipperBandL}`,
 	).toBe(true);
 }
 
@@ -513,7 +559,7 @@ describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit
 			expect(result.firstMakes, `s_spinner must close on the Left Loop's own ascending entry -- makes: ${result.firstMakes.join(',')}`).toContain('s_spinner');
 			expect(result.firstMakes, `s_inlane_r must close -- the Left Loop is an ORBIT and returns down the RIGHT lane, so it feeds the RIGHT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 			assertNotStranded(result, 'Left Loop');
-			assertReachesFlipperBand(result, 'Left Loop');
+			assertReachesFlipperBand(result, 'Left Loop', 'r');
 		},
 	);
 });
@@ -526,7 +572,7 @@ describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Right Loop, the orbi
 			assertOrbitOrder(result, ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in']);
 			expect(result.firstMakes, `s_inlane_l must close -- the Right Loop is an ORBIT and returns down the LEFT lane, so it feeds the LEFT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_l');
 			assertNotStranded(result, 'Right Loop');
-			assertReachesFlipperBand(result, 'Right Loop');
+			assertReachesFlipperBand(result, 'Right Loop', 'l');
 		},
 	);
 });
@@ -548,6 +594,72 @@ describe('shot routing (AC 7, DW-123) -- the re-joined top connector: ONE ball c
 		// field partway across instead of reaching the far lane), reproducing
 		// exactly the gap DW-123 records.
 		expect(result.firstMakes.indexOf('s_loop_l_in'), 'the far Loop\'s own entrance switch closes LAST -- the ball leaves the orbit through it').toBeGreaterThan(result.firstMakes.indexOf('s_loop_l_out'));
+	});
+});
+
+// Story 2.1c review fix (MED finding): the orbit's own sweep only ever
+// samples LOOP_ENTRY_OFFSETS_MM (28, 31, 34), all three inside the 9 mm
+// entry column (27.5..36.5); assertReleaseClear() admits ball centres from
+// 13.5 to 52.5 in the same lane, so roughly 30 mm of the admissible band is
+// never driven at all. The file's own prose ("an offset outside that column
+// is a MISS ... which is correct behaviour, not a defect") had no test
+// behind it -- this closes that gap with the liveness contract the file
+// already applies to the DRAGON bank and the pops (assertNotStranded +
+// assertNotStillInPlay), with one genuine discovery this sweep's own first
+// run surfaced (kept, not smoothed over):
+//
+// The offset just past col_loop_top's own end (east of the column on the
+// left, mirrored west of it on the right -- i.e. offset 45, closer to the
+// table's own centre than the 9 mm column) does not fall back into its own
+// lane at all on the RIGHT side. Traced per tick: it enters (`s_loop_r_in`),
+// climbs, and near col_loop_r_deflector's own upper reach (the PLUNGE
+// mechanism's own redirect, not this story's geometry) gets carried into
+// col_wall_lane's own shooter-lane column instead, descends the WHOLE
+// shooter lane, closes `s_shooter_lane`, and settles at its own natural
+// rest point there (x ~ 494..500, y ~ 13.5) -- the same resting behaviour
+// `nudge-coupling.golden.json` already documents as legitimate ("the served
+// ball's final resting x ... ~497.4 mm"). This is a real, EXPLAINED
+// terminal state (a switch genuinely closed, the ball is not embedded or
+// silently frozen) -- a "sneak-back" to the plunger lane on a near-miss
+// orbit shot, not the DW-119 shape (a silent stall with no observable
+// event). The left side's mirror offset does not reproduce it (traced: it
+// falls back cleanly into its own outlane) -- the asymmetry tracks
+// col_loop_r_deflector, which exists only on the right (the plunge enters
+// there). assertLoopMissOutcome() below accepts this explained outcome
+// alongside the ordinary "falls back and drains/parks" case; it still fails
+// on a genuine silent stall (the DW-119 shape this sweep exists to catch).
+function assertLoopMissOutcome(result: ShotResult, label: string): void {
+	if (result.firstMakes.includes('s_shooter_lane')) {
+		return;
+	}
+	assertNotStranded(result, label);
+	assertNotStillInPlay(result, label);
+}
+
+describe('shot routing (AC 1 behavioural half, review fix) -- entry offsets OUTSIDE the Loop\'s own 9 mm column, both lanes', () => {
+	it.each([
+		{ label: 'Left Loop, west of the column (inside the return rail\'s own reach)', x: 18 },
+		{ label: 'Left Loop, east of the column (past the top connector\'s own end)', x: 45 },
+		{ label: 'Right Loop, west of the column (mirrored)', x: laneX0Mm - 18 },
+		{ label: 'Right Loop, east of the column (mirrored) -- sneaks back to the shooter lane, see this block\'s own note above', x: laneX0Mm - 45 },
+	])('$label: a miss does not silently strand the ball -- it either falls back and resolves, or sneaks back to the shooter lane (s_shooter_lane closes)', ({ x }) => {
+		const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 9000, []);
+		assertLoopMissOutcome(result, `Loop entry off-column (x=${x})`);
+	});
+});
+
+// Story 2.1c review fix (MED finding, continued): "one Loop case below
+// 2200 mm/s" -- every Loop case in this file drives at the same 2200 mm/s,
+// so nothing here shows what a WEAKER flipper shot does. A slower shot
+// missing the crossing (insufficient climb speed for col_loop_turn_l's own
+// 40 deg turn) is an expected miss, not a defect -- liveness only, same
+// contract as the off-column sweep above.
+describe('shot routing (AC 1 behavioural half, review fix) -- a Loop shot below the file\'s own standard 2200 mm/s', () => {
+	it('Left Loop at 1200 mm/s (centred in the entry column) does not strand the ball or leave it "still_in_play"', () => {
+		const result = driveShotChecked({ x: 31, y: 415, z: 13.5 }, 1200, 0, 9000, ['s_loop_l_in']);
+		expect(result.firstMakes, `s_loop_l_in must still close at this speed -- makes: ${result.firstMakes.join(',')}`).toContain('s_loop_l_in');
+		assertNotStranded(result, 'Left Loop at 1200 mm/s');
+		assertNotStillInPlay(result, 'Left Loop at 1200 mm/s');
 	});
 });
 
@@ -579,7 +691,7 @@ describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
 		// have missed that this shot is not genuinely routed.
 		expect(result.firstMakes, `s_inlane_r must close -- the Ramp's return must feed the right INLANE (OQ-6/FR-27) -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 		assertNotStranded(result, 'Ramp');
-		assertReachesFlipperBand(result, 'Ramp');
+		assertReachesFlipperBand(result, 'Ramp', 'r');
 	});
 });
 
@@ -796,6 +908,18 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		{ label: 'Ramp return rail (col_ramp_return_1)', x: 396, y: 800 },
 		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', x: 240, y: 750 },
 		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 310, y: 750 },
+		// Story 2.1c review fix (MED finding): col_loop_top's own north face
+		// (the re-joined DW-123 connector) is deliberately left flat and is
+		// 368.4 mm wide (x 50..418.4) -- by far the largest flat north face
+		// on the table, argued safe in this file's own generator comment
+		// ("the plunged ball is already travelling west well before it
+		// reaches this height") rather than tested. It sits directly under
+		// the 50 mm channel a plunged ball (and an orbiting ball crossing
+		// col_loop_turn_l/_r) rides through, so a ball CAN genuinely be
+		// above it. Two columns, away from both turns and away from the
+		// off-column sweep's own shooter-lane finding above.
+		{ label: 'col_loop_top, west of centre', x: 150, y: 1035 },
+		{ label: 'col_loop_top, east of centre', x: 300, y: 1035 },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ x, y }) => {
 		const result = driveShotChecked({ x, y, z: 13.5 }, 1, 0, 6600, []);
 		assertNotStranded(result, `Descending release (${x}, ${y})`);

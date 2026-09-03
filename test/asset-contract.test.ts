@@ -560,24 +560,92 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 	});
 
 	// Story 2.1c task 15 -- the figures the orbit's own delivery depends on.
-	it('each Loop\'s return rail leaves the shot a clear column between its own tip and the lane\'s inner rail', () => {
+	it('each Loop\'s return rail leaves the shot a clear column between its own tip and the top connector\'s own end', () => {
 		const doc = readCollisionDoc();
 		const ballRadiusMm = TABLE.reference.ballMm / 2;
 		const railL = doc.nodes.find((n) => n.name === 'col_loop_l_return');
 		const railR = doc.nodes.find((n) => n.name === 'col_loop_r_return');
-		const loopL = doc.nodes.find((n) => n.name === 'col_loop_l');
-		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
-		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane');
+		const loopTop = doc.nodes.find((n) => n.name === 'col_loop_top');
 		expect(railL, 'col_loop_l_return missing').toBeDefined();
 		expect(railR, 'col_loop_r_return missing').toBeDefined();
-		// mutation: push LOOP_RETURN_END_X_MM inboard past the point the shot
-		// can pass, or narrow LOOP_LANE_CLEAR_MM back to 50, and re-export ->
-		// this column closes and the Loop cases in test/shot-routing.test.ts
-		// go red with the shot stalling against the rail.
-		const columnLMm = loopL!.bboxMm.min.x - railL!.bboxMm.max.x - 2 * ballRadiusMm;
-		const columnRMm = railR!.bboxMm.min.x - loopR!.bboxMm.max.x - 2 * ballRadiusMm;
-		expect(columnLMm, 'the LEFT Loop\'s own shot column, between col_loop_l_return\'s tip and col_loop_l').toBeGreaterThan(8);
-		expect(columnRMm, 'the RIGHT Loop\'s own shot column, between col_loop_r and col_loop_r_return\'s tip').toBeGreaterThan(8);
+		expect(loopTop, 'col_loop_top missing').toBeDefined();
+		// Story 2.1c review fix: this used to measure col_loop_l/col_loop_r
+		// (the OUTER rail, x 66..78 / 390.4..402.4) against the return rail's
+		// own tip -- a real clearance, but not the one the shot's own column
+		// is bounded by. The ball's own east bound (west bound on the right)
+		// is col_loop_top's own END (LOOP_TOP_END_X_MM = 50 mm in from each
+		// perimeter wall, tools/make-placeholder-blend.py's own "Where the
+		// top connector STOPS" note): everything east of it, up to the outer
+		// rail 16 mm further out, is covered by the top connector's own
+		// footprint and unreachable to a climbing ball. The old formula
+		// (25.010 mm, floor 8) could not go red under either mutation its
+		// own comment named -- narrowing LOOP_LANE_CLEAR_MM back to 50 does
+		// not even change col_loop_top's own end (a different constant), and
+		// the real column (9.010 mm) sits far below the old formula's own
+		// number regardless. Recomputed against col_loop_top -- the body the
+		// column is genuinely bounded by -- with a floor tight enough that
+		// EITHER of the two constants that actually determine it can trip it.
+		// mutation: push LOOP_RETURN_END_X_MM inboard by 1 mm (14 -> 15) and
+		// re-export -> this column drops to 8.01 mm, below the 8.5 mm floor,
+		// red. mutation: pull LOOP_TOP_END_X_MM in by 1 mm (50 -> 49) and
+		// re-export -> the SAME 8.01 mm result, red for the other reason --
+		// either mutation also stalls the Loop cases in
+		// test/shot-routing.test.ts against the rail or the top connector.
+		const columnLMm = loopTop!.bboxMm.min.x - railL!.bboxMm.max.x - 2 * ballRadiusMm;
+		const columnRMm = railR!.bboxMm.min.x - loopTop!.bboxMm.max.x - 2 * ballRadiusMm;
+		expect(columnLMm, 'the LEFT Loop\'s own shot column, between col_loop_l_return\'s tip and col_loop_top\'s own west end').toBeGreaterThan(8.5);
+		expect(columnRMm, 'the RIGHT Loop\'s own shot column, between col_loop_top\'s own east end and col_loop_r_return\'s tip').toBeGreaterThan(8.5);
+	});
+
+	// Story 2.1c review fix (MED finding): col_loop_top and LOOP_TOP_END_X_MM
+	// are the single body and constant DW-123 and AC 7 are about -- before
+	// this gate, col_loop_top appeared in test/ only inside the previous
+	// test's own mutation comment, with no dimensional pin of its own.
+	it('col_loop_top (the re-joined orbit connector, DW-123) starts and ends LOOP_TOP_END_X_MM in from each perimeter wall', () => {
+		const doc = readCollisionDoc();
+		const loopTop = doc.nodes.find((n) => n.name === 'col_loop_top');
+		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane');
+		expect(loopTop, 'col_loop_top missing').toBeDefined();
+		expect(wallLane, 'col_wall_lane missing').toBeDefined();
+		const laneX0Mm = wallLane!.bboxMm.min.x;
+		// mutation: change LOOP_TOP_END_X_MM in the seeding script (e.g.
+		// 50 -> 60) and re-export -> both ends move together and this goes
+		// red naming the new authored end, before the shot-column gate above
+		// even has to close to catch it.
+		expect(loopTop!.bboxMm.min.x, 'col_loop_top\'s own west end (LOOP_TOP_END_X_MM in from x = 0)').toBeCloseTo(50, 1);
+		expect(loopTop!.bboxMm.max.x, 'col_loop_top\'s own east end (LOOP_TOP_END_X_MM in from col_wall_lane)').toBeCloseTo(laneX0Mm - 50, 1);
+	});
+
+	// Story 2.1c review fix (MED finding): the gap in col_loop_r (split into
+	// col_loop_r / col_loop_r_lower) that makes the Ramp's own return a
+	// genuine CROSSING rather than a walled-off dead end had no dimensional
+	// gate at all -- RAMP_RETURN_GAP_Y0_MM / RAMP_RETURN_GAP_Y1_MM /
+	// RAMP_WALL_R_TOP_Y_MM (tools/make-placeholder-blend.py, task 5's own
+	// "The Ramp's own return has never been deliverable" note) sit outside
+	// the three constants the QA block below covers.
+	it('the Ramp-return crossing gap in the Right Loop rail (col_loop_r / col_loop_r_lower) is open, and col_ramp_wall_r stays clear beneath it', () => {
+		const doc = readCollisionDoc();
+		const loopRLower = doc.nodes.find((n) => n.name === 'col_loop_r_lower');
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		const rampWallR = doc.nodes.find((n) => n.name === 'col_ramp_wall_r');
+		expect(loopRLower, 'col_loop_r_lower missing').toBeDefined();
+		expect(loopR, 'col_loop_r missing').toBeDefined();
+		expect(rampWallR, 'col_ramp_wall_r missing').toBeDefined();
+		// mutation: change RAMP_RETURN_GAP_Y0_MM or _Y1_MM in the seeding
+		// script (e.g. narrow the gap by raising Y0 to 800) and re-export ->
+		// both figures below move and the first two assertions go red naming
+		// the new authored bounds.
+		expect(loopRLower!.bboxMm.max.y, 'col_loop_r_lower\'s own top (RAMP_RETURN_GAP_Y0_MM) -- where the crossing gap starts').toBeCloseTo(750, 1);
+		expect(loopR!.bboxMm.min.y, 'col_loop_r\'s own bottom (RAMP_RETURN_GAP_Y1_MM) -- where the crossing gap ends').toBeCloseTo(832, 1);
+		// mutation: raise RAMP_WALL_R_TOP_Y_MM in the seeding script (e.g.
+		// 740 -> 745) and re-export -> the clearance below shrinks toward
+		// zero and this goes red -- "nothing leaks through it" (the
+		// generator's own claim) stops being true once the Ramp's own east
+		// wall reaches the crossing gap's own low bound.
+		expect(
+			loopRLower!.bboxMm.max.y - rampWallR!.bboxMm.max.y,
+			'col_ramp_wall_r\'s own north end (RAMP_WALL_R_TOP_Y_MM) must stay clear of the crossing gap\'s own low bound, or a ball could pass through both at once',
+		).toBeGreaterThan(5);
 	});
 
 	it('each inlane\'s clear channel (its divider guide to its inlane guide) passes the reference ball with margin', () => {
@@ -654,11 +722,26 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 
 	it('the Dragon\'s own centreline sits left of the playfield centre (PLAYFIELD_W_MM / 2 = 257.2), the off-centre placement FR-29 requires', () => {
 		const doc = readCollisionDoc();
-		const legL = doc.nodes.find((n) => n.name === 'col_dragon_leg_l');
-		const legR = doc.nodes.find((n) => n.name === 'col_dragon_leg_r');
-		expect(legL, 'col_dragon_leg_l missing').toBeDefined();
-		expect(legR, 'col_dragon_leg_r missing').toBeDefined();
-		const centreX = (legL!.bboxMm.min.x + legR!.bboxMm.max.x) / 2;
+		// Story 2.1c rework (code review pass 2 HIGH finding): this used to
+		// read the centreline off the two legs' own OUTER edges,
+		// (legL.min.x + legR.max.x) / 2 -- correct only while both legs share
+		// one width (DRAGON_LEG_W_MM). The fix for that finding makes the legs
+		// asymmetric (DRAGON_LEG_L_W_MM 60, DRAGON_LEG_R_W_MM 45 -- the right
+		// leg alone retreats, clear of the Right-Loop-widening cascade that
+		// pushed the DRAGON bank into its own shadow; moving the LEFT leg
+		// too was tried and reverted -- measured, it wedges a ball into the
+		// Left Loop's own funnel edge), so that formula would now read a
+		// centreline that has moved with the asymmetry, not the Dragon's own
+		// true siting. sw_lock_lane's own zone centre is the robust
+		// replacement: (lock_lane_x0 + lock_lane_x1) / 2 = DRAGON_CENTER_X_MM
+		// by construction, in EITHER leg's own width, because both legs are
+		// built outward from the lock lane's own (symmetric) edges, never
+		// from each other.
+		// mutation: change DRAGON_CENTER_X_MM in the seeding script and
+		// re-export -> this goes red, reporting the new authored centreline.
+		const lockLane = doc.switchZones.find((z) => z.name === 'sw_lock_lane');
+		expect(lockLane, 'sw_lock_lane missing').toBeDefined();
+		const centreX = (lockLane!.minMm.x + lockLane!.maxMm.x) / 2;
 		expect(centreX, 'the Dragon\'s own centreline (authored DRAGON_CENTER_X_MM)').toBeCloseTo(170, 1);
 		expect(centreX, 'the Dragon must sit left of the playfield centre (257.2 mm) -- the right flipper takes a rejection straight, the left flipper backhands it').toBeLessThan(TABLE.reference.playfieldMm.w / 2);
 	});
@@ -670,7 +753,9 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		expect(first, 'col_dragon_d missing').toBeDefined();
 		expect(last, 'col_dragon_n missing').toBeDefined();
 		const width = last!.bboxMm.max.x - first!.bboxMm.min.x;
-		// DRAGON_BANK_X0_MM=255, pitch=14mm x 5 gaps + target width 11mm = 70 + 11 = 81 mm outer-to-outer.
+		// Independent of DRAGON_BANK_X0_MM's own value (240, Story 2.1c
+		// rework): pitch=14mm x 5 gaps + target width 11mm = 70 + 11 = 81 mm
+		// outer-to-outer.
 		expect(width, 'the DRAGON bank\'s own outer-to-outer span (col_dragon_d\'s left edge to col_dragon_n\'s right edge)').toBeCloseTo(81, 1);
 	});
 
@@ -701,6 +786,22 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		for (let i = 0; i < 2; i++) {
 			expect(centres[i + 1] - centres[i], `divider ${i + 1}->${i + 2} spacing`).toBeCloseTo(100, 1);
 		}
+		// Story 2.1c review fix: the replacement gate above pinned the two
+		// UNTOUCHED gaps but left the deliberate third one (81 mm, not 100)
+		// unpinned entirely beyond the clearance check below -- divider 4
+		// could drift anywhere from roughly 340 to 385 mm undetected, west
+		// into divider 3 or into Top lane 3 itself. TOP_LANE_DIVIDER_T_MM = 8
+		// (tools/make-placeholder-blend.py) -- a floor of ballMm + T keeps
+		// the gap wide enough for the divider's own thickness plus one ball
+		// diameter of daylight, whatever the pitch is tuned to next.
+		// mutation: move TOP_LANE_DIVIDER_XS_MM's 4th entry toward the third
+		// divider (e.g. 376 -> 320) and re-export -> this goes red before the
+		// clearance-to-col_loop_r check below would catch it.
+		const TOP_LANE_DIVIDER_T_MM = 8;
+		expect(
+			centres[3]! - centres[2]!,
+			'divider 3->4 spacing must stay wide enough for the divider\'s own thickness plus a full ball diameter',
+		).toBeGreaterThan(TABLE.reference.ballMm + TOP_LANE_DIVIDER_T_MM);
 		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
 		expect(loopR, 'col_loop_r missing').toBeDefined();
 		const divider4EastEdge = dividers[3]!.bboxMm.max.x;
@@ -764,6 +865,26 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 // in this test, so a legitimate re-tuning of these constants (with its own
 // recorded measurement, per this story's own convention) updates one number
 // here rather than fighting an independent re-derivation.
+//
+// [CORRECTED 2026-09-03, code review pass 2 MED finding] Of the five
+// assertions below, three are genuinely sensitive to the three named
+// constants (both low-corner checks and both run-length checks, re-verified
+// against the live document here: rise 1066.8 - 1036 = 30.8, run
+// 30.8 / tan(40 deg) = 36.706, exactly col_loop_turn_l's own bbox width) --
+// DW-127 is substantively closed for all three. The other two ("reaches
+// col_wall_top's own interior face" and "col_ramp_turn's own east edge
+// reaches col_loop_r's west face") are tautologies with respect to THESE
+// THREE constants specifically: both turn prisms take PLAYFIELD_H_MM as
+// their own high corner regardless of LOOP_TURN_ANGLE_DEG or
+// LOOP_TURN_LOW_Y_MM (col_wall_top is independently authored at the SAME
+// PLAYFIELD_H_MM, so the two sides cannot be moved apart by either
+// constant), and col_ramp_turn's own east points ARE loop_r_x0 in the
+// seeding script, with col_loop_r authored FROM the same loop_r_x0 -- equal
+// for any value of RAMP_TURN_Y0_MM. Kept, not deleted (each is a real
+// connectivity guard against a DIFFERENT regression -- a copy-paste or
+// off-by-one in the hard-coded anchor itself, independent of these three
+// tunables), but no longer claimed as coverage for them; each is labelled
+// below with what it actually protects.
 describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-turn dimensions are pinned (LOOP_TURN_ANGLE_DEG, LOOP_TURN_LOW_Y_MM, RAMP_TURN_Y0_MM)', () => {
 	const LOOP_TURN_ANGLE_DEG = 40.0;
 	const LOOP_TURN_LOW_Y_MM = 1036.0;
@@ -783,7 +904,19 @@ describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-tu
 		expect(turnL!.bboxMm.min.y, 'col_loop_turn_l\'s own low corner (LOOP_TURN_LOW_Y_MM)').toBeCloseTo(LOOP_TURN_LOW_Y_MM, 1);
 		expect(turnR!.bboxMm.min.y, 'col_loop_turn_r\'s own low corner (LOOP_TURN_LOW_Y_MM)').toBeCloseTo(LOOP_TURN_LOW_Y_MM, 1);
 		// A turn that stops short of col_wall_top's own interior face leaves a
-		// gap a climbing ball can clip past instead of crossing.
+		// gap a climbing ball can clip past instead of crossing. NOT sensitive
+		// to LOOP_TURN_ANGLE_DEG, LOOP_TURN_LOW_Y_MM or LOOP_LANE_CLEAR_MM (see
+		// this block's own [CORRECTED] note above) -- both prisms' own high
+		// corner is hard-coded to PLAYFIELD_H_MM regardless of angle or low
+		// corner, matching col_wall_top's own independently-authored position
+		// at the SAME constant, so this pair can never be moved apart by
+		// those three. It guards a different regression: a hard-coded anchor
+		// (PLAYFIELD_H_MM itself, or col_wall_top's own authored position)
+		// drifting out of sync between the two authoring sites.
+		// mutation: none of the three named constants moves this -- change
+		// col_wall_top's own authored y position directly (a different
+		// constant, PLAYFIELD_H_MM's own definition or the wall's own call
+		// site) and re-export -> THIS goes red, naming the mismatch.
 		expect(turnL!.bboxMm.max.y, 'col_loop_turn_l must reach col_wall_top\'s own interior face').toBeCloseTo(wallTop!.bboxMm.min.y, 1);
 		expect(turnR!.bboxMm.max.y, 'col_loop_turn_r must reach col_wall_top\'s own interior face').toBeCloseTo(wallTop!.bboxMm.min.y, 1);
 	});
@@ -797,6 +930,11 @@ describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-tu
 		expect(turnL, 'col_loop_turn_l missing').toBeDefined();
 		expect(turnR, 'col_loop_turn_r missing').toBeDefined();
 		expect(wallLane, 'col_wall_lane missing').toBeDefined();
+		// Story 2.1c review fix: this dereferenced wallTop! below with no
+		// toBeDefined() guard, unlike its three siblings in this block -- a
+		// missing col_wall_top would throw an unnamed TypeError here instead
+		// of failing by name like every other node lookup in this file.
+		expect(wallTop, 'col_wall_top missing').toBeDefined();
 		const riseMm = wallTop!.bboxMm.min.y - LOOP_TURN_LOW_Y_MM;
 		const expectedRunMm = riseMm / Math.tan((LOOP_TURN_ANGLE_DEG * Math.PI) / 180);
 		const runL = turnL!.bboxMm.max.x - turnL!.bboxMm.min.x;
@@ -832,6 +970,17 @@ describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-tu
 		// existed (s_ramp_made closing, then the ball climbing on past the
 		// return to y ~1032 and falling into unrelated geometry).
 		expect(rampTurn!.bboxMm.min.y, 'col_ramp_turn\'s own low corner (RAMP_TURN_Y0_MM)').toBeCloseTo(RAMP_TURN_Y0_MM, 1);
+		// NOT sensitive to RAMP_TURN_Y0_MM, RAMP_LANE_CLEAR_MM or
+		// LOOP_LANE_CLEAR_MM (see this block's own [CORRECTED] note above):
+		// col_ramp_turn's own east points ARE loop_r_x0 in the seeding
+		// script's construction, and col_loop_r is itself authored FROM the
+		// same loop_r_x0 -- the two sides are the same number by definition,
+		// equal for any value of those three constants. It guards a
+		// different regression: the turn's own east anchor drifting off
+		// loop_r_x0 in a future edit (a copy-pasted literal in its place).
+		// mutation: none of the three named constants moves this -- change
+		// col_ramp_turn's own east anchor to a literal instead of loop_r_x0
+		// and re-export -> THIS goes red, naming the mismatch.
 		expect(
 			rampTurn!.bboxMm.max.x,
 			'col_ramp_turn\'s own east edge must reach col_loop_r\'s west face, or the crossing stops short of the lane it is meant to hand the ball into',
