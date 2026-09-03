@@ -2,8 +2,8 @@
 title: 'Story 2.1c: The Loop returns and the inlane feed'
 type: 'feature'
 created: '2026-09-03'
-status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
-baseline_revision: '00a4bc81c2a30fe82b06ca7fc31f9d318efeee9e'
+status: 'blocked' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: '0208054e86d1b5037227d7ab064462a7065e3ee7'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -482,6 +482,184 @@ gates still pass" clause are not closable from this state. AC 1, AC 2 and
 AC 8's suite-baseline clause (unchanged from HEAD, since Phase 2 fully
 reverted) remain satisfied by Phase 1's own work alone.
 
+**Phase 2, iteration 2 (2026-09-03, re-dispatch under the widened Explicit
+permission) -- HALT confirmed, on different and additional evidence.** Phase
+1 was re-verified untouched at the start of this pass (`git status --short`:
+only this spec's own `baseline_revision` bump; `pnpm test
+test/shot-routing.test.ts`: 19 passed / 6 failed, byte-identical case list to
+the Phase 1 record above). This iteration exercised exactly the permission
+iteration 1 was denied -- moving `col_sling_r` and `col_ramp_wall_r` -- and
+several designs neither iteration 1 nor its own seven attempts tried. None
+delivered. Every mutation below was applied to an in-memory copy of the
+committed collision document via a throwaway diagnostic harness (a
+`createMachine()`-tier `driveShot()` clone, full per-tick position/velocity
+trace, run through `pnpm vitest`, never touching the tracked geometry files
+or `tools/make-placeholder-blend.py`), then discarded; `git status --short`
+and `git diff --stat` confirm the tree is byte-identical to Phase 1's own
+commit at the end of this pass, and `pnpm test` (no `BLENDER`) reproduces
+Phase 1's exact baseline: **87 files, 86 passed / 1 failed, 1164 passed / 6
+failed / 22 skipped** -- unchanged.
+
+**Governing fact, re-derived independently and sharper than iteration 1's
+own framing**: `driveShot({x:450,y:415},2200,0,...)` (the Right Loop
+"centred entry" case) does not travel around anything -- with no
+redirect anywhere in its path it climbs dead straight (`vx` exactly `0` for
+~650 ticks), passes through `sw_loop_r_in` and `sw_loop_r_out` as pure
+flyby zones on a single vertical line, bounces flat off `col_wall_top`
+(vertical-in, vertical-out, zero tangential force -- a plain horizontal
+wall imparts none), and descends the **identical** column back down into
+`sw_outlane_r`. `col_loop_r_funnel`'s own footprint (max x 433.5) is never
+touched by this trajectory at all -- x=450 clears it by 3 mm. So the fix
+cannot be "re-aim the funnel"; it requires introducing a genuine contact
+event somewhere on this dead-vertical column that was not there before, and
+every candidate for that event turned out to be governed by the SAME
+1.42 mm window the spec's own Code Map already derived, for a reason
+iteration 1 did not state explicitly: moving `col_loop_r` right by the
+`d in [21.59, 23.01]` mm the corridor needs ALSO moves its own east face to
+within 13.09-14.2 mm of the release column (450/453, or the lane's own
+recentred 454.2-454.9) -- i.e. the corridor fix and the release point's own
+DW-77 clearance draw against the **same** 1.42 mm budget from opposite
+ends, so any additional body placed near that face (a deflector, a guide)
+inherits a sub-14 mm margin on at least one side by construction, not by a
+tuning mistake.
+
+Eight further designs, each measured, none surviving:
+
+1. **Early deflector** (a col_loop_r_deflector-style wedge at y452-500,
+   attached to `col_loop_r`'s own unmoved face) -- gives real, sustained
+   leftward velocity (-19 to -20 mm/s for 15-20 ticks, reaching x as low as
+   368-415 depending on drop), but the contact happens **before** the ball
+   reaches y820-880, so `s_loop_r_out` never closes -- every early-deflector
+   variant tried (5 of them, varying drop 32-56 mm and position y400-500)
+   fails this way regardless of where it lands. This is a NEW finding this
+   iteration's own diagnostic surfaced: the switch-ORDER requirement
+   (`s_loop_r_in` then `s_loop_r_out`, both required by the pin Phase 1
+   repaired) and a low-altitude redirect are mutually exclusive on this
+   trajectory.
+2. **Top deflector, `col_loop_r` unmoved** (west point on `col_loop_r`'s own
+   face at 418.4, drop 60 mm, matching `col_loop_r_deflector`'s own 55.8 deg
+   proportions) -- correctly preserves `s_loop_r_out` (deflection happens at
+   y943-967, after the climb through 820-880) and gives a real -8.6 to
+   -12.9 mm/s push, but within ~20 ticks the ball reaches `col_loop_r`'s own
+   face (settling x = 418.4 + 13.495 = 431.9-432.1 mm, matching iteration
+   1's own "candidate 1" figure exactly) and the deflection is erased --
+   confirmed independently, not merely re-cited.
+3. **Top deflector + Candidate B (`col_loop_r` shifted +22.3 mm)**, deflector
+   re-anchored to the shifted face (440.7) -- removes failure mode #2, but
+   the deflector's own east closing edge, needing >13.495 mm clearance from
+   the (now essentially fixed, ~454.2-454.9) release column, has at most
+   13.8-14.2 mm to work with. Every variant of this shape (closing edge at
+   455, 465, 468, 475 mm; drop 44-75 mm) produced either a wrong-direction
+   push (the ball clips the shape's own closing edge/corner before the
+   hypotenuse) or a genuine hit followed by an immediate second, corner-like
+   contact that erases most of the gained velocity within 2-4 ticks --
+   reproducing the exact "relocates the trapping pocket to a new nearby
+   corner" pattern iteration 1's seven attempts already established, now
+   confirmed for THIS shape family too.
+4. **`col_ramp_wall_r` raised clear (y0: 470 -> 560, then -> 700)**, paired
+   with the early deflector (#1) -- the most materially different result of
+   this pass: with the pinch-point wall out of the way, the ball's leftward
+   velocity from the early deflector survives long enough to reach x=368 mm
+   (measurably INSIDE the historically pinched corridor, past
+   `col_ramp_wall_r`'s old position entirely) before striking
+   `col_ramp_wall_l`'s own east face (343-355 mm) and rebounding. Terminal
+   outcome: `s_ramp_enter` closes, ball falls through the Ramp's own open
+   channel to a **centre drain** -- a different failure mode than every
+   prior attempt (not the outlane), demonstrating the corridor itself CAN be
+   crossed given enough clearance, but `s_loop_r_out` does not close here
+   (early-deflector defect #1 again) and the ball overshoots the inlane
+   zone into the Ramp's own lane rather than landing in it.
+5. **`col_ramp_wall_r` shifted left as a guide rail** (370-382, full
+   470-825 y-range retained, so the Ramp's own shot keeps a wall to press
+   against) -- intended so the deflected ball rides its east face down into
+   `sw_inlane_r`'s own 381.5-419.5 mm span instead of bouncing off it.
+   Measured: the ball does arrive with its centre inside the target x-range
+   (396-410 mm at y~478-480) but with residual vx of +2.8 to +5.2 mm/s that
+   never decays to zero (no further contact) -- over the ~470 mm of
+   remaining fall to `sw_inlane_r`'s own y150-200, that residual carries it
+   back past 419.5 mm and (with `col_loop_r` unmoved, at its original
+   406.4-418.4) into `col_loop_r`'s own east face, which redirects it into
+   the outlane. This is the "two obligations" problem the spec's own Design
+   Notes already named, now measured with an exact number: a single bounce
+   off a vertical rail cannot be tuned to leave near-zero residual velocity
+   (verified across four drop values), so ANY successful landing inside the
+   inlane's own width needs either a second arresting surface (attempted
+   next) or a continuously-guided rail rather than a discrete bounce.
+6. **Wide-mouth funnel** (a single trapezoid, entry 400-460/470 mm at y500,
+   exit 385-419 mm at y420, replacing the splaying original) -- fails for a
+   reason iteration 1 did not encounter: because the ball's own straight-up
+   ASCENT and its descent share the identical column, a funnel wide enough
+   to catch the descending ball at x450-454.5 is, by construction, ALSO wide
+   enough to obstruct the ascending ball on the same pass, either blocking
+   `sw_loop_r_in`/`sw_loop_r_out` entirely or clipping it off-centre with a
+   wrong-direction bounce. A funnel can only work here if something ELSE
+   already displaced the descending path away from the ascending one.
+7. **Continuous descent rail** (a single `add_channel_rail()`-style segment,
+   the SAME technique the proven outlane return channels use, angled from
+   near the release column at high y down toward the inlane) -- two
+   variants tried (a steep one, run 52 mm / drop 690 mm, and a shallower
+   one). Both produce a near-immediate corner-style stall at the rail's own
+   high end rather than the sustained sliding contact the outlane channels
+   exhibit -- the outlane channels work because the ball ARRIVES already
+   moving mostly along the rail's own direction (a slow rolling descent);
+   this ball arrives moving almost perpendicular to any rail steep enough to
+   reach the inlane's own x-range in the available y, so it clips rather
+   than rides.
+8. **Deflector relocated entirely above `col_loop_r`'s own top** (y1010-1060,
+   fully clear of `col_loop_r` regardless of its shift, removing failure
+   mode #3's clearance constraint by construction) -- gives a real initial
+   -11.6 mm/s push (contact cleanly mid-hypotenuse, confirmed by direct
+   line-distance calculation, not merely observed) but is erased by a
+   SECOND contact two ticks later that reverses it to net POSITIVE
+   (rightward) drift, which persists uncorrected all the way to the
+   shooter lane (`s_shooter_lane` closes; final position (495.5, 13.5),
+   still in play). This is the most surprising finding of this pass: even
+   with `col_loop_r` proximity removed as a variable entirely, a single
+   ballistic deflection over this much remaining fall distance still
+   produces an uncontrolled second contact and net drift in an
+   unintended direction. That the failure mode persists after removing
+   the one variable common to attempts #2-3 and #6 suggests the obstacle is
+   not merely "which body is nearby" but something more general about a
+   single-bounce redirect surviving ~600 mm of unguided ballistic flight
+   under this solver's contact response on this trajectory -- consistent
+   with, and now independently corroborating, the spec's own Design Notes
+   ("a pure diverter is dead ... capped the ball's own ascent instead").
+
+**A genuinely new candidate this iteration surfaced but did not pursue**,
+flagged for the lead rather than acted on unilaterally: every attempt above
+inherited `driveShot()`'s own `dirDeg=0` (dead straight up the table) for
+the Loop shots, unchanged since Story 2.1b authored it. A real flipper shot
+into a loop this far from the flipper's own pivot is unlikely to be
+launched dead-vertical; an angled entry would cross the ascending lane on a
+diagonal rather than a plumb line, which changes which surfaces it can
+reach and removes the "ascent and descent share one column" constraint
+failure mode #6 is built on. Whether `dirDeg=0` is itself the right model
+for "a plausible flipper-shot speed" (task 3/AC 3's own wording) for THIS
+particular shot, as opposed to a test-authoring simplification carried over
+uncritically, is a question about the pin's own shot parameters (Phase 1's
+own work, reviewed and committed) rather than the routing geometry Phase 2
+owns -- raised here, not decided here.
+
+**Disposition, unchanged in substance from iteration 1**: task 4 (Right Loop
+return) HALTs again, on new and more specific evidence that the difficulty
+is not merely "which pre-existing body is in the way" (iteration 1's own
+framing, corrected by the Explicit permission grant) but a tighter
+structural fact -- the corridor-opening shift and the release column's own
+DW-77 clearance draw against the same 1.42 mm budget, and every tested
+redirect mechanism (early/high ballistic deflectors, guide rails, funnels,
+a continuous channel) either violates the switch-order requirement, lands
+inside a corner trap, or leaves an undecaying residual drift too large for
+the inlane's own 38 mm width over the remaining fall. Tasks 5-6 (Ramp
+interpenetration fix, Left Loop return) were not attempted beyond what
+finding #4/#5 already exercises on shared geometry (`col_ramp_wall_r`) --
+the Left Loop's own symmetry argument from iteration 1 stands, now with one
+more data point: its own inlane zone (`sw_inlane_l`, 48.9-86.9 mm) is the
+same 38 mm width as the right's and sits against `col_sling_l`'s own reach
+the same way, so the residual-drift problem (#5) applies without a
+materially different mechanism to try. Tasks 7-9 and Phase 3 remain not started, for the same
+reason as iteration 1. AC 1, AC 2 and AC 8's suite-baseline clause remain
+satisfied by Phase 1 alone, re-verified above.
+
 ## Review Triage Log
 
 ## Design Notes
@@ -543,4 +721,6 @@ reverted) remain satisfied by Phase 1's own work alone.
 
 Status: blocked
 
-Blocking condition: Phase 1 (tasks 1-3, AC 1/AC 2) is complete and committable as-is -- the pin is repaired, demonstrated red against the committed geometry, and the working tree's geometry files are untouched. Phase 2 (tasks 4-6, the Loop-return geometry) HALTs per the spec's own Block If clause after seven measured, reverted iterations found the Right Loop's own return corridor genuinely over-constrained: `col_ramp_wall_r` and `col_sling_r` (both pre-existing, unmoved by this story) leave no path from the Right Loop's own entry position into `sw_inlane_r`'s own zone that a redirect surface can occupy without becoming the next obstacle, and the one candidate that opens a passable corridor (candidate B, shifting `col_loop_r`) still cannot get a ball past the resulting three-body pockets near `col_ramp_wall_r`. Candidate A (moving the Ramp) is separately measured infeasible against `col_dragon_bank_backstop`'s own fixed clearance. Full measurements, every reverted attempt and its failure mode are recorded in `## Spec Change Log`. The lead's decision is needed on how to proceed -- among others: accept the HALT and re-scope the story (e.g. split the Loop-return geometry into its own follow-on with a wider grant, such as permission to move the slingshot or Ramp further), commission a design pass with fresh eyes on the multi-surface funnel geometry, or answer a clarifying question about which constraint (Dragon-bank clearance, slingshot position) may be loosened.
+Blocking condition (iteration 2, superseding the line below): Phase 1 remains complete, committed and re-verified untouched (`pnpm test test/shot-routing.test.ts`: 19 passed / 6 failed, identical case list; full suite without `BLENDER`: 87 files, 86 passed / 1 failed, 1164 passed / 6 failed / 22 skipped -- unchanged from Phase 1's own record). Phase 2 HALTs again under the widened Explicit permission: this iteration moved `col_sling_r` and `col_ramp_wall_r` (the two bodies iteration 1 was wrongly told were off-limits) through eight further measured, fully-reverted designs -- none delivered a ball from the Right Loop into `sw_inlane_r`. The governing constraint is now understood more precisely than iteration 1's own framing: the corridor-opening shift for `col_loop_r` and the release column's own DW-77 clearance draw against the SAME 1.42 mm budget from opposite ends, so any redirect surface placed near that face inherits a sub-14 mm margin by construction; separately, an early (low-altitude) redirect closes the routing but breaks the switch-ORDER requirement (`s_loop_r_out` never closes), while every redirect placed late enough to preserve it (near or above `col_loop_r`'s own top) survives its own first bounce only to take an uncontrolled SECOND contact 2-20 ticks later that erases or reverses the gained velocity -- reproduced even with `col_loop_r` proximity removed as a variable entirely (design #8, HALT report's own numbering). One materially new data point: raising `col_ramp_wall_r` fully clear (design #4) DOES let a ball cross the historically-pinched 5.4 mm corridor with real sustained velocity, reaching x=368 mm -- proof the corridor itself is not the immovable obstacle iteration 1 believed, but the ball then overshoots into the Ramp's own open channel and drains centrally rather than landing in the inlane, so this alone is not sufficient either. Full measurements and all eight designs are recorded in `## Spec Change Log`. Also flagged, not decided: every attempt inherited the pin's own `dirDeg=0` (dead-vertical) shot angle for the Loop tests, which may itself be why the ball's ascent and descent share one column with no natural curvature to build a return from -- worth the lead's or author's judgement on whether a plausible flipper shot into this Loop is genuinely dead-vertical. The lead's decision is needed on how to proceed: accept the HALT and re-scope (the same options iteration 1's own line below named remain open), commission a design pass built around a continuously-guided rail rather than any single-bounce deflector (the one class this iteration did not exhaust -- only one rail geometry was tried and it clipped rather than rode), or revisit the shot angle question above.
+
+Prior blocking condition (iteration 1, for the record): Phase 1 (tasks 1-3, AC 1/AC 2) is complete and committable as-is -- the pin is repaired, demonstrated red against the committed geometry, and the working tree's geometry files are untouched. Phase 2 (tasks 4-6, the Loop-return geometry) HALTs per the spec's own Block If clause after seven measured, reverted iterations found the Right Loop's own return corridor genuinely over-constrained: `col_ramp_wall_r` and `col_sling_r` (both pre-existing, unmoved by this story) leave no path from the Right Loop's own entry position into `sw_inlane_r`'s own zone that a redirect surface can occupy without becoming the next obstacle, and the one candidate that opens a passable corridor (candidate B, shifting `col_loop_r`) still cannot get a ball past the resulting three-body pockets near `col_ramp_wall_r`. Candidate A (moving the Ramp) is separately measured infeasible against `col_dragon_bank_backstop`'s own fixed clearance. Full measurements, every reverted attempt and its failure mode are recorded in `## Spec Change Log`. The lead's decision is needed on how to proceed -- among others: accept the HALT and re-scope the story (e.g. split the Loop-return geometry into its own follow-on with a wider grant, such as permission to move the slingshot or Ramp further), commission a design pass with fresh eyes on the multi-surface funnel geometry, or answer a clarifying question about which constraint (Dragon-bank clearance, slingshot position) may be loosened.
