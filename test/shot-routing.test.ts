@@ -27,92 +27,172 @@
 // closed a zone at or behind the one-ball-radius approach limit a solid
 // col_ body imposes), caught and fixed only by actually driving a ball at
 // them here and in test/switch-max-speed.test.ts. What remains, reported
-// rather than hidden: the "arrives playable at a flipper" clause is
-// asserted here as "reaches a flipper-reachable band OR returns to a
-// device (park/drain) OR keeps moving at a real speed" -- a ball that is
-// not stuck is not automatically a ball a player could catch, and this
-// story's own tick budgets are bounded well short of every shot's full
-// eventual fate (a loop or a lock-lane near-miss both continue rattling
-// around the open field for thousands more ticks after the window this
-// file checks). The FEEL judgment AC 6 names is `pending-author` for
-// exactly this reason -- no automated check substitutes for the Reference-
-// machine ritual.
+// rather than hidden: this story's own tick budgets are bounded well short
+// of every shot's full eventual fate (a loop or a lock-lane near-miss both
+// continue rattling around the open field for thousands more ticks after
+// the window this file checks). The FEEL judgment AC 6 names is
+// `pending-author` for exactly this reason -- no automated check
+// substitutes for the Reference-machine ritual.
+//
+// Story 2.1c, tasks 1-2 (the pin repair -- AC 1, AC 2; this ordering is
+// binding and runs BEFORE any geometry edit in this story). Three separate
+// defects made the OLD `assertReachesFlipperBandOrLeavesPlay` green over
+// exactly the geometry this story exists to fix, all now closed:
+//
+// (1) `leftPlay` used to satisfy the routing clause on its own -- it is set
+// by `physics.removeBall()`, which fires identically for a drain and a
+// park, so "the Loop returned the ball to a flipper" and "the Loop dumped
+// it down the outlane" were indistinguishable. `leftPlay` now survives only
+// as the raw ball-departed-the-simulated-set flag `terminal` is classified
+// from; the routing clause is `assertReachesFlipperBand`, which reads
+// `reachedFlipperBand` alone.
+//
+// (2) The single `FLIPPER_BAND` (x 140..375) contained the centre drain
+// corridor (x 240.875..273.525, between `col_guide_outer_l/r`) -- a
+// dead-centre drain satisfied "reached a flipper". Replaced with
+// `FLIPPER_BAND_L`/`FLIPPER_BAND_R`, each anchored on its OWN bat's x-span
+// read from the committed document (`col_flipper_l`/`col_flipper_r`), y
+// running from the bat's own top edge through 145 mm -- the gap between the
+// two bats is outside BOTH bands by construction, for any y range, because
+// neither bat's x-span reaches it.
+//
+// (3) `driveShot()` TELEPORTS the ball to `startMm` -- unlike a real shot,
+// nothing about that placement is ever verified reachable -- and because
+// `settleTicks` gates only the break, never the make (AD-2), a release
+// point inside a zone closes that switch unconditionally on drive tick 1.
+// Four blocks' own release points landed inside the very zone their own
+// assertion checks (both Loops, the Ramp, both slingshots), and seven more
+// release points across the file landed inside a solid `col_` footprint
+// (DW-77: the solver ejects a ball spawned there, measured z -> -1.8e6 mm,
+// 189 m/s) -- one of them (the Ramp) doubly so. `assertReleaseClear()`,
+// below, makes this self-checking: every `driveShotChecked()` call fails
+// naming the body or zone before `driveShot()` ever runs, if the release
+// point does not clear it. Every release point in this file was moved to
+// pass it (see the Spec Change Log for the individual measurements), and
+// the missing descending-sweep column over `col_ramp_wall_r`'s own
+// dead-flat north cap (x 389..401, task 2's own instruction) is added.
+//
+// A ball whose criterion requires a flipper arrival (both Loops, the Ramp)
+// now asserts `assertReachesFlipperBand` outright; every other shot in this
+// file keeps the liveness-only guard, `assertNotStillInPlay` (the shot's
+// fate must conclude within the tick budget -- a flipper, a lane switch or
+// the drain -- never that it conclude WELL; Lawlor's own "every miss comes
+// back playable" judgement stays the `pending-author` Reference-machine
+// ritual, not something this file can substitute for).
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createMachine, type Machine } from '../src/sim/physics/machine';
 import { NO_FRAME } from '../src/sim/loop';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { toPhysics, fromPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { readCollisionDoc } from './util/collision-doc';
+import { nodeBboxMm, readCollisionDoc } from './util/collision-doc';
 import type { SwitchName } from '../src/sim/table/names';
 
-const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
-function loadDoc(): unknown {
-	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
+/**
+ * Story 2.1c task 1: `terminal` names where the ball's own fate landed,
+ * built from `firstMakes` -- `flipper` takes priority over everything else
+ * (a ball that reached a bat band is the good outcome regardless of
+ * anything it touched first); `locked` and the four lane switches are
+ * checked next (a "half delivery" -- `s_inlane_r` closes but the ball never
+ * reaches a bat, Design Notes' own "two obligations" -- still reports its
+ * lane, not a bare drain); a ball that left play with none of those makes
+ * genuinely fell through the centre; `still_in_play` is the residual bucket
+ * when neither happened inside the tick budget.
+ */
+type Terminal = 'flipper' | 'inlane_l' | 'inlane_r' | 'outlane_l' | 'outlane_r' | 'centre_drain' | 'locked' | 'still_in_play';
+
+const LOCK_SWITCHES: readonly SwitchName[] = ['s_lock_1', 's_lock_2', 's_lock_3'];
+
+function classifyTerminal(firstMakes: readonly SwitchName[], leftPlay: boolean, reachedFlipperBand: boolean): Terminal {
+	if (reachedFlipperBand) {
+		return 'flipper';
+	}
+	if (LOCK_SWITCHES.some((s) => firstMakes.includes(s))) {
+		return 'locked';
+	}
+	if (firstMakes.includes('s_inlane_l')) {
+		return 'inlane_l';
+	}
+	if (firstMakes.includes('s_inlane_r')) {
+		return 'inlane_r';
+	}
+	if (firstMakes.includes('s_outlane_l')) {
+		return 'outlane_l';
+	}
+	if (firstMakes.includes('s_outlane_r')) {
+		return 'outlane_r';
+	}
+	if (leftPlay) {
+		return 'centre_drain';
+	}
+	return 'still_in_play';
 }
 
-/**
- * Rework iteration 2 (2026-09-01, lead's own investigation): the four red
- * `test/replay-goldens.test.ts` goldens were the messenger, not the
- * problem -- the new shot map genuinely did not route a ball, and this
- * file, which is supposed to be AC 1's own behavioural pin, passed
- * throughout. Five concrete gaps, each addressed below: (a) `assertNotStranded`
- * checked instantaneous speed, which every measured stall (a ball bouncing
- * in place at 33-125 mm/s on a since-fixed flat-topped body) passes --
- * replaced with genuine positional progress over a trailing window; (b) it
- * was applied to only 5 of 10 `describe` blocks -- now all 10; (c) tick
- * budgets were 500-2500 while a real descent from y = 980 to the trough
- * takes 2000-6600 -- raised so a shot's own fate is actually observed, not
- * cut off mid-flight; (d) the header below claimed three fallback
- * conditions ("reaches a flipper-reachable band OR returns to a device
- * (park/drain) OR keeps moving at a real speed") but only the speed branch
- * was ever coded -- `assertReachesFlipperBandOrLeavesPlay` below now checks
- * the other two explicitly; (e) every case shot the ball UPWARD from
- * `y >= 380`, so nothing ever tested the direction that actually produced
- * the stalls -- a descending-release sweep (below, its own `describe`)
- * drops a ball from above each of the eleven bodies the rework's own
- * geometry fix addressed.
- */
 interface ShotResult {
 	/** Every switch make, in the tick order it occurred, first occurrence only per switch (a switch re-closing later, e.g. after a full loop, does not appear twice). */
 	readonly firstMakes: readonly SwitchName[];
 	/** True once the ball left the simulated set (drained via the aperture, or parked in a device). */
 	readonly leftPlay: boolean;
-	/** The ball's final table position, if still in play. */
+	/** The ball's final table position -- the LAST position observed while still in the simulated set, i.e. at or immediately before the tick it left play (never nulled: Story 2.1c task 1 -- a failure message with no idea where the ball was cannot be acted on). */
 	readonly finalPosMm: { readonly x: number; readonly y: number } | null;
 	readonly finalSpeedMmPerS: number;
 	/** Sampled every `PROGRESS_SAMPLE_TICKS` ticks while still in play: `{tick, x, y}`. A ball bouncing in place (real instantaneous speed, near-zero NET displacement over a trailing window) is what `assertNotStranded` below reads this for -- Rework iteration 2, item (a). */
 	readonly positionSamples: readonly { readonly tick: number; readonly x: number; readonly y: number }[];
-	/** True if the ball's position ever fell within `FLIPPER_BAND` while moving toward the flippers (table -y) -- the observable AC 1's own Then clause names ("reaches the flipper-reachable band ... with a downward velocity"). Rework iteration 2, item (d). */
+	/** True if the ball's position ever fell within a flipper band while moving toward the flippers (table -y) at more than a genuine floor speed -- the observable AC 1's own Then clause names ("reaches the flipper-reachable band ... with a downward velocity"). */
 	readonly reachedFlipperBand: boolean;
+	/** Story 2.1c task 1 -- see `classifyTerminal()`'s own doc comment. */
+	readonly terminal: Terminal;
 }
 
 const PROGRESS_SAMPLE_TICKS = 25;
 
 /**
- * Measured against this table's own committed collision document (Rework
- * iteration 2's own diagnostic pass, driving balls through `createMachine()`
- * and reading their positions directly against both raised bats' own
- * resting poses) -- the region immediately above both flippers a
- * descending ball must reach to be "playable at a flipper" per AC 1's own
- * Then clause, not a literal invented for this file.
+ * Story 2.1c task 1: two bands, each anchored on its OWN bat's x-span, read
+ * from the committed document rather than invented -- replaces the single
+ * `FLIPPER_BAND`, whose x span (140..375) contained the centre drain
+ * corridor (x 240.875..273.525) and so was satisfied by a dead-centre
+ * drain. y runs from the bat's own top edge through 145 mm ("above the bat
+ * tops through 145 mm", spec task 1) -- the region a descending ball must
+ * reach to be "playable at a flipper" per AC 1's own Then clause.
  */
-const FLIPPER_BAND = { xMin: 140, xMax: 375, yMin: 40, yMax: 145 };
+const flipperLBox = nodeBboxMm('col_flipper_l');
+const flipperRBox = nodeBboxMm('col_flipper_r');
+const FLIPPER_BAND_L = { xMin: flipperLBox.min.x, xMax: flipperLBox.max.x, yMin: flipperLBox.max.y, yMax: 145 };
+const FLIPPER_BAND_R = { xMin: flipperRBox.min.x, xMax: flipperRBox.max.x, yMin: flipperRBox.max.y, yMax: 145 };
+
+function inFlipperBand(x: number, y: number): boolean {
+	return (
+		(x >= FLIPPER_BAND_L.xMin && x <= FLIPPER_BAND_L.xMax && y >= FLIPPER_BAND_L.yMin && y <= FLIPPER_BAND_L.yMax) ||
+		(x >= FLIPPER_BAND_R.xMin && x <= FLIPPER_BAND_R.xMax && y >= FLIPPER_BAND_R.yMin && y <= FLIPPER_BAND_R.yMax)
+	);
+}
+
+// Story 2.1c task 1: the old condition (`vel.y > 0`) admitted 1e-9 -- a ball
+// at the bottom of a bounce, or resting with residual solver jitter, could
+// satisfy it. 20 mm/s is far below every driven shot's own speed in this
+// file (the slowest is 1000 mm/s) and far above solver jitter, so it only
+// ever excludes a ball that is not genuinely travelling toward the
+// flippers.
+const DESCENT_SPEED_FLOOR_MM_PER_S = 20;
+const DESCENT_SPEED_FLOOR_VU_PER_T = DESCENT_SPEED_FLOOR_MM_PER_S / (MM_PER_VU * 100);
 
 /**
  * Serves a fresh ball (the real trough-eject path, not a hand-built one),
  * repositions it at `startMm` with a straight-line launch at `speedMmPerS`
- * toward `dirDeg` (0 = table +y, "up the playfield"; positive rotates
+ * toward `dirDeg` (0 = table +y, "up the playfield", positive rotates
  * toward +x), and drives it for `ticks` real physics steps through the
  * actual `createMachine()` pipeline (so every hardware rule -- flippers,
  * the plunger, DW-67's own debounced switch tracker -- is the real one).
+ * `readCollisionDoc()` (Story 2.1c task 2) replaces the old per-call
+ * `JSON.parse` -- confirmed safe: `loadCollision()`/`parseCollisionDoc()`
+ * only ever read from their `doc` argument (building fresh objects via
+ * `.map()`), never assign into it, so handing every call the SAME frozen,
+ * cached document changes nothing about what gets loaded.
  */
 function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: number, dirDeg: number, ticks: number): ShotResult {
 	const tuning = resolveTuning();
-	const machine: Machine = createMachine(loadDoc(), tuning);
+	const machine: Machine = createMachine(readCollisionDoc(), tuning);
 
 	let tick = 0;
 	for (let i = 0; i < 320; i++) {
@@ -156,7 +236,9 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 		const b = machine.balls[0];
 		if (!b) {
 			leftPlay = true;
-			finalPosMm = null;
+			// Story 2.1c task 1: finalPosMm is NOT nulled -- it keeps the last
+			// position recorded below, at (or immediately before) the tick the
+			// ball left play, so a failure message can say where it went.
 			break;
 		}
 		const posMm = fromPhysics({ x: b.state.pos.x, y: b.state.pos.y, z: b.state.pos.z });
@@ -167,21 +249,131 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 		}
 		if (
 			!reachedFlipperBand &&
-			posMm.x >= FLIPPER_BAND.xMin &&
-			posMm.x <= FLIPPER_BAND.xMax &&
-			posMm.y >= FLIPPER_BAND.yMin &&
-			posMm.y <= FLIPPER_BAND.yMax &&
+			inFlipperBand(posMm.x, posMm.y) &&
 			// toPhysics() flips table y -> physics -y (this file's own
 			// convention, above): table_vel_y = -physics_vel_y, so a
 			// POSITIVE physics vel.y is a NEGATIVE table vel.y -- moving
-			// DOWN the playfield, toward the flippers.
-			b.hit.vel.y > 0
+			// DOWN the playfield, toward the flippers -- and now must clear
+			// a genuine speed floor (DESCENT_SPEED_FLOOR_MM_PER_S, above).
+			b.hit.vel.y > DESCENT_SPEED_FLOOR_VU_PER_T
 		) {
 			reachedFlipperBand = true;
 		}
 	}
 
-	return { firstMakes, leftPlay, finalPosMm, finalSpeedMmPerS, positionSamples, reachedFlipperBand };
+	const terminal = classifyTerminal(firstMakes, leftPlay, reachedFlipperBand);
+	return { firstMakes, leftPlay, finalPosMm, finalSpeedMmPerS, positionSamples, reachedFlipperBand, terminal };
+}
+
+// ---------------------------------------------------------------------------
+// Story 2.1c task 2 -- assertReleaseClear(): driveShot() TELEPORTS the ball
+// to startMm, so nothing about that placement is ever verified reachable by
+// a real shot. Two hazards this catches, both found empirically (this
+// story's own planning pass, driving a ball at the measured maximum speed
+// and reading the result, not by inspection): (a) DW-77 -- a release point
+// inside a col_ body's own footprint; the solver ejects it (measured
+// z -> -1.8e6 mm, 189 m/s) rather than resolving a real contact response;
+// (b) a release point inside the very sw_ zone the case's own assertion
+// checks closes -- AD-2 latches a make on the tick it is first observed, so
+// that switch closes unconditionally on drive tick 1 regardless of whatever
+// happens afterward, making the assertion vacuous.
+// ---------------------------------------------------------------------------
+
+/** Half the reference ball's own diameter (TABLE.reference.ballMm) -- the DW-77 clearance margin every release point must exceed. */
+const RELEASE_CLEAR_MARGIN_MM = TABLE.reference.ballMm / 2;
+
+function pointToSegmentDistanceMm(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+	const dx = bx - ax;
+	const dy = by - ay;
+	const lenSq = dx * dx + dy * dy;
+	if (lenSq === 0) {
+		return Math.hypot(px - ax, py - ay);
+	}
+	let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+	t = Math.max(0, Math.min(1, t));
+	return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function pointInPolygon(px: number, py: number, poly: readonly { readonly x: number; readonly y: number }[]): boolean {
+	let inside = false;
+	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+		const a = poly[i]!;
+		const b = poly[j]!;
+		const intersects = a.y > py !== b.y > py && px < ((b.x - a.x) * (py - a.y)) / (b.y - a.y) + a.x;
+		if (intersects) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+/** 0 if `(px, py)` is inside the (convex, per AD-11) `poly`; otherwise the shortest distance to any of its edges. */
+function distanceToPolygonMm(px: number, py: number, poly: readonly { readonly x: number; readonly y: number }[]): number {
+	if (pointInPolygon(px, py, poly)) {
+		return 0;
+	}
+	let min = Infinity;
+	for (let i = 0; i < poly.length; i++) {
+		const a = poly[i]!;
+		const b = poly[(i + 1) % poly.length]!;
+		min = Math.min(min, pointToSegmentDistanceMm(px, py, a.x, a.y, b.x, b.y));
+	}
+	return min;
+}
+
+/**
+ * Fails naming the body or zone if `startMm` is within `RELEASE_CLEAR_MARGIN_MM`
+ * of any `col_` footprint, or inside the `sw_` zone of any switch named in
+ * `switchesUnderTest` (the switches THIS case's own assertions require to
+ * close -- not every zone on the table, only the ones a vacuous placement
+ * would corrupt). Every `col_` node is checked: wall-shaped nodes read
+ * their own `footprintMm` polygon; the two box-shaped flippers fall back to
+ * their `bboxMm` rectangle; `plane`-shaped nodes (`col_playfield`,
+ * `col_glass`) are not lateral obstacles and are skipped.
+ */
+function assertReleaseClear(startMm: { readonly x: number; readonly y: number }, switchesUnderTest: readonly SwitchName[] = []): void {
+	const doc = readCollisionDoc();
+	for (const node of doc.nodes) {
+		if (node.shape === 'plane') {
+			continue;
+		}
+		const footprint =
+			node.footprintMm ?? [
+				{ x: node.bboxMm.min.x, y: node.bboxMm.min.y },
+				{ x: node.bboxMm.max.x, y: node.bboxMm.min.y },
+				{ x: node.bboxMm.max.x, y: node.bboxMm.max.y },
+				{ x: node.bboxMm.min.x, y: node.bboxMm.max.y },
+			];
+		const distMm = distanceToPolygonMm(startMm.x, startMm.y, footprint);
+		expect(
+			distMm,
+			`assertReleaseClear(): release point (${startMm.x}, ${startMm.y}) is only ${distMm.toFixed(3)} mm from "${node.name}" -- driveShot() teleports the ball, so every release point must clear every col_ footprint by more than ${RELEASE_CLEAR_MARGIN_MM} mm (DW-77) or the solver ejects it`,
+		).toBeGreaterThan(RELEASE_CLEAR_MARGIN_MM);
+	}
+	for (const switchName of switchesUnderTest) {
+		for (const zone of doc.switchZones) {
+			if (zone.switch !== switchName) {
+				continue;
+			}
+			const inside = startMm.x >= zone.minMm.x && startMm.x <= zone.maxMm.x && startMm.y >= zone.minMm.y && startMm.y <= zone.maxMm.y;
+			expect(
+				inside,
+				`assertReleaseClear(): release point (${startMm.x}, ${startMm.y}) is INSIDE "${zone.name}" (switch "${switchName}") -- driveShot() must not teleport the ball inside the zone this case asserts closes (AD-2 latches a make on the tick it is first observed), or the make is a placement artefact, not a result`,
+			).toBe(false);
+		}
+	}
+}
+
+/** `driveShot()`, guarded by `assertReleaseClear()` -- every call site in this file goes through this, never the bare `driveShot()`. */
+function driveShotChecked(
+	startMm: { readonly x: number; readonly y: number; readonly z: number },
+	speedMmPerS: number,
+	dirDeg: number,
+	ticks: number,
+	switchesUnderTest: readonly SwitchName[] = [],
+): ShotResult {
+	assertReleaseClear(startMm, switchesUnderTest);
+	return driveShot(startMm, speedMmPerS, dirDeg, ticks);
 }
 
 // Rework iteration 2, item (a): a ball bouncing in place on a flat-topped
@@ -215,75 +407,113 @@ function positionalProgressMm(samples: ShotResult['positionSamples']): number {
 	return Math.hypot(last.x - windowStart.x, last.y - windowStart.y);
 }
 
+/**
+ * Story 2.1c task 1: the old `if (result.leftPlay) return` fully exempted
+ * ANY run that eventually drained or parked, however it got there -- so a
+ * ball that sat dead for 4900 of a 5000-tick budget and only trickled into
+ * the trough over the final ~90 reported no stall at all (Code Map `:219-221`).
+ * The trailing-window check now runs unconditionally: `positionSamples`
+ * already stops recording the instant the ball leaves play, so the window
+ * still ends at its true last-observed position whichever way the run
+ * ended, and `positionalProgressMm()`'s own `< 2 samples -> Infinity`
+ * convention (unchanged) still exempts a run that left play too fast to
+ * ever be "stuck" in the first place.
+ */
 function assertNotStranded(result: ShotResult, label: string): void {
-	if (result.leftPlay) {
-		return; // drained or parked -- a real, terminal, non-stuck outcome
-	}
 	const progressMm = positionalProgressMm(result.positionSamples);
 	expect(
 		progressMm,
-		`${label}: the ball must not be permanently at rest -- net positional progress over the final ${PROGRESS_WINDOW_TICKS} ticks was only ${progressMm.toFixed(2)} mm (a ball bouncing in place at real instantaneous speed passes a speed-only check but fails this one -- Rework iteration 2, item (a)); final pos: ${JSON.stringify(result.finalPosMm)}, final speed: ${result.finalSpeedMmPerS.toFixed(2)} mm/s`,
+		`${label}: the ball must not be permanently at rest -- net positional progress over the final ${PROGRESS_WINDOW_TICKS} ticks was only ${progressMm.toFixed(2)} mm (a ball bouncing in place at real instantaneous speed passes a speed-only check but fails this one -- Rework iteration 2, item (a)); terminal: "${result.terminal}", final pos: ${JSON.stringify(result.finalPosMm)}, final speed: ${result.finalSpeedMmPerS.toFixed(2)} mm/s`,
 	).toBeGreaterThan(PROGRESS_MIN_DISPLACEMENT_MM);
 }
 
-// Rework iteration 2, item (d): this file's own header already claimed
-// three fallback conditions ("reaches a flipper-reachable band OR returns
-// to a device (park/drain) OR keeps moving at a real speed") but only the
-// speed branch (now positional progress, above) was ever coded. This is
-// the other two, made explicit.
-function assertReachesFlipperBandOrLeavesPlay(result: ShotResult, label: string): void {
+/** The routing clause (AC 1, AC 3): the ball must genuinely arrive playable at a flipper -- `leftPlay` (a drain or a park) may never satisfy this. */
+function assertReachesFlipperBand(result: ShotResult, label: string): void {
 	expect(
-		result.reachedFlipperBand || result.leftPlay,
-		`${label}: the ball must either reach the flipper-reachable band (x in [${FLIPPER_BAND.xMin}, ${FLIPPER_BAND.xMax}], y in [${FLIPPER_BAND.yMin}, ${FLIPPER_BAND.yMax}]) moving toward the flippers, or leave play (drain/park) -- neither happened; final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}`,
+		result.reachedFlipperBand,
+		`${label}: the ball must reach a flipper-reachable band (left x [${FLIPPER_BAND_L.xMin}, ${FLIPPER_BAND_L.xMax}] or right x [${FLIPPER_BAND_R.xMin}, ${FLIPPER_BAND_R.xMax}], y [top-of-bat, 145]) moving downward at more than ${DESCENT_SPEED_FLOOR_MM_PER_S} mm/s -- terminal: "${result.terminal}", final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}`,
 	).toBe(true);
 }
 
-describe('shot routing (AC 1 behavioural half, task 16a) -- Left Loop', () => {
+/**
+ * Story 2.1c task 1: the liveness-only half of the old, conflated
+ * `assertReachesFlipperBandOrLeavesPlay` -- checks only that the shot's
+ * fate concluded within the tick budget (a flipper, a lane switch, or the
+ * drain), never that it concluded WELL. `leftPlay` alone may never satisfy
+ * the ROUTING clause (`assertReachesFlipperBand`, above) -- a drain and a
+ * genuine flipper feed both set it identically.
+ */
+function assertNotStillInPlay(result: ShotResult, label: string): void {
+	expect(
+		result.terminal,
+		`${label}: the ball must reach some terminal outcome (a flipper, a lane switch, or the drain) within the tick budget, not remain "still_in_play" -- final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}`,
+	).not.toBe('still_in_play');
+}
+
+describe('shot routing (AC 1/AC 3 behavioural half) -- Left Loop', () => {
 	it.each([
 		{ label: 'centred entry', x: 20 },
-		{ label: 'biased entry', x: 12 },
-	])('$label: s_loop_l_in then s_loop_l_out close in order, and the ball is not stranded', ({ x }) => {
-		const result = driveShot({ x, y: 430, z: 13.5 }, 2200, 0, 6000);
+		{ label: 'biased entry', x: 16 },
+	])('$label: s_loop_l_in then s_loop_l_out close in order, the completed Loop feeds the left inlane, and the ball reaches the left flipper band', ({ x }) => {
+		const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 6000, ['s_loop_l_in', 's_loop_l_out', 's_inlane_l']);
 		const inIdx = result.firstMakes.indexOf('s_loop_l_in');
 		const outIdx = result.firstMakes.indexOf('s_loop_l_out');
 		expect(inIdx, `s_loop_l_in must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 		expect(outIdx, `s_loop_l_out must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 		expect(outIdx, 's_loop_l_out must close AFTER s_loop_l_in (approach order)').toBeGreaterThan(inIdx);
+		// AC 3: a completed Loop must return the ball to the INLANE on its own
+		// side, not an outlane -- checked here (not deferred to task 14's
+		// entry-offset sweep) because it is this shot's own criterion, per
+		// AC 3's own text, not an additional observable bolted on later.
+		expect(result.firstMakes, `s_inlane_l must close -- the completed Loop must feed the left INLANE, not the outlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_l');
 		assertNotStranded(result, 'Left Loop');
-		assertReachesFlipperBandOrLeavesPlay(result, 'Left Loop');
+		assertReachesFlipperBand(result, 'Left Loop');
 	});
 });
 
-describe('shot routing (AC 1 behavioural half, task 16a) -- Right Loop', () => {
+describe('shot routing (AC 1/AC 3 behavioural half) -- Right Loop', () => {
 	it.each([
 		{ label: 'centred entry', x: 450 },
-		{ label: 'biased entry', x: 458 },
-	])('$label: s_loop_r_in then s_loop_r_out close in order, and the ball is not stranded', ({ x }) => {
-		const result = driveShot({ x, y: 430, z: 13.5 }, 2200, 0, 6000);
+		{ label: 'biased entry', x: 453 },
+	])('$label: s_loop_r_in then s_loop_r_out close in order, the completed Loop feeds the right inlane, and the ball reaches the right flipper band', ({ x }) => {
+		const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 6000, ['s_loop_r_in', 's_loop_r_out', 's_inlane_r']);
 		const inIdx = result.firstMakes.indexOf('s_loop_r_in');
 		const outIdx = result.firstMakes.indexOf('s_loop_r_out');
 		expect(inIdx, `s_loop_r_in must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 		expect(outIdx, `s_loop_r_out must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 		expect(outIdx, 's_loop_r_out must close AFTER s_loop_r_in (approach order)').toBeGreaterThan(inIdx);
+		// AC 3: see the Left Loop's own comment above.
+		expect(result.firstMakes, `s_inlane_r must close -- the completed Loop must feed the right INLANE, not the outlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 		assertNotStranded(result, 'Right Loop');
-		assertReachesFlipperBandOrLeavesPlay(result, 'Right Loop');
+		assertReachesFlipperBand(result, 'Right Loop');
 	});
 });
 
-describe('shot routing (AC 1 behavioural half, task 16a) -- Ramp', () => {
-	it('s_ramp_enter then s_ramp_made close in order (right of centre, the left flipper\'s own shot)', () => {
+describe('shot routing (AC 1/AC 3 behavioural half) -- Ramp', () => {
+	it('s_ramp_enter then s_ramp_made close in order (right of centre, the left flipper\'s own shot), and the ball reaches the right inlane feed onto the left flipper', () => {
 		const doc = readCollisionDoc();
 		expect(TABLE.reference.playfieldMm.w / 2, 'sanity: the Ramp entrance must be right of centre').toBeLessThan(
 			doc.nodes.find((n) => n.name === 'col_ramp_wall_l')!.bboxMm.min.x,
 		);
-		const result = driveShot({ x: 372, y: 475, z: 13.5 }, 2400, 0, 6000);
+		const result = driveShotChecked({ x: 372, y: 465, z: 13.5 }, 2400, 0, 6000, ['s_ramp_enter', 's_ramp_made', 's_inlane_r']);
 		const enterIdx = result.firstMakes.indexOf('s_ramp_enter');
 		const madeIdx = result.firstMakes.indexOf('s_ramp_made');
 		expect(enterIdx, `s_ramp_enter must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 		expect(madeIdx, `s_ramp_made must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
 		expect(madeIdx, 's_ramp_made must close AFTER s_ramp_enter').toBeGreaterThan(enterIdx);
+		// OQ-6/FR-27 (decided): the Ramp's return must deliver to the RIGHT
+		// inlane. Checked explicitly, not inferred from reachedFlipperBand
+		// alone -- Story 2.1c's own planning pass found a fluke path on the
+		// UNFIXED geometry that reaches a flipper band by accident (the ball
+		// sails past the return rail entirely at this shot speed, since
+		// nothing caps the open top of the ramp channel, bounces off
+		// unrelated geometry near the top of the table, and happens to fall
+		// back through the right flipper band on its way to a CENTRE drain)
+		// without ever closing s_inlane_r -- reachedFlipperBand alone would
+		// have missed that this shot is not genuinely routed.
+		expect(result.firstMakes, `s_inlane_r must close -- the Ramp's return must feed the right INLANE (OQ-6/FR-27) -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 		assertNotStranded(result, 'Ramp');
-		assertReachesFlipperBandOrLeavesPlay(result, 'Ramp');
+		assertReachesFlipperBand(result, 'Ramp');
 	});
 });
 
@@ -293,10 +523,10 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Dragon body', () => 
 		// the left slingshot's own footprint (70..130, y 420..455), which
 		// otherwise sits directly in a straight vertical path to the leg's
 		// face -- found and verified this story's own planning pass.
-		const result = driveShot({ x: 140, y: 380, z: 13.5 }, 1500, 0, 5000);
+		const result = driveShotChecked({ x: 140, y: 380, z: 13.5 }, 1500, 0, 5000, ['s_dragon_body']);
 		expect(result.firstMakes, `s_dragon_body must close -- makes: ${result.firstMakes.join(',')}`).toContain('s_dragon_body');
 		assertNotStranded(result, 'Dragon body');
-		assertReachesFlipperBandOrLeavesPlay(result, 'Dragon body');
+		assertNotStillInPlay(result, 'Dragon body');
 	});
 });
 
@@ -319,65 +549,80 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 		// comfortably past DRAGON_LEG_Y1_MM = 620, this file's own original
 		// budget for exactly this reason); the long drive covers the
 		// eventual-fate assertions item (c) actually calls for.
-		const immediate = driveShot({ x: 170, y: 380, z: 13.5 }, 1600, 0, 500);
+		const immediate = driveShotChecked({ x: 170, y: 380, z: 13.5 }, 1600, 0, 500, ['s_lock_lane']);
 		expect(immediate.firstMakes, `s_lock_lane must close -- makes: ${immediate.firstMakes.join(',')}`).toContain('s_lock_lane');
 		expect(immediate.firstMakes, 'a precise centreline shot must not also strike a leg face on its own way through').not.toContain('s_dragon_body');
 
-		const result = driveShot({ x: 170, y: 380, z: 13.5 }, 1600, 0, 5000);
+		const result = driveShotChecked({ x: 170, y: 380, z: 13.5 }, 1600, 0, 5000, ['s_lock_lane']);
 		assertNotStranded(result, 'Lock lane');
-		assertReachesFlipperBandOrLeavesPlay(result, 'Lock lane');
+		assertNotStillInPlay(result, 'Lock lane');
 	});
 });
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => {
+	const bankLetters: readonly SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
 	it.each([
-		{ label: 'left-of-bank entry', x: 290 },
+		{ label: 'left-of-bank entry', x: 297 },
 		{ label: 'right-of-bank entry', x: 322 },
 	])('$label: at least one DRAGON-bank target closes, and the ball is not stranded', ({ x }) => {
-		const result = driveShot({ x, y: 400, z: 13.5 }, 1600, 0, 5000);
-		const bankLetters: SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
+		const result = driveShotChecked({ x, y: 400, z: 13.5 }, 1600, 0, 5000, bankLetters);
 		const hitAny = result.firstMakes.some((s) => bankLetters.includes(s));
 		expect(hitAny, `at least one s_dragon_[d,r,a,g,o,n] must close -- makes: ${result.firstMakes.join(',')}`).toBe(true);
 		assertNotStranded(result, 'DRAGON bank');
-		assertReachesFlipperBandOrLeavesPlay(result, 'DRAGON bank');
+		assertNotStillInPlay(result, 'DRAGON bank');
 	});
 });
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- Top lanes', () => {
 	it.each([
-		{ label: 'lane 1', x: 145, expected: 's_top_1' as SwitchName },
+		// Story 2.1c task 2: lane 1's release moved 145 -> 110. 145 sat inside
+		// sw_pop_3's own zone (x 142..218, y 832..908) -- a switch-zone
+		// contamination this file's own Code Map flagged, though not a col_
+		// footprint embed. The obvious replacement, x = 130, is col_pop_1's
+		// own centre x -- the ball descends dead onto that octagon's single
+		// apex vertex after bouncing off the top wall and settles into a
+		// perfectly balanced, permanently stranded equilibrium (measured:
+		// pinned to y = 833.5 +/- 0.05 mm for the remaining ~5600 ticks) --
+		// this solver's own version of the DW-119 flat-face trap, but for a
+		// single symmetric vertex under x-free gravity rather than a flat
+		// face. x = 110 (verified this story's own diagnostic pass) makes a
+		// genuinely off-centre, asymmetric graze instead and drains cleanly.
+		{ label: 'lane 1', x: 110, expected: 's_top_1' as SwitchName },
 		{ label: 'lane 2', x: 245, expected: 's_top_2' as SwitchName },
 		{ label: 'lane 3', x: 345, expected: 's_top_3' as SwitchName },
 	])('$label: its own top-lane switch closes on a ball entering from below, and the ball is not stranded', ({ x, expected }) => {
-		const result = driveShot({ x, y: 900, z: 13.5 }, 1500, 0, 6600);
+		const result = driveShotChecked({ x, y: 900, z: 13.5 }, 1500, 0, 6600, [expected]);
 		expect(result.firstMakes, `${expected} must close -- makes: ${result.firstMakes.join(',')}`).toContain(expected);
 		assertNotStranded(result, `Top lane (${expected})`);
-		assertReachesFlipperBandOrLeavesPlay(result, `Top lane (${expected})`);
+		assertNotStillInPlay(result, `Top lane (${expected})`);
 	});
 });
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- both slingshots', () => {
 	it.each([
-		{ label: 'left slingshot', x: 100, dirDeg: -20, switchName: 's_sling_l' as SwitchName },
-		{ label: 'right slingshot', x: 385, dirDeg: 20, switchName: 's_sling_r' as SwitchName },
-	])('$label: its own switch closes, and the miss reaches an inlane or drains rather than stranding', ({ x, dirDeg, switchName }) => {
-		const result = driveShot({ x, y: 390, z: 13.5 }, 1200, dirDeg, 5000);
+		{ label: 'left slingshot', x: 100, y: 370, dirDeg: -20, switchName: 's_sling_l' as SwitchName },
+		{ label: 'right slingshot', x: 385, y: 370, dirDeg: 20, switchName: 's_sling_r' as SwitchName },
+	])('$label: its own switch closes, and the miss reaches an inlane or drains rather than stranding', ({ x, y, dirDeg, switchName }) => {
+		const result = driveShotChecked({ x, y, z: 13.5 }, 1200, dirDeg, 5000, [switchName]);
 		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
 		assertNotStranded(result, `Slingshot (${switchName})`);
-		assertReachesFlipperBandOrLeavesPlay(result, `Slingshot (${switchName})`);
+		assertNotStillInPlay(result, `Slingshot (${switchName})`);
 	});
 });
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumpers', () => {
 	it.each([
-		{ label: 'pop 1', targetX: 130, targetY: 800, switchName: 's_pop_1' as SwitchName },
-		{ label: 'pop 2', targetX: 230, targetY: 800, switchName: 's_pop_2' as SwitchName },
-		{ label: 'pop 3', targetX: 180, targetY: 870, switchName: 's_pop_3' as SwitchName },
-	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ targetX, targetY, switchName }) => {
-		const result = driveShot({ x: targetX, y: targetY - 100, z: 13.5 }, 1000, 0, 6600);
+		{ label: 'pop 1', x: 130, y: 700, switchName: 's_pop_1' as SwitchName },
+		// Story 2.1c task 2: y moved from targetY-100 (700, unchanged) is fine
+		// here, but x moved 230 -> 220 -- (230, 700) sat 0.69 mm inside
+		// col_dragon_bank_backstop's own sloped corner (Code Map).
+		{ label: 'pop 2', x: 220, y: 700, switchName: 's_pop_2' as SwitchName },
+		{ label: 'pop 3', x: 180, y: 770, switchName: 's_pop_3' as SwitchName },
+	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ x, y, switchName }) => {
+		const result = driveShotChecked({ x, y, z: 13.5 }, 1000, 0, 6600, [switchName]);
 		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
 		assertNotStranded(result, `Pop bumper (${switchName})`);
-		assertReachesFlipperBandOrLeavesPlay(result, `Pop bumper (${switchName})`);
+		assertNotStillInPlay(result, `Pop bumper (${switchName})`);
 	});
 });
 
@@ -393,17 +638,31 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumper
 // positional progress -- the exact mutation this rework's own review
 // demands: reverting one body's bevel back to add_box_wall() (a flat north
 // face) must turn its own case here red.
+//
+// Story 2.1c task 2: two columns were mislabelled and landed inside a
+// DIFFERENT body than the one named -- "left slingshot (col_sling_l)" at
+// (100, 500) was fully inside col_dragon_leg_l (y 500 is past the sling's
+// own north face at 455, already inside the leg's own y-span starting at
+// 480), and "right slingshot" at (385, 500) was 9.50 mm inside
+// col_ramp_wall_r AND inside sw_ramp_enter -- neither actually swept
+// col_sling_l/_r's own rebevelled face at all. Both moved to sit directly
+// above their OWN named body's own north face instead. "DRAGON bank,
+// col_dragon_n" moved 330.5 -> 326 (1.00 mm short of col_ramp_wall_l).
+// A new column, "Ramp right wall cap (col_ramp_wall_r)", covers the
+// dead-flat north cap at y = 825, x 389..401 -- ungated before this task
+// (Code Map: "the descending sweep has no column there").
 describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- descending release onto the rebevelled flat-topped bodies', () => {
 	it.each([
-		{ label: 'left slingshot (col_sling_l)', x: 100, y: 500 },
-		{ label: 'right slingshot (col_sling_r)', x: 385, y: 500 },
+		{ label: 'left slingshot (col_sling_l)', x: 75, y: 472 },
+		{ label: 'right slingshot (col_sling_r)', x: 370, y: 472 },
 		{ label: 'left Dragon leg (col_dragon_leg_l)', x: 120, y: 660 },
 		{ label: 'right Dragon leg (col_dragon_leg_r)', x: 220, y: 660 },
 		{ label: 'Ramp left wall (col_ramp_wall_l)', x: 349, y: 870 },
+		{ label: 'Ramp right wall cap (col_ramp_wall_r)', x: 391, y: 845 },
 		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', x: 260.5, y: 750 },
-		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 330.5, y: 750 },
+		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 326, y: 750 },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ x, y }) => {
-		const result = driveShot({ x, y, z: 13.5 }, 1, 0, 6600);
+		const result = driveShotChecked({ x, y, z: 13.5 }, 1, 0, 6600, []);
 		assertNotStranded(result, `Descending release (${x}, ${y})`);
 	});
 });

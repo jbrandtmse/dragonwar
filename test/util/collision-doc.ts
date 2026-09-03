@@ -25,7 +25,10 @@ interface BBoxMm {
 
 interface CollisionNodeForTest {
 	readonly name: string;
+	readonly shape: 'plane' | 'wall' | 'box';
 	readonly bboxMm: BBoxMm;
+	/** Wall-shaped nodes only (export.py's own footprint contract) -- the plan-view polygon a `col_` body's collision footprint is extruded from. Absent on `box` (the flippers) and `plane` (`col_playfield`/`col_glass`) nodes. Story 2.1c task 2: `assertReleaseClear()`'s own polygon-distance check reads this directly, rather than approximating every body as its bbox rectangle. */
+	readonly footprintMm?: readonly { readonly x: number; readonly y: number }[];
 }
 
 interface SwitchZoneForTest {
