@@ -2,7 +2,7 @@
 title: 'Story 2.1c: The Loop returns and the inlane feed'
 type: 'feature'
 created: '2026-09-03'
-status: 'blocked' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: '00a4bc81c2a30fe82b06ca7fc31f9d318efeee9e'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -44,6 +44,17 @@ deferred: []
 - **After empirical iteration, no routing delivers a Loop return to an inlane without breaking the plunge path or a drain-triangle behavioural gate.** A controlled stop with the measurements in hand is the intended outcome, not a failure. HALT and report every attempt with its measured drift, its trace and its failing gate.
 - The OQ-5 fallback (`sw_scoop` + `bd_scoop`) would be needed. It rewrites acceptance criteria in Stories 2.3, 2.4, 3.2 and 3.4: HALT rather than adopt it.
 - A golden's own **scenario assertion** could only be kept by weakening it -- lowering a threshold, adding a `PARITY_INERT` entry to switch a parity check off, deleting a `transitions` body, or removing a case. Re-recording under this story's grant is permitted; weakening the assertion that makes the golden mean something is not: HALT.
+
+**Explicit permission (lead, 2026-09-03 — added after iteration 1 halted on a constraint the spec does not contain):**
+
+Iteration 1 stopped saying that moving `col_loop_r`, `col_ramp_wall_r` or `col_sling_r` was "outside this story's grant". **It is not.** Neither the Block If list above nor the Never list below restricts this story from moving Epic 2's own drawn geometry — they restrict breaching the drain triangle's measured bounds, adopting a left-inlane Ramp return, and a short list of things owned by other stories. So, to be unambiguous:
+
+- **You MAY move `col_loop_r`, `col_loop_r_funnel`, `col_ramp_wall_r`, `col_ramp_return_1/2`, `col_sling_r` and their left-hand counterparts**, and re-draw the return channels, if the routing requires it. `col_loop_r` *is* the loop-return rail this story exists to fix; `col_ramp_wall_r` *is* the Ramp, which the charter expressly permits renegotiating.
+- **You MAY move the Story 2.1a dimensional bounds**, as the charter says — provided each change is recorded with its measurement and `test/drain-routing.test.ts` and `test/flipper-sweep-clearance.test.ts` still pass.
+- **What you may NOT do** is the two Block Ifs above (breach the 27.1272 mm drain-end throat against the 26.99 mm ball, or adopt a routing that only works with a LEFT-inlane Ramp return), anything on the Never list, and changing the *identity* of the shot map — the table still has two Loops, one Ramp, an off-centre Dragon with a Lock lane, a six-target bank, three Top lanes, two slingshots and three pops when you are done.
+- **Preserve Story 2.1b's shipped plunge path**: a plunged ball must still clear the Loop entrance, cross the top and reach the left flipper. Re-measure it under one named harness and report the number.
+
+If, with that understood, the routing still cannot be delivered, HALT again and say so — but say it against these boundaries, not against an inferred one.
 
 **Never:**
 
@@ -192,6 +203,8 @@ Read at HEAD `5f7fc44` (tree clean, branch `DW-1-epic2`). Line anchors are curre
 - **AC 8** -- Given the full command suite, when it runs after the change with `BLENDER` exported, then it reports **no fewer than 87 files and 1191 passing with 0 skipped and 0 failing**, with no test deleted, skipped or weakened to reach it; every behavioural gate Story 2.1b shipped still passes; all five golden headers are refreshed and any golden whose recorded trajectory the routing genuinely changed is re-recorded with its new trace **shown correct before recording** and the reasoning written into its own `notes`, with no threshold lowered, no `PARITY_INERT` entry added to dodge a parity check and no scenario assertion weakened; `pnpm check:ad7` still exits 1 naming `AD-7`, `DW-70` and `bd_trough`; and `TABLE.shots` is still exactly `{}`.
 
 ## Spec Change Log
+
+- 2026-09-03 (lead, re-dispatch after the iteration-1 halt): phase 1 is **complete and committed** — the pin is repaired and correctly goes red on 6 cases. Phase 2 halted on a constraint this spec does not state; an **Explicit permission** block is added to `## Boundaries & Constraints` making clear that `col_loop_r`, `col_ramp_wall_r`, `col_sling_r` and the 2.1a bounds are all movable here. Status reset to `in-progress`. No frozen section touched.
 
 **Phase 1 (tasks 1-3) -- the pin repair, AC 1 and AC 2.**
 
