@@ -594,6 +594,17 @@ describe('a parking device\'s own eject pose vs its own slot zones (the gap test
 			expect(deviceDoc, `${name}: no entry in the collision document's own "devices" array`).toBeDefined();
 			const pose = deviceDoc!.ejectPose.posMm;
 			const ownZones = doc.switchZones.filter((z) => (device.slots as readonly string[]).includes(z.switch));
+			// Non-vacuity floor (code review 2026-09-04, iteration 2): every
+			// assertion below sits inside this loop, so a device whose slot
+			// switch names ever drift from the committed zone names would
+			// filter to nothing and pass this test by never testing it --
+			// the same escape the FR-31 gate's own 39-free-end floor exists
+			// to close two files over. A parking device declares one slot
+			// switch per slot by construction, so anything less is a defect.
+			expect(
+				ownZones.length,
+				`${name}: none of its declared slot switches (${(device.slots as readonly string[]).join(', ')}) matched a switch zone in the committed document -- the pose-vs-zone assertions below would pass vacuously`,
+			).toBe(device.slots.length);
 			for (const zone of ownZones) {
 				const inside = pose.x >= zone.minMm.x && pose.x <= zone.maxMm.x && pose.y >= zone.minMm.y && pose.y <= zone.maxMm.y && pose.z >= zone.minMm.z && pose.z <= zone.maxMm.z;
 				expect(inside, `${name}'s own eject pose ${JSON.stringify(pose)} lies inside its own zone "${zone.name}" (switch "${zone.switch}") -- an ejected ball would be captured on the tick it spawns`).toBe(false);

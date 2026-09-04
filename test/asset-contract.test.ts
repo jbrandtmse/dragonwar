@@ -624,9 +624,10 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 		}
 		expect(
 			postDistanceChecks,
-			`the FR-31 post-distance assertion above ran on only ${postDistanceChecks} free end(s) -- it ran on 39 when this floor was measured (Story 2.1d code review). ` +
-			'A drop means the selector, GUIDE_TERMINATION_EXEMPTIONS or isJoined() is now absorbing ends the gate used to check, which is how a green gate stops meaning anything.',
-		).toBeGreaterThanOrEqual(39);
+			`the FR-31 post-distance assertion above ran on only ${postDistanceChecks} free end(s) -- it runs on 40 today (re-measured at the iteration-2 code review, 2026-09-04: 56 derived ends, 16 genuinely joined, 40 post-checked). ` +
+			'A drop means the selector, GUIDE_TERMINATION_EXEMPTIONS or isJoined() is now absorbing ends the gate used to check, which is how a green gate stops meaning anything. ' +
+			'The floor read 39 until this review -- the figure measured BEFORE this rework added col_lock_ceiling_west_fill\'s own checked end -- so exactly one end could have dropped out silently.',
+		).toBeGreaterThanOrEqual(40);
 	});
 
 	it('the guide selector is a PARTITION, not an allowlist: every surface carried by a col_/sw_ wall body is classified as guide-class or explicitly non-guide', () => {
@@ -1307,10 +1308,35 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		// LOCK_FILL_WEST_MARGIN_MM) actually guarantees, not merely the
 		// bounding box's own max.
 		const northEdgeWorstCaseY = fillYs[2]!;
+		// [CORRECTED, code review 2026-09-04 iteration 2 -- Rule 19: the
+		// relational assertion below CANNOT FAIL on its own.]
+		// `LOCK_FILL_THICKNESS_MM = LOCK_CEILING_SHOULDER_MM +
+		// LOCK_CEILING_RIDGE_MM + 10.0`, and the fill's north edge is
+		// (DRAGON_LEG_L_INNER_SOLID_TOP_MM - LOCK_FILL_WEST_MARGIN_MM) +
+		// LOCK_FILL_THICKNESS_MM = 598 + S + R + 10, while the ridge peak is
+		// LOCK_CEILING_Y0_MM + S + R = 598 + S + R. The shoulder and ridge
+		// terms CANCEL: the margin is invariantly 10.000 mm for ANY value of
+		// either constant, so `> ridgePeakY + 5` is `10 > 5` and is true even
+		// for geometry that has broken. The spec's own recorded falsifier for
+		// this test (LOCK_CEILING_RIDGE_MM 10 -> 26) reddens the peak pin two
+		// lines above, NOT this assertion, which is how the cancellation went
+		// unnoticed. Pinned against an ABSOLUTE height as well, so the two
+		// heights can no longer drift together and preserve a false margin.
+		// mutation: change the trailing `+ 10.0` in LOCK_FILL_THICKNESS_MM
+		// (tools/make-placeholder-blend.py) to `+ 2.0` and re-export -> the
+		// absolute pin below goes red at 626 against the expected 634, where
+		// the relational assertion alone would still read a 2 mm "margin" as
+		// passing only if the floor were also lowered. Changing
+		// LOCK_CEILING_SHOULDER_MM or LOCK_CEILING_RIDGE_MM now reddens the
+		// peak pin AND this pin, instead of neither.
 		expect(
 			northEdgeWorstCaseY,
-			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must clear col_lock_ceiling's own ridge peak (${ridgePeakY}) by a real margin throughout the whole overlap band -- round 5's own fix exists specifically because matching heights exactly, twice, parked a ball at the near-miss seam (see the [REWORK] note beside LOCK_FILL_WEST_MARGIN_MM)`,
-		).toBeGreaterThan(ridgePeakY + 5);
+			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must sit at its derived absolute height -- (DRAGON_LEG_L_INNER_SOLID_TOP_MM 600 - LOCK_FILL_WEST_MARGIN_MM 2) + LOCK_FILL_THICKNESS_MM 36 = 634`,
+		).toBeCloseTo(634, 1);
+		expect(
+			northEdgeWorstCaseY - ridgePeakY,
+			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must clear col_lock_ceiling's own ridge peak (${ridgePeakY}) by a real margin throughout the whole overlap band -- round 5's own fix exists specifically because matching heights exactly, twice, parked a ball at the near-miss seam (see the [REWORK] note beside LOCK_FILL_WEST_MARGIN_MM). Read with the absolute pin above: this relation alone is algebraically invariant and cannot fail by itself`,
+		).toBeGreaterThan(5);
 	});
 
 	it('the four true perimeter walls (left, top, right, lane) now reach the glass (DW-53: PERIMETER_WALL_H_MM = GLASS_Z_MM = 400), while col_wall_lane_bottom -- not a true perimeter wall -- stays at the interior WALL_H_MM = 50', () => {

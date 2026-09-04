@@ -40,6 +40,14 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'troughEjectSpeedMmPerS',
 			'autolaunchSpeedMmPerS',
 			'nudgeImpulseMs',
+			// Code review 2026-09-04 (iteration 2, AD-15): Story 2.1d moved
+			// the Lock's ejection-exemption backstop out of devices.ts and
+			// into TUNING, but this allowlist is hand-maintained, so the new
+			// entry escaped the source/confidence check entirely -- which is
+			// precisely the half of that finding that read "nothing fails if
+			// the value or its confidence drifts", recorded as resolved when
+			// only the relocation had happened.
+			'lockEjectExemptionTimeoutMs',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
