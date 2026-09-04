@@ -29,7 +29,7 @@ import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
-import { readCollisionDoc, switchZoneMm } from './util/collision-doc';
+import { readCollisionDoc, switchZoneMm, nodeBboxMm } from './util/collision-doc';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
 import type { BallDeviceName, SwitchName } from '../src/sim/table/names';
 
@@ -59,6 +59,9 @@ function zoneCentreMm(switchZoneName: string) {
 		z: (zone.minMm.z + zone.maxMm.z) / 2,
 	};
 }
+
+/** bd_lock's own three slot-zone names, at module scope so both the exemption-timeout test and the enclosure tests derive their bounds from the SAME committed zones rather than from literals. */
+const LOCK_ZONE_NAMES_FOR_CLEAR_BEYOND = ['sw_lock_1', 'sw_lock_2', 'sw_lock_3'] as const;
 
 /** Serves a fresh ball via c_trough_eject (the same 320-tick settle every driveShot()-style harness in this suite uses) and returns the machine plus the tick counter, positioned to keep driving from. */
 function servedMachine() {
@@ -212,7 +215,14 @@ describe('bd_lock: the just-ejected exemption times out (Phase 5 review finding 
 		// mechanism, exactly the stall/deflection/reversal case task 22
 		// describes.
 		const heldMm = zoneCentreMm('sw_lock_2');
-		expect(heldMm.y, 'sanity: the held position must NOT satisfy clearBeyond() -- it must stay within the zone-union band').toBeGreaterThanOrEqual(564);
+		// Code review 2026-09-03: this bound used to be the literal 564 --
+		// buildClearBeyond()'s own boundary for bd_lock written out by hand,
+		// one describe-block below the QA fix that removed exactly that kind
+		// of decoupled literal. Derived from the committed zones instead, so
+		// a future re-siting of the slot band moves it with them rather than
+		// leaving the "sanity" guard passing for the wrong reason.
+		const clearBeyondBoundaryY = Math.min(...LOCK_ZONE_NAMES_FOR_CLEAR_BEYOND.map((n) => switchZoneMm(n).minMm.y));
+		expect(heldMm.y, `sanity: the held position must NOT satisfy clearBeyond() -- it must stay at or above the zone union's own low edge (${clearBeyondBoundaryY})`).toBeGreaterThanOrEqual(clearBeyondBoundaryY);
 
 		// Mid-window: comfortably inside the exemption, nowhere near the
 		// backstop -- must still be fully exempt.
@@ -319,23 +329,74 @@ describe('bd_lock: one ball per pulse (AD-6)', () => {
 });
 
 describe('bd_lock: a ball crossing the Lock lane band from open field is NOT parked (AD-6, DW-121-class swallow)', () => {
-	it("driving a ball sideways across x [150, 190] at the height the re-sited slot band now occupies does not park it -- the lane's own walls (the legs, unmoved) block the crossing structurally", () => {
-		// The story's own I/O matrix names the ORIGINAL defect coordinates
-		// (y 630..678, where the pre-2.1d slot zones sat in 230 mm of open
-		// field). Task 8's fix re-sites the zones into the corridor the legs
-		// already bound (y 564..612, DRAGON_LEG_Y0_MM..DRAGON_LEG_Y1_MM =
-		// 480..620) rather than extending the legs -- see this story's own
-		// Spec Change Log for why. The MODERN equivalent of "cross the band
-		// from open field" is therefore a ball sweeping x [150, 190]
-		// SIDEWAYS at a y within the legs' own span, including the re-sited
-		// slots': the legs' own solid walls (col_dragon_leg_l/_r, x <= 150
-		// and x >= 190 respectively) must block it structurally, exactly as
-		// the same legs already block a sideways crossing at any other y in
-		// [480, 620] -- there is nothing Lock-specific left to fail.
+	/** The three `sw_lock_*` zone names, in one place -- both tests below iterate the same set. */
+	const LOCK_ZONE_NAMES = ['sw_lock_1', 'sw_lock_2', 'sw_lock_3'] as const;
+
+	// QA gap closed (2026-09-03): this describe block's sibling test below
+	// used to probe a HARDCODED (x: 260, y: 590) regardless of where the
+	// committed sw_lock_* zones actually sit. That decoupled the probe from
+	// the thing under test -- when the zones were moved BACK to their
+	// pre-2.1d open-field band (y 630..678, verified by direct mutation),
+	// the fixed y=590 probe stayed inside the legs' solidly-walled region
+	// (y 480..600/620) and the test stayed green, proving only "the legs
+	// block a sideways crossing at y=590", never "the slot zones themselves
+	// are structurally enclosed" -- the actual subject of AC 2's second
+	// clause. This test derives its bound from the committed document
+	// instead: it is a static geometric claim (no simulation, no ball) that
+	// each sw_lock_* zone's own footprint sits inside the corridor the two
+	// Dragon legs already bound -- y within both legs' shared bbox y-span,
+	// x bounded on both sides by a leg body. A zone moved outside that
+	// envelope (e.g. back up into the open field above y 620) fails this
+	// directly, by name, independent of any one trajectory's timing or
+	// physics-settling nuance.
+	it('every sw_lock_* zone is structurally enclosed by the Dragon legs -- its y-span lies within both legs\' own y-span and its x-span is bounded on both sides by the leg bodies (AC 2\'s own second clause: the ZONES themselves, not one simulated crossing, must sit inside the corridor)', () => {
+		const legL = nodeBboxMm('col_dragon_leg_l');
+		const legR = nodeBboxMm('col_dragon_leg_r');
+		const legsYMin = Math.max(legL.min.y, legR.min.y);
+		const legsYMax = Math.min(legL.max.y, legR.max.y);
+
+		for (const name of LOCK_ZONE_NAMES) {
+			const zone = switchZoneMm(name);
+			expect(
+				zone.minMm.y,
+				`${name}: its low y face (${zone.minMm.y}) must be at or above both legs' shared low y face (${legsYMin}) -- a zone whose y-span starts above the legs sits in open field, not the bounded corridor`,
+			).toBeGreaterThanOrEqual(legsYMin);
+			expect(
+				zone.maxMm.y,
+				`${name}: its high y face (${zone.maxMm.y}) must be at or below both legs' shared high y face (${legsYMax}) -- a zone whose y-span reaches above the legs sits in open field, not the bounded corridor`,
+			).toBeLessThanOrEqual(legsYMax);
+			expect(
+				zone.minMm.x,
+				`${name}: its low x face (${zone.minMm.x}) must be at or beyond the left leg's own inner face at x=${legL.max.x} -- otherwise nothing bounds the zone's west side`,
+			).toBeGreaterThanOrEqual(legL.max.x);
+			expect(
+				zone.maxMm.x,
+				`${name}: its high x face (${zone.maxMm.x}) must be at or before the right leg's own inner face at x=${legR.min.x} -- otherwise nothing bounds the zone's east side`,
+			).toBeLessThanOrEqual(legR.min.x);
+		}
+	});
+
+	it("driving a ball sideways across x [150, 190] at a height DERIVED from the committed sw_lock_* zones' own y-span does not park it -- the lane's own walls (the legs, unmoved) block the crossing structurally", () => {
+		// Unlike the static structural check above, this drives the REAL
+		// physics pipeline. The probe height is read from the committed
+		// sw_lock_* zones themselves (their union's own y-midpoint), not
+		// hardcoded, so a future re-siting of the zones moves this probe
+		// with them rather than leaving it decoupled. With today's geometry
+		// (zones at y 564..612) this lands well inside the legs' solidly-
+		// walled region (y 480..600/620) and the crossing is blocked, same
+		// as before the fix; if the zones were ever moved back into the
+		// open field above y 620, this probe would move there too and the
+		// crossing ball would enter the very zone this test is named for --
+		// see the mutation recorded in this spec's own ## Verification.
+		const lockZonesMm = LOCK_ZONE_NAMES.map((name) => switchZoneMm(name));
+		const bandMinY = Math.min(...lockZonesMm.map((z) => z.minMm.y));
+		const bandMaxY = Math.max(...lockZonesMm.map((z) => z.maxMm.y));
+		const probeY = (bandMinY + bandMaxY) / 2;
+
 		const { machine, tick: servedTick } = servedMachine();
 		let tick = servedTick;
 		const ball = machine.balls[0]!;
-		const startPhysics = toPhysics({ x: 260, y: 590, z: 13.495 });
+		const startPhysics = toPhysics({ x: 260, y: probeY, z: 13.495 });
 		ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
 		const speedVuPerT = 2000 / (0.53975 * 100);
 		ball.hit.vel.set(-speedVuPerT, 0, 0);
@@ -343,16 +404,34 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 		ball.hit.angularMomentum.set(0, 0, 0);
 
 		const slotsBefore = [...machine.deviceSlots.bd_lock];
+		let leftPlayAtTick: number | null = null;
 		for (let i = 0; i < 400; i++) {
 			tick += 1;
 			machine.step(tick, NO_FRAME, []);
 			const b = machine.balls[0];
 			if (!b) {
-				break; // drained or parked elsewhere -- either way, not this test's concern
+				// Code review 2026-09-03: the comment that stood here said
+				// "drained or parked elsewhere -- either way, not this test's
+				// concern", directly above an assertion that the ball is still
+				// in play. Both cannot be true. The concern IS bd_lock: a
+				// drain inside the window is a legitimate outcome of a
+				// sideways sweep, a bd_lock park is not -- so record which
+				// happened and let the slot assertion below be the one that
+				// discriminates, instead of failing a drain with a message
+				// about slot parking.
+				leftPlayAtTick = tick;
+				break;
 			}
 		}
-		expect(machine.deviceSlots.bd_lock, "a ball swept sideways at the slot band's own height must not park -- bd_lock's own slots must stay unchanged").toEqual(slotsBefore);
-		expect(machine.balls.length, 'the ball must still be in play, not removed into a slot').toBeGreaterThan(0);
+		expect(machine.deviceSlots.bd_lock, "a ball swept sideways at the slot band's own derived height must not park -- bd_lock's own slots must stay unchanged").toEqual(slotsBefore);
+		if (leftPlayAtTick !== null) {
+			expect(
+				machine.deviceSlots.bd_lock.filter(Boolean).length,
+				`the ball left the simulated set at tick ${leftPlayAtTick}; that is only acceptable if it DRAINED -- a bd_lock slot closing means it was swallowed`,
+			).toBe(slotsBefore.filter(Boolean).length);
+		} else {
+			expect(machine.balls.length, 'the ball must still be in play, not removed into a slot').toBeGreaterThan(0);
+		}
 	});
 });
 

@@ -344,9 +344,9 @@ function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: n
 	const indexDiff = Math.abs(e0!.i - e1!.i);
 	if (indexDiff === 1 || indexDiff === 3) {
 		throw new Error(
-			`freeEndsMm(): "${bodyName}"'s two shortest edges (index ${e0!.i}, ${e1!.i}, lengths ${e0!.len.toFixed(2)}/${e1!.len.toFixed(2)} mm) ` +
-			`are ADJACENT -- a wedge-shaped footprint, not a body with two opposite end caps. Deriving free ends from them would return two ` +
-			`midpoints at the SAME end and never test the true far end.`,
+			`freeEndsMm(): "${bodyName}" has ${footprint.length} footprint point(s) and its two shortest edges (index ${e0!.i}, ${e1!.i}, ` +
+			`lengths ${e0!.len.toFixed(2)}/${e1!.len.toFixed(2)} mm) are ADJACENT -- a wedge-shaped footprint, not a body with two opposite ` +
+			`end caps. Deriving free ends from them would return two midpoints at the SAME end and never test the true far end.`,
 		);
 	}
 	return [e0!.mid, e1!.mid];
@@ -369,6 +369,19 @@ function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: n
  * this story's own Code Map measured.
  */
 const GUIDE_SURFACES = new Set(['plastic', 'rubber_band', 'dragon', 'ramp']);
+
+/**
+ * Story 2.1d code review (2026-09-03): the EXPLICIT other half of the
+ * partition above. `GUIDE_SURFACES` on its own is an allowlist, and an
+ * allowlist has exactly the property this story set out to remove from the
+ * `col_guide_` name prefix -- a body carrying a surface nobody listed is
+ * silently invisible to the gate rather than loudly unclassified. Naming the
+ * excluded half too turns the selector into a PARTITION, pinned by the
+ * completeness test below: a wall body carrying any surface not in either
+ * set fails by name, so the next `surface` value has to be classified
+ * deliberately instead of escaping by omission.
+ */
+const NON_GUIDE_SURFACES = new Set(['rubber_post', 'bumper', 'target', 'wood']);
 
 /**
  * Story 2.1d task 13: the two-directional exemption allowlist -- a body
@@ -416,11 +429,33 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 			).toBe(true);
 		}
 
-		/** Every OTHER col_/sw_ wall body's own footprint, for the "genuinely joined" structural test below -- box (flippers) and plane (playfield/glass) shapes never count as a join partner. */
+		/**
+		 * Every OTHER col_/sw_ wall body's own footprint, for the "genuinely
+		 * joined" structural test below -- box (flippers) and plane
+		 * (playfield/glass) shapes never count as a join partner.
+		 *
+		 * Story 2.1d code review (2026-09-03): `rubber_post` bodies are
+		 * excluded from the candidate set. A post is what an end TERMINATES
+		 * AT, never what it is JOINED INTO, and because the join branch runs
+		 * BEFORE the post-distance assertion below, treating a post as a join
+		 * partner silently short-circuited the one check this whole describe
+		 * block exists to make. Measured against the committed document
+		 * before the fix: SIX of the 54 derived free ends took that path and
+		 * never reached the `nearestRadius + 0.5` assertion at all --
+		 * `col_dragon_leg_l` (120.00, 610.00) -> `col_post_dragon_leg_l`,
+		 * `col_guide_inlane_l` (92.00, 428.00), `col_guide_inlane_r`
+		 * (376.40, 428.00), both `col_ramp_return_1` ends, and `col_sling_r`
+		 * (314.00, 427.50). Three of the 26 posts this story added were
+		 * therefore not load-bearing: deleting them left this gate GREEN,
+		 * which is exactly the mutation AC 3 claims to be falsified by. With
+		 * posts excluded, those six ends are checked for real and all pass
+		 * (3.500-4.000 mm against the 4.500 mm budget), so this restores
+		 * coverage without moving any geometry.
+		 */
 		function isJoined(point: { readonly x: number; readonly y: number }, ownName: string): { joined: boolean; to?: string } {
 			const JOIN_TOLERANCE_MM = 1.0;
 			for (const other of doc.nodes) {
-				if (other.name === ownName || other.shape !== 'wall' || !other.footprintMm) {
+				if (other.name === ownName || other.shape !== 'wall' || !other.footprintMm || other.surface === 'rubber_post') {
 					continue;
 				}
 				const poly = other.footprintMm;
@@ -441,6 +476,16 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 			return { joined: false };
 		}
 
+		// Story 2.1d code review (2026-09-03): a non-vacuity floor on the
+		// gate's own SUBJECT SET. Every assertion below is inside two nested
+		// loops and a `continue`, so the whole test passes trivially if the
+		// selector, the exemption list or `isJoined()` ever stop leaving any
+		// end to check -- the failure mode this project's defect history is
+		// made of. Measured at this review: 54 derived ends, 15 genuinely
+		// joined to a non-post body, 39 reaching the post-distance assertion
+		// below. The floor is that 39; a change that shrinks it fails here
+		// and has to be argued for, rather than passing silently.
+		let postDistanceChecks = 0;
 		for (const guide of guides) {
 			if (exemptedNames.has(guide.name)) {
 				continue;
@@ -451,6 +496,7 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 				if (joined) {
 					continue; // a genuinely joined end -- structurally not "free" at all.
 				}
+				postDistanceChecks++;
 				let nearestDistance = Infinity;
 				let nearestName = '(none)';
 				let nearestRadius = 0;
@@ -473,6 +519,37 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 				).toBeLessThanOrEqual(nearestRadius + 0.5); // 0.5 mm float-noise margin
 			}
 		}
+		expect(
+			postDistanceChecks,
+			`the FR-31 post-distance assertion above ran on only ${postDistanceChecks} free end(s) -- it ran on 39 when this floor was measured (Story 2.1d code review). ` +
+			'A drop means the selector, GUIDE_TERMINATION_EXEMPTIONS or isJoined() is now absorbing ends the gate used to check, which is how a green gate stops meaning anything.',
+		).toBeGreaterThanOrEqual(39);
+	});
+
+	it('the guide selector is a PARTITION, not an allowlist: every surface carried by a col_/sw_ wall body is classified as guide-class or explicitly non-guide', () => {
+		// Story 2.1d code review (2026-09-03). AC 3's own claim is that a
+		// body can no longer escape FR-31 by being NAMED something else. The
+		// implemented selector swapped the name prefix for a surface
+		// allowlist, which has the same escape property one attribute over:
+		// author a rail with an unlisted surface and it is invisible to the
+		// gate, with no exemption entry, no reason string and no
+		// reverse-direction staleness check. This closes that by requiring
+		// the two sets to COVER the committed document.
+		const doc = readCollisionDoc();
+		const wallSurfaces = new Set(
+			doc.nodes.filter((n) => n.shape === 'wall' && n.surface !== undefined).map((n) => n.surface!),
+		);
+		const unclassified = [...wallSurfaces].filter((s) => !GUIDE_SURFACES.has(s) && !NON_GUIDE_SURFACES.has(s)).sort();
+		expect(
+			unclassified,
+			`wall surface(s) ${JSON.stringify(unclassified)} are in neither GUIDE_SURFACES nor NON_GUIDE_SURFACES, so bodies carrying them are silently invisible to the ` +
+			'guide-termination gate above -- classify them deliberately (and, if guide-class, terminate or exempt their free ends on the record)',
+		).toEqual([]);
+		// Non-vacuity: the partition must actually be exercised by real
+		// bodies on both sides, or the assertion above is true of an empty
+		// document.
+		expect([...wallSurfaces].filter((s) => GUIDE_SURFACES.has(s)).length, 'sanity: guide-class surfaces must be present in the committed document').toBeGreaterThan(0);
+		expect([...wallSurfaces].filter((s) => NON_GUIDE_SURFACES.has(s)).length, 'sanity: non-guide surfaces must be present in the committed document').toBeGreaterThan(0);
 	});
 
 	it('every allowlisted exemption is still genuinely exempt -- a body whose shape has quietly become a clean, well-formed quad fails naming it as a stale entry', () => {
@@ -489,9 +566,21 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 		for (const exemption of GUIDE_TERMINATION_EXEMPTIONS) {
 			const body = doc.nodes.find((n) => n.name === exemption.body);
 			expect(body, `exemption "${exemption.body}" names a body absent from the committed document`).toBeDefined();
+			// Story 2.1d code review (2026-09-03), closing the spec's own
+			// `deferred:` entry on this line: `?? []` used to feed an EMPTY
+			// footprint to freeEndsMm(), which throws on the point-count
+			// branch -- so a body that had lost its footprint data entirely
+			// reported the same "still genuinely exempt" pass as a body with
+			// a real non-standard shape. Two different conditions collapsed
+			// into one boolean. Separate them: a missing footprint is its own
+			// named failure, never evidence for an exemption.
+			expect(
+				body!.footprintMm,
+				`${exemption.body}: this exempted body carries NO footprintMm in the committed document -- that is a lost-geometry failure, not evidence that its exemption still holds`,
+			).toBeDefined();
 			let derivationFailed = false;
 			try {
-				freeEndsMm(body!.footprintMm ?? [], body!.name);
+				freeEndsMm(body!.footprintMm!, body!.name);
 			} catch {
 				derivationFailed = true;
 			}
@@ -500,6 +589,68 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 				`${exemption.body}: freeEndsMm() now derives a clean answer for this body (footprint: ${JSON.stringify(body!.footprintMm)}) -- the exemption ("${exemption.reason}") is stale; remove it and let this body pass through the forward check like any other guide`,
 			).toBe(true);
 		}
+	});
+
+	// Story 2.1d code review (2026-09-03), AC 7 (DW-128). The hardened
+	// freeEndsMm() throws are load-bearing for AC 3 -- a wrongly-derived free
+	// end makes the gate above pass or fail SILENTLY over an untested end --
+	// but nothing asserted the throws themselves. The only catch in this file
+	// is the reverse-exemption test's bare `catch { derivationFailed = true }`,
+	// which discards the error, so replacing both messages with a bare
+	// `throw new Error()` left the whole suite green while AC 7's "fails
+	// loudly, NAMING the body and its point count" was gone. These two cases
+	// pin the message text directly, the same way test/machine-serve-drain.
+	// test.ts pins createDeviceMechanics()'s own throw.
+	describe('freeEndsMm() fails loudly by name (AC 7, DW-128)', () => {
+		it('a non-quad footprint throws naming the body AND its point count', () => {
+			const triangle = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 10 }];
+			expect(() => freeEndsMm(triangle, 'col_fake_triangle')).toThrowError(/col_fake_triangle/);
+			expect(() => freeEndsMm(triangle, 'col_fake_triangle')).toThrowError(/3 footprint point/);
+		});
+
+		it('a wedge (two shortest edges ADJACENT) throws naming the body, both edge indices and its point count', () => {
+			// Two short edges sharing vertex (0,0): index 3 (len 4) and index
+			// 0 (len 5), against two long edges -- the exact shape col_sling_l
+			// really has in the committed document.
+			const wedge = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 60, y: 30 }, { x: 0, y: 4 }];
+			expect(() => freeEndsMm(wedge, 'col_fake_wedge')).toThrowError(/col_fake_wedge/);
+			expect(() => freeEndsMm(wedge, 'col_fake_wedge')).toThrowError(/ADJACENT/);
+			expect(() => freeEndsMm(wedge, 'col_fake_wedge')).toThrowError(/4 footprint point/);
+		});
+
+		it('a well-formed quad still derives its two opposite end-cap midpoints', () => {
+			// Non-vacuity: the two throws above must be caused by the SHAPE,
+			// not by freeEndsMm() having become unconditionally throwing.
+			const quad = [{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 12, y: 300 }, { x: 0, y: 300 }];
+			expect(freeEndsMm(quad, 'col_fake_quad')).toEqual([{ x: 6, y: 0 }, { x: 6, y: 300 }]);
+		});
+	});
+
+	// Story 2.1d code review (2026-09-03), AC 4's rename half. `grep -rn
+	// "vis_spinner_l" test/ src/` returned NOTHING before this block: the
+	// rename was covered only by a manual check, so reverting it to
+	// `add_box_wall('col_spinner_l', ...)` and re-exporting reddened nothing
+	// but `StaleReplayHeaderError` on `assetHash` -- the hash-only signal this
+	// spec's own AC 1 mutation note rules insufficient ("a hash-only red would
+	// mean nothing observes the value"), and indistinguishable from any other
+	// geometry edit.
+	describe('asset contract -- Story 2.1d AC 4: the spinner is a vis_ node, not a col_ one (AD-11 prefix contract, AD-6 as amended)', () => {
+		it('col_spinner_l is absent from the collision document and vis_spinner_l never enters it -- a vis_ node collides with nothing', () => {
+			const doc = readCollisionDoc();
+			const names = doc.nodes.map((n) => n.name);
+			expect(names, 'col_spinner_l was renamed vis_spinner_l: a node nothing collides with is not col_ under AD-11').not.toContain('col_spinner_l');
+			expect(
+				names.filter((n) => n.startsWith('vis_')),
+				'no vis_ node may appear in the collision document -- tools/export.py excludes presentation objects by prefix',
+			).toEqual([]);
+		});
+
+		it('sw_spinner is byte-identical to its committed box -- this story renamed the node and nothing else (Story 2.3 owns spin and decay)', () => {
+			const zone = readCollisionDoc().switchZones.find((z) => z.name === 'sw_spinner');
+			expect(zone, 'sw_spinner must still exist -- s_spinner closes on the zone, never on a body').toBeDefined();
+			expect(zone!.minMm).toEqual({ x: 5, y: 635, z: 0 });
+			expect(zone!.maxMm).toEqual({ x: 45, y: 662, z: 30 });
+		});
 	});
 
 	it('no guide-end post carries surface metal or wood -- every one is rubber_post by construction', () => {

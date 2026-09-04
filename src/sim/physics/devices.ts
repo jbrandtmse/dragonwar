@@ -213,10 +213,15 @@ export function createDeviceMechanics(options: {
 	 *
 	 * Phase 5 review finding, the adjacent lower-severity leak: a `Ball`
 	 * removed from `physics` by any path OTHER than `clearBeyond()`/the
-	 * timeout backstop clearing its own entry here (there is no such path
-	 * today -- `detectEntries()` below is the only caller of
-	 * `PlayerPhysics.removeBall()` reachable from this file, and it always
-	 * clears the entry it parks via the `parked` guard's own bookkeeping)
+	 * timeout backstop clearing its own entry here (**corrected at code
+	 * review 2026-09-03: this parenthetical used to claim "there is no such
+	 * path today", on the grounds that `detectEntries()` below always clears
+	 * the entry it parks. It does not. The maps are PER DEVICE, and a ball
+	 * `bd_lock` ejected can be parked by `bd_trough` -- ordinary play, the
+	 * ejected ball drains and is served again -- which calls
+	 * `physics.removeBall()` with `bd_lock`'s own entry for that ball
+	 * untouched. So the stale entry is reachable today; only its
+	 * CONSEQUENCES, argued below, are unchanged.**)
 	 * would leave a stale entry keyed by a ball no `movements` array can
 	 * ever name again, since a removed ball is never advanced or re-passed
 	 * to `detectEntries()`. `PlayerPhysics` (`sim/physics/game/

@@ -312,7 +312,10 @@ catches a slightly-off shot against either leg's face.
 
 `pending-author`. The narrow gap between the Dragon's legs
 (`LOCK_LANE_CLEAR_MM = 40`), `s_lock_lane` confirming a clean pass-through,
-`bd_lock` (the Mouth) parking up to 3 balls above the legs and ejecting
+`bd_lock` (the Mouth) parking up to 3 balls BETWEEN the legs (corrected
+2026-09-03 at code review: "above the legs" described the pre-2.1d slot
+band at y 630-678; the slots now sit at y 564-612, inside the legs' own
+480-620 span) and ejecting
 through `c_mouth` aimed down-table at the flippers (AD-6). OQ-5 (the Lock
 lane carries both the lock and the mode start) is recorded in
 `docs/decisions.md`. **Story 2.1d (2026-09-03):** `bd_lock` now boots empty

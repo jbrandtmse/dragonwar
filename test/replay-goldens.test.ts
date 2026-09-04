@@ -11,7 +11,7 @@
 // the reference hash"): `stateHash()` hashes the whole `game` tree, which
 // includes `machine.deviceSlots` -- every golden below therefore freezes the
 // LOOP-WRITTEN value of `deviceSlots` (the live AD-7 violation tracked as
-// `DW-70`, `sim/loop/index.ts:326-329`) as part of its reference hash. If
+// `DW-70`, `sim/loop/index.ts:341-344`) as part of its reference hash. If
 // Story 2.5's fix is faithful the values will be identical and nothing
 // breaks; if a golden here ever breaks on `deviceSlots` alone, check DW-70
 // before assuming the physics changed. Each golden file's own `notes` field

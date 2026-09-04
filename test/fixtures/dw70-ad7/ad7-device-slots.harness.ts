@@ -17,7 +17,7 @@
 // uncaught violation of exactly that: `src/sim/rules/ball-controller.ts`'s
 // `applyDeviceEvents()` has two return paths and BOTH carry the SAME
 // `deviceSlots` reference through (it provably cannot change
-// `machine.deviceSlots`), while `src/sim/loop/index.ts:326-329` overwrites
+// `machine.deviceSlots`), while `src/sim/loop/index.ts:341-344` overwrites
 // `GameState.machine.deviceSlots` with the physics machine's OWN live view
 // every tick, OUTSIDE `rules.step`. This harness builds an AD-7-CONFORMING
 // reference state (seeded from the machine's initial `deviceSlots`, exactly
@@ -108,7 +108,7 @@ describe('DW-70 (AD-7 violation): GameState.machine.deviceSlots is written outsi
 		}
 
 		// PRODUCTION value: the physics machine's own live view -- what
-		// src/sim/loop/index.ts:326-329 actually overwrites onto GameState
+		// src/sim/loop/index.ts:341-344 actually overwrites onto GameState
 		// every tick, OUTSIDE rules.step. This is the live violation.
 		const productionDeviceSlots = machine.deviceSlots.bd_trough;
 		const referenceDeviceSlots = referenceState.machine.deviceSlots.bd_trough;
@@ -118,7 +118,7 @@ describe('DW-70 (AD-7 violation): GameState.machine.deviceSlots is written outsi
 			`DW-70 (AD-7 violation): GameState.machine.deviceSlots.bd_trough disagrees between the AD-7-conforming ` +
 			`reference (rules.step() alone -- src/sim/rules/ball-controller.ts's applyDeviceEvents() provably cannot ` +
 			`change deviceSlots, both of its return paths carry the SAME reference through) and the physics machine's ` +
-			`own live view that src/sim/loop/index.ts overwrites onto GameState AFTER rulesStep() returns (:326-329). ` +
+			`own live view that src/sim/loop/index.ts overwrites onto GameState AFTER rulesStep() returns (:341-344). ` +
 			`Reference (rules-only, AD-7-conforming): ${JSON.stringify(referenceDeviceSlots)}. ` +
 			`Production (loop-overwritten, the live violation): ${JSON.stringify(productionDeviceSlots)}. ` +
 			`This is the live, uncaught AD-7 violation tracked as DW-70 -- Story 2.5 owns the fix; this harness only ` +
