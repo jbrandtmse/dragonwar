@@ -293,6 +293,32 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		expect(stderr.toLowerCase()).toMatch(/rotated|sheared/);
 	});
 
+	it('DW-125/DW-68: a wall with a CONCAVE mesh footprint (an L-shape) exits non-zero naming the node, the kept/dropped vertex counts, DW-68 and AD-11 -- never a silent convex-hull fill', () => {
+		// Story 2.1d task 15. tools/export.py:434-440's own DW-68 rejection
+		// (inside wall_footprint_mm(), called from build_collision_nodes())
+		// fires when _convex_hull_2d() drops any distinct rounded plan-view
+		// vertex -- but had no end-to-end pin anywhere in this suite before
+		// this case (DW-125's own finding: the AD gate for Story 2.1b
+		// demonstrated the path firing once, by hand, but nothing regression-
+		// tests it). mutate_concave_wall_footprint() moves one corner of
+		// col_wall_top (the one plain untouched axis-aligned box -- see the
+		// angled-footprint mutation's own comment for why) to the rectangle's
+		// own centroid, a genuine reflex vertex: the resulting 4-point ring's
+		// true convex hull is the OTHER three corners' triangle, so the hull
+		// must drop exactly one vertex.
+		const mutated = mutateBlend('concave-wall-footprint');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status, `expected a non-zero exit (DW-68's own rejection); stderr: ${stderr}`).not.toBe(0);
+		expect(stderr).toContain('col_wall_top');
+		expect(stderr).toContain('DW-68');
+		expect(stderr).toContain('AD-11');
+		// The kept/dropped vertex counts export.py's own fail() message
+		// names: 4 distinct points in, 3 kept by the hull, 1 dropped.
+		expect(stderr).toMatch(/keeps 3 of its 4 distinct plan-view point/);
+		expect(stderr).toMatch(/\(1 vertex\/vertices dropped\)/);
+	});
+
 	it('Story 1.5: a wall with a genuinely angled mesh footprint exports a three-point footprintMm, not a four-corner bounding box', () => {
 		// wall_footprint_mm()'s reduction changed from the object's AXIS-ALIGNED
 		// bounding box to the convex hull of its own mesh vertices -- see

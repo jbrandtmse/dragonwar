@@ -174,8 +174,16 @@ export function stepLevel(tracked: LevelTracker, tick: number, raw: boolean): bo
 		tracked.pendingSince = tick;
 		tracked.pendingValue = raw;
 	}
+	// Story 2.1d (DW-67 residual): identical correction to switches.ts's own
+	// createSwitchTracker() step -- see that file's DW-67 comment block for
+	// the full derivation. `pendingSince` latches on the first tick read
+	// outside; requiring `elapsedTicks >= settleTicks` only becomes true on
+	// the `settleTicks + 1`-th outside tick. Corrected to `settleTicks - 1`
+	// so the break fires on the `settleTicks`-th consecutive outside tick,
+	// per AD-2's amended text. `settleTicks = 0` (both `tilt_bob` and `slam`
+	// today) is a fixed point of both formulations.
 	const elapsedTicks = tick - (tracked.pendingSince as number);
-	if (elapsedTicks >= tracked.settleTicks) {
+	if (elapsedTicks >= tracked.settleTicks - 1) {
 		tracked.reported = false;
 		tracked.pendingSince = null;
 		tracked.pendingValue = null;

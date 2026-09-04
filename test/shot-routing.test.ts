@@ -542,8 +542,10 @@ describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit
 			// this line. What this assertion genuinely pins is the analytic
 			// swept-segment zone (AD-11) against the ascending column -- real
 			// coverage, but of sw_spinner, not of the col_ node's placement.
-			// Story 2.1d renames that node vis_spinner_l; do not read this
-			// line as a guard on it.
+			// Story 2.1d renamed that node vis_spinner_l (re-authored as a
+			// presentation mesh, non-colliding, absent from the collision
+			// document) -- this line was never, and still is not, a guard on
+			// it.
 			expect(result.firstMakes, `s_spinner must close on the Left Loop's own ascending entry -- makes: ${result.firstMakes.join(',')}`).toContain('s_spinner');
 			expect(result.firstMakes, `s_inlane_r must close -- the Left Loop is an ORBIT and returns down the RIGHT lane, so it feeds the RIGHT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
 			assertNotStranded(result, 'Left Loop');
@@ -800,9 +802,22 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 		expect(immediate.firstMakes, `s_lock_lane must close -- makes: ${immediate.firstMakes.join(',')}`).toContain('s_lock_lane');
 		expect(immediate.firstMakes, 'a precise centreline shot must not also strike a leg face on its own way through').not.toContain('s_dragon_body');
 
+		// Story 2.1d task 18: before this story's device-behaviour fix,
+		// bd_lock booted full ([true,true,true]) so the ball this shot sends
+		// up the lane could never be parked -- device_overflow fired
+		// (invisible to GameState) and the ball continued to drain normally
+		// via bd_trough, which is why this case's own assertions used to be
+		// the weak "not stranded, not still in play" (equally true of a
+		// drain). Now that bd_lock boots empty and the eject/zone fixes are
+		// in, the SAME shot is genuinely captured -- assert the strictly
+		// stronger, previously-unreachable outcome: the switch sequence
+		// s_lock_lane then s_lock_1, and a 'locked' terminal classification
+		// (the branch classifyTerminal() has carried since Story 2.1c but
+		// this case could never reach).
 		const result = driveCase('lock-lane-long');
+		assertOrbitOrder(result, ['s_lock_lane', 's_lock_1']);
+		expect(result.terminal, `Lock lane: expected 'locked', got '${result.terminal}' -- makes: ${result.firstMakes.join(',')}`).toBe('locked');
 		assertNotStranded(result, 'Lock lane');
-		assertNotStillInPlay(result, 'Lock lane');
 	});
 });
 

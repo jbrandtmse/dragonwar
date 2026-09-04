@@ -191,22 +191,23 @@ describe('createSwitchTracker() -- non-zero settleTicks classes (DW-67: settleTi
 		]);
 		// Tick 2: a GENUINE full exit (both endpoints outside) -- raw becomes
 		// false, differing from reported (true): the break countdown begins
-		// (pendingSince = 2).
+		// (pendingSince = 2). This is the first of the three consecutive
+		// outside ticks AD-2's amended text requires before the break emits.
 		expect(tracker.step(2, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
-		// Tick 3: elapsed = 1 -- still short of 3.
+		// Tick 3: the second consecutive outside tick -- still one short of three.
 		expect(tracker.step(3, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
-		// Tick 4: elapsed = 2 -- still one short. The off-by-one guard: a `>`
-		// instead of `>=` bug would still pass at tick 5, but a window that
-		// fired ONE TICK EARLY would already have fired here.
-		expect(tracker.step(4, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
 		expect(tracker.currentState('s_start'), 'must still report closed until the break window completes').toBe(true);
-		// Tick 5: elapsed = 3 -- the window completes exactly here.
-		expect(tracker.step(5, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([
-			{ type: 'switch', switch: 's_start', closed: false, tick: 5 },
+		// Tick 4: the third consecutive outside tick -- AD-2's window completes
+		// exactly here (DW-67, retimed one tick earlier than the pre-fix
+		// off-by-one: it used to require a FOURTH outside tick, firing at
+		// tick 5). The off-by-one guard: firing one tick early (tick 3, above)
+		// or one tick late (tick 5) are both wrong; only tick 4 is correct.
+		expect(tracker.step(4, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([
+			{ type: 'switch', switch: 's_start', closed: false, tick: 4 },
 		]);
 		expect(tracker.currentState('s_start')).toBe(false);
-		// Tick 6: already reported open -- staying outside produces no further edges.
-		expect(tracker.step(6, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
+		// Tick 5: already reported open -- staying outside produces no further edges.
+		expect(tracker.step(5, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
 	});
 
 	it('a contact bounce on the break (raw flickers false-then-true inside the break window) cancels it outright: no edge pair, the switch stays reported closed', () => {
@@ -217,16 +218,22 @@ describe('createSwitchTracker() -- non-zero settleTicks classes (DW-67: settleTi
 		expect(tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }])).toEqual([
 			{ type: 'switch', switch: 's_start', closed: true, tick: 1 },
 		]);
-		// Tick 2: a genuine exit begins the break countdown (pendingSince = 2).
+		// Tick 2: a genuine exit begins the break countdown (pendingSince = 2) --
+		// the first of the three consecutive outside ticks AD-2 requires.
 		expect(tracker.step(2, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
-		// Tick 3: elapsed = 1 -- still short of 3.
+		// Tick 3: the second consecutive outside tick -- still one short.
 		expect(tracker.step(3, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
 		// Tick 4: raw bounces back to true (a contact bounce, the segment
 		// re-crosses back into the zone) -- raw === reported (still true, it
 		// never actually settled to false), so the pending break is CANCELLED
-		// outright, not merely paused. If it were only paused, a buggy
-		// implementation might resume counting from 1 once raw goes false
-		// again below, settling by tick 8 instead of the correct tick 9.
+		// outright, not merely paused. DW-67 retimed: this is now the EXACT
+		// tick the break would otherwise have fired on (the third consecutive
+		// outside tick), the strongest possible version of this case -- the
+		// bounce preempts the firing tick itself, not merely a tick short of
+		// it. If cancellation were only a pause, a buggy implementation might
+		// resume counting from the first window's elapsed = 1 (tick 3) once
+		// raw goes false again below, firing by tick 6 instead of the correct
+		// tick 7.
 		expect(
 			tracker.step(4, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]),
 			'the bounce itself must emit no edge at all -- the switch was never reported open',
@@ -235,15 +242,15 @@ describe('createSwitchTracker() -- non-zero settleTicks classes (DW-67: settleTi
 
 		// Tick 5: a genuine exit again -- this is a NEW break window (pendingSince = 5).
 		expect(tracker.step(5, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
-		// Ticks 6, 7: elapsed 1, 2 -- still short of the NEW window's 3 ticks.
-		// A "resumed counting" bug (resuming from the FIRST exit's elapsed = 1
-		// at tick 3, instead of starting a fresh window at tick 5) would fire
-		// by tick 6 instead of tick 8.
+		// Tick 6: the second consecutive outside tick of the NEW window -- still
+		// one short. A "resumed counting" bug (resuming from the FIRST
+		// window's elapsed = 1 at tick 3, instead of starting a fresh window
+		// at tick 5) would fire here instead of at the correct tick 7.
 		expect(tracker.step(6, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
-		expect(tracker.step(7, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([]);
-		// Tick 8: elapsed = 3 since the SECOND exit (tick 5) -- settles here.
-		expect(tracker.step(8, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([
-			{ type: 'switch', switch: 's_start', closed: false, tick: 8 },
+		// Tick 7: the third consecutive outside tick since the SECOND exit
+		// (tick 5) -- settles here.
+		expect(tracker.step(7, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }])).toEqual([
+			{ type: 'switch', switch: 's_start', closed: false, tick: 7 },
 		]);
 	});
 
@@ -273,16 +280,20 @@ describe('createSwitchTracker() -- non-zero settleTicks classes (DW-67: settleTi
 		// Tick 2: still inside (segment starts inside, still reads closed --
 		// no new edge, already reported true).
 		events.push(...tracker.step(2, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 3: a genuine exit -- the ball has left the zone entirely. The
-		// break countdown begins; it will not complete for 20 more ticks.
+		// Tick 3: a genuine exit -- the ball has left the zone entirely. This
+		// is the FIRST of the 20 consecutive outside ticks AD-2's amended text
+		// requires before the break emits (DW-67 retimed: the pre-fix
+		// off-by-one required a 21st confirming tick, firing at tick 23).
 		events.push(...tracker.step(3, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
-		for (let tick = 4; tick <= 23; tick++) {
+		// Ticks 4..22: the remaining 19 consecutive outside ticks (3..22 is 20
+		// ticks total) -- the break fires on the 20th, tick 22.
+		for (let tick = 4; tick <= 22; tick++) {
 			events.push(...tracker.step(tick, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
 		}
 
 		expect(events).toEqual([
 			{ type: 'switch', switch: 's_dragon_d', closed: true, tick: 1 },
-			{ type: 'switch', switch: 's_dragon_d', closed: false, tick: 23 },
+			{ type: 'switch', switch: 's_dragon_d', closed: false, tick: 22 },
 		]);
 	});
 });

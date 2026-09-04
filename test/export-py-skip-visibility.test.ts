@@ -6,8 +6,9 @@
 // blender-resolve.test.ts:117 -- the last is win32-only, so local skips 21
 // and CI skips 22)." Two gated groups exist:
 //   - test/export-py.test.ts's ONE `describe.skipIf(!blenderPath)` block,
-//     holding a FIXED, PINNED count of `it()` cases (22, as of Story 2.1a
-//     task 21's LF regression pin -- was 21 through Story 1.8/1.10) --
+//     holding a FIXED, PINNED count of `it()` cases (23, as of Story 2.1d
+//     task 15's DW-125 concave-footprint rejection pin -- was 22 through
+//     Story 2.1a's own LF regression pin, and 21 through Story 1.8/1.10) --
 //     skipped entirely when Blender is not resolvable on this machine.
 //   - test/blender-resolve.test.ts's `it.skipIf(process.platform !==
 //     'win32')` cases (THREE as of Story 2.1b task 20's DW-46 fix -- was
@@ -62,18 +63,21 @@ function extractDescribeBlock(source: string, openingLineText: string): string {
 }
 
 describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count is pinned and proven, never silent', () => {
-	it('structural pin: test/export-py.test.ts\'s ONE Blender-gated describe.skipIf block holds EXACTLY 22 it() cases', () => {
+	it('structural pin: test/export-py.test.ts\'s ONE Blender-gated describe.skipIf block holds EXACTLY 23 it() cases', () => {
 		const source = readFileSync(path.join(REPO_ROOT, 'test', 'export-py.test.ts'), 'utf8');
 		const block = extractDescribeBlock(source, "describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated");
-		// `it(` only -- this block's own 22 cases are all plain `it(`, never
+		// `it(` only -- this block's own 23 cases are all plain `it(`, never
 		// `it.skipIf(`; matching on the more specific token avoids double
 		// counting or catching an unrelated `it(` inside a nested string.
 		// Story 2.1a (task 21, iteration 2) added the 22nd case: a
 		// platform-independent regression pin for tools/export.py's
 		// newline='\n' fix (the collision-document writer no longer depends
-		// on the host's text-mode line-ending translation).
+		// on the host's text-mode line-ending translation). Story 2.1d
+		// (task 15, DW-125) added the 23rd: an end-to-end pin for the
+		// DW-68 concave-footprint rejection, which previously had no
+		// regression test anywhere in this suite.
 		const count = countOccurrences(block, /\n\tit\(/g);
-		expect(count, 'the Blender-gated block\'s own it() count changed -- update this pin (and the "22"/"23" figures in this file\'s and the Code Map\'s own prose) deliberately, not silently').toBe(22);
+		expect(count, 'the Blender-gated block\'s own it() count changed -- update this pin (and the "22"/"23" figures in this file\'s and the Code Map\'s own prose) deliberately, not silently').toBe(23);
 	});
 
 	it('structural pin: test/blender-resolve.test.ts holds EXACTLY THREE win32-only it.skipIf cases', () => {
@@ -125,16 +129,17 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 		}
 		const isWin32 = process.platform === 'win32';
 		// Story 2.1a (task 21, iteration 2): the Blender-gated block grew from
-		// 21 to 22 cases (the new LF regression pin above), so this term moves
-		// from 21 to 22 deliberately, matching the structural pin above.
-		// Story 2.1b task 20 (DW-46): the win32-only term grew from 1 to 3,
-		// matching the structural pin above.
-		const expectedSkips = (blenderResolvable ? 0 : 22) + (isWin32 ? 0 : 3) + (pythonAvailable ? 0 : 4);
+		// 21 to 22 cases (the LF regression pin), so this term moved from 21
+		// to 22 deliberately. Story 2.1d (task 15, DW-125): grew again, 22 to
+		// 23 (the new concave-footprint rejection pin), matching the
+		// structural pin above. Story 2.1b task 20 (DW-46): the win32-only
+		// term grew from 1 to 3, matching the structural pin above.
+		const expectedSkips = (blenderResolvable ? 0 : 23) + (isWin32 ? 0 : 3) + (pythonAvailable ? 0 : 4);
 
 		// eslint-disable-next-line no-console
 		console.log(
 			`[export-py-skip-visibility] this run: platform=${process.platform} blenderResolvable=${blenderResolvable} pythonAvailable=${pythonAvailable} -- expected skip count = ${expectedSkips} ` +
-			`(${blenderResolvable ? 0 : 22} Blender-gated + ${isWin32 ? 0 : 3} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
+			`(${blenderResolvable ? 0 : 23} Blender-gated + ${isWin32 ? 0 : 3} win32-only + ${pythonAvailable ? 0 : 4} python-gated hull)`,
 		);
 
 		// `DW-107` (Story 1.10 follow-up): the skip count is read from vitest's

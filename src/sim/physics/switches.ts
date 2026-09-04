@@ -135,6 +135,20 @@ export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolved
 				// inside the break window) still cancels it via the reported-value
 				// branch above, restarting the window rather than emitting a
 				// premature break.
+				//
+				// Story 2.1d (DW-67 residual, AD-2 amended text re-quoted above):
+				// the break-side COUNTING itself still carried a one-tick residual
+				// of this same historical off-by-one. `pendingSince` latches on the
+				// FIRST tick read outside; the guard below used to require
+				// `elapsedTicks >= settleTicks`, which only becomes true on the
+				// `settleTicks + 1`-th outside tick (pendingSince's own tick counts
+				// as the first). Corrected to `elapsedTicks >= settleTicks - 1`, so
+				// the break fires on the `settleTicks`-th CONSECUTIVE outside tick --
+				// AD-2's amended text exactly ("the number of ticks the zone test
+				// must read outside before closed: false is emitted"). `settleTicks
+				// = 0` is a fixed point of both formulations (`-1 >= -1` is as true
+				// as `0 >= 0`), which is why no switch could ever expose this until
+				// Story 2.1b gave the table its first non-zero settle classes.
 				if (raw) {
 					tracked.reported = true;
 					tracked.pendingSince = null;
@@ -149,7 +163,7 @@ export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolved
 				}
 
 				const elapsedTicks = tick - (tracked.pendingSince as number);
-				if (elapsedTicks >= tracked.settleTicks) {
+				if (elapsedTicks >= tracked.settleTicks - 1) {
 					tracked.reported = false;
 					tracked.pendingSince = null;
 					tracked.pendingValue = null;

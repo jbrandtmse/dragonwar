@@ -150,6 +150,28 @@ function ballRadiusVu(): number {
 }
 
 /**
+ * Story 2.1d Phase 5 (review finding): a conservative tick-based backstop on
+ * the per-ball ejection exemption (`justEjected`, below). `buildClearBeyond()`'s
+ * one-directional threshold is the ONLY thing that normally lifts the
+ * exemption, and it only fires once a ball's tick-start position has
+ * genuinely crossed past the device's own slot-zone union along the eject
+ * axis. Nothing bounds how long a real ejected ball may take to complete
+ * that crossing -- a deflection, a stall, or a reversal before it ever
+ * crosses leaves the ball exempt from being re-parked by that device for
+ * the rest of the game, an AD-6 "physics parks an entering ball
+ * unconditionally into the lowest empty slot" violation for that one ball,
+ * permanently. This constant is the backstop: `detectEntries()` clears the
+ * exemption once a ball has sat in it for longer than this many ticks,
+ * regardless of `clearBeyond()`. Sized against this story's own measured
+ * normal-case clear time (the Spec Change Log's end-to-end trace: eject at
+ * tick 344, clear/re-capture-eligible by tick 479 -- a ~135-tick normal
+ * clear) -- 600 ticks is a generous multiple of that, large enough to never
+ * fire in the normal case, small enough to guarantee AD-6's "unconditional"
+ * parking eventually resumes for a genuinely stuck ball.
+ */
+export const EJECT_EXEMPTION_TIMEOUT_TICKS = 600;
+
+/**
  * Builds the AD-6 device mechanics. Asserts each PARKING device's initial
  * closed-slot count (`TABLE.ballDevices[*].slots.length`, since every slot
  * starts closed -- "4 balls, asserted at boot") equals its `capacity`,
@@ -170,8 +192,58 @@ export function createDeviceMechanics(options: {
 		eject.set(device.name, { ...device.ejectPose.posMm, dir: device.ejectPose.dir });
 	}
 
+	/**
+	 * Story 2.1d (AD-6, "one ball per pulse"): per PARKING device, the balls
+	 * THAT DEVICE most recently ejected and has not yet travelled PAST its
+	 * own slot-zone union (see `buildClearBeyond()`, below, for what "past"
+	 * means and why it is not simply "the swept segment currently misses
+	 * every zone"), each mapped to the tick it was ejected on (Phase 5
+	 * review finding: `EJECT_EXEMPTION_TIMEOUT_TICKS`, above, is the
+	 * backstop that reads this). `detectEntries()` below never parks a ball
+	 * while it is a key of its own ejecting device's map here -- scoped
+	 * narrowly to "the ball this device just ejected, while it is still
+	 * leaving" (the Block If's own wording), never a blanket park
+	 * suppression: any OTHER ball, and this same ball once it is confirmed
+	 * clear (or once it enters a DIFFERENT device's zone, or once the
+	 * timeout backstop above fires), is still parked unconditionally,
+	 * exactly as AD-6 requires. Diagnosed cause (this story's Intent):
+	 * `bd_lock`'s own authored eject pose sits inside `sw_lock_2`'s zone as
+	 * originally authored, so the ejected ball is captured on the very tick
+	 * it spawns without this guard.
+	 *
+	 * Phase 5 review finding, the adjacent lower-severity leak: a `Ball`
+	 * removed from `physics` by any path OTHER than `clearBeyond()`/the
+	 * timeout backstop clearing its own entry here (there is no such path
+	 * today -- `detectEntries()` below is the only caller of
+	 * `PlayerPhysics.removeBall()` reachable from this file, and it always
+	 * clears the entry it parks via the `parked` guard's own bookkeeping)
+	 * would leave a stale entry keyed by a ball no `movements` array can
+	 * ever name again, since a removed ball is never advanced or re-passed
+	 * to `detectEntries()`. `PlayerPhysics` (`sim/physics/game/
+	 * player-physics.ts`) exposes no removal hook/callback reachable from
+	 * here to prune against, only the throwing `removeBall()` itself, so
+	 * this is deliberately left rather than instrumented: harmless (the
+	 * entry can never again suppress a real park, since its ball can never
+	 * again appear in `movements`) but technically unbounded per-entry
+	 * memory, bounded in practice by how many balls a game ever ejects.
+	 */
+	const justEjected = new Map<BallDeviceName, Map<Ball, number>>();
+	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, BallDevice]>) {
+		if (device.kind === 'parking') {
+			justEjected.set(name, new Map<Ball, number>());
+		}
+	}
+
 	const parkingSlots: Partial<Record<BallDeviceName, boolean[]>> = {};
 	const slotZonesByDevice = new Map<BallDeviceName, LoadedSwitchZone[]>();
+	// Story 2.1d (AD-6): "the machine carries 4 balls, asserted at boot" --
+	// checked BY NAME below, across every parking device's declared boot
+	// occupancy, rather than assumed from a comment. Accumulated in the same
+	// loop that derives each device's own boot slots, since that is the one
+	// place both `startsFullAtBoot` and `capacity` are already in scope
+	// together.
+	let totalBootFull = 0;
+	const bootFullByDevice: Partial<Record<BallDeviceName, number>> = {};
 	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, BallDevice]>) {
 		if (device.kind !== 'parking') {
 			continue;
@@ -182,11 +254,89 @@ export function createDeviceMechanics(options: {
 				`${device.capacity} -- these must match (AD-6: "4 balls, asserted at boot").`,
 			);
 		}
-		parkingSlots[name] = new Array<boolean>(device.slots.length).fill(true);
+		// Story 2.1d (AD-6): boot occupancy is a DECLARED property of the
+		// device (dragonwar.ts's `startsFullAtBoot`), not the unconditional
+		// `fill(true)` this line used to carry -- that booted every parking
+		// device full regardless of what it actually holds at rest, which is
+		// how `bd_lock` (staged empty at boot) used to boot SEVEN balls
+		// against AD-6's "the machine carries 4 balls, asserted at boot".
+		const bootSlots = new Array<boolean>(device.slots.length).fill(device.startsFullAtBoot);
+		// Construction-time consistency check, distinct from the
+		// slots/capacity throw above: the boot occupancy this device declares
+		// must resolve to either fully-empty (0 filled slots) or fully-full
+		// (exactly `capacity` filled slots) -- there is no partial boot
+		// occupancy in this registry's vocabulary. `fill()` above can never
+		// actually violate this by construction, but a later refactor of how
+		// boot occupancy is derived (a per-slot array, say) could silently
+		// drift from `capacity` without this guard.
+		const bootFullCount = bootSlots.filter(Boolean).length;
+		const expectedBootFullCount = device.startsFullAtBoot ? device.capacity : 0;
+		if (bootFullCount !== expectedBootFullCount) {
+			throw new Error(
+				`createDeviceMechanics(): device "${name}" declares startsFullAtBoot=${String(device.startsFullAtBoot)} but its derived boot ` +
+				`occupancy fills ${bootFullCount} of ${device.capacity} slot(s), expected ${expectedBootFullCount} -- boot occupancy must be ` +
+				`either fully empty or fully full, consistent with the device's own capacity.`,
+			);
+		}
+		parkingSlots[name] = bootSlots;
+		totalBootFull += bootFullCount;
+		bootFullByDevice[name] = bootFullCount;
 		slotZonesByDevice.set(
 			name,
 			switchZones.filter((zone) => (device.slots as readonly string[]).includes(zone.switch)),
 		);
+	}
+	if (totalBootFull !== 4) {
+		const perDevice = (Object.entries(bootFullByDevice) as Array<[BallDeviceName, number]>)
+			.map(([deviceName, count]) => `${deviceName}=${count}`)
+			.join(', ');
+		throw new Error(
+			`createDeviceMechanics(): AD-6 requires exactly 4 balls in the machine at boot, but the parking devices' declared boot ` +
+			`occupancy sums to ${totalBootFull} (${perDevice}).`,
+		);
+	}
+
+	/**
+	 * Story 2.1d (AD-6, "one ball per pulse"): per PARKING device, whether a
+	 * position is genuinely CLEAR of that device's own slot-zone union, in
+	 * the direction the device ejects. Not "the swept segment does not
+	 * currently intersect a zone" -- a device's zones can sit apart from its
+	 * own eject pose (`bd_lock`'s three slots now sit well below the Mouth's
+	 * pose, Story 2.1d task 8's re-siting), so the ejected ball reads
+	 * "outside every zone" for many ticks of open-field travel BEFORE it
+	 * ever reaches the zone band it must still cross -- clearing the
+	 * exemption on that first false reading would un-exempt the ball well
+	 * before it has actually passed the slots, re-arming exactly the capture
+	 * this mechanism exists to prevent. Instead: projects onto the eject
+	 * direction's DOMINANT axis and compares against the union of every
+	 * zone's own boundary on the far side, in the direction of travel -- a
+	 * ONE-DIRECTIONAL threshold a ball can only cross once, immune to the
+	 * gaps this file's own switch-zone block leaves between adjacent slots.
+	 */
+	function buildClearBeyond(dir: Vec3, zones: readonly LoadedSwitchZone[]): ((posMm: Vec3) => boolean) | undefined {
+		if (zones.length === 0) {
+			return undefined;
+		}
+		const axis: 'x' | 'y' | 'z' = Math.abs(dir.x) >= Math.abs(dir.y) && Math.abs(dir.x) >= Math.abs(dir.z)
+			? 'x'
+			: Math.abs(dir.z) >= Math.abs(dir.y)
+				? 'z'
+				: 'y';
+		const travelsNegative = dir[axis] < 0;
+		let boundary = travelsNegative ? Infinity : -Infinity;
+		for (const zone of zones) {
+			boundary = travelsNegative ? Math.min(boundary, zone.minMm[axis]) : Math.max(boundary, zone.maxMm[axis]);
+		}
+		return (posMm) => (travelsNegative ? posMm[axis] < boundary : posMm[axis] > boundary);
+	}
+
+	const clearBeyondByDevice = new Map<BallDeviceName, (posMm: Vec3) => boolean>();
+	for (const [name, zones] of slotZonesByDevice) {
+		const pose = eject.get(name);
+		const clearBeyond = pose ? buildClearBeyond(pose.dir, zones) : undefined;
+		if (clearBeyond) {
+			clearBeyondByDevice.set(name, clearBeyond);
+		}
 	}
 
 	function spawnBall(posMm: Vec3, velocity: Vertex3D): Ball {
@@ -229,8 +379,24 @@ export function createDeviceMechanics(options: {
 					slots[highestFilled] = false;
 					const slotSwitch = device.slots[highestFilled] as SwitchName;
 					switchEvents.push({ type: 'switch', switch: slotSwitch, closed: false, tick });
-					const velocity = tableSpeedToPhysicsVelocity(pose.dir, tuning.troughEjectSpeedMmPerS.value);
+					// Story 2.1d (task 6, AD-15): a device's own declared
+					// `ejectSpeedMmPerS` overrides the shared trough speed --
+					// dragonwar.ts's own doc comment on bd_lock's entry has the
+					// measurement. Structural (every parking device carries the
+					// key, `null` where there is no override -- never
+					// `undefined`, which `tableHash()`'s own `canonicalize()`
+					// rejects anywhere in `TABLE`), never a device-name literal.
+					const speedMmPerS = device.ejectSpeedMmPerS?.value ?? tuning.troughEjectSpeedMmPerS.value;
+					const velocity = tableSpeedToPhysicsVelocity(pose.dir, speedMmPerS);
 					const ball = spawnBall(pose, velocity);
+					// AD-6, "one ball per pulse": this device must not immediately
+					// re-park the ball it just ejected (see justEjected's own doc
+					// comment above) -- registered before this tick's detectEntries()
+					// runs, so the very first tick (the spawn tick itself, whose
+					// swept segment starts AT the eject pose) is covered too. Recorded
+					// against THIS tick so the timeout backstop above has a start
+					// point to measure from.
+					justEjected.get(name)?.set(ball, tick);
 					// DW-63: pos is a plain {x,y,z}, never `pose` itself -- `pose`'s
 					// own type is `Vec3 & { dir: Vec3 }`, so pushing it directly would
 					// structurally carry an extra `dir` property `ContactEventLike.pos`
@@ -304,10 +470,41 @@ export function createDeviceMechanics(options: {
 		for (const [name, zones] of slotZonesByDevice) {
 			const slots = parkingSlots[name]!;
 			const slotSwitchNames = (TABLE.ballDevices[name] as { slots: readonly string[] }).slots as readonly SwitchName[];
+			const ejectedFromThisDevice = justEjected.get(name);
+			const clearBeyond = clearBeyondByDevice.get(name);
 
 			for (const movement of movements) {
 				if (parked.has(movement.ball)) {
 					continue;
+				}
+				if (ejectedFromThisDevice?.has(movement.ball)) {
+					// Checked against `beforeMm` -- this tick's STARTING position --
+					// not `afterMm`: if the ball had ALREADY travelled past every
+					// zone by the time this tick began, the exemption is understood
+					// to have lifted before this tick's own crossing, so that
+					// crossing (a genuine, later re-entry -- e.g. the ball drains
+					// back around into this same device through ordinary play) is
+					// evaluated as an ORDINARY entry below, in the SAME tick, rather
+					// than deferred to a tick that may never come. AD-6, "one ball
+					// per pulse": the ball this device ejected stops needing
+					// protection once it has genuinely left; a real re-approach from
+					// the far side is not that ball "still leaving".
+					const ejectedAtTick = ejectedFromThisDevice.get(movement.ball)!;
+					// Phase 5 review finding: the timeout backstop. A ball that has
+					// never satisfied clearBeyond() (deflected, stalled, reversed --
+					// see EJECT_EXEMPTION_TIMEOUT_TICKS's own doc comment) would
+					// otherwise stay exempt from this device forever; once it has sat
+					// in the exemption longer than the backstop allows, the exemption
+					// is lifted unconditionally, exactly as if it had cleared, so
+					// AD-6's "unconditional" parking resumes for it.
+					if (clearBeyond?.(movement.beforeMm) || tick - ejectedAtTick > EJECT_EXEMPTION_TIMEOUT_TICKS) {
+						ejectedFromThisDevice.delete(movement.ball);
+					} else {
+						// Still short of both the clearBeyond threshold and the timeout
+						// backstop as of this tick's own start -- never re-park the
+						// ball THIS device just ejected while it is still leaving.
+						continue;
+					}
 				}
 				const entered = zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
 				if (!entered) {

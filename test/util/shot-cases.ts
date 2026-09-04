@@ -197,7 +197,14 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 9000,
 		switchesUnderTest: [],
-		reachability: { kind: 'reachable', witness: 'plunge-medium-285' },
+		// Story 2.1d task 8: witness moved plunge-medium-285 -> plunge-medium-295
+		// -- measured against the real physics pipeline after this story's
+		// own geometry changes, the 285-tick tap now passes 21.430 mm clear
+		// (over tolerance); the out-of-process dense sweep (pnpm
+		// check:reachability) found the 295-tick tap recovers it at
+		// 11.463 mm (recipe #11) -- within the 13.495 mm tolerance. Still
+		// reachable throughout this story; only the witness changed.
+		reachability: { kind: 'reachable', witness: 'plunge-medium-295' },
 	},
 	{
 		id: 'loop-off-column-right-east-45',
@@ -231,11 +238,15 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 9000,
 		switchesUnderTest: ['s_ramp_enter', 's_ramp_made', 's_inlane_r'],
+		// Story 2.1d task 8: closestApproachMm re-measured (44.979 -> 58.646,
+		// best witness now plunge-then-bat-l-4110) against the real physics
+		// pipeline after this story's own geometry changes -- still
+		// unreachable; Story 2.1f still owns the fix.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-137',
-			closestApproachMm: 44.979,
-			note: 'the Ramp channel is unreachable by any shot from below (a 50.990 mm shortfall per the DW-137 corridor harness); this story\'s own in-suite witness search corroborates it at 44.979 mm (a bat-flip witness that reaches deeper into the corridor than a straight-line sweep, but still short), confirmed by the dense out-of-process sweep (task 7) -- Story 2.1f owns the fix.',
+			closestApproachMm: 58.646,
+			note: 'the Ramp channel is unreachable by any shot from below (a 50.990 mm shortfall per the DW-137 corridor harness); this story\'s own in-suite witness search corroborates it, confirmed by the dense out-of-process sweep (task 7) -- Story 2.1f owns the fix.',
 		},
 	},
 
@@ -260,7 +271,12 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 5000,
 		switchesUnderTest: ['s_dragon_body'],
-		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3911' },
+		// Story 2.1d task 8: witness moved 3911 -> 3918 -- measured against
+		// the real physics pipeline after the Lock lane swallow fix, 3911's
+		// own trajectory now passes 33.761 mm clear (over tolerance,
+		// deflected earlier by the same fix); 3918's own trajectory still
+		// closes within 7.883 mm.
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3918' },
 	},
 
 	// -- Lock lane, two drives at the same coordinates (test/shot-routing.test.ts:805-832) --
@@ -331,10 +347,13 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: ['s_top_2'],
+		// Story 2.1d task 8: closestApproachMm re-measured (66.56 -> 130.135)
+		// against the real physics pipeline after this story's own geometry
+		// changes -- still unreachable, same witness family, further off.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 66.56,
+			closestApproachMm: 130.135,
 			note: 'same finding as top-lane-1 -- see DW-138.',
 		},
 	},
@@ -385,11 +404,16 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: ['s_pop_1'],
+		// Story 2.1d task 8: closestApproachMm re-measured (32.98 -> 77.655)
+		// against the real physics pipeline after this story's own geometry
+		// changes -- still unreachable. The note's own "pops 2 and 3 ARE
+		// reached" clause is now stale too (both are unreachable as of this
+		// story -- see their own entries' notes); corrected below.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 32.98,
-			note: 'no witness the in-suite search could construct reaches close enough to pop 1 specifically -- see DW-138 (pops 2 and 3 ARE reached by the same witness family).',
+			closestApproachMm: 77.655,
+			note: 'no witness the in-suite search could construct reaches close enough to pop 1 specifically -- see DW-138.',
 		},
 	},
 	{
@@ -400,7 +424,19 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: ['s_pop_2'],
-		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3945' },
+		// Story 2.1d task 8: RE-DECLARED unreachable -- measured against the
+		// real physics pipeline after this story's own Lock lane swallow
+		// fix, witness plunge-then-bat-l-3945's own trajectory (the closest
+		// of all ten) is now captured by the Lock (s_lock_lane then
+		// s_lock_1, see that witness's own updated note in reachability.ts)
+		// well before it would have reached the pop-bumper cluster --
+		// 140.987 mm clear, over tolerance.
+		reachability: {
+			kind: 'unreachable',
+			ledger: 'DW-138',
+			closestApproachMm: 140.987,
+			note: 'was reachable via plunge-then-bat-l-3945 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the pop-bumper cluster -- see DW-138.',
+		},
 	},
 	{
 		id: 'pop-bumper-3',
@@ -410,24 +446,41 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: ['s_pop_3'],
-		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3945' },
+		// Story 2.1d task 8: RE-DECLARED unreachable -- same finding as
+		// pop-bumper-2's own note (plunge-then-bat-l-3945 is now captured
+		// by the Lock); the best remaining witness (plunge-full) passes
+		// 127.546 mm clear, over tolerance.
+		reachability: {
+			kind: 'unreachable',
+			ledger: 'DW-138',
+			closestApproachMm: 127.546,
+			note: 'was reachable via plunge-then-bat-l-3945 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the pop-bumper cluster -- see DW-138.',
+		},
 	},
 
 	// -- Descending release sweep, twelve columns (test/shot-routing.test.ts:949-1005) --
 	{
+		// Story 2.1d task 13: two new termination posts landed close by
+		// (col_post_sling_l_north at (114, 445) and col_post_dragon_leg_l_
+		// south at (120, 480), both DW-77-adjacent to the original (115,
+		// 465)). Moved to (130, 460) -- still directly above col_sling_l's
+		// own footprint (x 98..130), clear of every col_ footprint by
+		// 17.930 mm, re-verified against the real committed document.
 		id: 'descend-sling-l',
 		label: 'Descending release onto the left slingshot (col_sling_l)',
-		startMm: { x: 115, y: 465, z: 13.5 },
+		startMm: { x: 130, y: 460, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
-		reachability: {
-			kind: 'unreachable',
-			ledger: 'DW-138',
-			closestApproachMm: 51.86,
-			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
-		},
+		// Story 2.1d task 8: RE-DECLARED reachable -- measured against the
+		// real physics pipeline after this story's own geometry changes,
+		// witness plunge-then-bat-l-3911's own trajectory now passes within
+		// 0.125 mm of this drop point (col_post_sling_l_north, the north
+		// termination post task 13 added, sits almost exactly on that
+		// witness's own path). A genuinely-fixed case must be re-declared
+		// reachable, not left marked unreachable (this file's own AC 2).
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3911' },
 	},
 	{
 		id: 'descend-sling-r',
@@ -437,14 +490,23 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		// Story 2.1d task 8: closestApproachMm re-measured (39.98 -> 58.486)
+		// against the real physics pipeline after this story's own geometry
+		// changes -- still unreachable.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 39.98,
-			note: 'same finding class as descend-sling-l -- see DW-138.',
+			closestApproachMm: 58.486,
+			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
 	{
+		// Story 2.1d task 8: col_dragon_leg_l is UNMOVED (the Lock-lane
+		// swallow fix re-sites the three slot zones into the corridor the
+		// legs already bound, rather than extending the legs themselves --
+		// see tools/make-placeholder-blend.py's own [REWORK] note beside
+		// DRAGON_LEG_Y1_MM). startMm therefore stays exactly as 2.1b
+		// authored it.
 		id: 'descend-dragon-leg-l',
 		label: 'Descending release onto the left Dragon leg (col_dragon_leg_l)',
 		startMm: { x: 120, y: 660, z: 13.5 },
@@ -452,14 +514,19 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		// Story 2.1d task 8: closestApproachMm re-measured (32.71 -> 67.712)
+		// against the real physics pipeline after this story's own geometry
+		// changes -- still unreachable.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 32.71,
-			note: 'same finding class as descend-sling-l -- see DW-138.',
+			closestApproachMm: 67.712,
+			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
 	{
+		// Story 2.1d task 8: col_dragon_leg_r is UNMOVED too (see
+		// descend-dragon-leg-l's own note) -- startMm stays as authored.
 		id: 'descend-dragon-leg-r',
 		label: 'Descending release onto the right Dragon leg (col_dragon_leg_r)',
 		startMm: { x: 220, y: 660, z: 13.5 },
@@ -467,11 +534,16 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		// Story 2.1d task 8: closestApproachMm re-measured (15.53 -> 111.542,
+		// best witness now plunge-then-bat-l-3945) against the real physics
+		// pipeline after this story's own geometry changes -- the old
+		// "just short" framing no longer applies (this point is now well
+		// clear); still unreachable.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 15.53,
-			note: 'measured 15.53 mm against the 13.495 mm tolerance -- just short; no witness parameter tried closes the remaining margin -- see DW-138.',
+			closestApproachMm: 111.542,
+			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
 	{
@@ -482,10 +554,13 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		// Story 2.1d task 8: closestApproachMm re-measured (68.45 -> 87.896)
+		// against the real physics pipeline after this story's own geometry
+		// changes -- still unreachable.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 68.45,
+			closestApproachMm: 87.896,
 			note: 'sits inside the DW-137 bottom-right corridor band as well as being unreached by any witness -- see DW-138.',
 		},
 	},
@@ -497,10 +572,13 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		// Story 2.1d task 8: closestApproachMm re-measured (46.901 -> 47.930)
+		// against the real physics pipeline after this story's own geometry
+		// changes -- still unreachable, essentially unchanged.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 46.901,
+			closestApproachMm: 47.930,
 			note: 'sits inside the Ramp channel band DW-137 already documents as unreachable from below -- see DW-138.',
 		},
 	},
@@ -542,11 +620,16 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		// Story 2.1d task 8: closestApproachMm re-measured (25.84 -> 183.653)
+		// against the real physics pipeline after this story's own Lock
+		// lane swallow fix -- still unreachable. The note's own "descend-
+		// dragon-n IS reached" clause is now stale too (also unreachable as
+		// of this story -- see its own entry's note); corrected below.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 25.84,
-			note: 'no witness the in-suite search could construct reaches this drop point (descend-dragon-n, the mirrored rightmost target, IS reached by the same witness family) -- see DW-138.',
+			closestApproachMm: 183.653,
+			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
 	{
@@ -557,7 +640,18 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
-		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3944-35' },
+		// Story 2.1d task 8: RE-DECLARED unreachable -- measured against the
+		// real physics pipeline after this story's own Lock lane swallow
+		// fix, witness plunge-then-bat-l-3944-35 is now captured by the
+		// Lock (see that witness's own updated note in reachability.ts)
+		// well before it would have reached the DRAGON bank; the best
+		// remaining witness (plunge-medium-285) passes 114.250 mm clear.
+		reachability: {
+			kind: 'unreachable',
+			ledger: 'DW-138',
+			closestApproachMm: 114.250,
+			note: 'was reachable via plunge-then-bat-l-3944-35 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the DRAGON bank -- see DW-138.',
+		},
 	},
 	{
 		id: 'descend-loop-top-west',

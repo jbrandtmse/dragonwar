@@ -160,6 +160,11 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 	const nextBallId = (): number => ballIdCounter++;
 
 	const switchTracker = createSwitchTracker(loaded.switchZones, tuning);
+	// Story 2.1d (AD-6): this construction call is where "the machine carries
+	// 4 balls, asserted at boot" is actually asserted -- createDeviceMechanics()
+	// sums every parking device's declared `startsFullAtBoot` occupancy
+	// (dragonwar.ts) and throws by name if the total is not 4. A reader
+	// tracing why createMachine() failed to boot lands here.
 	const deviceMechanics = createDeviceMechanics({
 		physics,
 		devices: loaded.devices,

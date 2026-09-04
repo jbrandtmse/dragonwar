@@ -17,7 +17,7 @@
 #
 # Usage: blender --background --factory-startup assets/src/dragonwar.blend \
 #   --python test/fixtures/export-py/mutate-blend.py -- \
-#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|angled-wall-footprint|degenerate-wall|col-node-not-a-mesh>
+#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|angled-wall-footprint|concave-wall-footprint|degenerate-wall|col-node-not-a-mesh>
 
 import argparse
 import math
@@ -177,6 +177,44 @@ def mutate_col_node_not_a_mesh():
 	bpy.context.scene.collection.objects.link(empty)
 
 
+def mutate_concave_wall_footprint():
+	# Story 2.1d task 15 (DW-125): an L-shaped (concave) plan-view footprint
+	# -- export.py's own DW-68 rejection (tools/export.py:434-440, inside
+	# wall_footprint_mm()) has no end-to-end pin; this mutation demonstrates
+	# it fires. Same position-matching technique as
+	# mutate_angled_wall_footprint() above (index-independent: matches
+	# vertices by POSITION, not bmesh vertex-creation order), targeting the
+	# SAME node (col_wall_top, the one plain untouched axis-aligned box --
+	# col_wall_bottom_l is no longer rectangular, DW-119) for the identical
+	# reason that comment states.
+	#
+	# Unlike the angled-footprint mutation (which COLLAPSES one corner onto
+	# an EXISTING vertex, dropping a rectangle to a triangle), a concave
+	# footprint needs a REFLEX vertex -- moving one corner to a NEW point
+	# strictly inside the rectangle's own interior, past the diagonal formed
+	# by its two non-adjacent neighbours. Every vertex at (x_max, y_max) (at
+	# both z_low and z_high) moves to the rectangle's own centroid: with the
+	# other three corners at (x_min, y_min), (x_max, y_min) and
+	# (x_min, y_max), the centroid sits strictly inside the triangle those
+	# three form, so the resulting 4-point ring -- convex_hull_2d's own
+	# candidate before it drops the reflex vertex -- is a genuine dart/arrow
+	# shape (a concave quadrilateral) whose true convex hull is that
+	# triangle: a single vertex (the moved one) must be dropped, exactly the
+	# "any distinct rounded plan-view vertex" case DW-68's own fail()
+	# guards.
+	obj = bpy.data.objects['col_wall_top']
+	mesh = obj.data
+	xs = sorted({round(v.co.x, 6) for v in mesh.vertices})
+	ys = sorted({round(v.co.y, 6) for v in mesh.vertices})
+	x_min, x_max, y_min, y_max = xs[0], xs[-1], ys[0], ys[-1]
+	centroid_x, centroid_y = (x_min + x_max) / 2.0, (y_min + y_max) / 2.0
+	for v in mesh.vertices:
+		if abs(v.co.x - x_max) < 1e-6 and abs(v.co.y - y_max) < 1e-6:
+			v.co.x = centroid_x
+			v.co.y = centroid_y
+	mesh.update()
+
+
 MUTATIONS = {
 	'bad-name': mutate_bad_name,
 	'two-materials': mutate_two_materials,
@@ -191,6 +229,7 @@ MUTATIONS = {
 	'no-material': mutate_no_material,
 	'rotated-wall': mutate_rotated_wall,
 	'angled-wall-footprint': mutate_angled_wall_footprint,
+	'concave-wall-footprint': mutate_concave_wall_footprint,
 	'degenerate-wall': mutate_degenerate_wall,
 	'col-node-not-a-mesh': mutate_col_node_not_a_mesh,
 }

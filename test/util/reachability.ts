@@ -115,6 +115,22 @@ const WITNESSES: readonly WitnessRecipe[] = [
 		expectedSwitch: 's_loop_r_in',
 	},
 	{
+		// Story 2.1d task 8: added -- the out-of-process dense sweep
+		// (pnpm check:reachability) found recipe #11 (a bare plunge, hold
+		// 295 ticks, no flip) passes within tolerance of
+		// loop-off-column-right-west-18 after this story's own geometry
+		// changes moved plunge-medium-285's own trajectory (285 ticks) out
+		// of range for that one case (21.430 mm, over tolerance) -- ten
+		// ticks of additional hold is enough to recover it. Same lane
+		// family as plunge-medium-285, a slightly stronger tap.
+		id: 'plunge-medium-295',
+		label: 'a medium-strength manual plunge (hold 295 ticks, 10 more than plunge-medium-285) -- discovered by the out-of-process dense sweep after Story 2.1d\'s own geometry changes: ascends the RIGHT lane slightly further than the 285-tick tap, recovering the off-column release point that tap no longer reaches',
+		settleTicks: 320,
+		plungeHoldTicks: 295,
+		ticksAfterRelease: 5500,
+		expectedSwitch: 's_loop_r_in',
+	},
+	{
 		id: 'plunge-then-bat-l-3911',
 		label: 'the full plunge, chained into a left-bat flip at relative tick 3911 (a 60-tick hold) once the ball has arrived on the left bat -- launches toward the Dragon body',
 		settleTicks: 320,
@@ -134,21 +150,36 @@ const WITNESSES: readonly WitnessRecipe[] = [
 	},
 	{
 		id: 'plunge-then-bat-l-3945',
-		label: 'the full plunge, chained into a left-bat flip at relative tick 3945 (a 30-tick tap) -- launches up-table, reaching the Lock lane and the pop-bumper cluster',
+		// [REWORK, Story 2.1d task 8] Used to launch up-table clear through to
+		// the pop-bumper cluster (s_pop_3), before this story's own Lock lane
+		// swallow fix. Measured against the real physics pipeline after that
+		// fix landed: this SAME trajectory now closes s_lock_lane then
+		// s_lock_1 -- the ball is genuinely captured by the Lock partway up,
+		// exactly the AC 2 behaviour this story delivers -- and never reaches
+		// the pop bumpers at all. Re-purposed as a Lock-capture witness
+		// rather than retired, since its own approach (a weak up-table tap)
+		// is still a useful, real trajectory for OTHER cases' own distance
+		// measurements.
+		label: 'the full plunge, chained into a left-bat flip at relative tick 3945 (a 30-tick tap) -- launches up-table and is captured by the Lock (s_lock_lane then s_lock_1) since Story 2.1d\'s own swallow fix; no longer reaches the pop-bumper cluster',
 		settleTicks: 320,
 		plungeHoldTicks: 521,
 		flip: { side: 'l', atTick: 3945, holdTicks: 30 },
 		ticksAfterRelease: 7000,
-		expectedSwitch: 's_pop_3',
+		expectedSwitch: 's_lock_1',
 	},
 	{
 		id: 'plunge-then-bat-l-3944-35',
-		label: 'the full plunge, chained into a left-bat flip at relative tick 3944 (a 35-tick hold, 1 tick earlier and 5 ticks longer than the pop-bumper tap) -- a slightly different exit angle that passes near the DRAGON bank\'s rightmost target and closes s_pop_2',
+		// [REWORK, Story 2.1d task 8] Same finding as plunge-then-bat-l-3945's
+		// own note: measured against the real physics pipeline after this
+		// story's Lock lane swallow fix, this trajectory is ALSO captured
+		// (s_lock_lane then s_lock_1) rather than reaching s_pop_2 or the
+		// DRAGON bank's rightmost target.
+		label: 'the full plunge, chained into a left-bat flip at relative tick 3944 (a 35-tick hold, 1 tick earlier and 5 ticks longer than the pop-bumper tap) -- captured by the Lock (s_lock_lane then s_lock_1) since Story 2.1d\'s own swallow fix; no longer reaches s_pop_2 or the DRAGON bank',
 		settleTicks: 320,
 		plungeHoldTicks: 521,
 		flip: { side: 'l', atTick: 3944, holdTicks: 35 },
 		ticksAfterRelease: 7000,
-		expectedSwitch: 's_pop_2',
+		expectedSwitch: 's_lock_1',
 	},
 	{
 		id: 'plunge-then-bat-l-3960',

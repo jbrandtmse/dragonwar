@@ -239,7 +239,7 @@ carries it onto the left bat. [CORRECTED 2026-09-03, code review: this
 sentence described the left lane's return hardware as the Left Loop's own
 outcome, inside the Left Loop entry, one line after stating that each Loop
 feeds the OPPOSITE inlane.]
-`col_spinner_l` moved from the loop guide's inner face to the perimeter
+`vis_spinner_l` moved from the loop guide's inner face to the perimeter
 face, clear of the widened lane. [CORRECTED 2026-09-03, review fix: this
 note previously claimed the spinner "closes on every orbit" -- measured
 false. `s_spinner` closes on the Left Loop's own ascending entry (verified,
@@ -248,7 +248,7 @@ when the Left lane instead carries the Right Loop's own RETURN descent
 (verified false at every offset in that sweep too).] [CORRECTED AGAIN
 2026-09-03, code review: the *reason* recorded for that asymmetry was also
 wrong. It read "`col_loop_l_return` hands the descending ball inboard,
-past `col_spinner_l`'s own column, before it reaches the spinner's
+past `vis_spinner_l`'s own column, before it reaches the spinner's
 y-position" -- impossible in the direction of travel, since that rail sits
 at y 470-530 and the spinner at y 645-651, some 120 mm further UP the
 ball's path. Traced per tick through the real pipeline at every offset in
@@ -261,7 +261,7 @@ correction to the sentence above. So the spinner counts a direct Left-Loop
 shot but not a Right-Loop orbit passing down the same lane -- asymmetric,
 not "every orbit".]
 `s_loop_l_in`/`s_loop_l_out` mark entry and exit; the spinner
-(`col_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
+(`vis_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
 routing verified in `test/shot-routing.test.ts`. Golden:
 [`test/replays/roll-and-drain.golden.json`](../test/replays/roll-and-drain.golden.json).
 
@@ -315,7 +315,16 @@ catches a slightly-off shot against either leg's face.
 `bd_lock` (the Mouth) parking up to 3 balls above the legs and ejecting
 through `c_mouth` aimed down-table at the flippers (AD-6). OQ-5 (the Lock
 lane carries both the lock and the mode start) is recorded in
-`docs/decisions.md`.
+`docs/decisions.md`. **Story 2.1d (2026-09-03):** `bd_lock` now boots empty
+(`[false, false, false]`) rather than the pre-existing `fill(true)` defect
+that booted it full; the three slot zones moved from y 630-678 (230 mm of
+open field above the legs -- any ball merely crossing that band was
+swallowed, with no relation to the Lock) into the corridor the legs already
+bound, y 564-612, above `sw_lock_lane`'s own top face; and the Mouth's own
+eject speed is now a per-device tunable (500 mm/s, `unverified`) measured to
+clear every slot zone within the 200-tick window AD-6's "one ball per pulse"
+requires. Build-side routing verified in `test/lock-device-behaviour.test.ts`
+and `test/shot-routing.test.ts`'s own Lock lane case.
 
 ### DRAGON bank
 

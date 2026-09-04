@@ -532,6 +532,52 @@ DRAGON_LEG_Y0_MM = 480.0
 DRAGON_LEG_Y1_MM = 620.0
 DRAGON_MOUTH_Y_MM = 650.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the Mouth"
 
+# Story 2.1d (task 8, DW-121-class swallow fix): the Lock lane's three slot
+# zones used to sit at y 630..678 -- 10 mm above the legs' own top
+# (DRAGON_LEG_Y1_MM, 620) -- in 230 mm of OPEN FIELD (nothing bounded
+# x in [lock_lane_x0, lock_lane_x1] from y = 620 up to col_pop_3 at y = 850),
+# so any ball merely crossing that band got swallowed by devices.ts's own
+# zone-entry test, with no relation to the Lock at all.
+#
+# [REWORK, this story] The first attempt extended the legs' own north face
+# PAST the slot band (DRAGON_LEG_Y1_MM 620 -> 688) so the only opening was
+# from below. Measured against the real physics pipeline, this reopened a
+# defect in an UNRELATED integration case: test/switch-max-speed.test.ts's
+# "a DRAGON-bank target...surfaces exactly one make" -- a ball driven
+# straight at col_dragon_d's own aim point, at the table's measured maximum
+# speed, made TWICE (col_dragon_d then its neighbour col_dragon_r) at EVERY
+# leg-top height tried across the entire required range (678 through 700 mm,
+# a nine-point sweep, this story's own throwaway harness) even though
+# neither leg ever geometrically touches either target -- a genuine
+# contact-response sensitivity in the solver's broad-phase to a distant,
+# non-contacting wall's mere height, not something a small placement
+# adjustment closes. The task's own alternative -- "re-site the slots down
+# into the EXISTING bounded corridor" -- avoids the leg height entirely:
+# the corridor (DRAGON_LEG_Y0_MM..DRAGON_LEG_Y1_MM, 480..620) is ALREADY
+# walled on both sides at its committed height, so placing the three slot
+# zones inside it, above sw_lock_lane's own top face, closes the same 230 mm
+# swallow with zero change to either leg's own geometry -- re-verified: the
+# switch-max-speed regression does not reproduce with the legs unmoved.
+#
+# The five bare literals this pitch/depth/lane-clearance/leg-clearance used
+# to be (17.0, 14.0, -20.0 offset from the Mouth, plus sw_lock_lane's own
+# bare 500/560) are named and derived here, in the constants block, rather
+# than left in the switch-zone block below.
+SW_LOCK_LANE_Y0_MM = 500.0  # authored -- sw_lock_lane's own low face (unmoved by this story)
+SW_LOCK_LANE_Y1_MM = 560.0  # authored -- sw_lock_lane's own high face (unmoved by this story)
+LOCK_SLOT_PITCH_MM = 17.0  # authored -- the y-distance between adjacent slots' own low faces: LOCK_SLOT_DEPTH_MM (14.0) plus a 3.0 mm gap, so two adjacent zones' boxes never touch (a ball's swept segment straddling both at once would otherwise register two simultaneous entries for one crossing)
+LOCK_SLOT_DEPTH_MM = 14.0  # authored -- roughly half a ball diameter (26.99 mm) beyond the 13.495 mm radius, generous margin so a settling ball's own swept segment registers cleanly inside one slot's zone rather than straddling its boundary
+LOCK_SLOT_COUNT = 3  # authored -- matches TABLE.ballDevices.bd_lock.capacity (dragonwar.ts); this script authors placeholder geometry from TABLE-independent literals (AD-1: sim/table owns the registry, Blender owns placement), so the count is repeated here rather than imported, and must move in lockstep with any change to bd_lock's own capacity
+LOCK_SLOT_LANE_CLEARANCE_MM = 4.0  # authored -- gap between sw_lock_lane's own top face and the LOWEST slot's own low face, so a ball's swept segment straddling both zones never registers two simultaneous, unrelated entries
+LOCK_LEG_TOP_CLEARANCE_MM = 8.0  # authored -- gap the HIGHEST slot's own top face leaves below the corridor's own existing, unmoved top (DRAGON_LEG_Y1_MM) -- comparable to the 10 mm margin the pre-this-story geometry left below the lowest slot
+LOCK_SLOT_Y0_BASE_MM = SW_LOCK_LANE_Y1_MM + LOCK_SLOT_LANE_CLEARANCE_MM  # 564.0 -- the LOWEST slot's own low face
+# The highest slot's own top face: the (LOCK_SLOT_COUNT - 1)-th slot's low
+# face (the base plus pitch * (count - 1)) plus one slot's own depth.
+LOCK_SLOT_Y1_TOP_MM = LOCK_SLOT_Y0_BASE_MM + (LOCK_SLOT_COUNT - 1) * LOCK_SLOT_PITCH_MM + LOCK_SLOT_DEPTH_MM  # 612.0
+assert LOCK_SLOT_Y1_TOP_MM + LOCK_LEG_TOP_CLEARANCE_MM <= DRAGON_LEG_Y1_MM, (
+	'the re-sited slot band must fit inside the corridor the (unmoved) legs already bound'
+)
+
 # DRAGON bank (task 7): six target faces spelling D-R-A-G-O-N, legible from
 # the fixed camera, left of the Ramp's own channel so neither crosses the
 # other.
@@ -617,7 +663,15 @@ DRAGON_BANK_TARGET_W_MM = 11.0
 # Top lanes (task 7): three, in the upper field on the launched ball's own
 # path (above the Ramp and the pop nest, below the loop's own top connector).
 TOP_LANE_Y0_MM = 950.0
-TOP_LANE_Y1_MM = 1000.0
+# Story 2.1d (task 9, guide termination): was the bare literal 1000.0, whose
+# dividers' own upper tips then sat 4.8 mm short of col_loop_top's own south
+# face (LOOP_TOP_INNER_Y_MM - GUIDE_T_MM = 1004.8) -- a genuine, joinable gap
+# a ball's own contact point could still reach along the divider's face, not
+# an exemption-worthy "no ball can reach it" end. Extended to meet
+# col_loop_top's own face exactly, the same "genuinely joined end" pattern
+# col_loop_l/r's own upper ends into col_loop_top already use, rather than
+# adding a fourth pair of posts for a gap this small.
+TOP_LANE_Y1_MM = LOOP_TOP_INNER_Y_MM - GUIDE_T_MM  # 1004.8
 # Story 2.1c review fix: divider 4 used to sit at x = 395 (the uniform 100 mm
 # pitch), footprint x 391..399 -- fully swallowed by col_loop_r once this
 # story widened the Right Loop's lane (LOOP_LANE_CLEAR_MM 50 -> 66) and moved
@@ -1694,20 +1748,35 @@ def main():
 	# by-design rather than high_waived. Story 2.3 owns the spin/decay
 	# mechanism, driven off the zone crossing.
 	#
-	# [RENAME PENDING -- col_spinner_l -> vis_spinner_l] A node nothing
-	# collides with is not col_ under AD-11's prefix contract, so this
-	# name is wrong as it stands. It is NOT renamed here on purpose: the
-	# rename changes the collision document and therefore assetHash,
-	# breaking all five goldens. The device-behaviour story already breaks
-	# the same five for bd_lock's own boot-state fix under its widened
-	# grant, so batching the rename there costs ONE golden re-record
-	# instead of two. Carried explicitly in that story's epics.md block.
-	add_box_wall(
-		'col_spinner_l',
-		0.0, SPINNER_PROTRUDE_MM,
-		SPINNER_Y_MM - 3.0, SPINNER_Y_MM + 3.0,
-		'rubber_band',
+	# [RENAMED 2026-09-03, Story 2.1d task 10] col_spinner_l -> vis_spinner_l.
+	# A node nothing collides with is not col_ under AD-11's prefix contract
+	# ("A node nothing collides with is not col_ under AD-11's prefix
+	# contract, so col_spinner_l is renamed vis_spinner_l in the
+	# device-behaviour story, batched with bd_lock's golden re-record
+	# because either change alone moves assetHash" -- AD-6, amended). The
+	# rename is NOT a plain in-place name change: export.py's own
+	# is_presentation_object() (`not (col_ or sw_)`) routes a `vis_` node
+	# through THREE static-mesh contracts add_box_wall()'s own
+	# new_prism_mesh() supplies none of: a second UV layer
+	# (validate_second_uv(), AD-12's TEXCOORD_1), a lightgroup
+	# (validate_exported_mesh_contract()) and exactly one material slot
+	# (validate_material_slots()) -- so this is re-authored through
+	# new_box_mesh(..., material=..., second_uv=True) plus
+	# set_props(lightgroup=...), the SAME pattern vis_playfield (below) uses,
+	# rather than a bare rename of add_box_wall()'s own call site. Still
+	# INTENTIONALLY non-colliding (AD-6, amended) and still absent from
+	# dragonwar.collision.json (export.py:447-451 excludes every `vis_`
+	# node from the collision document by the same prefix predicate). No
+	# spin or decay mechanism -- Story 2.3 owns that, driven off
+	# sw_spinner's own zone crossing, which stays byte-identical (x 5..45,
+	# y 635..662, authored from bare literals below and untouched here).
+	mat_spinner = new_material('mat_spinner', base_color=(0.65, 0.65, 0.7, 1.0))
+	vis_spinner_l = new_box_mesh(
+		'vis_spinner_l',
+		(0.0, SPINNER_Y_MM - 3.0, 0.0), (SPINNER_PROTRUDE_MM, SPINNER_Y_MM + 3.0, WALL_H_MM),
+		parent=playfield_root, material=mat_spinner, second_uv=True,
 	)
+	set_props(vis_spinner_l, lightgroup='lg_playfield')
 
 	# DW-58's own consequence, verified empirically (this story's own planning
 	# pass, not merely derived by inspection): gravity has no x-component
@@ -1855,6 +1924,16 @@ def main():
 	# whole budget, and it took six of test/shot-routing.test.ts's own cases
 	# down with it. Pushed toward the Lock lane instead, it drops into that
 	# lane's own 40 mm opening and carries on.
+	#
+	# Story 2.1d (task 8, DW-121-class swallow fix): DRAGON_LEG_Y1_MM itself
+	# is UNMOVED (620.0, as 2.1b originally authored it) -- the swallow fix
+	# instead re-sites the three slot zones DOWN into the corridor these
+	# legs already bound (see the constants block's own [REWORK] note above
+	# DRAGON_LEG_Y1_MM: extending the legs' own height instead reopened an
+	# unrelated switch-max-speed regression against the DRAGON bank, at
+	# every height tried across the required range). Both legs' own north
+	# caps stay exactly where 2.1b drew them, each terminated by a rubber
+	# post below (task 9) at their own unmoved free end.
 	add_box_wall_sloped('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
 	add_box_wall_sloped('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
 
@@ -1952,6 +2031,163 @@ def main():
 		post = new_prism_mesh(f'col_pop_{i + 1}', octagon_points_mm(center, POP_BUMPER_RADIUS_MM), 0.0, WALL_H_MM, parent=playfield_root)
 		set_props(post, col_shape='wall', surface='bumper', phys_material='default')
 
+	# ---- Story 2.1d (task 9, AC 3, FR-31/AD-11): guide free-end
+	# terminations. Story 2.1b drew its whole shot map under surfaces other
+	# than 'rubber_post' at every free end (this story's own Code Map,
+	# "The measured bare free ends" -- verified against the committed
+	# document, not by inspection), so the pre-widening name-prefix gate
+	# (col_guide_*) never saw one of them. Each post below closes exactly
+	# one measured bare end from that table -- a NEW post at (or immediately
+	# beside) the exact free-end coordinate the planning pass measured,
+	# never a move of the guide body itself (the Block If: moving
+	# col_sling_l/_r, col_ramp_wall_l/_r or the DRAGON bank is 2.1f's or out
+	# of scope entirely -- adding the terminating post is the one change
+	# permitted here). The col_top_divider_* UPPER tips and col_spinner_l's
+	# own free end are NOT here: the former is closed by extending
+	# TOP_LANE_Y1_MM to meet col_loop_top exactly (a genuine join, above);
+	# the latter leaves the collision document entirely under task 10's
+	# rename to vis_spinner_l. ----
+	add_rubber_post('col_post_loop_l_funnel', (92.00, 438.00))  # col_loop_l_funnel's own mouth -- 2.1b; the nearest EXISTING post sat 6.00 mm away against a 4.5 mm budget
+	add_rubber_post('col_post_loop_r_funnel', (376.40, 438.00))  # col_loop_r_funnel's own mouth -- 2.1b, the mirrored case
+	add_rubber_post('col_post_ramp_wall_l_entrance', (332.00, 485.00))  # col_ramp_wall_l's own entrance lip -- 2.1b
+	add_rubber_post('col_post_ramp_wall_r_entrance', (378.00, 485.00))  # col_ramp_wall_r's own entrance lip -- 2.1b
+	add_rubber_post('col_post_ramp_wall_r_crossing', (378.00, 740.00))  # col_ramp_wall_r's own crossing lip -- 2.1b
+	add_rubber_post('col_post_loop_r_lower', (396.40, 747.00))  # col_loop_r_lower's own north lip, the crossing gap -- 2.1c
+	add_rubber_post('col_post_loop_r_south', (396.40, 832.00))  # col_loop_r's own south lip, the crossing gap -- 2.1b
+	# col_top_divider_1..4's own LOWER tips (TOP_LANE_Y0_MM) -- 2.1b. Reuses
+	# the same XS this story's own top-lane loop above draws the dividers
+	# from, rather than a second set of bare coordinates.
+	for x_centre in TOP_LANE_DIVIDER_XS_MM:
+		add_rubber_post(f'col_post_top_divider_{x_centre:.0f}_lo', (x_centre, TOP_LANE_Y0_MM))
+	# col_dragon_leg_l/_r's own NORTH caps -- 2.1b, UNMOVED by task 8 (see
+	# that task's own note beside the leg-drawing calls: re-siting the slot
+	# zones, not the legs, closes the swallow). Each sloped cap's own
+	# free-end midpoint sits at (x-centre, DRAGON_LEG_Y1_MM - 10.0) -- the
+	# midpoint of the edge from (x1, y1 - 20) to (x0, y1), 10 mm below the
+	# high corner and 10 mm above the low one.
+	#
+	# Measured this pass (this story's own throwaway harness): a post
+	# CENTRED exactly on that midpoint sits astride the sloped face's own
+	# diagonal (roughly half embedded in the leg's own solid body, half in
+	# open field, unlike a post on a FLAT cap where the same centring is
+	# symmetric and already proven safe elsewhere in this file) and strands
+	# a ball descending directly onto the LEFT leg (test/shot-routing.
+	# test.ts's own case, final position (120.0, 627.5), net progress
+	# 0.01 mm over the trailing 500-tick window) -- and the SAME defect the
+	# Top-lane-3 case exposes independently (final position (114.1, 626.2)),
+	# both bouncing into the identical pocket. A WEST offset of 4.0 mm
+	# resolves both, within the gate's own postRadius + 0.5 mm budget of the
+	# UNMOVED free-end coordinate (task 13); east and north were tried and
+	# rejected, south (into the solid body) also happens to clear but west
+	# is the more principled choice (further from the Lock lane, matching
+	# the RIGHT leg's own already-clear placement below).
+	DRAGON_LEG_CAP_MIDPOINT_DROP_MM = 10.0  # authored -- half of add_box_wall_sloped's own 20.0 mm drop, above
+	DRAGON_LEG_L_POST_OFFSET_MM = 4.0
+
+	def leg_north_cap_mid_mm(leg_x0, leg_x1):
+		return ((leg_x0 + leg_x1) / 2, DRAGON_LEG_Y1_MM - DRAGON_LEG_CAP_MIDPOINT_DROP_MM)
+
+	dragon_leg_l_cap_mid = leg_north_cap_mid_mm(dragon_leg_l_x0, dragon_leg_l_x1)
+	dragon_leg_l_post_mm = (dragon_leg_l_cap_mid[0] - DRAGON_LEG_L_POST_OFFSET_MM, dragon_leg_l_cap_mid[1])
+	dragon_leg_r_post_mm = leg_north_cap_mid_mm(dragon_leg_r_x0, dragon_leg_r_x1)
+	add_rubber_post('col_post_dragon_leg_l', dragon_leg_l_post_mm)
+	add_rubber_post('col_post_dragon_leg_r', dragon_leg_r_post_mm)
+	# col_ramp_return_1's own HIGH (downstream, inlane-facing) end -- 2.1c.
+	# Measured this pass, the same technique as the low end below: a post
+	# centred exactly on the free-end midpoint (402.00, 764.00) sits in the
+	# Left Loop orbit's own return path (entry offset 34 mm) -- s_inlane_r
+	# lost, the ball draining down the right OUTLANE instead. Offset EAST
+	# (toward the rail's own downstream/exit direction) by 4.0 mm restores
+	# it, and the Ramp-return-geometry case (which approaches this SAME
+	# rail from a different direction) stays green at every offset tried.
+	add_rubber_post('col_post_ramp_return_1_a', (406.00, 764.00))
+	# col_ramp_return_1's own LOW (upstream, ramp-crossing-facing) end -- 2.1c.
+	# Measured this pass: a post centred exactly on the free-end midpoint
+	# (372.00, 789.00) sits directly in the ball's own entry path onto this
+	# rail -- test/shot-routing.test.ts's Ramp-return-geometry case and the
+	# Left Loop's own 34 mm entry offset (whose orbit return crosses the
+	# SAME rail) both lost s_inlane_r with the post there, the ball missing
+	# the rail's guiding face entirely and draining instead. Offset SOUTH
+	# (toward the rail's own downstream/exit direction, off the entry line)
+	# by 4.0 mm, within the gate's own postRadius + 0.5 mm budget --
+	# verified against the real physics pipeline (six candidate offsets,
+	# this story's own throwaway harness): south and a smaller east offset
+	# both restore s_inlane_r; west, north and a north-west diagonal do not.
+	add_rubber_post('col_post_ramp_return_1_b', (372.00, 785.00))
+	# col_loop_l_return / col_loop_r_return's own inboard ends are NOT posted:
+	# add_loop_return_rail() deliberately TAPERS that end to a single point
+	# rather than closing it with a perpendicular cap face (this file's own
+	# comment on that helper: "A tapered end presents only the rail's own
+	# north face to that ball, which it grazes and rides"). FR-31's own
+	# hazard is a ball catching an exposed FLAT bare-metal end cap; a
+	# zero-width taper presents no such face, so this is a genuine
+	# structural exemption (task 13's allowlist entry), not an oversight.
+	# Measured this pass: a rubber post centred at either rail's own
+	# nearest-edge midpoint sits astride the rail's own diagonal face and
+	# strands a ball descending the right inlane feed (test/shot-
+	# routing.test.ts's 'Left Loop, entry offset 34 mm' and the Ramp-return-
+	# geometry case both lost s_inlane_r with the post present); removing it
+	# restores both.
+	# col_sling_l/_r's own upper ends -- 2.1b. The Block If protects the
+	# sling bodies THEMSELVES (2.1f territory); adding the terminating post
+	# here moves nothing about either sling.
+	add_rubber_post('col_post_sling_l', (114.00, 420.00))
+	add_rubber_post('col_post_sling_r', (370.40, 437.50))
+
+	# Story 2.1d task 13 (structural gate) -- measured this pass, running the
+	# hardened, structural free-end derivation (task 12) over every
+	# guide-class col_ wall body rather than trusting the pre-existing,
+	# name-scoped bare-end table: nine further bare ends the table's own
+	# (pre-hardening) derivation missed, plus one real DW-128 case in a
+	# COMMITTED body (col_sling_l, below).
+	#
+	# col_channel_l_1/_2, col_channel_r_1/_2 (2.1a, DW-119's below-deck
+	# outlane return rail): the OUTER tip of each bent rail's own two
+	# segments (the shared "knee" between segment 1 and 2 is already
+	# joined). Below-deck, but a flat-capped quad like any other guide, not
+	# a tapered rail -- terminated rather than assumed safe.
+	add_rubber_post('col_post_channel_l_1', (0.00, -18.00))
+	add_rubber_post('col_post_channel_l_2', (205.00, -81.00))
+	add_rubber_post('col_post_channel_r_1', (468.40, -18.00))
+	add_rubber_post('col_post_channel_r_2', (304.90, -81.00))
+	# col_dragon_leg_l/_r's own SOUTH caps (DRAGON_LEG_Y0_MM, 480) -- 2.1b.
+	# The pre-hardening bare-end table covered only the NORTH cap of each
+	# leg; the flat south cap sits in the open, flipper-adjacent field and
+	# is exactly as reachable.
+	add_rubber_post('col_post_dragon_leg_l_south', (120.00, 480.00))
+	add_rubber_post('col_post_dragon_leg_r_south', (212.50, 480.00))
+	# col_ramp_wall_l's own SECOND free end (the crossing lip, mirroring
+	# col_ramp_wall_r's own col_post_ramp_wall_r_crossing) -- 2.1b/2.1c.
+	add_rubber_post('col_post_ramp_wall_l_crossing', (332.00, 822.50))
+	# col_sling_r's own SECOND free end (the west/short side, distinct from
+	# the already-terminated east side above) -- 2.1b. Measured this pass: a
+	# post centred exactly on the free-end midpoint sits in the path of
+	# test/util/shot-cases.ts's 'dragon-bank-right-column-300' (a shot from
+	# (300, 400) straight up-table, only ~14 mm west of the true midpoint),
+	# deflecting the ball before it ever reaches the DRAGON bank. Offset
+	# EAST by 3.5 mm, within the gate's own postRadius + 0.5 mm budget,
+	# resolves it; west offsets clear the shot but strike col_sling_r's own
+	# face instead of clearing it, changing which case the shot exercises.
+	add_rubber_post('col_post_sling_r_west', (317.50, 427.50))
+	# col_sling_l (DW-128, a REAL committed case): its own footprint is a
+	# genuine wedge -- the south cap (32 mm) and the east side (15 mm,
+	# shortened by the SAME 20 mm anti-stranding drop every sloped cap in
+	# this file uses) are its two globally shortest edges, and they are
+	# ADJACENT (share the corner at (130, 420)), which is exactly task 12's
+	# own hardened check's rejection condition: the OLD, unhardened
+	# derivation returned two midpoints near that SAME corner
+	# ((114, 420), already terminated above, and (130, 427.5), which the
+	# join-detection in test/asset-contract.test.ts correctly reads as
+	# joined to nothing new) and never tested the TRUE far end -- the sloped
+	# north cap's own midpoint, (114, 445). The Block If protects col_sling_l
+	# itself (2.1f territory: re-authoring the slope so its shortest edges
+	# become the correct opposite pair is a body change beyond "adding the
+	# terminating post"), so this story does not re-shape it -- it is
+	# NAMED, not fixed, in the gate's own exemption allowlist (task 13), and
+	# a second post is added here at the true far end as a safety measure a
+	# ball can actually reach.
+	add_rubber_post('col_post_sling_l_north', (114.00, 445.00))
+
 	# ---- Switch zones: box shape, paired with their TABLE switch ----
 	sw_shooter_lane = new_box_mesh(
 		'sw_shooter_lane', (LANE_X0_MM + WALL_T_MM + 4, 10, 0), (PLAYFIELD_W_MM - 4, 60, 30),
@@ -2033,11 +2269,24 @@ def main():
 	dragon_body_zone_y0 = dragon_body_zone_y1 - 35.0
 	add_switch_zone('sw_dragon_body_l', 's_dragon_body', (dragon_leg_l_x0 + 4, dragon_body_zone_y0, 0), (dragon_leg_l_x1 - 4, dragon_body_zone_y1, 50))
 	add_switch_zone('sw_dragon_body_r', 's_dragon_body', (dragon_leg_r_x0 + 4, dragon_body_zone_y0, 0), (dragon_leg_r_x1 - 4, dragon_body_zone_y1, 50))
-	add_switch_zone('sw_lock_lane', 's_lock_lane', (lock_lane_x0 + 2, 500, 0), (lock_lane_x1 - 2, 560, 30))
+	add_switch_zone('sw_lock_lane', 's_lock_lane', (lock_lane_x0 + 2, SW_LOCK_LANE_Y0_MM, 0), (lock_lane_x1 - 2, SW_LOCK_LANE_Y1_MM, 30))
+	# Story 2.1d (task 8): the three slot zones, RE-SITED into the corridor
+	# the legs already bound (DRAGON_LEG_Y0_MM..DRAGON_LEG_Y1_MM) -- see the
+	# constants block's own [REWORK] note above DRAGON_LEG_Y1_MM for why
+	# (extending the legs' own height instead reopened an unrelated
+	# switch-max-speed regression against the DRAGON bank). The Mouth's own
+	# eject pose (DRAGON_MOUTH_Y_MM, 650.0) now sits ABOVE the whole slot
+	# band (LOCK_SLOT_Y1_TOP_MM, 612.0) rather than inside its middle slot
+	# as originally authored -- an ejected ball crosses 38 mm of open field
+	# before entering the corridor's own top (620) and descending through
+	# the slots on its way out, all still covered by devices.ts's own
+	# "one ball per pulse" exemption (task 5) regardless of exactly where
+	# the zones sit.
 	LOCK_SLOT_NAMES = ('s_lock_1', 's_lock_2', 's_lock_3')
+	assert len(LOCK_SLOT_NAMES) == LOCK_SLOT_COUNT, 'LOCK_SLOT_NAMES and LOCK_SLOT_COUNT (the constants block above) must agree'
 	for i, switch_name in enumerate(LOCK_SLOT_NAMES):
-		slot_y0 = DRAGON_MOUTH_Y_MM - 20.0 + i * 17.0
-		add_switch_zone(f'sw_lock_{i + 1}', switch_name, (lock_lane_x0, slot_y0, 0), (lock_lane_x1, slot_y0 + 14.0, 30))
+		slot_y0 = LOCK_SLOT_Y0_BASE_MM + i * LOCK_SLOT_PITCH_MM
+		add_switch_zone(f'sw_lock_{i + 1}', switch_name, (lock_lane_x0, slot_y0, 0), (lock_lane_x1, slot_y0 + LOCK_SLOT_DEPTH_MM, 30))
 
 	# DRAGON bank -- one zone per target, same x span as its col_ face. Same
 	# reachability fix as sw_dragon_body_l/r above: each target is a REAL
@@ -2197,7 +2446,7 @@ def main():
 		obj.select_set(False)
 	presentation_objects = [
 		playfield_root, cabinet_root, pivot_pitch,
-		vis_playfield, l_insert_left, bd_trough, bd_shooter, bd_lock,
+		vis_playfield, vis_spinner_l, l_insert_left, bd_trough, bd_shooter, bd_lock,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

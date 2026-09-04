@@ -314,44 +314,143 @@ describe('asset contract -- TABLE.physMaterials <-> TUNING.materials drift pin',
 	});
 });
 
-describe('asset contract -- Story 2.1a AC 1: every ball-guide free end terminates at a rubber_post (DW-72, DW-77)', () => {
-	it('every col_guide_* node\'s two free ends each have a rubber_post node within one post radius', () => {
+/**
+ * Story 2.1d task 12 (DW-128): the free-end derivation every guide
+ * termination check in this file uses. `col_guide_*`'s own doc comment
+ * (2.1c) explains the shape assumption: a guide is a quad with two long
+ * side edges (where a ball rolls) and two short END CAPS (where it does
+ * not) -- so "the free ends" are the midpoints of the two globally SHORTEST
+ * edges. That assumption is unchecked in the pre-hardening version: a
+ * triangle, a 5-point hull, or a quad whose two shortest edges are ADJACENT
+ * (a wedge, sharing one vertex) silently returns two midpoints at the SAME
+ * end and the true far end is never tested. Hardened here to fail loudly,
+ * naming the body and its own point count, rather than deriving a wrong
+ * answer -- the fix this ledger entry prescribes is a shape ASSERTION, not
+ * a new derivation.
+ */
+function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: number }>, bodyName: string): { x: number; y: number }[] {
+	if (footprint.length !== 4) {
+		throw new Error(
+			`freeEndsMm(): "${bodyName}" has ${footprint.length} footprint point(s) -- the two-shortest-edges derivation assumes a ` +
+			`4-point quad (two long side edges, two short end caps). A triangle or a 5+ point hull needs its own termination check, ` +
+			`never this one.`,
+		);
+	}
+	const edges = footprint.map((a, i) => {
+		const b = footprint[(i + 1) % footprint.length]!;
+		return { i, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, len: Math.hypot(b.x - a.x, b.y - a.y) };
+	});
+	const [e0, e1] = edges.slice().sort((a, b) => a.len - b.len);
+	const indexDiff = Math.abs(e0!.i - e1!.i);
+	if (indexDiff === 1 || indexDiff === 3) {
+		throw new Error(
+			`freeEndsMm(): "${bodyName}"'s two shortest edges (index ${e0!.i}, ${e1!.i}, lengths ${e0!.len.toFixed(2)}/${e1!.len.toFixed(2)} mm) ` +
+			`are ADJACENT -- a wedge-shaped footprint, not a body with two opposite end caps. Deriving free ends from them would return two ` +
+			`midpoints at the SAME end and never test the true far end.`,
+		);
+	}
+	return [e0!.mid, e1!.mid];
+}
+
+/**
+ * Story 2.1d task 13 (AC 3): replaces the `col_guide_` name-prefix selector
+ * -- Story 2.1b drew its whole shot map under other prefixes and that gate
+ * never saw one of them (this story's own Code Map, "The measured bare free
+ * ends"). Structural instead: every `col_` WALL-shaped body whose `surface`
+ * marks it as guide-class (a rail the ball runs ALONGSIDE toward a
+ * potentially-exposed tip), never a name. Deliberately excludes:
+ * `rubber_post`/`bumper` (round bodies -- they terminate a guide, they do
+ * not need one, and freeEndsMm()'s own two-cap assumption does not apply to
+ * an octagon); `target` (the DRAGON bank's own faces and backstop -- hit
+ * face-on, not run alongside toward a tip, and 2.1f-adjacent); `wood`/`glass`
+ * (the table's own perimeter and playfield/glass planes -- structural
+ * boundary, not a guide); `metal` (switch-adjacent bodies, none of which is
+ * a rail either). `plastic`/`rubber_band`/`dragon`/`ramp` cover every guide
+ * this story's own Code Map measured.
+ */
+const GUIDE_SURFACES = new Set(['plastic', 'rubber_band', 'dragon', 'ramp']);
+
+/**
+ * Story 2.1d task 13: the two-directional exemption allowlist -- a body
+ * here is a guide-class body (by surface) this AC's own gate does NOT
+ * require a nearby post for, with a reason string per entry. Enforced in
+ * BOTH directions below, the same `PARITY_INERT` pattern
+ * (`test/replay-goldens.test.ts:212-261`) uses: a guide off this list with
+ * a bare end fails the forward check; an entry here whose end IS
+ * terminated fails as a stale exemption. Every reason is either "tapered to
+ * a point, no flat cap the ball could catch" (FR-31's own hazard is an
+ * exposed FLAT end) or a named Block If this story cannot lift.
+ */
+const GUIDE_TERMINATION_EXEMPTIONS: ReadonlyArray<{ readonly body: string; readonly reason: string }> = [
+	{ body: 'col_loop_l_return', reason: 'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for FR-31 to protect (the same shape col_loop_r_return uses).' },
+	{ body: 'col_loop_r_return', reason: 'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for FR-31 to protect.' },
+	{ body: 'col_loop_top', reason: 'the orbit\'s own top connector, a 5-point turn piece joined into col_loop_l/col_loop_r on both sides (verified 0.000 mm each) -- not a 2-ended guide, so freeEndsMm()\'s own quad assumption does not apply.' },
+	{ body: 'col_loop_turn_l', reason: 'a turn/redirector piece at the orbit\'s own top corner, joined into the perimeter wall and the lane on both sides -- not a free-ended guide; its adjacent-shortest-edge shape is the turn\'s own angle, not an unterminated tip.' },
+	{ body: 'col_loop_turn_r', reason: 'the mirrored turn/redirector piece -- same reasoning as col_loop_turn_l.' },
+	{ body: 'col_ramp_turn', reason: 'the Ramp\'s own top turn, joined into the channel on both sides -- not a free-ended guide; same adjacent-shortest-edge shape as the loop turns, for the same reason.' },
+	{
+		body: 'col_sling_l',
+		reason: 'DW-128, a real committed case: the anti-stranding slope (20 mm drop) shortens the east side to 15 mm, ' +
+			'below the 32 mm south cap, making the two shortest edges ADJACENT (a genuine wedge) -- freeEndsMm() correctly ' +
+			'throws rather than silently deriving the wrong pair. Re-authoring the slope so the shortest edges become the ' +
+			'correct opposite pair would move the body itself, which the Block If reserves for Story 2.1f (col_sling_l/_r). ' +
+			'Both plausible ends are posted anyway as a safety measure: col_post_sling_l (114, 420, the old south-cap ' +
+			'derivation) and col_post_sling_l_north (114, 445, the true far/sloped-cap end).',
+	},
+];
+
+describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at a rubber_post, selected STRUCTURALLY (FR-31, AD-11)', () => {
+	it('every guide-class col_ wall body\'s free end(s) each have a rubber_post within one post radius, or a named exemption', () => {
 		const doc = readCollisionDoc();
-		const guides = doc.nodes.filter((n) => n.name.startsWith('col_guide_'));
-		expect(guides.length, 'sanity: at least one guide must be authored').toBeGreaterThan(0);
 		const posts = doc.nodes.filter((n) => n.surface === 'rubber_post');
 		expect(posts.length, 'sanity: at least one rubber_post node must be authored').toBeGreaterThan(0);
 
-		// Story 2.1c generalised this derivation. Story 2.1a's own guides were
-		// all straight, axis-aligned prisms running along y, so "the two free
-		// ends" could be read off the bounding box: its y-extremes, at the x
-		// centreline. This story authors an ANGLED guide -- the inlane feed
-		// ramp, whose whole job is to run diagonally from the inlane down to
-		// the bat -- and for that shape the bbox corners are not on the guide
-		// at all. The ends are now derived from the FOOTPRINT: every guide
-		// this file draws is a quad with two long side edges and two short END
-		// CAPS, so the free ends are the midpoints of the two SHORTEST edges.
-		// That reproduces the old answer EXACTLY for every 2.1a guide (a
-		// 12 mm-wide, 300 mm-long y-running prism's two shortest edges are its
-		// horizontal caps, whose midpoints are (centreX, minY) and
-		// (centreX, maxY)) and is correct for an angled one too.
-		const freeEndsMm = (footprint: ReadonlyArray<{ readonly x: number; readonly y: number }>): { x: number; y: number }[] => {
-			const edges = footprint.map((a, i) => {
-				const b = footprint[(i + 1) % footprint.length]!;
-				return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, len: Math.hypot(b.x - a.x, b.y - a.y) };
-			});
-			return edges
-				.slice()
-				.sort((a, b) => a.len - b.len)
-				.slice(0, 2)
-				.map((e) => e.mid);
-		};
+		const guides = doc.nodes.filter((n) => n.shape === 'wall' && n.surface !== undefined && GUIDE_SURFACES.has(n.surface));
+		expect(guides.length, 'sanity: at least one guide-class body must be authored').toBeGreaterThan(0);
+
+		const exemptedNames = new Set(GUIDE_TERMINATION_EXEMPTIONS.map((e) => e.body));
+		for (const exemption of GUIDE_TERMINATION_EXEMPTIONS) {
+			expect(
+				guides.some((g) => g.name === exemption.body),
+				`the exemption allowlist names "${exemption.body}", but no guide-class col_ wall body by that name exists in the committed document -- a stale entry`,
+			).toBe(true);
+		}
+
+		/** Every OTHER col_/sw_ wall body's own footprint, for the "genuinely joined" structural test below -- box (flippers) and plane (playfield/glass) shapes never count as a join partner. */
+		function isJoined(point: { readonly x: number; readonly y: number }, ownName: string): { joined: boolean; to?: string } {
+			const JOIN_TOLERANCE_MM = 1.0;
+			for (const other of doc.nodes) {
+				if (other.name === ownName || other.shape !== 'wall' || !other.footprintMm) {
+					continue;
+				}
+				const poly = other.footprintMm;
+				for (let i = 0; i < poly.length; i++) {
+					const a = poly[i]!;
+					const b = poly[(i + 1) % poly.length]!;
+					const dx = b.x - a.x;
+					const dy = b.y - a.y;
+					const len2 = dx * dx + dy * dy;
+					let t = len2 === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+					t = Math.max(0, Math.min(1, t));
+					const distance = Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+					if (distance <= JOIN_TOLERANCE_MM) {
+						return { joined: true, to: other.name };
+					}
+				}
+			}
+			return { joined: false };
+		}
 
 		for (const guide of guides) {
-			expect(guide.footprintMm, `${guide.name}: a col_guide_* node must carry a footprintMm polygon`).toBeDefined();
-			for (const end of freeEndsMm(guide.footprintMm!)) {
-				const centreX = end.x;
-				const endY = end.y;
+			if (exemptedNames.has(guide.name)) {
+				continue;
+			}
+			expect(guide.footprintMm, `${guide.name}: a guide-class col_ wall body must carry a footprintMm polygon`).toBeDefined();
+			for (const end of freeEndsMm(guide.footprintMm!, guide.name)) {
+				const { joined, to } = isJoined(end, guide.name);
+				if (joined) {
+					continue; // a genuinely joined end -- structurally not "free" at all.
+				}
 				let nearestDistance = Infinity;
 				let nearestName = '(none)';
 				let nearestRadius = 0;
@@ -359,7 +458,7 @@ describe('asset contract -- Story 2.1a AC 1: every ball-guide free end terminate
 					const postCentreX = (post.bboxMm.min.x + post.bboxMm.max.x) / 2;
 					const postCentreY = (post.bboxMm.min.y + post.bboxMm.max.y) / 2;
 					const postRadiusMm = (post.bboxMm.max.x - post.bboxMm.min.x) / 2;
-					const distance = Math.hypot(centreX - postCentreX, endY - postCentreY);
+					const distance = Math.hypot(end.x - postCentreX, end.y - postCentreY);
 					if (distance < nearestDistance) {
 						nearestDistance = distance;
 						nearestName = post.name;
@@ -368,9 +467,38 @@ describe('asset contract -- Story 2.1a AC 1: every ball-guide free end terminate
 				}
 				expect(
 					nearestDistance,
-					`${guide.name}'s free end at table (${centreX.toFixed(2)}, ${endY.toFixed(2)}) has no rubber_post within one post radius -- nearest is "${nearestName}" at ${nearestDistance.toFixed(2)} mm (post radius ${nearestRadius.toFixed(2)} mm)`,
+					`${guide.name}'s free end at table (${end.x.toFixed(2)}, ${end.y.toFixed(2)}) has no rubber_post within one post radius ` +
+					`(nearest join candidate: ${to ?? '(none)'}) -- nearest post is "${nearestName}" at ${nearestDistance.toFixed(2)} mm ` +
+					`(post radius ${nearestRadius.toFixed(2)} mm)`,
 				).toBeLessThanOrEqual(nearestRadius + 0.5); // 0.5 mm float-noise margin
 			}
+		}
+	});
+
+	it('every allowlisted exemption is still genuinely exempt -- a body whose shape has quietly become a clean, well-formed quad fails naming it as a stale entry', () => {
+		// Enforced in BOTH directions (this describe block's own doc comment):
+		// this is the reverse direction. Every entry here is exempt because
+		// freeEndsMm() cannot derive a trustworthy answer for it (a non-quad,
+		// or a wedge -- col_sling_l's own DW-128 case). A body stays on the
+		// allowlist only while that remains true; if a later change
+		// re-authors it into a clean quad with two genuinely opposite short
+		// edges, the SAME body would then need to pass the forward check
+		// like any other guide, and leaving it on this list would silently
+		// exempt it from a requirement it no longer has any reason to skip.
+		const doc = readCollisionDoc();
+		for (const exemption of GUIDE_TERMINATION_EXEMPTIONS) {
+			const body = doc.nodes.find((n) => n.name === exemption.body);
+			expect(body, `exemption "${exemption.body}" names a body absent from the committed document`).toBeDefined();
+			let derivationFailed = false;
+			try {
+				freeEndsMm(body!.footprintMm ?? [], body!.name);
+			} catch {
+				derivationFailed = true;
+			}
+			expect(
+				derivationFailed,
+				`${exemption.body}: freeEndsMm() now derives a clean answer for this body (footprint: ${JSON.stringify(body!.footprintMm)}) -- the exemption ("${exemption.reason}") is stale; remove it and let this body pass through the forward check like any other guide`,
+			).toBe(true);
 		}
 	});
 

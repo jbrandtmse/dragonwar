@@ -218,11 +218,30 @@ export const TABLE = deepFreeze({
 		// AD-6: parking device. Physics parks an entering ball into the lowest
 		// empty slot unconditionally and ejects the highest filled slot, one per
 		// pulse of `ejectCoil`. `slots` is fill order.
+		//
+		// Story 2.1d: each parking device below also declares
+		// `startsFullAtBoot` -- AD-6's "the machine carries 4 balls, asserted
+		// at boot" read from a property of the device rather than assumed.
+		// `src/sim/physics/devices.ts`'s `createDeviceMechanics()` reads it to
+		// seed `parkingSlots` and sums it across every parking device below,
+		// throwing by name if the total is not 4 -- the one place both this
+		// field and every device's `capacity` are in scope together.
 		bd_trough: {
 			kind: 'parking',
 			capacity: 4,
 			slots: ['s_trough_1', 's_trough_2', 's_trough_3', 's_trough_4'],
 			ejectCoil: 'c_trough_eject',
+			// Story 2.1d (AD-6): "the machine carries 4 balls, asserted at
+			// boot" -- a declared property of the device, not the constant
+			// `fill(true)` `src/sim/physics/devices.ts` used to boot every
+			// parking device with regardless of what it actually holds at rest.
+			// The Trough IS the machine's own ball supply, so it starts full;
+			// `bd_lock` (below) starts empty for the identical reason. Added to
+			// BOTH parking devices in the same edit -- `BallDevice`
+			// (`devices.ts`) is a union of literal types with no shared
+			// interface, so adding this field to one alone is a type error once
+			// `kind === 'parking'` narrows the union.
+			startsFullAtBoot: true,
 			// AD-6: ball search is tick-timed pulses ending in the one command that
 			// lets physics despawn a loose ball. Two eject attempts before
 			// recovering is this story's authored default -- no artifact states a
@@ -240,6 +259,19 @@ export const TABLE = deepFreeze({
 			// destination -- a future Mouth aimed loosely at the flippers, say --
 			// simply omits this field.
 			servesInto: 's_shooter_lane',
+			// Story 2.1d (task 6, AD-15): no per-device override -- bd_trough
+			// keeps using the shared tuning.troughEjectSpeedMmPerS (300 mm/s),
+			// exactly as before this story. `null`, not `undefined` and not
+			// omitted: both parking devices must carry this key (the same
+			// reason `startsFullAtBoot` above is on both -- `BallDevice`,
+			// devices.ts, is a union of literal types with no shared
+			// interface, so a key present on one alone is a type error after
+			// `kind === 'parking'` narrowing) -- and `tableHash()`'s own
+			// `canonicalize()` throws on a literal `undefined` anywhere in
+			// `TABLE` (verified: it did, before this fix), so `null` is the
+			// only sentinel that is both JSON-canonical and distinguishable
+			// from "no override".
+			ejectSpeedMmPerS: null as AuthoredEntry<number> | null,
 		},
 		// AD-6: non-parking mechanical-eject device. The served ball stays
 		// simulated on the plunger tip; the manual plunge (AD-5) or a pulse of
@@ -271,6 +303,12 @@ export const TABLE = deepFreeze({
 			capacity: 3,
 			slots: ['s_lock_1', 's_lock_2', 's_lock_3'],
 			ejectCoil: 'c_mouth',
+			// Story 2.1d (AD-6): the Lock is not part of the machine's boot
+			// complement -- it starts empty. Previously assumed by
+			// `devices.ts`'s unconditional `fill(true)`, which booted SEVEN
+			// balls total (`bd_trough`'s 4 plus this device's 3) against AD-6's
+			// "the machine carries 4 balls, asserted at boot".
+			startsFullAtBoot: false,
 			// AD-6: ball search is tick-timed pulses ending in the one command
 			// that lets physics despawn a loose ball. Two eject attempts before
 			// recovering, the same authored default `bd_trough` uses above -- no
@@ -280,6 +318,26 @@ export const TABLE = deepFreeze({
 				{ action: 'pulse', coil: 'c_mouth' },
 				{ action: 'recover' },
 			],
+			// Story 2.1d (task 6, AD-6/AD-15): devices.ts's own eject speed
+			// (`tuning.troughEjectSpeedMmPerS`, 300 mm/s) is hardcoded for
+			// every parking device and its own 40-line derivation is entirely
+			// about the SHOOTER LANE's y <= 60 mm zone ceiling -- unrelated to
+			// the Mouth. Measured against the real physics pipeline
+			// (this story's own throwaway harness): at 300 mm/s, a ball
+			// ejected from the Mouth pose (650, dir (0,-1,0)) has NOT yet
+			// cleared every sw_lock_* zone 200 ticks later (own I/O matrix
+			// row) -- it needs roughly 86 mm of travel (38 mm of open field
+			// plus the re-sited slot band's own 48 mm) inside a 200 ms
+			// window, which 300 mm/s (60 mm in that window) does not cover.
+			// 500 mm/s clears with real margin (measured: past every zone
+			// well before tick 200). No artifact states a Mouth eject speed,
+			// so this is `unverified`, the same provenance class
+			// troughEjectSpeedMmPerS itself carries.
+			ejectSpeedMmPerS: {
+				value: 500,
+				source: 'authored 2026-09-03: no artifact states a Mouth eject speed -- measured against the real physics pipeline to clear every sw_lock_* zone comfortably inside the 200-tick window this story\'s own I/O matrix names (the shared troughEjectSpeedMmPerS, 300 mm/s, tuned for the unrelated shooter-lane zone ceiling, does not)',
+				confidence: 'unverified',
+			} as AuthoredEntry<number> | null,
 		},
 	},
 

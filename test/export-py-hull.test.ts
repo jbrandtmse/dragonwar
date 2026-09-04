@@ -1,7 +1,9 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // Story 1.8 (DW-64, ledger; Code Map: "test/export-py.test.ts:102 is the
-// single describe.skipIf(!blenderPath) holding 21 it() blocks; the two hull
+// single describe.skipIf(!blenderPath) holding 23 it() blocks (21 as of
+// Story 1.8/1.10, since grown by Story 2.1a's own LF regression pin and
+// Story 2.1d's own DW-125 concave-footprint rejection pin); the two hull
 // pins are :256-278 and :280-293 ... tools/export.py:304 _convex_hull_2d and
 // :331 _rotate_to_lexicographic_first are PURE PLAIN PYTHON; only the
 // module-level import bpy / from mathutils import Vector block a plain
