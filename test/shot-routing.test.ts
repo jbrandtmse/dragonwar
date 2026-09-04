@@ -65,7 +65,7 @@
 // release points across the file landed inside a solid `col_` footprint
 // (DW-77: the solver ejects a ball spawned there, measured z -> -1.8e6 mm,
 // 189 m/s) -- one of them (the Ramp) doubly so. `assertReleaseClear()`,
-// below, makes this self-checking: every `driveShotChecked()` call fails
+// below, makes this self-checking: every `driveCase()` call fails
 // naming the body or zone before `driveShot()` ever runs, if the release
 // point does not clear it. Every release point in this file was moved to
 // pass it (see the Spec Change Log for the individual measurements), and
@@ -87,6 +87,8 @@ import { resolveTuning } from '../src/sim/table/tuning';
 import { toPhysics, fromPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { nodeBboxMm, readCollisionDoc } from './util/collision-doc';
+import { distanceToPolygonMm } from './util/plan-geometry';
+import { shotCase } from './util/shot-cases';
 import type { SwitchName } from '../src/sim/table/names';
 
 /**
@@ -317,45 +319,6 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 /** Half the reference ball's own diameter (TABLE.reference.ballMm) -- the DW-77 clearance margin every release point must exceed. */
 const RELEASE_CLEAR_MARGIN_MM = TABLE.reference.ballMm / 2;
 
-function pointToSegmentDistanceMm(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-	const dx = bx - ax;
-	const dy = by - ay;
-	const lenSq = dx * dx + dy * dy;
-	if (lenSq === 0) {
-		return Math.hypot(px - ax, py - ay);
-	}
-	let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
-	t = Math.max(0, Math.min(1, t));
-	return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-function pointInPolygon(px: number, py: number, poly: readonly { readonly x: number; readonly y: number }[]): boolean {
-	let inside = false;
-	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-		const a = poly[i]!;
-		const b = poly[j]!;
-		const intersects = a.y > py !== b.y > py && px < ((b.x - a.x) * (py - a.y)) / (b.y - a.y) + a.x;
-		if (intersects) {
-			inside = !inside;
-		}
-	}
-	return inside;
-}
-
-/** 0 if `(px, py)` is inside the (convex, per AD-11) `poly`; otherwise the shortest distance to any of its edges. */
-function distanceToPolygonMm(px: number, py: number, poly: readonly { readonly x: number; readonly y: number }[]): number {
-	if (pointInPolygon(px, py, poly)) {
-		return 0;
-	}
-	let min = Infinity;
-	for (let i = 0; i < poly.length; i++) {
-		const a = poly[i]!;
-		const b = poly[(i + 1) % poly.length]!;
-		min = Math.min(min, pointToSegmentDistanceMm(px, py, a.x, a.y, b.x, b.y));
-	}
-	return min;
-}
-
 /**
  * Fails naming the body or zone if `startMm` is within `RELEASE_CLEAR_MARGIN_MM`
  * of any `col_` footprint, or inside the `sw_` zone of any switch named in
@@ -399,16 +362,29 @@ function assertReleaseClear(startMm: { readonly x: number; readonly y: number },
 	}
 }
 
-/** `driveShot()`, guarded by `assertReleaseClear()` -- every call site in this file goes through this, never the bare `driveShot()`. */
-function driveShotChecked(
-	startMm: { readonly x: number; readonly y: number; readonly z: number },
-	speedMmPerS: number,
-	dirDeg: number,
-	ticks: number,
-	switchesUnderTest: readonly SwitchName[] = [],
-): ShotResult {
-	assertReleaseClear(startMm, switchesUnderTest);
-	return driveShot(startMm, speedMmPerS, dirDeg, ticks);
+/**
+ * Story 2.1e task 3 -- the seam the manifest replaces `driveShotChecked()`
+ * with: looks `id` up in `SHOT_CASES` (`test/util/shot-cases.ts`, the sole
+ * source of every release point), runs `assertReleaseClear()` against the
+ * manifest's own `switchesUnderTest`, and drives it via `driveShot()`, which
+ * stays module-private and gains no exported free-coordinate form -- a
+ * release point cannot be driven at all without a manifest entry.
+ *
+ * Deliberately NOT exported: importing a `describe`/`it`-registering
+ * `.test.ts` module from another `.test.ts` file re-runs every top-level
+ * suite it contains under the IMPORTING file's own report (measured this
+ * story's own implementation pass -- Vitest attributes a module's `describe`
+ * calls to whichever file is currently executing, not the file that DEFINED
+ * them). `test/shot-reachability.test.ts`'s DW-130 record drives the same
+ * manifest cases through its OWN small, segment-tracking replica instead
+ * (`driveCaseSwept()`), reading the SAME `SHOT_CASES` entries this function
+ * reads -- never a free coordinate -- so the two can never drift apart on
+ * WHAT they drive, only on how much of the result they keep.
+ */
+function driveCase(id: string): ShotResult {
+	const c = shotCase(id);
+	assertReleaseClear(c.startMm, c.switchesUnderTest);
+	return driveShot(c.startMm, c.speedMmPerS, c.dirDeg, c.ticks);
 }
 
 // Rework iteration 2, item (a): a ball bouncing in place on a flat-topped
@@ -538,10 +514,10 @@ const LOOP_ENTRY_OFFSETS_MM = [28, 31, 34] as const;
 const laneX0Mm = nodeBboxMm('col_wall_lane').min.x;
 
 describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit', () => {
-	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, x })))(
+	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, id: `left-loop-orbit-${x}` })))(
 		'$label: one ball closes s_loop_l_in, s_loop_l_out, s_loop_r_out and s_loop_r_in in approach order, the orbit feeds the OPPOSITE (right) inlane, and the ball arrives playable at a bat',
-		({ x }) => {
-			const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 9000, ['s_loop_l_in', 's_loop_l_out', 's_inlane_r']);
+		({ id }) => {
+			const result = driveCase(id);
 			assertOrbitOrder(result, ['s_loop_l_in', 's_loop_l_out', 's_loop_r_out', 's_loop_r_in']);
 			// Story 2.1c review fix (verification-gap finding): col_spinner_l
 			// moved this story from the loop guide's own inner face to the
@@ -577,10 +553,10 @@ describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit
 });
 
 describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Right Loop, the orbit', () => {
-	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, x: laneX0Mm - x })))(
+	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, id: `right-loop-orbit-${x}` })))(
 		'$label: one ball closes s_loop_r_in, s_loop_r_out, s_loop_l_out and s_loop_l_in in approach order, the orbit feeds the OPPOSITE (left) inlane, and the ball arrives playable at a bat',
-		({ x }) => {
-			const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 9000, ['s_loop_r_in', 's_loop_r_out', 's_inlane_l']);
+		({ id }) => {
+			const result = driveCase(id);
 			assertOrbitOrder(result, ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in']);
 			expect(result.firstMakes, `s_inlane_l must close -- the Right Loop is an ORBIT and returns down the LEFT lane, so it feeds the LEFT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_l');
 			assertNotStranded(result, 'Right Loop');
@@ -597,7 +573,7 @@ describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Right Loop, the orbi
 // one.
 describe('shot routing (AC 7, DW-123) -- the re-joined top connector: ONE ball closes both Loops\' switches', () => {
 	it('a single Right Loop shot closes s_loop_r_in, s_loop_r_out, s_loop_l_out and s_loop_l_in in one run', () => {
-		const result = driveShotChecked({ x: laneX0Mm - 31, y: 415, z: 13.5 }, 2200, 0, 9000, ['s_loop_r_in', 's_loop_r_out']);
+		const result = driveCase('dw123-single-ball-orbit');
 		for (const name of ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in'] as const) {
 			expect(result.firstMakes, `${name} must close on THIS ball -- makes: ${result.firstMakes.join(',')}`).toContain(name);
 		}
@@ -669,13 +645,13 @@ function assertLoopMissOutcome(result: ShotResult, label: string): void {
 
 describe('shot routing (AC 1 behavioural half, review fix) -- entry offsets OUTSIDE the Loop\'s own 9 mm column, both lanes', () => {
 	it.each([
-		{ label: 'Left Loop, west of the column (inside the return rail\'s own reach)', x: 18 },
-		{ label: 'Left Loop, east of the column (past the top connector\'s own end)', x: 45 },
-		{ label: 'Right Loop, west of the column (mirrored)', x: laneX0Mm - 18 },
-		{ label: 'Right Loop, east of the column (mirrored) -- sneaks back to the shooter lane, see this block\'s own note above', x: laneX0Mm - 45 },
-	])('$label: a miss does not silently strand the ball -- it either falls back and resolves, or sneaks back to the shooter lane (s_shooter_lane closes)', ({ x }) => {
-		const result = driveShotChecked({ x, y: 415, z: 13.5 }, 2200, 0, 9000, []);
-		assertLoopMissOutcome(result, `Loop entry off-column (x=${x})`);
+		{ label: 'Left Loop, west of the column (inside the return rail\'s own reach)', id: 'loop-off-column-left-west-18' },
+		{ label: 'Left Loop, east of the column (past the top connector\'s own end)', id: 'loop-off-column-left-east-45' },
+		{ label: 'Right Loop, west of the column (mirrored)', id: 'loop-off-column-right-west-18' },
+		{ label: 'Right Loop, east of the column (mirrored) -- sneaks back to the shooter lane, see this block\'s own note above', id: 'loop-off-column-right-east-45' },
+	])('$label: a miss does not silently strand the ball -- it either falls back and resolves, or sneaks back to the shooter lane (s_shooter_lane closes)', ({ id }) => {
+		const result = driveCase(id);
+		assertLoopMissOutcome(result, `Loop entry off-column (x=${shotCase(id).startMm.x})`);
 	});
 });
 
@@ -687,7 +663,7 @@ describe('shot routing (AC 1 behavioural half, review fix) -- entry offsets OUTS
 // contract as the off-column sweep above.
 describe('shot routing (AC 1 behavioural half, review fix) -- a Loop shot below the file\'s own standard 2200 mm/s', () => {
 	it('Left Loop at 1200 mm/s (centred in the entry column) does not strand the ball or leave it "still_in_play"', () => {
-		const result = driveShotChecked({ x: 31, y: 415, z: 13.5 }, 1200, 0, 9000, ['s_loop_l_in']);
+		const result = driveCase('left-loop-1200');
 		expect(result.firstMakes, `s_loop_l_in must still close at this speed -- makes: ${result.firstMakes.join(',')}`).toContain('s_loop_l_in');
 		assertNotStranded(result, 'Left Loop at 1200 mm/s');
 		assertNotStillInPlay(result, 'Left Loop at 1200 mm/s');
@@ -731,7 +707,7 @@ describe('shot routing (AC 1 behavioural half; Ramp RETURN GEOMETRY ONLY -- rele
 		// unreachable. Do not read a pass here as "the Ramp is reachable" --
 		// Story 2.1f's own AC is what will prove that, through the Story 2.1e
 		// reachability harness.
-		const result = driveShotChecked({ x: 355, y: 465, z: 13.5 }, 2400, 0, 9000, ['s_ramp_enter', 's_ramp_made', 's_inlane_r']);
+		const result = driveCase('ramp-return-geometry');
 		const enterIdx = result.firstMakes.indexOf('s_ramp_enter');
 		const madeIdx = result.firstMakes.indexOf('s_ramp_made');
 		expect(enterIdx, `s_ramp_enter must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
@@ -772,11 +748,10 @@ describe('shot routing (matrix row: centre drain must not read as a flipper feed
 		// channel" describe block already measured this exact release point
 		// clear, with 0.00 mm lateral drift and drainage by tick 911 -- this
 		// solver's gravity has no x-component, so a centred release cannot
-		// drift regardless of geometry).
-		const centreXMm = TABLE.reference.playfieldMm.w / 2;
-		// Near-zero initial speed: gravity alone drives the fall, the same
-		// "drop" convention the descending-release sweep below uses.
-		const result = driveShotChecked({ x: centreXMm, y: 200, z: 13.5 }, 1, 0, 6600, []);
+		// drift regardless of geometry). Near-zero initial speed: gravity
+		// alone drives the fall, the same "drop" convention the
+		// descending-release sweep below uses.
+		const result = driveCase('centre-drain-descent');
 		expect(
 			result.leftPlay,
 			`the ball must leave play (drain) within the tick budget for this case to be evidence -- final pos: ${JSON.stringify(result.finalPosMm)}, terminal: "${result.terminal}"`,
@@ -795,7 +770,7 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Dragon body', () => 
 		// the left slingshot's own footprint (70..130, y 420..455), which
 		// otherwise sits directly in a straight vertical path to the leg's
 		// face -- found and verified this story's own planning pass.
-		const result = driveShotChecked({ x: 140, y: 380, z: 13.5 }, 1500, 0, 5000, ['s_dragon_body']);
+		const result = driveCase('dragon-body');
 		expect(result.firstMakes, `s_dragon_body must close -- makes: ${result.firstMakes.join(',')}`).toContain('s_dragon_body');
 		assertNotStranded(result, 'Dragon body');
 		assertNotStillInPlay(result, 'Dragon body');
@@ -821,11 +796,11 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 		// comfortably past DRAGON_LEG_Y1_MM = 620, this file's own original
 		// budget for exactly this reason); the long drive covers the
 		// eventual-fate assertions item (c) actually calls for.
-		const immediate = driveShotChecked({ x: 170, y: 380, z: 13.5 }, 1600, 0, 500, ['s_lock_lane']);
+		const immediate = driveCase('lock-lane-immediate');
 		expect(immediate.firstMakes, `s_lock_lane must close -- makes: ${immediate.firstMakes.join(',')}`).toContain('s_lock_lane');
 		expect(immediate.firstMakes, 'a precise centreline shot must not also strike a leg face on its own way through').not.toContain('s_dragon_body');
 
-		const result = driveShotChecked({ x: 170, y: 380, z: 13.5 }, 1600, 0, 5000, ['s_lock_lane']);
+		const result = driveCase('lock-lane-long');
 		assertNotStranded(result, 'Lock lane');
 		assertNotStillInPlay(result, 'Lock lane');
 	});
@@ -846,10 +821,10 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => 
 		// col_sling_r's own west face (314), so both offsets sit inside it --
 		// x 293..300.5 for a ball's own centre. assertReleaseClear() rejected
 		// the wider pair this story first tried.
-		{ label: 'left column of the corridor', x: 294 },
-		{ label: 'right column of the corridor', x: 300 },
-	])('$label: at least one DRAGON-bank target closes, and the ball is not stranded', ({ x }) => {
-		const result = driveShotChecked({ x, y: 400, z: 13.5 }, 1600, 0, 5000, bankLetters);
+		{ label: 'left column of the corridor', id: 'dragon-bank-left-column-294' },
+		{ label: 'right column of the corridor', id: 'dragon-bank-right-column-300' },
+	])('$label: at least one DRAGON-bank target closes, and the ball is not stranded', ({ id }) => {
+		const result = driveCase(id);
 		const hitAny = result.firstMakes.some((s) => bankLetters.includes(s));
 		expect(hitAny, `at least one s_dragon_[d,r,a,g,o,n] must close -- makes: ${result.firstMakes.join(',')}`).toBe(true);
 		assertNotStranded(result, 'DRAGON bank');
@@ -871,11 +846,11 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Top lanes', () => {
 		// single symmetric vertex under x-free gravity rather than a flat
 		// face. x = 110 (verified this story's own diagnostic pass) makes a
 		// genuinely off-centre, asymmetric graze instead and drains cleanly.
-		{ label: 'lane 1', x: 110, expected: 's_top_1' as SwitchName },
-		{ label: 'lane 2', x: 245, expected: 's_top_2' as SwitchName },
-		{ label: 'lane 3', x: 345, expected: 's_top_3' as SwitchName },
-	])('$label: its own top-lane switch closes on a ball entering from below, and the ball is not stranded', ({ x, expected }) => {
-		const result = driveShotChecked({ x, y: 900, z: 13.5 }, 1500, 0, 6600, [expected]);
+		{ label: 'lane 1', id: 'top-lane-1', expected: 's_top_1' as SwitchName },
+		{ label: 'lane 2', id: 'top-lane-2', expected: 's_top_2' as SwitchName },
+		{ label: 'lane 3', id: 'top-lane-3', expected: 's_top_3' as SwitchName },
+	])('$label: its own top-lane switch closes on a ball entering from below, and the ball is not stranded', ({ id, expected }) => {
+		const result = driveCase(id);
 		expect(result.firstMakes, `${expected} must close -- makes: ${result.firstMakes.join(',')}`).toContain(expected);
 		assertNotStranded(result, `Top lane (${expected})`);
 		assertNotStillInPlay(result, `Top lane (${expected})`);
@@ -889,10 +864,10 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- both slingshots', ()
 		// 11.5 mm on the right against a 26.99 mm ball -- the inlanes were not
 		// merely unfed, they were physically unreachable). Both releases move
 		// with them, and both now clear the new col_guide_inlane_l/_r too.
-		{ label: 'left slingshot', x: 115, y: 370, dirDeg: -10, switchName: 's_sling_l' as SwitchName },
-		{ label: 'right slingshot', x: 350, y: 370, dirDeg: 10, switchName: 's_sling_r' as SwitchName },
-	])('$label: its own switch closes, and the miss reaches an inlane or drains rather than stranding', ({ x, y, dirDeg, switchName }) => {
-		const result = driveShotChecked({ x, y, z: 13.5 }, 1200, dirDeg, 5000, [switchName]);
+		{ label: 'left slingshot', id: 'slingshot-left', switchName: 's_sling_l' as SwitchName },
+		{ label: 'right slingshot', id: 'slingshot-right', switchName: 's_sling_r' as SwitchName },
+	])('$label: its own switch closes, and the miss reaches an inlane or drains rather than stranding', ({ id, switchName }) => {
+		const result = driveCase(id);
 		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
 		assertNotStranded(result, `Slingshot (${switchName})`);
 		assertNotStillInPlay(result, `Slingshot (${switchName})`);
@@ -901,7 +876,7 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- both slingshots', ()
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumpers', () => {
 	it.each([
-		{ label: 'pop 1', x: 130, y: 700, switchName: 's_pop_1' as SwitchName },
+		{ label: 'pop 1', id: 'pop-bumper-1', switchName: 's_pop_1' as SwitchName },
 		// Story 2.1c task 2: y moved from targetY-100 (700, unchanged) is fine
 		// here, but x moved 230 -> 220 -- (230, 700) sat 0.69 mm inside
 		// col_dragon_bank_backstop's own sloped corner (Code Map). Then
@@ -911,10 +886,10 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumper
 		// putting 220 back inside the same corner. [The "230 -> 220" half of
 		// this comment stood alone against a shipped 200 until 2026-09-03;
 		// completed at code review, no release point moved.]
-		{ label: 'pop 2', x: 200, y: 700, switchName: 's_pop_2' as SwitchName },
-		{ label: 'pop 3', x: 180, y: 770, switchName: 's_pop_3' as SwitchName },
-	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ x, y, switchName }) => {
-		const result = driveShotChecked({ x, y, z: 13.5 }, 1000, 0, 6600, [switchName]);
+		{ label: 'pop 2', id: 'pop-bumper-2', switchName: 's_pop_2' as SwitchName },
+		{ label: 'pop 3', id: 'pop-bumper-3', switchName: 's_pop_3' as SwitchName },
+	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ id, switchName }) => {
+		const result = driveCase(id);
 		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
 		assertNotStranded(result, `Pop bumper (${switchName})`);
 		assertNotStillInPlay(result, `Pop bumper (${switchName})`);
@@ -954,21 +929,21 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// join the sweep as well -- col_ramp_turn's own cap and
 		// col_loop_r_lower's -- both authored by this story and both bevelled
 		// for the same DW-119 reason as the rest.
-		{ label: 'left slingshot (col_sling_l)', x: 115, y: 465 },
-		{ label: 'right slingshot (col_sling_r)', x: 350, y: 465 },
-		{ label: 'left Dragon leg (col_dragon_leg_l)', x: 120, y: 660 },
-		{ label: 'right Dragon leg (col_dragon_leg_r)', x: 220, y: 660 },
-		{ label: 'Ramp left wall (col_ramp_wall_l)', x: 332, y: 880 },
-		{ label: 'Ramp right wall cap (col_ramp_wall_r)', x: 376, y: 758 },
-		{ label: 'Ramp top turn cap (col_ramp_turn)', x: 360, y: 895 },
+		{ label: 'left slingshot (col_sling_l)', id: 'descend-sling-l' },
+		{ label: 'right slingshot (col_sling_r)', id: 'descend-sling-r' },
+		{ label: 'left Dragon leg (col_dragon_leg_l)', id: 'descend-dragon-leg-l' },
+		{ label: 'right Dragon leg (col_dragon_leg_r)', id: 'descend-dragon-leg-r' },
+		{ label: 'Ramp left wall (col_ramp_wall_l)', id: 'descend-ramp-wall-l' },
+		{ label: 'Ramp right wall cap (col_ramp_wall_r)', id: 'descend-ramp-wall-r-cap' },
+		{ label: 'Ramp top turn cap (col_ramp_turn)', id: 'descend-ramp-turn-cap' },
 		// col_loop_r_lower's own cap has no column of its own: the gap between
 		// it and col_ramp_return_1 above measures 13 mm, under the reference
 		// ball, so nothing can be dropped onto it from directly above. It is
 		// exercised instead by the Ramp case, whose return lands on it and
 		// slides east off it on every made shot (traced).
-		{ label: 'Ramp return rail (col_ramp_return_1)', x: 396, y: 800 },
-		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', x: 240, y: 750 },
-		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', x: 310, y: 750 },
+		{ label: 'Ramp return rail (col_ramp_return_1)', id: 'descend-ramp-return-rail' },
+		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', id: 'descend-dragon-d' },
+		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', id: 'descend-dragon-n' },
 		// Story 2.1c review fix (MED finding): col_loop_top's own north face
 		// (the re-joined DW-123 connector) is 368.4 mm wide (x 50..418.4) --
 		// by far the largest north face on the table. It USED to be dead
@@ -996,10 +971,11 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// 1 mm either side of it rolls off normally (26 mm). That is the
 		// knife-edge the generator's own note calls out, not a defect these
 		// columns should chase.
-		{ label: 'col_loop_top, west of centre', x: 150, y: 1035 },
-		{ label: 'col_loop_top, east of centre', x: 300, y: 1035 },
-	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ x, y }) => {
-		const result = driveShotChecked({ x, y, z: 13.5 }, 1, 0, 6600, []);
+		{ label: 'col_loop_top, west of centre', id: 'descend-loop-top-west' },
+		{ label: 'col_loop_top, east of centre', id: 'descend-loop-top-east' },
+	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ id }) => {
+		const result = driveCase(id);
+		const { x, y } = shotCase(id).startMm;
 		assertNotStranded(result, `Descending release (${x}, ${y})`);
 	});
 });

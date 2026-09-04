@@ -21,7 +21,8 @@
     "check:attributions": "node tools/check-attributions.mjs",
     "export:assets": "node tools/export-assets.mjs",
     "check:ad7": "vitest run --config test/fixtures/dw70-ad7/vitest.harness.config.ts",
-    "check:corridor": "vitest run --config test/fixtures/dw137-corridor/vitest.harness.config.ts"
+    "check:corridor": "vitest run --config test/fixtures/dw137-corridor/vitest.harness.config.ts",
+    "check:reachability": "vitest run --config test/fixtures/reachability/vitest.harness.config.ts"
   },
   "devDependencies": {
     "@swc/core": "1.16.1",

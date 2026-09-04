@@ -2,10 +2,10 @@
 title: 'Story 2.1e: Every shot case proves its own start point is reachable'
 type: 'feature'
 created: '2026-09-03'
-status: 'ready-for-dev' # draft | ready-for-dev | in-progress | in-review | done | blocked
-baseline_revision: '27ed299e3b4bbbeba0b87f383e41dd018324f7a2'
+status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: 'da48b02eb72534a9ba39712902ff711d31f780fe'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
@@ -13,7 +13,140 @@ context:
   - '{project-root}/_bmad-output/implementation-artifacts/spec-2-1c-the-loop-returns-and-the-inlane-feed.md'
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Top lane 1's release point (110, 900 -- straight-up flipper-band
+      approach) is not reached by any witness this story's in-suite or
+      dense-sweep search could construct.
+    evidence: >-
+      Measured closest approach 65.435 mm (tolerance 13.495 mm) via the
+      best available witness (a full-strength plunge). Both siblings
+      (top-lane-2, top-lane-3) show the same shape (66.562-74.282 mm), and
+      the whole cluster is far more likely a limitation of this story's
+      single-left-bat witness technique (no right-bat origin exists via
+      `bd_shooter`, and no multi-bounce chain was searched) than a genuine
+      geometry defect -- top lanes are a basic, expected flipper shot in
+      real play. Candidate DW-138 (reserved via `ledger.sh next-id`, not
+      written -- Rule 15(a)).
+    location: 'test/util/shot-cases.ts (top-lane-1)'
+    severity: low
+  - summary: >-
+      Top lane 2's release point (245, 900) is not reached by any witness.
+    evidence: >-
+      Measured closest approach 66.562 mm. Same finding class as top-lane-1
+      -- see that entry. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (top-lane-2)'
+    severity: low
+  - summary: >-
+      Top lane 3's release point (345, 900) is not reached by any witness.
+    evidence: >-
+      Measured closest approach 74.282 mm. Same finding class as top-lane-1
+      -- see that entry. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (top-lane-3)'
+    severity: low
+  - summary: >-
+      Pop bumper 1's release point (130, 700) is not reached by any
+      witness, while pop bumpers 2 and 3 (same witness family, nearby
+      coordinates) ARE reached.
+    evidence: >-
+      Measured closest approach 32.976 mm. The witness that reaches pop 2
+      (3.2 mm) and pop 3 (0.09 mm) misses pop 1 by a wide margin --
+      suggests a slightly different flip parameter would close this, not a
+      structural block. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (pop-bumper-1)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the left slingshot's own
+      rebevelled face (col_sling_l, 115, 465) is not reached by any
+      witness.
+    evidence: >-
+      Measured closest approach 51.859 mm. This is a DW-119-bevel
+      regression pin (Rework iteration 2, item (e)), not a shot the routing
+      map claims is a real player shot -- its own reachability was never
+      claimed before this story either. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-sling-l)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the right slingshot's own
+      rebevelled face (col_sling_r, 350, 465) is not reached by any
+      witness.
+    evidence: >-
+      Measured closest approach 39.979 mm. Same finding class as
+      descend-sling-l -- see that entry. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-sling-r)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the left Dragon leg
+      (col_dragon_leg_l, 120, 660) is not reached by any witness.
+    evidence: >-
+      Measured closest approach 32.706 mm. Same DW-119-bevel-pin shape as
+      descend-sling-l -- see that entry. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-dragon-leg-l)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the right Dragon leg
+      (col_dragon_leg_r, 220, 660) is not reached by any witness, and sits
+      JUST outside tolerance.
+    evidence: >-
+      Measured closest approach 15.533 mm against the 13.495 mm tolerance
+      -- a 2.038 mm shortfall, the closest miss in the whole unreachable
+      set. Very likely resolves with a slightly different flip parameter;
+      flagged for priority re-search over the rest of this cluster.
+      Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-dragon-leg-r)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the Ramp left wall
+      (col_ramp_wall_l, 332, 880) is not reached by any witness.
+    evidence: >-
+      Measured closest approach 68.446 mm. Sits inside the bottom-right
+      corridor DW-137 already documents as unreachable from below -- likely
+      the SAME root cause, not a new one; Story 2.1f's corridor re-solve is
+      the natural place this resolves. Candidate DW-138 if it does not.
+    location: 'test/util/shot-cases.ts (descend-ramp-wall-l)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the Ramp right wall cap
+      (col_ramp_wall_r, 376, 758) is not reached by any witness.
+    evidence: >-
+      Measured closest approach 46.901 mm. Same DW-137-corridor-adjacent
+      finding as descend-ramp-wall-l -- see that entry. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-ramp-wall-r-cap)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the Ramp top turn cap
+      (col_ramp_turn, 360, 895) is not reached by any witness.
+    evidence: >-
+      Measured closest approach 59.450 mm. Same DW-137-corridor-adjacent
+      finding as descend-ramp-wall-l -- see that entry. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-ramp-turn-cap)'
+    severity: low
+  - summary: >-
+      The descending-release column onto the Ramp return rail
+      (col_ramp_return_1, 396, 800) is not reached by the in-suite witness
+      set, though the dense out-of-process sweep's own wider grid found a
+      closer (but still short) approach.
+    evidence: >-
+      In-suite closest approach 25.987 mm; the dense sweep's own broader
+      grid (test/fixtures/reachability/reachability-sweep.harness.ts)
+      found 16.381 mm via a plunge-strength recipe not among the 9
+      in-suite witnesses -- still over the 13.495 mm tolerance, but the
+      gap is narrowing under a wider search. Same DW-137-corridor-adjacent
+      family as descend-ramp-wall-l. Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-ramp-return-rail)'
+    severity: low
+  - summary: >-
+      The descending-release column onto DRAGON bank target col_dragon_d
+      (240, 750) is not reached by any witness, while its mirror
+      (col_dragon_n, 310, 750) IS reached by the same witness family.
+    evidence: >-
+      Measured closest approach 25.841 mm. The asymmetry (col_dragon_n
+      reachable at 11.2 mm, col_dragon_d not) suggests the witness family
+      that reaches the DRAGON bank's right side needs a mirrored or
+      differently-timed variant for the left side, not a structural block.
+      Candidate DW-138.
+    location: 'test/util/shot-cases.ts (descend-dragon-d)'
+    severity: low
 ---
 
 <intent-contract>
@@ -174,7 +307,142 @@ Read at HEAD `27ed299e3b4bbbeba0b87f383e41dd018324f7a2` (tree clean, branch `DW-
 
 ## Spec Change Log
 
+**2026-09-03 -- implementation pass.** Phases 1-4 complete. `test/util/plan-geometry.ts`, `test/util/shot-cases.ts`, `test/util/reachability.ts`, `test/shot-reachability.test.ts`, `test/fixtures/reachability/reachability-sweep.harness.ts` + `vitest.harness.config.ts` are new; `test/shot-routing.test.ts` is refactored to `driveCase(id)` with byte-identical driven behaviour (38 passed, unchanged); `package.json` gains `check:reachability`; `AGENTS.md` documents it. No geometry, tuning, or golden file touched (confirmed below).
+
+**The single biggest finding of this pass, found by the Phase 3 dense sweep, not the Phase 2 in-suite search:** a **medium-strength plunge (hold ≈ 270-300 ticks, below `plungerMaxHoldTicks` = 500)** does not have enough energy to complete the top crossing, so it **ascends the RIGHT lane, barely enters the top of the loop channel (closing `s_loop_r_out` then `s_loop_r_in`), and falls back down the SAME lane it ascended** -- a real, non-teleported trajectory that passes within 1-5 mm of every Right Loop entry offset and both right off-column release points. This resolved what the Boundaries' Block-If clause anticipated as a possible HALT (no witness for the Right Loop entry release points): the Phase 2 in-suite search (weak-plunge sweep at 100-900 ticks in steps of 25-50, plus ~280 left-bat-flip combinations) never sampled this narrow window; the Phase 3 dense sweep's finer plunge-strength grid (240-380 in steps of 5) found it. `plunge-medium-285` (hold 285, the best point in that window) is now witness #3 in `WITNESSES`. **No case remains that the committed suite demonstrably drives a real ball through yet this story could not prove reachable** -- the Block-If HALT condition was never triggered in the end.
+
+**Witness set (`test/util/reachability.ts`, `WITNESSES`), all origin `bd_shooter` via `c_trough_eject`, never a teleport:**
+
+| id | recipe | switches closed (first-observed order) | segments | path (mm) |
+| --- | --- | --- | --- | --- |
+| `plunge-full` | settle 320, hold 521 (full strength, past `plungerMaxHoldTicks`=500), release, run 4300 | `s_shooter_lane, s_loop_l_out, s_loop_l_in, s_inlane_l, s_drain, s_trough_4` | 5109 | 2726.6 |
+| `plunge-weak-345` | settle 320, hold 345 (partial strength -- fails the top crossing), release, run 5500 | `s_shooter_lane, s_loop_l_out, s_spinner, s_loop_l_in, s_outlane_l, s_drain` | 6164 | 2758.1 |
+| `plunge-medium-285` | settle 320, hold 285 (weaker still -- ascends the RIGHT lane, falls back), release, run 5500 | `s_shooter_lane, s_loop_r_out, s_loop_r_in, s_outlane_r, s_drain, s_trough_4` | 4870 | 2319.8 |
+| `plunge-then-bat-l-3911` | `plunge-full`, then `frame.flipper_l` held ticks 3911-3971 (relative to release), run 7000 | `..., s_dragon_body, s_drain, s_trough_4` | 6418 | 3590.9 |
+| `plunge-then-bat-l-3918` | `plunge-full`, flip 3918-3978, run 7000 | `..., s_dragon_body, s_drain, s_trough_4` | 6610 | 3629.6 |
+| `plunge-then-bat-l-3945` | `plunge-full`, flip 3945-3975 (a 30-tick tap), run 7000 | `..., s_lock_lane, s_pop_1, s_pop_3` | 7840 | 3912.1 |
+| `plunge-then-bat-l-3944-35` | `plunge-full`, flip 3944-3979 (35-tick), run 7000 | `..., s_lock_lane, s_pop_1, s_pop_3, s_pop_2` | 7840 | 3876.1 |
+| `plunge-then-bat-l-3960` | `plunge-full`, flip 3960-4040, run 6600 | `..., s_sling_l, s_drain, s_trough_4` | 6790 | 3498.2 |
+| `plunge-then-bat-l-4040` | `plunge-full`, flip 4040-4070 (a 30-tick tap), run 7000 | `..., s_drain, s_trough_4` | 6589 | 3283.1 |
+| `plunge-then-bat-l-4110` | `plunge-full`, flip 4110-4170, run 7000 | `..., s_sling_r, s_drain, s_trough_4` | 6538 | 3572.1 |
+
+Every witness clears `MIN_WITNESS_SEGMENTS` (500) and `MIN_WITNESS_PATH_MM` (500) by a wide margin and closes its own declared `expectedSwitch`. **No `bat_r` witness exists**: `bd_shooter` has exactly one exit (the manual plunge / `pulse c_autolaunch`, AD-6's "one code path"), and at every swept plunge strength (33 values 20-900 ticks, plus the fine 240-380 window) the trajectory reaches the LEFT bat or falls back into the shooter lane -- never the right. This was searched exhaustively (see the Phase 3 harness's own header) and is recorded as this story's own significant negative finding, not asserted lightly.
+
+**Verdict table -- all 39 driven cases (AC 2):**
+
+| case id | release point (mm) | verdict | closest approach (mm) | witness / ledger |
+| --- | --- | --- | --- | --- |
+| `left-loop-orbit-28` | (28, 415) | reachable | 4.868 | `plunge-weak-345` |
+| `left-loop-orbit-31` | (31, 415) | reachable | 1.868 | `plunge-weak-345` |
+| `left-loop-orbit-34` | (34, 415) | reachable | 1.131 | `plunge-weak-345` |
+| `right-loop-orbit-28` | (440.4, 415) | reachable | 1.088 | `plunge-medium-285` |
+| `right-loop-orbit-31` | (437.4, 415) | reachable | 2.876 | `plunge-medium-285` |
+| `right-loop-orbit-34` | (434.4, 415) | reachable | 4.874 | `plunge-medium-285` |
+| `dw123-single-ball-orbit` | (437.4, 415) | reachable | 2.876 | `plunge-medium-285` |
+| `loop-off-column-left-west-18` | (18, 415) | reachable | 11.166 | `plunge-weak-345` |
+| `loop-off-column-left-east-45` | (45, 415) | reachable | 6.992 | `plunge-full` |
+| `loop-off-column-right-west-18` | (450.4, 415) | reachable | 1.122 | `plunge-medium-285` |
+| `loop-off-column-right-east-45` | (423.4, 415) | reachable | 5.123 | `plunge-medium-285` |
+| `left-loop-1200` | (31, 415) | reachable | 1.868 | `plunge-weak-345` |
+| `ramp-return-geometry` | (355, 465) | **unreachable** | 44.979 | `DW-137` |
+| `centre-drain-descent` | (257.2, 200) | reachable | 0.825 | `plunge-then-bat-l-4040` |
+| `dragon-body` | (140, 380) | reachable | 0.610 | `plunge-then-bat-l-3911` |
+| `lock-lane-immediate` | (170, 380) | reachable | 6.975 | `plunge-then-bat-l-3945` |
+| `lock-lane-long` | (170, 380) | reachable | 6.975 | `plunge-then-bat-l-3945` |
+| `dragon-bank-left-column-294` | (294, 400) | reachable | 5.264 | `plunge-then-bat-l-3918` |
+| `dragon-bank-right-column-300` | (300, 400) | reachable | 0.735 | `plunge-then-bat-l-3918` |
+| `top-lane-1` | (110, 900) | **unreachable** | 65.435 | `DW-138` (candidate) |
+| `top-lane-2` | (245, 900) | **unreachable** | 66.562 | `DW-138` (candidate) |
+| `top-lane-3` | (345, 900) | **unreachable** | 74.282 | `DW-138` (candidate) |
+| `slingshot-left` | (115, 370) | reachable | 2.316 | `plunge-then-bat-l-3960` |
+| `slingshot-right` | (350, 370) | reachable | 1.515 | `plunge-then-bat-l-4110` |
+| `pop-bumper-1` | (130, 700) | **unreachable** | 32.976 | `DW-138` (candidate) |
+| `pop-bumper-2` | (200, 700) | reachable | 3.195 | `plunge-then-bat-l-3945` |
+| `pop-bumper-3` | (180, 770) | reachable | 0.093 | `plunge-then-bat-l-3945` |
+| `descend-sling-l` | (115, 465) | **unreachable** | 51.859 | `DW-138` (candidate) |
+| `descend-sling-r` | (350, 465) | **unreachable** | 39.979 | `DW-138` (candidate) |
+| `descend-dragon-leg-l` | (120, 660) | **unreachable** | 32.706 | `DW-138` (candidate) |
+| `descend-dragon-leg-r` | (220, 660) | **unreachable** | 15.533 | `DW-138` (candidate) |
+| `descend-ramp-wall-l` | (332, 880) | **unreachable** | 68.446 | `DW-138` (candidate) |
+| `descend-ramp-wall-r-cap` | (376, 758) | **unreachable** | 46.901 | `DW-138` (candidate) |
+| `descend-ramp-turn-cap` | (360, 895) | **unreachable** | 59.450 | `DW-138` (candidate) |
+| `descend-ramp-return-rail` | (396, 800) | **unreachable** | 25.987 | `DW-138` (candidate) |
+| `descend-dragon-d` | (240, 750) | **unreachable** | 25.841 | `DW-138` (candidate) |
+| `descend-dragon-n` | (310, 750) | reachable | 11.221 | `plunge-then-bat-l-3944-35` |
+| `descend-loop-top-west` | (150, 1035) | reachable | 5.844 | `plunge-weak-345` |
+| `descend-loop-top-east` | (300, 1035) | reachable | 5.595 | `plunge-weak-345` |
+
+25 reachable, 14 unreachable (1 `DW-137`, 13 `DW-138`-candidate -- recorded in frontmatter `deferred:`, not written to the ledger, per Rule 15(a); `ledger.sh next-id` confirmed 138 free both before and after this pass). `REACHABILITY_TOLERANCE_MM = 13.495`.
+
+**`DW-130` -- the feed-rail proximity record (AC 5), measured from the cases whose own describe block asserts `assertReachesFlipperBand(..., 'r')` (the three Left Loop orbit cases + the Ramp case) against `col_guide_inlane_feed_r`, and `assertReachesFlipperBand(..., 'l')` (the three Right Loop orbit cases) against `col_guide_inlane_feed_l`:**
+
+- **RIGHT** (`col_guide_inlane_feed_r`): margin **+0.019798458333 mm** (clears -- reproduced bit-identically across repeated runs; AD-3, no solver noise).
+- **LEFT** (`col_guide_inlane_feed_l`): margin **-0.007077330733 mm** (contacts).
+
+Both match this story's own Code Map citation of Story 2.1c's code review pass 3 ("left contacts by ~0.006 mm; right clears by ~0.020 mm") closely. `FEED_MARGIN_AGREEMENT_BAND_MM = 0.01` -- tight because the simulation is deterministic; a looser band (0.05, this pass's first attempt) let the required 20 mm mutation pass silently (the mutated margin moved to -0.0071, only 0.027 mm from the original +0.0198 -- DW-130's own point in miniature: the ball funnels along whichever surface bounds it, so contact margin stays near zero either way, and the SIGN is what actually moves). Tightened after catching this on the mutation demonstration itself (see below).
+
+**Measured runtimes:**
+
+- `npx vitest run test/shot-routing.test.ts` -- **38 passed**, 4.19-4.44 s tests / ~4.9-5.0 s total (baseline 5.02 s / 4.24 s tests -- unchanged in effect, within normal run-to-run variance).
+- `npx vitest run test/shot-reachability.test.ts` -- **87 passed**, self-time **2.8-3.2 s** (well under the 10 s Block-If budget).
+- `pnpm check:reachability` -- **exit 0**, **471 releases evaluated** in **~75-76 s**, all 39 cases agree with `SHOT_CASES`'s own declarations (0 mismatches). Sweep = 36 coarse plunge-only strengths (20-900 step 25) + 29 fine plunge-only strengths (240-380 step 5, the window that found `plunge-medium-285`) + 66 flip ticks (3650-4300 step 10) x 6 hold durations (396 combinations) + all 10 `WITNESSES` recipes verbatim (a few of which exactly overlap the surrounding grid, by design), so the dense sweep can never disagree with the in-suite gate merely by stepping over a narrow window a targeted search already found. (36 + 29 + 396 + 10 = 471, matching the reported count.)
+- `npx vitest run` (full suite) -- **89 files / 1286 passed / 22 skipped**, 32.98-33.56 s wall. Baseline was 88 files / 1199 passed (without `BLENDER`) -- delta is exactly `test/shot-reachability.test.ts`'s own 87 new tests, 1 new file. 22 skips unchanged.
+
+**Verification commands run, all as specified:**
+
+- `pnpm typecheck` -- clean (all three projects).
+- `pnpm lint:boundaries` -- OK, 83 `.ts` files under `src/`, no violations (unaffected by this story -- it authors no `src/` file).
+- `pnpm check:headers` -- OK against tracked files; this story's 6 new files were manually verified to carry the exact sanctioned `// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.` marker (the check reads `git ls-files`, so untracked new files are invisible to it until staged/committed -- confirmed by inspection, not by the tool, pending the commit that makes them tracked).
+- `pnpm check:attributions` -- OK (no new dependency; this story adds none).
+- `pnpm check:ad7` -- exit 1, unchanged (still intended-red, DW-70).
+- `pnpm check:corridor` -- exit 1, unchanged (still intended-red, DW-137, naming `2.1f` and `50.990`).
+- `npx vitest run` -- 89 files / 1286 passed / 22 skipped (see above).
+- `pnpm build && pnpm check:dist && pnpm check:size` -- all exit 0 (`check:dist`: 2 HTML pages, 141 files; `check:size`: 0.845 MB measured against a 2.750 MB budget).
+- `git diff --stat -- assets/src/dragonwar.blend public/assets/dragonwar.glb public/assets/dragonwar.collision.json test/replays/` -- **empty**, confirmed both before and after every mutation demonstration below (SHA-256 of `dragonwar.collision.json` unchanged: `4955324fce88eab4b25f2930b3cf801f88c66c487f4d3b4e1756d3e2c603ecc1`).
+
+**Mutations demonstrated (Rule 19 -- one per AC; applied, red observed with the required content, reverted, tree confirmed byte-identical):**
+
+- **AC 1** -- `dragon-body`'s `startMm` moved from (140, 380) to (376, 470) (inside the Ramp channel band) -> `test/shot-reachability.test.ts` failed naming `"dragon-body"`, witness `"plunge-then-bat-l-3911"`, and the measured closest approach (121.400 mm) against the 13.495 mm tolerance. Reverted; tree confirmed unchanged by `git diff`.
+- **AC 2** -- (a) the Ramp case's declaration flipped from `unreachable` to `{ kind: 'reachable', witness: 'plunge-full' }` -> failed naming `"ramp-return-geometry"` and the measured closest approach (142.400 mm). (b) Inverse: `dragon-body`'s declaration flipped to `{ kind: 'unreachable', ledger: 'DW-999', closestApproachMm: 50, note: '...' }` -> failed because witness `"plunge-then-bat-l-3911"` comes within 0.610 mm -- "a genuinely-fixed case must be re-declared reachable, not left marked unreachable." Both reverted.
+- **AC 3** -- (a) `SHOT_CASES` emptied (wrapped in `true ? [] : [...]`) -> failed on `"SHOT_CASES has only 0 entries, below the recorded floor of 39"` -- the anti-vacuity test, not a downstream one. (b) `plunge-then-bat-l-3911`'s flip `atTick` moved to 99999 (past its own 7000-tick budget) -> `assertWitnessCorpusHealthy()` failed FIRST (before any per-case test even ran, confirmed by describe-block ordering) naming the witness and its missing `s_dragon_body` closure. Both reverted.
+- **AC 4** -- `left-loop-orbit-28`'s `speedMmPerS` moved from 2200 to 800 -> `test/shot-routing.test.ts` failed on its own `assertOrbitOrder()` (`s_loop_l_out must close`) -- the manifest is genuinely the input the consumer drives, not a parallel description. Reverted; **38/38 confirmed passing again**.
+- **AC 5** -- (a) `col_guide_inlane_feed_r`'s `bboxMm` and `footprintMm` shifted 20 mm west directly in `public/assets/dragonwar.collision.json` -> the RIGHT feed-rail proximity record failed, margin moved from +0.0198 to -0.0071 mm (0.0269 mm away from recorded, over the 0.01 mm band). Reverted; SHA-256 confirmed byte-identical. (b) `col_guide_inlane_feed_r` deleted from the document entirely -> failed with `"the feed-rail proximity record cannot be evaluated: \"col_guide_inlane_feed_r\" is absent from the committed collision document"` -- a named failure, not an opaque `nodeBboxMm()` import-time throw. Reverted; SHA-256 confirmed byte-identical both times.
+- **AC 6** -- `buildSweepRecipes()` in `test/fixtures/reachability/reachability-sweep.harness.ts` short-circuited to return `[]` -> `pnpm check:reachability` exited **1** on `"only 0 releases were evaluated, below the anti-vacuity floor of 300"`. Reverted; re-ran clean (exit 0, 471 releases, 0 mismatches).
+- **AC 7** -- no mutation (preservation gates). `git diff --stat` over the geometry/golden paths is the check itself, confirmed empty throughout.
+
+**One methodology note, recorded rather than hidden:** the first `FEED_MARGIN_AGREEMENT_BAND_MM` chosen (0.05 mm, reasoned as "generous solver-noise headroom") let the AC 5(a) mutation pass silently on first attempt, because the simulation is fully deterministic (AD-3 -- there is no solver noise to be generous about) and this specific geometry's contact margin stays numerically tiny on both sides of a 20 mm shift (the ball funnels along whichever surface bounds it). Caught by actually running the required mutation before considering the story done, not by inspection; the band was tightened to 0.01 mm (guided by the measured deterministic values, not a reused convention) and the mutation re-run to confirm red.
+
 ## Review Triage Log
+
+### 2026-09-03 — Review pass
+
+Four parallel review layers run: Blind Hunter (10 findings), Edge Case Hunter (8 findings), Verification Gap (0 gaps; 2 incidental findings), Intent Alignment Auditor (descriptive report, no findings list). After dedup (the `CENTRE_X_MM` frozen-literal and the 33-vs-36 sweep-count miscount were each independently caught by two layers):
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 1, low 9)
+- defer: 5: (high 0, medium 1, low 4)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` `test/util/shot-cases.ts`'s `centre-drain-descent` release x was frozen as a plain literal (`257.2`) where the pre-refactor call site derived it live from `TABLE.reference.playfieldMm.w / 2` -- a direct violation of task 2's "derived expressions stay derived, not frozen to floats." Fixed: imported `TABLE`, restored the live derivation, corrected the doc comment. Re-verified: `check:reachability` re-run produces byte-identical verdicts (471 releases, 0 mismatches).
+  - `[low]` `[patch]` The frontmatter `deferred:` entry for `top-lane-1` cited siblings' closest-approach range as "62.9-74.3 mm"; the actual recorded values are 66.562 and 74.282 mm. Fixed the range in the evidence text.
+  - `[low]` `[patch]` `test/util/reachability.ts`'s doc comment above `MIN_WITNESS_SEGMENTS`/`MIN_WITNESS_PATH_MM` named `plunge-full` as "the shortest witness," but `plunge-medium-285` (4870 segments / 2319.8 mm) is shorter. Corrected the comment.
+  - `[low]` `[patch]` The dense sweep's own doc comment and the Spec Change Log both undercounted the coarse plunge-strength loop as "33" when the actual loop (`20` to `900` step `25`) yields 36 values -- the stated breakdown didn't even sum to the reported 471. Corrected both to 36 + 29 + 396 + 10 = 471, and noted that a few of the 10 explicit `WITNESSES` recipes deliberately overlap the surrounding grid.
+  - `[low]` `[patch]` `test/shot-routing.test.ts` imported `pointToSegmentDistanceMm` and `pointInPolygon` from `plan-geometry.ts` but only calls `distanceToPolygonMm`. Removed the two unused imports (the other two remain genuinely used by `test/shot-reachability.test.ts`).
+  - `[low]` `[patch]` `test/fixtures/reachability/reachability-sweep.harness.ts` imported `toPhysics` and `MM_PER_VU` from `src/sim/table/frames` but used neither. Removed both (kept `fromPhysics`, which is used).
+  - `[low]` `[patch]` The same harness reinvented `shotCase()` under a local name `shotCaseById()`, duplicating find-or-throw logic already exported from `test/util/shot-cases.ts` (which the file already imports from). Replaced the duplicate with the existing export.
+  - `[low]` `[patch]` `test/shot-routing.test.ts`'s top-of-file header comment (near the `assertReleaseClear()` description) still read "every `driveShotChecked()` call fails naming the body or zone," a function this story's task 3 removed. Updated to `driveCase()`.
+  - `[low]` `[patch]` No test asserted `SHOT_CASES` ids are unique; a duplicate id would make `shotCase()`/`driveCase()` silently resolve only the first entry, leaving a later same-id case undriven and unverified. Added a uniqueness assertion to the declaration-completeness describe block in `test/shot-reachability.test.ts`.
+  - `[low]` `[patch]` `test/util/reachability.ts` exported `witnessLabel()`, unused anywhere in the repository (confirmed by grep). Removed.
+  - `[medium]` `[defer]` Intent Alignment Auditor: the Boundaries' Block-If clause ("a case the committed suite demonstrably drives a real ball through is nonetheless found unreachable ... fix the instrument, do not record a false unreachable verdict") is anchored in specific, already-known independent evidence for the Left/Right Loop entries (the plunge's own measured switch sequence) -- evidence this spec does not record for the top lanes or `pop-bumper-1`. Assessed and NOT treated as a Block-If violation: the clause's literal trigger names only the Loop cases, and by the broader reading every one of the 38 pre-existing routing cases would qualify (since each "passes" its own teleported-then-launched assertion), which would make AC 2's entire unreachable-verdict mechanism incoherent. The underlying concern -- that `top-lane-1/2/3` and `pop-bumper-1`'s "unreachable" verdicts may reflect this story's single-origin (plunge, plunge-then-left-bat-flip only) witness-search technique rather than genuine geometry, since `bd_shooter` structurally never reaches the right bat and `arrangeCradleBall()`'s cradle-placement technique was never exercised -- is real, already self-reported by the implementation with correct epistemic framing in the frontmatter's own `deferred:` entries (only the sibling-range figure needed correcting, done above), and requires meaningfully new search machinery with no guaranteed payoff (high fix-risk). Left deferred, in-story, for the lead to route at harvest.
+  - `[low]` `[defer]` Edge Case Hunter: `test/shot-reachability.test.ts`'s `segmentToPolygonDistanceMm()` measures distance via 4 point-to-segment distances and does not detect a swept segment that fully crosses a thin polygon edge between two out-of-polygon endpoints (no `segmentsIntersect` check) -- theoretically could underestimate a DW-130 margin for a fast, thin-rail crossing. Not currently exercised: the actual measured margins independently match Story 2.1c's own prior figures, and `verification-gap`'s dedicated pass found no live gap. Hardening item, not an observed defect.
+  - `[low]` `[defer]` Edge Case Hunter: `minFeedRailMarginMm()`'s `footprintMm` fallback does not guard against an empty (but present) array, which would make every distance measure `Infinity`. No path in the committed collision document produces this today.
+  - `[low]` `[defer]` Edge Case Hunter: `RIGHT_BAT_ARRIVAL_CASE_IDS`/`LEFT_BAT_ARRIVAL_CASE_IDS` in `test/shot-reachability.test.ts` are a hand-maintained list that could go stale if `shot-routing.test.ts`'s `assertReachesFlipperBand()` call sites change without updating them. No cross-check exists today.
+  - `[low]` `[defer]` Blind Hunter: `test/util/reachability.ts`'s `replayWitness()`, `test/fixtures/reachability/reachability-sweep.harness.ts`'s `sweepOneRelease()`, and `test/shot-reachability.test.ts`'s `driveCaseSwept()` independently reimplement the same serve/settle/hold/flip/run stepping loop. The latter's own comment explains why it cannot import from a `.test.ts` module, but that constraint doesn't bar sharing between the two plain modules. Maintainability item, no behavioural risk.
+  - `[low]` `[reject]` Edge Case Hunter: the bypass-detection source scan strips comments before strings (not after), and its coordinate-literal regex doesn't match every numeric literal syntax (`.5`, `+5`). Both are theoretical hardening against a deliberately obfuscated edit to a small, actively-reviewed test file this same project's own review discipline authors -- no realistic path to either triggering.
+  - `[low]` `[reject]` Blind Hunter: the dense sweep's explicit `WITNESSES` recipes (`285`, `345`, one flip combo) partially overlap its own coarse/fine grids, evaluating a few releases twice. By design (documented in the corrected doc comment above) -- the overlap is deliberate insurance against the grid stepping over a narrow window, not a bug, and costs 3 of 471 releases.
+
+Re-verified after all patches: `pnpm typecheck` clean; `npx vitest run test/shot-routing.test.ts test/shot-reachability.test.ts` -- 126 passed (38 + 88, the +1 being the new uniqueness test); `pnpm check:reachability` -- exit 0, 471 releases, 0 mismatches, byte-identical verdicts to the pre-patch run; `pnpm check:ad7` / `pnpm check:corridor` -- still exit 1 as designed; `pnpm lint:boundaries` / `check:headers` / `check:attributions` -- exit 0 (headers/attributions genuinely re-checked against the staged new files); `npx vitest run` -- 89 files / 1287 passed / 22 skipped without `BLENDER`, 89 files / 1309 passed / 0 failed with it; `pnpm build && check:dist && check:size` -- exit 0; geometry/goldens `git diff --stat` -- empty.
 
 ## Design Notes
 
@@ -248,5 +516,42 @@ Read at HEAD `27ed299e3b4bbbeba0b87f383e41dd018324f7a2` (tree clean, branch `DW-
 
 ## Auto Run Result
 
-Status: ready-for-dev
+**Summary of implemented change.** Every release point `test/shot-routing.test.ts` drives moved into one manifest (`test/util/shot-cases.ts`, `SHOT_CASES`), the only source of a release point; `driveCase(id)` replaced `driveShotChecked(startMm, ...)` as the sole entry point, so a coordinate cannot be driven without a manifest declaration. A reachability engine (`test/util/reachability.ts`) replays 10 named, non-teleporting witness trajectories (plunge and plunge-then-left-bat-flip, served by `c_trough_eject` through the real physics pipeline) and measures each case's release point against the nearest swept segment. The in-suite gate (`test/shot-reachability.test.ts`, 88 tests, ~3 s self-time) proves every case reachable-or-recorded-unreachable, with an anti-vacuity floor, declaration-completeness check, per-case bidirectional proof (the baseline cannot rot in either direction), a structural bypass-proof source scan, and the `DW-130` feed-rail proximity record (a genuine behavioural falsifier, where none existed before). A dense out-of-process sweep (`pnpm check:reachability`, 471 releases, ~75 s, intended green) proves the negative for unreachable cases. Of 39 driven cases: 25 reachable, 14 unreachable (1 = `DW-137`/Story 2.1f's Ramp case, 13 = candidate `DW-138`, recorded in frontmatter `deferred:` per Rule 15(a) for the lead to harvest). The single biggest finding: the Phase 3 dense sweep discovered a medium-strength plunge (hold ~270-300 ticks) that ascends the Right Loop lane and falls back -- resolving the Boundaries' Block-If risk for the Right Loop entry cases entirely; no case the committed suite demonstrably drives a real ball through (independent of this story's own teleported assertions) remains unproven reachable. No geometry, tuning, or golden file touched.
+
+**Files changed:**
+- `test/util/plan-geometry.ts` (new) -- the three geometry helpers (`pointToSegmentDistanceMm`, `pointInPolygon`, `distanceToPolygonMm`) moved verbatim out of `shot-routing.test.ts` and exported.
+- `test/util/shot-cases.ts` (new) -- the manifest: all 39 driven cases transcribed byte-identically from their prior call sites, each with a measured `reachability` verdict.
+- `test/util/reachability.ts` (new) -- the reachability engine: `WITNESSES` table, `witnessPath()`, `closestApproachMm()`/`closestApproachOverAll()`, `assertWitnessCorpusHealthy()`.
+- `test/shot-reachability.test.ts` (new) -- the in-suite gate (88 tests): anti-vacuity floor, declaration completeness (incl. id-uniqueness), per-case proof, bypass-proof source scan, `DW-130` feed-rail proximity record.
+- `test/fixtures/reachability/reachability-sweep.harness.ts` + `vitest.harness.config.ts` (new) -- the dense out-of-process sweep behind `pnpm check:reachability`.
+- `test/shot-routing.test.ts` (modified) -- refactored to `driveCase(id)`; every driven parameter, assertion, tolerance and message unchanged in effect (38/38 passing, byte-identical behaviour).
+- `package.json` (modified) -- added `check:reachability` script.
+- `AGENTS.md` (modified) -- documents the fourteenth script, opt-in and intended green.
+- `_bmad-output/implementation-artifacts/spec-2-1e-every-shot-case-proves-its-own-start-point-is-reachable.md` (this file, modified) -- `## Spec Change Log` (verdict table, witness set, measured runtimes, mutations demonstrated), `## Review Triage Log`, frontmatter `deferred:` (13 candidate-`DW-138` entries).
+
+**Review findings breakdown (2026-09-03 pass):** patch 10 (medium 1, low 9) -- all applied and re-verified; defer 5 (medium 1, low 4) -- surfaced, none blocking; reject 3 (low 3) -- theoretical/by-design, dropped. intent_gap 0, bad_spec 0. Full detail in `## Review Triage Log` above.
+
+**Follow-up review recommendation:** `true`. Basis: no high-severity patch, but patched-finding score = 3 x 1 (medium) + 1 x 9 (low) = 12, at or above the 5 threshold.
+
+**Verification performed** (all commands from `## Verification`, run twice -- once before and once after the review-pass patches, both green with identical outcomes):
+- `npx vitest run test/shot-routing.test.ts test/shot-reachability.test.ts` -- 126 passed (38 + 88; 88 includes the new id-uniqueness test added during review).
+- `pnpm check:reachability` -- exit 0, 471 releases evaluated (~75 s), 0 mismatches against `SHOT_CASES`'s own declarations, byte-identical verdicts pre- and post-patch.
+- `pnpm check:ad7` -- exit 1, naming `AD-7`, `DW-70`, `bd_trough` (unchanged, by design).
+- `pnpm check:corridor` -- exit 1, naming `DW-137`, `2.1f`, `50.990` (unchanged, by design).
+- `pnpm typecheck` -- clean, all three projects.
+- `pnpm lint:boundaries` -- OK, 83 files, no violations.
+- `pnpm check:headers` / `pnpm check:attributions` -- OK, genuinely re-checked against the 6 new files after staging them (`git add`) so `git ls-files` (which both tools read from) actually sees them.
+- `npx vitest run` -- 89 files / 1287 passed / 22 skipped without `BLENDER`; 89 files / 1309 passed / 0 failed with it exported (untracked env var only, never written to a tracked file per `DW-46`).
+- `pnpm build && pnpm check:dist && pnpm check:size` -- exit 0 for each.
+- `git diff --stat -- assets/src/dragonwar.blend public/assets/dragonwar.glb public/assets/dragonwar.collision.json test/replays/` -- empty, both before and after the patch pass.
+- Matrix Test Audit: every I/O & Edge-Case Matrix row covered by a passing test (anti-vacuity floor, declaration completeness, per-case bidirectional proof, structural bypass gate, `DW-130` records, out-of-process sweep) -- confirmed by direct inspection of `test/shot-reachability.test.ts` and a live run of each.
+- Rule 19 mutation demonstrations: not independently re-run by this orchestrating pass (time cost), but recorded in `## Spec Change Log` with each mutation's applied change, the observed red (naming the case/witness/measured value), the revert, and the byte-identical tree confirmation (SHA-256 of the collision document unchanged); the `verification-gap` review layer independently traced each AC's `mutation:` line against a real, non-tautological assertion and found no gap.
+
+**Residual risks.**
+- 13 candidate-`DW-138` unreachable verdicts are recorded in frontmatter `deferred:`, not yet ledgered (by design, Rule 15(a)) -- the lead must harvest them.
+- Among those 13, `top-lane-1`/`top-lane-2`/`top-lane-3`/`pop-bumper-1` carry a live, self-reported uncertainty (also independently raised by this pass's Intent Alignment Auditor): their "unreachable" verdict may reflect this story's single-origin witness-search technique (plunge and plunge-then-left-bat-flip only; `bd_shooter` structurally never reaches the right bat, and `arrangeCradleBall()`'s cradle-placement technique was never exercised) rather than genuine geometry. Not treated as a Block-If violation (reasoned through in the Review Triage Log) and not fixed in this pass -- high fix-risk, no guaranteed payoff -- but flagged for the lead's attention alongside the other candidates.
+- `test/shot-reachability.test.ts`'s `segmentToPolygonDistanceMm()` (`DW-130` record) has a theoretical, currently-unexercised gap for a swept segment that fully tunnels through a thin polygon edge; deferred (low severity, no observed failure).
+- The `descend-ramp-wall-l`/`descend-ramp-wall-r-cap`/`descend-ramp-turn-cap`/`descend-ramp-return-rail` unreachable verdicts sit inside or adjacent to the `DW-137` bottom-right corridor band -- likely the same root cause, Story 2.1f's to resolve; not this story's to fix.
+
+Status: done
 Blocking condition: none
