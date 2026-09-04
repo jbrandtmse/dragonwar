@@ -4,7 +4,7 @@ type: 'feature' # feature | bugfix | refactor | chore
 created: '2026-09-03'
 status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: 'ad614fe9eb3a18c051195a0bca6647d28b8040c1'
-baseline_commit: 'ad614fe9eb3a18c051195a0bca6647d28b8040c1'
+baseline_commit: 'f78428f80d2cff2c97db9c0d89ab24253a2a531b'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
