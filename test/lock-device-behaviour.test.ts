@@ -66,6 +66,20 @@ const LOCK_ZONE_NAMES_FOR_CLEAR_BEYOND = ['sw_lock_1', 'sw_lock_2', 'sw_lock_3']
 /** AD-15 (rework iteration 2): the backstop is now `tuning.lockEjectExemptionTimeoutMs`, not a bare exported tick constant -- derived from the SAME `resolveTuning()` the real pipeline uses, never a re-typed literal. */
 const EJECT_EXEMPTION_TIMEOUT_TICKS = resolveTuning().lockEjectExemptionTimeoutTicks.value;
 
+/**
+ * Rework iteration 3 (code review 2026-09-04, HIGH finding): the same
+ * trailing-window net-positional-progress discipline
+ * `test/shot-routing.test.ts`'s own `assertNotStranded()`/
+ * `positionalProgressMm()` use, reimplemented here (this file has no import
+ * of that module-private pair) so the descending-drop test below can tell
+ * "rolled off and kept travelling" apart from "stuck oscillating in place at
+ * real instantaneous speed" -- a ball permanently at rest on a shallow flank
+ * satisfies a speed-only or a final-position-only check every time.
+ */
+const DESCENT_PROGRESS_SAMPLE_TICKS = 25;
+const DESCENT_PROGRESS_WINDOW_TICKS = 500;
+const DESCENT_PROGRESS_MIN_DISPLACEMENT_MM = 15;
+
 /** Serves a fresh ball via c_trough_eject (the same 320-tick settle every driveShot()-style harness in this suite uses) and returns the machine plus the tick counter, positioned to keep driving from. */
 function servedMachine() {
 	const tuning = resolveTuning();
@@ -258,6 +272,64 @@ describe('bd_lock: the just-ejected exemption times out (Phase 5 review finding 
 		]);
 		expect(mechanics.parkingSlots.bd_lock, "past the timeout, AD-6's unconditional parking must have resumed for the previously-exempt ball").toEqual([true, false, false]);
 		expect(physics.balls, 'past the timeout, the re-parked ball must have left the simulated set').not.toContain(ejectedBall);
+	});
+});
+
+// Rework iteration 3 (code review 2026-09-04, MED finding): rework
+// iteration 2's own corridor-seal redesign relocated DRAGON_MOUTH_Y_MM
+// (650 -> 460, south of the whole Lock-lane corridor) without re-deriving
+// whether the justEjected/buildClearBeyond() exemption (devices.ts) is
+// still ever consulted on a real production path. It is not, for EITHER
+// parking device: bd_lock's own committed eject pose already clears its own
+// zone union's boundary along its -y eject axis on the tick it spawns, and
+// bd_trough's always did (its own eject pose sits at y = 20, past its own
+// zones' shared y = 0 boundary along its own +y eject axis, unchanged by
+// this story). The mechanism is therefore an inert defensive backstop on
+// the shipped geometry, not an active guard -- kept per the review's own
+// second option ("keep it... with a test pinning that it is currently
+// inert"), since it remains the correct AD-6-scoped mechanism for any
+// FUTURE device or geometry whose eject pose again lands short of its own
+// zone union. This test pins that fact directly against the committed
+// document, independent of and in addition to the hand-fed
+// describe('...the just-ejected exemption times out...') block above,
+// which proves the mechanism's own internal arithmetic is correct but
+// (necessarily, to reach the pathological case at all) never drives it
+// through a real eject.
+describe('bd_lock / bd_trough: buildClearBeyond()\'s own guard is currently inert on the real production eject path for BOTH parking devices (Phase 5 review finding, rework iteration 3)', () => {
+	it('every parking device\'s own committed eject pose already clears its own slot-zone union boundary along its own eject axis, at spawn -- the justEjected exemption is never actually consulted today', () => {
+		const doc = readCollisionDoc();
+		for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, (typeof TABLE.ballDevices)[BallDeviceName]]>) {
+			if (device.kind !== 'parking') {
+				continue;
+			}
+			const deviceDoc = (
+				doc as unknown as {
+					devices: Array<{ name: string; ejectPose: { posMm: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number } } }>;
+				}
+			).devices.find((d) => d.name === name);
+			expect(deviceDoc, `${name}: no entry in the committed document's own "devices" array`).toBeDefined();
+			const pose = deviceDoc!.ejectPose.posMm;
+			const dir = deviceDoc!.ejectPose.dir;
+			const zones = (device.slots as readonly string[])
+				.map((s) => doc.switchZones.find((z) => z.switch === s))
+				.filter((z): z is NonNullable<typeof z> => Boolean(z));
+			expect(zones.length, `${name}: not every declared slot switch (${(device.slots as readonly string[]).join(', ')}) matched a committed switch zone`).toBe(device.slots.length);
+
+			// The SAME dominant-axis, one-directional-boundary derivation
+			// buildClearBeyond() (src/sim/physics/devices.ts) uses -- re-derived
+			// here against the committed GEOMETRY directly, rather than calling
+			// the private function itself, so this test cannot be fooled by a
+			// change to buildClearBeyond() that stays internally consistent with
+			// itself but drifts from what the document actually authors.
+			const axis: 'x' | 'y' | 'z' = Math.abs(dir.x) >= Math.abs(dir.y) && Math.abs(dir.x) >= Math.abs(dir.z) ? 'x' : Math.abs(dir.z) >= Math.abs(dir.y) ? 'z' : 'y';
+			const travelsNegative = dir[axis] < 0;
+			const boundary = travelsNegative ? Math.min(...zones.map((z) => z.minMm[axis])) : Math.max(...zones.map((z) => z.maxMm[axis]));
+			const clearedAtSpawn = travelsNegative ? pose[axis] < boundary : pose[axis] > boundary;
+			expect(
+				clearedAtSpawn,
+				`${name}: its own committed eject pose (${JSON.stringify(pose)}) does NOT already clear its own zone-union boundary (${boundary} on axis "${axis}", travelsNegative=${travelsNegative}) -- the justEjected exemption is REACHABLE for this device on the real production path today; if this assertion ever goes red, buildClearBeyond()'s guard has become load-bearing again and devices.ts's own doc comment above justEjected must stop describing it as inert`,
+			).toBe(true);
+		}
 	});
 });
 
@@ -464,6 +536,7 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 	 */
 	it('a ball released from open field ABOVE col_lock_ceiling, descending straight down across the corridor\'s own x-width, is NOT parked -- the corridor\'s north seal blocks entry from above, not only a sideways crossing at one fixed height', () => {
 		const ceilingTopY = nodeBboxMm('col_lock_ceiling').max.y;
+		const ceilingBottomY = nodeBboxMm('col_lock_ceiling').min.y;
 		const lockLaneX0 = Math.min(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).minMm.x));
 		const lockLaneX1 = Math.max(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).maxMm.x));
 		// Build-auto review pass (2026-09-04): the release height below is
@@ -474,16 +547,45 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 		// real corridor. Anchored here to the zones it must actually seal:
 		// LOCK_LEG_TOP_CLEARANCE_MM is authored at 6 mm, so the ceiling's own
 		// top face should sit within roughly the ridge's own authored rise
-		// (LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM = 26 mm today) of
-		// its bottom face -- comfortably inside 80 mm of the zones' own high
-		// y face even allowing for future tuning.
+		// (LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM = 44 mm today,
+		// rework iteration 3 -- was 26 mm before LOCK_CEILING_RIDGE_MM's own
+		// HIGH-finding correction, 10.0 -> 28.0, the peak's own x-position
+		// unchanged) of its bottom face -- comfortably inside 80 mm of the
+		// zones' own high y face even allowing for future tuning.
 		const zoneTopY = Math.max(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).maxMm.y));
 		expect(
 			ceilingTopY - zoneTopY,
 			`col_lock_ceiling's own top face (${ceilingTopY}) sits ${ceilingTopY - zoneTopY} mm above the zones' own high y face (${zoneTopY}) -- too far to be releasing a ball just above the real corridor seal; the release point below would no longer test the actual defect`,
 		).toBeLessThanOrEqual(80);
-		const probeXs = [lockLaneX0 + 5, (lockLaneX0 + lockLaneX1) / 2, lockLaneX1 - 5];
-		const releaseYs = [ceilingTopY + 10, ceilingTopY + 40];
+
+		const ballRadiusMm = TABLE.reference.ballMm / 2;
+		// Rework iteration 3 (code review 2026-09-04, MED finding): the
+		// corridor's own clear width (lockLaneX1 - lockLaneX0, 40 mm today)
+		// against a ballRadiusMm-radius ball leaves a feasible CENTRE band of
+		// only [lockLaneX0 + ballRadiusMm, lockLaneX1 - ballRadiusMm] -- the
+		// previous probeXs (lockLaneX0 + 5, lockLaneX1 - 5, i.e. 155/185
+		// against a 150/190 lane) sat 8.495 mm OUTSIDE that band each,
+		// meaning a ball centred there interpenetrates a Dragon leg rather
+		// than descending the corridor at all; only the midpoint (170) could
+		// ever have reached it. `feasibleMarginMm` keeps every probe a real
+		// margin inside the strict radius bound, not merely touching it.
+		const feasibleMarginMm = 1.0;
+		const feasibleX0 = lockLaneX0 + ballRadiusMm + feasibleMarginMm;
+		const feasibleX1 = lockLaneX1 - ballRadiusMm - feasibleMarginMm;
+		expect(feasibleX0, 'the feasible probe band (lane clear width vs. the reference ball) must be non-empty').toBeLessThan(feasibleX1);
+		const probeXs = [feasibleX0, (feasibleX0 + feasibleX1) / 2, feasibleX1];
+		// Rework iteration 3 (code review 2026-09-04, MED finding): release
+		// height derived from the ceiling's own top face PLUS the ball
+		// radius and a real clearance margin, not a flat +10/+40 mm offset
+		// from the bounding box. The old offsets left two of the three
+		// release rows measurably UNDER the ball radius from a sealing body
+		// -- (155, 634) sat 5.000 mm from col_lock_ceiling_west_fill and
+		// (170, 634) sat 12.541 mm from col_lock_ceiling, both below the
+		// 13.495 mm radius -- exactly the DW-77 hazard
+		// test/shot-routing.test.ts's own assertReleaseClear() exists to
+		// catch (uncalled by this hand-built harness).
+		const releaseMarginMm = 5.0;
+		const releaseYs = [ceilingTopY + ballRadiusMm + releaseMarginMm, ceilingTopY + ballRadiusMm + releaseMarginMm + 30];
 
 		for (const releaseY of releaseYs) {
 			for (const probeX of probeXs) {
@@ -503,17 +605,66 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 				ball.hit.angularMomentum.set(0, 0, 0);
 
 				const slotsBefore = [...machine.deviceSlots.bd_lock];
-				for (let i = 0; i < 2000; i++) {
+				let minYReached = releaseY;
+				const positionSamples: { tick: number; x: number; y: number }[] = [];
+				for (let i = 0; i < 6600; i++) {
 					tick += 1;
 					machine.step(tick, NO_FRAME, []);
-					if (!machine.balls[0]) {
+					const b = machine.balls[0];
+					if (!b) {
 						break; // drained or otherwise left play -- not this test's concern, the slot assertion below is
+					}
+					const posMm = fromPhysics({ x: b.state.pos.x, y: b.state.pos.y, z: b.state.pos.z });
+					minYReached = Math.min(minYReached, posMm.y);
+					if (i % DESCENT_PROGRESS_SAMPLE_TICKS === 0) {
+						positionSamples.push({ tick, x: posMm.x, y: posMm.y });
 					}
 				}
 				expect(
 					machine.deviceSlots.bd_lock,
 					`a ball released at (${probeX}, ${releaseY}) and left to descend must not park in bd_lock -- bd_lock's own slots must stay unchanged`,
 				).toEqual(slotsBefore);
+
+				// Rework iteration 3 (code review 2026-09-04, MED finding): this
+				// test's own name claims a ball "descending straight down...
+				// is NOT parked" -- nothing above ever checked that the ball
+				// genuinely DESCENDED. A probe that never approaches the seal
+				// (e.g. released too far above it, or immediately drained
+				// sideways) would satisfy the slot-unchanged assertion above
+				// without ever testing the seal at all.
+				expect(
+					minYReached,
+					`a ball released at (${probeX}, ${releaseY}) never descended below col_lock_ceiling's own bottom face (${ceilingBottomY}) -- lowest y reached: ${minYReached}; a probe that never even approaches the seal proves nothing about it`,
+				).toBeLessThan(ceilingBottomY);
+
+				// Rework iteration 3 (code review 2026-09-04, HIGH finding): the
+				// two assertions above are BOTH satisfied by a ball that comes
+				// to PERMANENT REST on col_lock_ceiling's own sloped face part-
+				// way down and never reaches bd_lock at all -- exactly the
+				// strand this review found (four of six columns settled at
+				// (182.6, 631.3), net motion 0.009-0.042 mm over the final 1000
+				// ticks). Net positional progress over a trailing window is
+				// what actually distinguishes "rolled off and kept travelling"
+				// from "stuck in place, however fast between micro-bounces" --
+				// the same discipline test/shot-routing.test.ts's own
+				// assertNotStranded()/positionalProgressMm() uses. Skipped only
+				// when the run left play (drained) before two samples existed --
+				// a fast, genuine drain is not a strand by definition.
+				if (positionSamples.length >= 2) {
+					const last = positionSamples[positionSamples.length - 1]!;
+					let windowStart = positionSamples[0]!;
+					for (const s of positionSamples) {
+						if (last.tick - s.tick <= DESCENT_PROGRESS_WINDOW_TICKS) {
+							windowStart = s;
+							break;
+						}
+					}
+					const progressMm = Math.hypot(last.x - windowStart.x, last.y - windowStart.y);
+					expect(
+						progressMm,
+						`a ball released at (${probeX}, ${releaseY}) is not making genuine progress: net positional movement over the final ${DESCENT_PROGRESS_WINDOW_TICKS} ticks was only ${progressMm.toFixed(2)} mm, under the ${DESCENT_PROGRESS_MIN_DISPLACEMENT_MM} mm floor a ball still rolling or falling should clear -- this is the exact stranded-on-a-shallow-flank pattern this test exists to catch (final pos: (${last.x.toFixed(2)}, ${last.y.toFixed(2)}))`,
+					).toBeGreaterThan(DESCENT_PROGRESS_MIN_DISPLACEMENT_MM);
+				}
 			}
 		}
 	});
@@ -547,20 +698,34 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 
 		const slotsBefore = [...machine.deviceSlots.bd_lock];
 		let leftPlayAtTick: number | null = null;
+		// Rework iteration 3 (code review 2026-09-04, MED (Rule 19) finding):
+		// the two branches below used to assert `bd_lock`'s own slot-length
+		// equality a SECOND time (a strictly weaker restatement of the
+		// unconditional assertion two lines below this loop, which can never
+		// itself fail once that one has passed) and `machine.balls.length > 0`
+		// in the `else` branch (true by construction of reaching `else` at
+		// all -- the loop only sets `leftPlayAtTick` when the ball disappears,
+		// so completing it without doing so entails a ball remains). Neither
+		// could ever fail. Real discrimination instead: track whether
+		// `s_drain` genuinely closed before the ball left the simulated set
+		// (a `bd_lock` capture is independently ruled out by the unconditional
+		// slot-equality assertion below, which covers every tick of this
+		// loop, not only its last), and, when the ball is still in play,
+		// confirm it never actually crossed the corridor's own west boundary
+		// -- the direct behavioural claim this test is named for ("the lane's
+		// own walls... block the crossing structurally"), not merely that a
+		// ball object still exists somewhere.
+		let drainClosed = false;
 		for (let i = 0; i < 400; i++) {
 			tick += 1;
-			machine.step(tick, NO_FRAME, []);
+			const result = machine.step(tick, NO_FRAME, []);
+			for (const ev of result.switchEvents) {
+				if (ev.closed && ev.switch === 's_drain') {
+					drainClosed = true;
+				}
+			}
 			const b = machine.balls[0];
 			if (!b) {
-				// Code review 2026-09-03: the comment that stood here said
-				// "drained or parked elsewhere -- either way, not this test's
-				// concern", directly above an assertion that the ball is still
-				// in play. Both cannot be true. The concern IS bd_lock: a
-				// drain inside the window is a legitimate outcome of a
-				// sideways sweep, a bd_lock park is not -- so record which
-				// happened and let the slot assertion below be the one that
-				// discriminates, instead of failing a drain with a message
-				// about slot parking.
 				leftPlayAtTick = tick;
 				break;
 			}
@@ -568,11 +733,16 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 		expect(machine.deviceSlots.bd_lock, "a ball swept sideways at the slot band's own derived height must not park -- bd_lock's own slots must stay unchanged").toEqual(slotsBefore);
 		if (leftPlayAtTick !== null) {
 			expect(
-				machine.deviceSlots.bd_lock.filter(Boolean).length,
-				`the ball left the simulated set at tick ${leftPlayAtTick}; that is only acceptable if it DRAINED -- a bd_lock slot closing means it was swallowed`,
-			).toBe(slotsBefore.filter(Boolean).length);
+				drainClosed,
+				`the ball left the simulated set at tick ${leftPlayAtTick} without s_drain ever closing during this run -- a swept-sideways ball leaving play must do so via a genuine drain (a bd_lock capture is independently ruled out by the unchanged-slots assertion above), not an unexplained removal`,
+			).toBe(true);
 		} else {
-			expect(machine.balls.length, 'the ball must still be in play, not removed into a slot').toBeGreaterThan(0);
+			const finalBall = machine.balls[0]!;
+			const finalPosMm = fromPhysics({ x: finalBall.state.pos.x, y: finalBall.state.pos.y, z: finalBall.state.pos.z });
+			expect(
+				finalPosMm.x,
+				`the ball is still in play at x = ${finalPosMm.x}, west of the corridor's own x = 150 boundary -- the lane's own walls were supposed to block a sideways crossing structurally, not merely stop the ball from parking once past them`,
+			).toBeGreaterThanOrEqual(150);
 		}
 	});
 });

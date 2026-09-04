@@ -186,10 +186,29 @@ export function createDeviceMechanics(options: {
 	 * suppression: any OTHER ball, and this same ball once it is confirmed
 	 * clear (or once it enters a DIFFERENT device's zone, or once the
 	 * timeout backstop above fires), is still parked unconditionally,
-	 * exactly as AD-6 requires. Diagnosed cause (this story's Intent):
-	 * `bd_lock`'s own authored eject pose sits inside `sw_lock_2`'s zone as
-	 * originally authored, so the ejected ball is captured on the very tick
-	 * it spawns without this guard.
+	 * exactly as AD-6 requires. Originally diagnosed cause (this story's
+	 * Intent, as first authored): `bd_lock`'s own eject pose sat inside
+	 * `sw_lock_2`'s zone, so the ejected ball was captured on the very tick
+	 * it spawned without this guard. **[CORRECTED, rework iteration 3, MED
+	 * review finding: that pose no longer exists.** Rework iteration 2's
+	 * corridor-seal redesign moved `DRAGON_MOUTH_Y_MM` south of the whole
+	 * Lock-lane corridor (460, versus every `sw_lock_*` zone's own y >= 544),
+	 * so `buildClearBeyond()`'s one-directional threshold for `bd_lock` is
+	 * satisfied by the ball's own spawn position on the very first tick this
+	 * guard is ever consulted -- confirmed against the committed document by
+	 * `test/lock-device-behaviour.test.ts`'s own "buildClearBeyond() is
+	 * already satisfied at every parking device's committed eject pose"
+	 * case. The identical arithmetic already held for `bd_trough` before this
+	 * story (its own eject pose at y = 20 clears its own zones' shared
+	 * boundary at y = 0 immediately). This guard is therefore currently an
+	 * inert defensive backstop on BOTH parking devices' real production eject
+	 * paths, not an active guard against a reachable capture -- kept rather
+	 * than deleted because it remains the correct, AD-6-scoped mechanism for
+	 * any FUTURE device or geometry whose eject pose again lands short of its
+	 * own zone union (a stall, a deflection, a reversal, or simply a closer
+	 * pose), and ripping it out would also require re-deriving AC 2's own
+	 * "one ball per pulse" guarantee from scratch rather than by construction
+	 * of the corridor seal alone.]
 	 *
 	 * Phase 5 review finding, the adjacent lower-severity leak: a `Ball`
 	 * removed from `physics` by any path OTHER than `clearBeyond()`/the

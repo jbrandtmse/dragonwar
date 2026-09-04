@@ -496,7 +496,15 @@ const GUIDE_TERMINATION_EXEMPTIONS: readonly GuideExemption[] = [
 			'throws rather than silently deriving the wrong pair. Re-authoring the slope so the shortest edges become the ' +
 			'correct opposite pair would move the body itself, which the Block If reserves for Story 2.1f (col_sling_l/_r). ' +
 			'Both plausible ends are posted anyway as a safety measure: col_post_sling_l (114, 420, the old south-cap ' +
-			'derivation) and col_post_sling_l_north (114, 445, the true far/sloped-cap end).',
+			'derivation) and col_post_sling_l_north (114, 445, the true far/sloped-cap end). [CORRECTED, rework iteration 3, ' +
+			'MED review finding: because this body is EXEMPTED, its own ends never reach the main gate\'s post-distance ' +
+			'assertion at all, so -- unlike every OTHER post this story added -- these two were never load-bearing through the ' +
+			'gate itself (verified: deleting either left the gate green). verify() below makes them load-bearing through the ' +
+			'exemption entry instead, the same coordinate-level claim this reason\'s own prose already makes.]',
+		verify: (doc) => {
+			expectPostNear(doc, { x: 114.0, y: 420.0 }, 'col_sling_l\'s own south-cap end (col_post_sling_l)');
+			expectPostNear(doc, { x: 114.0, y: 445.0 }, 'col_sling_l\'s own true far/sloped-cap end (col_post_sling_l_north)');
+		},
 	},
 	{
 		body: 'col_lock_ceiling',
@@ -555,13 +563,39 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 		 * (3.500-4.000 mm against the 4.500 mm budget), so this restores
 		 * coverage without moving any geometry.
 		 */
+		/**
+		 * Rework iteration 3 (code review 2026-09-04, MED finding): the
+		 * previous 1.0 mm EDGE-DISTANCE tolerance treated "within 1 mm of any
+		 * edge segment" as a join, which is also true of a genuine, real GAP --
+		 * measured against the committed document: `col_sling_r`'s own east
+		 * end sits 0.500 mm from `col_loop_r_funnel`'s nearest edge, and
+		 * `col_lock_ceiling_west_fill`'s own east end sits 0.783 mm from
+		 * `col_lock_ceiling`'s, both inside the old 1.0 mm budget and both
+		 * genuine gaps, not touches -- deleting either body's own terminating
+		 * post left this gate green (four of 48 posts, in total, were not
+		 * load-bearing; the other two were `col_sling_l`'s, which is on the
+		 * exemption allowlist below and so never reaches this function at
+		 * all). A structural join means the point is genuinely COINCIDENT
+		 * with the partner body's own material -- ON its boundary (a shared
+		 * edge/vertex, allowing only float-rounding noise) or strictly
+		 * INSIDE it (the "buried" risers this file's own exemption reasons
+		 * describe) -- never merely nearby. `BOUNDARY_EPSILON_MM` is small
+		 * enough to reject either measured 0.5/0.783 mm gap while still
+		 * absorbing ordinary float rounding from the export pipeline; every
+		 * genuine join in the committed document measures 0.000 mm by
+		 * construction (shared authored coordinates), so this margin is not
+		 * load-bearing for any of them.
+		 */
+		const BOUNDARY_EPSILON_MM = 0.05;
 		function isJoined(point: { readonly x: number; readonly y: number }, ownName: string): { joined: boolean; to?: string } {
-			const JOIN_TOLERANCE_MM = 1.0;
 			for (const other of doc.nodes) {
 				if (other.name === ownName || other.shape !== 'wall' || !other.footprintMm || other.surface === 'rubber_post') {
 					continue;
 				}
 				const poly = other.footprintMm;
+				// On (or within BOUNDARY_EPSILON_MM of) an edge -- coincident by
+				// construction, not merely close.
+				let onBoundary = false;
 				for (let i = 0; i < poly.length; i++) {
 					const a = poly[i]!;
 					const b = poly[(i + 1) % poly.length]!;
@@ -571,9 +605,29 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 					let t = len2 === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
 					t = Math.max(0, Math.min(1, t));
 					const distance = Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
-					if (distance <= JOIN_TOLERANCE_MM) {
-						return { joined: true, to: other.name };
+					if (distance <= BOUNDARY_EPSILON_MM) {
+						onBoundary = true;
+						break;
 					}
+				}
+				if (onBoundary) {
+					return { joined: true, to: other.name };
+				}
+				// Strictly interior to the partner's own polygon -- the "buried"
+				// case (e.g. col_lock_ceiling's own west riser, deliberately
+				// embedded inside col_lock_ceiling_west_fill's material well past
+				// any single edge's own tolerance). Standard even-odd ray-cast.
+				let inside = false;
+				for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+					const vi = poly[i]!;
+					const vj = poly[j]!;
+					const crosses = vi.y > point.y !== vj.y > point.y;
+					if (crosses && point.x < ((vj.x - vi.x) * (point.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+						inside = !inside;
+					}
+				}
+				if (inside) {
+					return { joined: true, to: other.name };
 				}
 			}
 			return { joined: false };
@@ -1278,23 +1332,36 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 	// legs, never the ridge's own internal vertex heights or the west fill's
 	// own clearance margin above it, so a future edit could silently reopen
 	// any of rounds 1-5's own failure modes.
-	// mutation: change LOCK_CEILING_RIDGE_MM 10.0 -> 26.0 (pushing the ridge
-	// peak to 640, above col_lock_ceiling_west_fill's own east-side north
-	// point at 634) and re-export -> the second assertion below goes red,
-	// naming the lost clearance margin.
-	it('col_lock_ceiling\'s own ridge vertices sit at their derived heights (598 base / 614 shoulder / 624 peak), and col_lock_ceiling_west_fill\'s own north edge clears that peak by a real margin throughout the whole overlap band', () => {
+	// mutation: change LOCK_CEILING_RIDGE_MM 28.0 -> 44.0 (pushing the ridge
+	// peak to 658, above col_lock_ceiling_west_fill's own east-side north
+	// point at 668 -- wait, both move together LIVE, see below) and
+	// re-export -> the second assertion below goes red, naming the lost
+	// clearance margin. [Rework iteration 3, round 7, the shipped fix:
+	// col_lock_ceiling is no longer a symmetric-shoulder ridge --
+	// LOCK_CEILING_EAST_SHOULDER_MM (626) is now taller than
+	// LOCK_CEILING_SHOULDER_MM (614, the WEST shoulder, unchanged from
+	// rework iteration 2), and LOCK_CEILING_RIDGE_MM itself moved
+	// 10.0 -> 28.0, raising the peak 624 -> 642. LOCK_FILL_THICKNESS_MM is
+	// now authored LIVE against LOCK_CEILING_RIDGE_MM (tools/make-
+	// placeholder-blend.py's own comment there records the direct A/B
+	// confirmation that this coupling is load-bearing, not incidental),
+	// so col_lock_ceiling_west_fill's own north edge moves with the peak
+	// too (634 -> 652 at its own east corner). See tools/make-placeholder-
+	// blend.py's own LOCK_CEILING_RIDGE_MM/LOCK_CEILING_EAST_SHOULDER_MM/
+	// LOCK_FILL_THICKNESS_MM comments for the full seven-round account.]
+	it('col_lock_ceiling\'s own ridge vertices sit at their derived heights (598 base / 614 west shoulder / 626 east shoulder / 642 peak), and col_lock_ceiling_west_fill\'s own north edge clears that peak by a real margin throughout the whole overlap band', () => {
 		const doc = readCollisionDoc();
 		const ceiling = doc.nodes.find((n) => n.name === 'col_lock_ceiling');
 		expect(ceiling, 'col_lock_ceiling missing').toBeDefined();
 		expect(ceiling!.footprintMm, 'col_lock_ceiling must carry a footprintMm polygon').toBeDefined();
 		const ceilingYs = [...ceiling!.footprintMm!].map((p) => p.y).sort((a, b) => a - b);
-		expect(ceilingYs.length, 'col_lock_ceiling is a 5-point ridge (base x2, shoulder x2, peak x1)').toBe(5);
+		expect(ceilingYs.length, 'col_lock_ceiling is a 5-point ridge (base x2, west shoulder x1, east shoulder x1, peak x1)').toBe(5);
 		expect(ceilingYs[0], 'col_lock_ceiling base, first point (LOCK_CEILING_Y0_MM)').toBeCloseTo(598, 1);
 		expect(ceilingYs[1], 'col_lock_ceiling base, second point (LOCK_CEILING_Y0_MM)').toBeCloseTo(598, 1);
-		expect(ceilingYs[2], 'col_lock_ceiling shoulder, first point (LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM)').toBeCloseTo(614, 1);
-		expect(ceilingYs[3], 'col_lock_ceiling shoulder, second point (LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM)').toBeCloseTo(614, 1);
+		expect(ceilingYs[2], 'col_lock_ceiling WEST shoulder (LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM)').toBeCloseTo(614, 1);
+		expect(ceilingYs[3], 'col_lock_ceiling EAST shoulder (LOCK_CEILING_Y0_MM + LOCK_CEILING_EAST_SHOULDER_MM)').toBeCloseTo(626, 1);
 		const ridgePeakY = ceilingYs[4]!;
-		expect(ridgePeakY, 'col_lock_ceiling peak (shoulder + LOCK_CEILING_RIDGE_MM)').toBeCloseTo(624, 1);
+		expect(ridgePeakY, 'col_lock_ceiling peak (WEST shoulder + LOCK_CEILING_RIDGE_MM)').toBeCloseTo(642, 1);
 
 		const westFill = doc.nodes.find((n) => n.name === 'col_lock_ceiling_west_fill');
 		expect(westFill, 'col_lock_ceiling_west_fill missing').toBeDefined();
@@ -1318,25 +1385,79 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		// terms CANCEL: the margin is invariantly 10.000 mm for ANY value of
 		// either constant, so `> ridgePeakY + 5` is `10 > 5` and is true even
 		// for geometry that has broken. The spec's own recorded falsifier for
-		// this test (LOCK_CEILING_RIDGE_MM 10 -> 26) reddens the peak pin two
+		// this test (LOCK_CEILING_RIDGE_MM 28 -> 44) reddens the peak pin two
 		// lines above, NOT this assertion, which is how the cancellation went
 		// unnoticed. Pinned against an ABSOLUTE height as well, so the two
 		// heights can no longer drift together and preserve a false margin.
 		// mutation: change the trailing `+ 10.0` in LOCK_FILL_THICKNESS_MM
 		// (tools/make-placeholder-blend.py) to `+ 2.0` and re-export -> the
-		// absolute pin below goes red at 626 against the expected 634, where
+		// absolute pin below goes red at 644 against the expected 652, where
 		// the relational assertion alone would still read a 2 mm "margin" as
 		// passing only if the floor were also lowered. Changing
 		// LOCK_CEILING_SHOULDER_MM or LOCK_CEILING_RIDGE_MM now reddens the
-		// peak pin AND this pin, instead of neither.
+		// peak pin AND this pin, instead of neither. [Rework iteration 3,
+		// round 7: LOCK_CEILING_RIDGE_MM's own 10.0 -> 28.0 correction moves
+		// this absolute height 634 -> 652; see this test's own title comment
+		// above for the full seven-round account.]
 		expect(
 			northEdgeWorstCaseY,
-			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must sit at its derived absolute height -- (DRAGON_LEG_L_INNER_SOLID_TOP_MM 600 - LOCK_FILL_WEST_MARGIN_MM 2) + LOCK_FILL_THICKNESS_MM 36 = 634`,
-		).toBeCloseTo(634, 1);
+			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must sit at its derived absolute height -- (DRAGON_LEG_L_INNER_SOLID_TOP_MM 600 - LOCK_FILL_WEST_MARGIN_MM 2) + LOCK_FILL_THICKNESS_MM 54 = 652`,
+		).toBeCloseTo(652, 1);
 		expect(
 			northEdgeWorstCaseY - ridgePeakY,
 			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must clear col_lock_ceiling's own ridge peak (${ridgePeakY}) by a real margin throughout the whole overlap band -- round 5's own fix exists specifically because matching heights exactly, twice, parked a ball at the near-miss seam (see the [REWORK] note beside LOCK_FILL_WEST_MARGIN_MM). Read with the absolute pin above: this relation alone is algebraically invariant and cannot fail by itself`,
 		).toBeGreaterThan(5);
+	});
+
+	// Rework iteration 3 round 2 (code review 2026-09-04, MED finding):
+	// this dedicated pin used to exist because col_lock_ceiling_west_
+	// fill's own EAST riser tested as genuinely embedded inside col_lock_
+	// ceiling's own solid material (isJoined() found it joined, so it
+	// never reached AC 3's own forward gate at all) -- col_post_lock_
+	// ceiling_west_fill_e was a defensive-only post nothing else in this
+	// suite verified.
+	//
+	// [REMOVED, rework iteration 3 round 7] Round 7's own peak-height fix
+	// (tools/make-placeholder-blend.py's own LOCK_CEILING_RIDGE_MM
+	// comment) moved col_lock_ceiling_west_fill's own EAST riser out from
+	// under col_lock_ceiling's own material -- it is now GENUINELY bare,
+	// picked up by the ordinary forward gate like any other free end
+	// (isJoined() correctly finds it un-joined; the gate's own non-vacuity
+	// floor two tests above still passes at 40). This dedicated pin is
+	// gone with it -- keeping a stale coordinate here would either mask a
+	// real regression (if col_post_lock_ceiling_west_fill_e ever moved
+	// away from its own true, now-derived position in tools/make-
+	// placeholder-blend.py) or duplicate a check the forward gate already
+	// makes for real. See tools/make-placeholder-blend.py's own comment
+	// beside the add_rubber_post('col_post_lock_ceiling_west_fill_e', ...)
+	// call for the current, DERIVED (not hand-measured) coordinate.
+
+	// Rework iteration 3 (code review 2026-09-04, MED finding -- discovered
+	// while fixing it, not named by the review itself): the SAME
+	// isJoined() point-in-polygon fix above also newly discovers that
+	// col_dragon_leg_l's own north-cap free end (120.00, 610.00, Story
+	// 2.1b) now tests genuinely INSIDE col_lock_ceiling_west_fill's own
+	// footprint -- a real, deliberate consequence of THIS story's own
+	// geometry, not a bug in the check. col_lock_ceiling_west_fill's own
+	// south edge is, by construction, "the SAME two-point line the leg's
+	// own cap is, merely shifted" LOCK_FILL_WEST_MARGIN_MM (2 mm) south of
+	// it for the ENTIRE 60 mm run (tools/make-placeholder-blend.py's own
+	// comment on col_lock_ceiling_west_fill) -- so the leg's own cap edge,
+	// end to end, sits 2 mm inside west_fill's own material, exactly as
+	// deliberately authored to guarantee west_fill "can never fall short of
+	// that leg's own true boundary anywhere along its run". The pre-
+	// existing `col_post_dragon_leg_l` (Story 2.1b, before west_fill
+	// existed) is therefore now a defensive post over an end that is
+	// independently safe either way -- pinned directly here, the same
+	// pattern as col_post_lock_ceiling_west_fill_e immediately above, so it
+	// cannot silently vanish unnoticed even though the forward gate no
+	// longer needs it.
+	// mutation: delete col_post_dragon_leg_l from
+	// public/assets/dragonwar.collision.json -> this assertion goes red;
+	// verified directly during this rework, then reverted.
+	it('col_post_dragon_leg_l is present near col_dragon_leg_l\'s own north-cap free end (120.00, 610.00) -- a defensive post over an end that col_lock_ceiling_west_fill\'s own 2 mm overlap margin (added this story) now genuinely embeds', () => {
+		const doc = readCollisionDoc();
+		expectPostNear(doc, { x: 120.0, y: 610.0 }, 'col_dragon_leg_l\'s own north-cap free end (col_post_dragon_leg_l)');
 	});
 
 	it('the four true perimeter walls (left, top, right, lane) now reach the glass (DW-53: PERIMETER_WALL_H_MM = GLASS_Z_MM = 400), while col_wall_lane_bottom -- not a true perimeter wall -- stays at the interior WALL_H_MM = 50', () => {

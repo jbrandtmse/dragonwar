@@ -510,22 +510,41 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// swallow fix re-sites the three slot zones into the corridor the
 		// legs already bound, rather than extending the legs themselves --
 		// see tools/make-placeholder-blend.py's own [REWORK] note beside
-		// DRAGON_LEG_Y1_MM). startMm therefore stays exactly as 2.1b
-		// authored it.
+		// DRAGON_LEG_Y1_MM). startMm's own x therefore stays exactly as
+		// 2.1b authored it.
+		//
+		// [CORRECTED, rework iteration 3 round 7, HIGH review finding]
+		// startMm's own y moved 660 -> 680: col_lock_ceiling_west_fill's
+		// own thickness (LOCK_FILL_THICKNESS_MM, tools/make-placeholder-
+		// blend.py) is now tied LIVE to col_lock_ceiling's own raised peak
+		// (36 -> 54 mm, load-bearing for the HIGH finding's own west-side
+		// fix -- see that constant's own comment), which moved west_fill's
+		// own north edge up too. At (120, 660) that left this release
+		// point 0.000 mm from west_fill's own material -- INSIDE it, not
+		// merely close -- where DW-77 requires > 13.495 mm clearance for
+		// any release point driveShot() teleports a ball to. 680 clears
+		// west_fill's own true height at x = 120 (662, interpolated) by
+		// 18 mm, comfortably past the 13.495 mm floor, and still drops the
+		// ball onto the identical col_dragon_leg_l flat-topped face this
+		// case exists to pin -- unrelated to the fix, only its own
+		// clearance moved.
 		id: 'descend-dragon-leg-l',
 		label: 'Descending release onto the left Dragon leg (col_dragon_leg_l)',
-		startMm: { x: 120, y: 660, z: 13.5 },
+		startMm: { x: 120, y: 680, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Story 2.1d task 8: closestApproachMm re-measured (32.71 -> 67.712)
 		// against the real physics pipeline after this story's own geometry
-		// changes -- still unreachable.
+		// changes -- still unreachable. Rework iteration 3 round 7:
+		// re-measured again after startMm's own y moved (67.712 -> 67.684,
+		// essentially unchanged -- the same witness, plunge-full, remains
+		// the nearest one regardless of the small y shift).
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 67.712,
+			closestApproachMm: 67.684,
 			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
@@ -681,6 +700,67 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		reachability: { kind: 'reachable', witness: 'plunge-weak-345' },
+	},
+	// Rework iteration 3 (code review 2026-09-04, HIGH finding): col_lock_
+	// ceiling's own east flank stranded a ball at (182.6, 631.3) after
+	// rework iteration 2's corridor seal, and neither new sealing body
+	// (col_lock_ceiling, col_lock_ceiling_west_fill) had a column in this
+	// describe block's own one-column-per-flat-topped-body sweep, the exact
+	// discipline that already found col_loop_top's own strand above. Two
+	// columns for col_lock_ceiling (one per flank of its own peak, raised
+	// round 7 -- LOCK_CEILING_RIDGE_MM), one for col_lock_ceiling_west_
+	// fill's own single diagonal slope. Release heights (y = 680, all
+	// three) clear both bodies' own now-taller material by a real margin
+	// (> one ball radius, DW-77) -- round 7 also raised west_fill's own
+	// height (LOCK_FILL_THICKNESS_MM, tied LIVE to col_lock_ceiling's own
+	// peak), which is why these sit higher than an earlier draft of this
+	// same fix used (y = 660), verified via assertReleaseClear() when
+	// driven.
+	{
+		id: 'descend-lock-ceiling-west',
+		label: 'Descending release onto col_lock_ceiling, west flank',
+		startMm: { x: 150, y: 680, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:150,y:680}) -- same finding
+		// class as the other descend-* probes above (col_dragon_d,
+		// col_ramp_turn, etc.): no witness the in-suite search could
+		// construct reaches this drop point. See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 97.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
+	{
+		id: 'descend-lock-ceiling-east',
+		label: 'Descending release onto col_lock_ceiling, east flank (the HIGH finding\'s own strand location)',
+		startMm: { x: 185, y: 680, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:185,y:680}). See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 132.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
+	{
+		id: 'descend-lock-ceiling-west-fill',
+		label: 'Descending release onto col_lock_ceiling_west_fill',
+		// [CORRECTED, rework iteration 3 review: this release point used to
+		// be byte-identical to descend-dragon-leg-l's own (120, 680) --
+		// same speed, direction and tick budget -- so it drove the SAME
+		// simulated trajectory rather than independently probing this
+		// body's own material. x = 132 sits inside col_lock_ceiling_west_
+		// fill's own x 90..150 span, clear of both descend-dragon-leg-l's
+		// x = 120 and the pre-existing, deferred x = 92..110 residual (see
+		// this story's own frontmatter deferred: entry) -- confirmed
+		// against the real physics pipeline: the ball makes genuine net
+		// progress (no strand) at this column.]
+		startMm: { x: 132, y: 680, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:132,y:680}). See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 79.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 ];
 

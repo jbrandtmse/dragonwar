@@ -345,6 +345,18 @@ Build-side routing verified in `test/lock-device-behaviour.test.ts`
 (including a descending-drop sweep reproducing the review's own
 falsifier) and `test/shot-routing.test.ts`'s own Lock lane case.
 
+**[CORRECTED 2026-09-04, rework iteration 3 code review]** `col_lock_ceiling`'s
+own east flank (above `col_dragon_leg_r`) traded the swallow this section
+already describes for a STRAND: a ball descending near that leg's own cap
+corner came to permanent rest on the ridge's shallow east slope instead of
+sliding clear. Fixed by raising the east shoulder and the ridge peak alone
+(the west side, and the slot band's own siting described above, are
+unchanged) -- see `docs/decisions.md`'s own Lock-lane row for the full
+seven-round account. Re-verified with a wide descending-drop sweep across
+the whole corridor width; a narrow, pre-existing, low-severity residual is
+recorded in the story's own frontmatter `deferred:` rather than chased
+further.
+
 ### DRAGON bank
 
 `pending-author`. Six standup faces spelling D-R-A-G-O-N

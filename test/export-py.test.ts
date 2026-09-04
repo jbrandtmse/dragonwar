@@ -302,10 +302,14 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		// demonstrated the path firing once, by hand, but nothing regression-
 		// tests it). mutate_concave_wall_footprint() moves one corner of
 		// col_wall_top (the one plain untouched axis-aligned box -- see the
-		// angled-footprint mutation's own comment for why) to the rectangle's
-		// own centroid, a genuine reflex vertex: the resulting 4-point ring's
-		// true convex hull is the OTHER three corners' triangle, so the hull
-		// must drop exactly one vertex.
+		// angled-footprint mutation's own comment for why) to a point
+		// strictly interior to the triangle formed by the OTHER three
+		// corners -- see that mutation's own corrected comment (rework
+		// iteration 3, MED finding) for why the rectangle's own centroid is
+		// the wrong point (collinear on the hull's own edge, not reflex) --
+		// a genuine reflex vertex: the resulting 4-point ring's true convex
+		// hull is that same three-corner triangle, so the hull must drop
+		// exactly one vertex.
 		const mutated = mutateBlend('concave-wall-footprint');
 		const outDir = freshTmpDir();
 		const { status, stderr } = runExportPy(mutated, outDir);

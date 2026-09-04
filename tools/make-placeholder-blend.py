@@ -720,25 +720,112 @@ LOCK_CEILING_X_OVERLAP_E_MM = 4.0  # authored -- how far col_lock_ceiling's own 
 # vertex, not a shallow-angle repeat of the earlier failures. A few mm of
 # real X overlap between the two bodies avoids concentrating that many
 # edges at one point.
-LOCK_CEILING_X_OVERLAP_W_MM = 4.0  # authored -- how far col_lock_ceiling's own west edge reaches past lock_lane_x0, into col_lock_ceiling_west_fill's own territory (redundant there -- west_fill's own coverage already reaches the same height at that x -- but avoiding the coincident-vertex trap above)
-LOCK_CEILING_SHOULDER_MM = 16.0  # authored -- how far above LOCK_CEILING_Y0_MM col_lock_ceiling's own two vertical risers reach (its own flat base to shoulder height, 598 -> 614) before the ridge itself begins; comfortably above DRAGON_LEG_L_INNER_SOLID_TOP_MM's own margin need
-LOCK_CEILING_RIDGE_MM = 10.0  # authored -- the ridge's own further rise from each shoulder to the centred peak (614 -> 624). [REWORK, found empirically]: an initial 4.0 mm (matching col_loop_top's own RIDGE_DROP_MM figure verbatim, over a much shorter run here -- 22 mm against col_loop_top's 184.2 mm) gave only atan(4/22) = 10.3 deg, well under this table's OWN apparent static-friction threshold: a ball reached genuine, motionless equilibrium resting on the ridge's own east slope alone (measured: (181.0, 630.1), ball-radius from that single edge, no second contact) rather than sliding off. Both slope failures this rework hit (col_lock_ceiling_west_fill's own first-round 17.35 deg, this ridge's own first-round 10.3 deg) sat BELOW the legs' own proven 18.43 deg; both fixes landed ABOVE it. 10.0 mm over the same 22 mm run gives 24.4 deg, a real margin above that threshold, not just past it
+LOCK_CEILING_X_OVERLAP_W_MM = 4.0  # authored -- how far col_lock_ceiling's own west edge reaches past lock_lane_x0, into col_lock_ceiling_west_fill's own territory (redundant there -- west_fill's own coverage already reaches the same height at that x -- but avoiding the coincident-vertex trap above). [REWORK ITERATION 3's own round 4 tried widening this to 60.0 mm (col_lock_ceiling's own west edge matching dragon_leg_l_x0 exactly), to CONTAIN west_fill's own north edge outright rather than merely clear it. That closed the west_fill seam completely (re-verified: every column from x = 114 to 194 made genuine progress) but reached far enough west to come within 12 mm of col_loop_l's own east rail (x = 78, spanning y = 500..1004.8, Story 2.1c) -- a body this story has no grant to touch and no reason to approach -- and stranded there instead (measured: (91.5, 668.5)). Reverted to this original 4.0 mm value: see LOCK_CEILING_RIDGE_MM's own comment below for the round-7 fix that closes the ORIGINAL west_fill seam without widening this overlap at all.]
+LOCK_CEILING_SHOULDER_MM = 16.0  # authored -- how far above LOCK_CEILING_Y0_MM col_lock_ceiling's own WEST vertical riser reaches (598 -> 614) before the west flank begins; comfortably above DRAGON_LEG_L_INNER_SOLID_TOP_MM's own margin need. UNCHANGED throughout this whole rework -- only the PEAK's own height moved (LOCK_CEILING_RIDGE_MM, below); every attempt to touch anything else on the west side (rounds 3-6, below) made things worse, not better.
+# [REWORK, found empirically, round 6 -- pre-dating this story's own rework
+# iteration 3] An initial 4.0 mm rise from a SYMMETRIC shoulder (matching
+# col_loop_top's own RIDGE_DROP_MM figure verbatim, over a much shorter run
+# here) gave only atan(4/22) = 10.3 deg, well under this table's OWN
+# apparent static-friction threshold (18.43 deg, atan(1/3)): a ball reached
+# genuine, motionless equilibrium resting on the ridge's own east slope
+# alone (measured: (181.0, 630.1), ball-radius from that single edge, no
+# second contact) rather than sliding off. Raised to 10.0 mm with the peak
+# offset dead-centre -- but the OFF-CENTRE choice (fraction 0.28 of the
+# 48 mm body width, peak at x = 159.44) put only 13.44 mm of run on the
+# west flank against 34.56 mm on the east: atan(10/13.44) = 36.65 deg west,
+# but atan(10/34.56) = 16.15 deg EAST -- below the very threshold this
+# constant exists to clear, and this story's own code review (2026-09-04)
+# caught it stranding a ball at (182.6, 631.3), plus a SEPARATE strand at
+# (190.0, 633.5) against col_dragon_leg_r's own cap corner (620).
+#
+# [REWORK ITERATION 3 -- seven further rounds to the shipped fix, all
+# re-verified directly against the real physics pipeline, not by trig
+# alone; each round's own strand coordinates recorded here so a future
+# reader does not have to re-discover them.] Round 1 (peak offset from
+# DRAGON_CENTER_X_MM, still a SINGLE symmetric-height peak) cleared both
+# flanks' own angles on paper but not col_dragon_leg_r's own cap corner
+# (620), which sat above the still-614 east shoulder regardless of angle --
+# a genuine GAP no slope alone closes. Round 2 raised the east shoulder to
+# clear that corner, but the SAME single peak then had to reach further and
+# higher to keep the east flank's own angle safe, which stretched the WEST
+# flank far enough to open a NEW strand against col_lock_ceiling_west_
+# fill's own north edge (measured (163.1-163.2, 639.5)) the code review
+# never named. Rounds 3 and 4 chased THAT west strand -- first a taller
+# derived west shoulder (which only relocated the strand, to
+# (136.4, 644.8) then (132.5, 646.1), because a vertical riser at a fixed x
+# spans the SAME x for its whole height regardless of how tall it is),
+# then widening the west overlap to genuinely CONTAIN west_fill's own
+# territory (which closed that seam completely but reached far enough west
+# to strand against col_loop_l's own unrelated east rail instead, measured
+# (91.5, 668.5) -- a body this story has no grant to touch). Round 5 tried
+# reverting the WEST shoulder to its original 614 while moving the SAME
+# single peak close to the east shoulder to keep its own height low -- and
+# still stranded (measured (162.7, 638.7)). Round 6 tried a genuinely
+# SEPARATE second peak, entirely east of the original (unchanged) first
+# peak -- STILL stranded, at the SAME class of location (measured
+# (161.9, 640.5) and others), regardless of the second peak's own exact
+# position or angle. The common thread across rounds 2, 3, 4, 5 AND 6: ANY
+# col_lock_ceiling geometry with a point EAST of x = 159.44 (the original
+# peak) TALLER than that peak reproduces the strand, independent of shape,
+# angle or reach -- because it stops being the shape's own global maximum,
+# and a ball landing anywhere on the resulting "uphill-then-down" profile
+# gets intercepted by col_lock_ceiling_west_fill's own nearby material
+# before gravity ever resolves which way it should roll. Round 7 (the
+# shipped fix) keeps ONE peak, but RAISES it -- high enough that it clears
+# col_dragon_leg_r's own corner AND stays the sole global maximum: with the
+# peak at (159.44, 642) instead of the original (159.44, 624), the WEST
+# flank (146, 614) to the peak is the ONLY part of this body's own shape
+# that changes near west_fill, and (unlike rounds 2-6) it does so by
+# raising the SAME single vertex the original safe geometry already used,
+# never adding new material further east. Re-verified end to end: a wide
+# descending-drop sweep across the WHOLE corridor width (x = 92 to 192)
+# finds every column from x = 112 to 192 makes genuine progress -- the
+# code review's own east-side finding (x = 174..190) and every west-side
+# strand rounds 2-6 opened are both closed. A narrower residual (x = 92 to
+# 110, against col_dragon_leg_l's own cap, NOT against west_fill) remains
+# and is recorded honestly in this story's own frontmatter `deferred:` --
+# see this constants block's own closing note, and LOCK_CEILING_RIDGE_MM's
+# own comment, below, for the full account.
+LOCK_CEILING_RIDGE_PEAK_FRACTION = 0.28  # authored -- unchanged from rework iteration 2's own original derivation: how far across col_lock_ceiling's own x0..x1 span the peak sits (146 + 48 * 0.28 = 159.44). Only this peak's own HEIGHT (LOCK_CEILING_RIDGE_MM, below) moved this rework; its own x position did not.
+LOCK_CEILING_RIDGE_MM = 28.0  # authored, rework iteration 3 round 7 -- the peak's own rise above LOCK_CEILING_SHOULDER_MM (614 -> 642), raised from the original 10.0 (624). See the [REWORK ITERATION 3] note above for the six rounds this replaces: the peak must clear col_dragon_leg_r's own corner (620) via the EAST flank's own angle (atan((642-626)/34.56) = 24.85 deg, comfortably above 18.43 -- and the east flank reaches 627.85 mm at x = 190, the corner's own x, a real 7.85 mm margin) while remaining col_lock_ceiling's own SOLE global maximum -- the property that keeps the WEST flank safe (see the note above for why any taller point further east reopens the strand regardless of its own shape). This IS a real change to the west flank's own reach (rise 28 mm over the same 13.44 mm run, 64.4 deg, versus the original 36.65 deg) -- unlike rounds 2-6, which each added NEW material further east while leaving this flank's own two endpoints nominally unchanged, this round changes exactly one endpoint of the ALREADY-existing flank. CRITICALLY, this raised peak also raises col_lock_ceiling_west_fill's own required thickness: LOCK_FILL_THICKNESS_MM's own LIVE formula (below) means west_fill's own north edge rises WITH this peak (36 -> 54 mm), which is load-bearing, not incidental -- see that constant's own comment for the direct A/B confirmation (hard-coding it back to 36 immediately re-strands the west side). With both raised together, a wide sweep finds a narrower, DIFFERENT residual (x = 92..110, against col_dragon_leg_l's own cap -- a pre-existing, latent near-miss this rework did not create, only exposed by redirecting trajectories that used to roll past the original, shorter col_lock_ceiling without ever reaching it) rather than the west_fill strand every other round reopened. Recorded honestly in this story's own frontmatter `deferred:` rather than chased further: it is outside every committed shot case's own reachable trajectory (test/shot-routing.test.ts's full 39-case suite and the 472-release check:reachability sweep both stay green, re-verified after this change) and outside this story's own new SHOT_CASES columns (x = 120, 150, 185, all within the now-safe x = 112..192 range).
+LOCK_CEILING_EAST_SHOULDER_MM = 28.0  # authored, rework iteration 3 -- how far above LOCK_CEILING_Y0_MM col_lock_ceiling's own EAST vertical riser reaches (598 -> 626) before the east flank begins. Deliberately taller than the WEST shoulder (614, unchanged): col_dragon_leg_r's own cap corner sits at y = 620 (unlike the WEST leg, this one has no recession -- task 8's own note), so the east shoulder must clear 620 with real margin or the gap between col_lock_ceiling's own material and that corner becomes a two-body bridging trap regardless of the east flank's own slope angle (round 1's own failure, above). 626 clears it by 6 mm; re-verified directly (a ball dropped at x = 190, directly over the corner, makes genuine positional progress rather than settling there).
 LOCK_FILL_WEST_MARGIN_MM = 2.0  # authored -- how far below col_dragon_leg_l's own diagonal cap col_lock_ceiling_west_fill's own south edge sits, the whole 60 mm run (the SAME two-point line the leg's own cap is, merely shifted -2 mm in y, so it can never fall short of that leg's own true boundary anywhere along its run)
-# [REWORK, found empirically, round 5] Matching col_lock_ceiling_west_
-# fill's own north edge height EXACTLY to col_lock_ceiling's own shoulder
-# (16.0 mm) still parked a ball (measured (147.2, 629.1), ball-radius from
-# col_lock_ceiling's own west ridge slope) once col_lock_ceiling's own
-# west edge moved off x = lock_lane_x0 (round 4's own fix, above): the two
-# bodies' own north-boundary heights were then close but no longer
-# exactly equal in the 4 mm overlap band, leaving a THIN near-miss
-# concentration in the same place a genuinely coincident vertex did.
-# Matching heights precisely, twice now, has cost more than it saved --
-# west_fill's own north edge instead clears col_lock_ceiling's own
-# highest point (the ridge peak, LOCK_CEILING_SHOULDER_MM +
-# LOCK_CEILING_RIDGE_MM = 26 mm above LOCK_CEILING_Y0_MM) by a real
-# margin throughout the whole overlap band, so there is no height at
-# which the two bodies' own boundaries are ever close to each other.
-LOCK_FILL_THICKNESS_MM = LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM + 10.0  # authored -- see the [REWORK] note above; clears col_lock_ceiling's own highest point (its ridge peak) by a flat 10 mm throughout the overlap band, rather than matching any one of its heights exactly
+# [REWORK, found empirically, round 5 -- pre-dating this story's own rework
+# iteration 3] Matching col_lock_ceiling_west_fill's own north edge height
+# EXACTLY to col_lock_ceiling's own shoulder (16.0 mm) still parked a ball
+# (measured (147.2, 629.1), ball-radius from col_lock_ceiling's own west
+# ridge slope) once col_lock_ceiling's own west edge moved off
+# x = lock_lane_x0 (round 4's own fix, above): the two bodies' own
+# north-boundary heights were then close but no longer exactly equal in
+# the 4 mm overlap band, leaving a THIN near-miss concentration in the
+# same place a genuinely coincident vertex did. Matching heights precisely,
+# twice now, has cost more than it saved -- west_fill's own north edge
+# instead clears col_lock_ceiling's own highest point (its ridge peak) by
+# a real margin throughout the whole overlap band, so there is no height
+# at which the two bodies' own boundaries are ever close to each other.
+#
+# [REWORK ITERATION 3, round 7 -- confirmed, not merely assumed, still
+# load-bearing.] This formula ties west_fill's own thickness LIVE to
+# col_lock_ceiling's own peak height (LOCK_CEILING_SHOULDER_MM +
+# LOCK_CEILING_RIDGE_MM + 10.0) -- and this rework's own round 7 fix
+# raised that peak (614 -> 642, LOCK_CEILING_RIDGE_MM 10.0 -> 28.0), which
+# moves this formula's own result too (36 -> 54) unless deliberately
+# decoupled. An EARLIER pass of this same fix tried exactly that
+# deliberate decoupling -- hard-coding this constant to the ORIGINAL 36,
+# reasoning that col_lock_ceiling_west_fill's own geometry was
+# "independently proven safe" and had no reason to track col_lock_
+# ceiling's own peak at all -- and directly re-broke the west-side strand
+# this round exists to close (measured (147.8, 649.0), col_lock_ceiling's
+# own RAISED peak now itself within one ball diameter of west_fill's own
+# UN-raised north edge). Reverting to the live formula (below) closed it
+# again immediately, confirming the ORIGINAL coupling was correct all
+# along: west_fill's own thickness genuinely does need to track whatever
+# col_lock_ceiling's own tallest point currently is, not a value frozen at
+# the moment rework iteration 2 shipped. Re-verified directly: a wide
+# sweep across the WHOLE corridor width finds every column from x = 112 to
+# 192 makes genuine progress with this live formula in place, and
+# immediately re-strands the moment the formula is hard-coded back to 36.
+LOCK_FILL_THICKNESS_MM = LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM + 10.0  # authored -- see the [REWORK ITERATION 3] note above: LIVE, not a frozen literal -- clears col_lock_ceiling's own highest point (its ridge peak, now 642 mm) by a flat 10 mm throughout the overlap band, rather than matching any one of its heights exactly. 16 + 28 + 10 = 54 mm today.
 # [REMOVED, code review 2026-09-04 (build-auto review pass, edge-case-hunter
 # finding): this used to be `assert LOCK_SLOT_Y1_TOP_MM + LOCK_LEG_TOP_
 # CLEARANCE_MM <= LOCK_CEILING_Y0_MM`. LOCK_CEILING_Y0_MM (above) IS DEFINED
@@ -2144,36 +2231,6 @@ def main():
 	# valley -- col_loop_top's own proven shape, RIDGE_DROP_MM).
 	lock_ceiling_x0 = lock_lane_x0 - LOCK_CEILING_X_OVERLAP_W_MM
 	lock_ceiling_x1 = lock_lane_x1 + LOCK_CEILING_X_OVERLAP_E_MM
-	lock_ceiling_shoulder_y = LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM
-	lock_ceiling_peak_y = lock_ceiling_shoulder_y + LOCK_CEILING_RIDGE_MM
-	# [REWORK, found empirically, round 6] A peak dead-centre (the
-	# arithmetic mean of x0/x1) sits exactly at DRAGON_CENTER_X_MM -- the
-	# same x every centred shot in this corridor (the Lock lane itself,
-	# the Mouth, several DRAGON-bank/top-lane descent columns) aims at or
-	# near. A ball balancing exactly on a convex peak is an UNSTABLE
-	# equilibrium in principle (col_loop_top's own RIDGE_DROP_MM note
-	# already says so), but "unstable" only means a PERTURBED ball rolls
-	# off -- one arriving dead-on, with the near-zero lateral velocity
-	# many of this corridor's own shots have after a long fall, can still
-	# sit there for a full 500-tick trailing window (measured:
-	# (163.4, 635.9), ball-radius from the peak vertex, after rounds 1-5's
-	# fixes closed everything else). Offsetting the peak off the
-	# corridor's own natural aim point removes the coincidence rather than
-	# relying on a perturbation that this table's own geometry does not
-	# reliably supply.
-	lock_ceiling_peak_x = lock_ceiling_x0 + (lock_ceiling_x1 - lock_ceiling_x0) * 0.28
-	col_lock_ceiling = new_prism_mesh(
-		'col_lock_ceiling',
-		[
-			(lock_ceiling_x0, LOCK_CEILING_Y0_MM),
-			(lock_ceiling_x1, LOCK_CEILING_Y0_MM),
-			(lock_ceiling_x1, lock_ceiling_shoulder_y),
-			(lock_ceiling_peak_x, lock_ceiling_peak_y),
-			(lock_ceiling_x0, lock_ceiling_shoulder_y),
-		],
-		0.0, WALL_H_MM, parent=playfield_root,
-	)
-	set_props(col_lock_ceiling, col_shape='wall', surface='dragon', phys_material='default')
 	# col_lock_ceiling_west_fill: plugs the gap col_dragon_leg_l's own
 	# recession leaves west of the corridor. A parallelogram: its own
 	# south edge is col_dragon_leg_l's own diagonal cap, ((lock_lane_x0,
@@ -2181,42 +2238,65 @@ def main():
 	# offset down by LOCK_FILL_WEST_MARGIN_MM the WHOLE 60 mm run -- by
 	# construction the SAME two-point line the leg's own cap is, merely
 	# shifted, so it can never fall short of that leg's own true boundary
-	# anywhere along its run (round 3's own defect: a 64 mm run here came
-	# out shallower, 17.35 deg against the leg's own proven 18.43). Its
-	# own north edge is the identical line, offset a further
-	# LOCK_FILL_THICKNESS_MM -- itself never flat (same 18.43 deg slope as
-	# the south edge), and low-point-toward-the-corridor by construction,
-	# so a ball resting on it slides toward col_lock_ceiling and the lane,
-	# not toward col_loop_l (2.1c's own Block If, undisturbed: this body
-	# never touches col_dragon_leg_l's own bevel direction, only sits
-	# beside it). [CORRECTED, code review 2026-09-04 (build-auto review
-	# pass, blind-hunter finding): this comment previously claimed
-	# LOCK_FILL_THICKNESS_MM equals LOCK_CEILING_SHOULDER_MM so the two
-	# bodies' own coverage "matches (614 mm) at their shared seam" -- false
-	# against LOCK_FILL_THICKNESS_MM's own definition above (round 5's
-	# formula, LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM + 10.0 = 36,
-	# not 16) and against the round-5 note itself, which deliberately
-	# abandoned exact height-matching. The real, current seam heights: east
-	# edge 598 + 36 = 634 mm, west edge 618 + 36 = 654 mm (confirmed against
-	# the committed public/assets/dragonwar.collision.json), each clearing
-	# col_lock_ceiling's own highest point (its ridge peak, 598 + 16 + 10 =
-	# 624 mm) by a real margin throughout the whole overlap band, exactly as
-	# round 5's own note above describes.
+	# anywhere along its run (round 3 [of the ORIGINAL six rounds]'s own
+	# defect: a 64 mm run here came out shallower, 17.35 deg against the
+	# leg's own proven 18.43). Its own north edge is the identical line,
+	# offset a further LOCK_FILL_THICKNESS_MM -- itself never flat (same
+	# 18.43 deg slope as the south edge), and low-point-toward-the-corridor
+	# by construction, so a ball resting on it slides toward col_lock_
+	# ceiling and the lane, not toward col_loop_l (2.1c's own Block If,
+	# undisturbed: this body never touches col_dragon_leg_l's own bevel
+	# direction, only sits beside it).
 	fill_east_x = lock_lane_x0
 	fill_east_y = DRAGON_LEG_L_INNER_SOLID_TOP_MM - LOCK_FILL_WEST_MARGIN_MM
 	fill_west_x = dragon_leg_l_x0
 	fill_west_y = DRAGON_LEG_Y1_MM - LOCK_FILL_WEST_MARGIN_MM
+	fill_north_east_y = fill_east_y + LOCK_FILL_THICKNESS_MM
+	fill_north_west_y = fill_west_y + LOCK_FILL_THICKNESS_MM
 	col_lock_ceiling_west_fill = new_prism_mesh(
 		'col_lock_ceiling_west_fill',
 		[
 			(fill_east_x, fill_east_y),
 			(fill_west_x, fill_west_y),
-			(fill_west_x, fill_west_y + LOCK_FILL_THICKNESS_MM),
-			(fill_east_x, fill_east_y + LOCK_FILL_THICKNESS_MM),
+			(fill_west_x, fill_north_west_y),
+			(fill_east_x, fill_north_east_y),
 		],
 		0.0, WALL_H_MM, parent=playfield_root,
 	)
 	set_props(col_lock_ceiling_west_fill, col_shape='wall', surface='dragon', phys_material='default')
+	# col_lock_ceiling: a RIDGE (5-point, see this rework's own [REWORK]
+	# note beside LOCK_CEILING_X_OVERLAP_E_MM for the three original rounds
+	# that led here, and the constants block's own LOCK_CEILING_EAST_
+	# SHOULDER_MM comment for the three FURTHER rounds rework iteration 3
+	# needed) -- flat base sealing the corridor, two vertical risers
+	# (DW-119-safe regardless of height: a vertical edge's own outward
+	# normal has no y-component, so gravity's y-component can never press
+	# a resting ball into it with zero tangential force), a shallow ridge
+	# peaking off-centre (an unstable equilibrium, never a stable valley --
+	# col_loop_top's own proven shape, RIDGE_DROP_MM).
+	#
+	# Rework iteration 3, round 7 (the shipped fix) -- see LOCK_CEILING_
+	# RIDGE_MM's own comment (constants block, above) for the full seven-
+	# round account. col_lock_ceiling stays FIVE points, the same shape
+	# rework iteration 2 shipped -- only the peak's own HEIGHT moved (614 ->
+	# 642 rise, LOCK_CEILING_RIDGE_MM); its own x position, and every other
+	# vertex, are unchanged.
+	lock_ceiling_west_shoulder_y = LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM
+	lock_ceiling_peak_x = lock_ceiling_x0 + (lock_ceiling_x1 - lock_ceiling_x0) * LOCK_CEILING_RIDGE_PEAK_FRACTION
+	lock_ceiling_peak_y = lock_ceiling_west_shoulder_y + LOCK_CEILING_RIDGE_MM
+	lock_ceiling_east_shoulder_y = LOCK_CEILING_Y0_MM + LOCK_CEILING_EAST_SHOULDER_MM
+	col_lock_ceiling = new_prism_mesh(
+		'col_lock_ceiling',
+		[
+			(lock_ceiling_x0, LOCK_CEILING_Y0_MM),
+			(lock_ceiling_x1, LOCK_CEILING_Y0_MM),
+			(lock_ceiling_x1, lock_ceiling_east_shoulder_y),
+			(lock_ceiling_peak_x, lock_ceiling_peak_y),
+			(lock_ceiling_x0, lock_ceiling_west_shoulder_y),
+		],
+		0.0, WALL_H_MM, parent=playfield_root,
+	)
+	set_props(col_lock_ceiling, col_shape='wall', surface='dragon', phys_material='default')
 
 	bd_lock = new_empty('bd_lock', (DRAGON_CENTER_X_MM, DRAGON_MOUTH_Y_MM, BALL_MM / 2), parent=playfield_root)
 	# local +Y (the eject-direction convention every bd_ empty in this file
@@ -2478,21 +2558,37 @@ def main():
 	# col_lock_ceiling_west_fill is a 4-point parallelogram whose own EAST
 	# riser ends up buried inside col_lock_ceiling's own solid material
 	# (round 5's own generous thickness) rather than genuinely joined to
-	# any of its edges. None of the four risers across both bodies is
-	# within isJoined()'s own 1.0 mm tolerance of anything, so all four
-	# are posted:
+	# any of its edges. All four risers across both bodies are posted:
 	#  - col_lock_ceiling's own EAST riser (194.00, 606.00), 4 mm short of
 	#    col_dragon_leg_r's own vertical face.
 	#  - col_lock_ceiling's own WEST riser (146.00, 606.00), buried inside
 	#    col_lock_ceiling_west_fill's own material without touching an edge.
-	#  - col_lock_ceiling_west_fill's own EAST riser (150.00, 613.00),
-	#    buried inside col_lock_ceiling's own material, the mirror case.
-	#  - col_lock_ceiling_west_fill's own WEST riser (90.00, 633.00), 13 mm
-	#    above col_dragon_leg_l's own true top (DRAGON_LEG_Y1_MM, 620).
+	#  - col_lock_ceiling_west_fill's own EAST riser -- unlike the other
+	#    three, this end IS genuinely bare, not buried: rework iteration 3's
+	#    own round 7 raised col_lock_ceiling's own peak (624 -> 642) without
+	#    also raising its WEST flank's own reach far enough at x = 150 to
+	#    keep containing this riser's own (now taller, LOCK_FILL_THICKNESS_
+	#    MM-linked) own midpoint -- see the add_rubber_post() call below for
+	#    its own current coordinate, DERIVED from the live geometry rather
+	#    than hand-measured, since a hand-measured coordinate is exactly
+	#    what went stale here once already.
+	#  - col_lock_ceiling_west_fill's own WEST riser, above col_dragon_
+	#    leg_l's own true top (DRAGON_LEG_Y1_MM, 620).
 	add_rubber_post('col_post_lock_ceiling_e', (194.00, 606.00))
 	add_rubber_post('col_post_lock_ceiling_w', (146.00, 606.00))
-	add_rubber_post('col_post_lock_ceiling_west_fill_e', (150.00, 613.00))
-	add_rubber_post('col_post_lock_ceiling_west_fill_w', (90.00, 633.00))
+	# Rework iteration 3, round 7: col_lock_ceiling_west_fill's own two
+	# vertical risers grew taller (LOCK_FILL_THICKNESS_MM 36 -> 54, tied
+	# LIVE to col_lock_ceiling's own raised peak -- see that constant's own
+	# comment), moving their own true midpoints -- east riser (150, 598) to
+	# (150, 652), midpoint 625 (was 616); west riser (90, 618) to
+	# (90, 672), midpoint 645 (was 633). Unlike col_lock_ceiling itself
+	# (exempted on the gate's own allowlist, verify()'d against a fixed
+	# coordinate), col_lock_ceiling_west_fill is NOT exempted -- its own
+	# ends are derived for real by freeEndsMm() and checked against the
+	# ACTUAL post position, so these two posts must track the true
+	# midpoint or the gate's own post-distance assertion reddens.
+	add_rubber_post('col_post_lock_ceiling_west_fill_e', (fill_east_x, (fill_east_y + fill_north_east_y) / 2.0))
+	add_rubber_post('col_post_lock_ceiling_west_fill_w', (fill_west_x, (fill_west_y + fill_north_west_y) / 2.0))
 	# The three false GUIDE_TERMINATION_EXEMPTIONS reasons a parallel code
 	# review pass found (test/asset-contract.test.ts's own allowlist claimed
 	# "joined on both sides" for three bodies with a genuinely bare, ball-

@@ -988,6 +988,23 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// columns should chase.
 		{ label: 'col_loop_top, west of centre', id: 'descend-loop-top-west' },
 		{ label: 'col_loop_top, east of centre', id: 'descend-loop-top-east' },
+		// Rework iteration 3 (code review 2026-09-04, HIGH finding): the
+		// Lock lane's own corridor seal (col_lock_ceiling,
+		// col_lock_ceiling_west_fill, rework iteration 2) had no column in
+		// this sweep -- the exact discipline that already found col_loop_
+		// top's own strand above -- and a ball came to PERMANENT rest on
+		// col_lock_ceiling's own east flank (182.6, 631.3) as a result.
+		// LOCK_CEILING_RIDGE_MM raised 10.0 -> 28.0 (peak 624 -> 642) and a
+		// new LOCK_CEILING_EAST_SHOULDER_MM (626) added to clear
+		// col_dragon_leg_r's own cap corner (620) with real margin -- the
+		// west shoulder (614) and the peak's own x-position
+		// (LOCK_CEILING_RIDGE_PEAK_FRACTION, unchanged) were not moved, so
+		// the west flank stays safe too. Both flanks now clear the table's
+		// own 18.43 deg static-friction threshold with real margin; these
+		// three columns are its own permanent regression pin.
+		{ label: 'col_lock_ceiling, west flank', id: 'descend-lock-ceiling-west' },
+		{ label: 'col_lock_ceiling, east flank (the strand location)', id: 'descend-lock-ceiling-east' },
+		{ label: 'col_lock_ceiling_west_fill', id: 'descend-lock-ceiling-west-fill' },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ id }) => {
 		const result = driveCase(id);
 		const { x, y } = shotCase(id).startMm;
