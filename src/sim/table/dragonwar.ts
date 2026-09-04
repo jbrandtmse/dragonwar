@@ -318,26 +318,31 @@ export const TABLE = deepFreeze({
 				{ action: 'pulse', coil: 'c_mouth' },
 				{ action: 'recover' },
 			],
-			// Story 2.1d (task 6, AD-6/AD-15): devices.ts's own eject speed
-			// (`tuning.troughEjectSpeedMmPerS`, 300 mm/s) is hardcoded for
-			// every parking device and its own 40-line derivation is entirely
-			// about the SHOOTER LANE's y <= 60 mm zone ceiling -- unrelated to
-			// the Mouth. Measured against the real physics pipeline
-			// (this story's own throwaway harness): at 300 mm/s, a ball
-			// ejected from the Mouth pose (650, dir (0,-1,0)) has NOT yet
-			// cleared every sw_lock_* zone 200 ticks later (own I/O matrix
-			// row) -- it needs roughly 86 mm of travel (38 mm of open field
-			// plus the re-sited slot band's own 48 mm) inside a 200 ms
-			// window, which 300 mm/s (60 mm in that window) does not cover.
-			// 500 mm/s clears with real margin (measured: past every zone
-			// well before tick 200). No artifact states a Mouth eject speed,
-			// so this is `unverified`, the same provenance class
-			// troughEjectSpeedMmPerS itself carries.
-			ejectSpeedMmPerS: {
-				value: 500,
-				source: 'authored 2026-09-03: no artifact states a Mouth eject speed -- measured against the real physics pipeline to clear every sw_lock_* zone comfortably inside the 200-tick window this story\'s own I/O matrix names (the shared troughEjectSpeedMmPerS, 300 mm/s, tuned for the unrelated shooter-lane zone ceiling, does not)',
-				confidence: 'unverified',
-			} as AuthoredEntry<number> | null,
+			// Story 2.1d (task 6, AD-6/AD-15) originally carried a 500 mm/s
+			// override here, measured against the Mouth's own then-pose (650,
+			// 38 mm of open field above the re-sited slot band) needing to
+			// clear every sw_lock_* zone inside the 200-tick I/O-matrix
+			// window faster than the shared 300 mm/s trough speed could.
+			// [REWORK, rework iteration 2] `DRAGON_MOUTH_Y_MM` moved south of
+			// the whole corridor (460, see tools/make-placeholder-blend.py's
+			// own [REWORK] note beside that constant) to close the AC 2
+			// swallow properly (col_lock_ceiling seals the corridor's own
+			// north side, so a pose north of it could no longer eject INTO
+			// the corridor at all). The ejected ball now starts already past
+			// every sw_lock_* zone along its own eject axis -- the zone-
+			// clearing requirement this override existed to satisfy is now
+			// met at spawn, by construction, regardless of speed -- so the
+			// override is removed and bd_lock falls back to the shared
+			// `tuning.troughEjectSpeedMmPerS`, exactly like bd_trough. This
+			// also closes the AD-15 review finding this override's own
+			// existence raised: "two eject speeds in two files" (this one
+			// inside `TABLE`, moving `tableHash`; the shared one inside
+			// `TUNING`, moving `gameStart.tuning`) is now the simplest
+			// possible fix -- one eject speed, in the one file AD-15 asks
+			// for. Re-verified against the real pipeline (task 5/AC 2's own
+			// standing test): the ball is still in play and outside every
+			// sw_lock_* zone 200 ticks after a pulse at the shared 300 mm/s.
+			ejectSpeedMmPerS: null as AuthoredEntry<number> | null,
 		},
 	},
 

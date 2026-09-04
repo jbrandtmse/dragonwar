@@ -19,7 +19,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createMachine } from '../src/sim/physics/machine';
 import { NO_FRAME } from '../src/sim/loop';
-import { createDeviceMechanics, EJECT_EXEMPTION_TIMEOUT_TICKS } from '../src/sim/physics/devices';
+import { createDeviceMechanics } from '../src/sim/physics/devices';
 import { loadCollision } from '../src/sim/physics/loader';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -62,6 +62,9 @@ function zoneCentreMm(switchZoneName: string) {
 
 /** bd_lock's own three slot-zone names, at module scope so both the exemption-timeout test and the enclosure tests derive their bounds from the SAME committed zones rather than from literals. */
 const LOCK_ZONE_NAMES_FOR_CLEAR_BEYOND = ['sw_lock_1', 'sw_lock_2', 'sw_lock_3'] as const;
+
+/** AD-15 (rework iteration 2): the backstop is now `tuning.lockEjectExemptionTimeoutMs`, not a bare exported tick constant -- derived from the SAME `resolveTuning()` the real pipeline uses, never a re-typed literal. */
+const EJECT_EXEMPTION_TIMEOUT_TICKS = resolveTuning().lockEjectExemptionTimeoutTicks.value;
 
 /** Serves a fresh ball via c_trough_eject (the same 320-tick settle every driveShot()-style harness in this suite uses) and returns the machine plus the tick counter, positioned to keep driving from. */
 function servedMachine() {
@@ -328,51 +331,190 @@ describe('bd_lock: one ball per pulse (AD-6)', () => {
 	});
 });
 
+/**
+ * A convex (or star-shaped-from-a-horizontal-scan) polygon's own x-extent at
+ * a given y -- the set of x where the horizontal line y = Y crosses the
+ * polygon's boundary. Code review 2026-09-03 (HIGH finding): the sibling
+ * describe block below used to compare each `sw_lock_*` zone against the
+ * Dragon legs' own BOUNDING BOX (`nodeBboxMm`), which cannot see a sloped
+ * cap's own recession -- `col_dragon_leg_l`'s own bounding box reaches
+ * x = 150 all the way to y = 620, but its TRUE solid material recedes
+ * diagonally above y = 600 (`DRAGON_LEG_L_INNER_SOLID_TOP_MM`,
+ * tools/make-placeholder-blend.py). That gap was exactly what rework
+ * iteration 2's own regression lived in: the bounding-box check passed
+ * throughout. This helper reads the body's own `footprintMm` polygon
+ * directly instead, so a future recession the geometry script does not
+ * account for is caught here rather than discovered by a stranded/swallowed
+ * ball. Returns `undefined` if the polygon has no material at that y at all
+ * (every edge crossing the horizontal line is collected; for a simple
+ * closed polygon that is either zero, in which case Y is outside its
+ * y-range, or exactly two -- the polygon's own left and right boundary at
+ * that height).
+ */
+function xExtentAtY(footprintMm: ReadonlyArray<{ readonly x: number; readonly y: number }>, y: number): { min: number; max: number } | undefined {
+	let lo = Infinity;
+	let hi = -Infinity;
+	for (let i = 0; i < footprintMm.length; i++) {
+		const a = footprintMm[i]!;
+		const b = footprintMm[(i + 1) % footprintMm.length]!;
+		if (a.y === b.y) {
+			if (a.y === y) {
+				lo = Math.min(lo, a.x, b.x);
+				hi = Math.max(hi, a.x, b.x);
+			}
+			continue;
+		}
+		const withinEdge = (a.y <= y && y <= b.y) || (b.y <= y && y <= a.y);
+		if (!withinEdge) {
+			continue;
+		}
+		const t = (y - a.y) / (b.y - a.y);
+		const x = a.x + t * (b.x - a.x);
+		lo = Math.min(lo, x);
+		hi = Math.max(hi, x);
+	}
+	return lo === Infinity ? undefined : { min: lo, max: hi };
+}
+
 describe('bd_lock: a ball crossing the Lock lane band from open field is NOT parked (AD-6, DW-121-class swallow)', () => {
 	/** The three `sw_lock_*` zone names, in one place -- both tests below iterate the same set. */
 	const LOCK_ZONE_NAMES = ['sw_lock_1', 'sw_lock_2', 'sw_lock_3'] as const;
 
-	// QA gap closed (2026-09-03): this describe block's sibling test below
-	// used to probe a HARDCODED (x: 260, y: 590) regardless of where the
-	// committed sw_lock_* zones actually sit. That decoupled the probe from
-	// the thing under test -- when the zones were moved BACK to their
-	// pre-2.1d open-field band (y 630..678, verified by direct mutation),
-	// the fixed y=590 probe stayed inside the legs' solidly-walled region
-	// (y 480..600/620) and the test stayed green, proving only "the legs
-	// block a sideways crossing at y=590", never "the slot zones themselves
-	// are structurally enclosed" -- the actual subject of AC 2's second
-	// clause. This test derives its bound from the committed document
-	// instead: it is a static geometric claim (no simulation, no ball) that
-	// each sw_lock_* zone's own footprint sits inside the corridor the two
-	// Dragon legs already bound -- y within both legs' shared bbox y-span,
-	// x bounded on both sides by a leg body. A zone moved outside that
-	// envelope (e.g. back up into the open field above y 620) fails this
-	// directly, by name, independent of any one trajectory's timing or
-	// physics-settling nuance.
-	it('every sw_lock_* zone is structurally enclosed by the Dragon legs -- its y-span lies within both legs\' own y-span and its x-span is bounded on both sides by the leg bodies (AC 2\'s own second clause: the ZONES themselves, not one simulated crossing, must sit inside the corridor)', () => {
-		const legL = nodeBboxMm('col_dragon_leg_l');
-		const legR = nodeBboxMm('col_dragon_leg_r');
-		const legsYMin = Math.max(legL.min.y, legR.min.y);
-		const legsYMax = Math.min(legL.max.y, legR.max.y);
-
+	/**
+	 * Rework iteration 2 (code review 2026-09-03, HIGH finding): the static
+	 * enclosure check below used to compare each zone against
+	 * `nodeBboxMm('col_dragon_leg_l'/'_r')` -- a bounding box cannot see a
+	 * sloped cap's own recession, and this is precisely the gap the
+	 * regression lived in (`DRAGON_LEG_L_INNER_SOLID_TOP_MM`, 600 mm --
+	 * above that, the left leg's own TRUE material recedes diagonally, but
+	 * its bounding box still reads solid to 620). Rewritten to read each
+	 * leg's own `footprintMm` polygon and evaluate its TRUE x-extent (via
+	 * `xExtentAtY`, above) at the zone's own y-extremes -- the two heights
+	 * where a recession is most likely to have already bitten. The
+	 * corridor's own NORTH seal (`col_lock_ceiling`, this rework's own new
+	 * body) is checked too: its own bottom face must sit at or above every
+	 * zone's own top face, or the corridor is open above the slots exactly
+	 * as it was before this rework.
+	 */
+	it("every sw_lock_* zone is structurally enclosed: at BOTH of its own y-extremes, col_dragon_leg_l's and col_dragon_leg_r's own TRUE footprint (not bounding box) bounds it on the west/east, and col_lock_ceiling's own bottom face bounds it from the north (AC 2's own second clause: the ZONES themselves, not one simulated crossing, must sit inside the corridor)", () => {
+		const doc = readCollisionDoc();
+		const legL = doc.nodes.find((n) => n.name === 'col_dragon_leg_l');
+		const legR = doc.nodes.find((n) => n.name === 'col_dragon_leg_r');
+		expect(legL?.footprintMm, 'col_dragon_leg_l must carry a footprintMm polygon').toBeDefined();
+		expect(legR?.footprintMm, 'col_dragon_leg_r must carry a footprintMm polygon').toBeDefined();
+		const ceilingBottomY = nodeBboxMm('col_lock_ceiling').min.y;
+		// Build-auto review pass (2026-09-04), found by direct mutation
+		// testing while correcting this spec's own ## Verification section:
+		// EVERY assertion below derives its reference height from
+		// col_lock_ceiling itself, so a mutation that relocates the WHOLE
+		// body (rather than shrinking one edge of it) moves this test's own
+		// goalposts along with it and stays green -- verified directly:
+		// shifting col_lock_ceiling +1000 mm in y (well outside the 1066.8 mm
+		// playfield) left both this test and the descending-drop test below
+		// green, because `ceilingBottomY` simply became 1598 instead of 598
+		// and `zone.maxMm.y <= ceilingBottomY` is still trivially true. This
+		// bound closes that: the ceiling's own bottom face must sit CLOSE to
+		// the zone it seals (LOCK_LEG_TOP_CLEARANCE_MM is authored at 6 mm;
+		// 50 mm is a generous margin for future tuning, comfortably tighter
+		// than the 1006 mm gap the relocation mutation produced).
+		// mutation: shift col_lock_ceiling's bboxMm/footprintMm +1000 mm in y
+		// in public/assets/dragonwar.collision.json -> this assertion goes
+		// red naming the 1006 mm gap, where the assertion above it alone
+		// stays green throughout.
 		for (const name of LOCK_ZONE_NAMES) {
 			const zone = switchZoneMm(name);
 			expect(
-				zone.minMm.y,
-				`${name}: its low y face (${zone.minMm.y}) must be at or above both legs' shared low y face (${legsYMin}) -- a zone whose y-span starts above the legs sits in open field, not the bounded corridor`,
-			).toBeGreaterThanOrEqual(legsYMin);
-			expect(
 				zone.maxMm.y,
-				`${name}: its high y face (${zone.maxMm.y}) must be at or below both legs' shared high y face (${legsYMax}) -- a zone whose y-span reaches above the legs sits in open field, not the bounded corridor`,
-			).toBeLessThanOrEqual(legsYMax);
+				`${name}: its high y face (${zone.maxMm.y}) must be at or below col_lock_ceiling's own bottom face (${ceilingBottomY}) -- a zone reaching above the ceiling sits in open field, exactly the pre-fix swallow`,
+			).toBeLessThanOrEqual(ceilingBottomY);
 			expect(
-				zone.minMm.x,
-				`${name}: its low x face (${zone.minMm.x}) must be at or beyond the left leg's own inner face at x=${legL.max.x} -- otherwise nothing bounds the zone's west side`,
-			).toBeGreaterThanOrEqual(legL.max.x);
-			expect(
-				zone.maxMm.x,
-				`${name}: its high x face (${zone.maxMm.x}) must be at or before the right leg's own inner face at x=${legR.min.x} -- otherwise nothing bounds the zone's east side`,
-			).toBeLessThanOrEqual(legR.min.x);
+				ceilingBottomY - zone.maxMm.y,
+				`${name}: col_lock_ceiling's own bottom face (${ceilingBottomY}) sits ${ceilingBottomY - zone.maxMm.y} mm above this zone's own high y face (${zone.maxMm.y}) -- too far to be the authored seal (LOCK_LEG_TOP_CLEARANCE_MM is 6 mm); either the ceiling moved away from the corridor it is meant to seal, or the zone did`,
+			).toBeLessThanOrEqual(50);
+
+			for (const y of [zone.minMm.y, zone.maxMm.y]) {
+				const leftExtent = xExtentAtY(legL!.footprintMm!, y);
+				const rightExtent = xExtentAtY(legR!.footprintMm!, y);
+				expect(leftExtent, `${name}: col_dragon_leg_l has NO material at all at y = ${y} -- its west side is entirely unbounded there`).toBeDefined();
+				expect(rightExtent, `${name}: col_dragon_leg_r has NO material at all at y = ${y} -- its east side is entirely unbounded there`).toBeDefined();
+				expect(
+					leftExtent!.max,
+					`${name}: col_dragon_leg_l's own TRUE material at y = ${y} only reaches x = ${leftExtent!.max} -- short of this zone's own west face (${zone.minMm.x}), a gap a bounding-box check cannot see`,
+				).toBeGreaterThanOrEqual(zone.minMm.x);
+				expect(
+					rightExtent!.min,
+					`${name}: col_dragon_leg_r's own TRUE material at y = ${y} only reaches x = ${rightExtent!.min} -- short of this zone's own east face (${zone.maxMm.x})`,
+				).toBeLessThanOrEqual(zone.maxMm.x);
+			}
+		}
+	});
+
+	/**
+	 * Rework iteration 2 (code review 2026-09-03, HIGH finding): the
+	 * dynamic sweep below drives only EAST-TO-WEST, at the zones' own union
+	 * y-midpoint -- a height that (before this rework) landed in the fully-
+	 * walled band well below any recession, so neither the exposed strip
+	 * the actual defect lived in NOR the descending approach (gravity's own
+	 * direction, and the one the review's own reproduction used) was ever
+	 * driven. This is that missing case: a ball released from open field
+	 * ABOVE col_lock_ceiling's own top face, descending straight down,
+	 * swept across the corridor's own x-width -- reproducing the review's
+	 * own falsifier (probes at x in [150, 190], y in [640, 660, 700]
+	 * descending, 15 of 15 parked before this rework's geometry fix).
+	 */
+	it('a ball released from open field ABOVE col_lock_ceiling, descending straight down across the corridor\'s own x-width, is NOT parked -- the corridor\'s north seal blocks entry from above, not only a sideways crossing at one fixed height', () => {
+		const ceilingTopY = nodeBboxMm('col_lock_ceiling').max.y;
+		const lockLaneX0 = Math.min(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).minMm.x));
+		const lockLaneX1 = Math.max(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).maxMm.x));
+		// Build-auto review pass (2026-09-04): the release height below is
+		// derived from col_lock_ceiling itself, the same self-referential
+		// shape the static enclosure test above was found vacuous against --
+		// a wholesale relocation of the body moves the release point with
+		// it, off the 1066.8 mm playfield entirely, rather than testing the
+		// real corridor. Anchored here to the zones it must actually seal:
+		// LOCK_LEG_TOP_CLEARANCE_MM is authored at 6 mm, so the ceiling's own
+		// top face should sit within roughly the ridge's own authored rise
+		// (LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM = 26 mm today) of
+		// its bottom face -- comfortably inside 80 mm of the zones' own high
+		// y face even allowing for future tuning.
+		const zoneTopY = Math.max(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).maxMm.y));
+		expect(
+			ceilingTopY - zoneTopY,
+			`col_lock_ceiling's own top face (${ceilingTopY}) sits ${ceilingTopY - zoneTopY} mm above the zones' own high y face (${zoneTopY}) -- too far to be releasing a ball just above the real corridor seal; the release point below would no longer test the actual defect`,
+		).toBeLessThanOrEqual(80);
+		const probeXs = [lockLaneX0 + 5, (lockLaneX0 + lockLaneX1) / 2, lockLaneX1 - 5];
+		const releaseYs = [ceilingTopY + 10, ceilingTopY + 40];
+
+		for (const releaseY of releaseYs) {
+			for (const probeX of probeXs) {
+				const { machine, tick: servedTick } = servedMachine();
+				let tick = servedTick;
+				const ball = machine.balls[0]!;
+				const startPhysics = toPhysics({ x: probeX, y: releaseY, z: 13.495 });
+				ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+				// A near-zero release speed -- gravity alone drives the descent,
+				// the same "drop straight down" recipe this file's own
+				// descending-release tests elsewhere in this story's suite use
+				// (test/shot-routing.test.ts's own "Rework iteration 2 item (e)"
+				// cases), and the review's own reproduction (speed near zero,
+				// released above the corridor).
+				ball.hit.vel.set(0, 0, 0);
+				ball.hit.angularVelocity.set(0, 0, 0);
+				ball.hit.angularMomentum.set(0, 0, 0);
+
+				const slotsBefore = [...machine.deviceSlots.bd_lock];
+				for (let i = 0; i < 2000; i++) {
+					tick += 1;
+					machine.step(tick, NO_FRAME, []);
+					if (!machine.balls[0]) {
+						break; // drained or otherwise left play -- not this test's concern, the slot assertion below is
+					}
+				}
+				expect(
+					machine.deviceSlots.bd_lock,
+					`a ball released at (${probeX}, ${releaseY}) and left to descend must not park in bd_lock -- bd_lock's own slots must stay unchanged`,
+				).toEqual(slotsBefore);
+			}
 		}
 	});
 

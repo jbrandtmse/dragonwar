@@ -384,6 +384,41 @@ const GUIDE_SURFACES = new Set(['plastic', 'rubber_band', 'dragon', 'ramp']);
 const NON_GUIDE_SURFACES = new Set(['rubber_post', 'bumper', 'target', 'wood']);
 
 /**
+ * The nearest `rubber_post` to a table-frame point, and how far away it is
+ * -- the SAME derivation the main gate's own per-end loop uses (post centre
+ * = its bbox centre, radius = its bbox x half-width), factored out so a
+ * `verify()` predicate below can make the identical claim rather than
+ * re-deriving it slightly differently.
+ */
+function nearestPost(doc: CollisionDocForTest, point: { readonly x: number; readonly y: number }): { distance: number; radius: number; name: string } {
+	const posts = doc.nodes.filter((n) => n.surface === 'rubber_post');
+	let nearestDistance = Infinity;
+	let nearestName = '(none)';
+	let nearestRadius = 0;
+	for (const post of posts) {
+		const postCentreX = (post.bboxMm.min.x + post.bboxMm.max.x) / 2;
+		const postCentreY = (post.bboxMm.min.y + post.bboxMm.max.y) / 2;
+		const postRadiusMm = (post.bboxMm.max.x - post.bboxMm.min.x) / 2;
+		const distance = Math.hypot(point.x - postCentreX, point.y - postCentreY);
+		if (distance < nearestDistance) {
+			nearestDistance = distance;
+			nearestName = post.name;
+			nearestRadius = postRadiusMm;
+		}
+	}
+	return { distance: nearestDistance, radius: nearestRadius, name: nearestName };
+}
+
+/** Fails naming `label`, the point and the nearest post's own name/distance/radius unless a `rubber_post` sits within `radius + 0.5 mm` of `point` -- the exact budget the main gate's own per-end assertion uses, exposed here so a `verify()` predicate can assert the SAME coordinate-level claim its reason prose makes, rather than a claim nothing ever checks. */
+function expectPostNear(doc: CollisionDocForTest, point: { readonly x: number; readonly y: number }, label: string): void {
+	const { distance, radius, name } = nearestPost(doc, point);
+	expect(
+		distance,
+		`${label}: no rubber_post within one post radius of (${point.x.toFixed(2)}, ${point.y.toFixed(2)}) -- nearest is "${name}" at ${distance.toFixed(2)} mm (post radius ${radius.toFixed(2)} mm)`,
+	).toBeLessThanOrEqual(radius + 0.5);
+}
+
+/**
  * Story 2.1d task 13: the two-directional exemption allowlist -- a body
  * here is a guide-class body (by surface) this AC's own gate does NOT
  * require a nearby post for, with a reason string per entry. Enforced in
@@ -392,15 +427,68 @@ const NON_GUIDE_SURFACES = new Set(['rubber_post', 'bumper', 'target', 'wood']);
  * a bare end fails the forward check; an entry here whose end IS
  * terminated fails as a stale exemption. Every reason is either "tapered to
  * a point, no flat cap the ball could catch" (FR-31's own hazard is an
- * exposed FLAT end) or a named Block If this story cannot lift.
+ * exposed FLAT end), a named Block If this story cannot lift, or a genuine
+ * structural join/post verified below.
+ *
+ * `verify`, added at code review 2026-09-03 (HIGH finding): three of this
+ * list's own reasons ("joined into ... on both sides") were FALSE against
+ * the committed document -- col_loop_top, col_loop_turn_r and col_ramp_turn
+ * all had genuinely bare, ball-reachable ends the reverse-direction check
+ * below could never catch, because that check only re-asserts "freeEndsMm()
+ * still throws", a property of point count and edge adjacency that says
+ * nothing about whether the prose reason is true. `verify`, where present,
+ * makes the SAME coordinate-level claim the reason states, checked on every
+ * run rather than merely written down once.
  */
-const GUIDE_TERMINATION_EXEMPTIONS: ReadonlyArray<{ readonly body: string; readonly reason: string }> = [
+interface GuideExemption {
+	readonly body: string;
+	readonly reason: string;
+	readonly verify?: (doc: CollisionDocForTest) => void;
+}
+
+const GUIDE_TERMINATION_EXEMPTIONS: readonly GuideExemption[] = [
 	{ body: 'col_loop_l_return', reason: 'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for FR-31 to protect (the same shape col_loop_r_return uses).' },
 	{ body: 'col_loop_r_return', reason: 'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for FR-31 to protect.' },
-	{ body: 'col_loop_top', reason: 'the orbit\'s own top connector, a 5-point turn piece joined into col_loop_l/col_loop_r on both sides (verified 0.000 mm each) -- not a 2-ended guide, so freeEndsMm()\'s own quad assumption does not apply.' },
+	{
+		body: 'col_loop_top',
+		reason:
+			'[BLOCK IF, HALTed rather than laundered -- code review 2026-09-03] NOT genuinely joined: this is the orbit\'s own top ' +
+			'connector, a 5-point turn piece freeEndsMm() cannot derive (not a quad) -- but its own true free ends, read directly off ' +
+			'the committed footprint, are its two 9.5 mm end caps at (50.00, 1009.55) and (418.40, 1009.55), both genuinely bare (74.64 / ' +
+			'73.10 mm from the nearest existing post) and both ball-reachable -- this file\'s own comment two describe-blocks below uses ' +
+			'these exact two coordinates as the bound of the Left/Right Loop shot columns against an 8.5 mm floor. Termination was ' +
+			'attempted: a rubber_post at the measured free-end coordinate, and at every position tried within the gate\'s own postRadius ' +
+			'+ 0.5 mm budget (including well outside it, up to 4 mm lateral), measurably broke Story 2.1c\'s own delivered orbit -- the ' +
+			'Left/Right Loop 34 mm entry offset cases (test/shot-routing.test.ts), reproduced and isolated to these two posts alone ' +
+			'(every other new post this story adds was verified independently safe). tools/make-placeholder-blend.py\'s own pre-existing ' +
+			'RIDGE_DROP_MM comment already documents this exact area as swept through seven values and hand-tuned against this identical ' +
+			'regression class, which is why a small, seemingly-safe addition here reliably perturbs it. Per this story\'s own Block If ' +
+			'("would break Story 2.1c\'s delivered orbit ... HALT with the measurement rather than trade one delivered feature for ' +
+			'another"): HALTed, not fixed. This is a real, open FR-31 gap this story could not close without breaking a different ' +
+			'delivered feature -- left for the lead\'s own decision (a wider post-radius exemption for this one guide, a differently-' +
+			'shaped post, or re-tuning RIDGE_DROP_MM/LOOP_TOP_END_X_MM themselves, none of which is this story\'s call to make alone).',
+	},
 	{ body: 'col_loop_turn_l', reason: 'a turn/redirector piece at the orbit\'s own top corner, joined into the perimeter wall and the lane on both sides -- not a free-ended guide; its adjacent-shortest-edge shape is the turn\'s own angle, not an unterminated tip.' },
-	{ body: 'col_loop_turn_r', reason: 'the mirrored turn/redirector piece -- same reasoning as col_loop_turn_l.' },
-	{ body: 'col_ramp_turn', reason: 'the Ramp\'s own top turn, joined into the channel on both sides -- not a free-ended guide; same adjacent-shortest-edge shape as the loop turns, for the same reason.' },
+	{
+		body: 'col_loop_turn_r',
+		reason:
+			'[CORRECTED, code review 2026-09-03] NOT "joined on both sides" as previously claimed -- only the north face joins ' +
+			'col_wall_top; its own 12.00 mm cap at (474.40, 1036.00) is genuinely bare. A wedge-shaped turn piece, same DW-128 shape ' +
+			'class as col_sling_l (its own two shortest edges, the 12.00 mm cap and the 30.8 mm face joining col_wall_top, are ' +
+			'ADJACENT), so freeEndsMm() correctly throws rather than deriving the wrong pair -- it stays on this list structurally. ' +
+			'Its own true bare cap is now posted: col_post_loop_turn_r (474.40, 1036.00), verified below.',
+		verify: (doc) => expectPostNear(doc, { x: 474.4, y: 1036.0 }, 'col_loop_turn_r\'s own 12.00 mm cap'),
+	},
+	{
+		body: 'col_ramp_turn',
+		reason:
+			'[CORRECTED, code review 2026-09-03] NOT "joined on both sides" as previously claimed -- only one edge joins col_loop_r; ' +
+			'its own bare end at (338.00, 829.20) sat 8.99 mm from the nearest existing post against a 4.50 mm budget. A wedge-shaped ' +
+			'turn piece, same DW-128 shape class as col_sling_l (its own two shortest edges are ADJACENT), so freeEndsMm() correctly ' +
+			'throws -- it stays on this list structurally. Its own true bare end is now posted: col_post_ramp_turn (338.00, 829.20), ' +
+			'verified below.',
+		verify: (doc) => expectPostNear(doc, { x: 338.0, y: 829.2 }, 'col_ramp_turn\'s own bare end'),
+	},
 	{
 		body: 'col_sling_l',
 		reason: 'DW-128, a real committed case: the anti-stranding slope (20 mm drop) shortens the east side to 15 mm, ' +
@@ -409,6 +497,21 @@ const GUIDE_TERMINATION_EXEMPTIONS: ReadonlyArray<{ readonly body: string; reado
 			'correct opposite pair would move the body itself, which the Block If reserves for Story 2.1f (col_sling_l/_r). ' +
 			'Both plausible ends are posted anyway as a safety measure: col_post_sling_l (114, 420, the old south-cap ' +
 			'derivation) and col_post_sling_l_north (114, 445, the true far/sloped-cap end).',
+	},
+	{
+		body: 'col_lock_ceiling',
+		reason:
+			'Story 2.1d rework iteration 2 (task 8\'s corridor seal): a 5-point RIDGE (the same shape class as col_loop_top, above), ' +
+			'so freeEndsMm() cannot derive it (not a quad). Its own two true free ends are its vertical risers: the WEST riser ' +
+			'(146.00, 606.00) is buried inside col_lock_ceiling_west_fill\'s own solid material without ever coming within isJoined()\'s ' +
+			'1.0 mm edge tolerance (deliberately -- see that body\'s own [REWORK] note in tools/make-placeholder-blend.py for why its ' +
+			'own riser is NOT coincident with this one); the EAST riser (194.00, 606.00) sits 4 mm short of col_dragon_leg_r\'s own ' +
+			'vertical face. Neither is genuinely joined, so both are posted: col_post_lock_ceiling_w and col_post_lock_ceiling_e, ' +
+			'verified below.',
+		verify: (doc) => {
+			expectPostNear(doc, { x: 146.0, y: 606.0 }, 'col_lock_ceiling\'s own west riser');
+			expectPostNear(doc, { x: 194.0, y: 606.0 }, 'col_lock_ceiling\'s own east riser');
+		},
 	},
 ];
 
@@ -588,6 +691,14 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 				derivationFailed,
 				`${exemption.body}: freeEndsMm() now derives a clean answer for this body (footprint: ${JSON.stringify(body!.footprintMm)}) -- the exemption ("${exemption.reason}") is stale; remove it and let this body pass through the forward check like any other guide`,
 			).toBe(true);
+			// Code review 2026-09-03 (HIGH finding): "freeEndsMm() still
+			// throws" is a property of point count and edge adjacency alone
+			// -- it says nothing about whether the REASON above is true, and
+			// three of this list's own reasons were false against the
+			// committed document despite this check passing for all three.
+			// `verify`, where present, makes the reason's own coordinate-
+			// level claim a machine-checked one, every run.
+			exemption.verify?.(doc);
 		}
 	});
 
@@ -1123,6 +1234,83 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 			loopR!.bboxMm.min.x - divider4EastEdge,
 			`col_top_divider_4's own east edge (${divider4EastEdge}) must clear col_loop_r's live west face (${loopR!.bboxMm.min.x}) -- 0 or negative means the divider is (partly or fully) buried inside the Loop rail and physically unreachable`,
 		).toBeGreaterThan(5);
+	});
+
+	// Code review 2026-09-03 (MED finding): TOP_LANE_Y1_MM moved 1000.0 ->
+	// 1004.8 (tools/make-placeholder-blend.py) so the four
+	// col_top_divider_* UPPER tips join col_loop_top exactly (task 9's own
+	// termination accounting -- a genuine join, not a posted end). sw_top_1/
+	// _2/_3 derive from it, so each grew 4.8 mm at its own high edge (995 ->
+	// 999.8) as an UNRECORDED, untested side effect: s_top_1/_2/_3 now close
+	// on a wider band, and nothing pinned the move. Pinned here so the NEXT
+	// such move is deliberate, not discovered at a later review.
+	// mutation: revert TOP_LANE_Y1_MM 1004.8 -> 1000.0 and re-export -> both
+	// assertions below go red (the divider tips separate from col_loop_top
+	// by 4.8 mm, and every sw_top_* zone's own high y face reverts to 995).
+	it('TOP_LANE_Y1_MM sits exactly at col_loop_top\'s own south face (a genuine join, not a gap), and every sw_top_* zone\'s own high y face is derived from it (995 -> 999.8, the review-recorded side effect)', () => {
+		const doc = readCollisionDoc();
+		const loopTop = doc.nodes.find((n) => n.name === 'col_loop_top');
+		expect(loopTop, 'col_loop_top missing').toBeDefined();
+		const TOP_LANE_Y1_MM = 1004.8;
+		expect(
+			loopTop!.bboxMm.min.y,
+			'col_loop_top\'s own south (low y) face must sit exactly at TOP_LANE_Y1_MM -- this is what makes the top-divider tips a genuine join rather than a bare end',
+		).toBeCloseTo(TOP_LANE_Y1_MM, 1);
+		for (const switchName of ['s_top_1', 's_top_2', 's_top_3']) {
+			const zone = doc.switchZones.find((z) => z.switch === switchName);
+			expect(zone, `no sw_ zone names switch ${switchName}`).toBeDefined();
+			expect(
+				zone!.maxMm.y,
+				`${switchName}'s own zone must reach TOP_LANE_Y1_MM - 5 (999.8), not the pre-review 995 -- a stale value here means the zone quietly shrank back and this switch closes on a narrower band than the committed geometry actually supports`,
+			).toBeCloseTo(TOP_LANE_Y1_MM - 5, 1);
+		}
+	});
+
+	// Story 2.1d rework iteration 2, code review 2026-09-04 (build-auto review
+	// pass, blind-hunter finding): col_lock_ceiling/col_lock_ceiling_west_fill
+	// took six empirical rounds to land (see tools/make-placeholder-blend.py's
+	// own [REWORK] notes beside LOCK_CEILING_X_OVERLAP_E_MM and
+	// LOCK_FILL_WEST_MARGIN_MM for the full history of near-miss traps a ball
+	// settled into along the way), yet nothing pinned the geometry those
+	// rounds converged on -- test/lock-device-behaviour.test.ts's own
+	// enclosure test only checks col_lock_ceiling's BOUNDING BOX against the
+	// legs, never the ridge's own internal vertex heights or the west fill's
+	// own clearance margin above it, so a future edit could silently reopen
+	// any of rounds 1-5's own failure modes.
+	// mutation: change LOCK_CEILING_RIDGE_MM 10.0 -> 26.0 (pushing the ridge
+	// peak to 640, above col_lock_ceiling_west_fill's own east-side north
+	// point at 634) and re-export -> the second assertion below goes red,
+	// naming the lost clearance margin.
+	it('col_lock_ceiling\'s own ridge vertices sit at their derived heights (598 base / 614 shoulder / 624 peak), and col_lock_ceiling_west_fill\'s own north edge clears that peak by a real margin throughout the whole overlap band', () => {
+		const doc = readCollisionDoc();
+		const ceiling = doc.nodes.find((n) => n.name === 'col_lock_ceiling');
+		expect(ceiling, 'col_lock_ceiling missing').toBeDefined();
+		expect(ceiling!.footprintMm, 'col_lock_ceiling must carry a footprintMm polygon').toBeDefined();
+		const ceilingYs = [...ceiling!.footprintMm!].map((p) => p.y).sort((a, b) => a - b);
+		expect(ceilingYs.length, 'col_lock_ceiling is a 5-point ridge (base x2, shoulder x2, peak x1)').toBe(5);
+		expect(ceilingYs[0], 'col_lock_ceiling base, first point (LOCK_CEILING_Y0_MM)').toBeCloseTo(598, 1);
+		expect(ceilingYs[1], 'col_lock_ceiling base, second point (LOCK_CEILING_Y0_MM)').toBeCloseTo(598, 1);
+		expect(ceilingYs[2], 'col_lock_ceiling shoulder, first point (LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM)').toBeCloseTo(614, 1);
+		expect(ceilingYs[3], 'col_lock_ceiling shoulder, second point (LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM)').toBeCloseTo(614, 1);
+		const ridgePeakY = ceilingYs[4]!;
+		expect(ridgePeakY, 'col_lock_ceiling peak (shoulder + LOCK_CEILING_RIDGE_MM)').toBeCloseTo(624, 1);
+
+		const westFill = doc.nodes.find((n) => n.name === 'col_lock_ceiling_west_fill');
+		expect(westFill, 'col_lock_ceiling_west_fill missing').toBeDefined();
+		expect(westFill!.footprintMm, 'col_lock_ceiling_west_fill must carry a footprintMm polygon').toBeDefined();
+		const fillYs = [...westFill!.footprintMm!].map((p) => p.y).sort((a, b) => a - b);
+		expect(fillYs.length, 'col_lock_ceiling_west_fill is a 4-point parallelogram (south x2, north x2)').toBe(4);
+		// The two LOWER points are the south (leg-tracking) edge; the two
+		// HIGHER points are the north edge. The lower of the two north-edge
+		// points is the worst-case clearance against the ridge's own peak --
+		// this is what round 5's own fix (the file's own [REWORK] note beside
+		// LOCK_FILL_WEST_MARGIN_MM) actually guarantees, not merely the
+		// bounding box's own max.
+		const northEdgeWorstCaseY = fillYs[2]!;
+		expect(
+			northEdgeWorstCaseY,
+			`col_lock_ceiling_west_fill's own north edge (worst case ${northEdgeWorstCaseY}) must clear col_lock_ceiling's own ridge peak (${ridgePeakY}) by a real margin throughout the whole overlap band -- round 5's own fix exists specifically because matching heights exactly, twice, parked a ball at the near-miss seam (see the [REWORK] note beside LOCK_FILL_WEST_MARGIN_MM)`,
+		).toBeGreaterThan(ridgePeakY + 5);
 	});
 
 	it('the four true perimeter walls (left, top, right, lane) now reach the glass (DW-53: PERIMETER_WALL_H_MM = GLASS_Z_MM = 400), while col_wall_lane_bottom -- not a true perimeter wall -- stays at the interior WALL_H_MM = 50', () => {

@@ -150,28 +150,6 @@ function ballRadiusVu(): number {
 }
 
 /**
- * Story 2.1d Phase 5 (review finding): a conservative tick-based backstop on
- * the per-ball ejection exemption (`justEjected`, below). `buildClearBeyond()`'s
- * one-directional threshold is the ONLY thing that normally lifts the
- * exemption, and it only fires once a ball's tick-start position has
- * genuinely crossed past the device's own slot-zone union along the eject
- * axis. Nothing bounds how long a real ejected ball may take to complete
- * that crossing -- a deflection, a stall, or a reversal before it ever
- * crosses leaves the ball exempt from being re-parked by that device for
- * the rest of the game, an AD-6 "physics parks an entering ball
- * unconditionally into the lowest empty slot" violation for that one ball,
- * permanently. This constant is the backstop: `detectEntries()` clears the
- * exemption once a ball has sat in it for longer than this many ticks,
- * regardless of `clearBeyond()`. Sized against this story's own measured
- * normal-case clear time (the Spec Change Log's end-to-end trace: eject at
- * tick 344, clear/re-capture-eligible by tick 479 -- a ~135-tick normal
- * clear) -- 600 ticks is a generous multiple of that, large enough to never
- * fire in the normal case, small enough to guarantee AD-6's "unconditional"
- * parking eventually resumes for a genuinely stuck ball.
- */
-export const EJECT_EXEMPTION_TIMEOUT_TICKS = 600;
-
-/**
  * Builds the AD-6 device mechanics. Asserts each PARKING device's initial
  * closed-slot count (`TABLE.ballDevices[*].slots.length`, since every slot
  * starts closed -- "4 balls, asserted at boot") equals its `capacity`,
@@ -198,8 +176,10 @@ export function createDeviceMechanics(options: {
 	 * own slot-zone union (see `buildClearBeyond()`, below, for what "past"
 	 * means and why it is not simply "the swept segment currently misses
 	 * every zone"), each mapped to the tick it was ejected on (Phase 5
-	 * review finding: `EJECT_EXEMPTION_TIMEOUT_TICKS`, above, is the
-	 * backstop that reads this). `detectEntries()` below never parks a ball
+	 * review finding: `tuning.lockEjectExemptionTimeoutTicks`
+	 * (`src/sim/table/tuning.ts`, AD-15 -- rework iteration 2 moved this out
+	 * of a bare tick constant here) is the backstop that reads this).
+	 * `detectEntries()` below never parks a ball
 	 * while it is a key of its own ejecting device's map here -- scoped
 	 * narrowly to "the ball this device just ejected, while it is still
 	 * leaving" (the Block If's own wording), never a blanket park
@@ -497,12 +477,13 @@ export function createDeviceMechanics(options: {
 					const ejectedAtTick = ejectedFromThisDevice.get(movement.ball)!;
 					// Phase 5 review finding: the timeout backstop. A ball that has
 					// never satisfied clearBeyond() (deflected, stalled, reversed --
-					// see EJECT_EXEMPTION_TIMEOUT_TICKS's own doc comment) would
-					// otherwise stay exempt from this device forever; once it has sat
-					// in the exemption longer than the backstop allows, the exemption
-					// is lifted unconditionally, exactly as if it had cleared, so
-					// AD-6's "unconditional" parking resumes for it.
-					if (clearBeyond?.(movement.beforeMm) || tick - ejectedAtTick > EJECT_EXEMPTION_TIMEOUT_TICKS) {
+					// see tuning.lockEjectExemptionTimeoutMs's own doc comment,
+					// src/sim/table/tuning.ts) would otherwise stay exempt from this
+					// device forever; once it has sat in the exemption longer than
+					// the backstop allows, the exemption is lifted unconditionally,
+					// exactly as if it had cleared, so AD-6's "unconditional" parking
+					// resumes for it.
+					if (clearBeyond?.(movement.beforeMm) || tick - ejectedAtTick > tuning.lockEjectExemptionTimeoutTicks.value) {
 						ejectedFromThisDevice.delete(movement.ball);
 					} else {
 						// Still short of both the clearBeyond threshold and the timeout

@@ -314,20 +314,36 @@ catches a slightly-off shot against either leg's face.
 (`LOCK_LANE_CLEAR_MM = 40`), `s_lock_lane` confirming a clean pass-through,
 `bd_lock` (the Mouth) parking up to 3 balls BETWEEN the legs (corrected
 2026-09-03 at code review: "above the legs" described the pre-2.1d slot
-band at y 630-678; the slots now sit at y 564-612, inside the legs' own
-480-620 span) and ejecting
-through `c_mouth` aimed down-table at the flippers (AD-6). OQ-5 (the Lock
-lane carries both the lock and the mode start) is recorded in
+band at y 630-678; the slots now sit inside the legs' own 480-620 span) and
+ejecting through `c_mouth` aimed down-table at the flippers (AD-6). OQ-5
+(the Lock lane carries both the lock and the mode start) is recorded in
 `docs/decisions.md`. **Story 2.1d (2026-09-03):** `bd_lock` now boots empty
 (`[false, false, false]`) rather than the pre-existing `fill(true)` defect
-that booted it full; the three slot zones moved from y 630-678 (230 mm of
-open field above the legs -- any ball merely crossing that band was
-swallowed, with no relation to the Lock) into the corridor the legs already
-bound, y 564-612, above `sw_lock_lane`'s own top face; and the Mouth's own
-eject speed is now a per-device tunable (500 mm/s, `unverified`) measured to
-clear every slot zone within the 200-tick window AD-6's "one ball per pulse"
-requires. Build-side routing verified in `test/lock-device-behaviour.test.ts`
-and `test/shot-routing.test.ts`'s own Lock lane case.
+that booted it full.
+
+**[CORRECTED 2026-09-04, rework iteration 2 code review]** The paragraph
+that stood here (and this file's own prior wording) described the slot
+band's first re-siting (y 564-612, "above `sw_lock_lane`'s own top face")
+as closing the 230 mm open-field swallow. It did not: that re-siting
+measured the corridor's own bound against `col_dragon_leg_l`/`_r`'s
+BOUNDING BOX, which cannot see the left leg's own sloped-cap recession
+(2.1c's own bevel reversal toward the lane leaves its TRUE solid material
+short of the bounding box above y = 600) -- re-measured, 15 of 15 probes
+descending from open field at x in [150, 190] still parked in `bd_lock`,
+an 11-case regression over the original 7. The genuine fix adds a new
+sealing body above the slot band (`col_lock_ceiling` / `col_lock_ceiling_
+west_fill`, `tools/make-placeholder-blend.py`), so the corridor is now
+truly closed at or below the left leg's own recession point rather than
+its bounding box; the slot band itself sits lower still to fit beneath
+that seal (y 544-592). The Mouth's own eject pose also moved, south of the
+whole corridor (y 460, was 650 north of it) rather than trying to clear
+the sealed corridor from above it -- the ejected ball now starts already
+past every slot zone along its own eject axis, so the shared
+`troughEjectSpeedMmPerS` (300 mm/s) is sufficient and the per-device
+override this paragraph previously described is no longer authored.
+Build-side routing verified in `test/lock-device-behaviour.test.ts`
+(including a descending-drop sweep reproducing the review's own
+falsifier) and `test/shot-routing.test.ts`'s own Lock lane case.
 
 ### DRAGON bank
 

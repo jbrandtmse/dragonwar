@@ -303,6 +303,42 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 2.1d Phase 5 (review finding, AD-15): the tick-based backstop on
+	 * `bd_lock`'s own per-ball ejection exemption (`justEjected` /
+	 * `buildClearBeyond()`, `src/sim/physics/devices.ts`) used to be a bare
+	 * `export const EJECT_EXEMPTION_TIMEOUT_TICKS = 600` in that file --
+	 * every OTHER duration in this codebase is authored in ms here and
+	 * converted once by `resolveTuning()` (AD-3, AD-15's own "one file, with
+	 * provenance" Rule), so a bare tick constant's wall-clock meaning would
+	 * silently change if `TICK_HZ` (explicitly provisional) ever moved, and
+	 * nothing would fail to say so.
+	 *
+	 * [CORRECTED, code review 2026-09-04 (build-auto review pass,
+	 * blind-hunter finding): this comment previously justified 600 as a
+	 * generous multiple of a "~135-tick normal clear" (eject at tick 344,
+	 * clear/re-capture-eligible by tick 479) measured BEFORE rework
+	 * iteration 2's corridor-seal redesign. That trace no longer describes
+	 * the shipped mechanism: `DRAGON_MOUTH_Y_MM` now sits south of the
+	 * whole Lock-lane corridor (460, versus every `sw_lock_*` zone's own
+	 * y >= 544), so `buildClearBeyond()`'s one-directional threshold on
+	 * `bd_lock`'s -y eject axis is satisfied by the ball's OWN SPAWN
+	 * position -- the exemption clears essentially immediately (the tick
+	 * after eject, not 135 ticks later), regardless of eject speed. The
+	 * 600 ms backstop is unchanged and, if anything, now MORE generous
+	 * relative to the normal case than when it was set: it exists purely
+	 * to bound the pathological case (a deflected/stalled/reversed ball
+	 * that never satisfies `clearBeyond()`), which this geometry change
+	 * does not affect -- see `test/lock-device-behaviour.test.ts`'s own
+	 * "the just-ejected exemption times out" case for that scenario,
+	 * exercised directly.]
+	 */
+	lockEjectExemptionTimeoutMs: entry(
+		600,
+		"authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
+		'unverified',
+	),
+
+	/**
 	 * Story 1.7 (AD-5, AD-15): the ported damped-harmonic cabinet oscillator's
 	 * two axes (`sim/physics/cabinet/oscillator.ts`, transcribing
 	 * `DampedHarmonicOscillator.h` + `CabinetPhysics.{h,cpp}`) and the

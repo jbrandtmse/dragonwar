@@ -200,6 +200,11 @@
           "source": "authored: AD-6 requires an eject speed, no artifact states one -- measured during Story 1.5 planning against col_lane_deflector, whose clearance threshold sits between 1600 and 1800 mm/s; this carries margin above it",
           "confidence": "unverified"
         },
+        "lockEjectExemptionTimeoutMs": {
+          "value": 600,
+          "source": "authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
+          "confidence": "unverified"
+        },
         "cabinet": {
           "massKg": {
             "value": 113,
@@ -314,6 +319,11 @@
           "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
           "confidence": "unverified"
         },
+        "lockEjectExemptionTimeoutTicks": {
+          "value": 600,
+          "source": "authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
+          "confidence": "unverified"
+        },
         "nudgeImpulseTicks": {
           "value": 25,
           "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
@@ -367,8 +377,8 @@
     },
     "physicsSeed": 999,
     "tickHz": 1000,
-    "tableHash": "adeee0bc",
-    "assetHash": "912fdfd",
+    "tableHash": "18b03084",
+    "assetHash": "424ca253",
     "physicsVersion": "v1-c5990f6c"
   },
   "transitions": [

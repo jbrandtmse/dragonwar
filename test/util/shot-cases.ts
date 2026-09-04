@@ -431,10 +431,15 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// s_lock_1, see that witness's own updated note in reachability.ts)
 		// well before it would have reached the pop-bumper cluster --
 		// 140.987 mm clear, over tolerance.
+		// [REWORK iteration 2, re-measured 2026-09-04] The Lock lane's own
+		// TRUE geometry fix (col_lock_ceiling/col_lock_ceiling_west_fill --
+		// the corridor is now genuinely sealed, not merely re-sited) moved
+		// this witness's own capture point slightly, re-measured 140.987 ->
+		// 147.655 mm clear.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 140.987,
+			closestApproachMm: 147.655,
 			note: 'was reachable via plunge-then-bat-l-3945 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the pop-bumper cluster -- see DW-138.',
 		},
 	},
@@ -539,10 +544,14 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// pipeline after this story's own geometry changes -- the old
 		// "just short" framing no longer applies (this point is now well
 		// clear); still unreachable.
+		// [REWORK iteration 2, re-measured 2026-09-04] The Lock lane's own
+		// TRUE geometry fix moved this witness's own trajectory again,
+		// 111.542 -> 129.388 mm clear (same underlying cause as pop-bumper-2's
+		// own re-measurement, above).
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 111.542,
+			closestApproachMm: 129.388,
 			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},

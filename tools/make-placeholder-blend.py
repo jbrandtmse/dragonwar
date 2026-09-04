@@ -530,7 +530,65 @@ DRAGON_LEG_L_W_MM = 60.0
 DRAGON_LEG_R_W_MM = 45.0
 DRAGON_LEG_Y0_MM = 480.0
 DRAGON_LEG_Y1_MM = 620.0
-DRAGON_MOUTH_Y_MM = 650.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the Mouth"
+# Story 2.1d rework iteration 2 (code review 2026-09-03, HIGH -- the AC 2
+# swallow was RE-SITED, not closed): both legs' own north cap is a SLOPED
+# quad (add_box_wall_sloped, drop_corner='x1'), not a rectangle -- the
+# corner nearer the Lock lane drops by DRAGON_LEG_CAP_DROP_MM below
+# DRAGON_LEG_Y1_MM, so the leg's own TRUE solid material recedes above that
+# point. For col_dragon_leg_r this recedes the OUTER (east) corner, leaving
+# its lane-facing (west, x = lock_lane_x1) face solid the full 480..620 --
+# fine. For col_dragon_leg_l it recedes the INNER (lane-facing, x =
+# lock_lane_x0) corner instead, because 2.1c's own bevel-reversal (this
+# file's own note at the leg's authoring site, below) requires the LEFT
+# leg's low point on the LANE side, on pain of re-opening the col_loop_l
+# wedge that reversal exists to close (a Block If: "would break Story
+# 2.1c's delivered orbit"). So col_dragon_leg_l's own lane-facing face is
+# solid ONLY for y <= DRAGON_LEG_L_INNER_SOLID_TOP_MM (600.0) -- ABOVE that
+# it recedes diagonally toward the leg's own outer corner, and the corridor
+# has NO wall there at all. This story's own iteration-1 pass measured the
+# corridor's bounding assert against DRAGON_LEG_Y1_MM (620, the legs'
+# bounding-BOX top) rather than this TRUE recession point, so the slot band
+# (previously topping out at 612) sat 12 mm inside the gap: 15 of 15
+# descending probes at x in [150, 190] parked, an 11-case regression over
+# the pre-fix 7. Reverting the bevel direction is not available (the Block
+# If above); extending DRAGON_LEG_Y1_MM past the slot band was tried FIRST
+# and reverted for the DRAGON-bank contact-response regression the note
+# below this block describes. The fix is a genuinely NEW body -- a sloped
+# "ceiling" wall (col_lock_ceiling, authored where the legs are drawn,
+# below) sealing the corridor from directly above, positioned at or below
+# this true recession point rather than the bounding-box top, so no gap
+# survives. A ceiling's OWN south face (the one a ball descending from
+# open field contacts) does not need slope protection -- gravity's
+# dominant -y component pulls a ball resting there AWAY from the wall, the
+# opposite of the DW-119 freeze case (a wall's NORTH face, which gravity
+# presses a descending ball INTO) -- but the ceiling's own NORTH face is
+# exactly that same DW-119 hazard one level up, so it is sloped too, same
+# as every other flat-topped body this story's own rework iteration 2
+# fixed.
+DRAGON_LEG_CAP_DROP_MM = 20.0  # authored -- the sloped-cap drop both legs' own add_box_wall_sloped() call below uses; named here (rather than left as each call site's own bare literal) because the corridor-sealing derivation below needs it too
+DRAGON_LEG_L_INNER_SOLID_TOP_MM = DRAGON_LEG_Y1_MM - DRAGON_LEG_CAP_DROP_MM  # 600.0 -- above this, col_dragon_leg_l's own lane-facing face has receded; see the [REWORK] note above
+DRAGON_MOUTH_Y_MM = 460.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the Mouth"
+# [REWORK, rework iteration 2] Was 650.0 (north of the whole corridor, in
+# open field) -- see this constant's own new siting rationale in the
+# [REWORK] block above DRAGON_LEG_CAP_DROP_MM: col_lock_ceiling now seals
+# the corridor's own north side, so a pose north of it could never eject a
+# ball INTO the corridor at all (the ceiling would block the spawned ball's
+# own downward travel on its very first tick). Re-sited south of every
+# sw_lock_* zone and of sw_lock_lane instead -- clear of both
+# (test/lock-device-behaviour.test.ts's own "no parking device's committed
+# eject pose lies inside any of its own slot zones" regression guard, plus
+# a new sw_lock_lane-clearance check this rework adds), comfortably clear
+# of the legs' own south-cap termination posts (col_post_dragon_leg_l/
+# r_south, x 120.00/212.50, DRAGON_CENTER_X_MM = 170 sits 50/42.5 mm from
+# each) and of sw_dragon_body_l/r (x [94,146]/[194,231], outside the
+# 150..190 lane entirely). AD-6's "aimed at the flippers" reads, if
+# anything, MORE naturally from here: south of the whole Dragon structure
+# is closer to the flippers than north of it ever was. The ejected ball
+# now starts already past every sw_lock_* zone along its own eject axis
+# (buildClearBeyond()'s own one-directional threshold), so the exemption
+# this story's task 5 built clears on the spawn tick itself rather than
+# after genuine travel -- a strictly SAFER configuration than before (the
+# ball was never inside a zone to begin with), verified end-to-end below.
 
 # Story 2.1d (task 8, DW-121-class swallow fix): the Lock lane's three slot
 # zones used to sit at y 630..678 -- 10 mm above the legs' own top
@@ -539,9 +597,9 @@ DRAGON_MOUTH_Y_MM = 650.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the
 # so any ball merely crossing that band got swallowed by devices.ts's own
 # zone-entry test, with no relation to the Lock at all.
 #
-# [REWORK, this story] The first attempt extended the legs' own north face
-# PAST the slot band (DRAGON_LEG_Y1_MM 620 -> 688) so the only opening was
-# from below. Measured against the real physics pipeline, this reopened a
+# [REWORK] The first attempt extended the legs' own north face PAST the
+# slot band (DRAGON_LEG_Y1_MM 620 -> 688) so the only opening was from
+# below. Measured against the real physics pipeline, this reopened a
 # defect in an UNRELATED integration case: test/switch-max-speed.test.ts's
 # "a DRAGON-bank target...surfaces exactly one make" -- a ball driven
 # straight at col_dragon_d's own aim point, at the table's measured maximum
@@ -551,32 +609,147 @@ DRAGON_MOUTH_Y_MM = 650.0  # bd_lock's own pose -- AD-6: "the Lock's pose IS the
 # neither leg ever geometrically touches either target -- a genuine
 # contact-response sensitivity in the solver's broad-phase to a distant,
 # non-contacting wall's mere height, not something a small placement
-# adjustment closes. The task's own alternative -- "re-site the slots down
-# into the EXISTING bounded corridor" -- avoids the leg height entirely:
-# the corridor (DRAGON_LEG_Y0_MM..DRAGON_LEG_Y1_MM, 480..620) is ALREADY
-# walled on both sides at its committed height, so placing the three slot
-# zones inside it, above sw_lock_lane's own top face, closes the same 230 mm
-# swallow with zero change to either leg's own geometry -- re-verified: the
+# adjustment closes. The second attempt -- "re-site the slots down into the
+# EXISTING bounded corridor" -- avoided the leg height, but (see the
+# [REWORK] block above) measured the corridor's own top against the legs'
+# BOUNDING BOX (620) rather than col_dragon_leg_l's own TRUE receded face
+# (600), so the slot band still sat partly in the gap. This third pass
+# lowers the slot band further still, so it sits entirely BELOW the true
+# recession point, and adds col_lock_ceiling to seal the corridor's own
+# north side at or below that same point -- re-verified: the
 # switch-max-speed regression does not reproduce with the legs unmoved.
 #
-# The five bare literals this pitch/depth/lane-clearance/leg-clearance used
-# to be (17.0, 14.0, -20.0 offset from the Mouth, plus sw_lock_lane's own
-# bare 500/560) are named and derived here, in the constants block, rather
-# than left in the switch-zone block below.
-SW_LOCK_LANE_Y0_MM = 500.0  # authored -- sw_lock_lane's own low face (unmoved by this story)
-SW_LOCK_LANE_Y1_MM = 560.0  # authored -- sw_lock_lane's own high face (unmoved by this story)
+# sw_lock_lane's own span moves DOWN by the same amount the slot band does
+# (its 60 mm height is unmoved) -- there is not enough room between
+# DRAGON_LEG_Y0_MM and the true 600 mm recession point for sw_lock_lane's
+# own unmoved 500..560 span, the 48 mm slot band and a real ceiling margin
+# all at once; sw_lock_lane sliding down to sit flush with the corridor's
+# own bottom (DRAGON_LEG_Y0_MM) is the cheapest way to find that room
+# without touching the slot band's own pitch/depth (each independently
+# derived and justified below) or DRAGON_LEG_Y0_MM (2.1b geometry this
+# story has no reason to move). epics.md's own Story 2.3 AC (":2080")
+# requires sw_lock_lane "unchanged OR RE-AUTHORED TO THE SAME NAME" --
+# re-siting under the same name is exactly what that clause permits.
+SW_LOCK_LANE_Y0_MM = DRAGON_LEG_Y0_MM  # 480.0 -- flush with the corridor's own bottom (was 500.0); see the block comment above
+SW_LOCK_LANE_Y1_MM = SW_LOCK_LANE_Y0_MM + 60.0  # 540.0 -- the same 60 mm span 2.1b originally authored (500..560), just re-based
 LOCK_SLOT_PITCH_MM = 17.0  # authored -- the y-distance between adjacent slots' own low faces: LOCK_SLOT_DEPTH_MM (14.0) plus a 3.0 mm gap, so two adjacent zones' boxes never touch (a ball's swept segment straddling both at once would otherwise register two simultaneous entries for one crossing)
 LOCK_SLOT_DEPTH_MM = 14.0  # authored -- roughly half a ball diameter (26.99 mm) beyond the 13.495 mm radius, generous margin so a settling ball's own swept segment registers cleanly inside one slot's zone rather than straddling its boundary
 LOCK_SLOT_COUNT = 3  # authored -- matches TABLE.ballDevices.bd_lock.capacity (dragonwar.ts); this script authors placeholder geometry from TABLE-independent literals (AD-1: sim/table owns the registry, Blender owns placement), so the count is repeated here rather than imported, and must move in lockstep with any change to bd_lock's own capacity
 LOCK_SLOT_LANE_CLEARANCE_MM = 4.0  # authored -- gap between sw_lock_lane's own top face and the LOWEST slot's own low face, so a ball's swept segment straddling both zones never registers two simultaneous, unrelated entries
-LOCK_LEG_TOP_CLEARANCE_MM = 8.0  # authored -- gap the HIGHEST slot's own top face leaves below the corridor's own existing, unmoved top (DRAGON_LEG_Y1_MM) -- comparable to the 10 mm margin the pre-this-story geometry left below the lowest slot
-LOCK_SLOT_Y0_BASE_MM = SW_LOCK_LANE_Y1_MM + LOCK_SLOT_LANE_CLEARANCE_MM  # 564.0 -- the LOWEST slot's own low face
+LOCK_LEG_TOP_CLEARANCE_MM = 6.0  # authored -- gap the HIGHEST slot's own top face leaves below col_lock_ceiling's own bottom face (was 8.0, against the legs' unmoved bounding-box top; re-measured against the new, tighter ceiling-bottom reference below)
+LOCK_SLOT_Y0_BASE_MM = SW_LOCK_LANE_Y1_MM + LOCK_SLOT_LANE_CLEARANCE_MM  # 544.0 -- the LOWEST slot's own low face
 # The highest slot's own top face: the (LOCK_SLOT_COUNT - 1)-th slot's low
 # face (the base plus pitch * (count - 1)) plus one slot's own depth.
-LOCK_SLOT_Y1_TOP_MM = LOCK_SLOT_Y0_BASE_MM + (LOCK_SLOT_COUNT - 1) * LOCK_SLOT_PITCH_MM + LOCK_SLOT_DEPTH_MM  # 612.0
-assert LOCK_SLOT_Y1_TOP_MM + LOCK_LEG_TOP_CLEARANCE_MM <= DRAGON_LEG_Y1_MM, (
-	'the re-sited slot band must fit inside the corridor the (unmoved) legs already bound'
+LOCK_SLOT_Y1_TOP_MM = LOCK_SLOT_Y0_BASE_MM + (LOCK_SLOT_COUNT - 1) * LOCK_SLOT_PITCH_MM + LOCK_SLOT_DEPTH_MM  # 592.0
+# col_lock_ceiling's own south (bottom) face -- the corridor's TRUE north
+# bound. Sealed at or below DRAGON_LEG_L_INNER_SOLID_TOP_MM (600.0, the
+# left leg's own true recession point, not its bounding-box top) so no gap
+# survives on that side; the right leg needs no such care (solid to 620
+# regardless). Derived as slot-top-plus-clearance, exactly like the
+# assert below checks, rather than authored independently, so the two can
+# never silently drift apart.
+LOCK_CEILING_Y0_MM = LOCK_SLOT_Y1_TOP_MM + LOCK_LEG_TOP_CLEARANCE_MM  # 598.0
+assert LOCK_CEILING_Y0_MM <= DRAGON_LEG_L_INNER_SOLID_TOP_MM, (
+	f'col_lock_ceiling must seal the corridor at or below the left leg\'s own TRUE (non-bounding-box) solid inner-face height '
+	f'({DRAGON_LEG_L_INNER_SOLID_TOP_MM} mm) -- otherwise the exact rework-iteration-2 gap (DW-121-class) reopens: '
+	f'ceiling bottom {LOCK_CEILING_Y0_MM} mm > recession point {DRAGON_LEG_L_INNER_SOLID_TOP_MM} mm'
 )
+# [REWORK, found empirically, three rounds] Round 1 overlapped each leg by
+# a flat 4.0 mm -- correct for col_dragon_leg_r (whose own lane-facing
+# face is solid the FULL 480..620, so any overlap closes cleanly), but
+# WRONG for col_dragon_leg_l: its own material recedes above DRAGON_LEG_L_
+# INNER_SOLID_TOP_MM (600), so a flat 4 mm overlap left a gap the leg's
+# own diagonal kept retreating out of. Driving `descend-dragon-leg-l`
+# (test/util/shot-cases.ts) end to end, a ball sliding down the leg's own
+# sloped cap (per its own "toward the lane" bevel direction, 2.1c) came to
+# rest permanently at (132.6, 620.0) -- simultaneously ball-radius
+# distance from BOTH the leg's own diagonal AND col_lock_ceiling's own
+# north-west corner, the same three-body wedge pattern 2.1c's own
+# col_loop_l finding already named once.
+#
+# Round 2 tried closing that by stretching col_lock_ceiling's OWN west
+# edge all the way to col_dragon_leg_l's own outer face -- overlap
+# achieved, but ONE long diagonal spanning the full 90..194 mm width is
+# far SHALLOWER than either leg's own 20 mm/60 mm slope, so it fell WELL
+# BELOW col_dragon_leg_r's own fully-solid, un-receded lane-facing face
+# (x = 190, vertical the full 480..620) for the eastern half of its own
+# run -- moving the SAME class of wedge to the opposite corner (measured:
+# a ball came to rest at (176.5, 616.7)).
+#
+# Round 3 split west into its own body (col_lock_ceiling_west_fill,
+# tracking col_dragon_leg_l's own diagonal cap directly) and kept
+# col_lock_ceiling's own single east-receding diagonal for the corridor
+# -- this closed the WEST wedge but not the east one (re-measured:
+# (176.5, 621.7), still ball-radius from BOTH col_lock_ceiling's own
+# diagonal and col_dragon_leg_r's own vertical face) and OPENED A NEW one
+# on the west fill's own north edge (measured: (139.5, 626.6)) -- its own
+# south edge, tracking the leg over a 64 mm run (4 mm past lock_lane_x0),
+# came out shallower (17.35 deg) than the leg's own proven 18.43 deg, and
+# the SAME single-diagonal shortfall that broke rounds 1/2 reappeared one
+# level down.
+#
+# The shared root cause across all three: a single 4-point quad, sloped
+# corner-to-corner across its own FULL width, is EITHER too shallow (falls
+# short of an adjacent tall face) OR forces an unsafe flat cap (if kept
+# short/steep over only part of the width). col_lock_ceiling is now a
+# RIDGE (5-point, the SAME shape col_loop_top's own pin -- descend-loop-
+# top-west/east, both green throughout every round above -- already
+# proves safe in this exact codebase): a flat SOUTH base sealing the
+# corridor, two VERTICAL risers (a vertical edge's own outward normal has
+# NO y-component at all, so DW-119's freeze condition -- a face gravity's
+# y-component presses a ball into with zero tangential force -- cannot
+# arise on one regardless of height), and a shallow ridge between two
+# shoulders peaking at the centre -- never a stable trap (an
+# unstable-equilibrium PEAK, not a valley: the same reasoning col_loop_top's
+# own RIDGE_DROP_MM note already states). col_lock_ceiling_west_fill keeps
+# its own south edge tracking the leg's diagonal exactly (2 mm inside it,
+# over the SAME 60 mm run the leg itself uses -- 18.43 deg, not 17.35),
+# and its own north edge is now the identical line offset far enough to
+# match col_lock_ceiling's own riser height at the seam, so the two meet
+# with a matched profile rather than a shortfall.
+LOCK_CEILING_X_OVERLAP_E_MM = 4.0  # authored -- how far col_lock_ceiling's own east edge reaches past lock_lane_x1, into col_dragon_leg_r's own lane-facing face; that leg has no recession there, so a flat margin suffices.
+# [REWORK, found empirically] col_lock_ceiling's own west edge was
+# lock_lane_x0 exactly at first -- flush with col_lock_ceiling_west_fill's
+# own east edge, so the two bodies' own west/east risers landed on the
+# EXACT same vertical segment, and FOUR edges from two different bodies
+# (each body's own riser plus its own adjacent slope) met at the single
+# shared vertex (lock_lane_x0, 614). A ball settled there (measured:
+# (149.2, 628.5)), ball-radius from col_lock_ceiling's own west ridge
+# slope, in a way neither slope's own angle alone explains (both are
+# steeper than the legs' own proven 18.43 deg) -- a coincident multi-body
+# vertex, not a shallow-angle repeat of the earlier failures. A few mm of
+# real X overlap between the two bodies avoids concentrating that many
+# edges at one point.
+LOCK_CEILING_X_OVERLAP_W_MM = 4.0  # authored -- how far col_lock_ceiling's own west edge reaches past lock_lane_x0, into col_lock_ceiling_west_fill's own territory (redundant there -- west_fill's own coverage already reaches the same height at that x -- but avoiding the coincident-vertex trap above)
+LOCK_CEILING_SHOULDER_MM = 16.0  # authored -- how far above LOCK_CEILING_Y0_MM col_lock_ceiling's own two vertical risers reach (its own flat base to shoulder height, 598 -> 614) before the ridge itself begins; comfortably above DRAGON_LEG_L_INNER_SOLID_TOP_MM's own margin need
+LOCK_CEILING_RIDGE_MM = 10.0  # authored -- the ridge's own further rise from each shoulder to the centred peak (614 -> 624). [REWORK, found empirically]: an initial 4.0 mm (matching col_loop_top's own RIDGE_DROP_MM figure verbatim, over a much shorter run here -- 22 mm against col_loop_top's 184.2 mm) gave only atan(4/22) = 10.3 deg, well under this table's OWN apparent static-friction threshold: a ball reached genuine, motionless equilibrium resting on the ridge's own east slope alone (measured: (181.0, 630.1), ball-radius from that single edge, no second contact) rather than sliding off. Both slope failures this rework hit (col_lock_ceiling_west_fill's own first-round 17.35 deg, this ridge's own first-round 10.3 deg) sat BELOW the legs' own proven 18.43 deg; both fixes landed ABOVE it. 10.0 mm over the same 22 mm run gives 24.4 deg, a real margin above that threshold, not just past it
+LOCK_FILL_WEST_MARGIN_MM = 2.0  # authored -- how far below col_dragon_leg_l's own diagonal cap col_lock_ceiling_west_fill's own south edge sits, the whole 60 mm run (the SAME two-point line the leg's own cap is, merely shifted -2 mm in y, so it can never fall short of that leg's own true boundary anywhere along its run)
+# [REWORK, found empirically, round 5] Matching col_lock_ceiling_west_
+# fill's own north edge height EXACTLY to col_lock_ceiling's own shoulder
+# (16.0 mm) still parked a ball (measured (147.2, 629.1), ball-radius from
+# col_lock_ceiling's own west ridge slope) once col_lock_ceiling's own
+# west edge moved off x = lock_lane_x0 (round 4's own fix, above): the two
+# bodies' own north-boundary heights were then close but no longer
+# exactly equal in the 4 mm overlap band, leaving a THIN near-miss
+# concentration in the same place a genuinely coincident vertex did.
+# Matching heights precisely, twice now, has cost more than it saved --
+# west_fill's own north edge instead clears col_lock_ceiling's own
+# highest point (the ridge peak, LOCK_CEILING_SHOULDER_MM +
+# LOCK_CEILING_RIDGE_MM = 26 mm above LOCK_CEILING_Y0_MM) by a real
+# margin throughout the whole overlap band, so there is no height at
+# which the two bodies' own boundaries are ever close to each other.
+LOCK_FILL_THICKNESS_MM = LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM + 10.0  # authored -- see the [REWORK] note above; clears col_lock_ceiling's own highest point (its ridge peak) by a flat 10 mm throughout the overlap band, rather than matching any one of its heights exactly
+# [REMOVED, code review 2026-09-04 (build-auto review pass, edge-case-hunter
+# finding): this used to be `assert LOCK_SLOT_Y1_TOP_MM + LOCK_LEG_TOP_
+# CLEARANCE_MM <= LOCK_CEILING_Y0_MM`. LOCK_CEILING_Y0_MM (above) IS DEFINED
+# as `LOCK_SLOT_Y1_TOP_MM + LOCK_LEG_TOP_CLEARANCE_MM` -- the assert compared
+# that expression to itself (`x <= x`), which can never fail regardless of
+# how far the slot band or the clearance move, and so protected nothing.
+# The real invariant this was meant to guard -- the ceiling's own bottom
+# face sealing at or below the corridor's TRUE (non-bounding-box) recession
+# point -- is already the assert at LOCK_CEILING_Y0_MM's own definition
+# above, which compares two INDEPENDENT quantities (LOCK_CEILING_Y0_MM
+# against DRAGON_LEG_L_INNER_SOLID_TOP_MM) and can genuinely fail.
 
 # DRAGON bank (task 7): six target faces spelling D-R-A-G-O-N, legible from
 # the fixed camera, left of the Ramp's own channel so neither crosses the
@@ -1934,8 +2107,116 @@ def main():
 	# every height tried across the required range). Both legs' own north
 	# caps stay exactly where 2.1b drew them, each terminated by a rubber
 	# post below (task 9) at their own unmoved free end.
-	add_box_wall_sloped('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
-	add_box_wall_sloped('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', 20.0, 'x1')
+	add_box_wall_sloped('col_dragon_leg_l', dragon_leg_l_x0, dragon_leg_l_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', DRAGON_LEG_CAP_DROP_MM, 'x1')
+	add_box_wall_sloped('col_dragon_leg_r', dragon_leg_r_x0, dragon_leg_r_x1, DRAGON_LEG_Y0_MM, DRAGON_LEG_Y1_MM, 'dragon', DRAGON_LEG_CAP_DROP_MM, 'x1')
+
+	# Story 2.1d rework iteration 2 (code review 2026-09-03, HIGH): the
+	# corridor's own north seal -- see the constants block's [REWORK] note
+	# above DRAGON_LEG_CAP_DROP_MM for why col_dragon_leg_l's own bevel
+	# cannot be reversed to close this gap directly (it would re-open the
+	# col_loop_l wedge Story 2.1c's own bevel reversal exists to prevent,
+	# a Block If), and why extending DRAGON_LEG_Y1_MM cannot either (the
+	# DRAGON-bank contact-response regression, above). This is a genuinely
+	# SEPARATE body instead: sealed at LOCK_CEILING_Y0_MM, at or below the
+	# left leg's own true (non-bounding-box) recession point, spanning
+	# LOCK_CEILING_X_OVERLAP_MM past each leg's own lane-facing face so its
+	# flat SOUTH face -- the one a ball descending from open field above
+	# the corridor actually contacts -- overlaps solid leg material on
+	# both sides rather than meeting a knife-edge seam at exactly x =
+	# lock_lane_x0/x1. Sloped on its own NORTH face for the same DW-119
+	# reason every other flat-topped body in this file is (a ball landing
+	# on TOP of the ceiling from further-open field above would otherwise
+	# freeze against it exactly as the legs' own unsloped caps once did) --
+	# its SOUTH face needs no such treatment: gravity's dominant -y
+	# component pulls a ball resting against a wall's SOUTH-facing side
+	# AWAY from that wall (the wall blocks further -y travel, propelling
+	# the ball back the way it came), the opposite of the north-face
+	# freeze case. `surface='dragon'` (guide-class, same as the legs) --
+	# its own free ends are accounted for in the termination gate below
+	# (task 9/13's own accounting), never assumed safe by omission.
+	# col_lock_ceiling: a RIDGE (5-point, see this rework's own [REWORK]
+	# note beside LOCK_CEILING_X_OVERLAP_E_MM for the three rounds that
+	# led here) -- flat base sealing the corridor, two vertical risers
+	# (DW-119-safe regardless of height: a vertical edge's own outward
+	# normal has no y-component, so gravity's y-component can never press
+	# a resting ball into it with zero tangential force), a shallow ridge
+	# peaking at the centre (an unstable equilibrium, never a stable
+	# valley -- col_loop_top's own proven shape, RIDGE_DROP_MM).
+	lock_ceiling_x0 = lock_lane_x0 - LOCK_CEILING_X_OVERLAP_W_MM
+	lock_ceiling_x1 = lock_lane_x1 + LOCK_CEILING_X_OVERLAP_E_MM
+	lock_ceiling_shoulder_y = LOCK_CEILING_Y0_MM + LOCK_CEILING_SHOULDER_MM
+	lock_ceiling_peak_y = lock_ceiling_shoulder_y + LOCK_CEILING_RIDGE_MM
+	# [REWORK, found empirically, round 6] A peak dead-centre (the
+	# arithmetic mean of x0/x1) sits exactly at DRAGON_CENTER_X_MM -- the
+	# same x every centred shot in this corridor (the Lock lane itself,
+	# the Mouth, several DRAGON-bank/top-lane descent columns) aims at or
+	# near. A ball balancing exactly on a convex peak is an UNSTABLE
+	# equilibrium in principle (col_loop_top's own RIDGE_DROP_MM note
+	# already says so), but "unstable" only means a PERTURBED ball rolls
+	# off -- one arriving dead-on, with the near-zero lateral velocity
+	# many of this corridor's own shots have after a long fall, can still
+	# sit there for a full 500-tick trailing window (measured:
+	# (163.4, 635.9), ball-radius from the peak vertex, after rounds 1-5's
+	# fixes closed everything else). Offsetting the peak off the
+	# corridor's own natural aim point removes the coincidence rather than
+	# relying on a perturbation that this table's own geometry does not
+	# reliably supply.
+	lock_ceiling_peak_x = lock_ceiling_x0 + (lock_ceiling_x1 - lock_ceiling_x0) * 0.28
+	col_lock_ceiling = new_prism_mesh(
+		'col_lock_ceiling',
+		[
+			(lock_ceiling_x0, LOCK_CEILING_Y0_MM),
+			(lock_ceiling_x1, LOCK_CEILING_Y0_MM),
+			(lock_ceiling_x1, lock_ceiling_shoulder_y),
+			(lock_ceiling_peak_x, lock_ceiling_peak_y),
+			(lock_ceiling_x0, lock_ceiling_shoulder_y),
+		],
+		0.0, WALL_H_MM, parent=playfield_root,
+	)
+	set_props(col_lock_ceiling, col_shape='wall', surface='dragon', phys_material='default')
+	# col_lock_ceiling_west_fill: plugs the gap col_dragon_leg_l's own
+	# recession leaves west of the corridor. A parallelogram: its own
+	# south edge is col_dragon_leg_l's own diagonal cap, ((lock_lane_x0,
+	# DRAGON_LEG_L_INNER_SOLID_TOP_MM), (dragon_leg_l_x0, DRAGON_LEG_Y1_MM)),
+	# offset down by LOCK_FILL_WEST_MARGIN_MM the WHOLE 60 mm run -- by
+	# construction the SAME two-point line the leg's own cap is, merely
+	# shifted, so it can never fall short of that leg's own true boundary
+	# anywhere along its run (round 3's own defect: a 64 mm run here came
+	# out shallower, 17.35 deg against the leg's own proven 18.43). Its
+	# own north edge is the identical line, offset a further
+	# LOCK_FILL_THICKNESS_MM -- itself never flat (same 18.43 deg slope as
+	# the south edge), and low-point-toward-the-corridor by construction,
+	# so a ball resting on it slides toward col_lock_ceiling and the lane,
+	# not toward col_loop_l (2.1c's own Block If, undisturbed: this body
+	# never touches col_dragon_leg_l's own bevel direction, only sits
+	# beside it). [CORRECTED, code review 2026-09-04 (build-auto review
+	# pass, blind-hunter finding): this comment previously claimed
+	# LOCK_FILL_THICKNESS_MM equals LOCK_CEILING_SHOULDER_MM so the two
+	# bodies' own coverage "matches (614 mm) at their shared seam" -- false
+	# against LOCK_FILL_THICKNESS_MM's own definition above (round 5's
+	# formula, LOCK_CEILING_SHOULDER_MM + LOCK_CEILING_RIDGE_MM + 10.0 = 36,
+	# not 16) and against the round-5 note itself, which deliberately
+	# abandoned exact height-matching. The real, current seam heights: east
+	# edge 598 + 36 = 634 mm, west edge 618 + 36 = 654 mm (confirmed against
+	# the committed public/assets/dragonwar.collision.json), each clearing
+	# col_lock_ceiling's own highest point (its ridge peak, 598 + 16 + 10 =
+	# 624 mm) by a real margin throughout the whole overlap band, exactly as
+	# round 5's own note above describes.
+	fill_east_x = lock_lane_x0
+	fill_east_y = DRAGON_LEG_L_INNER_SOLID_TOP_MM - LOCK_FILL_WEST_MARGIN_MM
+	fill_west_x = dragon_leg_l_x0
+	fill_west_y = DRAGON_LEG_Y1_MM - LOCK_FILL_WEST_MARGIN_MM
+	col_lock_ceiling_west_fill = new_prism_mesh(
+		'col_lock_ceiling_west_fill',
+		[
+			(fill_east_x, fill_east_y),
+			(fill_west_x, fill_west_y),
+			(fill_west_x, fill_west_y + LOCK_FILL_THICKNESS_MM),
+			(fill_east_x, fill_east_y + LOCK_FILL_THICKNESS_MM),
+		],
+		0.0, WALL_H_MM, parent=playfield_root,
+	)
+	set_props(col_lock_ceiling_west_fill, col_shape='wall', surface='dragon', phys_material='default')
 
 	bd_lock = new_empty('bd_lock', (DRAGON_CENTER_X_MM, DRAGON_MOUTH_Y_MM, BALL_MM / 2), parent=playfield_root)
 	# local +Y (the eject-direction convention every bd_ empty in this file
@@ -2187,6 +2468,52 @@ def main():
 	# a second post is added here at the true far end as a safety measure a
 	# ball can actually reach.
 	add_rubber_post('col_post_sling_l_north', (114.00, 445.00))
+	# Story 2.1d rework iteration 2 (code review 2026-09-03, five geometry
+	# rounds -- see this rework's own [REWORK] notes in the constants
+	# block, beside LOCK_CEILING_X_OVERLAP_E_MM and LOCK_FILL_THICKNESS_MM,
+	# for the full account). Final shape: col_lock_ceiling is a 5-point
+	# RIDGE (its own two vertical risers are the only genuinely bare ends
+	# a non-quad shape like this has -- freeEndsMm() cannot derive them at
+	# all, point count != 4, so it is a named exemption below);
+	# col_lock_ceiling_west_fill is a 4-point parallelogram whose own EAST
+	# riser ends up buried inside col_lock_ceiling's own solid material
+	# (round 5's own generous thickness) rather than genuinely joined to
+	# any of its edges. None of the four risers across both bodies is
+	# within isJoined()'s own 1.0 mm tolerance of anything, so all four
+	# are posted:
+	#  - col_lock_ceiling's own EAST riser (194.00, 606.00), 4 mm short of
+	#    col_dragon_leg_r's own vertical face.
+	#  - col_lock_ceiling's own WEST riser (146.00, 606.00), buried inside
+	#    col_lock_ceiling_west_fill's own material without touching an edge.
+	#  - col_lock_ceiling_west_fill's own EAST riser (150.00, 613.00),
+	#    buried inside col_lock_ceiling's own material, the mirror case.
+	#  - col_lock_ceiling_west_fill's own WEST riser (90.00, 633.00), 13 mm
+	#    above col_dragon_leg_l's own true top (DRAGON_LEG_Y1_MM, 620).
+	add_rubber_post('col_post_lock_ceiling_e', (194.00, 606.00))
+	add_rubber_post('col_post_lock_ceiling_w', (146.00, 606.00))
+	add_rubber_post('col_post_lock_ceiling_west_fill_e', (150.00, 613.00))
+	add_rubber_post('col_post_lock_ceiling_west_fill_w', (90.00, 633.00))
+	# The three false GUIDE_TERMINATION_EXEMPTIONS reasons a parallel code
+	# review pass found (test/asset-contract.test.ts's own allowlist claimed
+	# "joined on both sides" for three bodies with a genuinely bare, ball-
+	# reachable end). Two closed here: col_loop_turn_r's own 12 mm cap
+	# (a wedge-shaped turn piece, same DW-128 shape class as col_sling_l --
+	# freeEndsMm() throws on it for the SAME adjacent-shortest-edges
+	# reason, so it stays on the exemption list structurally, but its own
+	# true bare end is now posted rather than merely asserted joined);
+	# col_ramp_turn's own bare end, 8.99 mm from the nearest existing post
+	# against a 4.50 mm budget -- also a wedge (same reasoning), closed the
+	# same way. col_loop_top's own two 9.5 mm end caps are NOT closed here
+	# -- see this rework's own [BLOCK IF] note at their exemption entry in
+	# test/asset-contract.test.ts: a post at the measured free-end
+	# coordinate, and at every position tried within the gate's own
+	# postRadius + 0.5 budget, measurably breaks Story 2.1c's own
+	# delivered orbit (the Loop 34 mm entry offset cases) -- this file's
+	# OWN pre-existing RIDGE_DROP_MM comment (above) already documents
+	# this exact area as swept and hand-tuned against that identical
+	# regression. HALTed per the Block If rather than traded.
+	add_rubber_post('col_post_loop_turn_r', (474.40, 1036.00))
+	add_rubber_post('col_post_ramp_turn', (338.00, 829.20))
 
 	# ---- Switch zones: box shape, paired with their TABLE switch ----
 	sw_shooter_lane = new_box_mesh(
@@ -2269,19 +2596,23 @@ def main():
 	dragon_body_zone_y0 = dragon_body_zone_y1 - 35.0
 	add_switch_zone('sw_dragon_body_l', 's_dragon_body', (dragon_leg_l_x0 + 4, dragon_body_zone_y0, 0), (dragon_leg_l_x1 - 4, dragon_body_zone_y1, 50))
 	add_switch_zone('sw_dragon_body_r', 's_dragon_body', (dragon_leg_r_x0 + 4, dragon_body_zone_y0, 0), (dragon_leg_r_x1 - 4, dragon_body_zone_y1, 50))
+	# Story 2.1d rework iteration 2: SW_LOCK_LANE_Y0/Y1_MM re-based to sit
+	# flush with the corridor's own bottom (see the constants block's own
+	# [REWORK] note); the +2/-2 mm x inset is unmoved 2.1b geometry.
 	add_switch_zone('sw_lock_lane', 's_lock_lane', (lock_lane_x0 + 2, SW_LOCK_LANE_Y0_MM, 0), (lock_lane_x1 - 2, SW_LOCK_LANE_Y1_MM, 30))
-	# Story 2.1d (task 8): the three slot zones, RE-SITED into the corridor
-	# the legs already bound (DRAGON_LEG_Y0_MM..DRAGON_LEG_Y1_MM) -- see the
-	# constants block's own [REWORK] note above DRAGON_LEG_Y1_MM for why
-	# (extending the legs' own height instead reopened an unrelated
-	# switch-max-speed regression against the DRAGON bank). The Mouth's own
-	# eject pose (DRAGON_MOUTH_Y_MM, 650.0) now sits ABOVE the whole slot
-	# band (LOCK_SLOT_Y1_TOP_MM, 612.0) rather than inside its middle slot
-	# as originally authored -- an ejected ball crosses 38 mm of open field
-	# before entering the corridor's own top (620) and descending through
-	# the slots on its way out, all still covered by devices.ts's own
-	# "one ball per pulse" exemption (task 5) regardless of exactly where
-	# the zones sit.
+	# Story 2.1d (task 8), rework iteration 2: the three slot zones, sited
+	# into the corridor the legs and col_lock_ceiling now TRULY bound (see
+	# the constants block's own [REWORK] notes above DRAGON_LEG_Y1_MM and
+	# DRAGON_LEG_CAP_DROP_MM for the two things that went wrong first:
+	# extending the legs' own height re-opened a DRAGON-bank contact-
+	# response regression, and the first re-siting measured the corridor's
+	# own top against the legs' BOUNDING BOX rather than col_dragon_leg_l's
+	# own true, receded solid face). The Mouth's own eject pose
+	# (DRAGON_MOUTH_Y_MM, 460.0) now sits SOUTH of the whole slot band and
+	# of sw_lock_lane both -- see DRAGON_MOUTH_Y_MM's own [REWORK] note for
+	# why the ejected ball no longer needs to cross the slot band at all,
+	# and is covered by devices.ts's own "one ball per pulse" exemption
+	# (task 5) from the spawn tick regardless.
 	LOCK_SLOT_NAMES = ('s_lock_1', 's_lock_2', 's_lock_3')
 	assert len(LOCK_SLOT_NAMES) == LOCK_SLOT_COUNT, 'LOCK_SLOT_NAMES and LOCK_SLOT_COUNT (the constants block above) must agree'
 	for i, switch_name in enumerate(LOCK_SLOT_NAMES):

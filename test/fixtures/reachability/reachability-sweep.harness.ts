@@ -165,17 +165,25 @@ function closestApproachMm(x: number, y: number, segments: readonly Segment[]): 
 
 /**
  * Recipes to sweep. Far denser than `test/util/reachability.ts`'s own
- * 10-entry `WITNESSES` table: 36 coarse plunge-only strengths (20-900 step
- * 25) plus 29 fine plunge-only strengths (240-380 step 5, the window that
- * DISCOVERED the Right Loop lane's own reachability -- this story's own
- * single biggest finding, see the Spec Change Log), and 66 flip ticks x 6
- * hold durations = 396 flipped releases, for 461 releases total, PLUS all
- * 10 `WITNESSES`-table recipes explicitly (471 total -- so the dense sweep
- * can never disagree with the in-suite gate merely because its own coarse
- * grid stepped over a narrow window the in-suite search found by finer,
- * targeted search; a few of the 10 exactly overlap the surrounding grid,
- * which is by design -- the sweep's job is to search WIDER, not to avoid
- * all overlap).
+ * `WITNESSES` table: 36 coarse plunge-only strengths (20-900 step 25) plus
+ * 29 fine plunge-only strengths (240-380 step 5, the window that DISCOVERED
+ * the Right Loop lane's own reachability -- Story 2.1e's own single biggest
+ * finding, see that story's own Spec Change Log), and 66 flip ticks x 6
+ * hold durations = 396 flipped releases, for 461 releases total, PLUS every
+ * `WITNESSES`-table recipe explicitly (472 total -- so the dense sweep can
+ * never disagree with the in-suite gate merely because its own coarse grid
+ * stepped over a narrow window the in-suite search found by finer, targeted
+ * search; a few of these exactly overlap the surrounding grid, which is by
+ * design -- the sweep's job is to search WIDER, not to avoid all overlap).
+ *
+ * [CORRECTED, code review 2026-09-03 (MED finding)] `WITNESSES` holds 11
+ * entries (Story 2.1d's own rework added `plunge-medium-295`); this
+ * function's own explicit push list held only 10, so the comment's own
+ * guarantee -- "the dense sweep can rediscover everything the in-suite gate
+ * proved" -- did not in fact hold BY CONSTRUCTION for the 11th. It happened
+ * to be covered anyway (295 lands exactly on the fine 240-380 step-5 grid),
+ * which is how this went unnoticed rather than failing loudly. The missing
+ * push is added below rather than left to incidental grid alignment.
  */
 function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	const recipes: ReleaseRecipe[] = [];
@@ -208,6 +216,7 @@ function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	recipes.push({ plungeHoldTicks: 521 });
 	recipes.push({ plungeHoldTicks: 345 });
 	recipes.push({ plungeHoldTicks: 285 });
+	recipes.push({ plungeHoldTicks: 295 }); // plunge-medium-295 (Story 2.1d) -- see this function's own [CORRECTED] note above
 	recipes.push({ plungeHoldTicks: 521, flip: { atTick: 3911, holdTicks: 60 } });
 	recipes.push({ plungeHoldTicks: 521, flip: { atTick: 3918, holdTicks: 60 } });
 	recipes.push({ plungeHoldTicks: 521, flip: { atTick: 3945, holdTicks: 30 } });
@@ -279,7 +288,7 @@ const MIN_RELEASE_PATH_MM = 300;
  * it a proof": deleting the fine 240-380 plunge loop -- the axis that
  * DISCOVERED `plunge-medium-285`, this story's own headline finding --
  * leaves 442 releases, over the 300 total floor, and changes no verdict
- * (because the ten `WITNESSES` recipes are separately re-pushed below), so
+ * (because every `WITNESSES` recipe is separately re-pushed below), so
  * the sweep would silently degrade into a replay of the in-suite witness
  * set and still report success. These floors make each axis fail on its own.
  */
