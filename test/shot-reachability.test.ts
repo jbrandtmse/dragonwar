@@ -88,6 +88,25 @@ describe('shot reachability -- declaration completeness', () => {
 		expect(duplicates, `SHOT_CASES has duplicate id(s): ${JSON.stringify(duplicates)} -- every case id must be unique or a later entry is silently unreachable via shotCase()/driveCase()`).toEqual([]);
 	});
 
+	// [ADDED 2026-09-03, code review] The metric is PLAN-ONLY, and this is
+	// the guard that keeps that honest. `closestApproachMm()` compares
+	// `startMm` against witness swept segments that carry x and y only --
+	// `replayWitness()` discards z when it calls `fromPhysics()`. Every
+	// release point today sits at the ball's own resting height on the
+	// playfield, so plan distance IS the right measure. An ELEVATED release
+	// point (a ramp-height one, say) would silently be certified "reachable"
+	// by a witness rolling underneath it, which is a teleport-shaped hole of
+	// exactly the kind this story exists to close -- and Story 2.1f, the
+	// named first consumer, is about the Ramp. Until the metric carries z,
+	// the manifest may not carry a case that needs it.
+	it.each(SHOT_CASES.map((c) => [c.id, c] as const))('%s releases at the ball-rest height -- reachability is measured in plan only, so an elevated release point cannot be honestly judged', (id, c) => {
+		const ballRestZMm = TABLE.reference.ballMm / 2;
+		expect(
+			Math.abs(c.startMm.z - ballRestZMm),
+			`case "${id}" releases at z = ${c.startMm.z} mm, away from the ball-rest height ${ballRestZMm} mm. Reachability is measured as a PLAN distance (x, y) against witness swept segments that carry no z, so a witness passing beneath this point would certify it reachable. Give the metric a z component before declaring a case at another height.`,
+		).toBeLessThanOrEqual(1);
+	});
+
 	it.each(SHOT_CASES.map((c) => [c.id, c] as const))('%s declares a well-formed reachability verdict', (id, c) => {
 		if (c.reachability.kind === 'reachable') {
 			expect(
@@ -112,11 +131,26 @@ describe('shot reachability -- declaration completeness', () => {
 /** How far a live re-measurement may drift from a recorded `closestApproachMm` before the baseline is treated as stale (solver float noise across runs, never a geometry difference -- AC 2's "the baseline may not rot in either direction" is judged against this). */
 const RECORDED_APPROACH_AGREEMENT_BAND_MM = 0.5;
 
-let evaluatedCount = 0;
+/**
+ * The ids actually measured by the per-case block below.
+ *
+ * [CHANGED 2026-09-03, code review -- Rule 19] This was a bare
+ * `evaluatedCount` integer compared against `SHOT_CASES.length`. Both sides
+ * derived from the same array, so the assertion could not fail from the
+ * condition its own title named: `it.each(SHOT_CASES)` registers exactly
+ * `SHOT_CASES.length` tests, each incrementing once, and an EMPTIED manifest
+ * reduced the whole check to `expect(0).toBe(0)` -- green. (The red the
+ * implementer recorded for that mutation came from the separate
+ * MIN_SHOT_CASES floor, never from here.) Recording the ids and comparing
+ * the SET against the manifest, with an independent floor at
+ * MIN_SHOT_CASES, makes a truncated iteration source and a truncated
+ * manifest both fail, and names what went missing.
+ */
+const evaluatedIds = new Set<string>();
 
 describe('shot reachability -- per case, proven or recorded unreachable (AC 1, AC 2, AC 3)', () => {
 	it.each(SHOT_CASES.map((c) => [c.id, c] as const))('%s', (id, c) => {
-		evaluatedCount += 1;
+		evaluatedIds.add(id);
 		if (c.reachability.kind === 'reachable') {
 			const distanceMm = closestApproachMm(c.startMm, c.reachability.witness);
 			expect(
@@ -143,7 +177,18 @@ describe('shot reachability -- per case, proven or recorded unreachable (AC 1, A
 	});
 
 	it('every declared case was actually evaluated -- a run that skipped cases is not a pass', () => {
-		expect(evaluatedCount, `expected exactly ${SHOT_CASES.length} cases evaluated (one per SHOT_CASES entry), got ${evaluatedCount}`).toBe(SHOT_CASES.length);
+		const declared = SHOT_CASES.map((c) => c.id);
+		const missing = declared.filter((id) => !evaluatedIds.has(id));
+		expect(
+			missing,
+			`${missing.length} declared case(s) were never measured by the per-case block: ${JSON.stringify(missing)} -- a run that skipped cases is not a pass`,
+		).toEqual([]);
+		// Independent of SHOT_CASES.length, so an emptied or truncated
+		// manifest fails HERE too and not only on the separate floor test.
+		expect(
+			evaluatedIds.size,
+			`only ${evaluatedIds.size} cases were measured, below the recorded floor of ${MIN_SHOT_CASES} -- a run that evaluated almost nothing must fail loudly, never report success`,
+		).toBeGreaterThanOrEqual(MIN_SHOT_CASES);
 	});
 });
 
@@ -167,12 +212,24 @@ describe('shot reachability -- the harness cannot be bypassed (AC 1 structural h
 		const codeOnly = stripCommentsAndStrings(readFileSync(SHOT_ROUTING_PATH, 'utf8'));
 		const lines = codeOnly.split('\n');
 		const offendingLines: number[] = [];
+		// [TIGHTENED 2026-09-03, code review] The exemption used to be any
+		// line matching /\breturn\s+driveShot\(/ ANYWHERE in the file, which
+		// this test's own title never claimed: a second wrapper --
+		// `function driveAnywhere(mm) { return driveShot(mm, 2200, 0, 9000); }`
+		// -- satisfied it while bypassing the manifest completely. The
+		// exemption is now the ONE exact call site driveCase() makes, and the
+		// total count of driveShot( mentions is pinned at two (its
+		// declaration and that call), so a second wrapper fails on both
+		// counts rather than passing on a shape match.
+		const THE_ONE_CALL_SITE = /^\s*return driveShot\(c\.startMm, c\.speedMmPerS, c\.dirDeg, c\.ticks\);\s*$/;
+		const mentionLines: number[] = [];
 		lines.forEach((line, idx) => {
 			if (!line.includes('driveShot(')) {
 				return;
 			}
+			mentionLines.push(idx + 1);
 			const isDeclaration = /^\s*function\s+driveShot\(/.test(line);
-			const isTheOneCallSite = /\breturn\s+driveShot\(/.test(line);
+			const isTheOneCallSite = THE_ONE_CALL_SITE.test(line);
 			if (!isDeclaration && !isTheOneCallSite) {
 				offendingLines.push(idx + 1);
 			}
@@ -180,6 +237,42 @@ describe('shot reachability -- the harness cannot be bypassed (AC 1 structural h
 		expect(
 			offendingLines,
 			`test/shot-routing.test.ts calls driveShot( directly (bypassing driveCase()/the manifest) at line(s) ${offendingLines.join(', ')} -- a release point must never be driven without a SHOT_CASES entry`,
+		).toEqual([]);
+		expect(
+			mentionLines.length,
+			`driveShot( is mentioned on ${mentionLines.length} line(s) (${mentionLines.join(', ')}) of test/shot-routing.test.ts -- exactly two are allowed: its own declaration, and driveCase()'s single call. A third is a second entry point into the physics drive, whatever it is named.`,
+		).toBe(2);
+	});
+
+	// [ADDED 2026-09-03, code review] The INVERSE guarantee. The two scans
+	// either side of this one prove no coordinate is driven without a
+	// manifest entry; nothing proved the converse -- that a manifest entry is
+	// actually DRIVEN. Deleting a `driveCase('lock-lane-long')` call site
+	// left this file wholly green (the case is still declared, still proven
+	// reachable, still counted toward MIN_SHOT_CASES and toward
+	// evaluatedCount) and left the dense sweep green too, so the manifest
+	// could drift into certifying release points no routing test exercises --
+	// the direct inverse of AC 4's "the manifest is the real input to the
+	// consumer, not a parallel description of it".
+	it('every SHOT_CASES entry is actually driven by test/shot-routing.test.ts -- a declared-but-undriven case is a reachability claim about a shot nothing runs', () => {
+		// The RAW source, deliberately: six ids are built by template
+		// (`left-loop-orbit-${x}` / `right-loop-orbit-${x}` from
+		// LOOP_ENTRY_OFFSETS_MM), and stripCommentsAndStrings() blanks
+		// template literals. A comment mentioning an id cannot create a false
+		// pass here that matters -- the failure this guards is a DELETED call
+		// site, and deleting a call site does not leave the id behind.
+		const rawSource = readFileSync(SHOT_ROUTING_PATH, 'utf8');
+		const undriven = SHOT_CASES.filter((c) => {
+			if (rawSource.includes(`'${c.id}'`)) {
+				return false;
+			}
+			// Templated form: `left-loop-orbit-28` -> `left-loop-orbit-${`
+			const templatePrefix = c.id.replace(/-\d+$/, '-${');
+			return !(templatePrefix !== c.id && rawSource.includes(templatePrefix));
+		}).map((c) => c.id);
+		expect(
+			undriven,
+			`SHOT_CASES declares case(s) that test/shot-routing.test.ts never drives: ${JSON.stringify(undriven)} -- every manifest entry must have a driveCase() call site, or the reachability verdict certifies a shot no test runs`,
 		).toEqual([]);
 	});
 
@@ -358,6 +451,20 @@ const FEED_MARGIN_AGREEMENT_BAND_MM = 0.01;
 describe('shot reachability -- DW-130: the feed-rail proximity record (AC 5)', () => {
 	it('the RIGHT feed rail (col_guide_inlane_feed_r) contact margin, measured from the driven trajectories that require a right-bat arrival, matches its recorded value', () => {
 		const marginMm = minFeedRailMarginMm(RIGHT_BAT_ARRIVAL_CASE_IDS, 'col_guide_inlane_feed_r');
+		// [ADDED 2026-09-03, code review] The SIGN, asserted separately from
+		// the magnitude. This file's own comment identifies the sign as the
+		// real signal ("the ball funnels along WHICHEVER surface bounds it,
+		// so contact margin stays near zero either way; the SIGN ... is what
+		// moves"), and the required 20 mm mutation flips it (+0.0198 ->
+		// -0.0071). The magnitude band below is necessarily 0.01 mm -- the
+		// same grain AD-15 quantises golden ball positions to -- with a
+		// workable window of only [0.01, 0.027]; the sign carries the same
+		// falsifier with no dependence on float summation over ~4000 ticks,
+		// so the two together survive a host that the band alone might not.
+		expect(
+			marginMm,
+			`the RIGHT feed rail's contact margin is ${marginMm.toFixed(4)} mm -- it must remain POSITIVE (the right-bat-arrival trajectories CLEAR col_guide_inlane_feed_r). A flip to negative means the rail moved into the driven path (DW-130's own falsifier).`,
+		).toBeGreaterThan(0);
 		expect(
 			Math.abs(marginMm - MEASURED_RIGHT_FEED_MARGIN_MM),
 			`the RIGHT feed rail's own measured contact margin is ${marginMm.toFixed(4)} mm, more than ${FEED_MARGIN_AGREEMENT_BAND_MM} mm away from the recorded ${MEASURED_RIGHT_FEED_MARGIN_MM} mm -- ` +
@@ -367,6 +474,11 @@ describe('shot reachability -- DW-130: the feed-rail proximity record (AC 5)', (
 
 	it('the LEFT feed rail (col_guide_inlane_feed_l) contact margin, measured from the driven trajectories that require a left-bat arrival, matches its recorded value', () => {
 		const marginMm = minFeedRailMarginMm(LEFT_BAT_ARRIVAL_CASE_IDS, 'col_guide_inlane_feed_l');
+		// The sign, asserted separately -- see the RIGHT test's own note.
+		expect(
+			marginMm,
+			`the LEFT feed rail's contact margin is ${marginMm.toFixed(4)} mm -- it must remain NEGATIVE (the left-bat-arrival trajectories CONTACT col_guide_inlane_feed_l). A flip to positive means the rail moved out of the driven path (DW-130's own falsifier).`,
+		).toBeLessThan(0);
 		expect(
 			Math.abs(marginMm - MEASURED_LEFT_FEED_MARGIN_MM),
 			`the LEFT feed rail's own measured contact margin is ${marginMm.toFixed(4)} mm, more than ${FEED_MARGIN_AGREEMENT_BAND_MM} mm away from the recorded ${MEASURED_LEFT_FEED_MARGIN_MM} mm -- ` +

@@ -63,7 +63,19 @@ interface WitnessRecipe {
 	readonly flip?: { readonly side: 'l' | 'r'; readonly atTick: number; readonly holdTicks: number };
 	/** Ticks to run AFTER the plunger releases (i.e., after the ball leaves `bd_shooter`), or until the ball leaves play, whichever comes first. */
 	readonly ticksAfterRelease: number;
-	/** At least one switch this witness's own trajectory is expected to close -- `assertWitnessCorpusHealthy()`'s dead-witness guard reads this. */
+	/**
+	 * At least one switch this witness's own trajectory is expected to close
+	 * -- `assertWitnessCorpusHealthy()`'s dead-witness guard reads this.
+	 *
+	 * [CORRECTED 2026-09-03, code review] It MUST be a switch the ball can
+	 * only close AFTER the plunger releases. `s_shooter_lane` is
+	 * `bd_shooter`'s own ENTRY switch (`src/sim/table/dragonwar.ts`:
+	 * `bd_trough.servesInto: 's_shooter_lane'`), so it CLOSES on the trough
+	 * eject at tick 1 -- before any plunger hold begins -- and AD-6's "one
+	 * event that means plunged" is its OPENING, not its closing. A witness
+	 * declaring it would satisfy this guard on the serve alone, which is
+	 * exactly the dead witness the guard exists to catch.
+	 */
 	readonly expectedSwitch: SwitchName;
 }
 
@@ -81,7 +93,10 @@ const WITNESSES: readonly WitnessRecipe[] = [
 		settleTicks: 320,
 		plungeHoldTicks: 521,
 		ticksAfterRelease: 4300,
-		expectedSwitch: 's_shooter_lane',
+		// `s_inlane_l`, not `s_shooter_lane`: only a ball that actually
+		// launched, completed the top crossing and descended the Left Loop
+		// lane closes this. See `expectedSwitch`'s own note above.
+		expectedSwitch: 's_inlane_l',
 	},
 	{
 		id: 'plunge-weak-345',
@@ -282,9 +297,39 @@ export function witnessIds(): readonly WitnessId[] {
 	return WITNESSES.map((w) => w.id);
 }
 
-/** Measured on this host, this story's own planning pass: the shortest witness (`plunge-medium-285`, 4870 segments / 2319.8 mm) produces well over this many segments and this much cumulative travel before draining. A witness producing fewer is dead (never launched, or launched and immediately parked) and must not be trusted for an `unreachable` verdict. */
-export const MIN_WITNESS_SEGMENTS = 500;
-export const MIN_WITNESS_PATH_MM = 500;
+/**
+ * Measured on this host, this story's own planning pass: the shortest
+ * witness (`plunge-medium-285`) produces 4870 segments / 2319.8 mm before
+ * draining. A witness producing fewer than these floors is dead (never
+ * launched, or launched and immediately parked) and must not be trusted for
+ * an `unreachable` verdict.
+ *
+ * [RAISED 2026-09-03, code review] Both floors were 500, and the segment
+ * floor could not fail for any witness whose ball merely existed: a segment
+ * is pushed on EVERY tick regardless of motion, and every witness runs
+ * `settleTicks` (320) + `plungeHoldTicks` (>= 285) = at least 604 ticks
+ * BEFORE the plunger can release. A witness that never launched therefore
+ * cleared the old 500-segment floor by construction -- a structurally
+ * unfalsifiable assertion (Rule 19). The floors are now set between the
+ * guaranteed pre-launch count (604) and the measured minimum (4870 / 2319.8),
+ * so a witness that fails to launch, or that loses most of its trajectory,
+ * fails here rather than silently making every `unreachable` verdict easier
+ * to satisfy -- the failure direction that looks safe and is not.
+ */
+export const MIN_WITNESS_SEGMENTS = 2000;
+export const MIN_WITNESS_PATH_MM = 1500;
+
+/**
+ * Anti-vacuity floor on the CORPUS itself, in the shape of `MIN_SHOT_CASES`
+ * (`test/util/shot-cases.ts`): the count recorded at implementation time.
+ * Every `unreachable` verdict is a claim about the BREADTH of this table --
+ * `closestApproachOverAll()` quantifies over exactly these entries -- so a
+ * table that silently shrinks makes every such verdict easier to satisfy,
+ * and an emptied table makes `closestApproachOverAll()` return `Infinity`,
+ * confirming every miss for the wrong reason. `assertWitnessCorpusHealthy()`
+ * iterates `WITNESSES` and would otherwise pass vacuously over an empty one.
+ */
+export const MIN_WITNESSES = 10;
 
 /**
  * Anti-vacuity floor (I/O matrix, "Vacuous pass -- a dead witness"): a
@@ -294,6 +339,10 @@ export const MIN_WITNESS_PATH_MM = 500;
  * is honoured.
  */
 export function assertWitnessCorpusHealthy(): void {
+	expect(
+		WITNESSES.length,
+		`assertWitnessCorpusHealthy(): the witness corpus has only ${WITNESSES.length} entries, below the recorded floor of ${MIN_WITNESSES} -- every "unreachable" verdict quantifies over exactly this table, so a shrunken corpus confirms every miss for the wrong reason`,
+	).toBeGreaterThanOrEqual(MIN_WITNESSES);
 	for (const recipe of WITNESSES) {
 		const result = witnessPath(recipe.id);
 		expect(

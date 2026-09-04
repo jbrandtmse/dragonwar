@@ -26,19 +26,46 @@
 //     this same sweep's own earlier, wider passes).
 //
 // What it deliberately does NOT sweep, and why (state it, don't hide it):
-// a RIGHT-bat flip. `bd_shooter` (the only serve device) has exactly one
-// exit -- the manual plunge / `pulse c_autolaunch`, AD-6's "one code path"
-// -- and no swept plunge strength ever delivers the ball onto the RIGHT
-// bat: a full-strength plunge completes the crossing and descends onto the
-// LEFT bat; weaker ones fall back part-way down whichever lane they were
-// last climbing (285: down the right OUTLANE, past the flipper entirely;
-// 345: down the left lane, short of the left bat) -- measured, not
-// assumed, across every plunge strength this file sweeps (including the
-// fine 240-380 window that discovered 285's own right-lane fate). A
-// "right-bat flip" witness would therefore have no ball ever near the
-// right bat to flip -- a vacuous sweep axis, not a real search. This is
-// this story's own most significant finding and is recorded in the spec's
-// own Spec Change Log and frontmatter `deferred:` list, not buried here.
+// a RIGHT-bat flip. Along the axes this file DOES sweep, no plunge strength
+// ever delivers the ball onto the RIGHT bat: a full-strength plunge
+// completes the crossing and descends onto the LEFT bat; weaker ones fall
+// back part-way down whichever lane they were last climbing (285: down the
+// right OUTLANE, past the flipper entirely; 345: down the left lane, short
+// of the left bat) -- measured, not assumed, across every plunge strength
+// this file sweeps (including the fine 240-380 window that discovered 285's
+// own right-lane fate). Within THAT space a "right-bat flip" witness would
+// have no ball ever near the right bat to flip -- a vacuous axis.
+//
+// [SCOPED 2026-09-03, code review] That negative is real but it is NOT
+// exhaustive over the machine, and this header previously overstated it as
+// though it were (it called `bd_shooter` "the only serve device", which is
+// wrong twice over -- `bd_trough` is what serves, `servesInto:
+// 's_shooter_lane'`, and `bd_lock` is a third ball device entirely).
+// THREE origin axes remain unsearched, all of them implemented today:
+//   (a) `side: 'r'` itself. Task 7's own wording names "bat side" as a
+//       sweep axis; `ReleaseRecipe` below has no `side` field and only ever
+//       applies `flipper_l`. `WitnessRecipe` (test/util/reachability.ts)
+//       DOES carry `side: 'l' | 'r'`, so the type is ready and the loop is
+//       not.
+//   (b) a SECOND flip. `ReleaseRecipe` admits at most one, so no
+//       left-flip-then-right-flip chain -- the ordinary way a real player
+//       moves a ball across the table -- was ever searched.
+//   (c) `bd_lock` / `pulse c_mouth`. AD-6 gives the Lock an authored eject
+//       pose that IS the Mouth, "aimed at the flippers"; the committed
+//       collision document carries it at (170, 650) with dir (0, -1, 0),
+//       plus slot zones `sw_lock_1..3` (x 150-190, y 630-678); parking and
+//       ejecting are generic over every parking device in
+//       `src/sim/physics/devices.ts`; and `test/shot-routing.test.ts`
+//       already models the outcome (`Terminal = 'locked'`). A ball parked
+//       there and re-ejected is a genuine, never-teleported SECOND origin
+//       in the middle of the table -- within ~50 mm of `pop-bumper-1`,
+//       `descend-dragon-leg-l` and `descend-dragon-leg-r`, three of the
+//       cases this sweep currently reports unreached.
+// Those four cases (`top-lane-1/2/3`, `pop-bumper-1`) plus the drop-column
+// verdicts are recorded against DW-138, whose own trailer carries these
+// axes as the next probe. Read every "missed by every release in the sweep"
+// verdict below as "missed along the axes this file sweeps", not as a
+// property of the geometry.
 //
 // This story's own charter (Design Notes, "Alternatives considered and
 // rejected") is explicit: DW-137 and DW-136 are NOT this harness's to fix.
@@ -153,10 +180,13 @@ function closestApproachMm(x: number, y: number, segments: readonly Segment[]): 
 function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	const recipes: ReleaseRecipe[] = [];
 	// Plunge strength alone, no flip: a bare tap through well past full
-	// power, with a finer step through the 240-320 window this story's own
+	// power, with a finer step through the 240-380 window this story's own
 	// planning pass found genuinely different lane behaviour in (the Left
 	// Loop's own partial-crossing fallback around 330-370, and the Right
 	// Loop's own partial-crossing fallback around 270-300).
+	// [CORRECTED 2026-09-03, code review] This comment read "240-320", a
+	// window that excludes the 330-370 fallback the same sentence cites as
+	// its reason; the loop below has always been 240-380.
 	for (let holdTicks = 20; holdTicks <= 900; holdTicks += 25) {
 		recipes.push({ plungeHoldTicks: holdTicks });
 	}
@@ -206,10 +236,22 @@ function main(): { readonly verdicts: readonly CaseVerdict[]; readonly releasesE
 	recipes.forEach((recipe, recipeIndex) => {
 		const ticksAfterRelease = recipe.flip ? 7000 : 5500;
 		const segments = sweepOneRelease(recipe, ticksAfterRelease);
-		// Anti-vacuity per-release: a release that produced no segments never
-		// launched at all (or launched and immediately left play) and must
-		// not silently count toward the evaluated total.
+		// Anti-vacuity per-release. [TIGHTENED 2026-09-03, code review] This
+		// was `segments.length === 0`, which could only reject a release
+		// whose ball did not exist on tick 1: a segment is pushed on EVERY
+		// tick regardless of motion, so a plunge that never fired still
+		// returned 800+ settle-and-hold segments and counted as "evaluated".
+		// A release counts only if its ball actually TRAVELLED -- the ball
+		// resting on the plunger tip through settle and hold covers only the
+		// trough-to-tip distance, far under this floor.
 		if (segments.length === 0) {
+			return;
+		}
+		let pathMm = 0;
+		for (const seg of segments) {
+			pathMm += Math.hypot(seg.toMm.x - seg.fromMm.x, seg.toMm.y - seg.fromMm.y);
+		}
+		if (pathMm < MIN_RELEASE_PATH_MM) {
 			return;
 		}
 		releasesEvaluated += 1;
@@ -228,6 +270,25 @@ function main(): { readonly verdicts: readonly CaseVerdict[]; readonly releasesE
 /** Anti-vacuity floor (I/O matrix, "The dense sweep proves a negative"): a sweep that evaluated fewer than this many releases exits non-zero on its own, rather than reporting success over a search that never really ran. */
 const MIN_RELEASES_EVALUATED = 300;
 
+/** A release counts as evaluated only if its ball travelled at least this far. The served ball's own trough-to-plunger-tip settle covers well under this; every real trajectory measured by this story covers 2300 mm or more. */
+const MIN_RELEASE_PATH_MM = 300;
+
+/**
+ * [ADDED 2026-09-03, code review] Per-AXIS coverage floors. A single total
+ * cannot tell "the search shrank" from "the search lost the axis that made
+ * it a proof": deleting the fine 240-380 plunge loop -- the axis that
+ * DISCOVERED `plunge-medium-285`, this story's own headline finding --
+ * leaves 442 releases, over the 300 total floor, and changes no verdict
+ * (because the ten `WITNESSES` recipes are separately re-pushed below), so
+ * the sweep would silently degrade into a replay of the in-suite witness
+ * set and still report success. These floors make each axis fail on its own.
+ */
+const MIN_DISTINCT_PLUNGE_STRENGTHS = 50;
+const MIN_DISTINCT_FLIP_TICKS = 60;
+
+/** Task 7's "stated budget", stated (code review: the measured figure was recorded, the budget it was measured against was not). Measured 75-76 s on this story's host across repeated runs; this is the ceiling above which the sweep has become too expensive to be run on demand and should be re-shaped rather than re-timed. Reported, not asserted -- a slower CI host is not a defect, and `testTimeout: 180_000` in the sibling config is the hard stop. */
+const SWEEP_RUNTIME_BUDGET_MS = 120_000;
+
 describe('reachability-sweep (pnpm check:reachability) -- the dense, out-of-process search that proves a negative (INTENDED GREEN)', () => {
 	it(`sweeps far more densely than the in-suite WITNESSES set, evaluates at least ${MIN_RELEASES_EVALUATED} releases, and every SHOT_CASES entry's own reachability declaration agrees with the sweep's own best closest approach`, () => {
 		expect(
@@ -235,17 +296,48 @@ describe('reachability-sweep (pnpm check:reachability) -- the dense, out-of-proc
 			`SHOT_CASES has only ${SHOT_CASES.length} entries, below the recorded floor of ${MIN_SHOT_CASES} -- refusing to report a verdict over a truncated manifest`,
 		).toBeGreaterThanOrEqual(MIN_SHOT_CASES);
 
+		// Per-axis coverage, measured from the recipe set itself (pure and
+		// cheap to rebuild) BEFORE the sweep runs -- so losing an axis fails
+		// here rather than being absorbed into a still-large total.
+		const allRecipes = buildSweepRecipes();
+		const distinctStrengths = new Set(allRecipes.map((r) => r.plungeHoldTicks)).size;
+		const distinctFlipTicks = new Set(allRecipes.filter((r) => r.flip).map((r) => r.flip!.atTick)).size;
+		expect(
+			distinctStrengths,
+			`the sweep covers only ${distinctStrengths} distinct plunge strengths, below the floor of ${MIN_DISTINCT_PLUNGE_STRENGTHS} -- an axis of the search has been lost, and a total release count cannot see that`,
+		).toBeGreaterThanOrEqual(MIN_DISTINCT_PLUNGE_STRENGTHS);
+		expect(
+			distinctFlipTicks,
+			`the sweep covers only ${distinctFlipTicks} distinct flip ticks, below the floor of ${MIN_DISTINCT_FLIP_TICKS} -- an axis of the search has been lost`,
+		).toBeGreaterThanOrEqual(MIN_DISTINCT_FLIP_TICKS);
+
 		const { verdicts, releasesEvaluated, runtimeMs } = main();
 
 		console.log(`reachability-sweep.harness.ts: ${releasesEvaluated} releases evaluated in ${runtimeMs} ms (${SHOT_CASES.length} cases)`);
-		console.log('id\tdeclared\tbestApproachMm\trecipeIndex\tagreement');
+		console.log(`  axes: ${distinctStrengths} distinct plunge strengths, ${distinctFlipTicks} distinct flip ticks, ${allRecipes.length} recipes`);
+		console.log(`  runtime budget: ${runtimeMs} ms against the ~${SWEEP_RUNTIME_BUDGET_MS} ms this story recorded (task 7's "stated budget")`);
+		console.log('id\tdeclared\tbestApproachMm\trecipeIndex\tagreement\trecordedMm\tdelta');
 		const mismatches: string[] = [];
 		for (const v of verdicts) {
 			const c = shotCase(v.id);
 			const reachedWithinTolerance = v.bestMm <= REACHABILITY_TOLERANCE_MM;
 			const declaredReachable = c.reachability.kind === 'reachable';
 			const ok = reachedWithinTolerance === declaredReachable;
-			console.log(`${v.id}\t${declaredReachable ? 'reachable' : 'unreachable'}\t${v.bestMm.toFixed(3)}\t${v.recipeIndex}\t${ok ? 'OK' : 'MISMATCH'}`);
+			// [ADDED 2026-09-03, code review] Report the recorded figure and
+			// the delta alongside the boolean. This sweep already computes a
+			// strictly BETTER closest approach than the in-suite gate can (it
+			// searches wider), and previously discarded it: measured deltas
+			// reach 27 mm (descend-sling-l, recorded 51.86, swept 24.716), so
+			// a reader of the manifest's own numbers was reading the narrow
+			// figure with nothing saying so. This is deliberately a REPORT,
+			// not an assertion -- `closestApproachMm` in the manifest is
+			// DEFINED as the in-suite measurement (that is what the in-suite
+			// agreement band checks against), so the two instruments are
+			// expected to differ; what was missing is that the difference was
+			// invisible. DW-138 carries the residual.
+			const recorded = c.reachability.kind === 'unreachable' ? c.reachability.closestApproachMm : null;
+			const deltaText = recorded === null ? '-\t-' : `${recorded.toFixed(3)}\t${(recorded - v.bestMm).toFixed(3)}`;
+			console.log(`${v.id}\t${declaredReachable ? 'reachable' : 'unreachable'}\t${v.bestMm.toFixed(3)}\t${v.recipeIndex}\t${ok ? 'OK' : 'MISMATCH'}\t${deltaText}`);
 			if (!ok) {
 				mismatches.push(
 					`"${v.id}" is declared ${declaredReachable ? 'reachable' : 'unreachable'} in SHOT_CASES, but the dense sweep's best closest approach is ${v.bestMm.toFixed(3)} mm ` +

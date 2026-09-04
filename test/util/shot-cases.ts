@@ -44,7 +44,31 @@ export interface ShotCase {
  * would silently stop tracking a geometry change `laneX0Mm` itself already
  * tracks.
  */
-const laneX0Mm = nodeBboxMm('col_wall_lane').min.x;
+const laneX0Mm = resolveLaneX0Mm();
+
+/**
+ * [ADDED 2026-09-03, code review] `nodeBboxMm()` is read at module top
+ * level, and this module is now imported by four files
+ * (`test/shot-routing.test.ts`, `test/shot-reachability.test.ts`,
+ * `test/reachability-harness-integrity.test.ts` and the dense sweep
+ * harness), so an absent `col_wall_lane` takes all four down at IMPORT --
+ * the same opaque shape task 6 was told to avoid for
+ * `col_guide_inlane_feed_r`, widened from one file to four. The lookup
+ * cannot be made lazy without turning every `startMm` into a thunk, so the
+ * failure is at least made self-explaining: which module, which node, and
+ * what it is for.
+ */
+function resolveLaneX0Mm(): number {
+	try {
+		return nodeBboxMm('col_wall_lane').min.x;
+	} catch (cause) {
+		throw new Error(
+			'test/util/shot-cases.ts cannot build SHOT_CASES: the node "col_wall_lane" is absent from the committed collision document, ' +
+				'and six Right Loop release points are derived from its own west face. Every file that imports the manifest fails at import until it is restored.',
+			{ cause },
+		);
+	}
+}
 
 /**
  * `test/shot-routing.test.ts:776`'s own derivation for the centre-drain
