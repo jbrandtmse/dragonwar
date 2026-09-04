@@ -1090,6 +1090,8 @@ So that the Dragon's Lock is a working device instead of a hole that swallows th
 - DW-67: the switch tracker's MAKE side is correct after Story 2.1b (it latches on the observing tick, per the AD-2 amendment 2.1b wrote), but both trackers BREAK after `settleTicks`+1 outside ticks rather than `settleTicks` — DW-67's own off-by-one carried across to the break side (ledger; routed by adjudication 2026-09-02). No golden moves.
 - DW-125: `export.py`'s DW-68 non-convex-footprint rejection has no automated regression pin — the gate exists at `export.py:420-437` and was demonstrated firing at Story 2.1b's AD gate, but no test goes red if the check is removed (ledger; routed by adjudication 2026-09-02). This story already re-exports and already owes a demonstrated export-gate mutation for the `rubber_post` terminations, so the concave case is one more case in the same Blender-gated `describe` — note that `test/export-py-skip-visibility.test.ts` pins the exact case count and its `expectedSkips` formula, so adding a gated case means updating that pin deliberately.
 
+- DW-128: `test/asset-contract.test.ts`'s `freeEndsMm()` assumes every `col_guide_*` footprint is a quad with two non-adjacent short edges, with no check that the assumption holds (ledger; routed by adjudication 2026-09-03). AC 3's `rubber_post` termination gate is computed **through** this helper, so a differently-shaped guide footprint would derive the wrong free-end points and silently pass or fail that AC's own gate rather than failing loudly. The fix is a shape assertion, not a new derivation.
+
 **Prerequisites:** Story 2.1b (the registry and the geometry). Independent of Story 2.1c; either may run first.
 
 **Story change log**
