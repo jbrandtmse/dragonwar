@@ -1239,7 +1239,7 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 
 **Given** a ball enters the Lock lane precisely
 **When** it reaches `bd_lock`
-**Then** physics parks it in the lowest empty slot (`s_lock_1` first), removes it from the simulated set and closes the slot switch; a slightly-off shot hits `col_dragon_body` and closes `s_dragon_body` instead
+**Then** physics parks it in the lowest empty slot (`s_lock_1` first), removes it from the simulated set and closes the slot switch; a slightly-off shot hits `col_dragon_leg_l` or `col_dragon_leg_r` and closes `s_dragon_body` (through `sw_dragon_body_l` / `sw_dragon_body_r`) instead [AMENDED 2026-09-05, Story 2.3 spec gate -- DW-122, Rule 5 tier-1: correcting a node name the AC cites that does not exist]. Verified against the committed `public/assets/dragonwar.collision.json`: there is no `col_dragon_body` node -- the Dragon's strikeable bodies are `col_dragon_leg_l` and `col_dragon_leg_r`, and the switch is served by the two zones `sw_dragon_body_l` / `sw_dragon_body_r`. No code or geometry consequence; the AC's intent is unchanged.
 
 **Given** `pulse c_mouth`
 **When** the Lock holds balls
