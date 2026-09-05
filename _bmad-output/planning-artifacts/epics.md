@@ -1318,7 +1318,17 @@ still fails on a violating file, which is the whole of what this AC promises.
   window) is what makes that safe -- the raw edge is ambiguous, the ordered pair is not.
 - DW-166: an **under-powered but on-axis** Lock shot closes `s_lock_lane` **without being captured**, so
   `lock_lane_entered` still over-reports a Lock-lane shot in a narrower band than DW-134 described (ledger; routed by cr
-  2026-09-05). Measured threshold **550-600 mm/s**: the ball enters the lane and closes the switch but never reaches a slot.
+  2026-09-05). Measured threshold **550-600 mm/s** [AMENDED 2026-09-05, Story 2.4 AD gate -- Rule 5 tier-1: the
+  entry's stated mechanism was measured false; the routed work is unchanged and shipped]. The original clause said the
+  ball **"enters the lane and closes the switch but never reaches a slot"**. Measured by the lead at this tree with the
+  committed `driveLockLane()` setup, released on-axis at (170, 440, 13.5): at **575 mm/s** `s_lock_lane` closes at tick
+  **415** and `s_lock_1` at tick **696** -- the ball **does reach a slot**, and `s_drain` never closes, so it is *held*.
+  At **800 mm/s**, `s_lock_lane@378` and `s_lock_1@512`. The real discriminator is therefore **capture latency**
+  (134 ticks genuine vs 281 ticks after rattling back down the corridor), not capture-versus-no-capture, and
+  `lockCaptureWindowMs = 180` is set inside that gap. The shipped fix is correct on its own terms -- an on-axis shot
+  that rattles for 281 ticks is not a Lock-lane shot made. **But the ball is still physically captured while
+  `lock_lane_entered` is never emitted**, which is a real seam consequence for AD-18's arbiter and is filed as
+  **DW-171, routed to Story 3.2**, the only story that can set that policy.
   DW-134's own stated failure -- balls wandering in from open field -- was closed by Story 2.1d and is pinned by Story 2.3's
   absence-pin over 56 driven columns; **this residual is what survives.** Routed here because it is an **arbiter question,
   not a physics one**: AD-18's Lock arbiter and this devices-and-shots layer are what consume `lock_lane_entered`, so the fix
