@@ -1276,8 +1276,20 @@ So that no mode ever parses a raw switch and "what a Loop is" is defined once.
 **Acceptance Criteria:**
 
 **Given** `src/sim/rules/devices/` is the only importer of `SwitchEvent`
-**When** dependency-cruiser runs
+**When** `pnpm lint:boundaries` runs -- the command that runs dependency-cruiser, as its own check (a)
 **Then** any other file under `src/sim/rules/` consuming `SwitchEvent` fails the build
+[AMENDED 2026-09-05, Story 2.4 spec gate -- Rule 5 tier-1: the gate is named accurately; the promise is
+unchanged]. The original wording was **"When dependency-cruiser runs"**, which reads as a promise of a
+dependency-cruiser *module rule*. That rule is not expressible here, measured rather than assumed:
+`SwitchEvent` is re-exported from `src/sim/table/names.ts` alongside `GameState`, `SemanticEvent` and
+`MachineState`, which `src/sim/rules/index.ts` and `src/sim/rules/ball-controller.ts` legitimately import,
+and with `parser: 'swc'` + `tsPreCompilationDeps: false` -- **pinned off because AD-16 forbids a
+compiler-API lint** -- an `import type` edge is indistinguishable from a value import. A module rule would
+therefore fire on two innocent files **and still miss a real leak**. The check is instead **textual**,
+reading the imported identifier, alongside boundary-lint's four existing textual checks (c)-(f) which are
+textual for this same reason; **AD-16's own Rule already assigns the import rules to
+`tools/boundary-lint.mjs`**, so this instantiates that decision rather than departing from it. The build
+still fails on a violating file, which is the whole of what this AC promises.
 
 **Given** `TABLE.shots` declares `shot_left_loop = [s_loop_l_in, s_loop_l_out]`, `shot_right_loop`, `shot_ramp = [s_ramp_enter, s_ramp_made]` each with a `…WindowMs` from `tuning.ts`
 **When** the switches close in order inside the window
