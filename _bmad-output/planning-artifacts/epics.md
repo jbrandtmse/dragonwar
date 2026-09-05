@@ -1254,6 +1254,18 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 - DW-136: **re-owned to Story 2.1f** (the bottom-right corridor) by charter 2026-09-03 -- the DRAGON bank's approach corridor and the Ramp's unreachability (`DW-137`) are one 34.475 mm corridor with one fix, so splitting them across two stories would have each re-solving the other's constraint. This story still depends on the outcome: its own "all six droppable" requirement is only satisfiable once 2.1f lands.
 - DW-135 (context, already closed `by-design`): AD-6 was amended 2026-09-03 to the **pass-through** spinner model -- a ball crossing `sw_spinner`'s zone imparts rotation and closes `s_spinner` once per revolution until it decays (FR-26). **This story owns the spin and decay mechanism**, driven off that zone crossing, not off a collision with a body: thirteen-plus rigid-body variants were measured in Story 2.1c and every one that touched the ball stalled it permanently. `col_spinner_l` is renamed `vis_spinner_l` in Story 2.1d.
 - DW-155: two of Story 2.1d's own recorded Rule 19 mutations **do not demonstrate what its spec says they do** -- AC 1's is throw-based (a construction-time invariant fires first) yet is recorded as proving the behavioural `deviceSlots` assertion, and the Lock-lane-long case's `terminal === 'locked'` is derived from `firstMakes` rather than from an actual capture (ledger; routed by harvest 2026-09-04). Routed here because **this story owns the Lock in physics** and re-touches both observables, so its own gates must distinguish a real capture from a switch-make inference -- fixing it alongside that work costs one test pass rather than a standalone visit. This is the pattern the epic has now hit seven times: a recorded pass whose red was never observed for the stated reason.
+- DW-160: `TUNING.hardware.popKickMmPerS` ships at **200** with a `source` string whose stated floor is **false** and
+  whose stated ceiling mechanism is the **wrong one** (ledger; routed by cr 2026-09-05). Swept by QA across 0-900 and
+  spot-verified by the lead: virtually any positive kick clears DW-148 (down to 0.5 mm/s), so there is no "~180 floor";
+  and the real ceiling is a **221 mm/s cliff** -- only 21 mm/s above the shipped value -- where DW-148 re-strands at a
+  *different* equilibrium near (93, 840), reproduced by the lead at 230 measuring 0.96 mm progress at (93.699, 838.695).
+  The stated Top-lane mechanism is real but starts at 425-600 mm/s. **Both corrected bounds are already pinned as tests**
+  via `resolveTuning()`'s override seam, so this is stale provenance prose plus a narrow margin, not a live defect.
+  **Why it is routed here specifically:** `resolveTuning()`'s entire serialized output -- `source` and `confidence`
+  strings included, not just numeric values -- is hashed into every golden header, so correcting the prose *in place*
+  costs a five-golden header-only re-record. This story owns the spinner and the Lock in physics and will re-record
+  anyway, so the correction rides along free. Widening the 21 mm/s margin is the separate real question to answer with
+  its own sweep.
 
 ### Story 2.4: The devices-and-shots layer
 

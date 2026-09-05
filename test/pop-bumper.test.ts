@@ -230,6 +230,64 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 		expect(result.contactEvents, 'and therefore no second kick').toHaveLength(0);
 	});
 
+	// QA pass (Story 2.2 code review finding): the settle-window test above
+	// only drives ONE consecutive outside tick before re-entering, so it
+	// never reaches the tick where AD-2's amended break gate
+	// (`elapsedTicks >= tracked.settleTicks - 1`, Story 2.1d's DW-67
+	// residual fix) and the pre-fix formula (`elapsedTicks >=
+	// tracked.settleTicks`) actually disagree -- confirmed empirically:
+	// re-running that exact test under the reverted (pre-fix) formula still
+	// passes unchanged, so it is NOT this AC's own off-by-one pin, even
+	// though the spec's own Verification section names it as one half of
+	// this mutation's evidence (the other half,
+	// test/cabinet-switch-tracker-agreement.test.ts, DOES redden). This
+	// test closes that gap with the same "one tick early, one tick late"
+	// shape test/switch-zones.test.ts's own off-by-one guards already use,
+	// scoped to bumper_skirt's own settleTicks value (derived from
+	// `resolveTuning()`, never hand-typed, DW-149) so a future change to
+	// that class's tuning value is covered automatically.
+	it("AD-2 off-by-one pin: bumper_skirt's break fires on EXACTLY the settleTicks-th consecutive outside tick -- not one early, not one late", () => {
+		const tuning = resolveTuning();
+		const settleTicks = tuning.switchSettleTicksByClass.bumper_skirt.value;
+		expect(settleTicks, 'sanity: this pin is only meaningful while bumper_skirt has a non-trivial settle window').toBeGreaterThan(1);
+
+		const { switchTracker } = realPopMechanicsAndZones();
+		const zone = switchZoneMm('sw_pop_1');
+		const insideMm = { x: (zone.minMm.x + zone.maxMm.x) / 2, y: (zone.minMm.y + zone.maxMm.y) / 2, z: 15 };
+		const outsideMm = { x: insideMm.x, y: zone.minMm.y - 20, z: 15 };
+
+		// Tick 1: make.
+		expect(switchTracker.step(1, [{ before: outsideMm, after: insideMm }]), 'sanity: tick 1 must be a genuine make').toEqual([
+			{ type: 'switch', switch: 's_pop_1', closed: true, tick: 1 },
+		]);
+
+		// Ticks 2 .. settleTicks: consecutive outside ticks, one short of the
+		// settle window each time -- the break must NOT fire on any of them.
+		for (let tick = 2; tick < 1 + settleTicks; tick++) {
+			const edges = switchTracker.step(tick, [{ before: outsideMm, after: outsideMm }]);
+			expect(edges, `tick ${tick}: one tick early -- the break must not fire before the ${settleTicks}-th consecutive outside tick`).toEqual([]);
+		}
+
+		// Tick (1 + settleTicks): the settleTicks-th consecutive outside tick
+		// -- AD-2's amended text exactly ("the number of ticks the zone test
+		// must read outside before closed: false is emitted"). The mutated
+		// (pre-DW-67-residual-fix) gate `elapsedTicks >= settleTicks` would
+		// only fire here one tick LATE, at `2 + settleTicks` -- confirmed by
+		// hand-applying that exact mutation to switches.ts, observing this
+		// assertion redden naming an empty array instead, and reverting
+		// (`git status --short` / `git diff --stat` byte-identical
+		// afterward).
+		const settleTick = 1 + settleTicks;
+		const settledEdges = switchTracker.step(settleTick, [{ before: outsideMm, after: outsideMm }]);
+		expect(settledEdges, `tick ${settleTick}: the break must fire on EXACTLY the ${settleTicks}-th consecutive outside tick`).toEqual([
+			{ type: 'switch', switch: 's_pop_1', closed: false, tick: settleTick },
+		]);
+
+		// One tick later: must not fire again (already settled).
+		const afterEdges = switchTracker.step(settleTick + 1, [{ before: outsideMm, after: outsideMm }]);
+		expect(afterEdges, 'one tick late: the break must not fire again once already settled').toEqual([]);
+	});
+
 	it('I/O matrix "Pop skirt closed, no ball resolvable": a make edge with no ball inside its own zone fails loudly rather than kicking an arbitrary ball or silently passing', () => {
 		const { popMechanics } = realPopMechanicsAndZones();
 		const fakeMakeEdge = [{ type: 'switch' as const, switch: 's_pop_1' as const, closed: true, tick: 1 }];
@@ -294,4 +352,97 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 			expect(dot, "the kick must be directed away from this device's own centroid (positive dot product with the ball's own offset)").toBeGreaterThan(0);
 		},
 	);
+});
+
+// ---------------------------------------------------------------------------
+// QA pass (Story 2.2): AD-15 provenance -- TUNING.hardware.popKickMmPerS's
+// own `source` string cited a floor ("below ~180 mm/s the DW-148 ball
+// returns to a NEW, still-permanent equilibrium") and a ceiling ("above
+// ~220 mm/s the extra energy sends a grazing ball into repeated cross-pop
+// bouncing that exhausts the Top-lane cases' tick budget") that a re-sweep
+// this pass could not reproduce -- DW-152's own class, a source string a
+// re-run contradicted. Re-measured directly against the SAME (130, 850)
+// DW-148 column (test/zz-investigation-sweep.test.ts, this pass's own
+// throwaway harness, deleted before this pass ends -- these two tests are
+// its permanent, corrected replacement):
+//
+//   - virtually any positive kick clears DW-148's own strand (progress
+//     ~309 mm, measured down to 0.5 mm/s) -- there is no real floor beyond
+//     "nonzero"; only 0 mm/s (no kick at all) reproduces the original
+//     permanent rest point.
+//   - a REAL, previously undocumented ceiling exists at 221 mm/s: a NEW
+//     permanent equilibrium appears near (93, 840) mm -- just outside
+//     sw_pop_1's own north edge (y = 838), a different location from the
+//     original (130.00, 833.55) apex-vertex rest point -- and most values
+//     re-measured from 221 through 300 mm/s re-strand there (one anomalous
+//     escape at 245 mm/s -- the transition is a knife-edge, not a clean
+//     step, so this pin sits well clear of it on both sides rather than
+//     riding the exact boundary).
+//   - the ORIGINAL ceiling reasoning (Top-lane cross-pop-bouncing tick-
+//     budget exhaustion) is real but starts far higher (~425-600 mm/s,
+//     per lane) than previously claimed, and is therefore NOT what bounds
+//     the safe range from above -- the 221 mm/s DW-148 re-strand is. This
+//     is not re-pinned here (out of this correction's own scope; the
+//     corrected `source` string records the re-measured onsets for the
+//     next person who touches this constant).
+//
+// See tuning.ts's own corrected `source` string for the full accounting.
+// These two tests pin the corrected floor and ceiling directly (never the
+// production value alone, which the existing DW-148 test above already
+// covers) so a future change to this constant, or to the physics it
+// depends on, is caught here rather than by a shipped strand.
+describe('AD-15 provenance: TUNING.hardware.popKickMmPerS -- the corrected floor and ceiling reproduce', () => {
+	/** Same technique as the top-level DW-148 test above, parametrised on the kick value via `resolveTuning()`'s own override seam (this file's own Integration AC test already uses the identical pattern) instead of the production tuning, so this pin tracks the PHYSICS boundary, independent of whatever value `TUNING.hardware.popKickMmPerS` is set to in production. */
+	function dw148TrailingProgressMm(popKickMmPerSValue: number): number {
+		const tuning = resolveTuning({
+			...TUNING,
+			hardware: { ...TUNING.hardware, popKickMmPerS: { ...TUNING.hardware.popKickMmPerS, value: popKickMmPerSValue } },
+		});
+		const machine = createMachine(loadDoc(), tuning);
+		let tick = 0;
+		for (let i = 0; i < 320; i++) {
+			tick += 1;
+			machine.step(tick, NO_FRAME, i === 0 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }] : []);
+		}
+		const ball = machine.balls[0]!;
+		const startPhysics = toPhysics({ x: 130, y: 850, z: 13.5 });
+		ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+		ball.hit.vel.set(0, 0, 0);
+
+		const samples: { tick: number; x: number; y: number }[] = [];
+		for (let i = 0; i < 6600; i++) {
+			tick += 1;
+			machine.step(tick, NO_FRAME, []);
+			const b = machine.balls[0];
+			if (!b) {
+				break;
+			}
+			samples.push({ tick, x: b.state.pos.x * MM_PER_VU, y: 1066.8 - b.state.pos.y * MM_PER_VU });
+		}
+		if (samples.length < 2) {
+			return Infinity;
+		}
+		const last = samples[samples.length - 1]!;
+		let windowStart = samples[0]!;
+		for (const s of samples) {
+			if (last.tick - s.tick <= 500) {
+				windowStart = s;
+				break;
+			}
+		}
+		return Math.hypot(last.x - windowStart.x, last.y - windowStart.y);
+	}
+
+	it('corrected floor: 50 mm/s -- well below the old, unreproduced "~180 mm/s" claim -- still clears the DW-148 strand', () => {
+		const progressMm = dw148TrailingProgressMm(50);
+		expect(progressMm, `at 50 mm/s (well below the old floor claim) trailing-window progress was only ${progressMm.toFixed(2)} mm -- the strand should clear easily here`).toBeGreaterThan(15);
+	});
+
+	it('corrected ceiling: 225 mm/s -- just above the real (previously undocumented) 221 mm/s ceiling -- re-strands the ball at a NEW equilibrium, not the original apex', () => {
+		const progressMm = dw148TrailingProgressMm(225);
+		expect(
+			progressMm,
+			`at 225 mm/s trailing-window progress was ${progressMm.toFixed(2)} mm -- expected a re-strand (<= 15 mm) at this now-documented ceiling, distinct from the production value's own safe margin`,
+		).toBeLessThanOrEqual(15);
+	});
 });
