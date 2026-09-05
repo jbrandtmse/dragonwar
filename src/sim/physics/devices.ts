@@ -156,6 +156,24 @@ function ballRadiusVu(): number {
 }
 
 /**
+ * Story 2.3, DW-155 (the epic's own second finding): the per-device boot
+ * derivation, extracted so it is directly unit-testable. `createDeviceMechanics()`
+ * below accumulates every parking device's derived boot-full count into
+ * `totalBootFull` and throws by name if the sum is not 4 (AD-6) BEFORE
+ * `deviceSlots` is ever read -- which shadows every single-field mutation of
+ * `startsFullAtBoot` on `TABLE.ballDevices` (the two declared parking
+ * devices' capacities, 4 and 3, admit no OTHER boolean combination that also
+ * sums to 4, so no mutation of `startsFullAtBoot` alone can dodge that
+ * throw and still reach the behavioural assertion at
+ * `test/lock-device-behaviour.test.ts:99` -- this story's own spec records
+ * the finding). Exported so that assertion can be pinned directly against
+ * THIS function instead, decoupled from the whole-registry sum check.
+ */
+export function deriveBootSlots(slotCount: number, startsFullAtBoot: boolean): boolean[] {
+	return new Array<boolean>(slotCount).fill(startsFullAtBoot);
+}
+
+/**
  * Builds the AD-6 device mechanics. Asserts each PARKING device's initial
  * closed-slot count (`TABLE.ballDevices[*].slots.length`, since every slot
  * starts closed -- "4 balls, asserted at boot") equals its `capacity`,
@@ -238,9 +256,24 @@ export function createDeviceMechanics(options: {
 	 * memory, bounded in practice by how many balls a game ever ejects.
 	 */
 	const justEjected = new Map<BallDeviceName, Map<Ball, number>>();
+	/**
+	 * Story 2.3, AC 6: per PARKING device, the balls currently latched as
+	 * "already reported overflow" for that device -- so a ball parked at the
+	 * slot band while every slot is full emits exactly ONE `device_overflow`
+	 * per rejected ENTRY, not one per tick of zone contact (measured before
+	 * this fix: 315 events for one ball sitting in the band for ~315 ticks).
+	 * Cleared the moment the ball's own swept segment no longer intersects
+	 * ANY of this device's zones (see `detectEntries()` below) -- a genuinely
+	 * later re-approach is a fresh rejected entry and gets its own event,
+	 * exactly the same "cleared once genuinely outside" shape `justEjected`
+	 * above already uses for the eject-exemption latch, applied here to the
+	 * overflow latch instead.
+	 */
+	const overflowReported = new Map<BallDeviceName, Set<Ball>>();
 	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, BallDevice]>) {
 		if (device.kind === 'parking') {
 			justEjected.set(name, new Map<Ball, number>());
+			overflowReported.set(name, new Set<Ball>());
 		}
 	}
 
@@ -270,7 +303,7 @@ export function createDeviceMechanics(options: {
 		// device full regardless of what it actually holds at rest, which is
 		// how `bd_lock` (staged empty at boot) used to boot SEVEN balls
 		// against AD-6's "the machine carries 4 balls, asserted at boot".
-		const bootSlots = new Array<boolean>(device.slots.length).fill(device.startsFullAtBoot);
+		const bootSlots = deriveBootSlots(device.slots.length, device.startsFullAtBoot);
 		// Construction-time consistency check, distinct from the
 		// slots/capacity throw above: the boot occupancy this device declares
 		// must resolve to either fully-empty (0 filled slots) or fully-full
@@ -323,7 +356,7 @@ export function createDeviceMechanics(options: {
 	 * ONE-DIRECTIONAL threshold a ball can only cross once, immune to the
 	 * gaps this file's own switch-zone block leaves between adjacent slots.
 	 */
-	function buildClearBeyond(dir: Vec3, zones: readonly LoadedSwitchZone[]): ((posMm: Vec3) => boolean) | undefined {
+	function buildClearBeyond(dir: Vec3, zones: readonly LoadedSwitchZone[], marginMm = 0): ((posMm: Vec3) => boolean) | undefined {
 		if (zones.length === 0) {
 			return undefined;
 		}
@@ -337,15 +370,39 @@ export function createDeviceMechanics(options: {
 		for (const zone of zones) {
 			boundary = travelsNegative ? Math.min(boundary, zone.minMm[axis]) : Math.max(boundary, zone.maxMm[axis]);
 		}
-		return (posMm) => (travelsNegative ? posMm[axis] < boundary : posMm[axis] > boundary);
+		// Story 2.3, AC 6: `marginMm` (0 for `justEjected`'s own use below,
+		// unchanged) widens the threshold AWAY from the union, so a ball
+		// resting almost exactly ON the boundary -- measured this pass, a
+		// rejected ball settling at the slot band's own entrance jitters by
+		// well under 1 mm either side of it -- does not toggle "cleared" on
+		// sub-mm solver noise.
+		const marginedBoundary = travelsNegative ? boundary - marginMm : boundary + marginMm;
+		return (posMm) => (travelsNegative ? posMm[axis] < marginedBoundary : posMm[axis] > marginedBoundary);
 	}
 
 	const clearBeyondByDevice = new Map<BallDeviceName, (posMm: Vec3) => boolean>();
+	// Story 2.3, AC 6: a SEPARATE, wider-margin threshold for clearing the
+	// overflow latch (below) -- deliberately not the same map `justEjected`
+	// reads, so that mechanism's own already-verified "clears at spawn"
+	// behaviour (Phase 5 review finding, this file's own doc comments above)
+	// is untouched by a margin it never needed.
+	const overflowClearBeyondByDevice = new Map<BallDeviceName, (posMm: Vec3) => boolean>();
+	// Millimetres. An AUTHORED constant, the same non-tunable class
+	// `sim/physics/hop.ts`'s own detector constants document for themselves:
+	// comfortably clear of the measured sub-1 mm settling jitter at the slot
+	// band's own entrance, comfortably short of the ball's own diameter
+	// (26.99 mm) so a genuine re-approach after actually leaving still
+	// re-triggers promptly.
+	const OVERFLOW_CLEAR_MARGIN_MM = 10;
 	for (const [name, zones] of slotZonesByDevice) {
 		const pose = eject.get(name);
 		const clearBeyond = pose ? buildClearBeyond(pose.dir, zones) : undefined;
 		if (clearBeyond) {
 			clearBeyondByDevice.set(name, clearBeyond);
+		}
+		const overflowClearBeyond = pose ? buildClearBeyond(pose.dir, zones, OVERFLOW_CLEAR_MARGIN_MM) : undefined;
+		if (overflowClearBeyond) {
+			overflowClearBeyondByDevice.set(name, overflowClearBeyond);
 		}
 	}
 
@@ -482,6 +539,7 @@ export function createDeviceMechanics(options: {
 			const slotSwitchNames = (TABLE.ballDevices[name] as { slots: readonly string[] }).slots as readonly SwitchName[];
 			const ejectedFromThisDevice = justEjected.get(name);
 			const clearBeyond = clearBeyondByDevice.get(name);
+			const overflowClearBeyond = overflowClearBeyondByDevice.get(name);
 
 			for (const movement of movements) {
 				if (parked.has(movement.ball)) {
@@ -518,12 +576,45 @@ export function createDeviceMechanics(options: {
 					}
 				}
 				const entered = zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
+				const overflowReportedForDevice = overflowReported.get(name)!;
+				// Story 2.3, AC 6: the overflow latch clears once the ball has
+				// genuinely retreated back across the WHOLE zone union's own
+				// far (entry-side) boundary, with a margin -- the same
+				// one-directional-threshold SHAPE `clearBeyond()` above uses
+				// for the `justEjected` exemption, but built with its own
+				// `OVERFLOW_CLEAR_MARGIN_MM` rather than sharing that map
+				// directly. Two measured defects a bare "!entered" (a per-tick
+				// boolean against the zone union) or a zero-margin threshold
+				// each produced, in order: (1) 5 events instead of 1, from a
+				// ball settling near the slot band's own entrance crossing the
+				// (up to 3 mm) SEAM between adjacent slot zones --
+				// `s_lock_1`/`_2`/`_3` are separate boxes, and "outside zone 1,
+				// not yet inside zone 2" reads as `!entered` even though the
+				// ball never left the band as a whole; (2) 2 events instead of
+				// 1, from the SAME ball settling to rest close enough to the
+				// union's own outer boundary that sub-1-mm solver jitter
+				// crossed the zero-margin line itself. The margin absorbs
+				// both: a single boundary on the union's own far edge is
+				// immune to inter-zone seams by construction, and widening it
+				// past the measured jitter absorbs the boundary-straddling
+				// case too.
+				if (overflowClearBeyond ? overflowClearBeyond(movement.afterMm) : !entered) {
+					overflowReportedForDevice.delete(movement.ball);
+				}
 				if (!entered) {
 					continue;
 				}
 				const lowestEmpty = slots.indexOf(false);
 				if (lowestEmpty === -1) {
-					failures.push({ type: 'device_overflow', device: name, tick });
+					// Story 2.3, AC 6: one `device_overflow` per REJECTED
+					// ENTRY, not one per tick of zone contact -- measured
+					// before this fix, 315 events for one ball sitting in
+					// the band. Latched per ball, cleared above once the
+					// ball's swept segment genuinely leaves the zone union.
+					if (!overflowReportedForDevice.has(movement.ball)) {
+						overflowReportedForDevice.add(movement.ball);
+						failures.push({ type: 'device_overflow', device: name, tick });
+					}
 					continue;
 				}
 				slots[lowestEmpty] = true;

@@ -9,13 +9,14 @@
 // the `settleTicks` `resolveTuning()` computes for that switch's
 // `settleClass`, and emits one `SwitchEvent` per genuine edge.
 //
-// Excludes every zone whose switch belongs to a PARKING device's slots
-// (AD-6: "physics parks an entering ball ... closes that slot's switch" --
-// those switches have exactly one owner, the device, and `sim/physics/
-// devices.ts` opens/closes them itself). The exclusion is derived from
-// `TABLE.ballDevices`, never from a switch-name literal (Design Notes, "How a
-// draining ball enters bd_trough": AD-2 forbids two sources for one switch
-// class).
+// Excludes every switch owned end to end by a device module -- a PARKING
+// device's slots (AD-6: "physics parks an entering ball ... closes that
+// slot's switch"), the DRAGON drop-bank's six letters and the spinner's own
+// switch (Story 2.3, AD-2/AD-6's amendment) -- those switches have exactly
+// one owner apiece, and `sim/physics/devices.ts` / `drop-targets.ts` /
+// `spinner.ts` open and close them itself. The exclusion is derived from
+// `TABLE`, never from a switch-name literal (Design Notes, "How a draining
+// ball enters bd_trough": AD-2 forbids two sources for one switch class).
 //
 // This file is authored, not ported -- it sits beside the vpx-js primitive
 // set and carries the GPL-3.0 header rather than the port marker (AD-16,
@@ -43,12 +44,22 @@ export interface SwitchEdge {
 }
 
 /**
- * Every switch name owned by a PARKING device's slots (AD-6) -- excluded
- * from this module's own zone tests. Derived from `TABLE.ballDevices`, never
- * a name literal: a future ball device added to `TABLE` is covered
- * automatically.
+ * Every switch name owned end to end by a DEVICE MODULE -- excluded from
+ * this module's own zone tests (AD-2: one source per switch). Three
+ * sources, all derived from `TABLE`, never a name literal, so a future
+ * device added to any of them is covered automatically:
+ * - a PARKING device's slots (AD-6) -- `sim/physics/devices.ts`.
+ * - the DRAGON drop-bank's six letters (Story 2.3) --
+ *   `sim/physics/drop-targets.ts`, from `TABLE.dropBankWiring`.
+ * - the spinner's own switch (Story 2.3) -- `sim/physics/spinner.ts`, from
+ *   `TABLE.spinnerWiring`.
+ *
+ * [WIDENED, Story 2.3] Previously named `parkingDeviceOwnedSwitches()` and
+ * covered only the first of the three -- the bank and the spinner are new
+ * device-owned switches this story adds, and AD-2 forbids two emitters for
+ * one switch just as much for them as for a parking slot.
  */
-function parkingDeviceOwnedSwitches(): ReadonlySet<SwitchName> {
+function deviceModuleOwnedSwitches(): ReadonlySet<SwitchName> {
 	const owned = new Set<SwitchName>();
 	for (const device of Object.values(TABLE.ballDevices)) {
 		if (device.kind === 'parking') {
@@ -56,6 +67,12 @@ function parkingDeviceOwnedSwitches(): ReadonlySet<SwitchName> {
 				owned.add(slot as SwitchName);
 			}
 		}
+	}
+	for (const wiring of Object.values(TABLE.dropBankWiring)) {
+		owned.add(wiring.switch as SwitchName);
+	}
+	for (const wiring of Object.values(TABLE.spinnerWiring)) {
+		owned.add(wiring.switch as SwitchName);
 	}
 	return owned;
 }
@@ -84,7 +101,7 @@ export interface SwitchTracker {
  * zone, with per-switch settle behaviour from `resolvedTuning`.
  */
 export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolvedTuning: ResolvedTuning): SwitchTracker {
-	const excluded = parkingDeviceOwnedSwitches();
+	const excluded = deviceModuleOwnedSwitches();
 
 	const bySwitch = new Map<SwitchName, TrackedSwitch>();
 	for (const zone of zones) {

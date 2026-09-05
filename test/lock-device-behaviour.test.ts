@@ -19,7 +19,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createMachine } from '../src/sim/physics/machine';
 import { NO_FRAME } from '../src/sim/loop';
-import { createDeviceMechanics } from '../src/sim/physics/devices';
+import { createDeviceMechanics, deriveBootSlots } from '../src/sim/physics/devices';
 import { loadCollision } from '../src/sim/physics/loader';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -179,6 +179,43 @@ describe("createDeviceMechanics() AD-6 boot-invariant construction-time throws (
 	});
 });
 
+// Story 2.3, DW-155 (task 13): the boot-occupancy assertion at :99
+// (`machine.deviceSlots.bd_lock` / `.bd_trough`) is SHADOWED by the four-ball
+// sum throw above for every mutation of `startsFullAtBoot` this registry
+// admits. `bd_trough` (capacity 4) and `bd_lock` (capacity 3) are the only
+// two parking devices and their capacities differ, so no boolean combination
+// of the two flags other than the CURRENT one (trough=true(4), lock=false(0))
+// sums to 4 -- trough=false+lock=true sums to 3, both true sums to 7, both
+// false sums to 0. There is therefore NO sum-preserving mutation of
+// `startsFullAtBoot` alone with the registry as it ships today (the example
+// this story's own spec gives -- "move the declaration between devices of
+// equal capacity" -- has no such pair to move between). Per the spec's own
+// fallback ("if no sum-preserving mutation exists ... pin the derivation
+// directly instead"), `deriveBootSlots()` (extracted from `devices.ts` this
+// story, exported for exactly this reason) is pinned directly: it is the
+// WHOLE of what a `startsFullAtBoot` mutation could ever change, decoupled
+// from the four-ball sum check that shadows it end to end.
+describe('DW-155 (task 13): deriveBootSlots() pinned directly -- the boot-occupancy derivation itself, decoupled from the sum-check that shadows every registry-level mutation', () => {
+	it('deriveBootSlots(3, true) fills every slot -- the exact value a bd_lock.startsFullAtBoot=true mutation would produce, were it not shadowed', () => {
+		expect(deriveBootSlots(3, true)).toEqual([true, true, true]);
+	});
+
+	it('deriveBootSlots(3, false) leaves every slot empty -- the shipped bd_lock value', () => {
+		expect(deriveBootSlots(3, false)).toEqual([false, false, false]);
+	});
+
+	it('deriveBootSlots(4, true) fills every slot -- the shipped bd_trough value', () => {
+		expect(deriveBootSlots(4, true)).toEqual([true, true, true, true]);
+	});
+
+	it('a real mutation of bd_lock.startsFullAtBoot, demonstrated: the derivation itself (deriveBootSlots) goes from [false,false,false] to [true,true,true] -- the exact and only thing that field controls -- independent of whether the sum check downstream would also throw', () => {
+		const shipped = deriveBootSlots(TABLE.ballDevices.bd_lock.capacity, TABLE.ballDevices.bd_lock.startsFullAtBoot);
+		expect(shipped, 'sanity: the shipped registry value must still be what this test mutates away from').toEqual([false, false, false]);
+		const mutated = deriveBootSlots(TABLE.ballDevices.bd_lock.capacity, true);
+		expect(mutated, 'mutation: startsFullAtBoot=true -> every bd_lock slot boots filled').toEqual([true, true, true]);
+	});
+});
+
 // Story 2.1d Phase 5 (review finding), task 22: the justEjected/
 // buildClearBeyond() exemption that stops bd_lock from re-parking the ball
 // it just ejected had no upper bound -- if a real ejected ball never
@@ -333,28 +370,61 @@ describe('bd_lock / bd_trough: buildClearBeyond()\'s own guard is currently iner
 	});
 });
 
-describe('bd_lock: one ball per pulse (AD-6)', () => {
-	/** Drives a ball up the Lock lane's own centreline until it parks, returning the machine and tick counter with exactly one ball locked. */
-	function machineWithOneBallLocked() {
-		const { machine, tick: servedTick } = servedMachine();
-		let tick = servedTick;
-		const ball = machine.balls[0]!;
-		const startPhysics = toPhysics({ x: 170, y: 520, z: 13.495 });
-		ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
-		const speedVuPerT = 2000 / (0.53975 * 100);
-		ball.hit.vel.set(0, -speedVuPerT, 0);
-		ball.hit.angularVelocity.set(0, 0, 0);
-		ball.hit.angularMomentum.set(0, 0, 0);
-		for (let i = 0; i < 2000; i++) {
-			tick += 1;
-			machine.step(tick, NO_FRAME, []);
-			if (machine.deviceSlots.bd_lock.some(Boolean)) {
-				return { machine, tick };
-			}
+/** Drives a ball up the Lock lane's own centreline until it parks, returning the machine and tick counter with exactly one ball locked. Module-scoped (Story 2.3, task 14) so both `describe('bd_lock: one ball per pulse ...')` and its sibling `describe('bd_lock: over-capacity entry (AC 6) ...')` can build on it. */
+function machineWithOneBallLocked() {
+	const { machine, tick: servedTick } = servedMachine();
+	let tick = servedTick;
+	const ball = machine.balls[0]!;
+	const startPhysics = toPhysics({ x: 170, y: 520, z: 13.495 });
+	ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+	const speedVuPerT = 2000 / (0.53975 * 100);
+	ball.hit.vel.set(0, -speedVuPerT, 0);
+	ball.hit.angularVelocity.set(0, 0, 0);
+	ball.hit.angularMomentum.set(0, 0, 0);
+	for (let i = 0; i < 2000; i++) {
+		tick += 1;
+		machine.step(tick, NO_FRAME, []);
+		if (machine.deviceSlots.bd_lock.some(Boolean)) {
+			return { machine, tick };
 		}
-		throw new Error('machineWithOneBallLocked(): the driven ball never locked -- fixture broken');
 	}
+	throw new Error('machineWithOneBallLocked(): the driven ball never locked -- fixture broken');
+}
 
+/**
+ * Story 2.3, task 14: serves ANOTHER ball from `bd_trough` (there is always
+ * at least one left -- the machine's own 4-ball total, AD-6, and `bd_lock`'s
+ * capacity of 3 never exhausts it) and drives it up the SAME Lock-lane
+ * centreline `machineWithOneBallLocked()` uses, on the SAME live `machine`,
+ * until `bd_lock`'s own filled-slot count increases by one -- reusable to
+ * fill `bd_lock` to any depth up to its capacity. Module-scoped for the same
+ * reason as `machineWithOneBallLocked()` above.
+ */
+function driveAnotherBallToLock(machine: ReturnType<typeof servedMachine>['machine'], startTick: number): number {
+	const filledBefore = machine.deviceSlots.bd_lock.filter(Boolean).length;
+	let tick = startTick + 1;
+	machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }]);
+	const ball = machine.balls[0];
+	if (!ball) {
+		throw new Error('driveAnotherBallToLock(): no served ball to reposition -- bd_trough is exhausted');
+	}
+	const startPhysics = toPhysics({ x: 170, y: 520, z: 13.495 });
+	ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+	const speedVuPerT = 2000 / (0.53975 * 100);
+	ball.hit.vel.set(0, -speedVuPerT, 0);
+	ball.hit.angularVelocity.set(0, 0, 0);
+	ball.hit.angularMomentum.set(0, 0, 0);
+	for (let i = 0; i < 2000; i++) {
+		tick += 1;
+		machine.step(tick, NO_FRAME, []);
+		if (machine.deviceSlots.bd_lock.filter(Boolean).length === filledBefore + 1) {
+			return tick;
+		}
+	}
+	throw new Error('driveAnotherBallToLock(): the driven ball never locked -- fixture broken');
+}
+
+describe('bd_lock: one ball per pulse (AD-6)', () => {
 	it('exactly one ball leaves and stays out: the simulated set gains one ball, a slot count drops by exactly one, no s_lock_* switch re-closes, and it is still in play and outside every sw_lock_* zone 200 ticks later', () => {
 		const { machine, tick: lockedTick } = machineWithOneBallLocked();
 		let tick = lockedTick;
@@ -400,6 +470,94 @@ describe('bd_lock: one ball per pulse (AD-6)', () => {
 		expect(result.semanticEvents).toEqual([{ type: 'eject_failed', device: 'bd_lock', tick }]);
 		expect(machine.balls.length, 'no ball may be spawned').toBe(ballCountBefore);
 		expect(machine.deviceSlots.bd_lock, 'slots must be unchanged').toEqual([false, false, false]);
+	});
+
+	it("AC 5's second pulse: with two balls held, two pulses of c_mouth each eject a DIFFERENT ball (from the highest filled slot at the time of that pulse), each opens its own slot switch as an edge, each emits its own eject contact, and neither ejected ball re-parks", () => {
+		const { machine, tick: lockedTick } = machineWithOneBallLocked();
+		const secondLockedTick = driveAnotherBallToLock(machine, lockedTick);
+		expect(machine.deviceSlots.bd_lock.filter(Boolean).length, 'sanity: exactly two balls must be locked').toBe(2);
+		// Fill order (TABLE.ballDevices.bd_lock.slots): the two locked balls
+		// occupy s_lock_1 and s_lock_2, in that order.
+		expect(machine.deviceSlots.bd_lock).toEqual([true, true, false]);
+
+		let tick = secondLockedTick;
+
+		// First pulse: ejects the HIGHEST filled slot (s_lock_2).
+		tick += 1;
+		const firstEject = machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_mouth', action: 'pulse', tick }]);
+		expect(firstEject.switchEvents, 'the first pulse must open s_lock_2 (the highest filled slot) as an edge').toEqual([
+			{ type: 'switch', switch: 's_lock_2', closed: false, tick },
+		]);
+		const firstEjectContacts = firstEject.contactEvents.filter((c) => c.kind === 'eject' && c.device === 'bd_lock');
+		expect(firstEjectContacts.length, 'exactly one eject contact for the first pulse').toBe(1);
+		const firstBallId = firstEjectContacts[0]!.ballId;
+		expect(firstBallId, 'the eject contact must carry the ejected ball\'s id').toBeDefined();
+		expect(machine.deviceSlots.bd_lock, 'only s_lock_2 must have opened').toEqual([true, false, false]);
+
+		// Second pulse, immediately after: ejects the NEW highest filled slot
+		// (s_lock_1) -- a DIFFERENT ball from the first.
+		tick += 1;
+		const secondEject = machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_mouth', action: 'pulse', tick }]);
+		expect(secondEject.switchEvents, 'the second pulse must open s_lock_1').toEqual([
+			{ type: 'switch', switch: 's_lock_1', closed: false, tick },
+		]);
+		const secondEjectContacts = secondEject.contactEvents.filter((c) => c.kind === 'eject' && c.device === 'bd_lock');
+		expect(secondEjectContacts.length, 'exactly one eject contact for the second pulse').toBe(1);
+		const secondBallId = secondEjectContacts[0]!.ballId;
+		expect(secondBallId, 'the second eject contact must carry an id').toBeDefined();
+		expect(secondBallId, 'the two pulses must eject DIFFERENT balls').not.toBe(firstBallId);
+		expect(machine.deviceSlots.bd_lock, 'bd_lock must now be fully empty').toEqual([false, false, false]);
+
+		// Neither ejected ball re-parks: drive on for a further window and
+		// confirm bd_lock stays empty and no s_lock_* switch re-closes.
+		const remakeEvents: Array<{ readonly switch: string; readonly tick: number }> = [];
+		for (let i = 0; i < 300; i++) {
+			tick += 1;
+			const result = machine.step(tick, NO_FRAME, []);
+			for (const ev of result.switchEvents) {
+				if (ev.closed && (ev.switch === 's_lock_1' || ev.switch === 's_lock_2' || ev.switch === 's_lock_3')) {
+					remakeEvents.push({ switch: ev.switch, tick: ev.tick });
+				}
+			}
+		}
+		expect(remakeEvents, `neither ejected ball may re-park -- observed remakes: ${JSON.stringify(remakeEvents)}`).toEqual([]);
+		expect(machine.deviceSlots.bd_lock, 'bd_lock must still be empty after the drive window').toEqual([false, false, false]);
+	});
+});
+
+describe('bd_lock: over-capacity entry (AC 6) -- one device_overflow per rejected entry, not one per tick of zone contact', () => {
+	it('with three balls parked, a fourth ball driven up the lane parks nothing, stays in the simulated set, and produces EXACTLY ONE device_overflow -- against the 315 measured before this story\'s fix', () => {
+		const { machine, tick: firstTick } = machineWithOneBallLocked();
+		const secondTick = driveAnotherBallToLock(machine, firstTick);
+		const thirdTick = driveAnotherBallToLock(machine, secondTick);
+		expect(machine.deviceSlots.bd_lock, 'sanity: bd_lock must be completely full').toEqual([true, true, true]);
+
+		// A fourth ball, served fresh from bd_trough (the machine's 4th and
+		// last), driven up the SAME centreline into the now-full slot band.
+		let tick = thirdTick + 1;
+		machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }]);
+		const fourthBall = machine.balls[0];
+		expect(fourthBall, 'a fourth ball must exist to serve -- the machine\'s own 4-ball total (AD-6)').toBeDefined();
+		const startPhysics = toPhysics({ x: 170, y: 440, z: 13.495 });
+		fourthBall!.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+		const speedVuPerT = 800 / (0.53975 * 100);
+		fourthBall!.hit.vel.set(0, -speedVuPerT, 0);
+		fourthBall!.hit.angularVelocity.set(0, 0, 0);
+		fourthBall!.hit.angularMomentum.set(0, 0, 0);
+		const fourthBallId = fourthBall!.id;
+
+		let overflowCount = 0;
+		for (let i = 0; i < 4000; i++) {
+			tick += 1;
+			const result = machine.step(tick, NO_FRAME, []);
+			overflowCount += result.semanticEvents.filter((e) => e.type === 'device_overflow' && e.device === 'bd_lock').length;
+			if (!machine.balls.some((b) => b.id === fourthBallId)) {
+				break;
+			}
+		}
+
+		expect(overflowCount, `exactly one device_overflow expected for the one rejected entry -- got ${overflowCount} (measured before this story's fix: 315)`).toBe(1);
+		expect(machine.deviceSlots.bd_lock, 'bd_lock must still report exactly three -- nothing parked').toEqual([true, true, true]);
 	});
 });
 

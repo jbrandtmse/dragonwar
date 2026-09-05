@@ -246,7 +246,10 @@ const WITNESSES: readonly WitnessRecipe[] = [
 	// corridor re-solve exists to make possible -- zero of 256 swept releases
 	// closed `s_ramp_enter` before it), and ticks 3904/3906 cross the DRAGON
 	// bank's own zone band, closing `s_dragon_o`/`s_dragon_n` and
-	// `s_dragon_a`/`s_dragon_g`/`s_dragon_o`/`s_dragon_n` respectively.
+	// `s_dragon_a`/`s_dragon_g`/`s_dragon_o`/`s_dragon_n` respectively
+	// [SUPERSEDED, Story 2.3 -- see `plunge-then-bat-r-3906`'s own comment
+	// below: that four-switch claim was itself the zone-based vacuity this
+	// story exists to close].
 	{
 		id: 'plunge-then-bat-r-3899',
 		label: 'the medium 285-tick plunge, chained into a RIGHT-bat flip at relative tick 3899 (a 60-tick hold) once the Right Loop return has delivered the ball onto the right bat -- the Ramp shot: closes s_ramp_enter then s_ramp_made through the re-solved bottom-right corridor',
@@ -272,13 +275,34 @@ const WITNESSES: readonly WitnessRecipe[] = [
 		expectedSwitch: 's_inlane_r',
 	},
 	{
+		// [CORRECTED, Story 2.3] `expectedSwitch` was `s_dragon_a`, measured
+		// under the OLD zone-based semantics (`sw_dragon_a`'s own body-span
+		// +/- 2 mm, y leading contact by 1.5 mm): this witness's own apex
+		// sits at (257.08, 686.48) -- inside `sw_dragon_g`'s zone, 0.03 mm
+		// short of a genuine strike on `col_dragon_g`'s own south face
+		// (700 - 13.495 = 686.505) -- while the ball's slow apex-region drift
+		// through x 217..282 crossed FOUR targets' own zone bands on the way
+		// up and back down, closing all four under the forgiving zone test.
+		// That is exactly the vacuity this story's own AC 1b exists to close
+		// (this file's own header, "a switch make is not evidence that a
+		// body was struck"): under the corrected genuine-`collide()`-strike
+		// semantics (`sim/physics/drop-targets.ts`), only the one target the
+		// ball's own apex actually reaches (G) registers -- confirmed
+		// empirically, `s_dragon_g` closes and `s_dragon_a` does not.
+		// `dragon-target-a`'s own shot case (test/util/shot-cases.ts) never
+		// depended on this witness CLOSING s_dragon_a -- only on this
+		// witness's swept path passing within ball radius of its own release
+		// point (244.4, 620), a pure geometric proximity claim this change
+		// does not touch -- so only THIS health-check label moves, matching
+		// `dragon-target-g`'s own shot case, which already cited this exact
+		// witness for the identical reason.
 		id: 'plunge-then-bat-r-3906',
-		label: 'the medium 285-tick plunge, chained into a RIGHT-bat flip at relative tick 3906 (a 60-tick hold) -- the angled bank shot: crosses the DRAGON bank zone band from the east, closing s_dragon_a, s_dragon_g, s_dragon_o and s_dragon_n',
+		label: 'the medium 285-tick plunge, chained into a RIGHT-bat flip at relative tick 3906 (a 60-tick hold) -- the angled bank shot: crosses the DRAGON bank zone band from the east, its own apex reaching a genuine strike on s_dragon_g',
 		settleTicks: 320,
 		plungeHoldTicks: 285,
 		flip: { side: 'r', atTick: 3906, holdTicks: 60 },
 		ticksAfterRelease: 7000,
-		expectedSwitch: 's_dragon_a',
+		expectedSwitch: 's_dragon_g',
 	},
 ];
 

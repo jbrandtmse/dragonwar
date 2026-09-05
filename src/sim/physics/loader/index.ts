@@ -49,6 +49,14 @@ import { HitPlane } from '../hit-plane';
 import { HitTriangle } from '../hit-triangle';
 import { LineSeg } from '../line-seg';
 import { createSlingshotMechanics, type SlingKick, type SlingSurfaceDataByCoil, type SlingshotSegmentBuilder } from '../slings';
+import {
+	createDropTargetStrikeWiring,
+	type DropTargetHitObjectsByLetter,
+	type DropTargetLetter,
+	type DropTargetPointBuilder,
+	type DropTargetSegmentBuilder,
+	type DropTargetStrike,
+} from '../drop-targets';
 import { Vertex2D } from '../math/vertex2d';
 import { Vertex3D } from '../math/vertex3d';
 import { TABLE } from '../../table/dragonwar';
@@ -159,6 +167,12 @@ export interface LoadedCollision {
 	drainSlingKicks(): readonly SlingKick[];
 	/** Story 2.2, DW-148: each pop bumper's own collision-node centroid, DERIVED from the committed document's own footprint (never hand-typed) -- `sim/physics/pops.ts`'s kick direction. */
 	readonly popCentroidsMm: PopCentroidsByCoil;
+	/** Story 2.3, task 5: every DRAGON target's own retained hit-object handles (`LineSeg` x4 + `HitLineZ` x4), held by reference inside the `StrikeReportingLineSeg`/`StrikeReportingHitLineZ` instances `addWall()` built below -- `sim/physics/drop-targets.ts`'s own `createDropTargetMechanics()` calls `setEnabled()` on these SAME objects on a bank reset. */
+	readonly dropTargetHitObjectsByLetter: DropTargetHitObjectsByLetter;
+	/** Story 2.3, AD-2: drains every genuine strike recorded since the last call, in firing order, with no `tick` set yet -- the strike is detected DURING `physics.step()` (mirrors `drainSlingKicks()` above for the identical reason). */
+	drainDropTargetStrikes(): readonly DropTargetStrike[];
+	/** Story 2.3, task 5: each DRAGON target's own authored footprint polygon, table-frame millimetres, DERIVED from the committed document (never hand-typed). */
+	readonly dropTargetFootprintsMm: Readonly<Record<DropTargetLetter, readonly Vec2Mm[]>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -533,7 +547,24 @@ function assertConvexCcwFootprint(nodeName: string, footprint: readonly Vec2Mm[]
  * ("one `LineSegSlingshot` per footprint edge") and are measured, not
  * incidental: `check:reachability` moved exactly one verdict as a result.
  */
-function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials'], slingBuilder?: SlingshotSegmentBuilder): void {
+function addWall(
+	physics: PlayerPhysics,
+	node: CollisionNodeDoc,
+	materialsSource: (typeof TUNING)['materials'],
+	slingBuilder?: SlingshotSegmentBuilder,
+	// Story 2.3, task 5: the DRAGON-bank precedent alongside the sling one
+	// above -- `dropTargetSegmentBuilder`/`dropTargetPointBuilder` are called
+	// INSTEAD of `new LineSeg(...)` / `new HitLineZ(...)` for exactly the six
+	// `col_dragon_<letter>` nodes, retaining a handle to every one of a
+	// target's 8 hit objects on the wiring object that built them
+	// (`sim/physics/drop-targets.ts`'s `createDropTargetStrikeWiring()`),
+	// never on `LoadedCollision` itself -- `setEnabled()` is the only way to
+	// make a body non-collidable mid-flight (`PlayerPhysics` cannot rebuild
+	// its statics tree), and there is no other call site that constructs
+	// these 8 objects to retain a handle from.
+	dropTargetSegmentBuilder?: DropTargetSegmentBuilder,
+	dropTargetPointBuilder?: DropTargetPointBuilder,
+): void {
 	const footprint = node.footprintMm!;
 	assertConvexCcwFootprint(node.name, footprint);
 	const zLowVu = toPhysics({ x: 0, y: 0, z: node.zLowMm! }).z;
@@ -564,7 +595,9 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource
 		const zMax = Math.max(zLowVu, zHighVu);
 		const lineSeg: LineSeg = slingBuilder
 			? slingBuilder(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax)
-			: new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax);
+			: dropTargetSegmentBuilder
+				? dropTargetSegmentBuilder(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax)
+				: new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax);
 		applyMaterial(materialsSource, lineSeg, node.physMaterial, node.name);
 		physics.addStaticHitObject(lineSeg);
 	}
@@ -580,7 +613,9 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource
 	// caller until now -- spans the wall's own zLow..zHigh instead of sitting
 	// at a single z, so a rolling ball's surface actually reaches it.
 	for (const point of physicsPoints) {
-		const hitLineZ = new HitLineZ(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
+		const hitLineZ = dropTargetPointBuilder
+			? dropTargetPointBuilder(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu))
+			: new HitLineZ(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
 		applyMaterial(materialsSource, hitLineZ, node.physMaterial, node.name);
 		physics.addStaticHitObject(hitLineZ);
 	}
@@ -826,6 +861,24 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 		slingCoilByNodeName.set(nodeName, coil as CoilName);
 	}
 
+	// Story 2.3 (task 5), the same "built before the node loop" shape as the
+	// sling mechanics above: `createDropTargetStrikeWiring()` builds one
+	// segment/point builder pair per DRAGON-bank letter, ready for
+	// `addWall()`'s dispatch below, and retains a handle to every hit object
+	// they construct.
+	const dropTargetWiring = createDropTargetStrikeWiring();
+	const dropTargetLetterByNodeName = new Map<string, DropTargetLetter>();
+	for (const [letter, nodeName] of Object.entries(dropTargetWiring.nodeNameByLetter) as Array<[DropTargetLetter, string]>) {
+		// Same "fail loudly at load time" discipline as the sling check above
+		// (and the pop-bumper node check below): a renamed or removed DRAGON
+		// target node must not silently fall through the node loop as an
+		// ordinary, un-droppable wall.
+		if (!parsed.nodes.some((n) => n.name === nodeName)) {
+			throw new Error(`loadCollision(): expected a drop-target node named "${nodeName}" for letter "${letter}", but the document has none`);
+		}
+		dropTargetLetterByNodeName.set(nodeName, letter);
+	}
+
 	const playfieldNode = findNode(parsed, TABLE.nodes.colPlayfield);
 	const glassNode = findNode(parsed, TABLE.nodes.colGlass);
 	assertPlaneShaped(playfieldNode);
@@ -862,7 +915,10 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 			const slingBuilder = slingCoil && slingCoil in slingMechanics.segmentBuilderByCoil
 				? slingMechanics.segmentBuilderByCoil[slingCoil as keyof typeof slingMechanics.segmentBuilderByCoil]
 				: undefined;
-			addWall(physics, node, materialsSource, slingBuilder);
+			const dropTargetLetter = dropTargetLetterByNodeName.get(node.name);
+			const dropTargetSegmentBuilder = dropTargetLetter ? dropTargetWiring.segmentBuilderByLetter[dropTargetLetter] : undefined;
+			const dropTargetPointBuilder = dropTargetLetter ? dropTargetWiring.pointBuilderByLetter[dropTargetLetter] : undefined;
+			addWall(physics, node, materialsSource, slingBuilder, dropTargetSegmentBuilder, dropTargetPointBuilder);
 		} else {
 			addBox(physics, node, materialsSource);
 		}
@@ -883,6 +939,23 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 			throw new Error(`loadCollision(): expected a pop-bumper node named "${nodeName}" for coil "${coil}", but the document has none`);
 		}
 		popCentroidsMm[coil] = footprintCentroidMm(popNode);
+	}
+
+	// Story 2.3 (task 5): each DRAGON target's own authored footprint
+	// polygon, table-frame millimetres, DERIVED from the committed document
+	// -- the same "never hand-typed" discipline `popCentroidsMm` above
+	// follows, exposed on `LoadedCollision` even though this story's own
+	// design (genuine `collide()` strikes via the retained hit objects
+	// below) does not itself consume it -- the spec's own Design Notes leave
+	// a per-tick swept-segment proximity witness against this footprint as
+	// the other, equally acceptable seam, so it is retained either way.
+	const dropTargetFootprintsMm = {} as { -readonly [K in DropTargetLetter]: readonly Vec2Mm[] };
+	for (const [letter, nodeName] of Object.entries(dropTargetWiring.nodeNameByLetter) as Array<[DropTargetLetter, string]>) {
+		const targetNode = parsed.nodes.find((n) => n.name === nodeName);
+		if (!targetNode || !targetNode.footprintMm) {
+			throw new Error(`loadCollision(): expected a drop-target node named "${nodeName}" for letter "${letter}" with a footprintMm, but the document has none`);
+		}
+		dropTargetFootprintsMm[letter] = targetNode.footprintMm;
 	}
 
 	const flippers: LoadedFlipper[] = [
@@ -945,5 +1018,8 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 		slingSurfaceData: slingMechanics.surfaceData,
 		drainSlingKicks: () => slingMechanics.drainKicks(),
 		popCentroidsMm,
+		dropTargetHitObjectsByLetter: dropTargetWiring.hitObjectsByLetter,
+		drainDropTargetStrikes: () => dropTargetWiring.drainStrikes(),
+		dropTargetFootprintsMm,
 	};
 }

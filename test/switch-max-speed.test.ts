@@ -119,27 +119,41 @@ describe('switch zones at the measured maximum speed (AC 5, AC 2) -- every zone-
 	const doc = readCollisionDoc();
 	const tuning = resolveTuning();
 
-	// Every switch requiring a zone, per AD-2's own partition (Design Notes,
-	// "Which switches require a zone"): everything except button,
-	// tilt_bob/slam, and parking-device slots (`createSwitchTracker()`'s own
-	// `parkingDeviceOwnedSwitches()`, derived from TABLE.ballDevices, never a
-	// name literal -- this test mirrors that same derivation, not a
-	// hand-maintained exclusion list). Derived from the real document's own
-	// switchZones -- one case per ZONE (a switch with two zones, like
-	// s_dragon_body, is swept through both).
-	const parkingDeviceSlots = new Set<string>();
+	// Every switch requiring a zone AND still owned by `switches.ts`'s own
+	// tracker, per AD-2's own partition (Design Notes, "Which switches
+	// require a zone"): everything except button, tilt_bob/slam,
+	// parking-device slots, and -- Story 2.3 -- the DRAGON drop-bank's six
+	// letters and the spinner, both now device-owned end to end
+	// (`switches.ts`'s own widened `deviceModuleOwnedSwitches()`, derived
+	// from `TABLE`, never a name literal -- this test mirrors that same
+	// derivation, not a hand-maintained exclusion list). Derived from the
+	// real document's own switchZones -- one case per ZONE (a switch with
+	// two zones, like s_dragon_body, is swept through both).
+	const deviceOwnedSlots = new Set<string>();
 	for (const device of Object.values(TABLE.ballDevices)) {
 		if (device.kind === 'parking') {
 			for (const slot of device.slots) {
-				parkingDeviceSlots.add(slot);
+				deviceOwnedSlots.add(slot);
 			}
 		}
 	}
+	for (const wiring of Object.values(TABLE.dropBankWiring)) {
+		deviceOwnedSlots.add(wiring.switch);
+	}
+	for (const wiring of Object.values(TABLE.spinnerWiring)) {
+		deviceOwnedSlots.add(wiring.switch);
+	}
 	const zoneCases: Array<{ zoneName: string; switchName: SwitchName }> = doc.switchZones
-		.filter((z) => !parkingDeviceSlots.has(z.switch))
+		.filter((z) => !deviceOwnedSlots.has(z.switch))
 		.map((z) => ({ zoneName: z.name, switchName: z.switch as SwitchName }));
 
-	expect(zoneCases.length, 'sanity: the shot map must have added zone-requiring switches to sweep').toBeGreaterThanOrEqual(30);
+	// Story 2.3: lowered 30 -> 20 -- seven zone-requiring switches (the six
+	// DRAGON-bank letters and the spinner) moved from tracker-owned to
+	// device-owned end to end and are correctly excluded from THIS sweep
+	// (their own "exactly one make" claim is now `test/drop-targets.test.ts`'s
+	// and `test/spinner.test.ts`'s to make, against the real device modules,
+	// not this generic tracker sweep) -- measured on this tree at 23.
+	expect(zoneCases.length, 'sanity: the shot map must have added zone-requiring switches to sweep').toBeGreaterThanOrEqual(20);
 
 	// Code review 2026-09-02 (Rule 19): MEASURED_MAX_SPEED_MM_PER_S is a
 	// frozen literal in test/util/max-speed.ts, measured once against the
@@ -183,6 +197,18 @@ describe('switch zones at the measured maximum speed (AC 5, AC 2) -- every zone-
 	});
 });
 
+// [RE-VERIFIED, Story 2.3, task 18] `s_dragon_d`/`s_dragon_r` are now
+// device-owned end to end (`sim/physics/drop-targets.ts`), never
+// tracker-owned, so this "exactly one make" claim now depends on this
+// release genuinely STRIKING one target's own body rather than merely
+// crossing its zone. The release below aims at `sw_dragon_d`'s own zone
+// CENTRE (well inside `col_dragon_d`'s own x-span, 217.4..227.4, clear of
+// the 1 mm gap to `col_dragon_r`), so it strikes `col_dragon_d` genuinely --
+// re-confirmed empirically at the measured maximum speed: still exactly one
+// make. Once struck, `col_dragon_d`'s hit objects go non-collidable
+// (`setEnabled(false)`) and a ball continuing north on the same column would
+// now pass through into `col_dragon_bank_backstop` rather than rebounding --
+// this test's own 60-tick window ends well before that would matter.
 describe('switch-max-speed: the full end-to-end wiring, through the real createMachine (AC 5 Integration)', () => {
 	it('a ball driven at a DRAGON-bank target (a real drop_target zone) at the measured maximum speed surfaces exactly one make through machine.step().switchEvents', () => {
 		// Targets 'd' (the aim point) and 'r' (its immediate neighbour) both

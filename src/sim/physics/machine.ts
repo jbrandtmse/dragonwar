@@ -37,11 +37,13 @@ import type { Ball } from './ball/ball';
 import { createCabinetMechanics, type CabinetState } from './cabinet';
 import { DEFAULT_TABLE_GRAVITY, GRAVITYCONST } from './constants';
 import { createDeviceMechanics, type BallStepMovement, type ContactEventLike, type DeviceFailure, type SwitchEdgeLike } from './devices';
+import { createDropTargetMechanics } from './drop-targets';
 import { createFlipperMechanics } from './flippers';
 import { createHopMechanics, type HopBallVelocitySample } from './hop';
 import { createPlungerMechanics } from './plunger';
 import { loadCollision } from './loader';
 import { createPopMechanics, type PopCoilName } from './pops';
+import { createSpinnerMechanics } from './spinner';
 import { createSwitchTracker } from './switches';
 import { TABLE } from '../table/dragonwar';
 import { fromPhysics } from '../table/frames';
@@ -50,8 +52,8 @@ import type { BallDeviceName, CoilCommand, CoilName } from '../table/names';
 import type { InputFrame } from '../contracts/input';
 import type { MechanismsSnapshot } from '../contracts/snapshot';
 
-/** The subset of `MechanismsSnapshot` this file's own `mechanisms` getter owns -- `sim/loop/index.ts` fills in `dropTargets`/`spinner` (both empty in Epic 1) and `devices` (from `deviceSlots` above) itself. */
-export type HardwareMechanismsState = Pick<MechanismsSnapshot, 'flippers' | 'plunger'>;
+/** Story 2.3: widened from `'flippers' | 'plunger'` to also carry `dropTargets`/`spinner`, now that this file owns both hardware rules -- `sim/loop/index.ts` fills in only `devices` (from `deviceSlots` above) itself. */
+export type HardwareMechanismsState = Pick<MechanismsSnapshot, 'flippers' | 'plunger' | 'dropTargets' | 'spinner'>;
 
 /**
  * Local, so `sim/physics/**` never reaches into `sim/table/tuning.ts` for one
@@ -135,6 +137,12 @@ export const PRE_STEP_HARDWARE_RULES = [
 	{ receiver: 'plungerMechanics', method: 'applyFrame', pinnedBy: 'test/plunger.test.ts' },
 	{ receiver: 'cabinetMechanics', method: 'applyFrame', pinnedBy: 'test/cabinet-integration.test.ts' },
 	{ receiver: 'deviceMechanics', method: 'applyCommands', pinnedBy: 'test/machine-serve-drain.test.ts' },
+	// Story 2.3 (AD-2, AD-6): a bank reset must make every target
+	// collidable again BEFORE this tick's own solve (AC 2's own wording) --
+	// the same "before physics.step()" reasoning as deviceMechanics'
+	// applyCommands above, so a raised target is struck-able on the very
+	// tick it is raised.
+	{ receiver: 'dropTargetMechanics', method: 'applyPreStepReset', pinnedBy: 'test/drop-targets.test.ts' },
 ] as const;
 
 /**
@@ -157,6 +165,13 @@ export const PRE_STEP_HARDWARE_RULES = [
  */
 export const SWITCH_EDGE_HARDWARE_RULES = [
 	{ receiver: 'popMechanics', method: 'applyPostSwitchEdges', pinnedBy: 'test/pop-bumper.test.ts' },
+	// Story 2.3: both new participants need this tick's own ball MOVEMENTS
+	// (the drop bank to resolve a genuine strike's own position, the
+	// spinner to resolve its own zone crossing), which do not exist until
+	// the solve has run -- the identical reasoning `popMechanics` above
+	// already states for itself.
+	{ receiver: 'dropTargetMechanics', method: 'applyPostStep', pinnedBy: 'test/drop-targets.test.ts' },
+	{ receiver: 'spinnerMechanics', method: 'applyPostStep', pinnedBy: 'test/spinner.test.ts' },
 ] as const;
 
 /**
@@ -207,6 +222,16 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 	// Story 2.2 (AD-5): the pop bumper's own post-switch-edge participant --
 	// see SWITCH_EDGE_HARDWARE_RULES above for why it is not a PRE_STEP one.
 	const popMechanics = createPopMechanics({ switchZones: loaded.switchZones, popCentroidsMm: loaded.popCentroidsMm, tuning });
+	// Story 2.3 (AD-2, AD-6): the DRAGON-bank hardware rule, wired from
+	// loadCollision()'s own retained hit-object handles and strike sink --
+	// the reset half joins PRE_STEP_HARDWARE_RULES above, the strike half
+	// joins SWITCH_EDGE_HARDWARE_RULES.
+	const dropTargetMechanics = createDropTargetMechanics({
+		hitObjectsByLetter: loaded.dropTargetHitObjectsByLetter,
+		drainStrikes: () => loaded.drainDropTargetStrikes(),
+	});
+	// Story 2.3 (AD-6's 2026-09-03 amendment): the pass-through spinner gate.
+	const spinnerMechanics = createSpinnerMechanics({ switchZones: loaded.switchZones, tuning });
 	// Story 1.9, AC 2: NOT a hardware rule -- runs AFTER physics.step(), a
 	// collision-response modifier over what the step produced, never a
 	// mover-commanding participant read from `frame` before it. See
@@ -292,6 +317,10 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// enabled unless something disables it).
 		const enabledPulses = pulses.filter((pulse) => coilEnabled[pulse.coil]);
 		const commandResult = deviceMechanics.applyCommands(tick, enabledPulses);
+		// Story 2.3 (AD-2, AD-6): the DRAGON bank's own reset -- BEFORE
+		// physics.step() (PRE_STEP_HARDWARE_RULES above), so a target this
+		// tick's own reset raises is collidable during THIS tick's own solve.
+		const dropTargetResetResult = dropTargetMechanics.applyPreStepReset(tick, enabledPulses);
 
 		const before = new Map<Ball, ReturnType<typeof fromPhysics>>();
 		// Story 1.9, AC 2: the hop mechanism's own input -- each ball's velocity
@@ -376,9 +405,29 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 			c_pop_3: coilEnabled.c_pop_3,
 		} satisfies Readonly<Record<PopCoilName, boolean>>);
 		const entryResult = deviceMechanics.detectEntries(tick, movements);
+		// Story 2.3: the bank's own strike detection and the spinner's own
+		// zone crossing both join SWITCH_EDGE_HARDWARE_RULES above, right
+		// beside popResult -- neither exists without this tick's own
+		// movements, exactly popMechanics' own reasoning.
+		const dropTargetStrikeResult = dropTargetMechanics.applyPostStep(tick, movements);
+		const spinnerResult = spinnerMechanics.applyPostStep(tick, movements);
 
 		return {
-			switchEvents: [...commandResult.switchEvents, ...plungerResult.switchEvents, ...cabinetResult.switchEvents, ...switchEdges, ...entryResult.switchEvents],
+			switchEvents: [
+				...commandResult.switchEvents,
+				...plungerResult.switchEvents,
+				...cabinetResult.switchEvents,
+				...switchEdges,
+				...entryResult.switchEvents,
+				// Story 2.3: the bank's reset (PRE_STEP) and strike
+				// (SWITCH_EDGE) switch edges, plus the spinner's own
+				// per-revolution make/break pairs -- appended last,
+				// mirroring `entryResult` above as the newest post-step
+				// sources in this hand-picked order.
+				...dropTargetResetResult.switchEvents,
+				...dropTargetStrikeResult.switchEvents,
+				...spinnerResult.switchEvents,
+			],
 			// Story 2.2: two new sources join this deliberately hand-picked
 			// order (the `:301` this comment used to cite was a line number in
 			// Story 2.2's spec Code Map, describing the PRE-change file, not a
@@ -391,7 +440,25 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 			// order (code review finding, this pass -- the two are computed
 			// in the opposite order: `popResult` above, then `entryResult`
 			// immediately below, right before this return).
-			contactEvents: [...flipperResult.contactEvents, ...commandResult.contactEvents, ...plungerResult.contactEvents, ...slingContactEvents, ...entryResult.contactEvents, ...popResult.contactEvents],
+			//
+			// Story 2.3: `dropTargetResetResult` (PRE-step, so chronologically
+			// first of everything below) sits right after `commandResult` for
+			// that reason; `dropTargetStrikeResult` and `spinnerResult`
+			// (both post-step, computed immediately above) are appended last,
+			// after `popResult`, mirroring how `entryResult` already sits
+			// after `popResult` in `switchEvents` above despite being
+			// computed before it.
+			contactEvents: [
+				...flipperResult.contactEvents,
+				...commandResult.contactEvents,
+				...dropTargetResetResult.contactEvents,
+				...plungerResult.contactEvents,
+				...slingContactEvents,
+				...entryResult.contactEvents,
+				...popResult.contactEvents,
+				...dropTargetStrikeResult.contactEvents,
+				...spinnerResult.contactEvents,
+			],
 			semanticEvents: [...commandResult.failures, ...plungerResult.failures, ...entryResult.failures],
 		};
 	}
@@ -418,10 +485,17 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		},
 		get mechanisms(): HardwareMechanismsState {
 			// Frozen per-tick, the same reasoning as `deviceSlots` above:
-			// `flipperMechanics.state`/`plungerMechanics.state` already build a
-			// fresh object on every read, so this is a plain pass-through, not a
-			// live reference a later tick could mutate out from under a caller.
-			return { flippers: flipperMechanics.state, plunger: plungerMechanics.state };
+			// `flipperMechanics.state`/`plungerMechanics.state`/
+			// `dropTargetMechanics.dropTargets`/`spinnerMechanics.spinner`
+			// already build a fresh object on every read, so this is a plain
+			// pass-through, not a live reference a later tick could mutate
+			// out from under a caller.
+			return {
+				flippers: flipperMechanics.state,
+				plunger: plungerMechanics.state,
+				dropTargets: dropTargetMechanics.dropTargets,
+				spinner: spinnerMechanics.spinner,
+			};
 		},
 		get cabinet(): CabinetState {
 			// `cabinetMechanics.state` already builds a fresh object per read

@@ -9,7 +9,7 @@
 // this suite has no dependency on the committed collision document's exact
 // geometry.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSwitchTracker } from '../src/sim/physics/switches';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -128,6 +128,38 @@ describe('createSwitchTracker() -- a parking device\'s slot switches are NEVER e
 		const tracker = createSwitchTracker(zones, TUNING);
 		const events = tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]);
 		expect(events).toEqual([{ type: 'switch', switch: entry, closed: true, tick: 1 }]);
+	});
+});
+
+// Story 2.3 (AD-2, code review this pass): the two NEW device-module
+// exclusions -- verification-gap finding: test/spinner.test.ts's own
+// "sw_spinner is excluded" test only checked that the committed document
+// declares the zone, never that createSwitchTracker() actually excludes it,
+// so a regression to the widened deviceModuleOwnedSwitches() (switches.ts)
+// would pass that test unchanged. These two mirror the bd_trough precedent
+// above exactly, against the REAL TABLE.dropBankWiring/TABLE.spinnerWiring
+// registries and a real crossing, never a hand-typed switch-name literal.
+describe('createSwitchTracker() -- the DRAGON bank and the spinner are device-owned end to end (AD-2, Story 2.3)', () => {
+	it('every DRAGON-bank letter switch is excluded, derived from TABLE.dropBankWiring -- a ball crossing its zone produces no generic-tracker event', () => {
+		const owned = Object.values(TABLE.dropBankWiring).map((wiring) => wiring.switch);
+		expect(owned.length, 'sanity: the bank must own at least one letter').toBeGreaterThan(0);
+
+		const zones = owned.map((switchName, i) => zone(`sw_dragon_${i}`, switchName, { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 }));
+		const tracker = createSwitchTracker(zones, TUNING);
+		const movements = [{ before: { x: -100, y: 0, z: 15 }, after: { x: 100, y: 0, z: 15 } }];
+		expect(tracker.step(1, movements), 'a DRAGON-bank switch zone must be excluded from the generic zone tester -- sim/physics/drop-targets.ts owns it').toEqual([]);
+		for (const switchName of owned) {
+			expect(tracker.currentState(switchName)).toBe(false);
+		}
+	});
+
+	it('the spinner switch is excluded, derived from TABLE.spinnerWiring -- a ball crossing sw_spinner produces no generic-tracker event', () => {
+		const spinnerSwitch = Object.values(TABLE.spinnerWiring)[0]!.switch;
+		const zones = [zone('sw_spinner', spinnerSwitch, { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
+		const tracker = createSwitchTracker(zones, TUNING);
+		const events = tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 100, y: 0, z: 15 } }]);
+		expect(events, 'sw_spinner must be excluded from the generic zone tester -- sim/physics/spinner.ts owns it').toEqual([]);
+		expect(tracker.currentState(spinnerSwitch)).toBe(false);
 	});
 });
 
@@ -261,39 +293,78 @@ describe('createSwitchTracker() -- non-zero settleTicks classes (DW-67: settleTi
 	// REAL TABLE.switches entry (settleClass 'drop_target', 20 ms default =
 	// 20 ticks at TICK_HZ = 1000) and this drives the REAL resolved TUNING
 	// value -- no synthetic override.
-	it('a crossing shorter than settleTicks + 1 ticks against a REAL drop_target (20 ms) switch emits exactly one make -- the defect this story closes', () => {
+	//
+	// [RE-POINTED, Story 2.3] `s_dragon_d` is now DRAGON-bank-owned end to
+	// end (`sim/physics/drop-targets.ts`, AD-2) and therefore excluded from
+	// `switches.ts`'s own tracker by its widened `deviceModuleOwnedSwitches()`
+	// -- `s_dragon_d` is still the only real switch in `TABLE.switches`
+	// carrying `settleClass: 'drop_target'`, so this test still needs it BY
+	// NAME to drive the real resolved 20-tick value, but the tracker must be
+	// built as though the bank did not yet own it. `vi.doMock()` on
+	// `sim/table/dragonwar` (the same isolated-module-graph technique
+	// `test/lock-device-behaviour.test.ts` and `test/machine-serve-drain.test.ts`
+	// already use) empties `dropBankWiring`/`spinnerWiring` in an ISOLATED
+	// view only -- `s_dragon_d`'s own `settleClass` entry, and every other
+	// test in this file (which never mocks anything), are untouched. This
+	// still pins the SAME class-level break semantics DW-67 closed; it does
+	// not weaken or delete the assertion.
+	it('a crossing shorter than settleTicks + 1 ticks against a REAL drop_target (20 ms) switch emits exactly one make -- the defect this story closes', async () => {
 		expect(TABLE.switches.s_dragon_d.settleClass).toBe('drop_target');
 		const settleTicks = TUNING.switchSettleTicksByClass.drop_target.value;
 		expect(settleTicks).toBe(20);
 
-		const zones = [zone('sw_dragon_d', 's_dragon_d', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
-		const tracker = createSwitchTracker(zones, TUNING);
+		vi.resetModules();
+		vi.doMock('../src/sim/table/dragonwar', async (importOriginal) => {
+			const actual = await importOriginal<typeof import('../src/sim/table/dragonwar')>();
+			return {
+				...actual,
+				TABLE: {
+					...actual.TABLE,
+					// Emptied so this isolated view's own createSwitchTracker()
+					// does not exclude s_dragon_d as device-owned -- the real,
+					// unmocked TABLE (every other test in this file, and the
+					// whole rest of the suite) still declares both.
+					dropBankWiring: {},
+					spinnerWiring: {},
+				},
+			};
+		});
 
-		const events: unknown[] = [];
-		// A crossing lasting only 2 ticks -- far shorter than settleTicks + 1
-		// (21). Tick 1: enters (raw true, differs from reported false) ->
-		// under the OLD make-debounced semantics this would still be pending
-		// at tick 1 and NEVER settle before the ball has already left, so
-		// NOTHING would ever be emitted. Under the current semantics it
-		// latches immediately.
-		events.push(...tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 2: still inside (segment starts inside, still reads closed --
-		// no new edge, already reported true).
-		events.push(...tracker.step(2, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
-		// Tick 3: a genuine exit -- the ball has left the zone entirely. This
-		// is the FIRST of the 20 consecutive outside ticks AD-2's amended text
-		// requires before the break emits (DW-67 retimed: the pre-fix
-		// off-by-one required a 21st confirming tick, firing at tick 23).
-		events.push(...tracker.step(3, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
-		// Ticks 4..22: the remaining 19 consecutive outside ticks (3..22 is 20
-		// ticks total) -- the break fires on the 20th, tick 22.
-		for (let tick = 4; tick <= 22; tick++) {
-			events.push(...tracker.step(tick, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
+		try {
+			const { createSwitchTracker: isolatedCreateSwitchTracker } = await import('../src/sim/physics/switches');
+
+			const zones = [zone('sw_dragon_d', 's_dragon_d', { x: -10, y: -10, z: 0 }, { x: 10, y: 10, z: 30 })];
+			const tracker = isolatedCreateSwitchTracker(zones, TUNING);
+
+			const events: unknown[] = [];
+			// A crossing lasting only 2 ticks -- far shorter than settleTicks + 1
+			// (21). Tick 1: enters (raw true, differs from reported false) ->
+			// under the OLD make-debounced semantics this would still be pending
+			// at tick 1 and NEVER settle before the ball has already left, so
+			// NOTHING would ever be emitted. Under the current semantics it
+			// latches immediately.
+			events.push(...tracker.step(1, [{ before: { x: -100, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
+			// Tick 2: still inside (segment starts inside, still reads closed --
+			// no new edge, already reported true).
+			events.push(...tracker.step(2, [{ before: { x: 0, y: 0, z: 15 }, after: { x: 0, y: 0, z: 15 } }]));
+			// Tick 3: a genuine exit -- the ball has left the zone entirely. This
+			// is the FIRST of the 20 consecutive outside ticks AD-2's amended text
+			// requires before the break emits (DW-67 retimed: the pre-fix
+			// off-by-one required a 21st confirming tick, firing at tick 23).
+			events.push(...tracker.step(3, [{ before: { x: 100, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
+			// Ticks 4..22: the remaining 19 consecutive outside ticks (3..22 is 20
+			// ticks total) -- the break fires on the 20th, tick 22.
+			for (let tick = 4; tick <= 22; tick++) {
+				events.push(...tracker.step(tick, [{ before: { x: 200, y: 0, z: 15 }, after: { x: 200, y: 0, z: 15 } }]));
+			}
+
+			expect(events).toEqual([
+				{ type: 'switch', switch: 's_dragon_d', closed: true, tick: 1 },
+				{ type: 'switch', switch: 's_dragon_d', closed: false, tick: 22 },
+			]);
+		} finally {
+			vi.doUnmock('../src/sim/table/dragonwar');
+			vi.resetModules();
 		}
-
-		expect(events).toEqual([
-			{ type: 'switch', switch: 's_dragon_d', closed: true, tick: 1 },
-			{ type: 'switch', switch: 's_dragon_d', closed: false, tick: 22 },
-		]);
 	});
 });

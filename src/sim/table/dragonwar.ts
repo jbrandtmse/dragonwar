@@ -398,6 +398,51 @@ export const TABLE = deepFreeze({
 		c_pop_3: { switch: 's_pop_3' },
 	},
 
+	/**
+	 * Story 2.3 (AD-6, AD-11 "TABLE owns ... wiring", task 1): each DRAGON-bank
+	 * target letter paired with the switch it closes AND the `col_` collision
+	 * node whose hit objects the bank must retain a handle to (task 5) so it
+	 * can `setEnabled(false)` them on a genuine strike and `setEnabled(true)`
+	 * them on a bank reset. `sim/physics/drop-targets.ts` derives its
+	 * six-entry subject set from `Object.keys()` here (DW-149: never a second
+	 * hand-typed letter list) and `sim/physics/switches.ts` derives its own
+	 * widened tracker-exclusion set from the same `Object.values()` --
+	 * neither file needs an `s_dragon_*` / `col_dragon_*` string literal of
+	 * its own. Letters are D-R-A-G-O-N order, matching `switches` above.
+	 */
+	dropBankWiring: {
+		d: { switch: 's_dragon_d', node: 'col_dragon_d' },
+		r: { switch: 's_dragon_r', node: 'col_dragon_r' },
+		a: { switch: 's_dragon_a', node: 'col_dragon_a' },
+		g: { switch: 's_dragon_g', node: 'col_dragon_g' },
+		o: { switch: 's_dragon_o', node: 'col_dragon_o' },
+		n: { switch: 's_dragon_n', node: 'col_dragon_n' },
+	},
+
+	/**
+	 * Story 2.3 (AD-5): the coil that raises the whole bank. A plain string
+	 * value (never a bare object key elsewhere) so `sim/physics/drop-
+	 * targets.ts` can name it without a `c_`-prefixed literal of its own --
+	 * `pnpm lint:boundaries`'s device-name-literal rule bans one outside this
+	 * file, mirroring `bd_lock.ejectCoil` above.
+	 */
+	dropBankResetCoil: 'c_dragon_bank_reset',
+
+	/**
+	 * Story 2.3 (AD-6's 2026-09-03 amendment, AD-11): the spinner's own
+	 * switch, in the same `{ switch: SwitchName }` shape `popWiring` above
+	 * uses -- keyed by the switch's own name (there is exactly one spinner in
+	 * this table) so a future second spinner is a second key, never a second
+	 * hand-typed list. `sim/physics/spinner.ts` derives its subject set from
+	 * `Object.keys()` here and its own zone from
+	 * `switchZones.filter((z) => z.switch === wiring.switch)` on the one
+	 * value here (this story's spec, task 1 rationale) -- it never names
+	 * `s_spinner` as a literal of its own.
+	 */
+	spinnerWiring: {
+		s_spinner: { switch: 's_spinner' },
+	},
+
 	/** AD-9: the architectural GI channels, set once per phase via `GiCommand.level`. */
 	giChannels: {
 		gi_backbox: {} as Record<string, never>,

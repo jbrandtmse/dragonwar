@@ -534,10 +534,54 @@ export const TUNING = deepFreeze({
 		),
 		popKickMmPerS: entry(
 			200,
-			'authored: no planning artifact states a pop-bumper kick strength -- fixed empirically during this story\'s implementation, swept over [50, 900] against the DW-148 strand (`test/shot-routing.test.ts`\'s "descend" column at (130, 850)) and against the pre-existing Top-lane routing cases (`test/shot-routing.test.ts`, "Top lanes"), which pass near the pop cluster on their own return path and are NOT this story\'s DW-148 subject. Below ~180 the DW-148 ball is kicked but returns to a NEW, still-permanent equilibrium (its own dx tie-break, sim/physics/pops.ts\'s POP_KICK_TIE_BREAK_MM, only breaks the EXACT on-axis case -- the kick itself still needs enough speed to clear the zone rather than just reposition within it); above ~220 the extra energy sends a ball that merely GRAZES a pop\'s skirt on its way past into repeated cross-pop bouncing that exhausts the Top-lane cases\' own tick budget before reaching a terminal outcome. 200 clears DW-148\'s own strand to the drain (measured trailing-window progress 126.8 mm against the 15 mm floor) while leaving every pre-existing routing case that only grazes a pop unaffected.',
+			"authored: no planning artifact states a pop-bumper kick strength. [CORRECTED, Story 2.3, DW-160: the three claims this string previously made -- a ~180 mm/s floor, a ~220 mm/s ceiling from Top-lane cross-pop bouncing, and 126.8 mm of trailing progress at 200 as the representative escape -- were re-swept directly against the DW-148 column ((130, 850), test/pop-bumper.test.ts's own dw148TrailingProgressMm(v)) and only the last one reproduces.] There is NO floor beyond \"nonzero\": every positive kick tried down to 0.5 mm/s clears the strand (progress ~309 mm); only 0 mm/s (no kick) reproduces the original permanent rest. The landscape above that is NOT a clean one-sided window -- it is chaotic (this is a ball descending onto a near-symmetric octagon apex, POP_KICK_TIE_BREAK_MM only resolves the exact on-axis tie): a fine sweep at 1 mm/s resolution through 155-221 mm/s finds narrow re-strand dips interleaved with clearing bands (e.g. 164-169, 175, 178, 185-195, 197-198 mm/s each re-strand at a NEW equilibrium near (93, 840) -- just outside sw_pop_1's own north edge -- while 196, 199-202 and 205-220 clear, some robustly (~309 mm, e.g. 215-220) and some marginally (~50-130 mm, e.g. 200's own 126.8 mm)); a clean re-strand band then holds from 221 mm/s (measured 1.3 mm progress) through at least 230, with one anomalous escape at 245 before re-stranding again by 260. The ORIGINAL ceiling reasoning (Top-lane cross-pop-bouncing tick-budget exhaustion) is real but starts far higher (~425-600 mm/s per lane) than previously claimed and is not what bounds the safe range from above -- the 221 mm/s re-strand is. 200 sits inside a locally-clearing pocket (199-202 all clear) but its nearest re-strand neighbour is only 2 mm/s away at 198, not the 21 mm/s the far (221 mm/s) cliff alone would suggest -- the true margin is narrower than a single-sided reading implies, a property of the chaos itself rather than of this particular value: no nearby integer value sits in a wider uniformly-clearing pocket without moving toward the robust-but-still-cliff-bounded 215-220 band, which trades a marginal-but-real escape for a razor-thin (1 mm/s) upper margin instead. 200 is kept: it reproduces the same 126.8 mm escape this constant has always shipped with, that escape is measured, not merely inferred from the far cliff, and Story 2.3's own re-record already carries this correction.",
 			'unverified',
 		),
-	} satisfies Readonly<Record<'slingshotForce' | 'slingshotThresholdMmPerS' | 'popKickMmPerS', TuningEntry<number>>>,
+
+		/**
+		 * Story 2.3 (AD-6's 2026-09-03 amendment, AD-15): the spinner's own
+		 * spin-up gain -- degrees per second of spinner angular speed added
+		 * per mm/s of a ball's own entry speed through `sw_spinner`, applied
+		 * once per genuine zone entry (`sim/physics/spinner.ts`). No planning
+		 * artifact states a gain (AD-6 only states the mechanism: "imparts
+		 * rotation proportional to entry speed"), so this is authored and
+		 * measured against this story's own AC 3 -- at the Left Loop's own
+		 * measured 1789.8 mm/s ascending-column entry speed this produces an
+		 * initial spin of ~894.9 deg/s, which this story's own decay (below)
+		 * resolves into roughly 5 revolutions before returning to rest,
+		 * comfortably above AC 3's "more than one" floor and giving AC 3b's
+		 * speed sweep (~900-2200 mm/s) room to separate on closure count.
+		 */
+		spinnerGainDegPerSPerMmPerS: entry(
+			0.5,
+			"authored: AD-6 states the mechanism (rotation proportional to entry speed) but no gain -- chosen so the Left Loop's own measured 1789.8 mm/s entry speed (this story's Design Notes) produces several revolutions before the decay below returns the spinner to rest, measured against this story's own AC 3/AC 3b tests",
+			'unverified',
+		),
+		/**
+		 * Story 2.3 (AD-3, AD-6): the spinner's own per-tick decay, spelled as
+		 * a plain multiplicative ratio -- deliberately NOT a millisecond
+		 * duration (`assertNoNestedMsKeys()`, DW-34, throws on any nested
+		 * `...Ms` key below `hardware`'s own top level, and a decay HALF-LIFE
+		 * would need exactly that). Applied once per tick to the spinner's own
+		 * angular speed (`angularSpeedDegPerS *= spinnerDecayPerTick` before
+		 * that tick's angle accumulates), so it is tick-native by construction
+		 * and needs no `...Ms` -> `...Ticks` conversion at all. No planning
+		 * artifact states a decay rate; authored and measured against AC 3's
+		 * "the interval between consecutive closures strictly increases ...
+		 * speed returns to 0" -- at the Left Loop's own 1789.8 mm/s entry
+		 * speed (~895 deg/s initial) this decays to the spinner's own
+		 * at-rest floor (1 deg/s, `sim/physics/spinner.ts`'s own authored
+		 * constant) in ~13,600 ticks, comfortably inside this story's own
+		 * test budgets.
+		 */
+		spinnerDecayPerTick: entry(
+			0.9995,
+			"authored: AD-6 states the spinner \"closes once per revolution until it decays\" but no rate -- a multiplicative per-tick ratio (never a millisecond duration, DW-34) chosen so the Left Loop's own measured entry speed produces a strictly-increasing inter-closure interval and a finite return to rest within this story's own test tick budgets, measured against AC 3",
+			'unverified',
+		),
+	} satisfies Readonly<
+		Record<'slingshotForce' | 'slingshotThresholdMmPerS' | 'popKickMmPerS' | 'spinnerGainDegPerSPerMmPerS' | 'spinnerDecayPerTick', TuningEntry<number>>
+	>,
 } as const);
 
 type TuningMsKey<T> = {

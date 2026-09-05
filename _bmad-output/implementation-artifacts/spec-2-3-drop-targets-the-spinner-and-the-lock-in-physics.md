@@ -2,11 +2,11 @@
 title: 'Story 2.3: Drop targets, the spinner and the Lock in physics'
 type: 'feature' # feature | bugfix | refactor | chore
 created: '2026-09-05'
-status: 'ready-for-dev' # draft | ready-for-dev | in-progress | in-review | done | blocked
-baseline_revision: 'ebc24676ae177a1466ffa88db51eb0acca7d2601'
-baseline_commit: 'ebc24676ae177a1466ffa88db51eb0acca7d2601'
+status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: '7685d9e38ed569911ace79b8713ae6c73b3cc0e6'
+baseline_commit: '7685d9e38ed569911ace79b8713ae6c73b3cc0e6'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
@@ -47,6 +47,96 @@ deferred:
       behind DW-155's first half and it will recur for every future ball device.
     location: >-
       src/sim/physics/devices.ts:299-307; test/lock-device-behaviour.test.ts:96-101
+    severity: low
+  - summary: >-
+      ContactEvent.device is never populated for drop_target_down or spinner_tick, even
+      though events.ts's own doc comment and this story's own Code Map both name it as
+      carrying the mechanism identifier for these two kinds; the real production
+      DeviceName union (CoilName | BallDeviceName) has no member that could hold a
+      drop-target letter or the spinner's switch name anyway, so the spec's own claim
+      that "no type-level work is owed on the contact channel" does not hold.
+    evidence: |-
+      src/sim/physics/drop-targets.ts's applyPostStep() and src/sim/physics/spinner.ts's
+      applyPostStep() both push a ContactEvent with kind: 'drop_target_down' /
+      'spinner_tick' and no device field; their local ContactEventLikeLocal types (and
+      the real ContactEventLike in devices.ts they mirror) type device as
+      BallDeviceName | CoilName only. src/sim/table/names.ts:48's DeviceName = CoilName |
+      BallDeviceName confirms neither a switch name nor a drop-target letter fits without
+      widening that shared, project-wide union -- a real (if currently harmless) gap,
+      caught by code review (blind-hunter) this pass. No current consumer reads
+      contactEvents or mechanisms yet (this story's own Design Notes say so explicitly),
+      so nothing is broken today; no existing test asserts device is absent, so adding it
+      is a safe two-way door once someone decides what identifier is right (the letter?
+      the switch name? a new BallDeviceName-shaped entry for the bank/spinner as a
+      whole?) -- a naming decision, not a mechanical patch.
+    location: >-
+      src/sim/physics/drop-targets.ts (applyPostStep, drop_target_down push);
+      src/sim/physics/spinner.ts (applyPostStep, spinner_tick push);
+      src/sim/table/names.ts:48 (DeviceName); src/sim/physics/devices.ts:56-65
+      (ContactEventLike)
+    severity: med
+  - summary: >-
+      The spinner tracks entry with a single module-level `occupied: boolean` and
+      `movements.find()` (first match only), so a second ball crossing sw_spinner while
+      a first ball is still inside it never registers its own rising edge -- its speed
+      contribution to the spinner's angular velocity is silently dropped, even though
+      the spinner still spins and closes normally from the first ball's own impulse.
+    evidence: |-
+      src/sim/physics/spinner.ts's createSpinnerMechanics(): `occupied` is one boolean
+      for the whole mechanism, and `raw && !occupied` gates every impulse addition, so a
+      SECOND ball entering while `occupied` is already true (from a first, still-present
+      ball) adds no impulse of its own. Found by code review (edge-case-hunter) this
+      pass; not reproduced against the real machine (would need a genuine two-ball
+      simultaneous crossing, which the shipped shot-map does not construct). The
+      project's own hop.ts (cited in this story's Code Map, :238-242) uses a WeakMap<Ball,
+      number> for exactly this "per-ball state carried across ticks inside physics"
+      shape -- the precedent for the fix, not used here.
+    location: >-
+      src/sim/physics/spinner.ts (createSpinnerMechanics, the `occupied` variable and its
+      rising-edge check)
+    severity: low
+  - summary: >-
+      A ball resting or drifting slowly exactly on sw_spinner's own zone boundary could
+      flicker in and out of `raw` on sub-mm solver jitter, re-firing the rising-edge
+      impulse on every flicker and adding spin energy each time, rather than once per
+      genuine crossing.
+    evidence: |-
+      src/sim/physics/spinner.ts's rising-edge test (`raw && !occupied`) has no jitter
+      margin, unlike src/sim/physics/devices.ts's own overflow-latch fix this same story
+      added (a 10 mm OVERFLOW_CLEAR_MARGIN_MM specifically because a rejected ball
+      settling at a slot band's own entrance was measured jittering under 1 mm either
+      side of the boundary). Found by code review (edge-case-hunter) this pass, not
+      reproduced against the real geometry: the spinner is a pass-through gate with no
+      collision body (AD-6), so nothing in the committed table gives a ball a resting
+      equilibrium exactly spanning sw_spinner's own box today, making the trigger
+      condition currently theoretical rather than demonstrated.
+    location: >-
+      src/sim/physics/spinner.ts (createSpinnerMechanics, applyPostStep's `raw`
+      computation)
+    severity: low
+  - summary: >-
+      No test drives a bank reset and a genuine re-strike within the identical tick --
+      AC 2's own wording ("a target this tick's own reset raises is collidable during
+      THIS tick's own solve") is proven at the ORDERING level but not with an actual ball
+      collision landing on the same tick as the reset pulse.
+    evidence: |-
+      Found by code review (blind-hunter) this pass. What IS proven: (a)
+      test/hardware-rule-seam.test.ts's structural scan pins that
+      dropTargetMechanics.applyPreStepReset( is called before physics.step() in
+      machine.ts's own source text, and this story's own Rule-19 mutation (moving that
+      call to after physics.step()) reddens exactly that check; (b) HitObject.setEnabled()
+      is the frozen, pre-existing vpx-js primitive every hit-test already honours
+      (hit-object.ts), relied on identically by every other setEnabled() consumer in the
+      codebase. What is NOT proven end-to-end: that re-enabling a target via the pre-step
+      reset and a ball already positioned to strike it produce a genuine collision within
+      that SAME tick's solve, rather than the ordering alone. Not attempted this pass --
+      engineering a ball position that lands a collision on a specific, pre-determined
+      tick is fragile without a geometry query the current test helpers do not expose;
+      the two facts above make the combined claim a low-risk logical consequence rather
+      than an untested mechanism, but it is not itself directly pinned.
+    location: >-
+      src/sim/physics/machine.ts (PRE_STEP_HARDWARE_RULES ordering);
+      test/drop-targets.test.ts (AC 2 describe block); test/hardware-rule-seam.test.ts
     severity: low
 ---
 
@@ -551,6 +641,19 @@ free because this story re-records the golden headers anyway.
 
 ## Review Triage Log
 
+### 2026-09-05 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 2, low 3)
+- defer: 4: (high 0, medium 1, low 3)
+- reject: 10
+- addressed_findings:
+  - `[low]` `[patch]` Misleading defensive-guard comment in `drop-targets.ts`'s `applyPostStep()` claimed a future guarantee violation "fails loudly" when the code actually `continue`s silently -- reworded to state the real (silent) behaviour honestly.
+  - `[medium]` `[patch]` `test/spinner.test.ts`'s "sw_spinner is excluded ... (AD-2)" test only checked the committed document's shape, never `createSwitchTracker()`'s actual exclusion behaviour -- retitled it to a structural-sanity claim and added two real behavioural pins in `test/switch-zones.test.ts` (DRAGON-bank letters and the spinner switch, mirroring the existing `bd_trough` precedent) driven against a real tracker; verified red when the spinner exclusion is removed, then reverted.
+  - `[low]` `[patch]` Spec's own `## Verification` AC 3 first mutation said "set the spinner's decay to zero so it never slows" -- backwards: 0 stops it dead next tick, 1 is the identity that never slows, matching the implementation and `test/spinner.test.ts`'s own header comment throughout. Corrected the spec's prose; no code or AC changed.
+  - `[medium]` `[patch]` `test/spinner.test.ts`'s "double-crossing case" test used the same assertion shape as the plain single-crossing test and could not distinguish two genuine zone entries from one -- added a position-trajectory discriminator (counts real re-entries into `sw_spinner`'s own y-span) measured at exactly 2 for the release/speed this test already drives.
+  - `[low]` `[patch]` `test/drop-targets.test.ts`'s "D must not report a second drop" assertion message overstated what an un-lettered `drop_target_down` count can prove (it cannot distinguish D re-dropping from R's own first drop) -- reworded to state the real (looser) bound honestly; the switchEvents assertion immediately above it is what actually pins D specifically.
+
 ## Design Notes
 
 ### Governing architecture decisions (Rule 6)
@@ -999,7 +1102,11 @@ reddens the lookup and is NOT evidence):**
   reset had already raised, and test/hardware-rule-seam.test.ts goes red on the ordering scan;
   revert.`
 - **AC 3 (spin, per-revolution closure, decay).**
-  `mutation: set the spinner's decay to zero so it never slows -> the strictly-increasing-interval
+  `mutation: set the spinner's decay to 1 (the multiplicative identity) so it never slows [CORRECTED,
+  code review this pass: this line previously said "decay to zero", which is the opposite value --
+  `angularSpeedDegPerS *= decayPerTick` means 0 stops the spinner dead on the very next tick, while 1
+  is what "never slows" actually means; the implementation and its own test comment
+  (test/spinner.test.ts's header) always used 1, only this prose named the wrong number] -> the strictly-increasing-interval
   assertion goes red naming the first two equal intervals, and the finite-count assertion goes red
   naming the closure count at the tick budget, while the first closure and the free-running closures
   with no ball present both still happen; revert.` Second, the observable that cannot be forged:
@@ -1056,5 +1163,172 @@ reddens the lookup and is NOT evidence):**
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+### Summary of implemented change
+
+Two new authored physics modules -- `src/sim/physics/drop-targets.ts` (the six-letter DRAGON
+drop-target bank) and `src/sim/physics/spinner.ts` (the pass-through spinner gate) -- plus the
+registry, wiring, tuning, and provenance-registration changes needed to own their switches end to
+end (AD-2) and reach `FrameOutput` (AC 9, Rule 1). AC 1/1b/2 close the bank: a genuine
+`HitObject.collide()` strike (never a zone make alone) latches a target down, disables its 8
+retained hit objects, and holds until `pulse c_dragon_bank_reset` (pre-step, so a target it raises
+is collidable again within that same tick's solve). AC 3/3b close the spinner: own rising-edge
+detection over `sw_spinner`, angular-speed impulse proportional to entry speed, per-revolution
+`{closed:true}`/`{closed:false}` pairs with decay to a hard rest floor, free-running (no ball
+required) until then. AC 4/7 resolve two ledger entries at the Lock with a replaced observable
+(`machine.deviceSlots`/a `bd_lock` hit contact, not a switch-make proxy) and an absence-pin (DW-134,
+56 driven columns / 0 closes / 0 captures, paired with a true-positive control). AC 5 closes
+`deriveBootSlots()`'s direct-derivation pin (DW-155). AC 6 fixes the overflow-latch defect (315 ->
+1 event). AC 8 corrects `TUNING.hardware.popKickMmPerS`'s `source` string (DW-160) with a measured
+safe-window answer. AC 10 re-verifies every epic baseline.
+
+### Files changed
+
+- `src/sim/physics/drop-targets.ts` (new) -- the DRAGON drop-target bank hardware rule.
+- `src/sim/physics/spinner.ts` (new) -- the spinner hardware rule.
+- `test/drop-targets.test.ts` (new) -- bank I/O matrix, DW-149 anti-vacuity, and the AC 9 Integration test (added this pass -- see Residual risks).
+- `test/spinner.test.ts` (new) -- spinner I/O matrix, DW-149 anti-vacuity, and the AC 9 Integration test (added this pass).
+- `src/sim/table/dragonwar.ts` -- `dropBankWiring`, `dropBankResetCoil`, `spinnerWiring` registries.
+- `src/sim/table/tuning.ts` -- new `spinnerGainDegPerSPerMmPerS`/`spinnerDecayPerTick` entries; `popKickMmPerS`'s `source` corrected (DW-160).
+- `src/sim/physics/loader/index.ts` -- `createDropTargetStrikeWiring()` wired into `addWall()`; `dropTargetHitObjectsByLetter`/`drainDropTargetStrikes()`/`dropTargetFootprintsMm` exposed on `LoadedCollision`.
+- `src/sim/physics/switches.ts` -- `deviceModuleOwnedSwitches()` (renamed/widened from `parkingDeviceOwnedSwitches()`) excludes the six bank letters and the spinner switch.
+- `src/sim/physics/devices.ts` -- `deriveBootSlots()` extracted/exported (DW-155); AC 6's per-ball, margined overflow latch replacing the per-tick emission.
+- `src/sim/physics/machine.ts` -- both new modules wired into `PRE_STEP_HARDWARE_RULES`/`SWITCH_EDGE_HARDWARE_RULES` and the mechanisms/return-spread plumbing.
+- `src/sim/loop/index.ts` -- `mechanisms.dropTargets`/`.spinner` read from `machine.mechanisms` (was hard-coded `{}`).
+- `test/shot-routing.test.ts` -- `driveShot()` widened (`deviceSlots`, `contactEvents`, `allSwitchEvents`, `finalBallCount`); DW-155's replacement assertions; new AC 7/DW-134 absence block; a corrected reachability witness (`s_dragon_g`, not `s_dragon_a` -- see plan_findings, and Residual risks below).
+- `test/lock-device-behaviour.test.ts` -- DW-155 direct-derivation tests; AC 5 second-pulse test; AC 6 over-capacity test.
+- `test/switch-max-speed.test.ts`, `test/switch-zones.test.ts` -- re-pointed for the widened exclusion; two new behavioural exclusion pins added this pass (DRAGON-bank and spinner, mirroring the existing `bd_trough` precedent).
+- `test/port-provenance.test.ts`, `test/story-2-0-rename-provenance.test.ts` (107 -> 109), `tools/dependency-cruiser.config.mjs` -- the two new files registered in all four required places.
+- `test/util/reachability.ts` -- `plunge-then-bat-r-3906`'s witness corrected (`s_dragon_g`, the genuine strike under the new semantics, not the old zone-grazed `s_dragon_a`).
+- `test/replays/*.golden.json` (5 files) -- header-only refresh (`header.tableHash` + `header.gameStart.tuning`); traced bit-identical against the pre-story baseline before recording; `transitions`/`coilPrologue`/`durationTicks`/`expectedHash`/`expectedGameStateHash` byte-identical; `notes` appended, never rewritten; `assetHash` unchanged (confirmed: `git diff --stat -- public/assets/` is empty).
+
+### Review findings breakdown
+
+Layers run: blind-hunter, edge-case-hunter, verification-gap, intent-alignment (all four, parallel,
+same model capability as this session). Full triage in `## Review Triage Log` above.
+
+- **Patched (5, applied and verified this pass):** a misleading defensive-guard comment
+  (drop-targets.ts); a test whose title claimed the AD-2 tracker exclusion but never verified it
+  (strengthened + two new real behavioural pins added, verified red-on-mutation then reverted); the
+  spec's own AC 3 mutation prose (decay "zero" corrected to "1" -- a documentation fix, no code
+  changed); the spinner's "double-crossing" test (added a position-trajectory discriminator,
+  measured 2 genuine zone entries); an overstated assertion message in the drop-target
+  non-collidable test.
+- **Deferred (4 new, in frontmatter `deferred:` alongside the 2 pre-existing from planning, 6
+  total):** `ContactEvent.device` is never populated for `drop_target_down`/`spinner_tick` even
+  though the contract's own doc comment names it, and the real `DeviceName` union has no member
+  that fits without a naming decision (med); the spinner's single-ball `occupied` boolean drops a
+  second, simultaneous ball's own impulse contribution in true multiball play (low); a theoretical
+  zone-boundary flicker could re-fire the spinner's impulse on solver jitter, though nothing in the
+  committed geometry gives a ball a resting equilibrium there today (low); no test drives a bank
+  reset and a genuine re-strike within the identical tick, though the ordering and the underlying
+  `setEnabled()` primitive are each independently proven (low).
+- **Rejected (10, noise or by-design, dropped silently per protocol -- recorded here for the
+  record):** `dropTargetFootprintsMm`'s "no production consumer" (task 5 explicitly requires
+  exposing it); the `drop_target` `settleClass` being unused by the new device-owned path
+  (by-design, matches the pre-existing parking-device precedent); three theoretical
+  hardening suggestions with no realistic reachable trigger (`deriveBootSlots()` invalid-input
+  guard; two `loader/index.ts` hand-misconfiguration guards, both already caught by the existing
+  DW-149 anti-vacuity/derivation tests); the Lock-capture same-tick test gap (structurally
+  guaranteed by `detectEntries()`'s own single-function atomicity, not a real risk); DW-134's
+  test-only nature (matches the plan's own intended absence-pin resolution); the spinner's
+  "closes ... and re-opens between" phrasing vs. its zero-duration same-tick make/break pair
+  (a deliberate design choice, not a defect); DW-155's half-closed state (already disclosed
+  correctly in the pre-existing deferred entry); AC 10 having no `mutation:` line (explicit by
+  design in `## Verification`'s own text).
+
+**Follow-up review recommendation: `true`.** This pass's patched findings only (never defer/reject):
+0 high, 2 medium, 3 low. Score = 3x2 + 1x3 = 9, which is >= 5, so `followup_review_recommended` is
+set to `true` regardless of the (also true) "any high" clause not firing.
+
+### Verification performed
+
+- `pnpm test`: **95 files / 1517 passed / 0 failed** (baseline was 93/1490/0; +2 files for the two
+  new modules' own test suites, +27 tests net including this pass's 2 new switch-exclusion pins and
+  1 new AC 9 Integration test per module).
+- `pnpm check:ad7`: **exit 1**, still naming `AD-7`, `DW-70`, `bd_trough`, and both
+  `[true,true,true,true]` / `[true,true,true,false]` literals (unchanged, as required -- Story 2.5
+  owns the fix).
+- `pnpm check:corridor`: **exit 0**.
+- `pnpm check:reachability`: **exit 0** at **52 cases / 32 reachable / 20 unreachable / 644
+  releases** -- identical to the recorded baseline, no verdict moved.
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`: all
+  exit 0.
+- `pnpm build && pnpm check:dist && pnpm check:size`: all exit 0 (0.858 MB measured, 2.75 MB
+  budget).
+- `git diff --stat -- public/assets/`: **empty** -- `assetHash` did not move.
+- `git diff --stat -- test/replays/`: non-empty (5 files, header-only, structurally verified: only
+  `tableHash`/`gameStart.tuning`-shaped keys changed in the diff, `notes` appended not rewritten).
+- The `git grep` DW-46 leak check's literal command (`:!tools/blender.mjs' ':!_bmad-output/`)
+  fails to parse under this machine's git 2.51.0 (`Unimplemented pathspec magic '_'`, pre-existing,
+  unrelated to this story) -- re-run with `:(exclude)` pathspec magic instead, and separately
+  confirmed via `git diff HEAD -- .` that this story's own diff contains no literal
+  `blender-5.2.1-windows-x64` / local-machine path (DW-46 satisfied for this story's changes; the
+  three matches the corrected grep still finds are pre-existing generic comments in
+  `test/blender-resolve.test.ts`, present unchanged at the story's own baseline commit).
+- **Rule 19 mutations, all 14, each applied by hand, red observed at the value named, reverted,
+  tree confirmed byte-identical (`git diff --stat`) before continuing:**
+  - AC 1 non-latching (clear the down flag/re-enable each tick): red, second `drop_target_down`.
+  - AC 1 skip `setEnabled(false)`: red, ball rebounds off a "removed" target.
+  - AC 1b zone-make alone (drop-bank letters un-excluded from the generic tracker): red, `s_dragon_d`
+    closes at x = 228.9 where only R was genuinely struck.
+  - AC 2 unconditional `closed:false` edges: red, six spurious edges on the "nothing down" case.
+  - AC 2 reset moved after `physics.step()`: red on `test/hardware-rule-seam.test.ts`'s ordering
+    scan (structural evidence; the specific same-tick ball-strike behavioural case is not directly
+    pinned -- see the new deferred entry).
+  - AC 3 decay = 1 (never slows): red, equal (not increasing) intervals and non-zero final speed.
+  - AC 3 gate closures on a ball being in-zone this tick: red, zero closures at all (the free-running
+    signature this AC's whole discriminating claim rests on disappears).
+  - AC 3b constant gain: red, faster ball (2200 mm/s) produces FEWER closures (4) than the slower one
+    (900 mm/s, 8) -- the ordering inverts.
+  - AC 4 skip `physics.removeBall()`: (performed by the implementation subagent, confirmed genuinely
+    red per its own report).
+  - AC 5 cache `highestFilled` across pulses: red, the second pulse re-opens the SAME slot
+    (`s_lock_2` again, not `s_lock_1`).
+  - AC 6 revert to per-tick emission: (performed by the implementation subagent, confirmed red per
+    its own report, 315 vs. expected 1).
+  - AC 7 isolated-copy widening of `sw_lock_lane` (a throwaway vitest harness, never the committed
+    document, deleted after use): widening the zone's own y-span north by 250 mm makes all three
+    wandering columns close `s_lock_lane` (previously zero), while the `lock-lane-long` control
+    still captures -- the absence assertion is genuinely falsifiable, not vacuous on an empty
+    subject set. Committed document confirmed byte-identical throughout
+    (`git diff --stat -- public/assets/` empty).
+  - AC 8 `popKickMmPerS` = 225 (inside the re-strand band): red, 1.01 mm trailing progress against
+    the 15 mm floor (was ~127 mm at the shipped 200).
+  - AC 9 (both halves, drop-target and spinner): hard-coding `mechanisms.dropTargets`/`.spinner` to
+    `{}` in `loop/index.ts` reddens only the mechanisms-snapshot half of each new Integration test
+    while the `contactEvents` half (checked first) still passes -- proving the two halves are
+    asserted independently, as the mutation's own text requires.
+- Matrix Test Audit: all **16** I/O & Edge-Case Matrix rows traced to at least one covering test
+  that ran and passed in this pass's `pnpm test` output (including the two rows -- "Slightly-off
+  Lock shot" and "Mouth eject, empty" -- that are pre-existing/unchanged this story but still
+  exercised).
+
+### Residual risks
+
+- **AC 9's Integration tests did not exist before this pass.** The implementation subagent's own
+  report did not flag this as missing (it listed AC 9's mutation as merely "not hand-verified"), but
+  no test anywhere drove `createLoop().advance()` for either new module before this review pass
+  added `test/drop-targets.test.ts`'s and `test/spinner.test.ts`'s own Integration AC blocks. Closed
+  in this pass, not carried forward.
+- `plunge-then-bat-r-3906`'s reachability witness needed correcting mid-implementation
+  (`s_dragon_g`, not the old `s_dragon_a`) once genuine-strike semantics replaced zone-make -- this
+  is exactly the AC 1b vacuity class this story targets, caught and fixed by the implementation
+  subagent itself, re-verified by this review pass via the passing `check:reachability` re-run.
+  `dragon-target-a`'s own separate geometric-proximity reachability claim is unaffected.
+- On the DW-160 pop margin question, DW-160's own answer, recorded in `tuning.ts`'s corrected
+  `source` string: the landscape near the shipped 200 mm/s is genuinely chaotic (interleaved narrow
+  re-strand/clearing bands from ~155-260 mm/s), not a single clean safety margin; 200's true nearest
+  re-strand neighbour is 198 mm/s (2 mm/s away), not the 21 mm/s the far 221 mm/s cliff alone
+  suggests. 200 is kept as the shipped value (it reproduces the same measured 126.8 mm escape this
+  constant has always shipped with) with that narrower margin now stated honestly rather than
+  overclaimed.
+- The four new `deferred:` entries (`ContactEvent.device` completeness, spinner multi-ball
+  occupancy, spinner zone-boundary flicker, AC 2 same-tick behavioural proof) are real but
+  non-blocking -- none is required by any AC's literal wording, none has a demonstrated real-world
+  trigger against the shipped table/shot-map, and none regresses a baseline. Left for the lead's
+  harvest per Rule 15/17.
+- `followup_review_recommended: true` reflects this pass's own patch volume/severity score (9), not
+  an unresolved defect -- every patched finding was fixed and re-verified in this same pass.

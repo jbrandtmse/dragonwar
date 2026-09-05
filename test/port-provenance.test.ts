@@ -82,6 +82,8 @@ const AUTHORED_PHYSICS_FILE_RELATIVE_PATHS: readonly string[] = [
 	'geometry.ts',
 	'slings.ts',
 	'pops.ts',
+	'drop-targets.ts',
+	'spinner.ts',
 ];
 
 describe('src/sim/physics/** header provenance (AD-16)', () => {

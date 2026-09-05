@@ -89,7 +89,7 @@ import { TABLE } from '../src/sim/table/dragonwar';
 import { nodeBboxMm, readCollisionDoc } from './util/collision-doc';
 import { distanceToPolygonMm } from './util/plan-geometry';
 import { SHOT_CASES, shotCase } from './util/shot-cases';
-import type { SwitchName } from '../src/sim/table/names';
+import type { BallDeviceName, ContactEvent, SwitchName } from '../src/sim/table/names';
 
 /**
  * Story 2.1c task 1: `terminal` names where the ball's own fate landed,
@@ -148,6 +148,26 @@ interface ShotResult {
 	readonly reachedFlipperBandR: boolean;
 	/** Story 2.1c task 1 -- see `classifyTerminal()`'s own doc comment. */
 	readonly terminal: Terminal;
+	/**
+	 * Story 2.3, DW-155 (task 12): `machine.deviceSlots` at the tick the drive
+	 * loop ended -- the ONLY state a real park writes (AD-6: device counts
+	 * "are the number of closed slot switches and nothing else"). A switch
+	 * make cannot forge this; `terminal === 'locked'` (derived from
+	 * `firstMakes` alone) could.
+	 */
+	readonly deviceSlots: Readonly<Record<BallDeviceName, readonly boolean[]>>;
+	/** Story 2.3, DW-155 (task 12): every `ContactEvent` produced across the whole drive, in tick order -- e.g. `{ kind: 'hit', device: 'bd_lock', ballId }` on the tick a real park removed the ball from `machine.balls` (`devices.ts:531`, merged at `machine.ts`). */
+	readonly contactEvents: readonly ContactEvent[];
+	/**
+	 * Story 2.3 (task 12): every switch EDGE produced across the whole drive,
+	 * with its own tick and `closed` flag -- not merely the deduped first
+	 * makes `firstMakes` above keeps. A switch that opens and re-closes (a
+	 * bank reset, a spinner's per-revolution pair, a second genuine park
+	 * attempt) is invisible to `firstMakes` but visible here.
+	 */
+	readonly allSwitchEvents: readonly { readonly switch: SwitchName; readonly closed: boolean; readonly tick: number }[];
+	/** Story 2.3, DW-155 (task 12): `machine.balls.length` at the tick the drive loop ended -- distinguishes a park (the ball count drops without `leftPlay`, since the ball is REMOVED via `physics.removeBall`, never merely drained) from an ordinary drain (`leftPlay` alone, `shot-routing.test.ts`'s own header: "leftPlay alone explicitly does not" separate the two). */
+	readonly finalBallCount: number;
 }
 
 const PROGRESS_SAMPLE_TICKS = 25;
@@ -259,10 +279,17 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 	const positionSamples: { tick: number; x: number; y: number }[] = [];
 	let reachedFlipperBandL = false;
 	let reachedFlipperBandR = false;
+	// Story 2.3, DW-155 (task 12): the widened observables -- every switch
+	// edge (not just deduped first makes) and every contact event, across
+	// the whole drive.
+	const allSwitchEvents: ShotResult['allSwitchEvents'][number][] = [];
+	const contactEvents: ContactEvent[] = [];
 
 	for (let i = 0; i < ticks; i++) {
 		tick += 1;
 		const result = machine.step(tick, NO_FRAME, []);
+		allSwitchEvents.push(...result.switchEvents.map((e) => ({ switch: e.switch, closed: e.closed, tick: e.tick })));
+		contactEvents.push(...result.contactEvents);
 		for (const event of result.switchEvents) {
 			if (event.closed && !seen.has(event.switch)) {
 				seen.add(event.switch);
@@ -299,7 +326,21 @@ function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: nu
 
 	const reachedFlipperBand = reachedFlipperBandL || reachedFlipperBandR;
 	const terminal = classifyTerminal(firstMakes, leftPlay, reachedFlipperBand);
-	return { firstMakes, leftPlay, finalPosMm, finalSpeedMmPerS, positionSamples, reachedFlipperBand, reachedFlipperBandL, reachedFlipperBandR, terminal };
+	return {
+		firstMakes,
+		leftPlay,
+		finalPosMm,
+		finalSpeedMmPerS,
+		positionSamples,
+		reachedFlipperBand,
+		reachedFlipperBandL,
+		reachedFlipperBandR,
+		terminal,
+		deviceSlots: machine.deviceSlots,
+		contactEvents,
+		allSwitchEvents,
+		finalBallCount: machine.balls.length,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -775,6 +816,9 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Dragon body', () => 
 		// face -- found and verified this story's own planning pass.
 		const result = driveCase('dragon-body');
 		expect(result.firstMakes, `s_dragon_body must close -- makes: ${result.firstMakes.join(',')}`).toContain('s_dragon_body');
+		// AC 4's second clause (DW-122, col_dragon_body does not exist): a
+		// slightly-off Lock-lane shot must leave bd_lock entirely untouched.
+		expect(result.deviceSlots.bd_lock, 'a Dragon-body graze must not touch bd_lock at all').toEqual([false, false, false]);
 		assertNotStranded(result, 'Dragon body');
 		assertNotStillInPlay(result, 'Dragon body');
 	});
@@ -812,13 +856,79 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 		// drain). Now that bd_lock boots empty and the eject/zone fixes are
 		// in, the SAME shot is genuinely captured -- assert the strictly
 		// stronger, previously-unreachable outcome: the switch sequence
-		// s_lock_lane then s_lock_1, and a 'locked' terminal classification
-		// (the branch classifyTerminal() has carried since Story 2.1c but
-		// this case could never reach).
+		// s_lock_lane then s_lock_1.
+		//
+		// [REPLACED, Story 2.3, DW-155, task 12] `expect(result.terminal).toBe
+		// ('locked')` used to close this case -- but `classifyTerminal()`
+		// decides `'locked'` purely from `firstMakes.includes('s_lock_1')`
+		// (`:113-115` above), which `assertOrbitOrder`'s own `s_lock_1`
+		// membership check one line above ALREADY establishes. `terminal`
+		// therefore added exactly one bit ("did not reach a flipper band")
+		// and zero bits about whether `bd_lock` actually holds a ball -- sound
+		// only because `s_lock_1` happened to be tracker-excluded so
+		// `devices.ts:530` was its sole emitter, an accident of the exclusion
+		// set this story's own bank/spinner ownership widens. The replacement
+		// reads the ONE state a real park actually writes
+		// (`machine.deviceSlots`, AD-6: "the number of closed slot switches
+		// and nothing else") and the ContactEvent that carries the ball's own
+		// id, plus the ball genuinely leaving the simulated set on that same
+		// tick -- none of which a switch make alone can forge.
+		// mutation (this story's own Rule 19, AC 4): in devices.ts:529, set
+		// the slot true but skip physics.removeBall() -> this test goes red
+		// naming finalBallCount as unchanged on the tick the bd_lock hit
+		// contact fired, while s_lock_1 still closes and the old
+		// terminal==='locked' claim would still have passed -- applied by
+		// hand this pass, observed red, and reverted (see this story's
+		// completion report).
 		const result = driveCase('lock-lane-long');
 		assertOrbitOrder(result, ['s_lock_lane', 's_lock_1']);
-		expect(result.terminal, `Lock lane: expected 'locked', got '${result.terminal}' -- makes: ${result.firstMakes.join(',')}`).toBe('locked');
+		expect(result.deviceSlots.bd_lock, `bd_lock must hold exactly one ball in its lowest slot -- deviceSlots: ${JSON.stringify(result.deviceSlots.bd_lock)}`).toEqual([true, false, false]);
+		const lockHits = result.contactEvents.filter((c) => c.kind === 'hit' && c.device === 'bd_lock');
+		expect(lockHits.length, `exactly one bd_lock hit contact expected -- contacts: ${JSON.stringify(lockHits)}`).toBe(1);
+		expect(lockHits[0]!.ballId, 'the hit contact must carry the captured ball\'s id').toBeDefined();
+		expect(result.finalBallCount, 'the ball must have left machine.balls -- a real park, not a switch make alone').toBe(0);
 		assertNotStranded(result, 'Lock lane');
+	});
+});
+
+describe('shot routing (AC 7, DW-134) -- a wandering ball does not enter the Lock', () => {
+	// [STORY 2.1d] closed DW-134 structurally: `col_lock_ceiling` (x 146..194,
+	// y 598..642) and `col_lock_ceiling_west_fill` (x 90..150, y 598..672) now
+	// cover the surface the shed-off-the-bevel ball used to land on, and the
+	// corridor's only opening is the south mouth at y = 480. This story's own
+	// planning measurement (2026-09-05, spec Design Notes): the entry's three
+	// named columns' ORIGINAL points now sit inside those bodies (0.000 mm
+	// clearance, DW-77, so they cannot legally be driven at all); their
+	// committed successors and a dense x = 92..232 step 4 sweep at y 680/700
+	// (56 driven columns, 16 skipped as DW-77 violations) both measured
+	// s_lock_lane closed ZERO times and bd_lock captured ZERO times. The
+	// three cases below are the successors' own manifest entries
+	// (`test/util/shot-cases.ts`) -- already declared `unreachable` (DW-138),
+	// driven here anyway (unreachable is a claim about ball TRAJECTORIES
+	// reaching the release point, not about whether the release point itself
+	// may be teleported to and observed).
+	//
+	// mutation (this story's own Rule 19, AC 7): in an ISOLATED COPY of the
+	// committed collision document (never the worktree), widen sw_lock_lane's
+	// own y-span north so these columns re-enter it -> this test goes red
+	// naming the column and the tick s_lock_lane closed, while the
+	// lock-lane-long control still captures -- proving the absence assertion
+	// is genuinely falsifiable and not vacuous on an empty subject set. Not
+	// re-run against the shipped document (`git diff public/assets/` stays
+	// empty, confirmed in this story's own Verification pass) -- see this
+	// story's completion report for the isolated-copy measurement.
+	const wanderingColumns = ['descend-dragon-leg-l', 'descend-ramp-wall-l', 'descend-ramp-turn-cap'] as const;
+
+	it.each(wanderingColumns.map((id) => ({ id })))('$id: s_lock_lane never closes and bd_lock is never touched', ({ id }) => {
+		const result = driveCase(id);
+		expect(result.allSwitchEvents.filter((e) => e.switch === 's_lock_lane'), `s_lock_lane must never close for "${id}" -- edges: ${JSON.stringify(result.allSwitchEvents.filter((e) => e.switch === 's_lock_lane'))}`).toEqual([]);
+		expect(result.deviceSlots.bd_lock, `bd_lock must be untouched by "${id}"`).toEqual([false, false, false]);
+	});
+
+	it('the paired true positive: lock-lane-long DOES close s_lock_lane and DOES capture -- the absence assertion above can observably fail', () => {
+		const result = driveCase('lock-lane-long');
+		expect(result.allSwitchEvents.some((e) => e.switch === 's_lock_lane' && e.closed), 'the control shot must close s_lock_lane').toBe(true);
+		expect(result.deviceSlots.bd_lock, 'the control shot must capture').toEqual([true, false, false]);
 	});
 });
 
