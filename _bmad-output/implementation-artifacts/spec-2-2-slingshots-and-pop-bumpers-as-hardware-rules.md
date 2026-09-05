@@ -1041,3 +1041,6 @@ VALUE so the code still runs and the behaviour changes:**
 - The pop-bumper multi-ball same-tick edge case (two balls in one skirt zone on the same make tick) resolves to the first match silently; not reachable until a multiball mechanism ships (deferred; low).
 - `ContactEvent.surface` is a hardcoded literal per device class rather than derived from the struck node's own material; currently correct but not self-updating if a future story reassigns a sling/pop node's material (deferred; low; double-guarded by `test/asset-contract.test.ts`).
 - This story's `check:reachability` re-declared `descend-ramp-wall-r-cap` reachable (a genuine consequence of the sling now being an active hardware rule, not a geometry change) -- carried forward from the original implementation pass, re-verified unchanged by this review pass's own re-run.
+
+Status: done
+Blocking condition: none
