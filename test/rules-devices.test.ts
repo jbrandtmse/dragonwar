@@ -281,6 +281,35 @@ describe('sim/rules/devices/ -- the spinner (AC 8)', () => {
 		const result = runSwitchScript(close('s_top_1').at(10).build(), { durationTicks: 15 });
 		expect(result.events.some((e) => e.type === 'spinner_spin')).toBe(false);
 	});
+
+	it('QA (DW-172 probe): an ASYMMETRIC number of closed:true vs closed:false edges in one tick proves the count is of CLOSED edges specifically, not of open edges nor of all edges', () => {
+		// The "three make/break pairs" test above scripts an EQUAL number of
+		// closes and opens (3 and 3) -- real spinner physics always emits them
+		// that way, one matched pair per completed revolution on the same tick
+		// (src/sim/physics/spinner.ts's own applyPostStep()). That symmetry
+		// means the test above cannot tell "count of closed:true edges" apart
+		// from "count of closed:false edges" -- a sign-flip bug (counting
+		// OPENS instead of CLOSES) would report the identical count: 3 and the
+		// test would stay green for the wrong reason. Confirmed empirically
+		// (QA mutation probe, 2026-09-05): inverting `event.closed` to
+		// `!event.closed` in src/sim/rules/devices/index.ts's spinner-counting
+		// loop left the test above green. This script closes FOUR times
+		// against only TWO opens in the same tick (an unrealistic switch
+		// trace physics itself would never emit, but the layer does not
+		// validate physical plausibility -- it only counts edges, and this is
+		// the scripted shape that discriminates the property AC 8 actually
+		// names) so "count opens", "count all edges" (6) and "count closed"
+		// (4) are three different numbers, and only one of them is correct.
+		const script = close('s_spinner').at(50)
+			.open().at(50)
+			.close().at(50)
+			.open().at(50)
+			.close().at(50)
+			.close().at(50)
+			.build();
+		const result = runSwitchScript(script, { durationTicks: 55 });
+		expect(result.events).toEqual([{ type: 'spinner_spin', count: 4, tick: 50 }]);
+	});
 });
 
 describe('sim/rules/devices/ -- the Lock lane, DW-166 (AC 6)', () => {

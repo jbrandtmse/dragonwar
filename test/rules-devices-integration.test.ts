@@ -202,6 +202,21 @@ describe('DW-166 closure (AC 6) -- a real driven Lock-lane shot, replayed into a
 		).toEqual([]);
 		expect(nonCapturing.some((e) => e.switch === 's_lock_lane' && e.closed), 's_lock_lane must still close at ~575 mm/s (the switch itself is not in question)').toBe(true);
 
+		// QA (DW-171, context only -- routed to Story 3.2's Lock arbiter,
+		// AD-18, and NOT this story's to fix): at this speed the ball still
+		// PHYSICALLY PARKS in bd_lock even though no lock_lane_entered credit
+		// was granted, and it is then never drained -- s_drain never closes in
+		// this run, so the ball is effectively held. 2.4's job was only to
+		// stop lock_lane_entered from OVER-reporting (DW-166), and it does;
+		// the arbiter that decides what to do with an uncredited-but-parked
+		// ball does not exist until Story 3.2. Pinning both halves of this
+		// asymmetry here means a FUTURE change that silently alters either one
+		// -- a park that stops happening, or a drain that starts happening --
+		// reddens this test directly, instead of only being discoverable by
+		// re-reading DW-171's ledger entry.
+		expect(nonCapturing.some((e) => e.switch === 's_lock_1' && e.closed), 'DW-171: the ball still physically parks in bd_lock despite the missed lock_lane_entered credit').toBe(true);
+		expect(nonCapturing.some((e) => e.switch === 's_drain' && e.closed), 'DW-171: the parked-but-uncredited ball is never drained in this run -- it is held').toBe(false);
+
 		const capturing = driveLockLane(800, 5000);
 		const capturingEvents = replayIntoDevicesLayer(capturing);
 		expect(
