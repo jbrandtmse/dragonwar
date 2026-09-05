@@ -76,6 +76,15 @@ deferred:
       (ContactEventLike)
     severity: med
   - summary: >-
+      [FIXED AT CODE REVIEW 2026-09-05 -- DO NOT HARVEST THIS INTO THE LEDGER.]
+      Re-rated low -> med by the acceptance auditor (multiball is a shipped feature,
+      FR-35/37/38, and the `low` rationale described today's test fixtures rather than
+      the delivered game), which under Rule 15 makes it a MED, fix-risk-low, in-story
+      finding and therefore not deferrable. Fixed in place: `occupied: boolean` is now a
+      `WeakSet<Ball>` (`hop.ts`'s own per-ball precedent), each ball contributing its own
+      entry impulse; the duplicated `movements x zones` scan and its unreachable throw
+      were removed with it. Single-ball behaviour is unchanged and the full suite is
+      green. Original finding text follows.
       The spinner tracks entry with a single module-level `occupied: boolean` and
       `movements.find()` (first match only), so a second ball crossing sw_spinner while
       a first ball is still inside it never registers its own rising edge -- its speed
@@ -637,6 +646,166 @@ free because this story re-records the golden headers anyway.
   `pnpm check:headers`, `pnpm check:attributions` all pass; and
   `git diff public/assets/dragonwar.collision.json` is **empty**.
 
+### Review Findings
+
+**Code review, 2026-09-05 (review tier `full-opus`; layers run: blind-hunter, edge-case-hunter,
+verification-gap, acceptance-auditor -- all four, in parallel, no model override; `_bmad/custom/
+model-overrides.yaml` does not exist).** Gates re-run independently by the reviewer rather than
+inherited: `pnpm test` 95/1519/0 before patching and **95 files / 1521 passed / 0 failed** after;
+`check:ad7` exit 1 naming `AD-7`, `DW-70`, `bd_trough` and both array literals (intended red,
+unchanged); `check:corridor` 0; `check:reachability` 0 at 52 cases / 644 releases; `typecheck`,
+`lint:boundaries`, `check:headers`, `check:attributions` all 0; `git diff 7685d9e --
+public/assets/` **empty** and `assetHash` still `ab163ff` on all five goldens, each `notes` still
+carrying `DW-70` and `deviceSlots`.
+
+The goldens were re-verified **semantically** rather than by reading ~3,400 lines of
+key-reordering churn: every leaf path of all five was compared field-by-field against `7685d9e`.
+Exactly 9 leaf paths moved per file (the two new spinner tunables, `popKickMmPerS.source`,
+`tableHash`, and an APPENDED `notes`); `assetHash`, `transitions`, `coilPrologue`,
+`durationTicks`, `expectedHash` and `expectedGameStateHash` are byte-identical. Header-only
+refresh confirmed independently of QA's own audit.
+
+**Three previous layers had each found what the one before missed; this pass found a fourth
+tier -- including two vacuities inside the anti-vacuity work itself.**
+
+**Fixed at review (11).** Each verified green individually and in the full suite.
+
+- **[MED, Rule 19] AC 3's discriminating observable could not fail.** `test/spinner.test.ts`
+  compared `lastMakeTick - startTick` against `dwellTicks + 20` = **40** relative ticks, where
+  `dwellTicks` was derived only from the zone's own 27 mm y-extent. But the ball is released at
+  y = 500 and needs ~**75** ticks just to reach the zone's 635 mm face, so the threshold sat
+  entirely inside the travel-to-zone window: *any* closure satisfied it, restating
+  `makes.length > 1` above it. This was the single assertion AC 3's whole "geometry cannot
+  forge" claim rested on. Re-anchored to the last tick the ball's own measured position was
+  inside the zone.
+- **[MED, Rule 19] The previous pass's own anti-vacuity fix was itself vacuous.** The
+  double-crossing discriminator tested `s.y` against the zone's y-span **alone**, dropping x,
+  though `sw_spinner` is a box (x 5..45, y 635..662). Measured: the *single*-crossing 1800 mm/s
+  drive yields `yEntries = 2` against **1** real zone entry, because the ball re-enters the
+  y-band much later at an x far outside the zone -- so `entries === 2` was satisfiable by a
+  drive with one crossing. Both axes are now recorded (`posSamples`) and tested through a shared
+  `insideSpinnerZone()`; still exactly 2 at 1100 mm/s, correctly 1 at 1800.
+- **[MED] The spinner dropped a second ball's entire spin contribution in multiball.** A single
+  module-level `occupied: boolean` gated every impulse on `raw && !occupied`, where `raw` was
+  `.some()` over all balls -- so while any ball dwelt in the zone (12-66 ticks at the measured
+  speeds) no other ball's entry registered, and a stream of balls through the Left Loop
+  registered only the first. Re-rated `low` -> `med` (the `low` rationale described today's test
+  fixtures, not the delivered game: DragonWar ships Quick multiball and the War, FR-35/37/38,
+  and FR-26 awards per rotation), which under Rule 15 makes it non-deferrable. Replaced with a
+  per-ball `WeakSet<Ball>` -- `sim/physics/hop.ts`'s own precedent, weak so a parked or drained
+  ball is not pinned -- and the duplicated `movements x zones` scan and its unreachable throw
+  went with it. Single-ball behaviour is unchanged, and the spinner applies no impulse to any
+  ball, so no trajectory or hash can move.
+- **[MED, Rule 19] Nothing observed the spinner's second spin-up impulse.** A spinner that spun
+  up only on a ball's first crossing and never re-armed left **every** spinner assertion green
+  (the double-crossing case asserted only `makes > 0`, `finalSpeed === 0` and a ball-position
+  statistic). Added a spin-up count over `speedSamples` -- angular speed only ever decays except
+  on an impulse -- measured at exactly 2 for that drive: 0.0 -> 328.8 at relative tick 164, then
+  142.8 -> 455.5 at 1832, the second landing visibly on the partly-decayed remains of the first.
+- **[MED, DW-149] An anti-vacuity floor was lowered past its own subject set.**
+  `test/switch-max-speed.test.ts` went `>= 30` -> `>= 20` while the comment two lines above
+  recorded the measured count as **23** -- three zone-requiring switches could have left the
+  FR-11 max-speed sweep with the assertion still green, and that comment invoked the
+  derive-the-floor discipline without applying it. The pre-story floor was an exact pin (30
+  against a measured 30), so this converted a pin into slack. Pinned to the measured 23 through
+  a named constant -- DW-149's own sanctioned alternative to a derivation.
+- **[MED, AD-16] A provenance narrative asserted that this story's own change had not been
+  made.** `test/pop-bumper.test.ts` still read "**NOT YET CORRECTED IN `tuning.ts`** ... the
+  shipped `source` still carries all three disproved claims" -- a block this spec's own Code Map
+  listed under "what must move". After task 3 the file contradicted both the shipped string and
+  the new block added below it in the same file. Corrected.
+- **[MED] AC 8's named location was empty.** AC 8 requires `## Design Notes` to record the
+  measured safe window "with an explicit answer to whether 200 and a 21 mm/s margin ship". The
+  substance existed in four other places but not there, and Design Notes is what the lead reads
+  for a decision of this shape. Added as the `DW-160` subsection above.
+- **[MED] `DW-160`'s "both neighbours are now pinned" was not true of the tree.**
+  `test/pop-bumper.test.ts` was never touched by this story and pinned only 50 and 225 -- a
+  175 mm/s bracket that says nothing about the chaotic fine structure the correction itself
+  discovered. Re-measured independently on this tree: 198 -> **1.86 mm (re-strand)**,
+  199 -> 126.79, 200 -> 126.84 (shipped), 202 -> 309.72, 203 -> 127.54. Added an
+  `it.each([199, 202])` **margin sentinel** on the clearing pocket's two ends -- deliberately
+  *not* "198 re-strands", because a pin on the defect would go red if a future change WIDENED
+  the margin, reporting good news as a failure. The sentinel reddens only if the pocket narrows.
+- **[MED] Removing `terminal === 'locked'` left the classifier branch asserted nowhere.** Task 12
+  said to replace it, but also said in terms "the point is to add the observable a switch make
+  cannot forge, **not to remove one**"; a suite-wide grep for `toBe('locked')` returned zero
+  hits, so `classifyTerminal()`'s own `'locked'` branch could regress silently. Restored
+  explicitly as coverage of the classifier, not as capture evidence -- the three
+  `deviceSlots` / contact / `finalBallCount` assertions remain what satisfies AC 4's "does not
+  rest on `terminal`" clause.
+- **[LOW] AC 1's non-collidability rested on a 0.982 mm coincidence.** The only assertion able to
+  observe the disable at all compared two drain resting positions through a literal `+ 1` (the
+  `s_dragon_d` assertion is made true by `applyPostStep()`'s own already-down guard whether or
+  not the body was disabled; the `drop_target_down` bound is satisfied by zero drops). Measured
+  read-only, by pulsing the reset to make D a body again before the second drive:
+  D-still-collidable rests **0.018 mm** from the first drive's resting point. Added the sharp
+  observable that was already being collected and discarded -- with D gone the same straight
+  column reaches and genuinely strikes neighbour R (exactly one `s_dragon_r closed:true`), which
+  is impossible while D is still a body.
+- **[LOW] `docs/decisions.md` rows 13 and 17 still read in the future tense** ("Story 2.3 owns
+  the spin and decay mechanism") while rows 11 and 12 already carried `DELIVERED` annotations.
+  Task 21's conditional escape was legitimate -- `test/decisions-docs.test.ts` does not require
+  a new row -- but the shipped model was recorded nowhere. Added `DELIVERED 2026-09-05`
+  annotations naming the gain, the decay, the 1 deg/s rest floor, the per-revolution same-tick
+  make/break pair, and the no-impulse-to-the-ball property.
+
+**Routed to the lead -- outside a review stage's authority (3).**
+
+- **[MED, Rule 20] The AD-2 clarification this spec itself recommended was never written to the
+  spine.** The decision has shipped: the bank owns its six switches, so `settleTicks: 20` remains
+  their declared hardware class but no longer gates their break. The spine's last AD-2 write is
+  2026-09-01 (DW-67) and the cycle log records no `spine_updated ad=AD-2` for this story. The
+  consequences are already visible in-tree: `TUNING.switchSettleMsByClass.drop_target` is read by
+  no production path, and `test/switch-zones.test.ts`'s DW-67 break test can only reach that path
+  under `vi.doMock`. A later story's plan stage reads the spine, not this spec's prose. Requires
+  the lead: spine edit + `memlog.py append` + `lint_spine.py` + `updated:` refresh + a
+  `spine_updated` cycle-log line, all of which this stage is forbidden to write.
+- **[LOW] The spine's `updated:` frontmatter still reads `2026-09-03`** although AD-15 carries an
+  `[AMENDED 2026-09-05, Story 2.2]` clause and the cycle log records that write. Story 2.2
+  residue rather than this story's, but it is the field a reader checks for freshness.
+- **[MED, Rule 5] The two `epics.md` amendments this spec recommends never left Design Notes** --
+  DW-122's stale `col_dragon_body` at `epics.md:1242` / `:2115`, and AC 6's "the ball rests at
+  the lane's entry" (measured: the fourth ball does not rest -- it dwells ~315 ticks, rolls back
+  down the corridor and drains). Both are argued at length here and reach neither the frontmatter
+  `deferred:` list nor the completion report, so the lead's harvest does not see them. `:2115` is
+  Story 5.1's block and is already ledgered as `DW-165`; `:1242` and the AC 6 wording are this
+  epic's own to amend.
+
+**Left deferred, with sharpened evidence (5 of the 6 frontmatter entries).** The spinner
+`occupied` entry is marked `[FIXED AT CODE REVIEW]` in place so the lead's harvest does not file
+an already-closed finding.
+
+- **AC 2's "before the same tick's solve" is pinned only by a source-text scan.** Sharpened this
+  pass: `c_dragon_bank_reset` is pulsed in five places and in every one the ball is already at
+  the drain, so moving `applyPreStepReset` to after `physics.step()` leaves *every behavioural*
+  AC 2 assertion green -- only `test/hardware-rule-seam.test.ts`'s `expect(pre).toContain(...)`
+  string match reddens. Kept deferred rather than fixed: engineering a ball to land a collision
+  on a pre-determined tick needs a geometry query the current helpers do not expose (fix-risk
+  high -> Rule 15 `escalated`), and the `setEnabled()` primitive and the ordering scan are each
+  independently proven.
+- `ContactEvent.device` unpopulated for `drop_target_down` / `spinner_tick` (med) -- a naming
+  decision, not a mechanical patch. Note additionally that `bank_reset` *does* carry
+  `device: <coil>`, so the three actuations this story adds are mutually inconsistent on the
+  same field.
+- The spinner's zone-boundary jitter re-fire (low; no resting equilibrium exists there today).
+- `DW-134`'s live residual: an under-powered but on-axis Lock entry closes `s_lock_lane` without
+  capturing (threshold 550-600 mm/s at the centreline) -- AD-18's arbiter to tolerate, Epic 3.
+- The four-ball sum throw shadowing single-field `startsFullAtBoot` mutations (low; closed for
+  this story by the exported `deriveBootSlots()`).
+
+**Closed at emission, not patched (2).**
+
+- **AC 1's literal "that target's hit objects report `isEnabled === false`" has no assertion**
+  anywhere -- the only `isEnabled` read in `test/**` is at boot. `wontfix-accepted`: `Machine`
+  does not expose its own `dropTargetHitObjectsByLetter`, so pinning the literal clause needs a
+  production surface widening at review time, and the new R-strike observable above proves the
+  same property behaviourally. `reopen_if=` `Machine` ever exposes its loaded hit-object handles.
+- **AC 4's same-tick coincidence** (the `bd_lock` hit contact landing on the tick the ball leaves
+  `machine.balls`) is asserted as two separate facts, because `ShotResult.finalBallCount` is
+  captured once at the end of the drive. `wontfix-theoretical`: `detectEntries()` closes the
+  slot, emits the contact and calls `physics.removeBall()` in one straight-line block, so the
+  coincidence is structural. `reopen_if=` the park is ever split across ticks or functions.
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -899,6 +1068,50 @@ in this story calls for; `bd_lock`'s capacity of 3 is "two held plus one staging
 ball genuinely has nowhere to go. **Recommended amendment for the lead**, at `epics.md`'s AC 6:
 replace "the ball rests at the lane's entry" with "the ball stays in the simulated set at the lane
 and returns to play". Recorded here rather than resolved unilaterally.
+
+### `DW-160` -- the measured safe window, and the explicit margin answer (AC 8)
+
+**Recorded here because AC 8 names this section specifically** ("*and* `## Design Notes`
+records the measured safe window with an explicit answer to whether 200 and a 21 mm/s margin
+ship"). The substance was written into `tuning.ts`'s corrected `source` string, the ledger's
+`DW-160` trailer, `## Auto Run Result`, and `test/pop-bumper.test.ts`, but not into this
+section, which is what the lead reads for a decision of this shape. Added at code review.
+
+**The premise of the question was wrong, and correcting it made the answer worse.** The
+recorded 21 mm/s margin came from probing *upward only*, toward the 221 mm/s cliff. Swept in
+both directions with `test/pop-bumper.test.ts`'s own `dw148TrailingProgressMm(v)` at 1 mm/s
+resolution, the landscape around the shipped value is **chaotic, not a single-sided window** --
+a ball descending onto a near-symmetric octagon apex, where `POP_KICK_TIE_BREAK_MM` resolves
+only the exact on-axis tie. Narrow re-strand dips interleave with clearing bands through
+155-221 mm/s (164-169, 175, 178, 185-195, 197-198 each re-strand near (93, 840); 196, 199-202
+and 205-220 clear), a clean re-strand band holds from 221 through at least 230, and the
+original ceiling mechanism (Top-lane cross-pop bouncing) is real but starts at ~425-600 mm/s.
+
+**Measured window, re-derived independently at code review on this tree** (trailing-window
+progress against the 15 mm floor): 198 -> **1.86 mm (re-strand)** · 199 -> 126.79 mm ·
+**200 -> 126.84 mm (shipped)** · 202 -> 309.72 mm · 203 -> 127.54 mm · 225 -> re-strand.
+So the shipped value's nearest re-strand neighbour is **198 mm/s -- 2 mm/s below it**, not the
+21 mm/s the far cliff alone suggested.
+
+**The answer: 200 ships, and the margin is stated honestly rather than widened.** No nearby
+integer sits in a materially wider uniformly-clearing pocket: moving toward the robust
+215-220 band (~309 mm escapes) trades a 2 mm/s lower margin for a **1 mm/s** upper margin
+against the 221 cliff, which is worse, not better. 200 reproduces the same 126.8 mm escape
+this constant has always shipped with, and that escape is *measured* rather than inferred from
+the far cliff.
+
+**Why this is acceptable to ship rather than an escalation.** The value is a fixed committed
+constant, not a runtime variable, and its behaviour at the shipped value is pinned by
+`test/pop-bumper.test.ts`'s DW-148 clearance test. The only real risk is a *future* change
+elsewhere (geometry near the pop cluster, materials, a solver constant) shifting the landscape
+onto a re-strand -- and that failure mode is **fail-loud**: the strand column turns red rather
+than shipping silently. What was missing until code review is that the protection claimed for
+the narrow margin did not exist: the only parametrised pins were 50 and 225, which bracket a
+175 mm/s window and say nothing about the fine structure. Code review added an
+`it.each([199, 202])` **margin sentinel** asserting the clearing pocket the shipped value sits
+in still holds at both ends. It is deliberately *not* "198 re-strands": a pin on the defect
+would go red if a future change WIDENED the margin, reporting good news as a failure. The
+sentinel goes red only if the pocket NARROWS, which is the only direction that matters.
 
 ### Provenance (`CLAUDE.md`, the project's hardest constraint)
 

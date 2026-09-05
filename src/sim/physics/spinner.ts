@@ -19,12 +19,13 @@
 // defect -- a free-running closure with no ball present is this story's own
 // discriminating observable for "the spinner keeps its own mechanical
 // state, not the ball's" (AC 3's own "at least one closure lands on a tick
-// when no ball's swept segment lies inside sw_spinner"). The "no ball
-// resolvable" throw below fires only on the ENTRY impulse itself (a rising
-// edge computed from the SAME `movements` the raw test just read `true`
-// from, so unreachable in practice -- the same defensive-assertion shape
-// `pops.ts` uses for its own resolution, not a copy of its inverted
-// invariant).
+// when no ball's swept segment lies inside sw_spinner"). There is no
+// counterpart throw here at all: `applyPostStep()` resolves each ball's own
+// zone membership in a single pass, so there is no "the zone was crossed but
+// no ball resolves to it" state for a defensive assertion to guard. (An
+// earlier shape did carry such a throw, between a `.some()` and an identical
+// `.find()` over the same array; it was unreachable by construction and both
+// it and the duplicated scan were removed at this story's code review.)
 //
 // `s_spinner` is excluded from `switches.ts`'s own tracker (this module
 // owns it, AD-2) -- see that file's widened `deviceModuleOwnedSwitches()`.
@@ -37,6 +38,7 @@ import type { ResolvedTuning } from '../table/tuning';
 import type { SwitchName } from '../table/names';
 import { SECONDS_PER_TICK } from '../contracts/time';
 import { segmentIntersectsBox } from './geometry';
+import type { Ball } from './ball/ball';
 import type { BallStepMovement, ContactEventLike, SwitchEdgeLike } from './devices';
 import type { LoadedSwitchZone } from './loader';
 import type { SpinnerMechanismState } from '../contracts/snapshot';
@@ -121,32 +123,62 @@ export function createSpinnerMechanics(options: {
 
 	let angularSpeedDegPerS = 0;
 	let angleAccumulatorDeg = 0;
-	/** Own rising-edge state (mirrors `switches.ts`'s `TrackedSwitch.reported`, without settle -- `s_spinner` is no longer tracker-owned at all, so this module must detect its own entry edge to fire the spin-up impulse exactly once per crossing, not once per tick of dwell). */
-	let occupied = false;
+	/**
+	 * Own rising-edge state, PER BALL (mirrors `switches.ts`'s
+	 * `TrackedSwitch.reported`, without settle -- `s_spinner` is no longer
+	 * tracker-owned at all, so this module must detect its own entry edge to
+	 * fire the spin-up impulse exactly once per crossing, not once per tick
+	 * of dwell).
+	 *
+	 * [WIDENED, code review this pass.] This was a single module-level
+	 * `occupied: boolean` gating every impulse as `raw && !occupied`, where
+	 * `raw` was `movements.some(...)` over ALL balls. That silently dropped a
+	 * second ball's entire spin contribution whenever a first ball was still
+	 * inside the zone -- and the dwell is 12-66 ticks at the measured entry
+	 * speeds, so this was never limited to a genuinely simultaneous crossing:
+	 * a stream of balls through the Left Loop registered only the first.
+	 * DragonWar ships Quick multiball and the War (FR-35/37/38, AD-18) and
+	 * FR-26 awards per rotation, so under multiball the spinner would
+	 * under-award for a reason no consumer could see. A `WeakSet` keyed by
+	 * the ball itself is the project's own precedent for per-ball state
+	 * carried across ticks inside physics (`sim/physics/hop.ts`'s
+	 * `WeakMap<Ball, number>`), weak so a drained or parked ball is not
+	 * pinned. Single-ball behaviour is byte-identical: one ball still
+	 * produces exactly one impulse per crossing.
+	 */
+	const ballsInZone = new WeakSet<Ball>();
 
 	function applyPostStep(tick: number, movements: readonly BallStepMovement[]): SpinnerMechanicsResult {
 		const switchEvents: SwitchEdgeLike[] = [];
 		const contactEvents: ContactEventLike[] = [];
 
-		const raw = movements.some((movement) => zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm)));
-		if (raw && !occupied) {
-			const resolved = movements.find((movement) => zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm)));
-			if (!resolved) {
-				// Defensive only (see this file's header): `raw` was just
-				// computed `true` from this SAME `movements` array, so this
-				// branch is unreachable in practice -- fail loudly rather
-				// than spin the mechanism from nothing if it ever is.
-				throw new Error(`createSpinnerMechanics(): "${spinnerSwitch}" crossed at tick ${tick} but no ball's swept segment resolves to it`);
+		// One pass over the movements, resolving each ball's own zone
+		// membership once (the previous shape scanned `movements x zones`
+		// twice -- a `.some()` for `raw` and then an identical `.find()` for
+		// the ball -- with an unreachable `throw` between them, because the
+		// second scan could not fail once the first had succeeded). Every
+		// ball that is inside the zone THIS tick and was not inside it LAST
+		// tick contributes its own entry impulse.
+		for (const movement of movements) {
+			const inside = zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
+			if (!inside) {
+				ballsInZone.delete(movement.ball);
+				continue;
 			}
+			if (ballsInZone.has(movement.ball)) {
+				continue;
+			}
+			ballsInZone.add(movement.ball);
+			// Swept-segment length over the tick -- a MAGNITUDE, so the
+			// physics frame's negated y (AD-10) cannot leak a sign into it.
 			const distanceMm = Math.hypot(
-				resolved.afterMm.x - resolved.beforeMm.x,
-				resolved.afterMm.y - resolved.beforeMm.y,
-				resolved.afterMm.z - resolved.beforeMm.z,
+				movement.afterMm.x - movement.beforeMm.x,
+				movement.afterMm.y - movement.beforeMm.y,
+				movement.afterMm.z - movement.beforeMm.z,
 			);
 			const entrySpeedMmPerS = distanceMm / SECONDS_PER_TICK;
 			angularSpeedDegPerS += gainDegPerSPerMmPerS * entrySpeedMmPerS;
 		}
-		occupied = raw;
 
 		if (angularSpeedDegPerS > 0) {
 			angularSpeedDegPerS *= decayPerTick;

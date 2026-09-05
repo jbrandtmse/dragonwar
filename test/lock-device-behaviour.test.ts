@@ -559,6 +559,81 @@ describe('bd_lock: over-capacity entry (AC 6) -- one device_overflow per rejecte
 		expect(overflowCount, `exactly one device_overflow expected for the one rejected entry -- got ${overflowCount} (measured before this story's fix: 315)`).toBe(1);
 		expect(machine.deviceSlots.bd_lock, 'bd_lock must still report exactly three -- nothing parked').toEqual([true, true, true]);
 	});
+
+	// QA (Story 2.3 QA pass): the test above proves the latch does not
+	// regress to per-tick (1 event, not 315, across the whole ~315-tick
+	// dwell) but never sends the SAME ball away and back -- it only ever
+	// observes ONE rejected entry per run. `devices.ts`'s own doc comment
+	// claims the latch "clears the moment the ball's own swept segment no
+	// longer intersects ANY of this device's zones", which is a claim about
+	// a SECOND rejection being possible, not just about the first one being
+	// singular. Re-sends the SAME ball to the mouth (y = 440, south of the
+	// margined clear boundary at y ~ 534 -- OVERFLOW_CLEAR_MARGIN_MM widens
+	// s_lock_1's own 544 mm south face by 10 mm) after its first rejection,
+	// and drives it back up the identical centreline -- a genuine second
+	// approach, never a continuation of the first.
+	it('a ball that is rejected, retreats south of the slot band, and genuinely re-approaches produces its OWN second device_overflow -- the latch does not latch permanently', () => {
+		const { machine, tick: firstTick } = machineWithOneBallLocked();
+		const secondTick = driveAnotherBallToLock(machine, firstTick);
+		const thirdTick = driveAnotherBallToLock(machine, secondTick);
+		expect(machine.deviceSlots.bd_lock, 'sanity: bd_lock must be completely full').toEqual([true, true, true]);
+
+		let tick = thirdTick + 1;
+		machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }]);
+		const fourthBall = machine.balls[0];
+		expect(fourthBall, 'a fourth ball must exist to serve -- the machine\'s own 4-ball total (AD-6)').toBeDefined();
+		const fourthBallId = fourthBall!.id;
+
+		function sendFromMouth(): void {
+			const startPhysics = toPhysics({ x: 170, y: 440, z: 13.495 });
+			fourthBall!.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+			const speedVuPerT = 800 / (MM_PER_VU * 100);
+			fourthBall!.hit.vel.set(0, -speedVuPerT, 0);
+			fourthBall!.hit.angularVelocity.set(0, 0, 0);
+			fourthBall!.hit.angularMomentum.set(0, 0, 0);
+		}
+
+		sendFromMouth();
+		let overflowCount = 0;
+		let firstOverflowTick = -1;
+		for (let i = 0; i < 1000; i++) {
+			tick += 1;
+			const result = machine.step(tick, NO_FRAME, []);
+			const hits = result.semanticEvents.filter((e) => e.type === 'device_overflow' && e.device === 'bd_lock').length;
+			overflowCount += hits;
+			if (hits > 0) {
+				firstOverflowTick = tick;
+				break;
+			}
+			expect(machine.balls.some((b) => b.id === fourthBallId), 'fixture broken: the fourth ball must not leave play before its first rejection is observed').toBe(true);
+		}
+		expect(firstOverflowTick, 'fixture broken: the first rejected entry must be observed within the tick budget').toBeGreaterThan(0);
+		expect(overflowCount, 'exactly one device_overflow for the first approach').toBe(1);
+		expect(machine.deviceSlots.bd_lock, 'still nothing parked after the first rejection').toEqual([true, true, true]);
+
+		// The same ball, sent back to the mouth (well south of the margined
+		// clear boundary) and driven north again -- clears the latch (the very
+		// first post-reposition tick's own afterMm sits at y ~ 440-450, south
+		// of the ~534 mm boundary) before it ever re-enters the slot band.
+		sendFromMouth();
+		let secondOverflowTick = -1;
+		for (let i = 0; i < 4000; i++) {
+			tick += 1;
+			const result = machine.step(tick, NO_FRAME, []);
+			const hits = result.semanticEvents.filter((e) => e.type === 'device_overflow' && e.device === 'bd_lock').length;
+			overflowCount += hits;
+			if (hits > 0 && secondOverflowTick === -1) {
+				secondOverflowTick = tick;
+			}
+			if (!machine.balls.some((b) => b.id === fourthBallId)) {
+				break;
+			}
+		}
+
+		expect(secondOverflowTick, `a genuine second rejected entry must produce its own device_overflow -- the latch must not stay latched from the first rejection -- total events observed: ${overflowCount}`).toBeGreaterThan(0);
+		expect(overflowCount, `exactly TWO device_overflow events total across the two genuine rejected entries -- neither a per-tick regression (which would read far above 2) nor a permanent latch (which would read 1) -- got ${overflowCount}`).toBe(2);
+		expect(machine.deviceSlots.bd_lock, 'bd_lock must still report exactly three -- nothing ever parked across either approach').toEqual([true, true, true]);
+	});
 });
 
 /**

@@ -1247,7 +1247,7 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 
 **Given** three balls are parked in `bd_lock`
 **When** a fourth enters the lane
-**Then** physics parks nothing, the ball rests at the lane's entry, and the rules layer (Story 2.4) sees `device_ball_entered` with a slot beyond capacity so it can answer `device_overflow`
+**Then** physics parks nothing, the ball **stays in the simulated set at the lane** and the rules layer (Story 2.4) sees `device_ball_entered` with a slot beyond capacity so it can answer `device_overflow` [AMENDED 2026-09-05, Story 2.3 spec gate -- Rule 5 tier-1: the AC's own wording was measured false]. The original clause said the ball **"rests at the lane's entry"**. Measured with three balls parked and a fourth driven up the lane at 800 mm/s from (170, 440): it is correctly **not parked**, but it does **not rest** -- it sits in the slot band for roughly 315 ticks, rolls back down the corridor and drains. Read against the AC's own purpose clause ("so it can answer `device_overflow`") and AD-6's "rules enforce capacity and answer a slot beyond it with an immediate eject", the physics obligations are: park nothing, keep the ball simulated at the lane, and signal the rejected entry -- and the third is the defect Story 2.3 fixed (315 `device_overflow` events for one ball, corrected to 1). Where the ball ends up afterwards is the rules layer's to decide, not a physics promise.
 
 **Ledger entries routed to this story** (Rule 17 (1b))
 
@@ -1294,6 +1294,18 @@ So that no mode ever parses a raw switch and "what a Loop is" is defined once.
 **Given** a switch-script DSL in Vitest typed by `SwitchName` (`close('s_loop_l_in').at(100).open().at(120)…`)
 **When** the rules tests run headless in Node
 **Then** every event above has at least one scripted test with no physics or rendering loaded
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-166: an **under-powered but on-axis** Lock shot closes `s_lock_lane` **without being captured**, so
+  `lock_lane_entered` still over-reports a Lock-lane shot in a narrower band than DW-134 described (ledger; routed by cr
+  2026-09-05). Measured threshold **550-600 mm/s**: the ball enters the lane and closes the switch but never reaches a slot.
+  DW-134's own stated failure -- balls wandering in from open field -- was closed by Story 2.1d and is pinned by Story 2.3's
+  absence-pin over 56 driven columns; **this residual is what survives.** Routed here because it is an **arbiter question,
+  not a physics one**: AD-18's Lock arbiter and this devices-and-shots layer are what consume `lock_lane_entered`, so the fix
+  is either a discriminating condition on the event or an arbiter that tolerates a non-capturing entry. **A geometry change
+  is the wrong answer** -- it would undo the wedge fix Story 2.1c's bevel reversal exists for, which is precisely why Story
+  2.1d declined to chase it.
 
 ### Story 2.5: Start, Hot seat and the ball lifecycle
 

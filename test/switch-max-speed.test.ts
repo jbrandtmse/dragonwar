@@ -147,13 +147,31 @@ describe('switch zones at the measured maximum speed (AC 5, AC 2) -- every zone-
 		.filter((z) => !deviceOwnedSlots.has(z.switch))
 		.map((z) => ({ zoneName: z.name, switchName: z.switch as SwitchName }));
 
-	// Story 2.3: lowered 30 -> 20 -- seven zone-requiring switches (the six
-	// DRAGON-bank letters and the spinner) moved from tracker-owned to
-	// device-owned end to end and are correctly excluded from THIS sweep
-	// (their own "exactly one make" claim is now `test/drop-targets.test.ts`'s
-	// and `test/spinner.test.ts`'s to make, against the real device modules,
-	// not this generic tracker sweep) -- measured on this tree at 23.
-	expect(zoneCases.length, 'sanity: the shot map must have added zone-requiring switches to sweep').toBeGreaterThanOrEqual(20);
+	// Story 2.3: seven zone-requiring switches (the six DRAGON-bank letters
+	// and the spinner) moved from tracker-owned to device-owned end to end
+	// and are correctly excluded from THIS sweep (their own "exactly one
+	// make" claim is now `test/drop-targets.test.ts`'s and
+	// `test/spinner.test.ts`'s to make, against the real device modules, not
+	// this generic tracker sweep).
+	//
+	// [CORRECTED, code review this pass -- DW-149.] This story first lowered
+	// the floor 30 -> 20 while its own comment recorded the measured count as
+	// 23, leaving a hand-typed floor THREE below its own subject set: three
+	// zone-requiring switches could have dropped out of this FR-11
+	// max-speed sweep with this assertion still green, which is precisely
+	// the drift DW-149 exists to stop -- and the comment invoked the
+	// derive-the-floor discipline without applying it. Pinned to the exact
+	// measured count instead (DW-149's own sanctioned alternative to a
+	// derivation: "assert equality against a named constant"), matching the
+	// house pattern used by `test/story-2-0-rename-provenance.test.ts` and
+	// `test/export-py-skip-visibility.test.ts` for the same concern. Both
+	// directions are now deliberate: a switch leaving this sweep reddens
+	// here, and so does one joining it.
+	const EXPECTED_ZONE_CASES = 23;
+	expect(
+		zoneCases.length,
+		`the max-speed sweep must cover EXACTLY the ${EXPECTED_ZONE_CASES} tracker-owned zone cases measured on this tree -- got ${zoneCases.length} (${zoneCases.map((c) => c.switchName).join(', ')}). If a switch legitimately joined or left the tracker's own set, move this constant deliberately and say why; do not widen it into a floor that lags its own subject (DW-149).`,
+	).toBe(EXPECTED_ZONE_CASES);
 
 	// Code review 2026-09-02 (Rule 19): MEASURED_MAX_SPEED_MM_PER_S is a
 	// frozen literal in test/util/max-speed.ts, measured once against the

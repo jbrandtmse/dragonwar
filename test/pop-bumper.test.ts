@@ -460,16 +460,19 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 //     corrected `source` string records the re-measured onsets for the
 //     next person who touches this constant).
 //
-// NOT YET CORRECTED IN `tuning.ts` (code review, this pass -- the previous
-// wording pointed the reader at a "corrected `source` string" that does not
-// exist). `TUNING.hardware.popKickMmPerS`'s shipped `source` still carries
-// all three disproved claims. That is deliberate and ledgered as **DW-160**,
-// routed to Story 2.3: `resolveTuning()`'s ENTIRE serialized output --
+// CORRECTED IN `tuning.ts` BY STORY 2.3 (DW-160 closed; this paragraph
+// updated by that story's code review -- it previously read "NOT YET
+// CORRECTED IN `tuning.ts` ... the shipped `source` still carries all three
+// disproved claims", which stopped being true the moment Story 2.3 landed
+// and left this file asserting in prose that a change it also documents
+// below had not been made). `TUNING.hardware.popKickMmPerS`'s shipped
+// `source` now states the re-measured landscape, and the value stays 200.
+// The correction rode Story 2.3's own five-golden header refresh, exactly as
+// the routing intended: `resolveTuning()`'s ENTIRE serialized output --
 // `source` and `confidence` prose included -- is hashed into every golden
-// header (AD-15, as this story itself amended it), so a prose-only edit
-// costs a five-golden re-record. Story 2.3 re-records anyway. Until then the
-// two tests below, not the prose, are the authority on this constant's real
-// bounds.
+// header (AD-15 as amended), so a prose-only edit costs a re-record and is
+// never free. The tests below remain the authority on this constant's real
+// bounds; the prose now agrees with them rather than contradicting them.
 // These two tests pin the corrected floor and ceiling directly (never the
 // production value alone, which the existing DW-148 test above already
 // covers) so a future change to this constant, or to the physics it
@@ -520,6 +523,35 @@ describe('AD-15 provenance: TUNING.hardware.popKickMmPerS -- the corrected floor
 		const progressMm = dw148TrailingProgressMm(50);
 		expect(progressMm, `at 50 mm/s (well below the old floor claim) trailing-window progress was only ${progressMm.toFixed(2)} mm -- the strand should clear easily here`).toBeGreaterThan(15);
 	});
+
+	// Code review (Story 2.3): DW-160's own adjudication records that the
+	// shipped 200 mm/s is "kept ... and PROTECTED, since any future physics
+	// change that shifts the landscape onto a re-strand turns the DW-148
+	// strand column red" -- but until this pass the only parametrised pins in
+	// this block were 50 (far below) and 225 (far above), which bracket a
+	// 175 mm/s window and say nothing about the narrow, chaotic fine
+	// structure the DW-160 correction itself discovered. Measured this pass,
+	// independently of the correction's own sweep: 198 -> 1.86 mm (a
+	// re-strand, the nearest one BELOW the shipped value, only 2 mm/s away),
+	// 199 -> 126.79 mm, 200 -> 126.84 mm, 202 -> 309.72 mm, 203 -> 127.54 mm.
+	//
+	// The pin below is deliberately the POCKET's two ends clearing, never
+	// "198 re-strands": a pin that asserts the defect at 198 would go red if
+	// a future change WIDENED the margin, which is good news reported as a
+	// failure. Asserting that 199 and 202 both still clear goes red only if
+	// the clearing pocket the shipped value sits in NARROWS -- which is the
+	// only direction that matters -- and is what makes DW-160's "protected"
+	// claim true rather than merely asserted.
+	it.each([199, 202])(
+		'the shipped value 200 mm/s sits inside a clearing pocket at least 199..202 wide: %i mm/s still clears the DW-148 strand (DW-160 margin sentinel)',
+		(kickMmPerS) => {
+			const progressMm = dw148TrailingProgressMm(kickMmPerS);
+			expect(
+				progressMm,
+				`at ${kickMmPerS} mm/s trailing-window progress was ${progressMm.toFixed(2)} mm -- the clearing pocket around the shipped 200 mm/s has NARROWED. DW-160's margin below 200 was already only 2 mm/s (198 re-strands at 1.86 mm); re-sweep dw148TrailingProgressMm() and re-answer the margin question before moving popKickMmPerS.`,
+			).toBeGreaterThan(15);
+		},
+	);
 
 	it('corrected ceiling: 225 mm/s -- just above the real (previously undocumented) 221 mm/s ceiling -- re-strands the ball at a NEW equilibrium, not the original apex', () => {
 		const progressMm = dw148TrailingProgressMm(225);

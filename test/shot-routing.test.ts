@@ -887,6 +887,19 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 		expect(lockHits.length, `exactly one bd_lock hit contact expected -- contacts: ${JSON.stringify(lockHits)}`).toBe(1);
 		expect(lockHits[0]!.ballId, 'the hit contact must carry the captured ball\'s id').toBeDefined();
 		expect(result.finalBallCount, 'the ball must have left machine.balls -- a real park, not a switch make alone').toBe(0);
+		// [RESTORED, code review this pass.] Task 12 said to REPLACE the old
+		// `terminal === 'locked'` claim with the capture observables above,
+		// and the four lines above are that replacement -- but the same task
+		// also said in terms "the point is to add the observable a switch
+		// make cannot forge, NOT to remove one", and deleting this line
+		// outright left `classifyTerminal()`'s own `'locked'` branch
+		// (`:113-115`) asserted by NOTHING anywhere in the suite: a grep for
+		// `toBe('locked')` returned zero hits, so that branch could regress
+		// silently. Kept here deliberately as coverage of the classifier
+		// itself, explicitly NOT as evidence of a capture -- the three
+		// assertions above are what establish that, and they are what AC 4's
+		// "does not rest on `terminal`" clause is satisfied by.
+		expect(result.terminal, `classifyTerminal() must still classify this drive as 'locked' -- this asserts the CLASSIFIER's own branch, not the capture (see the four assertions above for that) -- makes: ${result.firstMakes.join(',')}`).toBe('locked');
 		assertNotStranded(result, 'Lock lane');
 	});
 });

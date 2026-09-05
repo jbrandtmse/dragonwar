@@ -53,8 +53,24 @@ interface DriveResult {
 	readonly switchEvents: Array<{ switch: string; closed: boolean; tick: number }>;
 	readonly contactEvents: Array<{ kind: string; tick: number }>;
 	readonly speedSamples: Array<{ tick: number; speed: number }>;
-	/** Code review this pass (double-crossing discriminator): the ball's own table-frame y each tick, so a caller can independently derive how many times the ball's position actually entered `sw_spinner`'s own y-span -- never inferred from switch/contact counts alone, which a single crossing with extra revolutions could also produce. */
-	readonly ySamples: Array<{ tick: number; y: number }>;
+	/**
+	 * The ball's own table-frame x AND y each tick, so a caller can
+	 * independently derive how many times the ball's position actually
+	 * entered `sw_spinner`'s own BOX -- never inferred from switch/contact
+	 * counts alone, which a single crossing with extra revolutions could also
+	 * produce.
+	 *
+	 * [WIDENED from y-only, code review this pass.] The discriminator this
+	 * feeds was added by the previous review pass to close exactly that
+	 * vacuity, but it tested `s.y` against the zone's y-span ALONE and
+	 * dropped x. `sw_spinner` is a box (x 5..45, y 635..662): measured, the
+	 * single-crossing 1800 mm/s drive gives TWO y-band entries against ONE
+	 * real zone entry, because the ball re-enters the y-band much later at an
+	 * x far outside 5..45. So `entries === 2` was satisfiable by a drive with
+	 * one crossing -- the anti-vacuity fix was itself vacuous. Both axes are
+	 * recorded now and `enteredZone()` below tests both.
+	 */
+	readonly posSamples: Array<{ tick: number; x: number; y: number }>;
 }
 
 /** Repositions the served ball at `startMm`, launching straight north at `speedMmPerS`, and steps `ticks` times through `sw_spinner`'s own zone and beyond, collecting switch/contact events plus `mechanisms.spinner`'s reported speed each tick. */
@@ -74,7 +90,7 @@ function driveThroughSpinner(machine: Machine, startTick: number, startMm: { x: 
 	const switchEvents: DriveResult['switchEvents'] = [];
 	const contactEvents: DriveResult['contactEvents'] = [];
 	const speedSamples: DriveResult['speedSamples'] = [];
-	const ySamples: DriveResult['ySamples'] = [];
+	const posSamples: DriveResult['posSamples'] = [];
 	for (let i = 0; i < ticks; i++) {
 		tick += 1;
 		const result = machine.step(tick, NO_FRAME, []);
@@ -83,10 +99,10 @@ function driveThroughSpinner(machine: Machine, startTick: number, startMm: { x: 
 		speedSamples.push({ tick, speed: machine.mechanisms.spinner['s_spinner']!.speed });
 		const b = machine.balls[0];
 		if (b) {
-			ySamples.push({ tick, y: 1066.8 - b.state.pos.y * MM_PER_VU });
+			posSamples.push({ tick, x: b.state.pos.x * MM_PER_VU, y: 1066.8 - b.state.pos.y * MM_PER_VU });
 		}
 	}
-	return { tick, switchEvents, contactEvents, speedSamples, ySamples };
+	return { tick, switchEvents, contactEvents, speedSamples, posSamples };
 }
 
 // sw_spinner: x 5..45, y 635..662, z 0..30 (this story's Code Map). The Left
@@ -104,6 +120,18 @@ const CROSSING_SPEED_MM_PER_S = 1800;
 // spinnerDecayPerTick doc comment.
 const DRIVE_TICKS = 18000;
 
+/**
+ * Is the ball's own table-frame position inside `sw_spinner`'s own BOX -- both
+ * axes, never y alone (see `DriveResult.posSamples`). Both sides of every
+ * comparison are table-frame mm: `switchZoneMm()` reads the committed
+ * document's own `minMm`/`maxMm`, and `posSamples` converts each tick's
+ * physics-frame position back to the table frame, so this never mixes frames
+ * (AD-10 -- `toPhysics()` negates y).
+ */
+function insideSpinnerZone(sample: { x: number; y: number }, zone: { minMm: { x: number; y: number }; maxMm: { x: number; y: number } }): boolean {
+	return sample.x >= zone.minMm.x && sample.x <= zone.maxMm.x && sample.y >= zone.minMm.y && sample.y <= zone.maxMm.y;
+}
+
 describe('spinner (AC 3) -- per-revolution closure, decay, and the free-running observable geometry cannot forge', () => {
 	it('a ball crossing sw_spinner closes s_spinner MORE THAN ONCE for one crossing, at least one closure lands with no ball inside the zone, the inter-closure interval strictly increases, the count is finite, and speed returns to 0', () => {
 		const { machine, tick: startTick } = bootMachine();
@@ -115,18 +143,42 @@ describe('spinner (AC 3) -- per-revolution closure, decay, and the free-running 
 		expect(breaks.length, 'every make must be paired with a break (closes then re-opens)').toBe(makes.length);
 		expect(result.contactEvents.length, 'one spinner_tick contact per revolution').toBe(makes.length);
 
-		// Observable 2: the geometry-cannot-forge check. The ball's own
-		// swept-segment zone dwell is bounded (Design Notes: 12-66 ticks at
-		// the zone across the measured speed sweep); the LAST make must
-		// land well after the ball has left sw_spinner's own y-span (662 mm,
-		// converted to physics ticks is unnecessary here -- the ball is
-		// travelling north at CROSSING_SPEED_MM_PER_S the whole time and
-		// never returns, so any make after the ball's own dwell window
-		// closed is, by construction, a free-running closure).
+		// Observable 2: the geometry-cannot-forge check -- the single most
+		// important assertion in this story, so it is anchored to the ball's
+		// own MEASURED position rather than to tick arithmetic.
+		//
+		// [CORRECTED, code review this pass.] This assertion previously
+		// compared `lastMakeTick - startTick` against a `dwellTicks` figure
+		// derived only from the zone's own 27 mm y-extent (ceil(27/1800*1000)
+		// + 5 = 20 ticks), giving a threshold of 40 relative ticks. But the
+		// ball is released at y = 500 and must travel 135 mm north just to
+		// REACH sw_spinner's own 635 mm south face -- about 75 ticks at
+		// CROSSING_SPEED_MM_PER_S. The threshold therefore sat entirely
+		// INSIDE the travel-to-zone window, so ANY closure whatsoever
+		// satisfied it, including one landing while the ball was still inside
+		// the zone. It restated `makes.length > 1` above and proved nothing
+		// about free-running -- the epic's own vacuity shape, in the one
+		// assertion AC 3's whole discriminating claim rests on.
+		//
+		// Anchored now to the last tick at which the ball's own table-frame y
+		// actually lay inside sw_spinner's own table-frame y-span (both sides
+		// of the comparison are table-frame mm -- `switchZoneMm()` reads the
+		// committed document's own minMm/maxMm and `posSamples` converts each
+		// tick's physics-frame position back to the table frame, so this does
+		// not mix frames). Every make after that tick is, by construction, a
+		// closure with no ball in the zone.
 		const zone = switchZoneMm('sw_spinner');
-		const dwellTicks = Math.ceil(((zone.maxMm.y - zone.minMm.y) / CROSSING_SPEED_MM_PER_S) * 1000) + 5;
-		const lastMakeTick = makes[makes.length - 1]!.tick;
-		expect(lastMakeTick - startTick, `the last closure (relative tick ${lastMakeTick - startTick}) must land well after the ball's own zone dwell (~${dwellTicks} ticks) -- a closure with no ball present is this story's discriminating observable`).toBeGreaterThan(dwellTicks + 20);
+		const inZoneSamples = result.posSamples.filter((s) => insideSpinnerZone(s, zone));
+		expect(
+			inZoneSamples.length,
+			`fixture broken: the ball must actually pass through sw_spinner's own box (x ${zone.minMm.x}..${zone.maxMm.x}, y ${zone.minMm.y}..${zone.maxMm.y} mm) for this drive to test anything -- ${result.posSamples.length} position samples, none inside`,
+		).toBeGreaterThan(0);
+		const lastTickWithBallInZone = inZoneSamples[inZoneSamples.length - 1]!.tick;
+		const makesWithNoBallInZone = makes.filter((m) => m.tick > lastTickWithBallInZone);
+		expect(
+			makesWithNoBallInZone.length,
+			`at least one closure must land on a tick when the ball is no longer inside sw_spinner -- the ball was last inside at tick ${lastTickWithBallInZone} (relative ${lastTickWithBallInZone - startTick}), and the ${makes.length} closures landed at relative ticks ${JSON.stringify(makes.map((m) => m.tick - startTick))}. This is the one observable geometry cannot forge; a spinner that only closed while a ball was crossing would report zero here.`,
+		).toBeGreaterThan(0);
 
 		// Observable 4: strictly increasing inter-closure interval.
 		const intervals: number[] = [];
@@ -213,8 +265,8 @@ describe('spinner (AC 3, the double-crossing case) -- a ball that climbs partway
 		const zone = switchZoneMm('sw_spinner');
 		let entries = 0;
 		let wasInside = false;
-		for (const s of result.ySamples) {
-			const inside = s.y >= zone.minMm.y && s.y <= zone.maxMm.y;
+		for (const s of result.posSamples) {
+			const inside = insideSpinnerZone(s, zone);
 			if (inside && !wasInside) {
 				entries += 1;
 			}
@@ -228,7 +280,40 @@ describe('spinner (AC 3, the double-crossing case) -- a ball that climbs partway
 		// describe block's own name claims; the two assertions above alone
 		// could not distinguish it from a single crossing that merely kept
 		// revolving.
-		expect(entries, `sw_spinner's own y-span must be entered exactly twice for a genuine double-crossing -- measured ${entries} entries across ${result.ySamples.length} samples`).toBe(2);
+		expect(entries, `sw_spinner's own BOX must be entered exactly twice for a genuine double-crossing -- measured ${entries} entries across ${result.posSamples.length} samples`).toBe(2);
+
+		// Code review this pass: the ball entering the zone twice (above) is a
+		// statement about the BALL. Nothing anywhere asserted that the SPINNER
+		// responded to the second entry -- the re-arm on a genuine re-entry
+		// (`spinner.ts`'s per-ball `ballsInZone` rising edge) had no test at
+		// all. Measured read-only, a spinner that spun up only on a ball's
+		// FIRST crossing and never re-armed leaves every other spinner
+		// assertion in this file green: this case still sees makes > 0 and
+		// finalSpeed === 0, `entries` is a ball statistic and is untouched,
+		// AC 3's single-crossing drive never re-enters, and AC 3b still
+		// passes (its fast arm would simply win by more). So every subsequent
+		// Loop shot in a ball's life could award nothing, against FR-26's
+		// per-rotation award, with a green suite.
+		//
+		// The angular speed only ever DECAYS except on a spin-up, so a rise
+		// from a strictly lower previous sample is exactly one impulse.
+		// Measured on this tree: 0.0 -> 328.8 at relative tick 164, then
+		// 142.8 -> 455.5 at relative tick 1832 -- the second impulse landing
+		// on the fall back through the zone, and visibly ON TOP of the
+		// partly-decayed remains of the first.
+		const spinUps: Array<{ relTick: number; from: number; to: number }> = [];
+		for (let i = 1; i < result.speedSamples.length; i++) {
+			const prev = result.speedSamples[i - 1]!;
+			const cur = result.speedSamples[i]!;
+			if (cur.speed > prev.speed) {
+				spinUps.push({ relTick: cur.tick - startTick, from: prev.speed, to: cur.speed });
+			}
+		}
+		expect(
+			spinUps.length,
+			`each of the two genuine zone entries must produce its OWN spin-up impulse -- expected 2, got ${spinUps.length}: ${JSON.stringify(spinUps)}. A spinner that never re-armed after its first crossing would report 1 here and would still pass every other assertion in this file.`,
+		).toBe(2);
+		expect(spinUps[1]!.from, 'the second impulse must land on a spinner that had already decayed below its first peak -- otherwise this is one crossing, not two').toBeLessThan(spinUps[0]!.to);
 	});
 });
 
