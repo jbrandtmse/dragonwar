@@ -2,7 +2,7 @@
 title: 'Story 2.1d: Device behaviour and guide terminations'
 type: 'feature' # feature | bugfix | refactor | chore
 created: '2026-09-03'
-status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: 'dd335fe0d13970be897090435a853222662b3cc5'
 baseline_commit: 'f78428f80d2cff2c97db9c0d89ab24253a2a531b'
 review_loop_iteration: 0
@@ -679,6 +679,34 @@ After both are implemented: re-run `pnpm test` with `BLENDER` exported and confi
 - **`DW-146` was not re-litigated.** Its Block If HALT record stands.
 
 ## Spec Change Log
+
+**2026-09-04 -- rework iteration 4, AUTHORISED BY THE AUTHOR at the 3-iteration cap. Narrowly scoped.**
+
+The lead stopped at the cap and recommended splitting the story. **The author went against that recommendation,
+with the trade-off stated in front of them, and the decision is to close 2.1d whole.** Do not split it.
+
+**Scope of this iteration is exactly one defect: the `col_post_dragon_leg_r` strand.** Nothing else. It is already
+isolated: descending releases at (210, 680) and (212, 680) come to permanent rest at **(208.07, 626.80)** and
+**(208.03, 626.76)** -- 0.05 / 0.01 mm of trailing-window motion against a 15 mm floor -- while a control column at
+x = 185 (the flank iteration 3 fixed) passes throughout. Deleting only `col_post_dragon_leg_r`
+(bbox x 208.50..216.50, y 606.00..614.00) frees both while the control keeps passing. That post is this story's own
+new FR-31 terminator, so the fix must keep the free end it terminates terminated.
+
+**DW-146 is NOT in this iteration.** It has been re-owned to Story 2.1f with a binding, pre-authorised decision
+rule recorded in that story's `epics.md` block. Do not attempt the `col_loop_top` termination here.
+
+**The two properties already won must both survive, and both are measured:**
+1. **No swallow.** 42 shot cases, 2 lock captures, both `lock-lane-*`, both intended (`s_lock_lane` then
+   `s_lock_1`). Re-measure and report the number.
+2. **No strand on the ceiling.** `col_lock_ceiling`'s east flank is 24.84 degrees, west 64.36 degrees, and the
+   `descend-lock-ceiling-*` columns pass.
+
+**Bounded outcome rule, set by the author and binding on the lead, not on this stage:** after the fix, the lead
+runs a **one-off whole-playfield swept strand sweep** as a verification pass -- broad, once, not a chartered
+census story -- to confirm no *other* post strands. **If that sweep finds hazards beyond `col_post_dragon_leg_r`,
+the run stops and reports; there is no fifth iteration.** Finding more would be the class problem manifesting
+rather than a fourth instance. Author's words, recorded so the boundary is not re-litigated later.
+
 
 **2026-09-04 -- rework iteration 3, opened by the lead. This is the LAST iteration before the 3-rework cap.**
 Iteration 2 genuinely closed the swallow (the lead re-measured it: 39 cases, 2 captures, both intended, down
