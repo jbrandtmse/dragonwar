@@ -120,9 +120,10 @@ export function deepFreeze<T>(value: T, visited: WeakSet<object> = new WeakSet()
  * `settleClass`), the four coils, the two ball devices (AD-6), the three GI
  * channels (AD-9); Story 1.4 adds the one Epic 1 lamp (`l_insert_left`), the
  * populated `lightGroups`, the glb/collision `nodes` names and the
- * `physMaterials` name list. `flashers`, `shows` and `shots` stay empty, so
- * their derived name unions are still `never` until Epic 2+ populates them
- * (this story's Design Notes, "Scope decisions on the closed unions").
+ * `physMaterials` name list. `flashers` and `shows` stay empty, so their
+ * derived name unions are still `never` until a later story populates them
+ * (Design Notes, "Scope decisions on the closed unions"). `shots` (Story
+ * 2.4, AD-19) is populated with the three declared shots.
  */
 export const TABLE = deepFreeze({
 	/** AD-10, AR-16: the canonical reference dimensions, asserted by Story 1.4's loader. */
@@ -443,6 +444,99 @@ export const TABLE = deepFreeze({
 		s_spinner: { switch: 's_spinner' },
 	},
 
+	/**
+	 * Story 2.4 (AD-19, task 2): every lane the devices layer reports a bare
+	 * `lane_entered { lane }` for -- the three Top lanes plus the full
+	 * inlane/outlane set, each keyed by the lane id the event payload
+	 * carries. Lane STATE (lit flags, completed sets, `lane_lit`) stays the
+	 * base mode's (AD-7); this wiring only lets the layer resolve a switch
+	 * edge to a lane id from `TABLE`, never a literal, mirroring
+	 * `popWiring`/`spinnerWiring`'s own `Object.entries()` idiom.
+	 */
+	laneWiring: {
+		top_1: { switch: 's_top_1' },
+		top_2: { switch: 's_top_2' },
+		top_3: { switch: 's_top_3' },
+		inlane_l: { switch: 's_inlane_l' },
+		inlane_r: { switch: 's_inlane_r' },
+		outlane_l: { switch: 's_outlane_l' },
+		outlane_r: { switch: 's_outlane_r' },
+	},
+
+	/** Story 2.4 (AD-19, task 2): the Dragon body's own standup face -- a bare `dragon_hit` report, no letter or bank bookkeeping (that is `dropBankWiring` above). */
+	dragonBodyWiring: {
+		switch: 's_dragon_body',
+	},
+
+	/**
+	 * Story 2.4 (AD-19/AD-18, task 2): the Lock lane's own entry switch,
+	 * paired with the ball device its capture resolves against (DW-166: the
+	 * devices layer owns `bd_lock`'s slot bookkeeping, which is what makes
+	 * the capture-resolution condition expressible at all). The Lock
+	 * arbiter that decides what a `lock_lane_entered` MEANS lives in the
+	 * ball controller (AD-18) and does not exist until Story 3.2 -- this
+	 * layer only resolves whether the closure captured.
+	 */
+	lockLaneWiring: {
+		switch: 's_lock_lane',
+		device: 'bd_lock',
+	},
+
+	/**
+	 * Story 2.4 (AD-19, task 2): the two flipper buttons, wired for
+	 * `lane_change_pressed { side }` (Story 2.7's own shot) alongside the
+	 * bare `button_pressed { button }` every cabinet button reports.
+	 */
+	flipperButtonWiring: {
+		left: { switch: 's_flipper_l' },
+		right: { switch: 's_flipper_r' },
+	},
+
+	/**
+	 * Story 2.4 (AD-19, task 2): the three declared shots, ordered switch
+	 * sequences with a tick window converted from a top-level `…Ms` tunable
+	 * (`sim/table/tuning.ts`'s `shotWindowTicks()` is the one sanctioned
+	 * reader). `entryExclusive` records a MEASURED geometric fact, never a
+	 * style choice (DW-133, this story's Design Notes, "DW-133 --
+	 * addressed"): `false` when something OTHER than this shot also closes
+	 * the sequence's own first switch, `true` when nothing else does.
+	 *
+	 * Both Loops are `false`: `s_loop_l_in`/`s_loop_r_in` each span their
+	 * whole lane mouth, which also spans that side's outlane column, so
+	 * every outlane drain closes it (measured: `s_loop_r_in` then
+	 * `s_outlane_r` then `s_drain`), and a MADE Ramp's own return also
+	 * crosses into the Right Loop lane on its way to the right inlane
+	 * (measured `firstMakes`: `s_ramp_enter, s_ramp_made, s_loop_r_in,
+	 * s_inlane_r`) -- a bare `_in` is therefore never, on its own, evidence
+	 * of a Loop entry, so a sequence with `entryExclusive: false` is tracked
+	 * to completion but never emits `_broken` on expiry (the naive
+	 * alternative -- emit `_broken` whenever the window lapses without a
+	 * completion -- would fire on both the outlane drain and the made Ramp,
+	 * which IS treating the bare `_in` as a Loop entry, the exact thing this
+	 * flag forbids).
+	 *
+	 * The Ramp is `true`: `s_ramp_enter` is closed by nothing else in this
+	 * table, so a lapsed window genuinely means a rejected Ramp, and
+	 * `shot_ramp_broken` stays a real, falsifiable event.
+	 */
+	shots: {
+		shot_left_loop: {
+			sequence: ['s_loop_l_in', 's_loop_l_out'],
+			windowMs: 'loopWindowMs',
+			entryExclusive: false,
+		},
+		shot_right_loop: {
+			sequence: ['s_loop_r_in', 's_loop_r_out'],
+			windowMs: 'loopWindowMs',
+			entryExclusive: false,
+		},
+		shot_ramp: {
+			sequence: ['s_ramp_enter', 's_ramp_made'],
+			windowMs: 'rampWindowMs',
+			entryExclusive: true,
+		},
+	},
+
 	/** AD-9: the architectural GI channels, set once per phase via `GiCommand.level`. */
 	giChannels: {
 		gi_backbox: {} as Record<string, never>,
@@ -451,17 +545,17 @@ export const TABLE = deepFreeze({
 	},
 
 	// Story 1.4's own AC: exactly one lamp, the `l_insert_left` insert the
-	// placeholder `.blend` carries. `flashers`, `shows` and `shots` stay
-	// empty on purpose (Design Notes, "Scope decisions on the closed
-	// unions"): `keyof typeof TABLE.flashers` (etc.) is `never` until Epic 2+
-	// adds entries, so an early flasher/show/shot name is a type error
-	// rather than a runtime string.
+	// placeholder `.blend` carries. `flashers` and `shows` stay empty on
+	// purpose (Design Notes, "Scope decisions on the closed unions"):
+	// `keyof typeof TABLE.flashers` (etc.) is `never` until a later story
+	// adds entries, so an early flasher/show name is a type error rather
+	// than a runtime string. `shots` (Story 2.4) is declared above,
+	// alongside the other wiring blocks it is authored beside.
 	lamps: {
 		l_insert_left: {} as Record<string, never>,
 	},
 	flashers: {},
 	shows: {},
-	shots: {},
 
 	// AD-12: every static mesh the placeholder `.blend` exports carries a
 	// `lightgroup` custom property from this closed set, so the eventual

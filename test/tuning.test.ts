@@ -48,6 +48,12 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			// the value or its confidence drifts", recorded as resolved when
 			// only the relocation had happened.
 			'lockEjectExemptionTimeoutMs',
+			// Story 2.4 (AD-19, task 1): the three shot-window tunables
+			// TABLE.shots[*].windowMs and DW-166's own lock-capture window
+			// point at -- each measured at this tree, never guessed.
+			'loopWindowMs',
+			'rampWindowMs',
+			'lockCaptureWindowMs',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
@@ -294,11 +300,21 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		it('throws naming the tunable when a strictly positive …Ms value rounds to 0 ticks at the live tick rate', () => {
 			// At tickHz = 1, 400 ms -> round(400 * 1 / 1000) = round(0.4) = 0 ticks
 			// -- a nonzero duration that would silently become a no-op wait.
+			//
+			// Story 2.4: deliberately NOT `{ ...TUNING, tiltSettleMs: {...} }`
+			// any more -- at tickHz = 1, EVERY sub-1000ms …Ms tunable rounds to
+			// 0 (Story 2.4 added three: loopWindowMs 600, rampWindowMs 800,
+			// lockCaptureWindowMs 180), and `Object.entries()` iteration order
+			// means whichever one appears FIRST in the object throws first --
+			// not necessarily tiltSettleMs. A minimal fixture naming ONLY
+			// switchSettleMsByClass (structurally required) and tiltSettleMs
+			// itself makes this test's own target the ONLY …Ms key present,
+			// immune to any future tunable's position in TUNING.
 			const broken = {
-				...TUNING,
+				switchSettleMsByClass: TUNING.switchSettleMsByClass,
 				tiltSettleMs: { value: 400, source: 'test fixture', confidence: 'unverified' as const },
 			};
-			expect(() => resolveTuning(broken, 1)).toThrow(/tiltSettleMs/);
+			expect(() => resolveTuning(broken as unknown as typeof TUNING, 1)).toThrow(/tiltSettleMs/);
 		});
 
 		it('an authored 0 ms still converts to 0 ticks with no throw', () => {

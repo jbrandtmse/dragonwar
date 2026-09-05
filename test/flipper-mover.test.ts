@@ -70,7 +70,7 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		// implementation. Kept as a literal shape check; the real AD-5 ordering
 		// pin is the very next assertion in this test (angle unchanged/changed
 		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
-		expect(out.commands, 'commands stays readonly never[] (type-level fact, not an AD-5 proof by itself -- see the ordering assertions in this test)').toEqual([]);
+		expect(out.commands, 'FrameOutput.commands (the presentation-only channel) stays readonly never[] -- type-level fact, not an AD-5 proof by itself (see the ordering assertions in this test); Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
 
 		// A loose upper bound only: the bat starts moving within a handful of
 		// ticks of the press. The PRECISE boundary AC 2 states is pinned by the
@@ -124,7 +124,7 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		// implementation. Kept as a literal shape check; the real AD-5 ordering
 		// pin is the very next assertion in this test (angle unchanged/changed
 		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
-		expect(out.commands, 'commands stays readonly never[] (type-level fact, not an AD-5 proof by itself -- see the ordering assertions in this test)').toEqual([]);
+		expect(out.commands, 'FrameOutput.commands (the presentation-only channel) stays readonly never[] -- type-level fact, not an AD-5 proof by itself (see the ordering assertions in this test); Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
 		expect(
 			out.snapshot.mechanisms.flippers.l.angleDeg,
 			'AC 2 (amended): the angle must be UNCHANGED at the press tick t itself -- the coil energises inside this same physics step, but the ported mover\'s torque needs one full step to ramp back through zero (Design Notes, "The AC 2 amendment")',

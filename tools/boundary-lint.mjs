@@ -608,6 +608,58 @@ function checkNonAsciiLiterals(srcRoot, relRoot) {
 	return violations;
 }
 
+// Story 2.4 (AD-19, check (g)): `import`/`export ... { SwitchEvent }` (with
+// or without a leading `type` on the whole clause or on the individual
+// specifier) inside a `{ ... }` binding list -- matched on comment/string-
+// masked code, same as every other textual check above. Deliberately not a
+// dependency-cruiser module rule: `SwitchEvent` is re-exported from
+// `sim/table/names.ts` alongside `GameState`/`SemanticEvent`/`MachineState`,
+// which `sim/rules/index.ts` and `sim/rules/ball-controller.ts` legitimately
+// need, and with `parser: 'swc'` + `tsPreCompilationDeps: false` (AD-16) a
+// `import type` edge is indistinguishable from a value import -- a module
+// rule would fire on two innocent files and still miss a real leak (this
+// story's Design Notes, "Why the AD-19 gate is textual, not a
+// dependency-cruiser rule").
+const RULES_SWITCH_EVENT_BINDING_PATTERN = /\b(?:import|export)\s+(?:type\s+)?\{([^}]*)\}/g;
+
+/** True if `bindingList` (the raw text between `{` and `}`) names `SwitchEvent` as a specifier, ignoring a per-specifier `type` prefix or an `as` alias. */
+function bindingListNamesSwitchEvent(bindingList) {
+	return bindingList
+		.split(',')
+		.map((item) => item.trim())
+		.filter((item) => item.length > 0)
+		.some((item) => item.replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim() === 'SwitchEvent');
+}
+
+/** Check (g): `rules-no-switch-event-outside-devices` (AD-19) -- over `src/sim/rules/**`, excluding `src/sim/rules/devices/**`, on comment/string-masked code. */
+function checkRulesNoSwitchEventOutsideDevices(rulesRoot, relRoot) {
+	const violations = [];
+	const devicesDirPrefix = `${toPosix(path.join('src', 'sim', 'rules', 'devices'))}/`;
+	const files = listFilesRecursive(rulesRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const relative = toPosix(path.relative(relRoot, file));
+		if (relative.startsWith(devicesDirPrefix)) {
+			continue;
+		}
+		const source = readFileSync(file, 'utf8');
+		const codeOnly = maskForCodeOnly(source, tokenize(source, relative));
+		const pattern = new RegExp(RULES_SWITCH_EVENT_BINDING_PATTERN.source, 'g');
+		let match;
+		while ((match = pattern.exec(codeOnly)) !== null) {
+			if (!bindingListNamesSwitchEvent(match[1])) {
+				continue;
+			}
+			violations.push({
+				rule: 'rules-no-switch-event-outside-devices',
+				file: relative,
+				line: lineOf(source, match.index),
+				message: `imports/exports "SwitchEvent" outside src/sim/rules/devices/ (AD-19: sim/rules/devices/ is the only consumer of SwitchEvent under sim/rules/)`,
+			});
+		}
+	}
+	return violations;
+}
+
 /** Checks (a) and (b): the real import graph, via dependency-cruiser + @swc/core. */
 function runImportGraphChecks(root) {
 	const srcArg = 'src';
@@ -707,11 +759,13 @@ export function runBoundaryLint(root) {
 
 	const simRoot = path.join(root, 'src', 'sim');
 	const srcRoot = path.join(root, 'src');
+	const rulesRoot = path.join(root, 'src', 'sim', 'rules');
 	const textualViolations = [
 		...checkBannedGlobals(simRoot, root),
 		...checkTickMsRule(simRoot, root),
 		...checkDeviceNameLiterals(srcRoot, root),
 		...checkNonAsciiLiterals(srcRoot, root),
+		...checkRulesNoSwitchEventOutsideDevices(rulesRoot, root),
 	];
 
 	return { importViolations, textualViolations, coverage };

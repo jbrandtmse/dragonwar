@@ -28,7 +28,7 @@
 // seat and the ball lifecycle") replaces it with the real serve path.
 
 import { createMachine } from '../physics/machine';
-import { step as rulesStep } from '../rules';
+import { createRules } from '../rules';
 import { msToTicksExact, ticksToMs, MAX_OWED_TICKS } from '../contracts/time';
 import { resolveTuning, type ResolvedTuning } from '../table/tuning';
 import { TABLE } from '../table/dragonwar';
@@ -206,6 +206,13 @@ export interface CreateLoopOptions {
 export function createLoop(options: CreateLoopOptions): Loop {
 	const tuning = options.tuning ?? resolveTuning();
 	const machine = createMachine(options.collisionDoc, tuning);
+	// Story 2.4: one devices-and-shots layer instance for the life of this
+	// loop (mirrors createMachine() above) -- it holds cross-tick state
+	// (in-flight shot sequences, the bank's own latch, bd_lock's tracked
+	// occupancy, the pending Lock-lane closure), so a module-level instance
+	// would leak between two loops in one process (Story 2.3's own spinner
+	// defect, repeated).
+	const rules = createRules(tuning);
 
 	let tick = 0;
 	let owedRemainderTicks = 0;
@@ -341,7 +348,7 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			const machineResult = machine.step(tick, currentFrame, commandsForThisTick);
 			const switchEvents: SwitchEvent[] = [...edges, ...machineResult.switchEvents];
 
-			const rulesResult = rulesStep(state, switchEvents, tick);
+			const rulesResult = rules.step(state, switchEvents, tick);
 			state = {
 				...rulesResult.state,
 				machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots },
@@ -350,6 +357,14 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			events.push(...machineResult.semanticEvents, ...rulesResult.events);
 			contactEvents.push(...machineResult.contactEvents);
 			commands.push(...rulesResult.commands);
+			// Story 2.4: the rules -> physics coil channel. Queued into
+			// pendingCommands exactly like a dev pulseCoil()/setCoilEnabled()
+			// call, so a command rules issues at tick N is consumed by physics
+			// at tick N+1 (AD-4) -- the tick field is reassigned fresh at
+			// consumption time above, exactly as a dev-queued command's already is.
+			for (const coilCommand of rulesResult.coilCommands) {
+				pendingCommands.push({ coil: coilCommand.coil, action: coilCommand.action });
+			}
 		}
 
 		snapshot = buildSnapshot();

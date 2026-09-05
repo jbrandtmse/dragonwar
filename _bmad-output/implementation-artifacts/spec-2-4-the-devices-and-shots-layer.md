@@ -2,14 +2,45 @@
 title: 'Story 2.4: The devices-and-shots layer'
 type: 'feature'
 created: '2026-09-05'
-status: 'ready-for-dev' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: '6aca2b830cee0213c8b1f00f01eb58b80374c225'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      The new rules-no-switch-event-outside-devices boundary-lint check (tools/boundary-lint.mjs) is a
+      textual pattern match that does not catch every syntactically valid way to import or use SwitchEvent
+      outside src/sim/rules/devices/.
+    evidence: |-
+      Confirmed bypassable, via a fresh probe outside the repo run against the real checker, by (a) a
+      namespace import combined with property access (`import * as Names from '../table/names'; ...:
+      Names.SwitchEvent`) and (b) an inline type-import expression (`event: import('../table/names').SwitchEvent`)
+      -- both produced zero violations. Neither form is used anywhere in the current tree; the check does
+      catch the canonical `import type { SwitchEvent } from '...'` / `export { SwitchEvent }` binding-list
+      forms this codebase actually writes throughout, which is what AC 1's own fixture proves. Closing the
+      gap fully would require extending the tokenizer to track namespace-import
+      aliases and their later property-access usages across the file -- materially bigger than the existing
+      pattern-match checks (c)-(f), and out of this story's own effort budget.
+    location: >-
+      tools/boundary-lint.mjs (the rules-no-switch-event-outside-devices check)
+    severity: medium
+  - summary: >-
+      pendingLockLaneClosure in src/sim/rules/devices/index.ts tracks at most one outstanding Lock-lane
+      closure at a time; two balls approaching the Lock lane in overlapping windows would have the second
+      closure silently discard the first's still-open window.
+    evidence: |-
+      Not reachable today: GameState.machine.multiball is always null in the current tree (no story has
+      wired up multiball yet), so at most one ball can be near the Lock lane at once. Flagged for whichever
+      future story first makes two simultaneous balls possible near the Lock lane -- likely wherever
+      multiball itself lands, or Story 3.2 (the Lock arbiter, AD-18), which already owns lock_lane_entered
+      as its sole consumer.
+    location: >-
+      src/sim/rules/devices/index.ts (pendingLockLaneClosure)
+    severity: low
 ---
 
 <intent-contract>
@@ -184,6 +215,23 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-05 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5 (high 0, medium 3, low 2)
+- defer: 2 (high 0, medium 1, low 1)
+- reject: 6 (high 0, medium 0, low 6)
+- addressed_findings:
+  - `[medium]` `[patch]` `src/sim/rules/devices/shots.ts` silently ignored a repeated close of a shot's own entry switch while an attempt was already in flight (a ball re-entering the mouth without completing the shot), leaving the ORIGINAL, now-stale `startTick` as the window anchor — a genuinely timely completion measured from the real, later entry could be judged already-expired. Fixed: a repeated entry-switch closure now (re)starts the window from that touch. Added `test/rules-devices.test.ts` "re-entry restarts the window" — personally confirmed it reddens against the original code (a spurious `shot_ramp_broken` masking a real, later `shot_ramp_made`) and passes after the fix.
+  - `[medium]` `[patch]` `test/util/switch-script.ts`'s `runSwitchScript()` silently dropped any scripted switch or lifecycle edge whose tick fell outside `[1, durationTicks]`, with no diagnostic — a future test author mis-sizing `durationTicks` would get a false pass or fail with no signal. Fixed: it now throws, naming the offending switch/event, tick and valid range. Verified no existing test relied on the silent-drop behavior (full suite re-run green, same 96 files).
+  - `[medium]` `[patch]` DW-166's Lock-lane capture window (`src/sim/rules/devices/index.ts`) had no boundary-straddle test analogous to AC 2's own Ramp straddle — the existing "captured" test drives the slot closure at the window's midpoint and "not captured" never drives a slot closure at all, so an off-by-one in the window comparison would not have been caught. Added a straddle test (exact-boundary tick credited; boundary+1 not credited, though the ball still physically parks and `device_ball_entered` still fires). Personally applied the analogous off-by-one mutation to `index.ts`'s window comparison, confirmed the new test reddens naming the missing credit, then reverted.
+  - `[low]` `[patch]` `test/rules-devices.test.ts`'s `expect(result.commands).toEqual([])` (the coilCommands-channel test) was a type-level tautology (`commands` is `readonly never[]`) with no disclaimer, unlike the pre-existing precedent elsewhere in the same file. Added the same disclaimer wording used at that precedent.
+  - `[low]` `[patch]` (Rule 19 coverage) Of the 10 ACs' named mutations, only 4 (AC 1, AC 2, AC 4b, AC 10) had been independently re-applied and watched red by build-auto itself before this review pass; the rest rested solely on the implementation subagent's own self-report. Personally applied and watched red two more during this pass: **AC 3** (`shot_right_loop.entryExclusive` flipped to `true` — both the made-Ramp and outlane-drain DW-133 cases reddened naming the spurious `shot_right_loop_broken`, while the genuine `_in`→`_out` case in the same test stayed green) and **AC 8** (counting all spinner edges instead of only `closed:true` — reddened naming `count: 6` against the expected `3`). AC 1's second direction, AC 5, AC 6 and AC 7 and AC 9 remain backed only by the subagent's self-report; code inspection found no defect in any of their implementations, but the independently-observed red-then-green record Rule 19 asks for is still incomplete for those five — recorded honestly rather than closed prematurely.
+
+Findings routed to `deferred:` (frontmatter): the boundary-lint textual check's bypassable-but-uncommon import forms (medium — see `deferred:` for the two confirmed bypass shapes and why closing them fully is out of this story's effort budget), and `pendingLockLaneClosure`'s single-outstanding-closure limitation (low — unreachable until multiball ships; no story has wired up multiball yet).
+
+Findings rejected as noise or theoretical (silently dropped per the classify step, summarized here for the record): a same-tick Lock-lane Stage-1/Stage-2 ordering artifact and a same-tick `s_lock_lane` double-edge dedup gap (both provably unreachable from real physics — the measured 134+-tick capture latency and the switch-edge-detection invariant that a switch cannot emit two consecutive `closed:true` edges without an intervening `closed:false` rule both scenarios out); an uncapped `c_dragon_bank_reset` pulse per `ball_will_start` event (unreachable in this story's own delivered code path — `lifecycleEvents` is hardcoded to `[]` in `sim/rules/index.ts` until Story 2.5 wires up a producer); the drop bank's latch-clearing "trusting" bank-reset atomicity (on inspection, the code only requires "at least one" `closed:false` edge to re-arm the latch, which is already how the header comment describes it and is safe regardless of reset ordering); `shotWindowTicks()`'s lack of a finiteness check (theoretical — the three window tunables are static, compile-time-checked `number` literals authored in `tuning.ts`, with no runtime-derived path to `NaN`/`Infinity`); and the intent-alignment auditor's two descriptive divergence points (both explicitly sanctioned by the intent-contract's own Never/Boundaries clauses — `ball_will_start` reachability and the new event vocabulary's reach are both deliberate, in-scope deferrals to Story 2.5 and later consumers, not defects).
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6):** **AD-19** (the layer, its ownership and its exact event vocabulary) is primary. Also binding: **AD-2** (switch edges, one source per class, and the device-ownership carve-out that makes `s_dragon_*` / `s_spinner` device-owned end to end), **AD-3** (one clock; `…Ms` authored, `…Ticks` after load; no millisecond literal or `TICK_HZ` outside `tuning.ts`), **AD-4** (`rules.step(state, switchEvents, tick)` after every physics step; **commands issued at tick *N* are consumed by physics at *N+1***), **AD-6** (the shooter lane's opening is the one event that means "plunged"; device counts are closed slot switches and nothing else; a slot beyond capacity is answered by rules), **AD-7** (`GameState` scopes — lane lit-flags and per-player letters are the base mode's, not this layer's), **AD-9** (`CoilCommand` is the rules→physics command; every semantic event is payload-complete; `FrameOutput.commands` is presentation-only), **AD-11** (`TABLE` owns wiring), **AD-15** (tunables carry `source` + `confidence`, and those strings are hashed into every golden header), **AD-16** (the three-gate boundary regime), **AD-18** (the Lock arbiter, in the ball controller, is the only consumer of `lock_lane_entered` and alone pulses `c_mouth`).
@@ -246,6 +294,16 @@ deferred: []
 - **AC 9** — drop the DSL's tick ordering → the tick-stamp assertions redden. (Renaming a `SwitchName` to an unknown string makes `pnpm typecheck` fail; record that as a type-level fact, **not** as this AC's pinning mutation — a type-level tautology is exactly the vacuity shape this epic has hit before.)
 - **AC 10** — its load-bearing clause is the deliberate red, so pin that one: in `test/fixtures/dw70-ad7/ad7-device-slots.harness.ts`, re-seed the AD-7-conforming reference state from `machine.deviceSlots` each tick (making the harness pass) → the in-suite wrapper `test/ad7-device-slots.test.ts` reddens on its `not.toBe(0)` exit-code assertion. Revert immediately: `DW-70` belongs to Story 2.5.
 
+**Observed results (build-auto, 2026-09-05).** Personally applied, watched red, reverted, confirmed `git status --short`/`git diff --stat` unchanged afterward:
+
+- `mutation: AC 1 — added import type { SwitchEvent } from '../table/names' to src/sim/rules/ball-controller.ts → pnpm lint:boundaries exited 1 naming rules-no-switch-event-outside-devices and src/sim/rules/ball-controller.ts:16 (test/boundary-lint.test.ts's real-tree assertion is what this proves against in the suite)`
+- `mutation: AC 2 — changed the expiry comparison in src/sim/rules/devices/shots.ts from "tick > flight.startTick + windowTicks" to "tick >= ..." (the <=/< off-by-one) → test/rules-devices.test.ts "Ramp rejected" and "window straddle" both reddened, each naming the broken/made tick one early (900 vs expected 901)`
+- `mutation: AC 4a — removed the bank-completed latch (subagent-run, not independently re-applied by build-auto): reported reddening the "further tick with all six down" assertion naming a second bank_completed and pulse`
+- `mutation: AC 4b — added "break;" after the first bank_target_down push in src/sim/rules/devices/drop-bank.ts's per-tick loop → FINDING: the authored "middle count" test scripted d/g/n on three SEPARATE ticks (10/11/12), so each step() call only ever held one relevant switchEvent and the break was a no-op — the test stayed green under the mutation, i.e. it did not discriminate against the exact loop-truncation shape this AC's mutation names. Confirmed via a same-tick probe that the mutation DOES redden when d/g/n close within one tick. Disposition: fixed in-story (mechanical, ~10 lines) — rewrote the "middle count" test in test/rules-devices.test.ts to close d/g/n at the SAME tick; re-verified the fixed test is green against correct code and reddens (naming only 'd', with 'g' and 'n' missing) under the break mutation; reverted the mutation; full suite re-run at 96/1557/1534p/23s, unchanged.`
+- `mutation: AC 10 — in test/fixtures/dw70-ad7/ad7-device-slots.harness.ts, re-seeded referenceState.machine.deviceSlots from machine.deviceSlots each tick (mirroring the real DW-70 bug) → pnpm check:ad7's harness now PASSED (exit 0), and test/ad7-device-slots.test.ts reddened on "expected the DW-70 harness to fail ... got exit 0" (the not.toBe(0) assertion). Reverted immediately; pnpm check:ad7 confirmed back to exit 1 naming DW-70/AD-7/bd_trough, and test/ad7-device-slots.test.ts green again.`
+
+Mutations AC 1 (second direction), AC 3, AC 5, AC 6, AC 7, AC 8 were run live by the implementation subagent per its own report (not independently re-applied by build-auto); AC 9 and AC 4a were reported by the subagent but not independently re-run either. All are backed by concrete, non-tautological assertions on inspection, but only the four above (AC 1, AC 2, AC 4b, AC 10) were personally watched red-then-green by build-auto itself.
+
 **Manual checks:**
 
 - Confirm `test/rules-devices.test.ts`'s import list contains no `src/sim/physics/**`, no `src/sim/loop/**`, no `@babylonjs/*` and no `node:fs` specifier (AC 9's headless claim).
@@ -255,5 +313,51 @@ deferred: []
 
 ## Auto Run Result
 
-Status: ready-for-dev
+### Summary
+
+Implemented Story 2.4, the AD-19 devices-and-shots layer, in full against all 13 tasks and 10 ACs: grew `src/sim/rules/devices.ts` into the `src/sim/rules/devices/` directory (the sole `SwitchEvent` consumer under `sim/rules/**`), declared `TABLE.shots` as data with `entryExclusive` resolving DW-133, added the three measured `…WindowMs` tunables plus a `lockCaptureWindowMs` discriminator resolving DW-166, built the rules→physics coil channel (`RulesStepResult.coilCommands`, separate from the presentation-only `commands: readonly never[]`), added the `rules-no-switch-event-outside-devices` boundary-lint rule with its own fixture, and rewrote the test suite onto a new `SwitchName`-typed switch-script DSL. A code-review pass (blind-hunter, edge-case-hunter, verification-gap, intent-alignment — run in parallel against the full diff since baseline) found and this pass fixed one real correctness bug in the new code (a shot's in-flight window failed to restart on a re-entry of its own first switch) plus three test-quality gaps (a missing Lock-lane window boundary-straddle test, a silently-lossy test-DSL bounds check, and an undisclaimed type-level-tautological assertion); two lower-severity findings were routed to the frontmatter `deferred:` list; six were rejected as theoretical/unreachable with rationale recorded in the Review Triage Log.
+
+### Files changed
+
+- `src/sim/rules/devices.ts` → deleted; replaced by `src/sim/rules/devices/{index,shots,drop-bank,events}.ts` — the AD-19 layer: shot sequences, the DRAGON drop bank, the spinner, Lock-lane capture resolution (DW-166), lane/button/dragon-body events, ball-device slot bookkeeping.
+- `src/sim/rules/index.ts` — `createRules()` (instantiated, mirrors `createMachine()`); no longer names `SwitchEvent`; adds `coilCommands` to `RulesStepResult`.
+- `src/sim/loop/index.ts` — queues `rulesResult.coilCommands` into `pendingCommands` for the next tick, exactly like `pulseCoil()`.
+- `src/sim/table/dragonwar.ts` — `TABLE.shots`, `laneWiring`, `dragonBodyWiring`, `lockLaneWiring`, `flipperButtonWiring`.
+- `src/sim/table/tuning.ts` — `loopWindowMs`, `rampWindowMs`, `lockCaptureWindowMs` (each measured at this tree, `source` strings state the drive), `shotWindowTicks()`.
+- `tools/boundary-lint.mjs` — new check (g), `rules-no-switch-event-outside-devices`.
+- `test/rules-devices.test.ts` — rewritten onto the DSL; every event and I/O-matrix row scripted; includes the review pass's re-entry and Lock-lane straddle additions.
+- `test/rules-devices-integration.test.ts` (new) — the loop-level Integration AC (real `createLoop`) and the DW-166 real-physics closure.
+- `test/util/switch-script.ts` (new) — the `SwitchName`-typed switch-script DSL, now with out-of-range-tick validation.
+- `test/fixtures/boundary/switch-event-leak/` (new) — the AC 1 fixture (positive + negative case).
+- `test/boundary-lint.test.ts`, `test/table.test.ts`, `test/tuning.test.ts`, `test/machine-serve-drain.test.ts`, `test/fixtures/dw70-ad7/ad7-device-slots.harness.ts`, `test/flipper-mover.test.ts`, `test/replay-goldens.test.ts` — updated for the new module shape / `createRules()` / corrected stale prose.
+- `test/replays/*.golden.json` (five) — header-only re-record (`header.tableHash`, `header.gameStart.tuning`, appended `notes`); traced pre/post at 25-tick sampling, every `finalHash`/`finalGameStateHash` unchanged.
+
+### Review findings breakdown
+
+- **Patched (5):** shots.ts re-entry-restart bug (medium); switch-script.ts silent out-of-range drop (medium); missing Lock-lane window boundary-straddle test (medium); undisclaimed tautological assertion (low); two additional Rule-19 mutations personally verified — AC 3, AC 8 (low).
+- **Deferred (2, in frontmatter `deferred:`):** boundary-lint's textual-check bypass via namespace-import/inline-type-import forms (medium; no current code uses either form); `pendingLockLaneClosure`'s single-outstanding-closure limitation, unreachable until multiball ships (low).
+- **Rejected (6, theoretical/unreachable/by-design, see Review Triage Log for rationale):** same-tick Lock-lane Stage-1/Stage-2 ordering artifact; same-tick `s_lock_lane` double-edge dedup; uncapped `ball_will_start` coil-pulse queuing (unreachable — `lifecycleEvents` is `[]` until Story 2.5); drop-bank latch atomicity (already safe on inspection); `shotWindowTicks()` finiteness check (static literals only); the intent-alignment auditor's two descriptive divergence points (both explicitly sanctioned by the intent-contract).
+- **Follow-up review recommended: true.** Patch severities: medium 3, low 2. Score = 3×3 + 1×2 = 11 ≥ 5.
+
+### Verification performed
+
+- `pnpm test`: 96 files / 1559 tests, 1536 passed, 23 skipped, 0 failed (baseline 95/1521; final count includes the review pass's two new tests).
+- `pnpm typecheck`: exit 0. `pnpm lint:boundaries`: exit 0, 90 files cruised (baseline 87).
+- Targeted suite (`test/boundary-lint`, `rules-devices`, `rules-devices-integration`, `replay-goldens`, `drop-targets`, `spinner`, `lock-device-behaviour`, `machine-serve-drain`, `module-coverage`, `hardware-rule-seam`): 10 files / 203 tests green.
+- `pnpm check:ad7`: exit 1, failing on the assertion (not a collection error), naming `DW-70`, `AD-7`, `bd_trough` — the deliberate red, unchanged and re-confirmed after every patch.
+- `pnpm check:corridor`: exit 0. `pnpm check:reachability`: exit 0, 644 releases / 52 cases / 32 reachable / 20 unreachable — identical to the recorded baseline, zero moved verdicts (re-run once, before the review-pass patches; none of those patches touch physics/geometry code, so this is not re-measured a second time).
+- `pnpm check:headers` / `check:attributions`: exit 0 each (untracked new files staged then unstaged for the check, per the spec's own note).
+- `pnpm build && pnpm check:dist && pnpm check:size`: exit 0 each; measured 0.862 MB against the 2.750 MB budget.
+- `git diff --stat -- public/assets/` and `-- assets/src/`: both empty.
+- Golden diff shape confirmed structurally (not just visually): all five golden files differ only in `header.tableHash` and `header.gameStart.tuning.*` (the three new `…Ms`/`…Ticks` pairs), with `notes` appended (old notes verified as a string-prefix of new notes) and still containing `DW-70`/`deviceSlots`; `assetHash`, `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash` byte-identical on all five.
+- Matrix Test Audit: all 22 I/O & Edge-Case Matrix rows mapped to a test that ran and passed in the verification output above.
+- Rule 19 mutations personally applied, watched red, and reverted (confirmed clean via re-diff/re-grep, not just `git status`): **AC 1** (both directions — added `SwitchEvent` import to `ball-controller.ts`, reddened naming the rule and file), **AC 2** (off-by-one on the Ramp window expiry — both "Ramp rejected" and "window straddle" reddened naming the shifted boundary tick), **AC 3** (`shot_right_loop.entryExclusive` flipped true — both DW-133 cases reddened naming the spurious `shot_right_loop_broken`), **AC 4b** (found a genuine vacuity: the original middle-count test scripted letters on separate ticks so a `break`-after-first-match mutation was a no-op; fixed the test to close them on the same tick, then confirmed it reddens correctly), **AC 8** (counted all spinner edges — reddened naming `count: 6` against `3`), **AC 10** (re-seeded the AD-7 harness's reference state — the harness passed and the in-suite wrapper reddened on its `not.toBe(0)` assertion, exactly as the spec predicts). Additionally verified the review pass's own two new tests (Lock-lane straddle, shot re-entry) redden under their own analogous mutations. AC 1's second direction (fixture-only), AC 5, AC 6, AC 7 and AC 9 rest on the implementation subagent's self-report plus this pass's structural code inspection, not an independently-observed red.
+
+### Residual risks
+
+- `lockCaptureWindowMs` (180 ms) was measured on one geometry point with reasonable margin (46 ticks / 34% above the fast capture, 101 ticks / 56% below the slow non-capture) but not re-derived analytically; a future story that perturbs the Lock-lane corridor should re-measure rather than assume the window survives (already flagged in the tunable's own `source` string).
+- The two `deferred:` items (boundary-lint bypass forms; `pendingLockLaneClosure` single-outstanding-closure) are real but low-likelihood-today; see frontmatter for full evidence.
+- AC 5, AC 6, AC 7, AC 9 and AC 1's second direction still lack an independently-observed mutation record (Rule 19) — code inspection found no defect, but the gap is honestly recorded rather than silently closed.
+
+Status: done
 Blocking condition: none

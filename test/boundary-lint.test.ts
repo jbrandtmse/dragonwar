@@ -21,6 +21,7 @@ const PHYSICS_AUTHORED_CYCLE_ROOT = path.join(FIXTURES_ROOT, 'physics-authored-c
 const SUPPRESSION_ROOT = path.join(FIXTURES_ROOT, 'suppression');
 const EXEMPTION_EXACT_ROOT = path.join(FIXTURES_ROOT, 'exemption-exact');
 const EXEMPTION_NEAR_MISS_ROOT = path.join(FIXTURES_ROOT, 'exemption-near-miss');
+const SWITCH_EVENT_LEAK_ROOT = path.join(FIXTURES_ROOT, 'switch-event-leak');
 const RUN_TIMEOUT_MS = 30_000;
 
 interface RunResult {
@@ -283,6 +284,30 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/exemption-near-miss 
 		// violation ever having fired.
 		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/table/nested/dragonwar.ts'));
 		expect(lines.join('\n'), `expected a violation naming src/sim/table/nested/dragonwar.ts, got:\n${stderr}`).toContain('[no-device-name-literal]');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/switch-event-leak (Story 2.4, AC 1: rules-no-switch-event-outside-devices)', () => {
+	const { status, stderr } = run([SWITCH_EVENT_LEAK_ROOT]);
+
+	it('exits 1 (a textual violation, not an import-graph one)', () => {
+		expect(status).toBe(1);
+	});
+
+	it('names the rule and the violating file (src/sim/rules/leaks-switch-event.ts)', () => {
+		expect(stderr).toContain('[rules-no-switch-event-outside-devices]');
+		expect(stderr).toContain('src/sim/rules/leaks-switch-event.ts');
+	});
+
+	it('does NOT fire on the identical import inside src/sim/rules/devices/ -- the exclusion is proved, not merely asserted', () => {
+		expect(stderr).not.toContain('src/sim/rules/devices/index.ts');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- real tree, rules-no-switch-event-outside-devices exits 0', () => {
+	it('pnpm lint:boundaries over the real repository names no rules-no-switch-event-outside-devices violation', () => {
+		const { stderr } = run([]);
+		expect(stderr).not.toContain('rules-no-switch-event-outside-devices');
 	});
 });
 

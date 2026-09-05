@@ -22,7 +22,7 @@ import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { createDeviceMechanics } from '../src/sim/physics/devices';
 import { createMachine } from '../src/sim/physics/machine';
 import { loadCollision } from '../src/sim/physics/loader';
-import { step as rulesStep } from '../src/sim/rules';
+import { createRules } from '../src/sim/rules';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { MM_PER_VU, fromPhysics, toPhysics } from '../src/sim/table/frames';
@@ -450,7 +450,9 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 	// createMachine()+rules pipeline through, after confirming the ball
 	// genuinely launched and reached the main field first.
 	it('end to end: serve, autolaunch, drain -- the ball returns to the trough and ballsInPlay settles back to 0', () => {
-		const machine = createMachine(loadDoc(), resolveTuning());
+		const tuning = resolveTuning();
+		const machine = createMachine(loadDoc(), tuning);
+		const rules = createRules(tuning);
 		let state: GameState = {
 			tick: 0,
 			phase: 'attract',
@@ -471,7 +473,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 
 		function step(tick: number, commands: CoilCommand[] = []) {
 			const result = machine.step(tick, NO_FRAME, commands);
-			const rulesResult = rulesStep(state, result.switchEvents, tick);
+			const rulesResult = rules.step(state, result.switchEvents, tick);
 			state = { ...rulesResult.state, machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots } };
 			return result;
 		}

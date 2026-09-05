@@ -20,8 +20,7 @@
 //
 // AC 4 (amended): each golden's own `coilPrologue` -- the `pulseCoil`
 // sequence that puts a ball in play, since nothing in an `InputTransition[]`
-// body can reach a coil (RulesStepResult.commands is `readonly never[]`,
-// the rules layer cannot issue one) -- is DATA in the golden file, re-applied
+// body can reach a coil -- is DATA in the golden file, re-applied
 // and implicitly re-asserted on every replay: if the prologue no longer
 // reproduces the SAME effect, the final hash simply will not match, which is
 // exactly "fails naming the prologue" in the only sense a hash comparison
@@ -32,6 +31,19 @@
 //
 // Story 2.5 removes the prologue once Start serves through the rules layer,
 // and re-records every golden then -- do not widen this mechanism further.
+//
+// [CORRECTED, Story 2.4] The paragraph above used to add "(RulesStepResult.commands
+// is `readonly never[]`, the rules layer cannot issue one)" as the reason no
+// coil can be reached from an `InputTransition[]` body. That is no longer
+// true in general: Story 2.4 gives the rules layer a SEPARATE `coilCommands`
+// channel to physics (the devices-and-shots layer pulses `c_dragon_bank_reset`
+// through it), routed through `sim/loop`'s `pendingCommands` exactly like
+// `pulseCoil()`. `RulesStepResult.commands` itself is unaffected -- it stays
+// `readonly never[]`, the presentation-only channel AD-9's Seam Contracts
+// table pins `FrameOutput.commands` to. This prologue mechanism survives
+// unchanged regardless: nothing in Epic 2 before Story 2.5 turns a button
+// press into a coil pulse that SERVES a ball, so `InputTransition[]` still
+// has no path to one.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';

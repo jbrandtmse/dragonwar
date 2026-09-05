@@ -31,7 +31,7 @@
 //
 // Two mandatory constraints, both from the spec's Design Notes:
 //   (a) Scoped to `bd_trough` ONLY. `bd_shooter` is non-parking and
-//       `src/sim/rules/devices.ts` emits nothing on its entry switch
+//       `src/sim/rules/devices/` emits nothing on its entry switch
 //       CLOSING, so its slot state is not derivable in rules at all yet --
 //       a whole-record assertion would stay red even after a correct
 //       partial fix to `bd_trough` alone, which would misreport progress.
@@ -45,7 +45,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createMachine } from '../../../src/sim/physics/machine';
-import { step as rulesStep } from '../../../src/sim/rules';
+import { createRules } from '../../../src/sim/rules';
 import { resolveTuning } from '../../../src/sim/table/tuning';
 import type { CoilCommand, GameState } from '../../../src/sim/table/names';
 import type { InputFrame } from '../../../src/sim/contracts/input';
@@ -70,11 +70,13 @@ function loadDoc(): unknown {
 
 describe('DW-70 (AD-7 violation): GameState.machine.deviceSlots is written outside rules.step', () => {
 	it('an AD-7-conforming reference state (rules.step() alone) disagrees with the physics machine\'s own live deviceSlots view for bd_trough, after a trough eject -- RED TODAY, by design', () => {
-		const machine = createMachine(loadDoc(), resolveTuning());
+		const tuning = resolveTuning();
+		const machine = createMachine(loadDoc(), tuning);
+		const rules = createRules(tuning);
 
 		// The AD-7-conforming reference: seeded once, from the machine's initial
 		// deviceSlots (mirroring sim/loop/index.ts's own initialMachineState()
-		// at boot) -- and never touched again outside rulesStep's own return
+		// at boot) -- and never touched again outside rules.step()'s own return
 		// value. This is the ONE difference from the real production loop,
 		// which re-derives it from `machine.deviceSlots` every tick instead.
 		let referenceState: GameState = {
@@ -98,11 +100,11 @@ describe('DW-70 (AD-7 violation): GameState.machine.deviceSlots is written outsi
 		for (let tick = 1; tick <= 20; tick++) {
 			const commands: CoilCommand[] = tick === 1 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }] : [];
 			const machineResult = machine.step(tick, NO_FRAME, commands);
-			const rulesResult = rulesStep(referenceState, machineResult.switchEvents, tick);
+			const rulesResult = rules.step(referenceState, machineResult.switchEvents, tick);
 			// AD-7-CONFORMING: unlike sim/loop/index.ts's advance() (which spreads
 			// `deviceSlots: machine.deviceSlots` back onto the state AFTER
-			// rulesStep returns, every tick), this reference relies ENTIRELY on
-			// rulesStep's own returned state -- exactly AD-7's own text,
+			// rules.step() returns, every tick), this reference relies ENTIRELY
+			// on rules.step()'s own returned state -- exactly AD-7's own text,
 			// "GameState mutated only inside rules.step".
 			referenceState = rulesResult.state;
 		}
@@ -118,7 +120,7 @@ describe('DW-70 (AD-7 violation): GameState.machine.deviceSlots is written outsi
 			`DW-70 (AD-7 violation): GameState.machine.deviceSlots.bd_trough disagrees between the AD-7-conforming ` +
 			`reference (rules.step() alone -- src/sim/rules/ball-controller.ts's applyDeviceEvents() provably cannot ` +
 			`change deviceSlots, both of its return paths carry the SAME reference through) and the physics machine's ` +
-			`own live view that src/sim/loop/index.ts overwrites onto GameState AFTER rulesStep() returns (:341-344). ` +
+			`own live view that src/sim/loop/index.ts overwrites onto GameState AFTER rules.step() returns (:341-344). ` +
 			`Reference (rules-only, AD-7-conforming): ${JSON.stringify(referenceDeviceSlots)}. ` +
 			`Production (loop-overwritten, the live violation): ${JSON.stringify(productionDeviceSlots)}. ` +
 			`This is the live, uncaught AD-7 violation tracked as DW-70 -- Story 2.5 owns the fix; this harness only ` +

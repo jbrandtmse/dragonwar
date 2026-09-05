@@ -307,6 +307,33 @@ export const TUNING = deepFreeze({
 	slamNudgeWindowMs: entry(500, 'authored: FR-16 states the mechanism but no window duration', 'unverified'),
 
 	/**
+	 * Story 2.4 (AD-19, task 1): the three shot-sequence tick windows
+	 * `TABLE.shots[*].windowMs` points at. PRD FR-26/FR-27 and AD-19/AR-19
+	 * state the Loop, the Ramp and the Lock lane as MECHANISMS -- none states
+	 * a window duration, and `rampWindowMs`/`lockCaptureWindowMs` are not
+	 * named by any artifact at all -- so every one of the three below is
+	 * derived from a real driven shot at THIS tree (Block If: "the window
+	 * tunable must be measured, not guessed"), never authored from nothing.
+	 * Top-level scalars, never nested under `hardware` (DW-34,
+	 * `assertNoNestedMsKeys()` throws on a nested `...Ms` key).
+	 */
+	loopWindowMs: entry(
+		600,
+		'authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch); below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball no longer completes a single clean pass and instead rattles between the two switches over several thousand ticks, which is not "a made Loop" by any reading. 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks); TABLE.shots[*].entryExclusive being false for both Loops (task 2) means this window governs only whether a genuine orbit reads as shot_<side>_loop_made, never a spurious _broken (DW-133).',
+		'unverified',
+	),
+	rampWindowMs: entry(
+		800,
+		'authored: no artifact names this figure at all (not even the two-endpoint form FR-16 gives slamNudgeWindowMs above) -- measured 2026-09-05 at this tree by driving the Ramp (served ball repositioned to (315, 470, 13.5), the re-solved DW-137 mouth, straight-line launch at dirDeg 0) across a speed sweep: s_ramp_enter-close to s_ramp_made-close intervals of 142 ticks at 2400 mm/s down to 656 ticks at 1000 mm/s -- the SLOWEST speed that still closed s_ramp_made at all; at 900 mm/s and below (900, 800, 700, 600, 500 mm/s all measured) the ball never reaches s_ramp_made and instead falls back and re-closes s_ramp_enter later, a rejected shot (shot_ramp_broken territory, not a make). 800 ms sits 144 ticks (22%) above the slowest genuine completion measured (656 ticks).',
+		'unverified',
+	),
+	lockCaptureWindowMs: entry(
+		180,
+		"authored: DW-166 -- no artifact names this figure. Measured 2026-09-05 at this tree by driving the Lock lane on-axis from (170, 440, 13.5) (the sw_lock_lane / sw_lock_1..3 corridor's own centreline, x = (150+190)/2): at ~800 mm/s (a capturing shot) s_lock_lane closes at tick 378 and the first bd_lock slot (s_lock_1) closes at tick 512 -- a 134-tick capture latency. At the measured non-capturing band's own ~575 mm/s (epic-2-context.md: \"measured threshold 550-600 mm/s\"), s_lock_lane closes at tick 415 and s_lock_1 does not close until tick 696 -- a 281-tick gap, the ball having rattled back down the corridor and only settling into the slot much later than any real capture would read as resolved. 180 ms sits 46 ticks (34%) above the fast, genuine capture (134 ticks) and 101 ticks (56% of the gap) below the slow shot's own late, non-credited settle (281 ticks) -- inside that gap, DW-166's discriminating condition (this story's Design Notes) correctly reads the fast shot as captured and the slow one as an unresolved closure, emitting nothing for it, exactly as AC 6 requires.",
+		'unverified',
+	),
+
+	/**
 	 * AD-3/AD-7: "tilt spacing and settle" is named as a rules timer concept
 	 * (AD-3) and the bob's decay plus this settle is how Tilt clears (AD-7);
 	 * FR-14 states the debounce need ("the bob's continued swing cannot
@@ -736,6 +763,36 @@ export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = T
 		...(scalarTicks as ResolvedScalarTicks),
 		switchSettleTicksByClass: switchSettleTicksByClass as Readonly<Record<SettleClass, TuningEntry<number>>>,
 	}) as ResolvedTuning;
+}
+
+/**
+ * Story 2.4 (task 1): `TABLE.shots[*].windowMs`'s declared key name -- one of
+ * the real top-level `…Ms` scalar tunables (`'loopWindowMs'`, `'rampWindowMs'`,
+ * `'lockCaptureWindowMs'`, or any future one), never a bare `string`, so a
+ * typo in `TABLE.shots` is a `pnpm typecheck` failure rather than a runtime
+ * `undefined`.
+ */
+export type ShotWindowMsKey = TuningMsKey<typeof TUNING>;
+
+/**
+ * Story 2.4 (task 1, AD-3's tuning.ts exemption): resolves a shot's declared
+ * `windowMs` key (e.g. `'loopWindowMs'`) to its `resolveTuning()`-derived
+ * tick count. The ONE function a caller under `sim/rules/devices/**` may use
+ * to reach a tick count from a `TABLE.shots[*].windowMs` key -- AD-3 confines
+ * ms->tick arithmetic and the `…Ms` -> `…Ticks` naming convention to this
+ * file; without this helper, a shot-window comparison in `sim/rules/**`
+ * would have to either name `TICK_HZ` itself (banned everywhere but here and
+ * `contracts/time.ts`) or hand-derive the `…Ticks` sibling name, both of
+ * which `pnpm lint:boundaries`'s tick/ms rule already forbids outside this
+ * file.
+ */
+export function shotWindowTicks(windowMsKey: ShotWindowMsKey, tuning: ResolvedTuning): number {
+	const ticksKey = `${windowMsKey.slice(0, -2)}Ticks`;
+	const resolved = (tuning as unknown as Record<string, TuningEntry<number>>)[ticksKey];
+	if (!resolved || typeof resolved.value !== 'number') {
+		throw new Error(`shotWindowTicks(): "${windowMsKey}" has no resolved "${ticksKey}" entry on this tuning set`);
+	}
+	return resolved.value;
 }
 
 /**

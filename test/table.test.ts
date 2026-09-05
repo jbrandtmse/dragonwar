@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TABLE, deepFreeze } from '../src/sim/table/dragonwar';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import type {
 	BallDeviceName,
 	CoilName,
@@ -255,10 +255,63 @@ describe('TABLE.giChannels -- AD-9\'s three architectural channels', () => {
 });
 
 describe('TABLE\'s empty collections -- Design Notes "Scope decisions on the closed unions"', () => {
-	it('flashers, shows and shots are still empty, so their name unions are still never', () => {
+	it('flashers and shows are still empty, so their name unions are still never', () => {
 		expect(TABLE.flashers).toEqual({});
 		expect(TABLE.shows).toEqual({});
-		expect(TABLE.shots).toEqual({});
+	});
+});
+
+describe('TABLE.shots -- Story 2.4 populates the three declared shots (AD-19)', () => {
+	it('has exactly shot_left_loop, shot_right_loop and shot_ramp', () => {
+		expect(Object.keys(TABLE.shots).sort()).toEqual(['shot_left_loop', 'shot_ramp', 'shot_right_loop']);
+	});
+
+	it('every sequence member names a real switch in TABLE.switches', () => {
+		for (const [name, shot] of Object.entries(TABLE.shots)) {
+			for (const switchName of shot.sequence) {
+				expect(Object.keys(TABLE.switches), `${name}'s sequence names an unknown switch "${switchName}"`).toContain(switchName);
+			}
+		}
+	});
+
+	it('every windowMs names a real top-level tunable in TUNING', () => {
+		for (const [name, shot] of Object.entries(TABLE.shots)) {
+			expect(Object.keys(TUNING), `${name}.windowMs names an unknown tunable "${shot.windowMs}"`).toContain(shot.windowMs);
+		}
+	});
+
+	it('both Loops are entryExclusive: false (DW-133 -- a bare s_loop_*_in is also closed by an outlane drain and a made Ramp); the Ramp is entryExclusive: true (nothing else closes s_ramp_enter)', () => {
+		expect(TABLE.shots.shot_left_loop.entryExclusive).toBe(false);
+		expect(TABLE.shots.shot_right_loop.entryExclusive).toBe(false);
+		expect(TABLE.shots.shot_ramp.entryExclusive).toBe(true);
+	});
+});
+
+describe('TABLE.laneWiring / dragonBodyWiring / lockLaneWiring / flipperButtonWiring -- Story 2.4 (AD-11/AD-19)', () => {
+	it('laneWiring covers exactly the three Top lanes and the inlane/outlane set, each naming a real switch', () => {
+		expect(Object.keys(TABLE.laneWiring).sort()).toEqual(['inlane_l', 'inlane_r', 'outlane_l', 'outlane_r', 'top_1', 'top_2', 'top_3'].sort());
+		for (const [lane, wiring] of Object.entries(TABLE.laneWiring)) {
+			expect(Object.keys(TABLE.switches), `laneWiring.${lane} names an unknown switch "${wiring.switch}"`).toContain(wiring.switch);
+		}
+	});
+
+	it('dragonBodyWiring names the real s_dragon_body switch', () => {
+		expect(TABLE.dragonBodyWiring.switch).toBe('s_dragon_body');
+		expect(Object.keys(TABLE.switches)).toContain(TABLE.dragonBodyWiring.switch);
+	});
+
+	it('lockLaneWiring names the real s_lock_lane switch and the real bd_lock device', () => {
+		expect(TABLE.lockLaneWiring.switch).toBe('s_lock_lane');
+		expect(Object.keys(TABLE.switches)).toContain(TABLE.lockLaneWiring.switch);
+		expect(Object.keys(TABLE.ballDevices)).toContain(TABLE.lockLaneWiring.device);
+	});
+
+	it('flipperButtonWiring names the two real flipper button switches', () => {
+		expect(TABLE.flipperButtonWiring.left.switch).toBe('s_flipper_l');
+		expect(TABLE.flipperButtonWiring.right.switch).toBe('s_flipper_r');
+		for (const wiring of Object.values(TABLE.flipperButtonWiring)) {
+			expect(Object.keys(TABLE.switches)).toContain(wiring.switch);
+		}
 	});
 });
 
