@@ -328,6 +328,9 @@ describe('asset contract -- TABLE.physMaterials <-> TUNING.materials drift pin',
  * answer -- the fix this ledger entry prescribes is a shape ASSERTION, not
  * a new derivation.
  */
+/** Story 2.1f (DW-154 (b)): how close the 2nd- and 3rd-shortest edges may come before `freeEndsMm()` refuses to guess. See its own tie branch for the measurement (the shipped minimum gap is 3.000 mm). */
+const FREE_END_TIE_EPSILON_MM = 0.3;
+
 function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: number }>, bodyName: string): { x: number; y: number }[] {
 	if (footprint.length !== 4) {
 		throw new Error(
@@ -340,7 +343,29 @@ function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: n
 		const b = footprint[(i + 1) % footprint.length]!;
 		return { i, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, len: Math.hypot(b.x - a.x, b.y - a.y) };
 	});
-	const [e0, e1] = edges.slice().sort((a, b) => a.len - b.len);
+	const sorted = edges.slice().sort((a, b) => a.len - b.len);
+	const [e0, e1, e2] = sorted;
+	// Story 2.1f (DW-154 (b)): a genuine tie between the 2nd- and
+	// 3rd-shortest edges. `Array.prototype.sort` is stable, so a tie is
+	// resolved by FOOTPRINT VERTEX ORDER -- an order tools/export.py's own
+	// hull pass controls and nothing here asserts. For a 3-way tie
+	// `[a, b, a, a]` the sort picks indices 0 and 2, `indexDiff === 2`, the
+	// ADJACENT throw below does NOT fire, and a WRONG opposite pair is
+	// returned in silence. No body is at a tie in the committed document --
+	// measured at Story 2.1f: the smallest 2nd-to-3rd gap is 3.000 mm, on
+	// col_sling_l and col_sling_r, both of which this story re-measured --
+	// so this throw is a guard on the next change, not on today's geometry.
+	// The epsilon is one tenth of that measured 3.000 mm margin: large
+	// enough to catch a genuine authored tie (which would be exact), small
+	// enough that no shipped body is anywhere near it.
+	if (e2 !== undefined && Math.abs(e2.len - e1!.len) <= FREE_END_TIE_EPSILON_MM) {
+		throw new Error(
+			`freeEndsMm(): "${bodyName}" has a TIE between its 2nd- and 3rd-shortest edges (index ${e1!.i} at ${e1!.len.toFixed(3)} mm, ` +
+			`index ${e2.i} at ${e2.len.toFixed(3)} mm -- within ${FREE_END_TIE_EPSILON_MM} mm). Which of the two becomes a "free end" would ` +
+			`then be decided by footprint vertex order, not by the body's own shape, so the derivation is not trustworthy for it. Edge ` +
+			`lengths, in footprint order: ${edges.map((e) => e.len.toFixed(3)).join(', ')} mm.`,
+		);
+	}
 	const indexDiff = Math.abs(e0!.i - e1!.i);
 	if (indexDiff === 1 || indexDiff === 3) {
 		throw new Error(
@@ -409,14 +434,105 @@ function nearestPost(doc: CollisionDocForTest, point: { readonly x: number; read
 	return { distance: nearestDistance, radius: nearestRadius, name: nearestName };
 }
 
-/** Fails naming `label`, the point and the nearest post's own name/distance/radius unless a `rubber_post` sits within `radius + 0.5 mm` of `point` -- the exact budget the main gate's own per-end assertion uses, exposed here so a `verify()` predicate can assert the SAME coordinate-level claim its reason prose makes, rather than a claim nothing ever checks. */
+/**
+ * Story 2.1f (DW-154): the FR-31 post-distance budget, named once. It was
+ * computed inline in TWO places as `radius + 0.5`, where `radius` is
+ * re-derived per post from its own bbox half-width -- so
+ * `POST_RADIUS_MM` in tools/make-placeholder-blend.py silently moved this
+ * budget, and the two call sites could drift apart without anything
+ * noticing. `postFloatNoiseMarginMm` is the 0.5 mm of export float noise the
+ * original expression carried; the radius still comes from the live post so
+ * the budget tracks the authored geometry rather than a second literal.
+ */
+const POST_DISTANCE_FLOAT_NOISE_MM = 0.5;
+function postDistanceBudgetMm(postRadiusMm: number): number {
+	return postRadiusMm + POST_DISTANCE_FLOAT_NOISE_MM;
+}
+
+/** Fails naming `label`, the point and the nearest post's own name/distance/radius unless a `rubber_post` sits within `postDistanceBudgetMm()` of `point` -- the exact budget the main gate's own per-end assertion uses, exposed here so a `verify()` predicate can assert the SAME coordinate-level claim its reason prose makes, rather than a claim nothing ever checks. */
 function expectPostNear(doc: CollisionDocForTest, point: { readonly x: number; readonly y: number }, label: string): void {
 	const { distance, radius, name } = nearestPost(doc, point);
 	expect(
 		distance,
 		`${label}: no rubber_post within one post radius of (${point.x.toFixed(2)}, ${point.y.toFixed(2)}) -- nearest is "${name}" at ${distance.toFixed(2)} mm (post radius ${radius.toFixed(2)} mm)`,
-	).toBeLessThanOrEqual(radius + 0.5);
+	).toBeLessThanOrEqual(postDistanceBudgetMm(radius));
 }
+
+/** Distance from a point to a polygon's own nearest EDGE (never its interior) -- used by the exemption `verify()` predicates that make a JOIN claim. */
+function distanceToPolygonEdgeMm(point: { readonly x: number; readonly y: number }, poly: ReadonlyArray<{ readonly x: number; readonly y: number }>): number {
+	let nearest = Infinity;
+	for (let i = 0; i < poly.length; i++) {
+		const a = poly[i]!;
+		const b = poly[(i + 1) % poly.length]!;
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const len2 = dx * dx + dy * dy;
+		let t = len2 === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+		t = Math.max(0, Math.min(1, t));
+		nearest = Math.min(nearest, Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)));
+	}
+	return nearest;
+}
+
+/**
+ * Story 2.1f, DW-154 (a): a guide end that is STRICTLY INSIDE another body's
+ * footprint. `isJoined()` used to swallow these silently -- the same
+ * `continue` a genuine on-boundary join takes, before the post-distance
+ * assertion and before the non-vacuity counter, leaving no name, no reason
+ * and no staleness audit. That was a second, unenumerated exemption channel
+ * with unbounded depth: an end could be buried arbitrarily deep in anything
+ * and the gate would report a pass.
+ *
+ * An enclosed end is a legitimate outcome -- a ball genuinely cannot reach a
+ * point inside solid material, so FR-31's hazard ("a ball catching an
+ * exposed flat bare-metal end") does not exist there -- but it has to be
+ * DECLARED, with the enclosing body named and the measurement recorded, and
+ * it is enforced in both directions like every other allowlist in this file:
+ * an undeclared enclosed end fails naming both bodies, and a declaration
+ * whose end is no longer enclosed fails as stale.
+ */
+interface EnclosedEndDeclaration {
+	readonly body: string;
+	readonly end: { readonly x: number; readonly y: number };
+	readonly insideBody: string;
+	readonly reason: string;
+}
+
+const ENCLOSED_END_DECLARATIONS: readonly EnclosedEndDeclaration[] = [
+	{
+		body: 'col_dragon_leg_l',
+		end: { x: 120.0, y: 610.0 },
+		insideBody: 'col_lock_ceiling_west_fill',
+		reason:
+			'Story 2.1d authored the south edge of col_lock_ceiling_west_fill as "the SAME two-point line the leg cap is, merely shifted ' +
+			'LOCK_FILL_WEST_MARGIN_MM (2 mm) south of it for the ENTIRE 60 mm run", so this north cap is buried inside west_fill by ' +
+			'construction -- measured 1.897 mm deep. Until Story 2.1f this end took the unnamed strictly-interior branch of isJoined() and ' +
+			'was compensated by a hand-written one-off assertion on col_post_dragon_leg_l. That post contributed no collision surface (all ' +
+			'eight vertices inside the same body) and is removed; the one-off is retired into this general mechanism.',
+	},
+	{
+		body: 'col_lock_ceiling',
+		end: { x: 194.0, y: 612.0 },
+		insideBody: 'col_dragon_leg_r',
+		reason:
+			'DW-153. The EAST riser of col_lock_ceiling, (194, 598)->(194, 626), midpoint (194.00, 612.00) -- 3.483 mm strictly inside ' +
+			'col_dragon_leg_r. LOCK_CEILING_X_OVERLAP_E_MM deliberately pushes the east edge of the ceiling PAST the lane wall INTO the leg, ' +
+			'so the riser sits in solid material. The exemption prose below said this riser "sits 4 mm short of col_dragon_leg_r" until ' +
+			'Story 2.1f: the sign was backwards, it is 4 mm INSIDE. col_post_lock_ceiling_e, which nominally terminated this end, sat at the ' +
+			'STALE coordinate (194.00, 606.00) -- 6.000 mm from the true midpoint against a 4.500 mm budget, left behind when ' +
+			'LOCK_CEILING_EAST_SHOULDER_MM moved 14 -> 28 -- and was itself entirely inside col_dragon_leg_r. Removed.',
+	},
+	{
+		body: 'col_lock_ceiling',
+		end: { x: 146.0, y: 606.0 },
+		insideBody: 'col_lock_ceiling_west_fill',
+		reason:
+			'The WEST riser of col_lock_ceiling, (146, 614)->(146, 598), midpoint (146.00, 606.00) -- 4.000 mm strictly inside ' +
+			'col_lock_ceiling_west_fill, exactly as the Story 2.1d rework describes it ("buried inside the solid material of ' +
+			'col_lock_ceiling_west_fill without touching an edge"). col_post_lock_ceiling_w was entirely inside that same body and is ' +
+			'removed with it.',
+	},
+];
 
 /**
  * Story 2.1d task 13: the two-directional exemption allowlist -- a body
@@ -447,28 +563,142 @@ interface GuideExemption {
 }
 
 const GUIDE_TERMINATION_EXEMPTIONS: readonly GuideExemption[] = [
-	{ body: 'col_loop_l_return', reason: 'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for FR-31 to protect (the same shape col_loop_r_return uses).' },
-	{ body: 'col_loop_r_return', reason: 'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for FR-31 to protect.' },
+	{
+		body: 'col_loop_l_return',
+		reason:
+			'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for '
+			+ 'FR-31 to protect (the same shape col_loop_r_return uses). [STORY 2.1f] This entry carried NO verify() until now, so its whole '
+			+ 'reason was prose nothing checked -- one of the four such entries on this list. verify() below derives the taper from the '
+			+ 'live footprint: a 3-point triangle has no end CAP at all, only vertices, which is exactly the "no flat face a ball can '
+			+ 'catch" claim the reason makes. If a later change re-authors it into a quad, the taper is gone and this fails.',
+		verify: (doc) => {
+			const rail = doc.nodes.find((n) => n.name === 'col_loop_l_return');
+			expect(rail?.footprintMm, 'col_loop_l_return must carry a footprintMm polygon').toBeDefined();
+			expect(
+				rail!.footprintMm!.length,
+				'col_loop_l_return is exempt because add_loop_return_rail() TAPERS its inboard end to a point -- a 3-vertex footprint with no end cap. '
+				+ 'It now has ' + String(rail!.footprintMm!.length) + ' vertices, so the taper this exemption rests on is gone and the '
+				+ 'exemption is stale.',
+			).toBe(3);
+		},
+	},
+	{
+		body: 'col_loop_r_return',
+		reason:
+			'add_loop_return_rail() tapers this rail\'s own inboard end to a single point rather than a flat cap -- no exposed face for '
+			+ 'FR-31 to protect (the same shape col_loop_l_return uses). [STORY 2.1f] This entry carried NO verify() until now, so its whole '
+			+ 'reason was prose nothing checked -- one of the four such entries on this list. verify() below derives the taper from the '
+			+ 'live footprint: a 3-point triangle has no end CAP at all, only vertices, which is exactly the "no flat face a ball can '
+			+ 'catch" claim the reason makes. If a later change re-authors it into a quad, the taper is gone and this fails.',
+		verify: (doc) => {
+			const rail = doc.nodes.find((n) => n.name === 'col_loop_r_return');
+			expect(rail?.footprintMm, 'col_loop_r_return must carry a footprintMm polygon').toBeDefined();
+			expect(
+				rail!.footprintMm!.length,
+				'col_loop_r_return is exempt because add_loop_return_rail() TAPERS its inboard end to a point -- a 3-vertex footprint with no end cap. '
+				+ 'It now has ' + String(rail!.footprintMm!.length) + ' vertices, so the taper this exemption rests on is gone and the '
+				+ 'exemption is stale.',
+			).toBe(3);
+		},
+	},
 	{
 		body: 'col_loop_top',
 		reason:
-			'[BLOCK IF, HALTed rather than laundered -- code review 2026-09-03] NOT genuinely joined: this is the orbit\'s own top ' +
-			'connector, a 5-point turn piece freeEndsMm() cannot derive (not a quad) -- but its own true free ends, read directly off ' +
-			'the committed footprint, are its two 9.5 mm end caps at (50.00, 1009.55) and (418.40, 1009.55), both genuinely bare (74.64 / ' +
-			'73.10 mm from the nearest existing post) and both ball-reachable -- this file\'s own comment two describe-blocks below uses ' +
-			'these exact two coordinates as the bound of the Left/Right Loop shot columns against an 8.5 mm floor. Termination was ' +
-			'attempted: a rubber_post at the measured free-end coordinate, and at every position tried within the gate\'s own postRadius ' +
-			'+ 0.5 mm budget (including well outside it, up to 4 mm lateral), measurably broke Story 2.1c\'s own delivered orbit -- the ' +
-			'Left/Right Loop 34 mm entry offset cases (test/shot-routing.test.ts), reproduced and isolated to these two posts alone ' +
-			'(every other new post this story adds was verified independently safe). tools/make-placeholder-blend.py\'s own pre-existing ' +
-			'RIDGE_DROP_MM comment already documents this exact area as swept through seven values and hand-tuned against this identical ' +
-			'regression class, which is why a small, seemingly-safe addition here reliably perturbs it. Per this story\'s own Block If ' +
-			'("would break Story 2.1c\'s delivered orbit ... HALT with the measurement rather than trade one delivered feature for ' +
-			'another"): HALTed, not fixed. This is a real, open FR-31 gap this story could not close without breaking a different ' +
-			'delivered feature -- left for the lead\'s own decision (a wider post-radius exemption for this one guide, a differently-' +
-			'shaped post, or re-tuning RIDGE_DROP_MM/LOOP_TOP_END_X_MM themselves, none of which is this story\'s call to make alone).',
+			'[DW-146 -- SWEPT AND RECORDED, Story 2.1f, Branch B of its own pre-authorised decision rule. NOT a HALT.] This is the '
+			+ 'orbit top connector, a 5-point ridge freeEndsMm() cannot derive (not a quad). Its two true free ends, read directly off '
+			+ 'the committed footprint, are its 9.5 mm vertical end caps at (50.00, 1009.55) and (418.40, 1009.55), both genuinely bare '
+			+ '(74.64 / 73.10 mm from the nearest post) and both ball-reachable. Story 2.1d swept POST POSITIONS exhaustively and every '
+			+ 'one measurably broke the Loop 34 mm entry-offset cases, so it HALTed; the reason is structural rather than a matter of '
+			+ 'finding a better position, and it is worth stating because it forecloses that whole axis: the Loop shot column is defined '
+			+ 'as loopTop.min.x - railL.max.x - ballMm, so the cap sits at the ball swept-edge limit BY CONSTRUCTION at every value of '
+			+ 'LOOP_TOP_END_X_MM. Any post at the cap is in the orbit. Only removing the FACE can work. '
+			+ 'Story 2.1f therefore swept the untried axis, RIDGE_DROP_MM, through the real pipeline -- re-seeding the .blend and '
+			+ 're-exporting at every value, then driving the suite. The cap length is LOOP_TOP_INNER_Y_MM - RIDGE_DROP_MM - 1004.8, so '
+			+ 'the caps vanish at exactly 12.0 and the body becomes a point-ended TRIANGLE, structurally the same class as '
+			+ 'col_loop_l_return / col_loop_r_return, which are exempt on this list for exactly that reason. Measured, value by value: '
+			+ '2.5 -> caps 9.500 mm, all six Loop entry offsets pass (the shipped value); '
+			+ '3.0 -> caps 9.000 mm, ONE routing case red; '
+			+ '5.0 -> caps 7.000 mm, all six offsets pass (note: this is the value Story 2.1d recorded as retiming the Left Loop 34 mm '
+			+ 'offset into the wrong outlane -- against the PRE-2.1f geometry; it no longer does, which is itself worth recording); '
+			+ '8.0 -> caps 4.000 mm, all six pass; 10.0 -> caps 2.000 mm, all six pass; '
+			+ '12.0 -> caps ELIMINATED, footprint is the 3-point triangle [(50, 1004.8), (418.4, 1004.8), (234.2, 1016.8)], and all six '
+			+ 'Loop entry offsets still pass. '
+			+ 'So Branch A NARROWLY exists: 12.0 removes the exposed face and keeps every offset case. It is NOT shipped, and the '
+			+ 'measurement that decided that is recorded rather than argued: at 12.0 the body stops filling y 1004.8..1014.3 across the '
+			+ 'whole top channel, which changes every trajectory that rides it. Measured against the re-exported document at 12.0 -- '
+			+ 'TWELVE cases in test/shot-reachability.test.ts go red (loop-off-column-left-west-18, loop-off-column-right-west-18, '
+			+ 'centre-drain-descent, dragon-body, lock-lane-immediate, lock-lane-long, dragon-target-o, top-lane-1, slingshot-left, '
+			+ 'slingshot-right, descend-sling-l and the witness-corpus health floor itself, because witnesses stop closing their own '
+			+ 'expectedSwitch), and the roll-and-drain golden NO LONGER DRAINS inside its recorded 9282 ticks at all (traced: one ball '
+			+ 'still in play at the end, at x = 257.18, where the golden\'s own scenario block asserts zero balls, ballsInPlay 0 and a full '
+			+ 'trough). That is not a retime -- it is a different behaviour, and this repository\'s own rule is that a golden needing a '
+			+ 'moved threshold is a HALT rather than a re-record. Shipping 12.0 therefore means re-deriving the entire witness corpus and '
+			+ 'genuinely re-recording all five goldens on changed traces, which is a decision above this story. Recorded in this story '
+			+ 'frontmatter deferred: for the lead. '
+			+ 'Branch B ships: the geometry is unchanged at RIDGE_DROP_MM = 2.5, the two bare caps are named here with their measured '
+			+ 'coordinates, and verify() below makes that claim machine-checked on every run -- which it was not before Story 2.1f, this '
+			+ 'being one of the four entries on this list that carried no verify() at all.',
+		verify: (doc) => {
+			// [STORY 2.1f] The entry carried NO verify() until this story, so
+			// every coordinate in the reason above was prose nothing checked.
+			// This derives both end caps from the LIVE footprint -- the exact
+			// mistake DW-153 was made of is a coordinate literal that stopped
+			// tracking its own body -- and asserts they are still there, still
+			// bare, and still the length this reason records. If a later change
+			// eliminates them (RIDGE_DROP_MM = 12.0 does), this fails and the
+			// exemption has to be revisited, which is the point.
+			const loopTop = doc.nodes.find((n) => n.name === 'col_loop_top');
+			expect(loopTop?.footprintMm, 'col_loop_top must carry a footprintMm polygon').toBeDefined();
+			const poly = loopTop!.footprintMm!;
+			expect(poly.length, 'col_loop_top must still be the 5-point ridge freeEndsMm() cannot derive -- at 4 points it would have to pass the forward gate, at 3 its caps are gone and this exemption is stale').toBe(5);
+			const capEdges = poly
+				.map((a, i) => ({ a, b: poly[(i + 1) % poly.length]! }))
+				.filter((e) => Math.abs(e.b.x - e.a.x) < 1e-6 && Math.abs(e.b.y - e.a.y) > 1e-6)
+				.map((e) => ({ x: e.a.x, midY: (e.a.y + e.b.y) / 2, lengthMm: Math.abs(e.b.y - e.a.y) }));
+			expect(capEdges.length, 'col_loop_top must present exactly two vertical end caps -- the bare ends DW-146 names').toBe(2);
+			for (const cap of capEdges) {
+				expect(
+					cap.lengthMm,
+					`col_loop_top's end cap at x = ${cap.x.toFixed(2)} measures ${cap.lengthMm.toFixed(3)} mm, not the 9.500 mm this exemption records. ` +
+					'DW-146 has moved: re-sweep RIDGE_DROP_MM and re-decide the branch rather than leaving a stale measurement here.',
+				).toBeCloseTo(9.5, 2);
+				// And still genuinely BARE -- the other half of the reason, which
+				// nothing checked before. A post appearing here would mean the
+				// gap is closed and the exemption should go.
+				const { distance } = nearestPost(doc, { x: cap.x, y: cap.midY });
+				expect(
+					distance,
+					`col_loop_top's end cap at (${cap.x.toFixed(2)}, ${cap.midY.toFixed(2)}) now has a rubber_post ${distance.toFixed(2)} mm away. ` +
+					'If DW-146 has been closed by termination, this exemption is stale and must be removed.',
+				).toBeGreaterThan(20);
+			}
+		},
 	},
-	{ body: 'col_loop_turn_l', reason: 'a turn/redirector piece at the orbit\'s own top corner, joined into the perimeter wall and the lane on both sides -- not a free-ended guide; its adjacent-shortest-edge shape is the turn\'s own angle, not an unterminated tip.' },
+	{
+		body: 'col_loop_turn_l',
+		reason:
+			'A turn/redirector piece at the orbit top corner, joined into the perimeter wall and the lane on both sides -- not a '
+			+ 'free-ended guide; its adjacent-shortest-edge shape is the turn\'s own angle, not an unterminated tip. [STORY 2.1f] This '
+			+ 'entry also carried NO verify(). The reason is a JOIN claim, so verify() below checks the join for real, against the live '
+			+ 'footprint: every vertex must lie on the boundary of col_wall_top or col_wall_left, which is what "joined on both sides" '
+			+ 'means and what nothing checked before.',
+		verify: (doc) => {
+			const turn = doc.nodes.find((n) => n.name === 'col_loop_turn_l');
+			expect(turn?.footprintMm, 'col_loop_turn_l must carry a footprintMm polygon').toBeDefined();
+			const partners = ['col_wall_top', 'col_wall_left']
+				.map((name) => doc.nodes.find((n) => n.name === name))
+				.filter((n): n is NonNullable<typeof n> => n !== undefined && n.footprintMm !== undefined);
+			expect(partners.length, 'col_loop_turn_l\'s exemption names col_wall_top and col_wall_left as its join partners -- both must exist').toBe(2);
+			const unjoined = turn!.footprintMm!.filter(
+				(v) => !partners.some((partner) => distanceToPolygonEdgeMm(v, partner.footprintMm!) <= 0.05),
+			);
+			expect(
+				unjoined,
+				'col_loop_turn_l is exempt because it is JOINED into the perimeter on both sides, but these of its own vertices touch neither '
+				+ 'col_wall_top nor col_wall_left: ' + JSON.stringify(unjoined) + '. The join this exemption rests on is not there.',
+			).toEqual([]);
+		},
+	},
 	{
 		body: 'col_loop_turn_r',
 		reason:
@@ -479,22 +709,30 @@ const GUIDE_TERMINATION_EXEMPTIONS: readonly GuideExemption[] = [
 			'Its own true bare cap is now posted: col_post_loop_turn_r (474.40, 1036.00), verified below.',
 		verify: (doc) => expectPostNear(doc, { x: 474.4, y: 1036.0 }, 'col_loop_turn_r\'s own 12.00 mm cap'),
 	},
-	{
-		body: 'col_ramp_turn',
-		reason:
-			'[CORRECTED, code review 2026-09-03] NOT "joined on both sides" as previously claimed -- only one edge joins col_loop_r; ' +
-			'its own bare end at (338.00, 829.20) sat 8.99 mm from the nearest existing post against a 4.50 mm budget. A wedge-shaped ' +
-			'turn piece, same DW-128 shape class as col_sling_l (its own two shortest edges are ADJACENT), so freeEndsMm() correctly ' +
-			'throws -- it stays on this list structurally. Its own true bare end is now posted: col_post_ramp_turn (338.00, 829.20), ' +
-			'verified below.',
-		verify: (doc) => expectPostNear(doc, { x: 338.0, y: 829.2 }, 'col_ramp_turn\'s own bare end'),
-	},
+	// [STORY 2.1f] col_ramp_turn is NO LONGER EXEMPT and its entry is gone.
+	// The corridor re-solve lengthened the turn (its west edge follows
+	// ramp_lane_x0, 338.0 -> 298.4) and re-authored its north face as a named
+	// 21 deg grade instead of a fixed 20 mm drop, which turned the footprint
+	// into a clean quad whose two shortest edges (the 26.00 mm east cap and
+	// the 82.68 mm west riser) are OPPOSITE. freeEndsMm() now derives it, the
+	// reverse-direction test below caught the stale entry the moment it did,
+	// and both ends go through the forward gate like any other guide: the east
+	// cap joins col_loop_r, the west riser is terminated by col_post_ramp_turn
+	// (now derived from the live riser midpoint rather than a literal).
 	{
 		body: 'col_sling_l',
 		reason: 'DW-128, a real committed case: the anti-stranding slope (20 mm drop) shortens the east side to 15 mm, ' +
 			'below the 32 mm south cap, making the two shortest edges ADJACENT (a genuine wedge) -- freeEndsMm() correctly ' +
 			'throws rather than silently deriving the wrong pair. Re-authoring the slope so the shortest edges become the ' +
-			'correct opposite pair would move the body itself, which the Block If reserves for Story 2.1f (col_sling_l/_r). ' +
+			'correct opposite pair would move the body itself, which Story 2.1c\'s Block If reserved for Story 2.1f. ' +
+			'[STORY 2.1f RULED, geometry UNCHANGED] The condition is arithmetic, and it is recorded here so a later story does not ' +
+			'have to re-derive it: add_box_wall_sloped gives a slingshot four edges -- west cap (depth - drop) = 15.0, east cap ' +
+			'(depth) = 35.0, south cap (span), north face sqrt(span^2 + drop^2) -- so the two SHORTEST are the opposite vertical caps ' +
+			'only while span > depth = 35.0. col_sling_l spans 32.0 and is therefore a genuine wedge; the fix is to widen it past ' +
+			'35.0, which moves the left corridor and is Story 2.2\'s slingshot hardware to size, not a corridor decision. Story 2.1f ' +
+			'DID apply the rule on the right: col_sling_r had to shrink for the corridor budget, and it was sized to 38.0 rather than ' +
+			'to the ~29 the budget alone wanted, precisely so it stays OFF this list with the same 3.000 mm margin col_sling_l would ' +
+			'need. Adding a second body here would have meant this story stopping the FR-31 gate checking the very body it moved. ' +
 			'Both plausible ends are posted anyway as a safety measure: col_post_sling_l (114, 420, the old south-cap ' +
 			'derivation) and col_post_sling_l_north (114, 445, the true far/sloped-cap end). [CORRECTED, rework iteration 3, ' +
 			'MED review finding: because this body is EXEMPTED, its own ends never reach the main gate\'s post-distance ' +
@@ -509,16 +747,60 @@ const GUIDE_TERMINATION_EXEMPTIONS: readonly GuideExemption[] = [
 	{
 		body: 'col_lock_ceiling',
 		reason:
-			'Story 2.1d rework iteration 2 (task 8\'s corridor seal): a 5-point RIDGE (the same shape class as col_loop_top, above), ' +
-			'so freeEndsMm() cannot derive it (not a quad). Its own two true free ends are its vertical risers: the WEST riser ' +
-			'(146.00, 606.00) is buried inside col_lock_ceiling_west_fill\'s own solid material without ever coming within isJoined()\'s ' +
-			'1.0 mm edge tolerance (deliberately -- see that body\'s own [REWORK] note in tools/make-placeholder-blend.py for why its ' +
-			'own riser is NOT coincident with this one); the EAST riser (194.00, 606.00) sits 4 mm short of col_dragon_leg_r\'s own ' +
-			'vertical face. Neither is genuinely joined, so both are posted: col_post_lock_ceiling_w and col_post_lock_ceiling_e, ' +
-			'verified below.',
+			'Story 2.1d rework iteration 2 (the corridor seal of task 8): a 5-point RIDGE (the same shape class as col_loop_top, above), ' +
+			'so freeEndsMm() cannot derive it -- not a quad. Its two true free ends are its vertical risers, and BOTH are ENCLOSED, not ' +
+			'merely near something: the WEST riser midpoint (146.00, 606.00) sits 4.000 mm strictly inside col_lock_ceiling_west_fill and ' +
+			'the EAST riser midpoint (194.00, 612.00) sits 3.483 mm strictly inside col_dragon_leg_r. Both are recorded in ' +
+			'ENCLOSED_END_DECLARATIONS above, and neither needs a post: a ball cannot reach a point inside solid material. ' +
+			'[CORRECTED, STORY 2.1f -- DW-153] This reason previously claimed the east riser "sits 4 mm short of col_dragon_leg_r vertical ' +
+			'face" and pointed verify() at col_post_lock_ceiling_e and col_post_lock_ceiling_w. Three things were wrong at once. The sign ' +
+			'was backwards (LOCK_CEILING_X_OVERLAP_E_MM pushes the ceiling INTO the leg). The coordinate was stale: the east riser midpoint ' +
+			'moved 606 -> 612 when LOCK_CEILING_EAST_SHOULDER_MM went 14 -> 28 in 2.1d rework iteration 3, so the post stood 6.000 mm away ' +
+			'against a 4.500 mm budget. And the check was CIRCULAR: verify() passed the post its own authored literal (194.00, 606.00) to ' +
+			'expectPostNear(), which measured the post against itself at 0.000 mm and was true by construction -- it could not have caught ' +
+			'either defect. Both posts also lay entirely inside another body and contributed no collision surface, so both are removed. ' +
+			'verify() below now DERIVES both risers from the live footprint and asserts the enclosure that makes them safe, which is a ' +
+			'claim the geometry can falsify.',
 		verify: (doc) => {
-			expectPostNear(doc, { x: 146.0, y: 606.0 }, 'col_lock_ceiling\'s own west riser');
-			expectPostNear(doc, { x: 194.0, y: 606.0 }, 'col_lock_ceiling\'s own east riser');
+			const ceiling = doc.nodes.find((n) => n.name === 'col_lock_ceiling');
+			expect(ceiling?.footprintMm, 'col_lock_ceiling must carry a footprintMm polygon').toBeDefined();
+			const poly = ceiling!.footprintMm!;
+			// The two vertical risers, derived: the ridge's only two edges
+			// with zero run. Nothing here is a coordinate literal, which is
+			// exactly what went stale before.
+			const risers = poly
+				.map((a, k) => ({ a, b: poly[(k + 1) % poly.length]! }))
+				.filter((e) => Math.abs(e.b.x - e.a.x) < 1e-6 && Math.abs(e.b.y - e.a.y) > 1e-6)
+				.map((e) => ({ x: e.a.x, y: (e.a.y + e.b.y) / 2 }));
+			expect(risers.length, 'col_lock_ceiling must present exactly two vertical risers -- its only free ends').toBe(2);
+			for (const riser of risers) {
+				const declared = ENCLOSED_END_DECLARATIONS.find(
+					(dec) => dec.body === 'col_lock_ceiling' && Math.hypot(dec.end.x - riser.x, dec.end.y - riser.y) <= 0.05,
+				);
+				expect(
+					declared,
+					`col_lock_ceiling riser midpoint (${riser.x.toFixed(2)}, ${riser.y.toFixed(2)}) -- DERIVED from the live footprint, not ` +
+					'read from a literal -- has no ENCLOSED_END_DECLARATIONS entry. This is the DW-153 defect exactly: the riser moved and ' +
+					'the record did not follow.',
+				).toBeDefined();
+				const host = doc.nodes.find((n) => n.name === declared!.insideBody);
+				expect(host?.footprintMm, `${declared!.insideBody} must carry a footprintMm polygon`).toBeDefined();
+				const hostPoly = host!.footprintMm!;
+				let inside = false;
+				for (let k = 0, m = hostPoly.length - 1; k < hostPoly.length; m = k++) {
+					const vi = hostPoly[k]!;
+					const vj = hostPoly[m]!;
+					const crosses = vi.y > riser.y !== vj.y > riser.y;
+					if (crosses && riser.x < ((vj.x - vi.x) * (riser.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+						inside = !inside;
+					}
+				}
+				expect(
+					inside,
+					`col_lock_ceiling riser midpoint (${riser.x.toFixed(2)}, ${riser.y.toFixed(2)}) is declared enclosed inside ` +
+					`"${declared!.insideBody}" but is NOT inside it in the committed document -- the end is bare and needs terminating`,
+				).toBe(true);
+			}
 		},
 	},
 ];
@@ -586,8 +868,22 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 		 * construction (shared authored coordinates), so this margin is not
 		 * load-bearing for any of them.
 		 */
+		/**
+		 * Story 2.1f (DW-154 (a)): the two channels are now SEPARATE
+		 * classifications, not one boolean. `joined` (on a partner's own
+		 * boundary, coincident by construction) stays an ordinary structural
+		 * join and needs no declaration. `enclosed` (strictly interior to a
+		 * partner, at unbounded depth) is a distinct outcome that must be
+		 * DECLARED in ENCLOSED_END_DECLARATIONS above -- it was the silent,
+		 * unenumerated second exemption channel this ledger entry names.
+		 */
 		const BOUNDARY_EPSILON_MM = 0.05;
-		function isJoined(point: { readonly x: number; readonly y: number }, ownName: string): { joined: boolean; to?: string } {
+		type EndClassification =
+			| { readonly kind: 'free' }
+			| { readonly kind: 'joined'; readonly to: string }
+			| { readonly kind: 'enclosed'; readonly to: string; readonly depthMm: number };
+		function classifyEnd(point: { readonly x: number; readonly y: number }, ownName: string): EndClassification {
+			let enclosedIn: { name: string; depthMm: number } | undefined;
 			for (const other of doc.nodes) {
 				if (other.name === ownName || other.shape !== 'wall' || !other.footprintMm || other.surface === 'rubber_post') {
 					continue;
@@ -595,7 +891,7 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 				const poly = other.footprintMm;
 				// On (or within BOUNDARY_EPSILON_MM of) an edge -- coincident by
 				// construction, not merely close.
-				let onBoundary = false;
+				let nearestEdgeMm = Infinity;
 				for (let i = 0; i < poly.length; i++) {
 					const a = poly[i]!;
 					const b = poly[(i + 1) % poly.length]!;
@@ -604,19 +900,15 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 					const len2 = dx * dx + dy * dy;
 					let t = len2 === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
 					t = Math.max(0, Math.min(1, t));
-					const distance = Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
-					if (distance <= BOUNDARY_EPSILON_MM) {
-						onBoundary = true;
-						break;
-					}
+					nearestEdgeMm = Math.min(nearestEdgeMm, Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)));
 				}
-				if (onBoundary) {
-					return { joined: true, to: other.name };
+				if (nearestEdgeMm <= BOUNDARY_EPSILON_MM) {
+					return { kind: 'joined', to: other.name };
 				}
 				// Strictly interior to the partner's own polygon -- the "buried"
-				// case (e.g. col_lock_ceiling's own west riser, deliberately
-				// embedded inside col_lock_ceiling_west_fill's material well past
-				// any single edge's own tolerance). Standard even-odd ray-cast.
+				// case. Standard even-odd ray-cast; the depth reported is the
+				// distance to the partner's own nearest edge, which is what makes
+				// the declaration falsifiable rather than merely asserted.
 				let inside = false;
 				for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
 					const vi = poly[i]!;
@@ -626,11 +918,14 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 						inside = !inside;
 					}
 				}
-				if (inside) {
-					return { joined: true, to: other.name };
+				if (inside && (enclosedIn === undefined || nearestEdgeMm > enclosedIn.depthMm)) {
+					enclosedIn = { name: other.name, depthMm: nearestEdgeMm };
 				}
 			}
-			return { joined: false };
+			if (enclosedIn !== undefined) {
+				return { kind: 'enclosed', to: enclosedIn.name, depthMm: enclosedIn.depthMm };
+			}
+			return { kind: 'free' };
 		}
 
 		// Story 2.1d code review (2026-09-03): a non-vacuity floor on the
@@ -642,46 +937,101 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 		// joined to a non-post body, 39 reaching the post-distance assertion
 		// below. The floor is that 39; a change that shrinks it fails here
 		// and has to be argued for, rather than passing silently.
-		let postDistanceChecks = 0;
+		//
+		// Story 2.1f (lesson 5, DW-149's pattern): the floor below is no
+		// longer the hand-typed literal 40. The census is DERIVED first, then
+		// re-walked asserting, so it cannot lag its own subject set the way
+		// 39 lagged 40 and 40 lagged this story's own count.
+		const derivedEnds: { guide: string; end: { x: number; y: number }; klass: EndClassification }[] = [];
 		for (const guide of guides) {
 			if (exemptedNames.has(guide.name)) {
 				continue;
 			}
 			expect(guide.footprintMm, `${guide.name}: a guide-class col_ wall body must carry a footprintMm polygon`).toBeDefined();
 			for (const end of freeEndsMm(guide.footprintMm!, guide.name)) {
-				const { joined, to } = isJoined(end, guide.name);
-				if (joined) {
-					continue; // a genuinely joined end -- structurally not "free" at all.
-				}
-				postDistanceChecks++;
-				let nearestDistance = Infinity;
-				let nearestName = '(none)';
-				let nearestRadius = 0;
-				for (const post of posts) {
-					const postCentreX = (post.bboxMm.min.x + post.bboxMm.max.x) / 2;
-					const postCentreY = (post.bboxMm.min.y + post.bboxMm.max.y) / 2;
-					const postRadiusMm = (post.bboxMm.max.x - post.bboxMm.min.x) / 2;
-					const distance = Math.hypot(end.x - postCentreX, end.y - postCentreY);
-					if (distance < nearestDistance) {
-						nearestDistance = distance;
-						nearestName = post.name;
-						nearestRadius = postRadiusMm;
-					}
-				}
-				expect(
-					nearestDistance,
-					`${guide.name}'s free end at table (${end.x.toFixed(2)}, ${end.y.toFixed(2)}) has no rubber_post within one post radius ` +
-					`(nearest join candidate: ${to ?? '(none)'}) -- nearest post is "${nearestName}" at ${nearestDistance.toFixed(2)} mm ` +
-					`(post radius ${nearestRadius.toFixed(2)} mm)`,
-				).toBeLessThanOrEqual(nearestRadius + 0.5); // 0.5 mm float-noise margin
+				derivedEnds.push({ guide: guide.name, end, klass: classifyEnd(end, guide.name) });
 			}
+		}
+		const expectedPostDistanceChecks = derivedEnds.filter((e) => e.klass.kind === 'free').length;
+		expect(
+			derivedEnds.length,
+			'sanity: the structural selector must derive at least one end from the committed document -- an empty census makes every assertion below vacuous',
+		).toBeGreaterThan(0);
+		expect(
+			expectedPostDistanceChecks,
+			`every one of the ${derivedEnds.length} derived end(s) was absorbed by a join or an enclosure -- the post-distance assertion below would then run on nothing at all`,
+		).toBeGreaterThan(0);
+
+		// DW-154 (a): an end strictly INSIDE another body is a distinct,
+		// DECLARED outcome -- never a silent skip. Forward direction here
+		// (undeclared -> fail, naming both bodies and the measured depth);
+		// the reverse direction (a declaration whose end is no longer
+		// enclosed) is its own test below.
+		for (const { guide, end, klass } of derivedEnds) {
+			if (klass.kind !== 'enclosed') {
+				continue;
+			}
+			const declared = ENCLOSED_END_DECLARATIONS.find(
+				(dec) => dec.body === guide && Math.hypot(dec.end.x - end.x, dec.end.y - end.y) <= BOUNDARY_EPSILON_MM,
+			);
+			expect(
+				declared,
+				`${guide}'s free end at table (${end.x.toFixed(2)}, ${end.y.toFixed(2)}) is ${klass.depthMm.toFixed(3)} mm STRICTLY INSIDE ` +
+				`"${klass.to}" -- an enclosed end, which a ball cannot reach and which therefore needs no rubber_post, but which must be ` +
+				'DECLARED in ENCLOSED_END_DECLARATIONS with the enclosing body named. An undeclared enclosure is exactly the unenumerated ' +
+				'second exemption channel DW-154 (a) names.',
+			).toBeDefined();
+			expect(
+				declared!.insideBody,
+				`${guide}'s enclosed end at (${end.x.toFixed(2)}, ${end.y.toFixed(2)}) is declared inside "${declared!.insideBody}" but measures ` +
+				`inside "${klass.to}" instead`,
+			).toBe(klass.to);
+		}
+
+		let postDistanceChecks = 0;
+		for (const { guide: guideName, end, klass } of derivedEnds) {
+			if (klass.kind !== 'free') {
+				continue; // joined into a partner's material, or declared enclosed inside it -- structurally not "free" at all.
+			}
+			postDistanceChecks++;
+			let nearestDistance = Infinity;
+			let nearestName = '(none)';
+			let nearestRadius = 0;
+			for (const post of posts) {
+				const postCentreX = (post.bboxMm.min.x + post.bboxMm.max.x) / 2;
+				const postCentreY = (post.bboxMm.min.y + post.bboxMm.max.y) / 2;
+				const postRadiusMm = (post.bboxMm.max.x - post.bboxMm.min.x) / 2;
+				const distance = Math.hypot(end.x - postCentreX, end.y - postCentreY);
+				if (distance < nearestDistance) {
+					nearestDistance = distance;
+					nearestName = post.name;
+					nearestRadius = postRadiusMm;
+				}
+			}
+			expect(
+				nearestDistance,
+				`${guideName}'s free end at table (${end.x.toFixed(2)}, ${end.y.toFixed(2)}) has no rubber_post within one post radius ` +
+				`(the end is neither joined to nor enclosed by any other body) -- nearest post is "${nearestName}" at ${nearestDistance.toFixed(2)} mm ` +
+				`(post radius ${nearestRadius.toFixed(2)} mm)`,
+			).toBeLessThanOrEqual(postDistanceBudgetMm(nearestRadius));
 		}
 		expect(
 			postDistanceChecks,
-			`the FR-31 post-distance assertion above ran on only ${postDistanceChecks} free end(s) -- it runs on 40 today (re-measured at the iteration-2 code review, 2026-09-04: 56 derived ends, 16 genuinely joined, 40 post-checked). ` +
-			'A drop means the selector, GUIDE_TERMINATION_EXEMPTIONS or isJoined() is now absorbing ends the gate used to check, which is how a green gate stops meaning anything. ' +
-			'The floor read 39 until this review -- the figure measured BEFORE this rework added col_lock_ceiling_west_fill\'s own checked end -- so exactly one end could have dropped out silently.',
-		).toBeGreaterThanOrEqual(40);
+			`the FR-31 post-distance assertion ran on ${postDistanceChecks} free end(s) but the derived census says ${expectedPostDistanceChecks} -- ` +
+			'the loop and the census disagree, which means an end is being skipped by something other than its own classification.',
+		).toBe(expectedPostDistanceChecks);
+		// Anti-vacuity, DERIVED from the subject set rather than from a
+		// literal: `toBe(expectedPostDistanceChecks)` alone would still hold
+		// if a future change started absorbing ends wholesale into joins or
+		// enclosures, because both sides would move together. At least half
+		// of every derived end must still reach the post-distance assertion.
+		expect(
+			postDistanceChecks,
+			`only ${postDistanceChecks} of ${derivedEnds.length} derived free end(s) reached the FR-31 post-distance assertion -- the rest were ` +
+			`absorbed as joined or enclosed (${derivedEnds.filter((e) => e.klass.kind === 'joined').length} joined, ` +
+			`${derivedEnds.filter((e) => e.klass.kind === 'enclosed').length} enclosed). A gate that stops checking most of its own subject set ` +
+			'is not evidence, whatever it reports.',
+		).toBeGreaterThanOrEqual(Math.ceil(derivedEnds.length / 2));
 	});
 
 	it('the guide selector is a PARTITION, not an allowlist: every surface carried by a col_/sw_ wall body is classified as guide-class or explicitly non-guide', () => {
@@ -736,16 +1086,37 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 				body!.footprintMm,
 				`${exemption.body}: this exempted body carries NO footprintMm in the committed document -- that is a lost-geometry failure, not evidence that its exemption still holds`,
 			).toBeDefined();
+			// Story 2.1f, DW-154 (c). The ledger's own wording for this
+			// sub-case -- "a staleness check that reports PASS for a body
+			// with no footprint" -- was already closed at the 2026-09-03
+			// review by the `footprintMm` assertion immediately above (this
+			// file, the `?? []` that used to feed an empty array to
+			// freeEndsMm() is gone). The HONEST RESIDUAL was this catch: it
+			// discarded the error object, so ANY throw -- a TypeError on a
+			// malformed vertex, an unrelated bug -- was laundered into "the
+			// exemption still holds". It tested "something threw", not "it
+			// threw for the shape reason". The catch now keeps the error and
+			// the assertion below checks it came from freeEndsMm() and names
+			// one of its two shape reasons.
 			let derivationFailed = false;
+			let derivationError: unknown;
 			try {
 				freeEndsMm(body!.footprintMm!, body!.name);
-			} catch {
+			} catch (error) {
 				derivationFailed = true;
+				derivationError = error;
 			}
 			expect(
 				derivationFailed,
 				`${exemption.body}: freeEndsMm() now derives a clean answer for this body (footprint: ${JSON.stringify(body!.footprintMm)}) -- the exemption ("${exemption.reason}") is stale; remove it and let this body pass through the forward check like any other guide`,
 			).toBe(true);
+			const derivationMessage = derivationError instanceof Error ? derivationError.message : String(derivationError);
+			expect(
+				derivationMessage,
+				`${exemption.body}: the exemption is justified by freeEndsMm() refusing to derive this body's free ends, but the throw that ` +
+				`actually happened was ${derivationMessage} -- not one of freeEndsMm()'s own shape reasons (point count, adjacent shortest ` +
+				'edges, or a 2nd/3rd-shortest tie). A throw for any OTHER reason is a bug being laundered into "the exemption still holds".',
+			).toMatch(/^freeEndsMm\(\): "[a-z0-9_]+" (has \d+ footprint point|has \d+ footprint point\(s\)|has a TIE)/);
 			// Code review 2026-09-03 (HIGH finding): "freeEndsMm() still
 			// throws" is a property of point count and edge adjacency alone
 			// -- it says nothing about whether the REASON above is true, and
@@ -755,6 +1126,168 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 			// level claim a machine-checked one, every run.
 			exemption.verify?.(doc);
 		}
+	});
+
+	// Story 2.1f, DW-154 (a), reverse direction. Same two-directional
+	// discipline every other allowlist in this file carries: a declaration
+	// that is no longer true fails as a stale entry rather than sitting there
+	// exempting an end that has since become bare.
+	// mutation: move col_dragon_leg_l's own north cap 2 mm further north (so
+	// it leaves col_lock_ceiling_west_fill) and re-export -> this goes red
+	// naming the body, the enclosing body it claims, and the fact that the end
+	// is now outside it.
+	it('every ENCLOSED_END_DECLARATIONS entry is still genuinely enclosed -- an end that has come out of the body it claims to be buried in fails as a stale declaration', () => {
+		const doc = readCollisionDoc();
+		expect(
+			ENCLOSED_END_DECLARATIONS.length,
+			'sanity: the enclosed-end allowlist must not be empty -- an empty list makes the forward check above unfalsifiable',
+		).toBeGreaterThan(0);
+		for (const declaration of ENCLOSED_END_DECLARATIONS) {
+			const body = doc.nodes.find((n) => n.name === declaration.body);
+			expect(body, `enclosed-end declaration names "${declaration.body}", absent from the committed document`).toBeDefined();
+			const host = doc.nodes.find((n) => n.name === declaration.insideBody);
+			expect(host, `enclosed-end declaration for "${declaration.body}" names enclosing body "${declaration.insideBody}", absent from the committed document`).toBeDefined();
+			expect(host!.footprintMm, `${declaration.insideBody}: an enclosing body must carry a footprintMm polygon`).toBeDefined();
+			const poly = host!.footprintMm!;
+			let inside = false;
+			for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+				const vi = poly[i]!;
+				const vj = poly[j]!;
+				const crosses = vi.y > declaration.end.y !== vj.y > declaration.end.y;
+				if (crosses && declaration.end.x < ((vj.x - vi.x) * (declaration.end.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+					inside = !inside;
+				}
+			}
+			let depthMm = Infinity;
+			for (let i = 0; i < poly.length; i++) {
+				const a = poly[i]!;
+				const b = poly[(i + 1) % poly.length]!;
+				const dx = b.x - a.x;
+				const dy = b.y - a.y;
+				const len2 = dx * dx + dy * dy;
+				let t = len2 === 0 ? 0 : ((declaration.end.x - a.x) * dx + (declaration.end.y - a.y) * dy) / len2;
+				t = Math.max(0, Math.min(1, t));
+				depthMm = Math.min(depthMm, Math.hypot(declaration.end.x - (a.x + t * dx), declaration.end.y - (a.y + t * dy)));
+			}
+			expect(
+				inside,
+				`${declaration.body}'s declared enclosed end (${declaration.end.x.toFixed(2)}, ${declaration.end.y.toFixed(2)}) is NOT inside ` +
+				`"${declaration.insideBody}" in the committed document (nearest edge ${depthMm.toFixed(3)} mm away) -- the declaration is stale ` +
+				'and the end is bare, so it needs a rubber_post or a corrected record',
+			).toBe(true);
+			expect(
+				depthMm,
+				`${declaration.body}'s declared enclosed end (${declaration.end.x.toFixed(2)}, ${declaration.end.y.toFixed(2)}) is only ` +
+				`${depthMm.toFixed(3)} mm inside "${declaration.insideBody}" -- that is within the boundary epsilon a genuine JOIN uses, so ` +
+				'this is not an enclosure at all',
+			).toBeGreaterThan(0.05);
+		}
+	});
+
+	// Story 2.1f, DW-154 (d): NOTHING in this repository asserted that a
+	// rubber_post actually protrudes. All that was ever checked was Euclidean
+	// distance from a free-end midpoint to the nearest post's own BBOX CENTRE
+	// -- so a post entirely inside another body satisfied FR-31 while the end
+	// it nominally terminates was, in fact, bare. Measured before this story:
+	// FOUR of the 48 posts were entirely covered by the union of the non-post
+	// col_ wall footprints (col_post_lock_ceiling_e, col_post_lock_ceiling_w,
+	// col_post_lock_ceiling_west_fill_e and col_post_dragon_leg_l), and a
+	// fifth (col_post_sling_r_west) stood 7 of its 8 vertices inside
+	// col_sling_r with 0.500 mm proud. Three of those are removed by this
+	// story as enclosed ends, the fifth is re-sited onto its own cap midpoint.
+	//
+	// The subject set is DERIVED from the document (`surface === 'rubber_post'`),
+	// never hand-listed, so a post added later is judged without anyone
+	// remembering to list it.
+	// mutation: move any rubber_post entirely inside its neighbouring body's
+	// footprint in the committed document -> this gate goes red naming the
+	// post and the burying body.
+	it('every rubber_post presents collision surface OUTSIDE the union of the non-post col_ wall footprints -- a buried post terminates nothing (DW-153/DW-154 (d))', () => {
+		const doc = readCollisionDoc();
+		const posts = doc.nodes.filter((n) => n.surface === 'rubber_post');
+		const walls = doc.nodes.filter((n) => n.shape === 'wall' && n.surface !== 'rubber_post' && n.footprintMm !== undefined);
+		expect(posts.length, 'sanity: at least one rubber_post must be authored, or this gate is vacuous').toBeGreaterThan(0);
+		expect(walls.length, 'sanity: at least one non-post wall body must be authored, or every post trivially "protrudes"').toBeGreaterThan(0);
+
+		/** How far outside every wall a sample must sit to count as exposed -- the same float-noise margin the post-distance budget carries. */
+		const EXPOSURE_MARGIN_MM = POST_DISTANCE_FLOAT_NOISE_MM;
+		function insidePolygon(poly: ReadonlyArray<{ readonly x: number; readonly y: number }>, point: { readonly x: number; readonly y: number }): boolean {
+			let inside = false;
+			for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+				const vi = poly[i]!;
+				const vj = poly[j]!;
+				const crosses = vi.y > point.y !== vj.y > point.y;
+				if (crosses && point.x < ((vj.x - vi.x) * (point.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+					inside = !inside;
+				}
+			}
+			return inside;
+		}
+		function edgeDistanceMm(poly: ReadonlyArray<{ readonly x: number; readonly y: number }>, point: { readonly x: number; readonly y: number }): number {
+			let nearest = Infinity;
+			for (let i = 0; i < poly.length; i++) {
+				const a = poly[i]!;
+				const b = poly[(i + 1) % poly.length]!;
+				const dx = b.x - a.x;
+				const dy = b.y - a.y;
+				const len2 = dx * dx + dy * dy;
+				let t = len2 === 0 ? 0 : ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+				t = Math.max(0, Math.min(1, t));
+				nearest = Math.min(nearest, Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)));
+			}
+			return nearest;
+		}
+
+		let exposedPosts = 0;
+		for (const post of posts) {
+			expect(post.footprintMm, `${post.name}: a rubber_post must carry a footprintMm polygon`).toBeDefined();
+			const ring = post.footprintMm!;
+			// Sample the post's own boundary: every vertex AND every edge
+			// midpoint. Vertices alone miss a post whose only exposure is
+			// along a face, which is a real case in the committed document
+			// (col_post_lock_ceiling_west_fill_e sits in the seam between
+			// col_lock_ceiling_west_fill and col_lock_ceiling).
+			const samples: { x: number; y: number }[] = [];
+			for (let i = 0; i < ring.length; i++) {
+				const a = ring[i]!;
+				const b = ring[(i + 1) % ring.length]!;
+				samples.push({ x: a.x, y: a.y });
+				samples.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+			}
+			let bestExposureMm = -1;
+			let buryingBody = '(none -- the post is exposed)';
+			let deepestCover = -1;
+			for (const sample of samples) {
+				let coveredBy: string | undefined;
+				let clearanceMm = Infinity;
+				for (const wall of walls) {
+					const poly = wall.footprintMm!;
+					const distance = edgeDistanceMm(poly, sample);
+					if (insidePolygon(poly, sample) || distance <= EXPOSURE_MARGIN_MM) {
+						if (distance > deepestCover) {
+							deepestCover = distance;
+							buryingBody = wall.name;
+						}
+						coveredBy = wall.name;
+						break;
+					}
+					clearanceMm = Math.min(clearanceMm, distance);
+				}
+				if (coveredBy === undefined && clearanceMm > bestExposureMm) {
+					bestExposureMm = clearanceMm;
+				}
+			}
+			expect(
+				bestExposureMm,
+				`${post.name} presents NO collision surface outside the union of the non-post col_ wall footprints -- every sampled point on ` +
+				`its own boundary lies inside another body (deepest cover: "${buryingBody}"). A buried post terminates nothing: the guide end ` +
+				'it nominally protects is bare in fact while this gate reads green. Either the end is genuinely enclosed (declare it in ' +
+				'ENCLOSED_END_DECLARATIONS and delete the post) or the post must be re-sited so it protrudes.',
+			).toBeGreaterThan(0);
+			exposedPosts++;
+		}
+		// Anti-vacuity, derived from the subject set: every post was judged.
+		expect(exposedPosts, 'the protrusion gate must judge every derived rubber_post').toBe(posts.length);
 	});
 
 	// Story 2.1d code review (2026-09-03), AC 7 (DW-128). The hardened
@@ -782,6 +1315,29 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 			expect(() => freeEndsMm(wedge, 'col_fake_wedge')).toThrowError(/col_fake_wedge/);
 			expect(() => freeEndsMm(wedge, 'col_fake_wedge')).toThrowError(/ADJACENT/);
 			expect(() => freeEndsMm(wedge, 'col_fake_wedge')).toThrowError(/4 footprint point/);
+		});
+
+		// Story 2.1f, DW-154 (b). A genuine tie between the 2nd- and
+		// 3rd-shortest edges used to be resolved by FOOTPRINT VERTEX ORDER --
+		// which tools/export.py's hull pass controls and nothing here asserts
+		// -- and for a 3-way tie the ADJACENT guard does not even fire,
+		// because the sort picks indices 0 and 2 and indexDiff === 2. The
+		// result was a silently WRONG opposite pair.
+		it('a 2nd/3rd-shortest-edge TIE throws naming the body and the tied edge lengths, instead of resolving by vertex order', () => {
+			// A square: all four edges 10 mm, so every pair ties. Under the
+			// old derivation this returned indices 0 and 2 -- an answer that
+			// looks correct and is chosen by vertex order alone.
+			const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+			expect(() => freeEndsMm(square, 'col_fake_square')).toThrowError(/col_fake_square/);
+			expect(() => freeEndsMm(square, 'col_fake_square')).toThrowError(/TIE/);
+			expect(() => freeEndsMm(square, 'col_fake_square')).toThrowError(/10\.000/);
+		});
+
+		it('a near-tie OUTSIDE the epsilon still derives -- the tie throw is discriminating, not unconditional', () => {
+			// 2nd shortest 20.000, 3rd shortest 20.400: a 0.400 mm gap,
+			// outside FREE_END_TIE_EPSILON_MM (0.3) and so still derivable.
+			const nearTie = [{ x: 0, y: 0 }, { x: 20.4, y: 0 }, { x: 20.4, y: 20 }, { x: 0, y: 20 }];
+			expect(() => freeEndsMm(nearTie, 'col_fake_near_tie')).not.toThrow();
 		});
 
 		it('a well-formed quad still derives its two opposite end-cap midpoints', () => {
@@ -1145,14 +1701,78 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		expect(dividerR.bboxMm.max.y, 'the RIGHT divider guide must end below the RIGHT slingshot\'s own footprint').toBeLessThan(slingR.bboxMm.min.y);
 	});
 
-	it('the Ramp entrance\'s clear width (between its two up-channel walls) is the authored 34 mm (RAMP_LANE_CLEAR_MM)', () => {
+	// [STORY 2.1f] Re-authored from 34 to 56, deliberately, as one term of the
+	// bottom-right corridor budget (DW-137/DW-136). The channel's own WEST
+	// edge is what the corridor re-solve had to move -- 338.0 -> 298.4, so a
+	// ball rising west of col_sling_r is already inside the Ramp channel --
+	// and the EAST wall moved with it, to 354.4, only as far as the ball
+	// allows: the slot between col_ramp_wall_r and col_loop_r_lower has to
+	// stay SUB-BALL (measured 24.0 mm against a 26.99 mm ball; at
+	// RAMP_LANE_CLEAR_MM = 52 it would have been 28.0 mm and a ball would sit
+	// in it). 56.0 is still narrower than LOOP_LANE_CLEAR_MM (66.0), the
+	// relation the constant's own comment in the seeding script asks for.
+	// mutation: change RAMP_LANE_CLEAR_MM in the seeding script and re-export
+	// -> this measured width moves with it.
+	it('the Ramp entrance\'s clear width (between its two up-channel walls) is the authored 56 mm (RAMP_LANE_CLEAR_MM), and still narrower than a Loop lane', () => {
 		const doc = readCollisionDoc();
 		const wallL = doc.nodes.find((n) => n.name === 'col_ramp_wall_l');
 		const wallR = doc.nodes.find((n) => n.name === 'col_ramp_wall_r');
+		const loopR = doc.nodes.find((n) => n.name === 'col_loop_r');
+		const wallLane = doc.nodes.find((n) => n.name === 'col_wall_lane');
+		const loopRLower = doc.nodes.find((n) => n.name === 'col_loop_r_lower');
 		expect(wallL, 'col_ramp_wall_l missing').toBeDefined();
 		expect(wallR, 'col_ramp_wall_r missing').toBeDefined();
+		expect(loopR, 'col_loop_r missing').toBeDefined();
+		expect(wallLane, 'col_wall_lane missing').toBeDefined();
+		expect(loopRLower, 'col_loop_r_lower missing').toBeDefined();
 		const clearWidth = wallR!.bboxMm.min.x - wallL!.bboxMm.max.x;
-		expect(clearWidth, 'the Ramp\'s own clear channel width').toBeCloseTo(34, 1);
+		expect(clearWidth, 'the Ramp\'s own clear channel width').toBeCloseTo(56, 1);
+		expect(
+			clearWidth,
+			'the Ramp channel must stay narrower than a Loop lane -- the relation RAMP_LANE_CLEAR_MM carries in the seeding script',
+		).toBeLessThan(wallLane!.bboxMm.min.x - loopR!.bboxMm.max.x);
+		expect(
+			loopRLower!.bboxMm.min.x - wallR!.bboxMm.max.x,
+			'the dead slot between the Ramp east wall and the Right Loop lower rail must stay SUB-BALL, or it becomes a pocket a ball can sit in',
+		).toBeLessThan(TABLE.reference.ballMm);
+	});
+
+	// [STORY 2.1f, AC 3] The corridor tunable itself, pinned so a later change
+	// cannot silently re-narrow the thing DW-137 and DW-136 were about. This
+	// is RAMP_CORRIDOR_CLEAR_MM in tools/make-placeholder-blend.py: the clear
+	// width from col_ramp_wall_l's own east face to col_sling_r's own west
+	// face, which is exactly the quantity pnpm check:corridor measures.
+	// mutation: change RAMP_CORRIDOR_CLEAR_MM in the seeding script and
+	// re-export -> this gate goes red naming the measured width, the tunable
+	// and the delta.
+	it('the bottom-right corridor clear width is the authored 34 mm (RAMP_CORRIDOR_CLEAR_MM) and admits a ball into the Ramp channel (DW-137/DW-136)', () => {
+		const doc = readCollisionDoc();
+		const wallL = doc.nodes.find((n) => n.name === 'col_ramp_wall_l');
+		const slingR = doc.nodes.find((n) => n.name === 'col_sling_r');
+		const guideOuterR = doc.nodes.find((n) => n.name === 'col_guide_outer_r');
+		expect(wallL, 'col_ramp_wall_l missing').toBeDefined();
+		expect(slingR, 'col_sling_r missing').toBeDefined();
+		expect(guideOuterR, 'col_guide_outer_r missing').toBeDefined();
+		const rampCorridorClearMm = 34.0;
+		const measured = slingR!.bboxMm.min.x - wallL!.bboxMm.max.x;
+		expect(
+			measured,
+			`the bottom-right corridor clear width measures ${measured.toFixed(3)} mm against the authored RAMP_CORRIDOR_CLEAR_MM ` +
+			`(${rampCorridorClearMm.toFixed(3)} mm) -- a delta of ${(measured - rampCorridorClearMm).toFixed(3)} mm`,
+		).toBeCloseTo(rampCorridorClearMm, 1);
+		expect(
+			measured,
+			'DW-137: the corridor must admit a ball into the Ramp channel -- col_sling_r west face at least one ball diameter east of col_ramp_wall_l east face',
+		).toBeGreaterThanOrEqual(TABLE.reference.ballMm);
+		// The DRAGON-bank half of the same corridor (DW-136): ball-centre
+		// freedom between col_guide_outer_r east face and col_sling_r west
+		// face. 7.485 mm before this story, which is what made most of the six
+		// targets unstrikable from below; 25.885 mm after it.
+		const centreFreedomMm = slingR!.bboxMm.min.x - guideOuterR!.bboxMm.max.x - TABLE.reference.ballMm;
+		expect(
+			centreFreedomMm,
+			`the DRAGON bank approach corridor gives ${centreFreedomMm.toFixed(3)} mm of ball-centre freedom -- it was 7.485 mm before Story 2.1f`,
+		).toBeGreaterThan(20);
 	});
 
 	it('the Lock lane\'s clear width (between the Dragon\'s two legs) is the authored 40 mm (LOCK_LANE_CLEAR_MM)', () => {
@@ -1198,10 +1818,27 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		expect(first, 'col_dragon_d missing').toBeDefined();
 		expect(last, 'col_dragon_n missing').toBeDefined();
 		const width = last!.bboxMm.max.x - first!.bboxMm.min.x;
-		// Independent of DRAGON_BANK_X0_MM's own value (240, Story 2.1c
-		// rework): pitch=14mm x 5 gaps + target width 11mm = 70 + 11 = 81 mm
-		// outer-to-outer.
-		expect(width, 'the DRAGON bank\'s own outer-to-outer span (col_dragon_d\'s left edge to col_dragon_n\'s right edge)').toBeCloseTo(81, 1);
+		// Independent of DRAGON_BANK_X0_MM's own value (itself derived since
+		// Story 2.1f): pitch x 5 gaps + one target width, outer-to-outer.
+		// [STORY 2.1f] 81 -> 65: DRAGON_BANK_PITCH_MM 14 -> 11 and
+		// DRAGON_BANK_TARGET_W_MM 11 -> 10, deliberately, because the
+		// bottom-right corridor budget needed 16 mm out of the bank and this
+		// is where it came from. The six targets still stand 1.0 mm apart.
+		// mutation: change DRAGON_BANK_PITCH_MM in the seeding script and
+		// re-export -> this measured span moves with it.
+		expect(width, 'the DRAGON bank\'s own outer-to-outer span (col_dragon_d\'s left edge to col_dragon_n\'s right edge)').toBeCloseTo(65, 1);
+		// Non-vacuity on the pitch itself: six distinct targets, evenly
+		// spaced, never one wide body -- derived from the six bodies rather
+		// than re-asserting the constant.
+		const letters = ['d', 'r', 'a', 'g', 'o', 'n'];
+		const centres = letters.map((letter) => {
+			const node = doc.nodes.find((n) => n.name === `col_dragon_${letter}`);
+			expect(node, `col_dragon_${letter} missing`).toBeDefined();
+			return (node!.bboxMm.min.x + node!.bboxMm.max.x) / 2;
+		});
+		for (let i = 1; i < centres.length; i++) {
+			expect(centres[i]! - centres[i - 1]!, `the DRAGON bank pitch between target ${letters[i - 1]} and ${letters[i]}`).toBeCloseTo(11, 1);
+		}
 	});
 
 	// Story 2.1c code review pass 3: the pass-2 HIGH finding this rework
@@ -1432,33 +2069,19 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 	// beside the add_rubber_post('col_post_lock_ceiling_west_fill_e', ...)
 	// call for the current, DERIVED (not hand-measured) coordinate.
 
-	// Rework iteration 3 (code review 2026-09-04, MED finding -- discovered
-	// while fixing it, not named by the review itself): the SAME
-	// isJoined() point-in-polygon fix above also newly discovers that
-	// col_dragon_leg_l's own north-cap free end (120.00, 610.00, Story
-	// 2.1b) now tests genuinely INSIDE col_lock_ceiling_west_fill's own
-	// footprint -- a real, deliberate consequence of THIS story's own
-	// geometry, not a bug in the check. col_lock_ceiling_west_fill's own
-	// south edge is, by construction, "the SAME two-point line the leg's
-	// own cap is, merely shifted" LOCK_FILL_WEST_MARGIN_MM (2 mm) south of
-	// it for the ENTIRE 60 mm run (tools/make-placeholder-blend.py's own
-	// comment on col_lock_ceiling_west_fill) -- so the leg's own cap edge,
-	// end to end, sits 2 mm inside west_fill's own material, exactly as
-	// deliberately authored to guarantee west_fill "can never fall short of
-	// that leg's own true boundary anywhere along its run". The pre-
-	// existing `col_post_dragon_leg_l` (Story 2.1b, before west_fill
-	// existed) is therefore now a defensive post over an end that is
-	// independently safe either way -- pinned directly here, the same
-	// pattern as col_post_lock_ceiling_west_fill_e immediately above, so it
-	// cannot silently vanish unnoticed even though the forward gate no
-	// longer needs it.
-	// mutation: delete col_post_dragon_leg_l from
-	// public/assets/dragonwar.collision.json -> this assertion goes red;
-	// verified directly during this rework, then reverted.
-	it('col_post_dragon_leg_l is present near col_dragon_leg_l\'s own north-cap free end (120.00, 610.00) -- a defensive post over an end that col_lock_ceiling_west_fill\'s own 2 mm overlap margin (added this story) now genuinely embeds', () => {
-		const doc = readCollisionDoc();
-		expectPostNear(doc, { x: 120.0, y: 610.0 }, 'col_dragon_leg_l\'s own north-cap free end (col_post_dragon_leg_l)');
-	});
+	// [STORY 2.1f] The hand-written one-off that stood here -- "col_post_dragon_leg_l
+	// is present near col_dragon_leg_l's own north-cap free end (120.00,
+	// 610.00)" -- is RETIRED, along with the post it pinned. DW-154 (a)'s own
+	// point is that this end was taking isJoined()'s unnamed strictly-interior
+	// branch, so it never reached the FR-31 post-distance assertion and the
+	// post was never load-bearing through the gate; a hand-written assertion
+	// beside it compensated for one instance of a general hole. The hole is
+	// now closed generally: the end is an ENCLOSED_END_DECLARATIONS entry
+	// (measured 1.897 mm inside col_lock_ceiling_west_fill), checked in both
+	// directions by the FR-31 describe block above, and the post -- which had
+	// all eight vertices inside that same body and contributed no collision
+	// surface -- is gone.
+
 
 	it('the four true perimeter walls (left, top, right, lane) now reach the glass (DW-53: PERIMETER_WALL_H_MM = GLASS_Z_MM = 400), while col_wall_lane_bottom -- not a true perimeter wall -- stays at the interior WALL_H_MM = 50', () => {
 		const doc = readCollisionDoc();

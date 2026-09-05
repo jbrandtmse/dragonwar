@@ -94,8 +94,26 @@ const GLASS_Z_MM = 400;
  * worst-observed hit (absorbs the hit-1-vs-hit-2/3 gap above without being
  * vacuous). Both are well below the old, defect-hiding 6.0 mm.
  */
-const CONTACT_EPSILON_MEDIAN_MM = 4.0;
-/** See `CONTACT_EPSILON_MEDIAN_MM`'s own comment for the full measured basis -- this is the worst (largest) of the three per-hit peaks, plus real headroom, still well below the old 6.0 mm. mutation: lower to 4.0 (below the measured 4.1857 mm worst hit) -> the worst-case assertion below goes red; confirmed, then reverted, tree byte-identical. */
+// [RE-MEASURED 2026-09-04, STORY 2.1f] 4.0 -> 4.5, and the distribution
+// the paragraph above records moves with it: 4.6250 mm (hit 1), 4.2250 mm
+// (hit 2), 4.2250 mm (hit 3) -- median 4.2250, worst 4.6250, against the
+// pre-2.1f 4.1857 / 3.6730 / 3.6730. NOT a threshold relaxed to hide a
+// regression: this harness places its ball on the LEFT bat at (210, 85)
+// and runs 400 held ticks, so the struck ball crosses most of the table,
+// and Story 2.1f moved bodies it passes. Traced directly, old document
+// against new: the maximum-z tick is the SAME tick in both runs (relative
+// 314 / 324) and the ball is airborne in open field at it -- (188.97,
+// 455.71) before, (178.31, 457.28) after -- so the excursion is the same
+// contact-response artefact, from a trajectory that now bounces off
+// col_post_dragon_leg_r_south at (201.70, 480.00) where it used to bounce
+// off it at (212.50, 480.00) (the post follows col_dragon_leg_r, which
+// the corridor budget narrowed from 45.0 to 23.4 mm). hopControl is 0 in
+// this run, and this file's own "hopControl = 0 is the exact identity"
+// and negative-hopControl tests prove applyPostStep() is an unconditional
+// no-op there, so no part of this figure is a hop. The WORST-case bound
+// (CONTACT_EPSILON_WORST_MM = 5.0) did NOT move: 4.6250 still clears it.
+const CONTACT_EPSILON_MEDIAN_MM = 4.5;
+/** See `CONTACT_EPSILON_MEDIAN_MM`'s own comment for the full measured basis -- this is the worst (largest) of the three per-hit peaks, plus real headroom, still well below the old 6.0 mm. UNCHANGED by Story 2.1f: the re-measured worst hit is 4.6250 mm and still clears it. mutation: lower to 4.5 (below the measured 4.6250 mm worst hit) -> the worst-case assertion below goes red. */
 const CONTACT_EPSILON_WORST_MM = 5.0;
 /** Measured this pass (see this file's header): a single driven-bat strike produces ~11.9 mm of margin at the shipped default over the zero run. Half that, so the assertion is not brittle against small solver-noise drift while still being a REAL, named margin (never merely `> 0`). */
 const NAMED_MARGIN_MM = 5;
@@ -190,7 +208,7 @@ function runStressReplayOfHardFlipperHits(hopControl: number): number[] {
 }
 
 describe('src/sim/physics/hop.ts -- AC 2, the paired hopControl=0-vs-default stress replay', () => {
-	it('hopControl = 0: no ball\'s z exceeds the playfield surface (+ contact epsilon) on any tick, by median AND worst-case bound (mutation: lower CONTACT_EPSILON_MEDIAN_MM to 3.5, below the measured 3.6730 mm median -> this test goes red)', () => {
+	it('hopControl = 0: no ball\'s z exceeds the playfield surface (+ contact epsilon) on any tick, by median AND worst-case bound (mutation: lower CONTACT_EPSILON_MEDIAN_MM to 4.0, below the measured 4.2250 mm median -> this test goes red)', () => {
 		const perHitMaxZmm = runStressReplayOfHardFlipperHits(0);
 		const restHeightMm = TABLE.reference.ballMm / 2;
 		const medianZmm = median(perHitMaxZmm);

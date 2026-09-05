@@ -391,6 +391,7 @@ LOOP_TOP_END_X_MM = 50.0
 # run against the regenerated document), across the whole table and down
 # the left side -- see this file's own PLUNGE_DEFLECTOR_DROP_MM below for
 # the resulting geometry and the trace this angle was chosen against.
+PLUNGE_DEFLECTOR_CAP_RISE_MM = PLAYFIELD_H_MM - LOOP_TOP_INNER_Y_MM  # [STORY 2.1f] = 50.0. How far col_loop_r_deflector's own NE vertex rises above LOOP_TOP_INNER_Y_MM: all the way to the playfield's own top-right corner, so the pocket that used to sit above its flat north face does not exist at all. The resulting face is atan(50/34) = 55.8 deg, the mirror of the deflector's own hypotenuse. A 17 mm rise (26.57 deg, comfortably above the 16.699 deg slide threshold) was tried first and measured INSUFFICIENT -- a ball released at (497.40, 1046.0) still came to permanent rest ON the sloped face, at (493.90, 1038.63) -- so the pocket was removed rather than merely tilted. See the deflector's own node comment.
 PLUNGE_DEFLECTOR_DROP_MM = 50.0  # 34 mm run (the shooter lane's own clear width) at theta = atan(50/34) = 55.8 deg -- see the deflector's own node comment for why 85 (68.2 deg, tried first) is too steep: it lowers the hypotenuse's own low point (B) below LANE_WALL_TOP_Y_MM = 950, back into col_wall_lane's own reach, and a steep leftward bounce there rams the ball straight into that wall a few mm later, the same corner-trap class DW-119 already named elsewhere. 50 mm keeps the whole hypotenuse comfortably above 950 (B.y = 966.8) while still climbing far more than the original 34 mm did.
 
 # Spinner (task 4, Left Loop only -- SPEC CAP-26 success clause,
@@ -415,7 +416,13 @@ SPINNER_Y_MM = 648.0  # authored -- roughly midway along the Left Loop's straigh
 # figure a later story's visual ramp mesh would use, recorded honestly as
 # unverified rather than modelled physically, since this collision model
 # cannot express it yet.
-RAMP_LANE_CLEAR_MM = 34.0  # authored -- comparable to a real ramp entrance width, narrower than the loop
+# [STORY 2.1f] RAMP_LANE_CLEAR_MM is no longer authored here. The Ramp's own
+# channel is one term of the bottom-right corridor budget (DW-137/DW-136), so
+# it is DERIVED, with the rest of that budget, in the single block that owns
+# it -- see "## Story 2.1f: the bottom-right corridor budget" below
+# (immediately after the slingshot constants). Its shipped value is 56.0 mm,
+# still narrower than LOOP_LANE_CLEAR_MM (66.0), and the measurement that
+# chose it is recorded there.
 # Story 2.1c: moved 372 -> 355 (west). The Right Loop lane widened to
 # LOOP_LANE_CLEAR_MM = 66, so col_loop_r's own west face came in to 390.4
 # and col_ramp_wall_r (ramp_lane_x1 .. +WALL_T_MM) had to clear it; the
@@ -426,7 +433,11 @@ RAMP_LANE_CLEAR_MM = 34.0  # authored -- comparable to a real ramp entrance widt
 # recorded in docs/decisions.md and docs/feel-test.md but carried NO note
 # at the constant, which this story's own Always rule requires; added at
 # code review, 2026-09-03 -- no value moved.]
-RAMP_ENTER_X_MM = 355.0  # authored -- right of centre (> 257.2); pushed right of the DRAGON bank's own column (below) so neither shadows the other
+# [STORY 2.1f] RAMP_ENTER_X_MM is no longer authored here either -- same
+# reason as RAMP_LANE_CLEAR_MM above: the channel's own west edge is now the
+# term the corridor budget solves for, so the entrance x is the channel's own
+# midpoint and is derived in that block. Its shipped value is 326.4, still
+# right of centre (> PLAYFIELD_W_MM / 2 = 257.2).
 # Story 2.1c: raised from 470. With both slingshots moved inboard to clear
 # the inlane mouths, col_sling_r's own sloped north face now runs directly
 # under the Ramp's own entrance, and a ball rolling down it wedged in the
@@ -469,6 +480,8 @@ RAMP_TURN_Y0_MM = 800.0  # swept 788/792/795/800/805 against the real pipeline; 
 # is the catcher for a weaker one, and it stops the 6.4 mm slot between the
 # Ramp's own east wall and the Right Loop's lower rail from ever holding a
 # ball.
+RAMP_TURN_THICKNESS_MM = 26.0  # the turn's own east-end height, unchanged from 2.1c; [STORY 2.1f] named rather than a bare literal in the prism above
+RAMP_TURN_NORTH_DEG = 21.0  # [STORY 2.1f] the turn's own north face grade -- see the prism's own comment for the measurement (pre-2.1f face 20.89 deg; slide threshold atan(0.3) = 16.699 deg)
 RAMP_RETURN_END_X_MM = 402.0
 RAMP_RETURN_END_Y_MM = 770.0
 RAMP_HEIGHT_MM = 90.0  # authored -- the visual ramp's rise, unused by this collision model (see the note above); would be confirmed by a Reference-machine measurement once art replaces the placeholder (Story 5.x)
@@ -527,7 +540,13 @@ LOCK_LANE_CLEAR_MM = 40.0  # authored -- "a narrow lane admitting a precise shot
 # stranding above does not reproduce (re-verified against the real
 # pipeline after the split).
 DRAGON_LEG_L_W_MM = 60.0
-DRAGON_LEG_R_W_MM = 45.0
+# [STORY 2.1f] DRAGON_LEG_R_W_MM is no longer authored here. It is the WEST
+# end of the bottom-right corridor budget -- everything between the Lock
+# lane's own east wall (lock_lane_x1 = 190.0) and col_sling_r's own east face
+# (370.4) is one chain, and this leg is the term that absorbs what the
+# corridor takes. Derived in "## Story 2.1f: the bottom-right corridor
+# budget" below (after the slingshot constants); shipped value 23.4 mm,
+# measured down from 45.0.
 DRAGON_LEG_Y0_MM = 480.0
 DRAGON_LEG_Y1_MM = 620.0
 # Story 2.1d rework iteration 2 (code review 2026-09-03, HIGH -- the AC 2
@@ -916,9 +935,13 @@ DRAGON_BANK_Y1_MM = 708.0
 # bodies it MAY move -- so "not this story's own geometry to move" was
 # wrong on both counts. Ledgered as DW-136 (the ledger, not this comment,
 # is authoritative on the id; see also SLING_R_X0_MM's own note).
-DRAGON_BANK_X0_MM = 240.0
-DRAGON_BANK_PITCH_MM = 14.0  # authored -- centre-to-centre spacing between the six targets, narrowed to fit clear of both legs and the Ramp
-DRAGON_BANK_TARGET_W_MM = 11.0
+# [STORY 2.1f] DRAGON_BANK_X0_MM is no longer authored here -- the bank is a
+# middle term of the bottom-right corridor budget and is derived in
+# "## Story 2.1f: the bottom-right corridor budget" below (after the
+# slingshot constants), east-to-west from col_ramp_wall_l's own new west
+# face. Shipped value 217.4, measured down from 240.0.
+DRAGON_BANK_PITCH_MM = 11.0  # [STORY 2.1f] authored -- centre-to-centre spacing between the six targets. Was 14.0; the corridor budget (below) needed 15 mm out of the bank's own outer-to-outer width and this is where it came from, since the six targets keep a 1.0 mm gap between neighbours at this pitch and DRAGON_BANK_TARGET_W_MM = 10.0.
+DRAGON_BANK_TARGET_W_MM = 10.0  # [STORY 2.1f] authored -- was 11.0. Still well under the reference ball's own 13.495 mm radius, which is what the backstop note below turns on, so the argument there is unchanged.
 
 # Top lanes (task 7): three, in the upper field on the launched ball's own
 # path (above the Ramp and the pop nest, below the loop's own top connector).
@@ -1000,8 +1023,133 @@ SLING_Y1_MM = 455.0
 # moved to clear the widened Right Loop lane the orbit needs -- but the
 # right-side budget (sling span, Ramp walls, DRAGON bank, loop lane) has to
 # be re-solved together, which is a decision above this constant.
+#
+# [RESOLVED 2026-09-04, STORY 2.1f] That re-solve is done, and the two
+# consequences above are closed. SLING_R_X0_MM is no longer a bare literal:
+# it is derived from SLING_R_SPAN_MM in the corridor budget block
+# immediately below, which owns the whole chain from the Lock lane's own east
+# wall to this sling's own east face and carries the measurement for every
+# term in it. The shipped face moved 314.0 -> 332.4; the DRAGON bank corridor
+# is 52.875 mm (25.885 mm of ball-centre freedom, was 7.485), the Ramp
+# channel's own west edge came west to 298.4 so the corridor overlaps it by
+# 34.000 mm against a 26.990 mm ball, and DW-137's own gate
+# (pnpm check:corridor) reads +34.000 where it read -24.000. The asymmetry
+# note above is also narrowed rather than closed: col_sling_l 32.0 mm,
+# col_sling_r 38.0 mm (was 56.4), and 38.0 is a floor this story cannot go
+# under -- see the corridor block's measurement 1 (DW-128 / freeEndsMm).
 SLING_L_X0_MM, SLING_L_X1_MM = LOOP_LANE_CLEAR_MM + LOOP_FUNNEL_OFFSET_MM + GUIDE_T_MM, 130.0
-SLING_R_X0_MM, SLING_R_X1_MM = 314.0, LANE_X0_MM - LOOP_LANE_CLEAR_MM - LOOP_FUNNEL_OFFSET_MM - GUIDE_T_MM
+SLING_R_X1_MM = LANE_X0_MM - LOOP_LANE_CLEAR_MM - LOOP_FUNNEL_OFFSET_MM - GUIDE_T_MM
+
+# ---------------------------------------------------------------------------
+# ## Story 2.1f: the bottom-right corridor budget (DW-137, DW-136)
+# ---------------------------------------------------------------------------
+# ONE chain, solved as one budget, because every attempt to move a single
+# body in it re-narrows something another delivered shot needs. It runs west
+# to east from the Lock lane's own east wall (lock_lane_x1 = DRAGON_CENTER_X_MM
+# + LOCK_LANE_CLEAR_MM / 2 = 190.0, fixed by Story 2.1d's Lock-lane geometry,
+# which this story does not touch) to col_sling_r's own east face
+# (SLING_R_X1_MM = 370.4, derived above and NOT free -- it is flush with
+# col_guide_inlane_r's own west face and with col_loop_r_funnel's own SW
+# vertex, and Story 2.1c moved it there to open the right inlane mouth from
+# 11.5 mm to 39.1 mm). Total 180.4 mm, and every term below is spent out of
+# it:
+#
+#   190.0  lock_lane_x1                       (fixed, Story 2.1d)
+#   + DRAGON_LEG_R_W_MM                23.4   -> col_dragon_leg_r east 213.4
+#   + DRAGON_BANK_LEG_CLEAR_MM          4.0
+#   + bank outer-to-outer               65.0  -> col_dragon_n east      282.4
+#   + DRAGON_BANK_RAMP_CLEAR_MM         4.0
+#   + WALL_T_MM                        12.0   -> col_ramp_wall_l 286.4..298.4
+#   + RAMP_CORRIDOR_CLEAR_MM           34.0   -> col_sling_r west      332.4
+#   + SLING_R_SPAN_MM                  38.0   -> col_sling_r east      370.4
+#   ------------------------------------------------------------------------
+#                                     180.4   = 370.4 - 190.0            [OK]
+#
+# WHAT THE STORY BOUGHT, measured against the committed document this story
+# started from (baseline 65c14b2 / bf0f33c, both identical in geometry):
+#
+#   the gate condition, col_sling_r.min.x - col_ramp_wall_l.max.x:
+#       was 314.000 - 338.000 = -24.000        (a 50.990 mm SHORTFALL against
+#                                               the 26.990 mm ball diameter)
+#       now 332.400 - 298.400 = +34.000        (26.990 + 7.010 mm of margin)
+#
+#   the DRAGON bank's own approach corridor, col_guide_outer_r's east face
+#   (279.525, genuinely unmoved 2.1a geometry) to col_sling_r's west face:
+#       was 34.475 mm ->  7.485 mm of ball-centre freedom
+#       now 52.875 mm -> 25.885 mm of ball-centre freedom  (3.46x)
+#   and at y = 420, where col_post_outer_r_hi reaches x = 280.525:
+#       was 33.475 mm ->  6.485 mm;  now 51.875 mm -> 24.885 mm
+#
+# TWO MEASUREMENTS THAT DECIDED TERMS, both of them things a "just move the
+# sling east" solve would have got wrong:
+#
+#  1. SLING_R_SPAN_MM = 38.0 is NOT free to shrink further, and the floor is
+#     not aesthetic. col_sling_r is drawn by add_box_wall_sloped(..., 20.0,
+#     'x0'), so its four edges measure: west cap SLING_Y1 - SLING_Y0 - 20 =
+#     15.0, east cap SLING_Y1 - SLING_Y0 = 35.0, south cap = the span, north
+#     face = sqrt(span^2 + 20^2). test/asset-contract.test.ts's freeEndsMm()
+#     takes the two SHORTEST edges as the body's own free ends and REJECTS
+#     them if they are adjacent (DW-128). At any span <= 35.0 the south cap
+#     becomes one of the two shortest and it is adjacent to the west cap, so
+#     the body would join col_sling_l on the exemption list -- i.e. this
+#     story would have stopped the FR-31 gate checking the very body it
+#     moves. 38.0 keeps the two vertical caps as the shortest pair with a
+#     3.000 mm margin over the third edge (35.0 vs 38.0), which is exactly
+#     the margin col_sling_l carries today.
+#  2. RAMP_CORRIDOR_CLEAR_MM = 34.0 is measured against col_sling_r's own
+#     BODY, which is what the DW-137 gate measures. The ball actually meets
+#     col_post_sling_r_west first: that post terminates this same west cap
+#     (FR-31) and, sited on the cap's own midpoint so that it protrudes
+#     rather than hiding inside the sling, its own west face stands
+#     POST_RADIUS_MM = 4.0 mm proud of it. The residual clear a ball really
+#     sees is therefore 34.0 - 4.0 = 30.0 mm, still 3.010 mm more than the
+#     26.990 mm ball, over the 8 mm of y the post spans. Recorded because
+#     the gate's own arithmetic cannot see it.
+#
+# WHY MOVING THE BANK WEST DOES NOT COST DRAGON REACHABILITY: the corridor
+# constrains the ball's aim window at y 420..455 only. From y 455 to the bank
+# at y 700 there is 245 mm of open field west to col_dragon_leg_r, so an
+# angled shot drifts freely; widening the centre band from 6.485 mm to
+# 24.885 mm is what makes all six targets strikable, and that is proved
+# BEHAVIOURALLY (test/shot-routing.test.ts's six per-letter cases), not by
+# static arithmetic between the corridor band and each target's own x-span.
+SLING_R_SPAN_MM = 38.0
+SLING_R_X0_MM = SLING_R_X1_MM - SLING_R_SPAN_MM  # 332.4
+# The corridor tunable AC 3's dimensional gate pins against
+# (test/asset-contract.test.ts). Clear width from col_ramp_wall_l's own east
+# face to col_sling_r's own west face: one ball diameter (BALL_MM = 26.99)
+# plus 7.010 mm of ball-centre freedom.
+RAMP_CORRIDOR_CLEAR_MM = 34.0
+RAMP_LANE_X0_MM = SLING_R_X0_MM - RAMP_CORRIDOR_CLEAR_MM  # 298.4
+# The Ramp channel's own east edge. Moved west with the channel, but only as
+# far as the 26.99 mm ball allows: the slot between col_ramp_wall_r's own east
+# face and col_loop_r_lower's own west face (390.4) must stay SUB-BALL or it
+# becomes a pocket a ball can sit in. At RAMP_LANE_CLEAR_MM = 56.0 that slot
+# measures 390.4 - (354.4 + 12.0) = 24.0 mm, 2.99 mm under the ball; at 52.0
+# it would be 28.0 mm and a ball would fit. 56.0 is also still narrower than
+# LOOP_LANE_CLEAR_MM (66.0), which the Ramp's own note above asks for, and it
+# leaves col_ramp_wall_r's own east face 19.2 mm clear of col_loop_r_funnel's
+# own diagonal west edge at y = 485 (measured: the funnel is at x = 385.6
+# there, not at its bbox's 370.4).
+RAMP_LANE_CLEAR_MM = 56.0
+RAMP_LANE_X1_MM = RAMP_LANE_X0_MM + RAMP_LANE_CLEAR_MM  # 354.4
+RAMP_ENTER_X_MM = (RAMP_LANE_X0_MM + RAMP_LANE_X1_MM) / 2  # 326.4 -- still right of centre (257.2)
+# The DRAGON bank, derived EAST to WEST off the Ramp's own west wall. Both
+# clearances were 5.0 mm before this story (see DRAGON_BANK_X0_MM's own
+# [REWORK] note above); 4.0 mm is what the budget above could afford, and
+# both asset-contract pins on them assert a POSITIVE margin rather than a
+# particular figure (test/asset-contract.test.ts: dragonD.min.x - legR.max.x
+# > 0, rampWallL.min.x - dragonN.max.x > 0), so the design rule they encode
+# -- "neither the leg nor the Ramp wall may shadow a target" -- still holds.
+DRAGON_BANK_RAMP_CLEAR_MM = 4.0
+DRAGON_BANK_LEG_CLEAR_MM = 4.0
+DRAGON_BANK_W_MM = 5 * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM  # 65.0, outer-to-outer
+DRAGON_BANK_X0_MM = (RAMP_LANE_X0_MM - WALL_T_MM) - DRAGON_BANK_RAMP_CLEAR_MM - DRAGON_BANK_W_MM  # 217.4
+DRAGON_LEG_R_W_MM = (DRAGON_BANK_X0_MM - DRAGON_BANK_LEG_CLEAR_MM) - (DRAGON_CENTER_X_MM + LOCK_LANE_CLEAR_MM / 2)  # 23.4
+assert abs((SLING_R_X0_MM - RAMP_LANE_X0_MM) - RAMP_CORRIDOR_CLEAR_MM) < 1e-9, 'the corridor budget above no longer closes'
+assert SLING_R_X0_MM - RAMP_LANE_X0_MM >= BALL_MM, 'DW-137: the bottom-right corridor must admit a 26.99 mm ball into the Ramp channel'
+assert SLING_R_SPAN_MM > SLING_Y1_MM - SLING_Y0_MM, 'DW-128: col_sling_r span must exceed its own depth or freeEndsMm() picks adjacent edges'
+assert DRAGON_LEG_R_W_MM > 0.0, 'the bottom-right budget has overrun col_dragon_leg_r'
 
 # Pop bumpers (task 8): a nest of exactly three (author-decided 2026-08-31 --
 # see ## Boundaries & Constraints and TABLE.authoredCounts in dragonwar.ts).
@@ -1383,12 +1531,45 @@ def main():
 		('col_wall_left', (-WALL_T_MM, 0, 0), (0, PLAYFIELD_H_MM, PERIMETER_WALL_H_MM)),
 		('col_wall_top', (0, PLAYFIELD_H_MM, 0), (PLAYFIELD_W_MM, PLAYFIELD_H_MM + WALL_T_MM, PERIMETER_WALL_H_MM)),
 		('col_wall_right', (PLAYFIELD_W_MM, 0, 0), (PLAYFIELD_W_MM + WALL_T_MM, PLAYFIELD_H_MM, PERIMETER_WALL_H_MM)),
-		('col_wall_lane', (LANE_X0_MM, 0, 0), (LANE_X0_MM + WALL_T_MM, LANE_WALL_TOP_Y_MM, PERIMETER_WALL_H_MM)),
 		('col_wall_lane_bottom', (LANE_X0_MM, -WALL_T_MM, 0), (PLAYFIELD_W_MM + WALL_T_MM, 0, WALL_H_MM)),
 	]
 	for name, min_mm, max_mm in walls:
 		wall = new_box_mesh(name, min_mm, max_mm, parent=playfield_root)
 		set_props(wall, col_shape='wall', surface='wood', phys_material='default')
+
+	# [STORY 2.1f, DW-119 class] col_wall_lane is drawn separately from the
+	# box list above because its own NORTH CAP has to be bevelled. It was a
+	# plain box, so that cap was DEAD FLAT (12 mm wide, at
+	# LANE_WALL_TOP_Y_MM = 950) -- and this story's own derived
+	# descending-strand generator (test/shot-routing.test.ts, AC 9) found it
+	# the moment the subject set stopped being hand-listed: a ball released
+	# directly above it at (474.40, 979.0) comes to PERMANENT rest at
+	# (474.40, 963.49), 0.00 mm of net progress over the final 500 ticks.
+	# Nothing in the suite had ever probed it, because nobody had listed it.
+	# Measured reachability: witness plunge-full passes 6.794 mm from that
+	# release point, so a real ball genuinely travels there.
+	# Bevelled toward the MAIN FIELD (the west corner drops), the same
+	# direction and for the same reason as every other cap in this file:
+	# LANE_WALL_CAP_DROP_MM = 6.0 over the wall's own 12.0 mm thickness is
+	# atan(6/12) = 26.57 deg, comfortably above the real slide threshold
+	# atan(TUNING.materials.default.friction) = atan(0.3) = 16.699 deg.
+	# The bbox is unchanged (x 468.4..480.4, y 0..950, z 0..400), so every
+	# dimensional pin that reads this wall -- the Right Loop lane's own clear
+	# width, the outlane derivations, laneX0Mm in test/util/shot-cases.ts --
+	# reads exactly what it read before.
+	LANE_WALL_CAP_DROP_MM = 6.0
+	col_wall_lane = new_prism_mesh(
+		'col_wall_lane',
+		[
+			(LANE_X0_MM, 0.0),
+			(LANE_X0_MM + WALL_T_MM, 0.0),
+			(LANE_X0_MM + WALL_T_MM, LANE_WALL_TOP_Y_MM),
+			(LANE_X0_MM, LANE_WALL_TOP_Y_MM - LANE_WALL_CAP_DROP_MM),
+		],
+		0.0, PERIMETER_WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_wall_lane, col_shape='wall', surface='wood', phys_material='default')
 
 	# Story 2.1a task 22 (DW-119): col_wall_bottom_l/_r -- a gap exactly as
 	# wide as the outlane directly above it, no wider (this file's own
@@ -2081,7 +2262,30 @@ def main():
 		[
 			(LANE_X0_MM + WALL_T_MM, LOOP_TOP_INNER_Y_MM),
 			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM - PLUNGE_DEFLECTOR_DROP_MM),
-			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM),
+			# [STORY 2.1f, DW-119 class] This vertex was
+			# (PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM), which made the deflector's
+			# own NORTH face dead flat: a 34 mm horizontal ledge at y = 1016.8
+			# with 50 mm of open pocket above it (up to col_wall_top) and
+			# col_wall_right closing its east side. This story's own DERIVED
+			# descending-strand generator (test/shot-routing.test.ts, AC 9)
+			# found it as soon as the subject set stopped being hand-listed --
+			# a ball released at (497.40, 1046.0) comes to PERMANENT rest at
+			# (497.40, 1030.30), 0.01 mm of net progress over the final 500
+			# ticks. Raised by PLUNGE_DEFLECTOR_CAP_RISE_MM to the playfield's
+			# own top-right corner, which removes the pocket outright rather
+			# than tilting it: the north face now descends to the WEST at
+			# atan(50/34) = 55.8 deg, the mirror of this body's own
+			# hypotenuse, and there is no longer any space between it and
+			# col_wall_top for a ball to occupy. Tilting alone was tried and
+			# MEASURED INSUFFICIENT -- at a 17 mm rise (26.57 deg, above the
+			# atan(0.3) = 16.699 deg slide threshold) the same release still
+			# parked, at (493.90, 1038.63).
+			#
+			# The HYPOTENUSE is deliberately untouched: both of its endpoints
+			# are the two vertices above, so PLUNGE_DEFLECTOR_DROP_MM's own
+			# swept 55.8 deg plunge-deflection angle is exactly what it was.
+			# Only the face nothing was ever meant to rest on has moved.
+			(PLAYFIELD_W_MM, LOOP_TOP_INNER_Y_MM + PLUNGE_DEFLECTOR_CAP_RISE_MM),
 		],
 		0.0, WALL_H_MM,
 		parent=playfield_root,
@@ -2096,8 +2300,11 @@ def main():
 	# the contact-sound channel only. Nothing crosses the plunger lane
 	# (LANE_X0_MM = 468.4): the whole channel and its return rail stay well
 	# under x = 400, clear of it and of the Right Loop's own lane. ----
-	ramp_lane_x0 = RAMP_ENTER_X_MM - RAMP_LANE_CLEAR_MM / 2
-	ramp_lane_x1 = RAMP_ENTER_X_MM + RAMP_LANE_CLEAR_MM / 2
+	# [STORY 2.1f] both edges now come straight from the corridor budget
+	# block ("## Story 2.1f: the bottom-right corridor budget") rather than
+	# from a centre and a half-width, so no float round-trip can move them.
+	ramp_lane_x0 = RAMP_LANE_X0_MM
+	ramp_lane_x1 = RAMP_LANE_X1_MM
 	# Rework iteration 2 (DW-119-class fix): col_ramp_wall_l's own north end
 	# -- the top of its 12 mm-wide side rail, at RAMP_TOP_Y_MM -- used to be a
 	# dead-flat cap and stranded a ball at y = 838.5 (measured evidence).
@@ -2126,13 +2333,26 @@ def main():
 	# The Ramp's own top turn (see RAMP_TURN_Y0_MM). Low corner on the
 	# channel's WEST side so the reflection sends the ball EAST, across the
 	# Right Loop's rail and into its lane.
+	# [STORY 2.1f] The north face's own drop is now an ANGLE, not the bare
+	# 6.0 mm offset that stood here. The turn's own run is loop_r_x0 -
+	# ramp_lane_x0, and the corridor re-solve lengthened that run from 52.4 mm
+	# to 92.0 mm. At a fixed 20.0 mm drop (26.0 - 6.0) the north face's own
+	# grade would have fallen from atan(20/52.4) = 20.89 deg to
+	# atan(20/92.0) = 12.28 deg -- BELOW the real slide threshold,
+	# atan(TUNING.materials.default.friction) = atan(0.3) = 16.699 deg -- and
+	# this file's every other flat-topped body carries a bevel for exactly
+	# that reason (DW-119). Measured: the pre-2.1f face was 20.89 deg, so
+	# RAMP_TURN_NORTH_DEG = 21.0 keeps the shipped grade (rounded up to a
+	# whole degree) at any run length, 4.3 deg clear of the threshold.
+	ramp_turn_run_mm = loop_r_x0 - ramp_lane_x0
+	ramp_turn_north_drop_mm = ramp_turn_run_mm * math.tan(math.radians(RAMP_TURN_NORTH_DEG))
 	col_ramp_turn = new_prism_mesh(
 		'col_ramp_turn',
 		[
 			(ramp_lane_x0, RAMP_TURN_Y0_MM),
-			(loop_r_x0, RAMP_TURN_Y0_MM + (loop_r_x0 - ramp_lane_x0)),
-			(loop_r_x0, RAMP_TURN_Y0_MM + (loop_r_x0 - ramp_lane_x0) + 26.0),
-			(ramp_lane_x0, RAMP_TURN_Y0_MM + (loop_r_x0 - ramp_lane_x0) + 6.0),
+			(loop_r_x0, RAMP_TURN_Y0_MM + ramp_turn_run_mm),
+			(loop_r_x0, RAMP_TURN_Y0_MM + ramp_turn_run_mm + RAMP_TURN_THICKNESS_MM),
+			(ramp_lane_x0, RAMP_TURN_Y0_MM + ramp_turn_run_mm + RAMP_TURN_THICKNESS_MM - ramp_turn_north_drop_mm),
 		],
 		0.0, WALL_H_MM,
 		parent=playfield_root,
@@ -2343,14 +2563,27 @@ def main():
 	# both ends of the six-target row (col_dragon_d's own west edge to
 	# col_dragon_n's own east edge) for a genuinely wide incline -- DW-119's
 	# own shallow-long-wall shape, this time actually wide enough to work.
-	# Slopes toward smaller x: away from the Ramp (col_ramp_wall_l's own
-	# west face sits only 343 - 336 = 7 mm clear of col_dragon_n's own east
-	# edge, well under the ball's radius, so sloping toward the Ramp is not
-	# an option here either) and clear of col_dragon_leg_r (whose own east
-	# edge, x = 250, sits outside this backstop's y 708-723 span entirely --
-	# the legs only reach y = 620).
+	# Slopes toward smaller x: away from the Ramp and clear of
+	# col_dragon_leg_r (whose own east edge sits outside this backstop's
+	# y 708-723 span entirely -- the legs only reach y = 620).
+	# [CORRECTED, STORY 2.1f] The parenthesis here read "col_ramp_wall_l's
+	# own west face sits only 343 - 336 = 7 mm clear of col_dragon_n's own
+	# east edge". Both figures were pre-2.1c: measured against the document
+	# this story started from, col_ramp_wall_l's west face was 326.000 and
+	# col_dragon_n's east edge 321.000, i.e. 5.000 mm, not 7. After this
+	# story's own corridor re-solve the same pair measures 286.400 - 282.400
+	# = 4.000 mm (DRAGON_BANK_RAMP_CLEAR_MM). The CONCLUSION the figure was
+	# quoted for is unchanged and stronger: 4.000 mm is well under the ball's
+	# own 13.495 mm radius, so sloping this backstop toward the Ramp is still
+	# not an option.
 	DRAGON_BACKSTOP_X0_MM = DRAGON_BANK_X0_MM - 15.0
-	DRAGON_BACKSTOP_X1_MM = DRAGON_BANK_X0_MM + (len(DRAGON_LETTERS) - 1) * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM + 5.0
+	# [STORY 2.1f] The east overhang was a bare 5.0 while DRAGON_BANK_X0_MM
+	# happened to leave 5.0 mm to col_ramp_wall_l, so the backstop's own east
+	# vertex landed EXACTLY on that wall's west face. That coincidence is now
+	# a derivation: the overhang is the bank-to-Ramp clearance itself, so the
+	# backstop stays tangent to col_ramp_wall_l at any budget rather than
+	# growing through it.
+	DRAGON_BACKSTOP_X1_MM = DRAGON_BANK_X0_MM + DRAGON_BANK_W_MM + DRAGON_BANK_RAMP_CLEAR_MM
 	add_box_wall_sloped(
 		'col_dragon_bank_backstop',
 		DRAGON_BACKSTOP_X0_MM, DRAGON_BACKSTOP_X1_MM,
@@ -2410,9 +2643,14 @@ def main():
 	# rename to vis_spinner_l. ----
 	add_rubber_post('col_post_loop_l_funnel', (92.00, 438.00))  # col_loop_l_funnel's own mouth -- 2.1b; the nearest EXISTING post sat 6.00 mm away against a 4.5 mm budget
 	add_rubber_post('col_post_loop_r_funnel', (376.40, 438.00))  # col_loop_r_funnel's own mouth -- 2.1b, the mirrored case
-	add_rubber_post('col_post_ramp_wall_l_entrance', (332.00, 485.00))  # col_ramp_wall_l's own entrance lip -- 2.1b
-	add_rubber_post('col_post_ramp_wall_r_entrance', (378.00, 485.00))  # col_ramp_wall_r's own entrance lip -- 2.1b
-	add_rubber_post('col_post_ramp_wall_r_crossing', (378.00, 740.00))  # col_ramp_wall_r's own crossing lip -- 2.1b
+	# [STORY 2.1f] all three were hand-written literals sited against the
+	# PRE-2.1f channel (x 326..384). The corridor re-solve moves the channel
+	# west, so each is now DERIVED from the wall it terminates -- the same
+	# lesson col_post_lock_ceiling_e taught the hard way (DW-153: a literal
+	# that did not follow its own body).
+	add_rubber_post('col_post_ramp_wall_l_entrance', (ramp_lane_x0 - WALL_T_MM / 2, RAMP_ENTER_Y_MM))  # col_ramp_wall_l's own entrance lip -- 2.1b
+	add_rubber_post('col_post_ramp_wall_r_entrance', (ramp_lane_x1 + WALL_T_MM / 2, RAMP_ENTER_Y_MM))  # col_ramp_wall_r's own entrance lip -- 2.1b
+	add_rubber_post('col_post_ramp_wall_r_crossing', (ramp_lane_x1 + WALL_T_MM / 2, RAMP_WALL_R_TOP_Y_MM))  # col_ramp_wall_r's own crossing lip -- 2.1b
 	add_rubber_post('col_post_loop_r_lower', (396.40, 747.00))  # col_loop_r_lower's own north lip, the crossing gap -- 2.1c
 	add_rubber_post('col_post_loop_r_south', (396.40, 832.00))  # col_loop_r's own south lip, the crossing gap -- 2.1b
 	# col_top_divider_1..4's own LOWER tips (TOP_LANE_Y0_MM) -- 2.1b. Reuses
@@ -2503,7 +2741,19 @@ def main():
 	dragon_leg_l_post_mm = (dragon_leg_l_cap_mid[0] - DRAGON_LEG_L_POST_OFFSET_MM, dragon_leg_l_cap_mid[1])
 	dragon_leg_r_cap_mid = leg_north_cap_mid_mm(dragon_leg_r_x0, dragon_leg_r_x1)
 	dragon_leg_r_post_mm = (dragon_leg_r_cap_mid[0], dragon_leg_r_cap_mid[1] - DRAGON_LEG_R_POST_OFFSET_MM)
-	add_rubber_post('col_post_dragon_leg_l', dragon_leg_l_post_mm)
+	# [STORY 2.1f -- DW-153] col_post_dragon_leg_l REMOVED. col_dragon_leg_l's
+	# own north-cap midpoint (120.00, 610.00) is 1.897 mm strictly inside
+	# col_lock_ceiling_west_fill (2.1d authored that 2 mm overlap on purpose,
+	# "so west_fill can never fall short of that leg's own true boundary
+	# anywhere along its run"), so the end is enclosed and unreachable, and
+	# the post itself contributed no surface -- all eight vertices inside the
+	# same body. It was already invisible to the forward gate (isJoined()
+	# skipped the end before the post-distance assertion) and was pinned only
+	# by a hand-written one-off in test/asset-contract.test.ts. That one-off
+	# is retired into ENCLOSED_END_DECLARATIONS, which states the same fact
+	# generally and checks it in both directions.
+	# col_post_dragon_leg_r stays: its own end (201.70, 610.00) is inside
+	# nothing, so it is a genuinely bare end that needs terminating.
 	add_rubber_post('col_post_dragon_leg_r', dragon_leg_r_post_mm)
 	# col_ramp_return_1's own HIGH (downstream, inlane-facing) end -- 2.1c.
 	# Measured this pass, the same technique as the low end below: a post
@@ -2526,7 +2776,12 @@ def main():
 	# verified against the real physics pipeline (six candidate offsets,
 	# this story's own throwaway harness): south and a smaller east offset
 	# both restore s_inlane_r; west, north and a north-west diagonal do not.
-	add_rubber_post('col_post_ramp_return_1_b', (372.00, 785.00))
+	# [STORY 2.1f] was the literal (372.00, 785.00) -- the rail's own west cap
+	# midpoint (372.00, 789.00) offset 4.0 mm SOUTH. col_ramp_return_1 begins
+	# at ramp_lane_x1, which the corridor re-solve moved 372.0 -> 354.4, so
+	# the literal would have been left 17.6 mm from the end it terminates.
+	# Derived, keeping the SAME measured 4.0 mm south offset and its reason.
+	add_rubber_post('col_post_ramp_return_1_b', (ramp_lane_x1, RAMP_TURN_Y0_MM - 5.0 - WALL_T_MM / 2 - 4.0))
 	# col_loop_l_return / col_loop_r_return's own inboard ends are NOT posted:
 	# add_loop_return_rail() deliberately TAPERS that end to a single point
 	# rather than closing it with a perpendicular cap face (this file's own
@@ -2568,10 +2823,14 @@ def main():
 	# leg; the flat south cap sits in the open, flipper-adjacent field and
 	# is exactly as reachable.
 	add_rubber_post('col_post_dragon_leg_l_south', (120.00, 480.00))
-	add_rubber_post('col_post_dragon_leg_r_south', (212.50, 480.00))
+	# [STORY 2.1f] was the literal (212.50, 480.00), sited on the leg's own
+	# pre-2.1f centre. col_dragon_leg_r narrows to DRAGON_LEG_R_W_MM = 23.4
+	# in the corridor budget, so this follows the live body.
+	add_rubber_post('col_post_dragon_leg_r_south', ((dragon_leg_r_x0 + dragon_leg_r_x1) / 2, DRAGON_LEG_Y0_MM))
 	# col_ramp_wall_l's own SECOND free end (the crossing lip, mirroring
 	# col_ramp_wall_r's own col_post_ramp_wall_r_crossing) -- 2.1b/2.1c.
-	add_rubber_post('col_post_ramp_wall_l_crossing', (332.00, 822.50))
+	# [STORY 2.1f] derived from the live wall, was the literal (332.00, 822.50).
+	add_rubber_post('col_post_ramp_wall_l_crossing', (ramp_lane_x0 - WALL_T_MM / 2, RAMP_TOP_Y_MM - 5.0 / 2))
 	# col_sling_r's own SECOND free end (the west/short side, distinct from
 	# the already-terminated east side above) -- 2.1b. Measured this pass: a
 	# post centred exactly on the free-end midpoint sits in the path of
@@ -2581,7 +2840,17 @@ def main():
 	# EAST by 3.5 mm, within the gate's own postRadius + 0.5 mm budget,
 	# resolves it; west offsets clear the shot but strike col_sling_r's own
 	# face instead of clearing it, changing which case the shot exercises.
-	add_rubber_post('col_post_sling_r_west', (317.50, 427.50))
+	# [STORY 2.1f] was (317.50, 427.50) -- the free-end midpoint offset 3.5 mm
+	# EAST, i.e. INTO col_sling_r, which left 7 of the post's own 8 octagon
+	# vertices buried inside the sling and only 0.500 mm of it proud. That is
+	# DW-153's defect in miniature on a body this story moves, so the post is
+	# re-sited onto the cap's own midpoint, where it protrudes POST_RADIUS_MM
+	# = 4.0 mm west of the sling and genuinely presents surface. The east
+	# offset existed because a post at the midpoint sat in the path of
+	# 'dragon-bank-right-column-300' (a shot from x = 300 straight up-table);
+	# with col_sling_r's own west face now at 332.4 that shot passes 32.4 mm
+	# west of this post and the reason has expired.
+	add_rubber_post('col_post_sling_r_west', (SLING_R_X0_MM, (SLING_Y0_MM + SLING_Y1_MM - 20.0) / 2))
 	# col_sling_l (DW-128, a REAL committed case): its own footprint is a
 	# genuine wedge -- the south cap (32 mm) and the east side (15 mm,
 	# shortened by the SAME 20 mm anti-stranding drop every sloped cap in
@@ -2626,8 +2895,31 @@ def main():
 	#    what went stale here once already.
 	#  - col_lock_ceiling_west_fill's own WEST riser, above col_dragon_
 	#    leg_l's own true top (DRAGON_LEG_Y1_MM, 620).
-	add_rubber_post('col_post_lock_ceiling_e', (194.00, 606.00))
-	add_rubber_post('col_post_lock_ceiling_w', (146.00, 606.00))
+	# [STORY 2.1f -- DW-153, both posts REMOVED, decided body by body and
+	# measured against the committed document]
+	#  * col_post_lock_ceiling_e was the hand literal (194.00, 606.00). Two
+	#    independent defects, both closed by removing it. (1) It was STALE:
+	#    LOCK_CEILING_EAST_SHOULDER_MM went 14 -> 28 in 2.1d rework iteration
+	#    3, moving the east riser's own true midpoint 606 -> 612, and the
+	#    literal did not follow -- 6.000 mm against the gate's own 4.500 mm
+	#    budget, invisible because col_lock_ceiling is exempt and the
+	#    exemption's verify() measured the post against its OWN authored
+	#    coordinate (0.000 mm, true by construction). (2) It contributed NO
+	#    collision surface: all eight octagon vertices lay inside
+	#    col_dragon_leg_r. And the END it nominally terminated needs no post
+	#    at all -- (194.00, 612.00) is itself 3.483 mm STRICTLY INSIDE
+	#    col_dragon_leg_r's own footprint, so no ball can reach it. Recorded
+	#    as an ENCLOSED end in test/asset-contract.test.ts's own
+	#    ENCLOSED_END_DECLARATIONS rather than papered over with a post.
+	#    (Also corrected there: the exemption prose said this riser "sits
+	#    4 mm short of col_dragon_leg_r's own vertical face". It is 4 mm
+	#    INSIDE it -- LOCK_CEILING_X_OVERLAP_E_MM deliberately pushes the
+	#    ceiling's own east edge past the lane wall into the leg. The sign
+	#    was backwards.)
+	#  * col_post_lock_ceiling_w, same decision on the same evidence: the
+	#    west riser's own midpoint (146.00, 606.00) is 4.000 mm strictly
+	#    inside col_lock_ceiling_west_fill, and the post was entirely buried
+	#    in that same body. Declared enclosed; post removed.
 	# Rework iteration 3, round 7: col_lock_ceiling_west_fill's own two
 	# vertical risers grew taller (LOCK_FILL_THICKNESS_MM 36 -> 54, tied
 	# LIVE to col_lock_ceiling's own raised peak -- see that constant's own
@@ -2661,7 +2953,11 @@ def main():
 	# this exact area as swept and hand-tuned against that identical
 	# regression. HALTed per the Block If rather than traded.
 	add_rubber_post('col_post_loop_turn_r', (474.40, 1036.00))
-	add_rubber_post('col_post_ramp_turn', (338.00, 829.20))
+	# [STORY 2.1f] derived from the live turn, was the literal (338.00, 829.20).
+	# col_ramp_turn's own west riser runs from (ramp_lane_x0, RAMP_TURN_Y0_MM)
+	# to (ramp_lane_x0, RAMP_TURN_Y0_MM + ramp_turn_run_mm +
+	# RAMP_TURN_THICKNESS_MM - ramp_turn_north_drop_mm).
+	add_rubber_post('col_post_ramp_turn', (ramp_lane_x0, RAMP_TURN_Y0_MM + (ramp_turn_run_mm + RAMP_TURN_THICKNESS_MM - ramp_turn_north_drop_mm) / 2))
 
 	# ---- Switch zones: box shape, paired with their TABLE switch ----
 	sw_shooter_lane = new_box_mesh(

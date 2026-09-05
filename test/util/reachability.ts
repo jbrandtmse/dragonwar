@@ -208,6 +208,77 @@ const WITNESSES: readonly WitnessRecipe[] = [
 		ticksAfterRelease: 7000,
 		expectedSwitch: 's_sling_r',
 	},
+	{
+		// [STORY 2.1f] Added by sweep. The pre-existing
+		// plunge-then-bat-l-3911 used to pass 0.125 mm from
+		// `descend-sling-l`'s own drop point (130, 460); after this story's
+		// geometry moved the DRAGON bank and the right Dragon leg, that
+		// trajectory diverges downstream and now passes 62.005 mm away. A
+		// left-bat sweep over relative ticks 3900..4130 at holds 40/80 found
+		// this recipe, which passes 5.934 mm from the same point -- so the
+		// case stays REACHABLE on a real trajectory rather than being
+		// re-declared unreachable because the instrument lost sight of it.
+		id: 'plunge-then-bat-l-3969',
+		label: 'the full plunge, chained into a left-bat flip at relative tick 3969 (a 40-tick hold) -- climbs past the north termination post of the left slingshot and strikes the Dragon body',
+		settleTicks: 320,
+		plungeHoldTicks: 521,
+		flip: { side: 'l', atTick: 3969, holdTicks: 40 },
+		ticksAfterRelease: 7000,
+		expectedSwitch: 's_dragon_body',
+	},
+	// ---- Story 2.1f: the RIGHT-bat origin. -------------------------------
+	// Until this story every one of the eleven witnesses above was a plunge
+	// or a plunge-then-LEFT-bat, and this file's own header recorded
+	// `side: 'r'` as an unswept axis. The Ramp is a right-bat shot, so AC 1
+	// was unprovable by construction, at any corridor width -- the instrument
+	// could not reach the thing the geometry was being changed for. Both
+	// entries below chain off `plunge-medium-285`, whose ball descends the
+	// RIGHT Loop lane and arrives on the right bat (measured: it occupies the
+	// right-bat band, x 270..365 / y 50..130, over relative ticks 3811..4020,
+	// and closes `s_inlane_r` on the way in). Neither teleports: like every
+	// witness above, the ball is served by `c_trough_eject` and moved only by
+	// `frame.plunger` and `frame.flipper_r`.
+	//
+	// Measured this story, over a flip-tick sweep of relative ticks
+	// 3810..4030 at holds 20/30/45/60/80 against the re-solved geometry:
+	// ticks 3897..3901 close `s_ramp_enter` THEN `s_ramp_made` (the shot the
+	// corridor re-solve exists to make possible -- zero of 256 swept releases
+	// closed `s_ramp_enter` before it), and ticks 3904/3906 cross the DRAGON
+	// bank's own zone band, closing `s_dragon_o`/`s_dragon_n` and
+	// `s_dragon_a`/`s_dragon_g`/`s_dragon_o`/`s_dragon_n` respectively.
+	{
+		id: 'plunge-then-bat-r-3899',
+		label: 'the medium 285-tick plunge, chained into a RIGHT-bat flip at relative tick 3899 (a 60-tick hold) once the Right Loop return has delivered the ball onto the right bat -- the Ramp shot: closes s_ramp_enter then s_ramp_made through the re-solved bottom-right corridor',
+		settleTicks: 320,
+		plungeHoldTicks: 285,
+		flip: { side: 'r', atTick: 3899, holdTicks: 60 },
+		ticksAfterRelease: 7000,
+		expectedSwitch: 's_ramp_made',
+	},
+	{
+		// [STORY 2.1f] Added after the dense out-of-process sweep
+		// (pnpm check:reachability) disagreed with the manifest: it found this
+		// recipe passing 0.010 mm from `descend-sling-r`'s own drop point
+		// (350, 465), which the manifest still declared unreachable. A
+		// genuinely-reached case is re-declared, and the recipe that reached
+		// it becomes an in-suite witness so the in-suite gate can see it too.
+		id: 'plunge-then-bat-r-3890',
+		label: 'the medium 285-tick plunge, chained into a RIGHT-bat flip at relative tick 3890 (a 100-tick hold) -- a fuller right-bat swing that climbs the field just west of the right slingshot',
+		settleTicks: 320,
+		plungeHoldTicks: 285,
+		flip: { side: 'r', atTick: 3890, holdTicks: 100 },
+		ticksAfterRelease: 7000,
+		expectedSwitch: 's_inlane_r',
+	},
+	{
+		id: 'plunge-then-bat-r-3906',
+		label: 'the medium 285-tick plunge, chained into a RIGHT-bat flip at relative tick 3906 (a 60-tick hold) -- the angled bank shot: crosses the DRAGON bank zone band from the east, closing s_dragon_a, s_dragon_g, s_dragon_o and s_dragon_n',
+		settleTicks: 320,
+		plungeHoldTicks: 285,
+		flip: { side: 'r', atTick: 3906, holdTicks: 60 },
+		ticksAfterRelease: 7000,
+		expectedSwitch: 's_dragon_a',
+	},
 ];
 
 export interface Segment {
@@ -360,7 +431,27 @@ export const MIN_WITNESS_PATH_MM = 1500;
  * confirming every miss for the wrong reason. `assertWitnessCorpusHealthy()`
  * iterates `WITNESSES` and would otherwise pass vacuously over an empty one.
  */
-export const MIN_WITNESSES = 10;
+/**
+ * [STORY 2.1f, lesson 5 -- CORRECTED, code review] Was the hand-typed 10
+ * against a live 11, then 13, then 15: a floor that lags its own subject set
+ * is the defect it exists to prevent, one level up, and `WITNESSES.length`
+ * itself cannot be the derivation -- comparing a count to itself can never
+ * fail. In the shape of `MIN_SHOT_CASES` (`test/util/shot-cases.ts`, derived
+ * from the collision document's own distinct zone-backed switches, not from
+ * `SHOT_CASES.length`): derived here from the corpus's own DISTINCT
+ * `expectedSwitch` values, not its raw entry count -- several witnesses
+ * legitimately share a target (three prove `s_dragon_body`, two prove
+ * `s_loop_r_in`), so entry count alone overstates what the corpus actually
+ * covers. A corpus that shrinks below the number of distinct switches its
+ * own entries claim to prove has lost real coverage, which this can see and
+ * a raw count cannot. The corpus must ALSO contain at least one witness of
+ * each ORIGIN FAMILY it declares -- the property an `unreachable` verdict
+ * actually depends on (a corpus of eleven left-bat witnesses is not broader
+ * than a corpus of two, for a right-bat shot) -- checked separately below,
+ * since family breadth and switch breadth are different claims.
+ * `assertWitnessCorpusHealthy()` reads both.
+ */
+export const MIN_WITNESSES = new Set(WITNESSES.map((w) => w.expectedSwitch)).size;
 
 /**
  * Anti-vacuity floor (I/O matrix, "Vacuous pass -- a dead witness"): a
@@ -374,6 +465,27 @@ export function assertWitnessCorpusHealthy(): void {
 		WITNESSES.length,
 		`assertWitnessCorpusHealthy(): the witness corpus has only ${WITNESSES.length} entries, below the recorded floor of ${MIN_WITNESSES} -- every "unreachable" verdict quantifies over exactly this table, so a shrunken corpus confirms every miss for the wrong reason`,
 	).toBeGreaterThanOrEqual(MIN_WITNESSES);
+	// [STORY 2.1f] The breadth floor, DERIVED from the corpus rather than
+	// hand-typed: an `unreachable` verdict is a claim about what the table
+	// can deliver, and eleven witnesses that all originate the same way prove
+	// far less breadth than the count suggests. Story 2.1e shipped exactly
+	// that -- every witness a plunge or a plunge-then-LEFT-bat -- which is
+	// why the Ramp could not be proved reachable at ANY corridor width until
+	// Story 2.1f added a right-bat origin. Each origin family the recipes
+	// themselves declare must be represented.
+	const families = new Map<string, number>();
+	for (const recipe of WITNESSES) {
+		const family = recipe.flip === undefined ? 'plunge-only' : `plunge-then-bat-${recipe.flip.side}`;
+		families.set(family, (families.get(family) ?? 0) + 1);
+	}
+	for (const family of ['plunge-only', 'plunge-then-bat-l', 'plunge-then-bat-r']) {
+		expect(
+			families.get(family) ?? 0,
+			`assertWitnessCorpusHealthy(): the witness corpus contains no "${family}" origin at all (families present: ${[...families].map(([k, v]) => `${k}=${v}`).join(', ')}). ` +
+			'Every "unreachable" verdict quantifies over exactly this table, so a corpus missing an origin family records "no shot reaches here" ' +
+			'when the truth is "no shot of the kinds we searched reaches here" -- the defect Story 2.1e shipped and Story 2.1f closed for the right bat.',
+		).toBeGreaterThanOrEqual(1);
+	}
 	for (const recipe of WITNESSES) {
 		const result = witnessPath(recipe.id);
 		expect(

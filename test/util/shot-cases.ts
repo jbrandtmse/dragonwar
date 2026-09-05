@@ -16,7 +16,7 @@
 // can turn one of these into a driven ball -- a release point cannot be
 // driven at all without a manifest entry here.
 
-import { nodeBboxMm } from './collision-doc';
+import { nodeBboxMm, readCollisionDoc } from './collision-doc';
 import { TABLE } from '../../src/sim/table/dragonwar';
 import type { SwitchName } from '../../src/sim/table/names';
 
@@ -84,11 +84,28 @@ const CENTRE_X_MM = TABLE.reference.playfieldMm.w / 2;
 const DRAGON_BANK_LETTERS: readonly SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
 
 /**
- * The count recorded at implementation time (this story's own planning
- * pass, transcribing `test/shot-routing.test.ts`'s 39 driven cases). AC 3's
- * anti-vacuity floor reads this.
+ * The manifest's own anti-vacuity floor.
+ *
+ * [STORY 2.1f, lesson 5] Was the hand-typed literal 39, against a live 46 --
+ * a floor lagging its own subject set by seven, i.e. seven cases could have
+ * been deleted before anything noticed. It is now DERIVED from the committed
+ * collision document: every distinct switch the table declares a `sw_` zone
+ * for is a shot the routing suite has to exercise from somewhere, so the
+ * manifest can never hold fewer cases than the machine holds zone-backed
+ * switches. That is a genuine lower bound rather than a transcription, it
+ * moves on its own when the shot map grows, and it cannot be satisfied by a
+ * manifest that has quietly emptied.
+ *
+ * It is deliberately NOT `SHOT_CASES.length`: a floor derived from the very
+ * array it guards is not a floor at all.
  */
-export const MIN_SHOT_CASES = 39;
+function deriveMinShotCases(): number {
+	const doc = readCollisionDoc();
+	const zoneBackedSwitches = new Set(doc.switchZones.map((z) => z.switch));
+	return zoneBackedSwitches.size;
+}
+
+export const MIN_SHOT_CASES = deriveMinShotCases();
 
 /** Every entry, by its stable `id`. */
 export const SHOT_CASES: readonly ShotCase[] = [
@@ -229,25 +246,28 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: { kind: 'reachable', witness: 'plunge-weak-345' },
 	},
 
-	// -- Ramp, return geometry only (test/shot-routing.test.ts:697-754; DW-137) --
+	// -- Ramp (test/shot-routing.test.ts; DW-137, CLOSED by Story 2.1f) --
 	{
+		// [STORY 2.1f] Was (355, 465) and declared `unreachable` against
+		// DW-137 with a measured 58.646 mm closest approach: the release sat
+		// inside the ~2 mm slot above the old slingshot that no shot could
+		// reach, so this case proved the Ramp's RETURN geometry and nothing
+		// about the Ramp being a shot at all. The corridor re-solve makes it
+		// one. The release moves to (315, 470) -- inside the re-solved Ramp
+		// mouth, 22.373 mm clear of every col_ footprint -- and the verdict
+		// flips to `reachable`, witnessed by plunge-then-bat-r-3899, the
+		// right-bat witness this story added, whose own trajectory passes
+		// 2.153 mm from this point on its way to closing s_ramp_enter then
+		// s_ramp_made. That witness is a real shot: a 285-tick plunge, the
+		// Right Loop return onto the right bat, one flip.
 		id: 'ramp-return-geometry',
-		label: 'Ramp return geometry (DW-137: release point acknowledged unreachable)',
-		startMm: { x: 355, y: 465, z: 13.5 },
+		label: 'Ramp, entered from the re-solved bottom-right corridor (DW-137 closed)',
+		startMm: { x: 315, y: 470, z: 13.5 },
 		speedMmPerS: 2400,
 		dirDeg: 0,
 		ticks: 9000,
 		switchesUnderTest: ['s_ramp_enter', 's_ramp_made', 's_inlane_r'],
-		// Story 2.1d task 8: closestApproachMm re-measured (44.979 -> 58.646,
-		// best witness now plunge-then-bat-l-4110) against the real physics
-		// pipeline after this story's own geometry changes -- still
-		// unreachable; Story 2.1f still owns the fix.
-		reachability: {
-			kind: 'unreachable',
-			ledger: 'DW-137',
-			closestApproachMm: 58.646,
-			note: 'the Ramp channel is unreachable by any shot from below (a 50.990 mm shortfall per the DW-137 corridor harness); this story\'s own in-suite witness search corroborates it, confirmed by the dense out-of-process sweep (task 7) -- Story 2.1f owns the fix.',
-		},
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3899' },
 	},
 
 	// -- Centre drain must not read as a flipper feed (test/shot-routing.test.ts:767-790) --
@@ -302,25 +322,87 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	},
 
 	// -- DRAGON bank (test/shot-routing.test.ts:834-858) --
+	// -- [STORY 2.1f, AC 3] One case PER DRAGON target. Until this story the
+	// only bank assertion in the suite was "at least one of the six closes"
+	// (test/shot-routing.test.ts), which the pre-2.1f corridor could satisfy
+	// with two. Each release point below is inside its own letter's switch
+	// zone, clear of every col_ footprint by more than the ball radius, and
+	// on a witness trajectory -- five of the six on plunge-then-bat-r-3906,
+	// the right-bat witness this story added, whose single flip crosses the
+	// bank's own zone band from the east and closes s_dragon_a, s_dragon_g,
+	// s_dragon_o and s_dragon_n in one pass.
+	//
+	// Measured, per release (clear / witness / closest approach), and each
+	// verified to close its OWN letter when driven:
+	//   d (228.9, 520) 15.500 / plunge-then-bat-r-3906 / 1.449
+	//   r (233.4, 520) 20.000 / plunge-then-bat-r-3906 / 2.878
+	//   a (244.4, 620) 36.892 / plunge-then-bat-r-3906 / 0.036
+	//   g (255.4, 480) 31.401 / plunge-then-bat-r-3906 / 0.145
+	//   o (265.4, 480) 21.587 / plunge-then-bat-l-3918  / 5.549
+	//   n (272.4, 480) 14.866 / plunge-then-bat-r-3906 / 0.023
+	// The zones overlap by 3.0 mm at DRAGON_BANK_PITCH_MM = 11 with a target
+	// width of 10 and a +/-2 mm zone margin, so d's release also closes r and
+	// n's also closes o; neither weakens the per-letter assertion, which is
+	// that each case closes ITS OWN switch.
 	{
-		id: 'dragon-bank-left-column-294',
-		label: 'DRAGON bank, left column of the corridor',
-		startMm: { x: 294, y: 400, z: 13.5 },
+		id: 'dragon-target-d',
+		label: 'DRAGON target D, struck on its own column',
+		startMm: { x: 228.9, y: 520, z: 13.5 },
 		speedMmPerS: 1600,
 		dirDeg: 0,
 		ticks: 5000,
-		switchesUnderTest: DRAGON_BANK_LETTERS,
+		switchesUnderTest: ['s_dragon_d'],
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3906' },
+	},
+	{
+		id: 'dragon-target-r',
+		label: 'DRAGON target R, struck on its own column',
+		startMm: { x: 233.4, y: 520, z: 13.5 },
+		speedMmPerS: 1600,
+		dirDeg: 0,
+		ticks: 5000,
+		switchesUnderTest: ['s_dragon_r'],
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3906' },
+	},
+	{
+		id: 'dragon-target-a',
+		label: 'DRAGON target A, struck on its own column',
+		startMm: { x: 244.4, y: 620, z: 13.5 },
+		speedMmPerS: 1600,
+		dirDeg: 0,
+		ticks: 5000,
+		switchesUnderTest: ['s_dragon_a'],
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3906' },
+	},
+	{
+		id: 'dragon-target-g',
+		label: 'DRAGON target G, struck on its own column',
+		startMm: { x: 255.4, y: 480, z: 13.5 },
+		speedMmPerS: 1600,
+		dirDeg: 0,
+		ticks: 5000,
+		switchesUnderTest: ['s_dragon_g'],
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3906' },
+	},
+	{
+		id: 'dragon-target-o',
+		label: 'DRAGON target O, struck on its own column',
+		startMm: { x: 265.4, y: 480, z: 13.5 },
+		speedMmPerS: 1600,
+		dirDeg: 0,
+		ticks: 5000,
+		switchesUnderTest: ['s_dragon_o'],
 		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3918' },
 	},
 	{
-		id: 'dragon-bank-right-column-300',
-		label: 'DRAGON bank, right column of the corridor',
-		startMm: { x: 300, y: 400, z: 13.5 },
+		id: 'dragon-target-n',
+		label: 'DRAGON target N, struck on its own column',
+		startMm: { x: 272.4, y: 480, z: 13.5 },
 		speedMmPerS: 1600,
 		dirDeg: 0,
 		ticks: 5000,
-		switchesUnderTest: DRAGON_BANK_LETTERS,
-		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3918' },
+		switchesUnderTest: ['s_dragon_n'],
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3906' },
 	},
 
 	// -- Top lanes (test/shot-routing.test.ts:860-883) --
@@ -353,14 +435,19 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 130.135,
+			closestApproachMm: 122.746,
 			note: 'same finding as top-lane-1 -- see DW-138.',
 		},
 	},
 	{
+		// [STORY 2.1f] Re-sited 345 -> 335 / 900 -> 935: col_ramp_turn's own
+		// west edge follows ramp_lane_x0 and moved 338.0 -> 298.4, so the
+		// turn's footprint now COVERS the old release point (measured 0.000 mm
+		// clear, DW-77). (335, 935) sits 35.724 mm clear of every col_
+		// footprint and still directly below Top lane 3's own mouth.
 		id: 'top-lane-3',
 		label: 'Top lane 3',
-		startMm: { x: 345, y: 900, z: 13.5 },
+		startMm: { x: 335, y: 935, z: 13.5 },
 		speedMmPerS: 1500,
 		dirDeg: 0,
 		ticks: 6600,
@@ -368,7 +455,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 74.282,
+			closestApproachMm: 83.015,
 			note: 'same finding as top-lane-1 -- see DW-138.',
 		},
 	},
@@ -417,9 +504,15 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		},
 	},
 	{
+		// [STORY 2.1f] Re-sited (200, 700) -> (230, 740). The DRAGON bank moved
+		// west with the corridor budget, taking col_dragon_bank_backstop's own
+		// west vertex from 225.0 to 202.4, which left the old release only
+		// 8.352 mm clear (DW-77) AND put the backstop's own sloped face
+		// between it and the pop. (230, 740) sits NORTH of the backstop,
+		// directly below col_pop_2's own column, 27.1 mm clear.
 		id: 'pop-bumper-2',
 		label: 'Pop bumper 2',
-		startMm: { x: 200, y: 700, z: 13.5 },
+		startMm: { x: 230, y: 740, z: 13.5 },
 		speedMmPerS: 1000,
 		dirDeg: 0,
 		ticks: 6600,
@@ -439,7 +532,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 147.655,
+			closestApproachMm: 59.984,
 			note: 'was reachable via plunge-then-bat-l-3945 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the pop-bumper cluster -- see DW-138.',
 		},
 	},
@@ -458,7 +551,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 127.546,
+			closestApproachMm: 113.656,
 			note: 'was reachable via plunge-then-bat-l-3945 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the pop-bumper cluster -- see DW-138.',
 		},
 	},
@@ -485,7 +578,12 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// termination post task 13 added, sits almost exactly on that
 		// witness's own path). A genuinely-fixed case must be re-declared
 		// reachable, not left marked unreachable (this file's own AC 2).
-		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3911' },
+		// [STORY 2.1f] Re-witnessed. plunge-then-bat-l-3911's own trajectory
+		// changed downstream of the moved DRAGON bank and no longer passes
+		// within tolerance of this drop point (re-measured 62.005 mm). The
+		// swept replacement, plunge-then-bat-l-3969, passes 5.934 mm from it.
+		// The release point itself is unchanged and still clear (17.934 mm).
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3969' },
 	},
 	{
 		id: 'descend-sling-r',
@@ -498,12 +596,14 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// Story 2.1d task 8: closestApproachMm re-measured (39.98 -> 58.486)
 		// against the real physics pipeline after this story's own geometry
 		// changes -- still unreachable.
-		reachability: {
-			kind: 'unreachable',
-			ledger: 'DW-138',
-			closestApproachMm: 58.486,
-			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
-		},
+		// [STORY 2.1f] RE-DECLARED reachable. The dense out-of-process sweep
+		// found this drop point once its own RIGHT-bat axis existed: recipe
+		// #530 (a 285-tick plunge, right-bat flip at relative tick 3890, a
+		// 100-tick hold) passes 0.010 mm from it. That recipe is now the
+		// in-suite witness plunge-then-bat-r-3890, so the in-suite gate and
+		// the sweep agree. The release point itself is unchanged and still
+		// clear (18.350 mm); col_sling_r moved east under it.
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3890' },
 	},
 	{
 		// Story 2.1d task 8: col_dragon_leg_l is UNMOVED (the Lock-lane
@@ -551,9 +651,13 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	{
 		// Story 2.1d task 8: col_dragon_leg_r is UNMOVED too (see
 		// descend-dragon-leg-l's own note) -- startMm stays as authored.
+		// [STORY 2.1f] Re-sited 220 -> 201.7: DRAGON_LEG_R_W_MM narrowed
+		// 45.0 -> 23.4 in the corridor budget, so col_dragon_leg_r now spans
+		// x 190..213.4 and the old column no longer sits above it at all.
+		// 201.7 is the leg's own live centreline.
 		id: 'descend-dragon-leg-r',
 		label: 'Descending release onto the right Dragon leg (col_dragon_leg_r)',
-		startMm: { x: 220, y: 660, z: 13.5 },
+		startMm: { x: 201.7, y: 660, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
@@ -570,14 +674,21 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 129.388,
+			closestApproachMm: 48.573,
 			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
 	{
+		// [STORY 2.1f] Re-sited (332, 880) -> (280, 860). col_ramp_wall_l moved
+		// west with the channel (326..338 -> 286.4..298.4) and col_ramp_turn,
+		// whose west edge follows the same constant, now COVERS the old point
+		// (0.000 mm clear, DW-77). The strip directly above the wall's own
+		// north cap is 12 mm wide and bounded east by the turn, so no ball
+		// centre can descend it; (280, 860) is the closest clear column from
+		// which a descending ball still meets that cap, 18.400 mm clear.
 		id: 'descend-ramp-wall-l',
 		label: 'Descending release onto the Ramp left wall (col_ramp_wall_l)',
-		startMm: { x: 332, y: 880, z: 13.5 },
+		startMm: { x: 280, y: 860, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
@@ -588,14 +699,26 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 87.896,
-			note: 'sits inside the DW-137 bottom-right corridor band as well as being unreached by any witness -- see DW-138.',
+			closestApproachMm: 69.694,
+			note: 'sits above the Ramp channel, which Story 2.1f re-solved (DW-137 closed); this drop point itself is still unreached by any witness -- see DW-138.',
 		},
 	},
 	{
+		// [STORY 2.1f] Re-sited (376, 758) -> (360.4, 760): col_ramp_wall_r
+		// moved west with the channel (372..384 -> 354.4..366.4), and
+		// col_ramp_return_1's own west end followed ramp_lane_x1, leaving the
+		// old point 12.089 mm clear (DW-77). x = 352 is deliberately 2.4 mm
+		// WEST of the wall's own live centreline (360.4): a ball released on
+		// the centreline settles into a perfectly balanced equilibrium on
+		// col_post_ramp_wall_r_crossing's own octagon apex (measured: 0.00 mm
+		// of progress over the final 500 ticks, parked at (360.40, 757.52)),
+		// the same knife-edge col_pop_1 produces for top-lane-1 and
+		// col_loop_top's own ridge peak produces for the loop-top columns.
+		// A ball at 352 still descends onto the wall's own north cap (its
+		// body spans 338.5..365.5) and rolls off it.
 		id: 'descend-ramp-wall-r-cap',
 		label: 'Descending release onto the Ramp right wall cap (col_ramp_wall_r)',
-		startMm: { x: 376, y: 758, z: 13.5 },
+		startMm: { x: 352, y: 760, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
@@ -606,14 +729,20 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 47.930,
-			note: 'sits inside the Ramp channel band DW-137 already documents as unreachable from below -- see DW-138.',
+			closestApproachMm: 30.972,
+			note: 'sits above the Ramp channel, which Story 2.1f re-solved (DW-137 closed); this drop point itself is still unreached by any witness -- see DW-138.',
 		},
 	},
 	{
+		// [STORY 2.1f] Re-sited (360, 895) -> (344, 940): col_ramp_turn grew
+		// west and north with the channel (its bbox is now x 298.4..390.4,
+		// y 800..918) and swallowed the old release point (0.000 mm clear).
+		// (344, 940) is 29.732 mm clear and still directly above the turn's
+		// own north face, which this story re-authored as a named 21 deg
+		// grade so it stays above the real slide threshold at the longer run.
 		id: 'descend-ramp-turn-cap',
 		label: 'Descending release onto the Ramp top turn cap (col_ramp_turn)',
-		startMm: { x: 360, y: 895, z: 13.5 },
+		startMm: { x: 344, y: 940, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
@@ -621,7 +750,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 59.45,
+			closestApproachMm: 73.817,
 			note: 'same finding class as descend-ramp-wall-l -- see DW-138.',
 		},
 	},
@@ -633,17 +762,22 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
-		reachability: {
-			kind: 'unreachable',
-			ledger: 'DW-138',
-			closestApproachMm: 25.987,
-			note: 'sits on the Ramp\'s own return rail, past the corridor -- see DW-138.',
-		},
+		// [STORY 2.1f] RE-DECLARED reachable. This drop point was recorded
+		// unreachable against DW-138 with no witness inside 22.9 mm. The
+		// right-bat witness this story added (plunge-then-bat-r-3899, the
+		// Ramp shot) rides the Ramp's own turn across the crossing gap and
+		// down this rail on its way to the right inlane, passing 10.273 mm
+		// from the release point -- inside the 13.495 mm tolerance. A
+		// genuinely-fixed case is re-declared, never left marked unreachable
+		// (this manifest's own AC 2).
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3899' },
 	},
 	{
+		// [STORY 2.1f] Re-sited 240 -> 222.4: the bank moved west with the
+		// corridor budget and col_dragon_d now spans x 217.4..227.4.
 		id: 'descend-dragon-d',
 		label: 'Descending release onto DRAGON bank, col_dragon_d (leftmost target)',
-		startMm: { x: 240, y: 750, z: 13.5 },
+		startMm: { x: 222.4, y: 750, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
@@ -656,14 +790,22 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 183.653,
+			closestApproachMm: 72.374,
 			note: 'no witness the in-suite search could construct reaches this drop point -- see DW-138.',
 		},
 	},
 	{
+		// [STORY 2.1f] Re-sited 310 -> 270: the bank moved west and
+		// col_dragon_n now spans x 272.4..282.4, but col_ramp_wall_l's own
+		// west face at 286.4 leaves only a 0.5 mm window of x above the
+		// target itself that still clears DW-77's 13.495 mm margin. 270 is
+		// 16.400 mm clear and still descends onto the same body a ball above
+		// this column actually meets first -- col_dragon_bank_backstop, the
+		// wide sloped wall that spans the whole bank (this is the column that
+		// exercises the backstop's own east end).
 		id: 'descend-dragon-n',
 		label: 'Descending release onto DRAGON bank, col_dragon_n (rightmost target)',
-		startMm: { x: 310, y: 750, z: 13.5 },
+		startMm: { x: 270, y: 750, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
@@ -677,7 +819,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 114.250,
+			closestApproachMm: 50.919,
 			note: 'was reachable via plunge-then-bat-l-3944-35 before Story 2.1d\'s own Lock lane swallow fix; that witness is now captured by the Lock partway up-table and no longer reaches the DRAGON bank -- see DW-138.',
 		},
 	},
@@ -739,7 +881,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:185,y:680}). See DW-138.
-		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 132.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 68.743, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	{
 		id: 'descend-lock-ceiling-west-fill',
@@ -775,15 +917,19 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	// blend.py) -- see that constant's own [REWORK ITERATION 4] note for the
 	// full swept measurement. x = 211 is this band's own centre.
 	{
+		// [STORY 2.1f] The whole band moved with col_dragon_leg_r: the leg
+		// narrowed to x 190..213.4 and col_post_dragon_leg_r followed its own
+		// live cap midpoint to (201.70, 607.00), so the three columns that
+		// pinned the 2.1d strand band re-site onto the post's new column.
 		id: 'descend-dragon-leg-r-post',
 		label: "Descending release onto col_dragon_leg_r, the col_post_dragon_leg_r strand location (rework iteration 4)",
-		startMm: { x: 211, y: 680, z: 13.5 },
+		startMm: { x: 201.7, y: 680, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:211,y:680}). See DW-138.
-		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.472, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 52.395, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	// Rework iteration 4 code review (2026-09-04, blind-hunter/edge-case-hunter
 	// build-auto review pass): the HIGH finding's own reproduction swept and
@@ -795,26 +941,26 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	// caught; a genuinely dense grid was judged disproportionate to one 2 mm
 	// residual band already bounded by the review's own sweep.
 	{
-		id: 'descend-dragon-leg-r-post-210',
+		id: 'descend-dragon-leg-r-post-200',
 		label: 'Descending release onto col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge (rework iteration 4)',
-		startMm: { x: 210, y: 680, z: 13.5 },
+		startMm: { x: 200, y: 680, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:210,y:680}). See DW-138.
-		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.149, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 54.059, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	{
-		id: 'descend-dragon-leg-r-post-212',
+		id: 'descend-dragon-leg-r-post-203',
 		label: 'Descending release onto col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge (rework iteration 4)',
-		startMm: { x: 212, y: 680, z: 13.5 },
+		startMm: { x: 203, y: 680, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:212,y:680}). See DW-138.
-		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.802, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 51.124, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	// Code review, rework iteration 4 (2026-09-04, verification-gap layer,
 	// reproduced independently by the reviewer through the real
@@ -835,13 +981,13 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	{
 		id: 'descend-dragon-leg-r-post-660',
 		label: 'Descending release into the col_post_dragon_leg_r residual band a 1 mm offset trim reopens (rework iteration 4 code review)',
-		startMm: { x: 212, y: 660, z: 13.5 },
+		startMm: { x: 203, y: 660, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:212,y:660}). See DW-138.
-		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 126.119, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 47.294, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 ];
 

@@ -83,12 +83,12 @@
 import { describe, expect, it } from 'vitest';
 import { createMachine, type Machine } from '../src/sim/physics/machine';
 import { NO_FRAME } from '../src/sim/loop';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import { toPhysics, fromPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { nodeBboxMm, readCollisionDoc } from './util/collision-doc';
 import { distanceToPolygonMm } from './util/plan-geometry';
-import { shotCase } from './util/shot-cases';
+import { SHOT_CASES, shotCase } from './util/shot-cases';
 import type { SwitchName } from '../src/sim/table/names';
 
 /**
@@ -672,43 +672,44 @@ describe('shot routing (AC 1 behavioural half, review fix) -- a Loop shot below 
 	});
 });
 
-describe('shot routing (AC 1 behavioural half; Ramp RETURN GEOMETRY ONLY -- release point acknowledged unreachable, DW-137/Story 2.1f)', () => {
-	it('from a release point NO real shot can reach (DW-137), the Ramp\'s own return geometry still closes s_ramp_enter then s_ramp_made in order and delivers to the right inlane feed onto the RIGHT flipper', () => {
+describe('shot routing (AC 1 behavioural half) -- the Ramp, now a shot the table can deliver (DW-137 closed by Story 2.1f)', () => {
+	it('the Ramp, entered from the re-solved bottom-right corridor, closes s_ramp_enter then s_ramp_made in order and its return delivers to the right inlane feed onto the RIGHT flipper', () => {
 		const doc = readCollisionDoc();
 		expect(TABLE.reference.playfieldMm.w / 2, 'sanity: the Ramp entrance must be right of centre').toBeLessThan(
 			doc.nodes.find((n) => n.name === 'col_ramp_wall_l')!.bboxMm.min.x,
 		);
-		// Story 2.1c: the Ramp moved west (RAMP_ENTER_X_MM 372 -> 355) to free
-		// the widened Right Loop lane, and its entrance rose (RAMP_ENTER_Y_MM
-		// 470 -> 485) to clear the re-sited right slingshot; the release moves
-		// with it, and assertReleaseClear() is what caught both.
+		// [REWRITTEN, STORY 2.1f] What stood here recorded DW-137: this case's
+		// release point was NOT reachable by any real shot, and the block
+		// existed only to prove the Ramp's own RETURN geometry from a
+		// placement the story had already proven unreachable ("Do not read a
+		// pass here as 'the Ramp is reachable'"). The arithmetic it quoted was
+		// correct and is now history: a ball approaching from below could not
+		// push its centre past x = 300.505 (col_sling_r's west face minus the
+		// ball radius) while entering the Ramp channel needed a centre of at
+		// least x = 351.495 (col_ramp_wall_l's east face plus the ball
+		// radius) -- a 50.990 mm shortfall, and 256 swept releases closed
+		// s_ramp_enter zero times.
 		//
-		// DW-137 (chartered out of this story into Story 2.1f, "The
-		// bottom-right corridor"): this release point is NOT reachable by any
-		// real shot. Measured directly from the committed geometry (see
-		// test/dw137-corridor-gate.test.ts and
-		// test/fixtures/dw137-corridor/ramp-corridor.harness.ts, this story's
-		// own deliberately-red corridor gate): a ball approaching from below
-		// cannot push its centre past x = 300.505 mm (col_sling_r's west face
-		// minus the ball radius), but entering the Ramp channel needs a centre
-		// of at least x = 351.495 mm (col_ramp_wall_l's east face plus the
-		// ball radius) -- a 50.990 mm shortfall. 256 swept releases close
-		// s_ramp_enter zero times. `assertReleaseClear()` below only guards
-		// against a release point embedded in geometry or inside the zone
-		// under test -- it does not (yet; that is Story 2.1e's own charter)
-		// prove a release point is reachable by a real shot, and this one is
-		// not: (355, 465) sits in a ~2 mm slot above the slingshot that no
-		// swept shot can reach.
+		// Story 2.1f re-solved the whole bottom-right quadrant as one budget
+		// (tools/make-placeholder-blend.py, "the bottom-right corridor
+		// budget"). Measured on the re-exported document: col_sling_r's west
+		// face is now 332.400 and col_ramp_wall_l's east face 298.400, so the
+		// corridor OVERLAPS the Ramp channel by 34.000 mm against a 26.990 mm
+		// ball -- pnpm check:corridor reads +34.000 where it read -24.000.
 		//
-		// AC 3 no longer carries a Ramp clause (moved to Story 2.1f by
-		// amendment) -- this case does NOT claim the Ramp is a working shot.
-		// It exists only to verify the Ramp's own RETURN geometry (the
-		// crossing over the Right Loop, the descent to the right inlane and
-		// onto the right flipper) is built and correctly ordered, from a
-		// placement this story's own investigation has already proven
-		// unreachable. Do not read a pass here as "the Ramp is reachable" --
-		// Story 2.1f's own AC is what will prove that, through the Story 2.1e
-		// reachability harness.
+		// The claim this block now makes is behavioural, not dimensional, and
+		// it is witnessed: test/util/shot-cases.ts declares this case
+		// `reachable` via plunge-then-bat-r-3899, the right-bat witness
+		// Story 2.1f added -- a 285-tick plunge, the Right Loop's own return
+		// onto the RIGHT bat, one flip, closing s_ramp_enter then s_ramp_made
+		// with no teleport anywhere in it. That witness passes 2.153 mm from
+		// this release point. The release itself moved (355, 465) -> (315,
+		// 470), into the re-solved mouth.
+		//
+		// The return half of the assertion is unchanged in kind and in
+		// strength: OQ-6/FR-27's decided right-inlane return, checked
+		// explicitly rather than inferred from reachedFlipperBand, for the
+		// reason the Story 2.1c note below records.
 		const result = driveCase('ramp-return-geometry');
 		const enterIdx = result.firstMakes.indexOf('s_ramp_enter');
 		const madeIdx = result.firstMakes.indexOf('s_ramp_made');
@@ -823,27 +824,86 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
 
 describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => {
 	const bankLetters: readonly SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
-	it.each([
-		// Story 2.1c: the bank moved west (DRAGON_BANK_X0_MM 255 -> 235 in
-		// the first rework pass, then 235 -> 240 as shipped -- the leg-shadow
-		// re-solve; "255 -> 235" alone stood here until 2026-09-03, corrected
-		// at code review pass 3, no release point moved)
-		// so col_ramp_wall_l could clear the widened Right Loop lane; both
-		// releases move with it, and the right one also has to stay clear of
-		// the re-sited col_sling_r (314..370.4).
-		// The reachable approach corridor to the bank is now bounded by
-		// col_guide_outer_r's own east face (279.5) and the re-sited
-		// col_sling_r's own west face (314), so both offsets sit inside it --
-		// x 293..300.5 for a ball's own centre. assertReleaseClear() rejected
-		// the wider pair this story first tried.
-		{ label: 'left column of the corridor', id: 'dragon-bank-left-column-294' },
-		{ label: 'right column of the corridor', id: 'dragon-bank-right-column-300' },
-	])('$label: at least one DRAGON-bank target closes, and the ball is not stranded', ({ id }) => {
-		const result = driveCase(id);
-		const hitAny = result.firstMakes.some((s) => bankLetters.includes(s));
-		expect(hitAny, `at least one s_dragon_[d,r,a,g,o,n] must close -- makes: ${result.firstMakes.join(',')}`).toBe(true);
-		assertNotStranded(result, 'DRAGON bank');
-		assertNotStillInPlay(result, 'DRAGON bank');
+
+	// [REPLACED, STORY 2.1f -- task 9] Two cases stood here,
+	// 'dragon-bank-left-column-294' and 'dragon-bank-right-column-300', both
+	// driven straight up the pre-2.1f corridor and both asserting only that
+	// AT LEAST ONE of the six targets closes. That assertion was satisfiable
+	// with two targets out of six, which is precisely the state DW-136
+	// records, so it could never have failed for the reason the AC cares
+	// about. Both are replaced by the six per-letter cases below.
+	//
+	// The measurement that retired them rather than re-siting them, recorded
+	// because it is a real property of the re-solved quadrant: the Ramp's own
+	// west wall (col_ramp_wall_l, x 286.4..298.4, y 485..825) now stands
+	// between the corridor and the bank. A ball rising in the corridor must
+	// have its centre at or east of 311.9 to pass EAST of that wall (which
+	// takes it up the Ramp channel -- the shot the corridor re-solve exists to
+	// create) or at or west of 272.9 to pass WEST of it. From a release inside
+	// the corridor band (x 293.0..318.9) driven straight up-table, every aim
+	// swept from -30 to +4 degrees at 1400/1600/2000/2400 mm/s either enters
+	// the Ramp or strikes the wall; only x = 318 with a steep westward aim
+	// crosses the bank at all. A real ball does reach the bank, and that is
+	// what the per-letter cases below assert: each of their release points
+	// lies on the swept path of plunge-then-bat-r-3906 -- a 285-tick plunge,
+	// the Right Loop return onto the RIGHT bat, one flip -- whose single shot
+	// closes s_dragon_a, s_dragon_g, s_dragon_o and s_dragon_n in one pass
+	// after crossing west of the Ramp wall below its own southern end.
+
+	// [STORY 2.1f, AC 3 -- DW-136] The two cases above assert only that AT
+	// LEAST ONE of the six closes, which the pre-2.1f corridor satisfied with
+	// two targets out of six and which nothing in the suite ever strengthened.
+	// "All six strikable" is the acceptance criterion, so it is asserted here
+	// per target, one case per letter, each from its own witnessed release
+	// point (see test/util/shot-cases.ts for the measured clearance, witness
+	// and closest approach behind each).
+	//
+	// The subject list is DERIVED from `bankLetters` above rather than typed
+	// again, so a seventh target -- or a renamed one -- cannot silently escape
+	// the sweep, and the non-vacuity check below pins the count to the
+	// document's own switch set rather than to a literal.
+	// The ids are written out rather than templated so that
+	// test/shot-reachability.test.ts's "every manifest entry is actually
+	// driven" scan can see each one; the list is checked against bankLetters
+	// immediately below, so it cannot drift from the switch set.
+	const perLetterCases: readonly { sw: SwitchName; id: string }[] = [
+		{ sw: 's_dragon_d', id: 'dragon-target-d' },
+		{ sw: 's_dragon_r', id: 'dragon-target-r' },
+		{ sw: 's_dragon_a', id: 'dragon-target-a' },
+		{ sw: 's_dragon_g', id: 'dragon-target-g' },
+		{ sw: 's_dragon_o', id: 'dragon-target-o' },
+		{ sw: 's_dragon_n', id: 'dragon-target-n' },
+	];
+
+	it.each(perLetterCases)(
+		'$sw: its OWN target closes on a shot up its own column, and the ball is not stranded',
+		({ sw, id }) => {
+			const result = driveCase(id);
+			expect(
+				result.firstMakes,
+				`${sw} must close on case "${id}" -- this is the per-target half of DW-136 ("all six strikable"), which the old "at least one of the six" assertion could satisfy with two. makes: ${result.firstMakes.join(',')}`,
+			).toContain(sw);
+			assertNotStranded(result, `DRAGON target ${sw}`);
+			assertNotStillInPlay(result, `DRAGON target ${sw}`);
+		},
+	);
+
+	it('the six per-letter cases cover every DRAGON target the committed document declares -- the sweep is derived from the switch set, never a hand list', () => {
+		const doc = readCollisionDoc();
+		const declared = new Set(
+			doc.switchZones
+				.map((z) => z.switch)
+				.filter((sw): sw is SwitchName => typeof sw === 'string' && /^s_dragon_[a-z]+$/.test(sw) && sw !== 's_dragon_body'),
+		);
+		expect(declared.size, 'sanity: the committed document must declare DRAGON target switch zones, or the per-letter sweep above is vacuous').toBeGreaterThan(0);
+		expect(
+			[...declared].sort(),
+			'every s_dragon_<letter> zone in the committed document must have its own per-letter routing case -- a target added to the bank without one would be untested',
+		).toEqual([...bankLetters].sort());
+		expect(
+			perLetterCases.map((c) => c.sw).sort(),
+			'the per-letter case list above must cover exactly bankLetters -- a case list that drifts from the switch set silently stops testing a target',
+		).toEqual([...bankLetters].sort());
 	});
 });
 
@@ -1019,8 +1079,8 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// WHOLE neighbourhood clear, but only the band's own centre (above)
 		// was pinned as a permanent column. Widened to the two edges the
 		// ORIGINAL pre-fix HIGH finding reproduced exactly.
-		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge', id: 'descend-dragon-leg-r-post-210' },
-		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge', id: 'descend-dragon-leg-r-post-212' },
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge', id: 'descend-dragon-leg-r-post-200' },
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge', id: 'descend-dragon-leg-r-post-203' },
 		// Rework iteration 4 code review (2026-09-04, verification-gap layer,
 		// independently reproduced by the reviewer): the three columns above
 		// share y = 680 and all stay GREEN when the fix's own offset is
@@ -1034,5 +1094,232 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		const result = driveCase(id);
 		const { x, y } = shotCase(id).startMm;
 		assertNotStranded(result, `Descending release (${x}, ${y})`);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Story 2.1f, AC 9 (DW-119's discipline, generalised): the DESCENDING-STRAND
+// SUBJECT SET, derived from the committed document rather than hand-listed.
+//
+// The `it.each` list above is a hand list, and a hand list cannot see a hazard
+// beside a body nobody wrote down. That is exactly how Story 2.1d shipped a
+// swallow, then a strand on col_lock_ceiling_west_fill's own flank, then a
+// strand beside col_post_dragon_leg_r in the x = 210..212 band the x = 220
+// column stepped over -- three misses in a row, each found only after the
+// fact. This gate closes the class: it derives every EXPOSED north-facing
+// footprint edge in the committed document and requires each one to be either
+//
+//   (a) STEEP ENOUGH that a resting ball must slide off it -- the edge's own
+//       grade at or above the real slide threshold,
+//       atan(TUNING.materials.default.friction) = atan(0.3) = 16.699 deg (not
+//       the 18.43 deg several comments in this repository still quote), or
+//   (b) PROBED BEHAVIOURALLY by a descending column in the manifest, or
+//   (c) DECLARED, with its reason, as a place a ball is MEANT to come to rest.
+//
+// Every body this story adds or moves is covered without anyone listing it,
+// which is the point. It found two hazards on its first run that no hand list
+// had ever covered, both of them pre-existing and neither introduced here:
+// col_wall_lane's own flat 12 mm north cap at y = 950 (a ball released at
+// (474.40, 979.0) parked permanently at (474.40, 963.49)) and
+// col_loop_r_deflector's own flat 34 mm ledge at y = 1016.8, with 50 mm of
+// closed pocket above it (parked at (497.40, 1030.30)). Both are fixed in
+// tools/make-placeholder-blend.py in this same change; see their own node
+// comments for the measurements.
+//
+// mutation: re-bevel any moved body's north-facing flank to a grade below
+// 16.699 deg and re-export -> that body appears in the derived set below and,
+// with no column for it in the manifest, this gate goes red naming the body,
+// the edge and the measured grade, with nobody having added a column for it.
+describe('shot routing (AC 1 behavioural half, Story 2.1f AC 9) -- the descending-strand subject set is DERIVED from the committed document', () => {
+	/** The real slide threshold, from the tuning the solver itself reads. */
+	const SLIDE_THRESHOLD_DEG = (Math.atan(TUNING.materials.default.friction.value) * 180) / Math.PI;
+	const BOUNDARY_EPSILON_MM = 0.05;
+
+	interface ExposedFace {
+		readonly body: string;
+		readonly gradeDeg: number;
+		readonly midMm: { readonly x: number; readonly y: number };
+		readonly releaseMm: { readonly x: number; readonly y: number };
+	}
+
+	function pointInPolygonMm(poly: readonly { readonly x: number; readonly y: number }[], p: { readonly x: number; readonly y: number }): boolean {
+		let inside = false;
+		for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+			const vi = poly[i]!;
+			const vj = poly[j]!;
+			const crosses = vi.y > p.y !== vj.y > p.y;
+			if (crosses && p.x < ((vj.x - vi.x) * (p.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+				inside = !inside;
+			}
+		}
+		return inside;
+	}
+
+	/** Every north-facing footprint edge a descending ball can actually reach, with its own grade from horizontal. */
+	function deriveExposedNorthFaces(): ExposedFace[] {
+		const doc = readCollisionDoc();
+		const bodies = doc.nodes.filter((n) => n.name.startsWith('col_') && n.shape === 'wall' && n.footprintMm !== undefined);
+		const playfield = TABLE.reference.playfieldMm;
+		const faces: ExposedFace[] = [];
+		function clearanceMm(p: { readonly x: number; readonly y: number }): number {
+			let nearest = Infinity;
+			for (const body of bodies) {
+				const poly = body.footprintMm!;
+				nearest = Math.min(nearest, pointInPolygonMm(poly, p) ? 0 : distanceToPolygonMm(p.x, p.y, poly));
+			}
+			return nearest;
+		}
+		for (const body of bodies) {
+			const poly = body.footprintMm!;
+			const centroid = {
+				x: poly.reduce((sum, v) => sum + v.x, 0) / poly.length,
+				y: poly.reduce((sum, v) => sum + v.y, 0) / poly.length,
+			};
+			for (let i = 0; i < poly.length; i++) {
+				const a = poly[i]!;
+				const b = poly[(i + 1) % poly.length]!;
+				const dx = b.x - a.x;
+				const dy = b.y - a.y;
+				const len = Math.hypot(dx, dy);
+				if (len < 1e-9) {
+					continue;
+				}
+				let normal = { x: dy / len, y: -dx / len };
+				const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+				if ((mid.x - centroid.x) * normal.x + (mid.y - centroid.y) * normal.y < 0) {
+					normal = { x: -normal.x, y: -normal.y };
+				}
+				// North-facing: its outward normal has an up-table component, so
+				// a ball descending the playfield meets THIS face.
+				if (normal.y <= 0.02) {
+					continue;
+				}
+				// Off the playfield entirely (the perimeter walls' own outward
+				// faces, the below-deck return channel) -- no ball is ever there.
+				if (mid.x < 0 || mid.x > playfield.w || mid.y < 0 || mid.y > playfield.h) {
+					continue;
+				}
+				// Joined into, or buried inside, another body's material: not an
+				// exposed face at all (col_loop_l's own north end meeting
+				// col_loop_top, every Top-lane divider's own upper tip, ...).
+				const joined = bodies.some(
+					(other) =>
+						other.name !== body.name &&
+						(pointInPolygonMm(other.footprintMm!, mid) || distanceToPolygonMm(mid.x, mid.y, other.footprintMm!) <= BOUNDARY_EPSILON_MM),
+				);
+				if (joined) {
+					continue;
+				}
+				// Unreachable from above: no release point directly over the
+				// edge's own midpoint clears every footprint by DW-77's margin,
+				// so no ball can be dropped onto it and none can rest on it.
+				let release: { x: number; y: number } | undefined;
+				for (let above = TABLE.reference.ballMm + 2; above <= 120; above += 2) {
+					const candidate = { x: mid.x, y: mid.y + above };
+					if (clearanceMm(candidate) > RELEASE_CLEAR_MARGIN_MM + 1) {
+						release = candidate;
+						break;
+					}
+				}
+				if (release === undefined) {
+					continue;
+				}
+				const gradeDeg = (Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI;
+				faces.push({ body: body.name, gradeDeg, midMm: mid, releaseMm: release });
+			}
+		}
+		return faces;
+	}
+
+	/**
+	 * Places a ball is MEANT to come to rest, so a sub-threshold north face
+	 * there is the design, not a defect. Two-directional like every other
+	 * allowlist in this repository: an entry naming a body with no
+	 * sub-threshold exposed face fails as stale.
+	 */
+	const RESTING_PLACE_EXEMPTIONS: readonly { body: string; reason: string }[] = [
+		{
+			body: 'col_wall_lane_bottom',
+			reason:
+				'The shooter lane floor. A served ball rests on this face by design, waiting for the plunger -- it is where bd_trough serves into '
+				+ '(TABLE bd_trough.servesInto = s_shooter_lane) and where every witness in test/util/reachability.ts begins. Story 2.1d\'s own '
+				+ 'whole-playfield sweep recorded 20 of its 26 rests here and classed every one of them legitimate for this reason.',
+		},
+	];
+
+	it('every exposed north-facing face in the committed document is either steeper than the slide threshold, probed by a descending column, or a declared resting place', () => {
+		const faces = deriveExposedNorthFaces();
+		expect(
+			faces.length,
+			'sanity: the derived subject set is EMPTY -- every assertion below would then be vacuously true, which is the exact failure mode this gate exists to prevent',
+		).toBeGreaterThan(0);
+
+		const exempt = new Set(RESTING_PLACE_EXEMPTIONS.map((e) => e.body));
+		// A descending column is a manifest case released essentially at rest
+		// (speedMmPerS <= 1) from directly above the face -- derived from
+		// SHOT_CASES, never a second hand list.
+		const columns = SHOT_CASES.filter((c) => c.speedMmPerS <= 1);
+		expect(columns.length, 'sanity: the manifest must declare at least one descending column, or the coverage test below is vacuous').toBeGreaterThan(0);
+
+		const uncovered: string[] = [];
+		let steepEnough = 0;
+		let probed = 0;
+		for (const face of faces) {
+			if (face.gradeDeg >= SLIDE_THRESHOLD_DEG) {
+				steepEnough++;
+				continue;
+			}
+			if (exempt.has(face.body)) {
+				continue;
+			}
+			// A column covers a face only if it is directly above it AND close
+			// enough above it to be a probe OF it: within one ball diameter in
+			// x, and no more than COLUMN_REACH_MM up-table. Without the second
+			// bound a column 300 mm higher up the playfield "covers" a face it
+			// has nothing to do with, which is how a coverage gate becomes a
+			// coverage claim. 150 mm is a little over five ball diameters --
+			// comfortably more than every real column's own offset (the widest
+			// is 34.5 mm, descend-dragon-d over the backstop) and far less than
+			// the distance to any unrelated body.
+			const COLUMN_REACH_MM = 150;
+			const covered = columns.some(
+				(c) =>
+					Math.abs(c.startMm.x - face.midMm.x) <= TABLE.reference.ballMm &&
+					c.startMm.y > face.midMm.y &&
+					c.startMm.y - face.midMm.y <= COLUMN_REACH_MM,
+			);
+			if (covered) {
+				probed++;
+				continue;
+			}
+			uncovered.push(
+				`${face.body} (north face at (${face.midMm.x.toFixed(2)}, ${face.midMm.y.toFixed(2)}), grade ${face.gradeDeg.toFixed(2)} deg, `
+				+ `below the ${SLIDE_THRESHOLD_DEG.toFixed(3)} deg slide threshold; a clear release sits directly above it at `
+				+ `(${face.releaseMm.x.toFixed(2)}, ${face.releaseMm.y.toFixed(2)}))`,
+			);
+		}
+		expect(
+			uncovered,
+			'these exposed north faces are shallower than the real slide threshold and NOTHING drops a ball on them: '
+			+ `${uncovered.join('; ')}. Either bevel the body above ${SLIDE_THRESHOLD_DEG.toFixed(3)} deg, add a descending column to `
+			+ 'test/util/shot-cases.ts (and drive it above), or declare it a resting place with its reason.',
+		).toEqual([]);
+		// Anti-vacuity, DERIVED from the subject set: the two branches must
+		// both be exercised by real faces, or one of them is dead code that
+		// could absorb everything.
+		expect(steepEnough, 'no exposed face is steeper than the slide threshold -- the "steep enough" branch is never taken, so it proves nothing').toBeGreaterThan(0);
+		expect(probed, 'no exposed sub-threshold face is covered by a descending column -- the coverage branch is never taken, so it proves nothing').toBeGreaterThan(0);
+	});
+
+	it('every RESTING_PLACE_EXEMPTIONS entry still names a body with a sub-threshold exposed north face -- a stale entry fails', () => {
+		const faces = deriveExposedNorthFaces();
+		for (const exemption of RESTING_PLACE_EXEMPTIONS) {
+			const matching = faces.filter((f) => f.body === exemption.body && f.gradeDeg < SLIDE_THRESHOLD_DEG);
+			expect(
+				matching.length,
+				`the resting-place exemption for "${exemption.body}" is stale: the committed document no longer gives it an exposed north face `
+				+ `shallower than ${SLIDE_THRESHOLD_DEG.toFixed(3)} deg, so the exemption is exempting nothing and should be removed`,
+			).toBeGreaterThan(0);
+		}
 	});
 });

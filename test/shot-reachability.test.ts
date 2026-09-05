@@ -431,7 +431,18 @@ function minFeedRailMarginMm(caseIds: readonly string[], nodeName: string): numb
  * deterministic, AD-3 -- there is no run-to-run solver noise to absorb).
  */
 const MEASURED_LEFT_FEED_MARGIN_MM = -0.007077330733434195;
-const MEASURED_RIGHT_FEED_MARGIN_MM = 0.01979845833328575;
+// [RE-RECORDED, STORY 2.1f] 0.01979845833328575 -> 0.036104934502217744.
+// This record is measured over RIGHT_BAT_ARRIVAL_CASE_IDS, which includes
+// 'ramp-return-geometry' -- the case Story 2.1f re-sited from the
+// unreachable (355, 465) into the re-solved Ramp mouth at (315, 470) and
+// flipped from `unreachable` to `reachable`. Its driven trajectory now
+// genuinely climbs the Ramp, crosses at the turn and descends the Right
+// Loop lane into the right inlane, so the closest approach it contributes
+// to col_guide_inlane_feed_r is a different one. The SIGN is unchanged and
+// still asserted separately (positive: the right-bat-arrival trajectories
+// CLEAR the rail), the agreement band is unchanged at 0.01 mm, and the
+// LEFT record did not move at all -- only the right-side trajectory did.
+const MEASURED_RIGHT_FEED_MARGIN_MM = 0.036104934502217744;
 /**
  * The simulation is fully deterministic (AD-3): re-running the SAME
  * committed geometry reproduces the margin bit-identically, so this band
