@@ -2472,8 +2472,26 @@ def main():
 	# from the UNMOVED free-end coordinate (212.5, 610), so FR-31 termination
 	# holds. North, east and unoffset were each tried and reproduce a strand
 	# (at a different nearby point each time, never simply "safe further
-	# out") -- south is the only direction that empties the whole swept
-	# neighbourhood.
+	# out") -- south empties the whole swept neighbourhood.
+	#
+	# [CORRECTED at the rework iteration 4 code review, 2026-09-04] Two claims
+	# above were overstated and are restated here rather than left to mislead
+	# a later story in an area this file's own history shows is easy to get
+	# wrong. (1) "further into the leg's own solid material here means SOUTH,
+	# not west or east" is not right about WEST: this leg's cap RISES to the
+	# west (y = 620 - (x - 190) * 20/45), so moving west at constant y also
+	# goes deeper under it -- at x = 208.5 the cap sits at 611.78, i.e. 1.78 mm
+	# above the post's centre. It is EAST that goes shallower/proud. (2) West
+	# was therefore never among the directions tried, so "south is the only
+	# direction that empties the whole swept neighbourhood" was not
+	# established. Measured at the review through this same pipeline: a 4.0 mm
+	# WEST offset also clears all three committed descending columns, and
+	# leaves the post's own north-east vertex 4 mm proud of the cap rather
+	# than 1 mm. The SHIPPED 3.0 mm SOUTH offset is correct and stays -- it is
+	# measured, within budget and genuinely exposed -- but it is not the only
+	# geometry that works, and a later story re-solving this corner should
+	# know west is an untried, plausibly better-exposed option rather than one
+	# already ruled out.
 	DRAGON_LEG_CAP_MIDPOINT_DROP_MM = 10.0  # authored -- half of add_box_wall_sloped's own 20.0 mm drop, above
 	DRAGON_LEG_L_POST_OFFSET_MM = 4.0
 	DRAGON_LEG_R_POST_OFFSET_MM = 3.0  # authored, rework iteration 4 -- see the [REWORK ITERATION 4] note immediately above for the swept measurement this SOUTH offset is based on

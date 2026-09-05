@@ -816,6 +816,33 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// Measured via closestApproachOverAll({x:212,y:680}). See DW-138.
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.802, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
+	// Code review, rework iteration 4 (2026-09-04, verification-gap layer,
+	// reproduced independently by the reviewer through the real
+	// Blender -> export -> physics pipeline): the three columns above all
+	// release at y = 680 and therefore pin only "the post is somewhere south
+	// of 610", not "the post is far enough south". Measured: rebuilding with
+	// `DRAGON_LEG_R_POST_OFFSET_MM = 2.0` -- the value the generator's own
+	// [REWORK ITERATION 4] note records as INSUFFICIENT ("2.0 mm left one at
+	// (212, 660) too") -- leaves all three of them GREEN (297.7 / 308.9 /
+	// 305.5 mm of progress) while a ball released at (212, 650), (212, 660)
+	// or (212, 670) comes to permanent rest at (211.08, 625.44) with 0.03 mm
+	// of trailing-window progress against the 15 mm floor. So the single most
+	// plausible future edit to that constant -- trimming it by 1 mm -- ships
+	// a strand the whole suite calls green. This column releases inside that
+	// residual band and closes it: green today (offset 3.0), red at offset
+	// 2.0. Clearance to the nearest col_ footprint is 38.5 mm, well over
+	// assertReleaseClear()'s own 13.495 mm floor.
+	{
+		id: 'descend-dragon-leg-r-post-660',
+		label: 'Descending release into the col_post_dragon_leg_r residual band a 1 mm offset trim reopens (rework iteration 4 code review)',
+		startMm: { x: 212, y: 660, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:212,y:660}). See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 126.119, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
 ];
 
 /** Looks a case up by id, throwing naming the id if it is not declared -- `driveCase(id)` (`test/shot-routing.test.ts`) is the only entry point to a release point, so a missing id is always a caller bug, not a data gap. */

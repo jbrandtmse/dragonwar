@@ -16,48 +16,41 @@ context:
 warnings: ['oversized', 'multiple-goals']
 deferred:
   - summary: >-
-      A narrow band of col_lock_ceiling_west_fill's own release-height sweep
-      (x = 92..110, y approx 660) comes to permanent rest against
-      col_dragon_leg_l's own diagonal cap and col_lock_ceiling's own (byte-
-      identical-to-original) west riser -- a pre-existing, latent near-miss
-      between two UNTOUCHED bodies that this story's own rework iteration 3
-      (round 7, the HIGH finding's fix) exposed by making col_lock_ceiling
-      overall taller and thereby redirecting ball trajectories that used to
-      roll past this area without ever reaching it, rather than something
-      this story's own geometry changes newly created there.
+      WITHDRAWN at the rework iteration 4 code review (2026-09-04): the
+      "x = 92..110, y approx 660 latent near-miss between two untouched
+      bodies" this entry recorded is a DW-77 release-inside-solid-material
+      artefact, not a strand. The sweep it rests on released balls inside
+      col_lock_ceiling_west_fill's own footprint, which is the documented
+      way to make the solver eject a ball and manufacture a phantom rest.
+      No geometric defect exists at that band and none should be chartered.
     evidence: |-
-      Found via a wide, throwaway descending-drop sweep (x = 92 to 192,
-      step 2, y = 665, zero release velocity) run directly against the real
-      physics pipeline while verifying rework iteration 3's own HIGH-finding
-      fix -- a check no prior pass of this story, nor the original code
-      review, ever ran (both used a handful of fixed columns, none inside
-      this specific x-range). Confirmed the underlying gap is NOT something
-      this story's own edits created: col_dragon_leg_l and col_lock_
-      ceiling's own west riser (146, 598)-(146, 614) are BOTH authored
-      byte-identical to what rework iteration 2 shipped -- LOCK_CEILING_
-      SHOULDER_MM (614) is explicitly unchanged this whole rework (see
-      tools/make-placeholder-blend.py's own comment on that constant). What
-      changed is that col_lock_ceiling's own EAST portion grew much taller
-      (peak 624 -> 642) to fix the HIGH finding, which changes where balls
-      dropped in the open field above this whole cluster of bodies come to
-      rest overall, redirecting some trajectories that used to roll clear
-      into this pre-existing near-miss instead. Verified this residual is
-      genuinely out of scope for any committed test: the full 41-case
-      test/shot-routing.test.ts suite and the 472-release
-      pnpm check:reachability sweep both stay green after the fix, with
-      every declared reachability verdict (including this story's own three
-      new SHOT_CASES columns, all at x = 120/150/185, comfortably outside
-      the x = 92..110 band) agreeing with the live sweep's own measurement.
-      Not chased further within this pass: closing it would need either a
-      genuine geometric merge of col_lock_ceiling_west_fill with col_lock_
-      ceiling's own west riser (a structural redesign, not a parameter
-      tune) or accepting the same class of whack-a-mole this HIGH finding's
-      own seven-round account already documents extensively, under this
-      story's own three-rework-iteration cap with no further budget left.
+      Independently re-derived at the code review, twice and by two
+      different routes. col_lock_ceiling_west_fill's committed footprint is
+      (90,618) (150,598) (150,652) (90,672), so its SOUTH edge interpolates
+      as y = 618 - (x - 90)/3 and its NORTH edge as y = 672 - (x - 90)/3.
+      The recorded sweep released at y = 665, stepping x from 92 to 192 by
+      2. Evaluating point-in-polygon at every one of those x values, y = 665
+      lies INSIDE the body for x = 92,94,96,98,100,102,104,106,108,110 and
+      outside from x = 112 on -- which is EXACTLY the "narrow band x = 92..110"
+      this entry reported as a strand, boundary for boundary. The band is the
+      polygon, not a defect in it. DW-77 records precisely this failure mode
+      (the solver ejects a ball spawned inside a col_ body), and this story's
+      own assertReleaseClear() exists to stop it reaching a committed test;
+      the throwaway sweep that produced this entry bypassed it, exactly as
+      the lead's own first whole-playfield sweep did before being discarded
+      and re-run behind the clearance filter. The entry's second measurement
+      is independently impossible: it places the resting contact against
+      col_lock_ceiling's own west riser at x = 146, more than 36 mm from
+      x = 110, which no 13.495 mm-radius ball can bridge. Its conclusion --
+      that closing this would need "a genuine geometric merge ... a structural
+      redesign" -- rests entirely on the invalid measurement and must not be
+      harvested as work. Iteration 3's own review already directed "correct or
+      withdraw" and the entry stood verbatim through iteration 4; withdrawn
+      here with the arithmetic recorded so it is not re-raised a third time.
     location: >-
-      tools/make-placeholder-blend.py (col_dragon_leg_l, col_lock_ceiling's
-      own west riser -- both unchanged bodies); the residual itself is
-      geometric, not tied to a specific test file
+      No code location -- this entry is withdrawn. The bodies it named
+      (col_dragon_leg_l, col_lock_ceiling's west riser) carry no defect at
+      this band.
     severity: low
   - summary: >-
       test/asset-contract.test.ts's isJoined() is a second, geometry-computed
@@ -345,9 +338,30 @@ deferred:
       coordinate, not the guide end's -- so it passes by construction; this
       is the same "post not load-bearing" class iteration 2's MED closed for
       four other posts, re-created here by round 7's own ceiling geometry
-      change. col_post_lock_ceiling_w was checked and is NOT similarly
-      buried. Out of scope for rework iteration 4 (author-scoped to
-      col_post_dragon_leg_r alone); recorded for the lead's harvest.
+      change. [CORRECTED at the rework iteration 4 code review, 2026-09-04:
+      the sentence that stood here -- "col_post_lock_ceiling_w was checked
+      and is NOT similarly buried" -- is FALSE, and the lead's harvest must
+      not act on it. A full point-in-polygon census of all 48 committed
+      rubber_post nodes against every other col_ footprint was run at the
+      review; FOUR posts have every one of their eight footprint vertices
+      inside another solid body: col_post_lock_ceiling_e (inside
+      col_dragon_leg_r), col_post_lock_ceiling_w (inside
+      col_lock_ceiling_west_fill + col_lock_ceiling), col_post_lock_ceiling_
+      west_fill_e (inside col_lock_ceiling_west_fill + col_lock_ceiling) and
+      col_post_dragon_leg_l (inside col_dragon_leg_l + col_lock_ceiling_west_
+      fill). col_post_dragon_leg_r itself measures 6 of 8 vertices inside
+      col_dragon_leg_r -- the two exposed vertices ARE this iteration's own
+      ~1 mm protrusion, independently confirmed. The severity ranking is
+      unchanged and col_post_lock_ceiling_e remains the sharp case, because
+      it is the only one of the four whose terminated END is itself bare
+      (the east riser really does stand 4 mm clear of col_dragon_leg_r's
+      face, and round 7 moved its midpoint to 612 while the post stayed at
+      606); the other three terminate ends that isJoined() already resolves
+      as buried or joined, so FR-31 is satisfied structurally there and
+      those posts are redundant rather than defective. Recorded so the
+      harvest inherits the measurement instead of the wrong claim.] Out of
+      scope for rework iteration 4 (author-scoped to col_post_dragon_leg_r
+      alone); recorded for the lead's harvest.
       Fix-risk low-medium: relocate the post to the ceiling's own current
       east-riser midpoint (194, 612), or move the exemption's verify() target
       to the ridge's live geometry instead of a bare literal.
@@ -856,6 +870,54 @@ After both are implemented: re-run `pnpm test` with `BLENDER` exported and confi
 - **The `assert x <= x` removal is real** (`tools/make-placeholder-blend.py:829-839`); the surviving assert at `:652` compares two independently authored constants (598 vs 600) and is genuinely falsifiable.
 - **The knowingly-invariant assertion at `test/asset-contract.test.ts:1407-1410` is not a masked vacuity** and was not counted as the predicted sixth: it is explicitly labelled "algebraically invariant and cannot fail by itself", paired with an absolute pin (`toBeCloseTo(652, 1)`) that does fail, and carries a recorded behavioural mutation. Noise, not evidence-laundering.
 - **`DW-146` was not re-litigated.** Its Block If HALT record stands.
+
+**Code review, 2026-09-05 -- REWORK ITERATION 4 (`bmad-code-review`, review tier `full-opus`; layers: blind-hunter, edge-case-hunter, verification-gap, acceptance-auditor -- all four launched, all four returned, each verified `git rev-parse --show-toplevel` = `C:/git/dragonwar/.worktrees/epic-2` before reading state, none edited a file, none ran a writing git command; `git status --short` clean and `git log --branches --not --remotes` unchanged after all four).** Diff baseline `f78428f..HEAD` -- the ORIGINAL iteration-1 baseline, so the WHOLE story was reviewed, not only the fix -- plus the working tree, clean with no untracked files at review start.
+
+**Gates measured independently at this review, not inherited.** `pnpm test` **91 files / 1418 passed / 0 failed** with `BLENDER` (**1422** after this review's own patch); `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size` (0.848 MB against a 2.75 MB budget) all exit 0; `check:ad7` **exit 1** naming `AD-7`, `DW-70` and `bd_trough` with both `[true,true,true,true]` and `[true,true,true,false]` present; `check:corridor` **exit 1**; `check:reachability` **exit 0**, 45 cases / 472 releases / 23 reachable / 22 unreachable, every declaration agreeing with the live sweep (**46 cases / 23 reachable / 23 unreachable** after the patch, the new column measuring 125.821 mm against its declared 126.119). `TABLE.shots` is `{}`; `vis_spinner_l` present in the glb and absent from the collision document; `sw_spinner` byte-identical at x 5..45 / y 635..662 / z 0..30.
+
+**The committed artifacts are reproducible, not hand-edited.** Re-exporting the committed `assets/src/dragonwar.blend` through `tools/export.py` into a scratch directory outside the repository reproduces `public/assets/dragonwar.collision.json` and `dragonwar.glb` **byte-identically** (`git hash-object` `0c57ada3...` and `09ea6d69...`, matching HEAD). The worktree was never written to for any experiment in this review: every mutation ran in an isolated copy of the tree with `node_modules` junctioned, and `git status --short` was verified clean before and after each one.
+
+**Verdict: `done`.** The three questions this iteration was scoped to answer, each re-derived rather than inherited:
+
+1. **Is the `col_post_dragon_leg_r` strand genuinely fixed? Yes.** Mutating the *authored source constant* `DRAGON_LEG_R_POST_OFFSET_MM` 3.0 -> 0.0 and rebuilding through the real Blender -> export -> physics pipeline reddens **exactly** the three new columns and nothing else -- (210, 680) at (208.068, 626.800), (211, 680) at (208.063, 626.775), (212, 680) at (208.031, 626.762), each with 0.008-0.055 mm of trailing-window progress against the 15 mm floor, `terminal: "still_in_play"` at ~13 mm/s -- reproducing the HIGH finding's recorded coordinates to three decimals. Every other column, including all three `descend-lock-ceiling-*`, stays green in both arms, so the new columns and not a shared fixture are the discriminator. A genuine value perturbation: the code still runs and the behaviour changes.
+2. **Is the fix sound? Yes.** `col_dragon_leg_r`'s cap line is y = 620 - (x - 190) * 20/45, so the free end `freeEndsMm()` derives is the cap midpoint (212.5, 610) and is **unmoved**; the post at (212.5, 607) sits 3.000 mm from it against the gate's `postRadius + 0.5 = 4.500 mm` budget, so FR-31 termination was not traded away to buy the strand. Re-deriving the whole gate over the committed document: 56 derived ends, 15 joined, **41 post-checked, zero distance failures**. A point-in-polygon census of all 48 committed `rubber_post` nodes confirms the fix's own protrusion claim exactly -- `col_post_dragon_leg_r` has **6 of 8** vertices inside `col_dragon_leg_r`, the two exposed ones being the ~1 mm north-east protrusion the fix note records.
+3. **Did iteration 4 break anything previously working? No.** Only `assetHash` moved in the five goldens (`a587a44e -> dbd72bf0`); `tableHash`, `expectedHash` and `expectedGameStateHash` are all unchanged, so no golden's trajectory moved -- a header-only freshness refresh, exactly as the notes claim. `transitions` bodies and `durationTicks` are unchanged across the whole story (2/2/1/2/0 and 2000/9600/800/9282/3400), `PARITY_INERT` is untouched, `replay-goldens.test.ts`'s only change is a comment anchor, and `DW-70` / `deviceSlots` are present in every `notes`. The `.glb` correctly did not move: `col_` nodes are stripped from it by design. Reachability verdicts were re-derived per case from the baseline: exactly four flips across the whole story (`descend-sling-l` unreachable -> **reachable**, the harder claim; `pop-bumper-2`, `pop-bumper-3`, `descend-dragon-n` the reverse), every one explained and agreeing with the live sweep -- **no `unreachable` verdict was edited to reach green**. The lock captures remain the two intended `lock-lane-*` cases, and `check:ad7`'s deliberate red is intact with its harness assertions literally true.
+
+**Findings.**
+
+- [x] [Review][Patch] **MED (Rule 19) -- the three new strand columns pin the fix's DIRECTION but not its MARGIN, and a 1 mm trim of the constant ships a strand with the whole suite green.** All three release at `y = 680`. Rebuilding with `DRAGON_LEG_R_POST_OFFSET_MM = 2.0` -- the value this story's own generator note records as INSUFFICIENT ("2.0 mm left one at (212, 660) too") -- leaves all three **green** (297.7 / 308.9 / 305.5 mm of progress) while a ball released at (212, 650), (212, 660) or (212, 670) comes to **permanent rest at (211.08, 625.44)** with 0.028-0.029 mm of trailing-window progress. Raised by the verification-gap layer and reproduced independently by the reviewer through the real pipeline, driving the residual band with the committed `driveCase()` machinery in an isolated copy of the tree. So the single most plausible future edit to that constant is undetectable by the pins added to prevent exactly that. **Fixed at this review:** added `descend-dragon-leg-r-post-660` (release (212, 660), inside the residual band) to `test/util/shot-cases.ts` and to the same descending sweep in `test/shot-routing.test.ts`, with its `reachability` measured rather than guessed -- `closestApproachOverAll({x:212,y:660})` = 126.119 mm, witness `plunge-then-bat-l-3944-35`, confirmed by the dense out-of-process sweep at 125.821 mm (delta 0.298, inside the agreement band). Green at the shipped offset 3.0, red at 2.0. Suite 1418 -> 1422, `check:reachability` exit 0 over 46 cases. Fix-risk low; in-story; the one finding squarely inside this iteration's own scope.
+
+- [x] [Review][Patch] **MED -- frontmatter `deferred:` entry 1 (the "x = 92..110 latent near-miss") is a DW-77 release-inside-solid-material artefact, and would have been harvested into the ledger as a structural redesign.** Independently re-derived: `col_lock_ceiling_west_fill`'s footprint gives a south edge y = 618 - (x - 90)/3 and a north edge y = 672 - (x - 90)/3, so the recorded sweep's `y = 665` release lies **inside** the body for x = 92, 94, ..., 110 and outside from x = 112 -- **exactly** the band the entry reports as a strand, boundary for boundary. The entry's second measurement is independently impossible (it places the contact against `col_lock_ceiling`'s west riser at x = 146, 36+ mm from x = 110, unreachable for a 13.495 mm ball). Iteration 3's review already directed "correct or withdraw" and the entry stood verbatim. **Withdrawn at this review** with the arithmetic recorded in place, so it is not re-raised a third time and no phantom work is chartered. Fix-risk low; in-story.
+
+- [x] [Review][Patch] **MED -- a `deferred:` entry the lead is about to harvest contains a false measurement.** The `col_post_lock_ceiling_e` entry asserts "`col_post_lock_ceiling_w` was checked and is NOT similarly buried". A full point-in-polygon census of all 48 committed posts against every other `col_` footprint, run at this review, shows **four** posts with every one of their eight vertices inside another solid body: `col_post_lock_ceiling_e` (in `col_dragon_leg_r`), `col_post_lock_ceiling_w` (in `col_lock_ceiling_west_fill` + `col_lock_ceiling`), `col_post_lock_ceiling_west_fill_e` (same pair) and `col_post_dragon_leg_l` (in `col_dragon_leg_l` + `col_lock_ceiling_west_fill`). Independently confirmed by the acceptance-auditor layer by 720-point boundary sampling. **The severity ranking is unchanged** -- `col_post_lock_ceiling_e` remains the sharp case, because it is the only one of the four whose terminated END is itself bare; the other three terminate ends `isJoined()` already resolves as buried or joined, so FR-31 holds structurally there and those posts are redundant rather than defective. **Corrected in place** so the harvest inherits the measurement instead of the wrong claim. Fix-risk low; in-story.
+
+- [x] [Review][Patch] **LOW -- the fix's recorded geometric rationale is inaccurate about the one direction it never tried.** `tools/make-placeholder-blend.py` states that because the right leg's lane-facing corner is the HIGH one, "further into the leg's own solid material here means SOUTH, not west or east", and concludes "south is the only direction that empties the whole swept neighbourhood". The cap RISES to the west, so moving west at constant y also goes deeper under it (at x = 208.5 the cap sits at 611.78, 1.78 mm above the post's centre); it is EAST that goes shallower. West was therefore never among the directions tried, and the "only direction" claim was not established. Measured at this review through the same pipeline: a **4.0 mm WEST offset also clears all three committed columns**, and leaves the post's north-east vertex 4 mm proud of the cap rather than 1 mm. The shipped 3.0 mm SOUTH offset is correct and stays -- measured, within budget, genuinely exposed -- but the comment is corrected so a later story re-solving this corner does not treat west as already ruled out. Comment-only; the exported geometry is unchanged and was re-verified byte-identical. Fix-risk low; in-story.
+
+**Deferred (ledgered via `_bmad/scripts/ledger.sh`, `by=cr`). Four new entries, all `routed`.**
+
+- **`DW-149` -- the anti-vacuity floors are hand-typed literals that lag their subject sets; three are below theirs today.** `MIN_SHOT_CASES` = 39 against a 45-entry manifest (six cases, including every strand pin this story added, deletable with both reachability gates green); the FR-31 `postDistanceChecks` floor `>= 40` against a re-derived 41; `MIN_WITNESSES` = 10 against an 11-entry corpus after this story added the load-bearing `plunge-medium-295`. **One root cause.** The first two are also in this spec's frontmatter `deferred:` list -- **the lead's harvest should append them to `DW-149` as occurrences rather than file them again.** Not patched here, deliberately: two of the three are author-deferred for the harvest, and fixing one sibling while leaving the others is worse than routing all three together.
+- **`DW-150` -- `descend-dragon-leg-l` no longer touches the body it is named for.** Its closest approach to `col_dragon_leg_l` is 55.62 mm against a 13.495 mm ball radius; across all 18 sweep columns the minimum approach to that body is 20.00 mm, so nothing contacts it. Deleting `col_dragon_leg_l` entirely leaves the column green with **byte-identical** progress (307.04 mm in both arms). The cause is geometric, not a bad release point: `col_lock_ceiling_west_fill` now sits over that leg's sloped cap with a 2 mm gap. Re-authoring the cap flat would reopen a DW-119 shelf with nothing observing it.
+- **`DW-151` -- iteration 3's Fix Pack was bundled into a rework the author then narrowly scoped, so it executed nothing and was never mirrored into `deferred:`.** Instances re-verified present at HEAD, the load-bearing one first: `test/lock-device-behaviour.test.ts:228,678` quote the lock zones as 564..612 when the committed zones are **544..592**, and name `sw_lock_2` for a y that falls inside `sw_lock_3` -- a wrong dimensional claim in the file that pins the corridor seal, the same bbox-vs-footprint class of error that let iteration 1's swallow ship. Also `tools/make-placeholder-blend.py:790` "39-case" (45), `:2209` referencing the non-existent `LOCK_CEILING_X_OVERLAP_MM`, `test/reachability-harness-integrity.test.ts:8,78` "39-case manifest", the sweep harness's "leaves 442 releases" (443), `GUIDE_SURFACES`'s comment naming `metal`/`glass` as classified when neither is in `NON_GUIDE_SURFACES`, and two `devices.ts` line anchors stale by ~200 lines.
+- **`DW-152` -- `TUNING.lockEjectExemptionTimeoutMs`'s AD-15 `source` cites a measurement its own doc comment retracts, frozen verbatim in all five goldens.** Not a two-way door: `source` is serialised into `gameStart.tuning`, so correcting it re-records five goldens -- which is why the iteration-3 Fix Pack bundled it with a rework that then did not run. The cheapest carrier is a story that already re-records the goldens; Story 2.5's coil-prologue re-record is the natural one, for the burn-down gate to decide.
+
+**Pre-adjudicated by the author or the lead -- raised again by a layer, NOT re-opened here.**
+
+- The acceptance-auditor filed two HIGHs against AC 3: `col_wall_lane`'s bare free end at (474.40, 950.00), 86.00 mm from the nearest post on the divider a ball runs the full 950 mm of on every plunge (a body the surface-based selector excludes as `wood`, so it never reaches the exemption allowlist and carries no reason string); and `col_loop_top`'s two bare, ball-reachable end caps. Both are real and both are already dispositioned above this stage: the first is **`DW-142`, `escalated` to the epic decision sheet**; the second is **`DW-146`, re-owned by the author to Story 2.1f with a binding, pre-authorised decision rule** recorded in that story's `epics.md` block. Recorded here so the occurrence count carries them; no new entry, no re-severitying, and neither holds this story.
+- The MED findings the author deliberately left open at iteration 4 (the descending-drop probe's `probeXs` band, the FR-31 floor, `MIN_SHOT_CASES`, `col_post_lock_ceiling_e`, AC 1's throw-based mutation record, the Lock-lane `terminal` assertion, and the missing "post is genuinely exposed" check) were re-found by the layers, as expected. **Not re-raised as new findings** -- that was the author's instruction and it was followed correctly. Two of them are now also carried by `DW-149`; the `col_post_lock_ceiling_e` entry was corrected in place (patch above) rather than re-filed.
+
+**Judged and closed at emission.**
+
+- **`wontfix-theoretical`** -- `positionalProgressMm()`'s `< 2 samples -> Infinity` path could in principle make a descending pin vacuous; measured, all four pins produce 300+ mm of progress and every one reddens under mutation. *Reopen if a pin's tick budget is ever cut below `PROGRESS_SAMPLE_TICKS`.*
+- **`wontfix-theoretical`** -- `elapsedTicks >= settleTicks - 1` makes `settleTicks` 0 and 1 indistinguishable. Those two genuinely coincide under AD-2's own wording (0 = emit immediately; 1 = emit on the first outside tick), AD-3 pins `TICK_HZ` at 1000 where no declared settle class resolves to 1 tick, and the arithmetic matches the amended Rule exactly. *Reopen if `TICK_HZ` changes.*
+- **`wontfix-theoretical`** -- the per-device `bootFullCount !== expectedBootFullCount` throw is unreachable through any current registry field. Honestly documented as a forward-looking guard; the reachable one (`totalBootFull !== 4`) has a standing mocked test.
+- **`wontfix-accepted`** -- `test/cabinet-switch-tracker-agreement.test.ts`'s flicker case compares two edge lists with no non-vacuity floor, so `[] toEqual []` would pass if both trackers regressed to silence. It is not AC 5's only pin: the retimed real `s_dragon_d` case in `test/switch-zones.test.ts` is named in AC 5's own mutation and was observed red. *`reopen_if` the `s_dragon_d` retimed case is removed, or the flicker case becomes the only coverage for a non-zero settle class.*
+- **`wontfix-accepted`** -- the ridge-vertex pin sorts its y values, so swapping the west (614) and east (626) shoulders' x positions leaves the sorted multiset unchanged; and `northEdgeWorstCaseY - ridgePeakY > 5` cannot fail because the terms cancel. Both are disclosed in their own comments and each sits beside a live absolute pin that does discriminate. *`reopen_if` either absolute pin is removed.*
+- **`wontfix-accepted`** -- `DRAGON_LEG_CAP_MIDPOINT_DROP_MM = 10.0` is a hand-typed half of `add_box_wall_sloped()`'s 20.0 mm drop rather than a derived expression, so changing the cap drop would silently drift both leg posts off their derived free ends. *`reopen_if` the leg cap drop is ever re-authored.*
+- **`wontfix-accepted`** -- AD-6's "the Lock's pose *is* the Mouth" now resolves to (170, 460), 20 mm south of `sw_lock_lane` and below the legs' base, after `DRAGON_MOUTH_Y_MM` moved 650 -> 460. Nothing is contradicted today (the `.blend` carries no Dragon head) and the rationale is recorded at the constant. *`reopen_if` a later story authors the Dragon's head.*
+- **`by-design`** -- AC 6's DW-125 concave-rejection pin lives in the Blender-gated `describe`, so it does not run on CI. That is the project's declared pattern (CI has no Blender and consumes the committed artifacts), and AC 6 scopes the case to "a Blender-gated case". Flagged for the lead's `ledger_adjudicated` gate: **DW-125 is closable, but record that its pin is Blender-gated**, since DW-125's own premise was that removing the check goes unnoticed.
+- **`by-design`** -- no `WITNESSES` recipe now closes any `s_pop_*`, because the two that did are legitimately captured by the Lock after AC 2's fix. The capture is correct device behaviour, every flip is explained per case, and the consequence is already carried by `DW-138` and by `DW-148`'s routing note under Story 2.2 in `epics.md`.
+
+**Bookkeeping observed, not changed.** The spec frontmatter reads `status: 'done'` while `sprint-status.yaml` read `review` (this review sets the tracker to `done`, so they now agree), and `review_loop_iteration: 0` after four rework iterations. `## Auto Run Result`'s narrative is still iteration 2's. Left alone deliberately: the spawn prompt reserves `status:` to the lead, and these fields gate nothing.
 
 ## Spec Change Log
 

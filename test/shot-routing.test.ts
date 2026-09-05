@@ -1021,6 +1021,15 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// ORIGINAL pre-fix HIGH finding reproduced exactly.
 		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge', id: 'descend-dragon-leg-r-post-210' },
 		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge', id: 'descend-dragon-leg-r-post-212' },
+		// Rework iteration 4 code review (2026-09-04, verification-gap layer,
+		// independently reproduced by the reviewer): the three columns above
+		// share y = 680 and all stay GREEN when the fix's own offset is
+		// trimmed 3.0 -> 2.0 mm -- the value the generator records as
+		// leaving a residual strand at (212, 660). This column releases
+		// inside that band, so the pin now covers the fix's measured margin
+		// and not merely its direction. See test/util/shot-cases.ts's own
+		// note on this case for the measurement.
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r residual band a 1 mm offset trim reopens', id: 'descend-dragon-leg-r-post-660' },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ id }) => {
 		const result = driveCase(id);
 		const { x, y } = shotCase(id).startMm;
