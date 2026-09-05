@@ -1297,6 +1297,13 @@ So that no mode ever parses a raw switch and "what a Loop is" is defined once.
 
 **Ledger entries routed to this story** (Rule 17 (1b))
 
+- DW-133: both Loops' `_in` switch zones span their whole lane mouth, which **also spans that side's outlane
+  column**, so every outlane drain closes `s_loop_l_in` / `s_loop_r_in` -- and so does a **made Ramp** (ledger;
+  routed by cr 2026-09-03). Measured `firstMakes` on a made Ramp: `s_ramp_enter, s_ramp_made, s_loop_r_in,
+  s_inlane_r` -- the return crosses into the Loop lane. Routed here because Story 2.1c's own Never list forbids it
+  from declaring `TABLE.shots`, so the disambiguation belongs with the shot sequences: **this layer must never treat
+  a bare `s_loop_*_in` as a Loop entry.** AD-19's sequence-based detection (`_in` then `_out` in order, inside the
+  window) is what makes that safe -- the raw edge is ambiguous, the ordered pair is not.
 - DW-166: an **under-powered but on-axis** Lock shot closes `s_lock_lane` **without being captured**, so
   `lock_lane_entered` still over-reports a Lock-lane shot in a narrower band than DW-134 described (ledger; routed by cr
   2026-09-05). Measured threshold **550-600 mm/s**: the ball enters the lane and closes the switch but never reaches a slot.
