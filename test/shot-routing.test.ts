@@ -1005,6 +1005,22 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		{ label: 'col_lock_ceiling, west flank', id: 'descend-lock-ceiling-west' },
 		{ label: 'col_lock_ceiling, east flank (the strand location)', id: 'descend-lock-ceiling-east' },
 		{ label: 'col_lock_ceiling_west_fill', id: 'descend-lock-ceiling-west-fill' },
+		// Rework iteration 4 (code review 2026-09-04, HIGH finding): the new
+		// FR-31 terminator col_post_dragon_leg_r stranded a ball against
+		// col_dragon_leg_r's own sloped cap -- this sweep's own
+		// one-column-per-body discipline had a column for the LEG (above,
+		// x = 220, outside the strand's own x = 210..212 band) but none for
+		// the POST itself. Fixed with a 3.0 mm SOUTH offset on the post
+		// (tools/make-placeholder-blend.py); this column is its own
+		// permanent regression pin.
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand location', id: 'descend-dragon-leg-r-post' },
+		// Rework iteration 4 code review (2026-09-04, blind-hunter/edge-case-
+		// hunter build-auto review pass): the post-fix sweep verified the
+		// WHOLE neighbourhood clear, but only the band's own centre (above)
+		// was pinned as a permanent column. Widened to the two edges the
+		// ORIGINAL pre-fix HIGH finding reproduced exactly.
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge', id: 'descend-dragon-leg-r-post-210' },
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge', id: 'descend-dragon-leg-r-post-212' },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ id }) => {
 		const result = driveCase(id);
 		const { x, y } = shotCase(id).startMm;

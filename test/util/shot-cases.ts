@@ -762,6 +762,60 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// Measured via closestApproachOverAll({x:132,y:680}). See DW-138.
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 79.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
+	// Rework iteration 4 (code review 2026-09-04, HIGH finding): the new
+	// FR-31 terminator `col_post_dragon_leg_r`, added by this story's own
+	// task 9, centred UNOFFSET on the right leg's cap midpoint (212.5, 610),
+	// created a fresh permanent-rest strand -- descending releases at
+	// (210, 680), (211, 680) and (212, 680) all came to rest at
+	// (208.0-208.03, 626.76-626.77), 0.01-0.02 mm of trailing-1000-tick net
+	// displacement. `descend-dragon-leg-r` above (x = 220) sits well outside
+	// the 2 mm-step x = 210..212 band a sweep against the real pipeline
+	// found, so it never covered this. Fixed with a 3.0 mm SOUTH offset on
+	// the post alone (`DRAGON_LEG_R_POST_OFFSET_MM`, tools/make-placeholder-
+	// blend.py) -- see that constant's own [REWORK ITERATION 4] note for the
+	// full swept measurement. x = 211 is this band's own centre.
+	{
+		id: 'descend-dragon-leg-r-post',
+		label: "Descending release onto col_dragon_leg_r, the col_post_dragon_leg_r strand location (rework iteration 4)",
+		startMm: { x: 211, y: 680, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:211,y:680}). See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.472, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
+	// Rework iteration 4 code review (2026-09-04, blind-hunter/edge-case-hunter
+	// build-auto review pass): the HIGH finding's own reproduction swept and
+	// verified a whole neighbourhood clear (x = 198..236, y = 640..720) but
+	// this file pinned only the band's own CENTRE (x = 211, above). Widened to
+	// the two other points the ORIGINAL pre-fix reproduction named exactly --
+	// (210, 680) and (212, 680), the band's own measured edges -- so a future
+	// edit that re-strands either edge without touching the centre is still
+	// caught; a genuinely dense grid was judged disproportionate to one 2 mm
+	// residual band already bounded by the review's own sweep.
+	{
+		id: 'descend-dragon-leg-r-post-210',
+		label: 'Descending release onto col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge (rework iteration 4)',
+		startMm: { x: 210, y: 680, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:210,y:680}). See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.149, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
+	{
+		id: 'descend-dragon-leg-r-post-212',
+		label: 'Descending release onto col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge (rework iteration 4)',
+		startMm: { x: 212, y: 680, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: [],
+		// Measured via closestApproachOverAll({x:212,y:680}). See DW-138.
+		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 144.802, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
 ];
 
 /** Looks a case up by id, throwing naming the id if it is not declared -- `driveCase(id)` (`test/shot-routing.test.ts`) is the only entry point to a release point, so a missing id is always a caller bug, not a data gap. */

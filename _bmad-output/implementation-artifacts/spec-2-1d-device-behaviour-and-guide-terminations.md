@@ -2,11 +2,11 @@
 title: 'Story 2.1d: Device behaviour and guide terminations'
 type: 'feature' # feature | bugfix | refactor | chore
 created: '2026-09-03'
-status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
-baseline_revision: 'dd335fe0d13970be897090435a853222662b3cc5'
+status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: 'b3812ea49f3afc91dbbdaab60569439f10462b69'
 baseline_commit: 'f78428f80d2cff2c97db9c0d89ab24253a2a531b'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/AGENTS.md'
@@ -264,6 +264,185 @@ deferred:
       cosmetic consolidation this late.
     location: 'test/shot-routing.test.ts (assertNotStranded/positionalProgressMm), test/lock-device-behaviour.test.ts (the duplicated DESCENT_PROGRESS_* discipline)'
     severity: low
+  - summary: >-
+      test/lock-device-behaviour.test.ts's descending-drop probe cannot fail
+      for the strand class the Review Findings credit it with closing --
+      iteration 3's feasible-band correction derives probeXs from the
+      corridor's own 150..190 clear width (x in {164.495, 170.0, 175.505}),
+      which excludes both known strand locations, (182.6, 631.3) east and
+      (147.8, 648.9) west, by construction.
+    evidence: |-
+      Raised by the verification-gap review layer during rework iteration 4's
+      own code review pass (2026-09-04). Verified by running the whole file
+      under two independent regressions of the exact defect class (the
+      pre-round-7 col_lock_ceiling footprint revert, and
+      LOCK_FILL_THICKNESS_MM 54 -> 36): both leave
+      test/lock-device-behaviour.test.ts 12 passed (12) while
+      test/shot-routing.test.ts goes red both times. Instrumenting the probe
+      shows every column drains (114.82 mm tail progress, final
+      (255.89, 3.46)), so minYReached < 598 is satisfied by the drain, not by
+      the seal. Out of scope for rework iteration 4, which the author
+      narrowly scoped to the col_post_dragon_leg_r strand alone (see
+      ## Spec Change Log, rework iteration 4 entry) -- recorded here for the
+      lead's harvest rather than fixed in this pass. Fix-risk low per the
+      reviewer's own assessment (widen probeXs to include both measured
+      strand x-coordinates).
+    location: 'test/lock-device-behaviour.test.ts (the descending-drop probe, probeXs derivation)'
+    severity: medium
+  - summary: >-
+      The FR-31 non-vacuity floor in test/asset-contract.test.ts is one below
+      its own subject set again -- the same class of drift iteration 2 closed
+      and iteration 3 reopened via isJoined()'s own tightening.
+    evidence: |-
+      Raised by the verification-gap review layer, rework iteration 4's code
+      review (2026-09-04). Re-ran the gate's own derivation over the
+      committed document with the shipped BOUNDARY_EPSILON_MM = 0.05: 56
+      derived ends, 15 joined, 41 post-checked. The assertion reads
+      .toBeGreaterThanOrEqual(40) and its own message states "56 derived
+      ends, 16 genuinely joined, 40 post-checked" -- both stale against the
+      41 the same derivation now measures. One free end can drop out of FR-31
+      coverage silently. Out of scope for rework iteration 4 (author-scoped
+      to col_post_dragon_leg_r alone); recorded for the lead's harvest.
+      Fix-risk low: re-measure and pin the exact count.
+    location: 'test/asset-contract.test.ts:677-684'
+    severity: medium
+  - summary: >-
+      MIN_SHOT_CASES was not moved when test/util/shot-cases.ts's manifest
+      grew 39 -> 42 this rework, so the reachability harness's own
+      anti-vacuity floor no longer covers the full manifest.
+    evidence: |-
+      Raised by the verification-gap review layer, rework iteration 4's code
+      review (2026-09-04). test/fixtures/reachability/reachability-sweep.
+      harness.ts:303-306's floor ("refusing to report a verdict over a
+      truncated manifest") still asserts >= 39, so all three of this story's
+      new strand-regression columns (the descend-lock-ceiling-* family) could
+      be deleted and pnpm check:reachability would stay green over 39 cases --
+      taking the only committed strand protection for col_lock_ceiling with
+      them. The identical drift the FR-31 floor was explicitly raised for in
+      the prior review pass, one file over. Out of scope for rework iteration
+      4 (author-scoped to col_post_dragon_leg_r alone); recorded for the
+      lead's harvest. Fix-risk low: raise the floor to 42 (or to the live
+      manifest length).
+    location: 'test/util/shot-cases.ts:91'
+    severity: medium
+  - summary: >-
+      col_post_lock_ceiling_e is entirely buried inside col_dragon_leg_r's
+      own footprint, sits 6.00 mm from the guide end it is supposed to
+      terminate, and the GUIDE_TERMINATION_EXEMPTIONS entry's own verify()
+      cannot detect either defect because it checks the post's own authored
+      coordinate rather than the end's.
+    evidence: |-
+      Raised by the edge-case-hunter / verification-gap review layers,
+      rework iteration 4's code review (2026-09-04). Round 7's ceiling fix
+      raised LOCK_CEILING_EAST_SHOULDER_MM so col_lock_ceiling's east riser
+      now runs (194,598)->(194,626), moving its own midpoint 606 -> 612; the
+      post was not moved and remains at (194, 606) -- 6.00 mm off, against
+      the gate's own postRadius + 0.5 = 4.50 mm budget. Independently
+      confirmed by point-in-polygon test: the post's full extent (x 190..198,
+      y 602..610) lies wholly inside col_dragon_leg_r's own footprint, so no
+      ball can ever reach it. The exemption's verify() calls
+      expectPostNear(doc, {x: 194, y: 606}, ...) -- the post's own authored
+      coordinate, not the guide end's -- so it passes by construction; this
+      is the same "post not load-bearing" class iteration 2's MED closed for
+      four other posts, re-created here by round 7's own ceiling geometry
+      change. col_post_lock_ceiling_w was checked and is NOT similarly
+      buried. Out of scope for rework iteration 4 (author-scoped to
+      col_post_dragon_leg_r alone); recorded for the lead's harvest.
+      Fix-risk low-medium: relocate the post to the ceiling's own current
+      east-riser midpoint (194, 612), or move the exemption's verify() target
+      to the ridge's live geometry instead of a bare literal.
+    location: >-
+      tools/make-placeholder-blend.py (col_post_lock_ceiling_e authoring
+      call), test/asset-contract.test.ts (GUIDE_TERMINATION_EXEMPTIONS, the
+      col_lock_ceiling east-riser entry's verify())
+    severity: medium
+  - summary: >-
+      AC 1's recorded ## Verification mutation is throw-based (a
+      construction-time invariant fires first) but is recorded in the spec
+      as though it demonstrates the behavioural deviceSlots assertion
+      directly -- the two recorded outcomes are mutually exclusive.
+    evidence: |-
+      Raised by the verification-gap review layer, rework iteration 4's code
+      review (2026-09-04). Applying the spec's own AC 1 mutation
+      (bd_lock.startsFullAtBoot false -> true) kills createMachine() at the
+      totalBootFull !== 4 throw; the toEqual([false,false,false]) line the
+      Verification entry describes going red is never reached. The behaviour
+      IS genuinely pinned, by the mocked construction-throw test at
+      test/lock-device-behaviour.test.ts:131-176 -- no functional gap, only a
+      documentation mismatch in ## Verification. Out of scope for rework
+      iteration 4 (author-scoped to col_post_dragon_leg_r alone); recorded
+      for the lead's harvest. Fix-risk low: rewrite the AC 1 mutation line to
+      name the construction-throw test as the pin instead of the
+      toEqual(...) it currently claims goes red.
+    location: '## Verification, AC 1 mutation entry; the pin is test/lock-device-behaviour.test.ts:131-176'
+    severity: medium
+  - summary: >-
+      test/shot-routing.test.ts's Lock-lane-long case traded
+      assertNotStillInPlay for expect(result.terminal).toBe('locked'), which
+      does not imply the ball was actually captured -- classifyTerminal()
+      returns 'locked' from firstMakes alone, before it reads leftPlay.
+    evidence: |-
+      Raised by the edge-case-hunter review layer, rework iteration 4's code
+      review (2026-09-04). test/shot-routing.test.ts:818-820: task 18 called
+      for "the strictly stronger outcome"; the change removed
+      assertNotStillInPlay(result, 'Lock lane') and added
+      expect(result.terminal).toBe('locked'). classifyTerminal() returns
+      'locked' from firstMakes alone (test/shot-routing.test.ts:114), before
+      it reads leftPlay (:128) -- so a ball that closes s_lock_1 and then
+      escapes and keeps rolling would still classify 'locked' and still pass
+      assertNotStranded. Stronger on the switch sequence, weaker on the fate;
+      AC 2's own observable is that the ball IS captured. Out of scope for
+      rework iteration 4 (author-scoped to col_post_dragon_leg_r alone);
+      recorded for the lead's harvest. Fix-risk low: assert a bd_lock slot
+      actually filled (deviceSlots.bd_lock has exactly one more true than
+      before), or restore the fate assertion alongside the terminal check.
+    location: 'test/shot-routing.test.ts:818-820'
+    severity: medium
+  - summary: >-
+      col_post_dragon_leg_r's rework iteration 4 fix is verified by hand
+      (point-vs-line computation) to genuinely protrude past col_dragon_leg_r's
+      own sloped face rather than being buried under it, but no automated
+      test asserts a post remains genuinely exposed -- the same class of gap
+      that let col_post_lock_ceiling_e (a different post, deferred separately
+      above) ship wholly buried inside another body's footprint while still
+      passing the generic distance-based termination gate.
+    evidence: |-
+      Raised by the blind-hunter review layer during rework iteration 4's own
+      build-auto step-04 review pass (2026-09-04). The rework iteration 4 fix
+      note (Spec Change Log) records the protrusion measurement (~1 mm at the
+      post's own two north-easternmost vertices) as a one-off manual check
+      against the real committed geometry, not as a committed, re-runnable
+      assertion. The existing FR-31 termination gate
+      (test/asset-contract.test.ts, freeEndsMm() + nearest-post distance)
+      checks only that SOME rubber_post exists within postRadius + 0.5 mm of
+      a guide's free end -- it does not check that the post's own footprint
+      is not wholly (or mostly) subsumed by a neighbouring body's footprint,
+      which is exactly how col_post_lock_ceiling_e's own buried-post defect
+      (see the sibling deferred entry above) currently passes that same gate.
+      A future edit that grows col_dragon_leg_r's own footprint slightly
+      (the same kind of edit that buried col_post_lock_ceiling_e) could bury
+      col_post_dragon_leg_r the same way without any committed test
+      objecting -- the distance gate would still pass (the post's centre
+      coordinate is unmoved), and the descending-drop regression columns
+      this iteration added test for STRANDING, not for BURIAL (a buried post
+      that presents no contactable face at all does not create a strand; a
+      ball would simply pass over it as if it were not there, which the
+      "genuine positional progress" assertion those columns use cannot
+      distinguish from "the post correctly deflected the ball"). Out of
+      scope for rework iteration 4 (author-scoped to the col_post_dragon_leg_r
+      STRAND alone); recorded for the lead's harvest alongside the sibling
+      col_post_lock_ceiling_e entry, since both are instances of the same
+      root cause (no automated "post is genuinely load-bearing, not merely
+      nearby" check). Fix-risk medium: a point-in-polygon / footprint-overlap
+      check comparing every col_post_* footprint against every neighbouring
+      col_ body's footprint would need to be added to the termination gate or
+      a sibling test, which is systemic (touches the gate every post relies
+      on), not a single-post fix.
+    location: >-
+      test/asset-contract.test.ts (the FR-31 termination gate's nearest-post
+      distance check); tools/make-placeholder-blend.py (col_post_dragon_leg_r,
+      col_post_lock_ceiling_e, and every other col_post_* authoring call)
+    severity: medium
 ---
 
 <intent-contract>
@@ -631,19 +810,19 @@ After both are implemented: re-run `pnpm test` with `BLENDER` exported and confi
 
 **Open -- these leave the story `in-progress`.**
 
-- [ ] [Review][Fix] **HIGH -- this story's own new FR-31 post `col_post_dragon_leg_r` creates a fresh permanent-rest strand at (208.0, 626.8), of the same class and severity as the iteration-2 strand that forced this rework.** [`tools/make-placeholder-blend.py` (the `add_rubber_post('col_post_dragon_leg_r', ...)` call at (212.5, 610)); `public/assets/dragonwar.collision.json`] Reproduced by the reviewer in an isolated in-memory harness (no tracked file written; document integrity asserted in-band at 106 nodes before and after the run). Descending releases at **(210, 680)** and **(212, 680)** -- both legally clear (31.8 / 30.9 mm from the nearest `col_` footprint, against the 13.495 mm DW-77 floor) -- come to rest at **(208.03, 626.78)** and **(208.06, 626.76)**, `leftPlay=false`, trailing-1000-tick net displacement **0.028 / 0.049 mm** against the file's own 15 mm floor. Also reproduced at (210, 660) and (211, 700). **Absent at baseline** and **causally isolated**: deleting only `col_post_dragon_leg_r` from the committed document frees every column (378-423 mm of progress, all drain). A 2 mm-step sweep of x = 198..236 at y = 680 bounds the band at exactly **x = 210 and x = 212**; every other column drains. The ball wedges between the new post and `col_dragon_leg_r`'s sloped cap. No committed test covers it: the story added a descending column per new *flat-topped body* but none per new *post*, the nearest existing column (`descend-dragon-leg-r`, x = 220) clears, and the verification sweep the record cites (`tools/make-placeholder-blend.py:790`, `docs/decisions.md`) stops at x = 192/200 while `col_dragon_leg_r` spans x 190..235. Fix-risk med-high (geometry, re-export, five-golden re-record). Per Rule 15 a HIGH is fixed in the rework loop, not deferred.
+- [x] [Review][Fix] **RESOLVED 2026-09-04, rework iteration 4 -- HIGH -- this story's own new FR-31 post `col_post_dragon_leg_r` creates a fresh permanent-rest strand at (208.0, 626.8), of the same class and severity as the iteration-2 strand that forced this rework.** Fixed with a 3.0 mm SOUTH offset on the post alone (`DRAGON_LEG_R_POST_OFFSET_MM`, `tools/make-placeholder-blend.py`) -- unlike the LEFT leg (whose lane-facing side is the leg's own DROPPED, low corner), the RIGHT leg's lane-facing side is the UNDROPPED, high corner, so "further into the leg's own solid material" here is SOUTH, not west. Swept against the real physics pipeline post-fix: x = 198..236 (step 2 mm) at the original y = 680 release, and y = 640..720 (step 10 mm, x = 206..216 step 1 mm) at the boundary columns -- zero strands in either sweep, against the SAME harness that reproduced the pre-fix strand at every probed column in x = {210, 211, 212}. 1.0 mm and 2.0 mm SOUTH were each tried first and each left one residual strand (at (212, 660)); 3.0 mm is the smallest tested offset that clears both sweeps outright, and the post's own octagon still measurably protrudes past the leg's own sloped face (roughly 1 mm at its own two north-easternmost vertices, verified by direct point-vs-line computation, not merely bbox overlap) -- exposed, not buried, unlike the "post wholly inside another body" class this same review pass flagged elsewhere (`col_post_lock_ceiling_e`, deferred). North, east and unoffset were each tried and each reproduces a strand nearby (never simply "safe further out"); 3.0 mm sits well inside the gate's own `postRadius + 0.5 mm` = 4.5 mm termination budget from the unmoved free-end coordinate (212.5, 610), so FR-31 termination holds. A new permanent regression pin, `descend-dragon-leg-r-post` (x = 211, y = 680, the strand band's own centre; `closestApproachOverAll` measures 144.472 mm, unreachable), was added to `test/util/shot-cases.ts` and `test/shot-routing.test.ts`'s own one-column-per-body descending-release sweep. The collision document was re-exported (`assets/src/dragonwar.blend` -> `public/assets/dragonwar.collision.json`, via `pnpm export:assets`); all five goldens were re-verified by tracing their own ball paths directly against the fixed geometry on every tick of their whole recorded run -- none ever enters x [185, 240] / y [590, 630], the region the post sits in -- so only `header.assetHash` moved (`a587a44e` -> `dbd72bf0`) in each; `header.tableHash` and both `expectedHash`/`expectedGameStateHash` are BYTE-IDENTICAL, confirmed by re-running `runReplay()` against the live, fixed document (a header-only freshness refresh, not a re-record). Full suite green: `pnpm test` 91 files / 1410 passed / 0 failed; `check:reachability` green, 43 cases / 472 releases / 23 reachable / 20 unreachable, the new case's own declared `unreachable` verdict agreeing with the live sweep (144.163 mm measured against 144.472 mm recorded); `check:ad7`/`check:corridor` unchanged, still red for their own documented reasons (`DW-70`/`AD-7`/`bd_trough`; `DW-137`/`2.1f`). `docs/decisions.md`'s own Lock-lane row gained a fourth `[CORRECTED]` bracket recording this fix, matching the two rework iterations' own entries already there. [Original finding, preserved:] [`tools/make-placeholder-blend.py` (the `add_rubber_post('col_post_dragon_leg_r', ...)` call at (212.5, 610)); `public/assets/dragonwar.collision.json`] Reproduced by the reviewer in an isolated in-memory harness (no tracked file written; document integrity asserted in-band at 106 nodes before and after the run). Descending releases at **(210, 680)** and **(212, 680)** -- both legally clear (31.8 / 30.9 mm from the nearest `col_` footprint, against the 13.495 mm DW-77 floor) -- come to rest at **(208.03, 626.78)** and **(208.06, 626.76)**, `leftPlay=false`, trailing-1000-tick net displacement **0.028 / 0.049 mm** against the file's own 15 mm floor. Also reproduced at (210, 660) and (211, 700). **Absent at baseline** and **causally isolated**: deleting only `col_post_dragon_leg_r` from the committed document frees every column (378-423 mm of progress, all drain). A 2 mm-step sweep of x = 198..236 at y = 680 bounds the band at exactly **x = 210 and x = 212**; every other column drains. The ball wedges between the new post and `col_dragon_leg_r`'s sloped cap. No committed test covers it: the story added a descending column per new *flat-topped body* but none per new *post*, the nearest existing column (`descend-dragon-leg-r`, x = 220) clears, and the verification sweep the record cites (`tools/make-placeholder-blend.py:790`, `docs/decisions.md`) stops at x = 192/200 while `col_dragon_leg_r` spans x 190..235. Fix-risk med-high (geometry, re-export, five-golden re-record). Per Rule 15 a HIGH is fixed in the rework loop, not deferred.
 
-- [ ] [Review][Fix] **MED -- `test/lock-device-behaviour.test.ts`'s descending-drop probe cannot fail for the strand class the Review Findings credit it with closing.** Iteration 3's feasible-band correction derives `probeXs` from the corridor's 150..190 clear width, giving x in {164.495, 170.0, 175.505}; both strand locations -- (182.6, 631.3) east and (147.8, 648.9) west -- are excluded by construction. Verified by the verification-gap layer running the whole file under two independent regressions of the exact defect: the pre-round-7 footprint revert and `LOCK_FILL_THICKNESS_MM` 54 -> 36 each leave `test/lock-device-behaviour.test.ts` **12 passed (12)**, while `test/shot-routing.test.ts` goes red both times. Instrumenting the probe shows every column drains (114.82 mm tail progress, final (255.89, 3.46)), so `minYReached < 598` is satisfied by the drain, not by the seal. The two iteration-3 fixes work against each other: the MED feasible-band fix removed the columns that could observe the defect the HIGH anti-strand fix was added to observe. The DW-77 clearance reasoning applies to the release *height*, not the *x* band -- a column whose purpose is to land ON a flank is clear at (155, 660) and (185, 660) by ~27-30 mm. Fix-risk low.
+- [x] [Review][Defer] **DEFERRED 2026-09-04, rework iteration 4 (author-scoped to `col_post_dragon_leg_r` alone -- see this Spec Change Log's rework iteration 4 entry; recorded as a frontmatter `deferred:` entry for the lead's harvest, not fixed in this pass).** MED -- `test/lock-device-behaviour.test.ts`'s descending-drop probe cannot fail for the strand class the Review Findings credit it with closing.** Iteration 3's feasible-band correction derives `probeXs` from the corridor's 150..190 clear width, giving x in {164.495, 170.0, 175.505}; both strand locations -- (182.6, 631.3) east and (147.8, 648.9) west -- are excluded by construction. Verified by the verification-gap layer running the whole file under two independent regressions of the exact defect: the pre-round-7 footprint revert and `LOCK_FILL_THICKNESS_MM` 54 -> 36 each leave `test/lock-device-behaviour.test.ts` **12 passed (12)**, while `test/shot-routing.test.ts` goes red both times. Instrumenting the probe shows every column drains (114.82 mm tail progress, final (255.89, 3.46)), so `minYReached < 598` is satisfied by the drain, not by the seal. The two iteration-3 fixes work against each other: the MED feasible-band fix removed the columns that could observe the defect the HIGH anti-strand fix was added to observe. The DW-77 clearance reasoning applies to the release *height*, not the *x* band -- a column whose purpose is to land ON a flank is clear at (155, 660) and (185, 660) by ~27-30 mm. Fix-risk low.
 
-- [ ] [Review][Fix] **MED -- the FR-31 non-vacuity floor is one below its own subject set again, the exact finding iteration 2 recorded as closed.** [`test/asset-contract.test.ts:677-684`] The reviewer re-ran the gate's own derivation over the committed document with the shipped `BOUNDARY_EPSILON_MM = 0.05`: **56 derived ends, 15 joined, 41 post-checked**. The assertion reads `.toBeGreaterThanOrEqual(40)` and its message states "56 derived ends, 16 genuinely joined, 40 post-checked" -- the figures from before this iteration tightened `isJoined()` from 1.0 mm. One free end can drop out of FR-31 coverage silently, which is exactly what the assertion's own message says must never be possible. Fix-risk low: re-measure and pin the exact count.
+- [x] [Review][Defer] **DEFERRED 2026-09-04, rework iteration 4 (author-scoped to `col_post_dragon_leg_r` alone; recorded as a frontmatter `deferred:` entry for the lead's harvest, not fixed in this pass).** MED -- the FR-31 non-vacuity floor is one below its own subject set again, the exact finding iteration 2 recorded as closed.** [`test/asset-contract.test.ts:677-684`] The reviewer re-ran the gate's own derivation over the committed document with the shipped `BOUNDARY_EPSILON_MM = 0.05`: **56 derived ends, 15 joined, 41 post-checked**. The assertion reads `.toBeGreaterThanOrEqual(40)` and its message states "56 derived ends, 16 genuinely joined, 40 post-checked" -- the figures from before this iteration tightened `isJoined()` from 1.0 mm. One free end can drop out of FR-31 coverage silently, which is exactly what the assertion's own message says must never be possible. Fix-risk low: re-measure and pin the exact count.
 
-- [ ] [Review][Fix] **MED -- `MIN_SHOT_CASES` was not moved when the manifest grew 39 -> 42.** [`test/util/shot-cases.ts:91`] The anti-vacuity floor at `test/fixtures/reachability/reachability-sweep.harness.ts:303-306` ("refusing to report a verdict over a truncated manifest") still asserts `>= 39`, so all three of this story's own new strand-regression columns could be deleted and `pnpm check:reachability` would stay green over 39 cases -- taking the only committed strand protection for `col_lock_ceiling` with them. The same drift the FR-31 floor was explicitly raised for in this pass was left uncorrected one file over. Fix-risk low.
+- [x] [Review][Defer] **DEFERRED 2026-09-04, rework iteration 4 (author-scoped to `col_post_dragon_leg_r` alone; recorded as a frontmatter `deferred:` entry for the lead's harvest, not fixed in this pass).** MED -- `MIN_SHOT_CASES` was not moved when the manifest grew 39 -> 42.** [`test/util/shot-cases.ts:91`] The anti-vacuity floor at `test/fixtures/reachability/reachability-sweep.harness.ts:303-306` ("refusing to report a verdict over a truncated manifest") still asserts `>= 39`, so all three of this story's own new strand-regression columns could be deleted and `pnpm check:reachability` would stay green over 39 cases -- taking the only committed strand protection for `col_lock_ceiling` with them. The same drift the FR-31 floor was explicitly raised for in this pass was left uncorrected one file over. Fix-risk low.
 
-- [ ] [Review][Fix] **MED -- `col_post_lock_ceiling_e` is entirely buried inside `col_dragon_leg_r`, sits 6.00 mm from the end it is supposed to terminate, and the exemption's `verify()` cannot detect either.** Round 7 raised `LOCK_CEILING_EAST_SHOULDER_MM` so `col_lock_ceiling`'s east riser runs (194,598)->(194,626), moving its midpoint 606 -> **612**; the post was not moved and remains at (194, 606) -- **6.00 mm**, against the gate's own `postRadius + 0.5 = 4.50 mm` budget (the west riser, whose 614 shoulder did not move, measures 0.00 mm). Independently confirmed by point-in-polygon test: the post's full extent (x 190..198, y 602..610) lies **wholly inside** `col_dragon_leg_r`'s footprint, so no ball can ever touch it. The `GUIDE_TERMINATION_EXEMPTIONS` entry's `verify()` calls `expectPostNear(doc, {x: 194, y: 606}, ...)` -- the post's own coordinate, not the end's -- so it passes by construction. This is the "post not load-bearing" class the iteration-2 MED closed for four other posts, re-created here. (The reviewer checked and did **not** confirm the same for `col_post_lock_ceiling_w`, which is not fully inside any body.) Fix-risk low-med.
+- [x] [Review][Defer] **DEFERRED 2026-09-04, rework iteration 4 (author-scoped to `col_post_dragon_leg_r` alone; recorded as a frontmatter `deferred:` entry for the lead's harvest, not fixed in this pass).** MED -- `col_post_lock_ceiling_e` is entirely buried inside `col_dragon_leg_r`, sits 6.00 mm from the end it is supposed to terminate, and the exemption's `verify()` cannot detect either.** Round 7 raised `LOCK_CEILING_EAST_SHOULDER_MM` so `col_lock_ceiling`'s east riser runs (194,598)->(194,626), moving its midpoint 606 -> **612**; the post was not moved and remains at (194, 606) -- **6.00 mm**, against the gate's own `postRadius + 0.5 = 4.50 mm` budget (the west riser, whose 614 shoulder did not move, measures 0.00 mm). Independently confirmed by point-in-polygon test: the post's full extent (x 190..198, y 602..610) lies **wholly inside** `col_dragon_leg_r`'s footprint, so no ball can ever touch it. The `GUIDE_TERMINATION_EXEMPTIONS` entry's `verify()` calls `expectPostNear(doc, {x: 194, y: 606}, ...)` -- the post's own coordinate, not the end's -- so it passes by construction. This is the "post not load-bearing" class the iteration-2 MED closed for four other posts, re-created here. (The reviewer checked and did **not** confirm the same for `col_post_lock_ceiling_w`, which is not fully inside any body.) Fix-risk low-med.
 
-- [ ] [Review][Fix] **MED (Rule 19) -- AC 1's recorded `mutation:` is throw-based and is recorded as behavioural.** Applying the spec's own mutation (`bd_lock.startsFullAtBoot` false -> true) kills `createMachine()` at the `totalBootFull !== 4` throw; the `toEqual([false,false,false])` line is never reached, so the recorded outcome ("the boot-occupancy test goes red reporting `[true,true,true]`") never happens -- and the two outcomes the line records are mutually exclusive. The verification-gap layer could construct no value perturbation that moves `deviceSlots.bd_lock` without a throw firing first. The behaviour **is** genuinely pinned, by the mocked construction-throw test at `test/lock-device-behaviour.test.ts:131-176`; the fix is to rewrite the `## Verification` line to name that test as the pin. Fix-risk low.
+- [x] [Review][Defer] **DEFERRED 2026-09-04, rework iteration 4 (author-scoped to `col_post_dragon_leg_r` alone; recorded as a frontmatter `deferred:` entry for the lead's harvest, not fixed in this pass).** MED (Rule 19) -- AC 1's recorded `mutation:` is throw-based and is recorded as behavioural.** Applying the spec's own mutation (`bd_lock.startsFullAtBoot` false -> true) kills `createMachine()` at the `totalBootFull !== 4` throw; the `toEqual([false,false,false])` line is never reached, so the recorded outcome ("the boot-occupancy test goes red reporting `[true,true,true]`") never happens -- and the two outcomes the line records are mutually exclusive. The verification-gap layer could construct no value perturbation that moves `deviceSlots.bd_lock` without a throw firing first. The behaviour **is** genuinely pinned, by the mocked construction-throw test at `test/lock-device-behaviour.test.ts:131-176`; the fix is to rewrite the `## Verification` line to name that test as the pin. Fix-risk low.
 
-- [ ] [Review][Fix] **MED -- the Lock-lane case traded `assertNotStillInPlay` for an assertion that does not imply capture.** [`test/shot-routing.test.ts:818-820`] Task 18 called for "the strictly stronger outcome"; the change removed `assertNotStillInPlay(result, 'Lock lane')` and added `expect(result.terminal).toBe('locked')`. `classifyTerminal()` returns `'locked'` from `firstMakes` alone at `:114`, **before** it reads `leftPlay` at `:128` -- so a ball that closes `s_lock_1` and then escapes and keeps rolling still classifies `locked` and still passes `assertNotStranded`. Stronger on the switch sequence, weaker on the fate; AC 2's observable is that the ball **is captured**. Fix-risk low: assert a `bd_lock` slot actually filled, or restore the fate assertion alongside.
+- [x] [Review][Defer] **DEFERRED 2026-09-04, rework iteration 4 (author-scoped to `col_post_dragon_leg_r` alone; recorded as a frontmatter `deferred:` entry for the lead's harvest, not fixed in this pass).** MED -- the Lock-lane case traded `assertNotStillInPlay` for an assertion that does not imply capture.** [`test/shot-routing.test.ts:818-820`] Task 18 called for "the strictly stronger outcome"; the change removed `assertNotStillInPlay(result, 'Lock lane')` and added `expect(result.terminal).toBe('locked')`. `classifyTerminal()` returns `'locked'` from `firstMakes` alone at `:114`, **before** it reads `leftPlay` at `:128` -- so a ball that closes `s_lock_1` and then escapes and keeps rolling still classifies `locked` and still passes `assertNotStranded`. Stronger on the switch sequence, weaker on the fate; AC 2's observable is that the ball **is captured**. Fix-risk low: assert a `bd_lock` slot actually filled, or restore the fate assertion alongside.
 
 **Fix Pack (LOW, two-way doors -- bundled into the rework rather than reviewer-patched, because the HIGH's re-export will move several of the numbers).**
 
@@ -706,6 +885,71 @@ runs a **one-off whole-playfield swept strand sweep** as a verification pass -- 
 census story -- to confirm no *other* post strands. **If that sweep finds hazards beyond `col_post_dragon_leg_r`,
 the run stops and reports; there is no fifth iteration.** Finding more would be the class problem manifesting
 rather than a fourth instance. Author's words, recorded so the boundary is not re-litigated later.
+
+**2026-09-04 -- rework iteration 4, worked. The one in-scope defect is checked off in `### Review Findings` with
+its own resolution note; the full account is here.**
+
+**The fix.** `DRAGON_LEG_R_POST_OFFSET_MM = 3.0` (south), `tools/make-placeholder-blend.py` -- `col_post_dragon_leg_r`
+moved from (212.5, 610) to **(212.5, 607)**, the only change to any authored coordinate this iteration made. Chosen
+by measurement, not guesswork: an in-memory harness (no tracked file written until the fix was chosen) reproduced
+the reviewer's own strand exactly -- descending releases at (210, 680), (211, 680) and (212, 680) all came to rest
+at (208.0-208.03, 626.76-626.77), matching the reviewer's own figures to within rounding -- then swept four SOUTH
+offsets (1.0/2.0/3.0/4.0 mm) against that same harness. 1.0 mm and 2.0 mm each left one residual strand at exactly
+(212, 660); 3.0 mm is the smallest of the four that clears outright; 4.0 mm also clears but leaves the post's own
+octagon essentially fully buried (one vertex 0.085 mm proud of the leg's own sloped face) -- the same "post not
+load-bearing" class this same review pass flagged elsewhere (`col_post_lock_ceiling_e`, deferred), so 3.0 mm (which
+leaves roughly 1 mm of genuine, measured protrusion at the post's own two north-easternmost vertices) was kept in
+preference to the larger, technically-also-clearing offset. North, east and unoffset were each tried first and each
+reproduces a strand nearby -- never simply "safe further out" -- confirming south is the geometrically principled
+direction here (the RIGHT leg's lane-facing corner is the UNDROPPED, high one, the mirror of the LEFT leg's own
+already-shipped fix, whose lane-facing corner is the DROPPED, low one).
+
+**Verification, against the real committed document post-fix.** A wide x-sweep (198..236, step 2 mm, y = 680) and a
+height sweep (y = 640..720, x = 206..216, step 1 mm at the boundary columns) both come back with zero strands --
+every column drains. `postRadiusMm` is unchanged (4.0 mm; only the post's own footprint's y-coordinates moved), so
+the FR-31 gate's own `postRadius + 0.5 mm` = 4.5 mm budget is measured from the SAME unmoved free-end coordinate
+(212.5, 610); the new post centre is 3.0 mm away, comfortably inside it. A new permanent regression pin was added:
+`descend-dragon-leg-r-post` (`test/util/shot-cases.ts`, `x = 211, y = 680`, the strand band's own centre -- neither
+of the two pre-existing dragon-leg-r columns, `descend-dragon-leg-r` at x = 220, ever covered this band), wired into
+`test/shot-routing.test.ts`'s own one-column-per-body descending-release sweep alongside the iteration-3 `descend-
+lock-ceiling-*` columns. `closestApproachOverAll({x:211,y:680})` measures **144.472 mm** (witness `plunge-then-bat-
+l-3944-35`), comfortably unreachable, declared as such in the new case.
+
+**The two properties the author asked this iteration to preserve, both re-measured directly:**
+1. **No swallow.** `check:reachability`'s own live sweep reports exactly **2** reachable cases whose id starts
+   `lock-lane-` (`lock-lane-immediate`, `lock-lane-long`), both intended captures (`s_lock_lane` then `s_lock_1`);
+   every other reachable case is unrelated to the Lock. The case count is 43, not 42, because this iteration's own
+   new regression column joined the manifest -- the swallow's own two-capture figure is unaffected.
+2. **No strand on the ceiling.** Re-measured directly from the committed footprint: `col_lock_ceiling`'s east flank
+   is **24.84 degrees**, west **64.36 degrees** -- byte-identical to the author's own recorded figures, since this
+   iteration touched no coordinate of `col_lock_ceiling` or `col_lock_ceiling_west_fill`. All three `descend-lock-
+   ceiling-*` columns pass (part of the green full-suite run below).
+
+**The five goldens.** Re-exporting moved `assetHash` (the collision document's own content hash) for every golden,
+which the header-freshness check catches on the very next `pnpm test` run -- expected, not a regression. Each
+golden's own recorded ball path was traced directly against the fixed geometry, every tick of its whole recorded
+run: none of the five ever enters x [185, 240] / y [590, 630], the small region the post and its 4.5 mm budget
+occupy. `runReplay()` against the live, fixed document reproduces all five goldens' own `expectedHash`/
+`expectedGameStateHash` bit-for-bit -- so only `header.assetHash` (`a587a44e` -> `dbd72bf0`) moved in each; `header.
+tableHash` (`TABLE` itself is untouched by this iteration) and both result hashes are unchanged. This is a header-
+only freshness refresh under the story's own standing re-record grant, not a scenario re-record: no `transitions`,
+`coilPrologue`, `durationTicks` or `description` changed in any of the five files, and each gained one `notes`
+sentence recording exactly this.
+
+**Full suite, measured after the fix (BLENDER exported):** `pnpm test` **91 files / 1410 passed / 0 failed**;
+`pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers` and `pnpm check:attributions` all clean;
+`pnpm check:reachability` exit 0, **43 cases / 472 releases / 23 reachable / 20 unreachable**, this iteration's own
+new case's declared `unreachable` verdict agreeing with the live sweep (144.163 mm measured against 144.472 mm
+recorded, both far past any threshold); `pnpm check:ad7` and `pnpm check:corridor` unchanged, still exit 1 naming
+`DW-70`/`AD-7`/`bd_trough` and `DW-137`/`Story 2.1f` respectively, per this story's own Never list.
+
+**Files touched, exactly:** `tools/make-placeholder-blend.py` (`DRAGON_LEG_R_POST_OFFSET_MM` and its own
+[REWORK ITERATION 4] note); `assets/src/dragonwar.blend`, `public/assets/dragonwar.collision.json` (re-exported);
+`test/util/shot-cases.ts` and `test/shot-routing.test.ts` (the new `descend-dragon-leg-r-post` regression column);
+all five `test/replays/*.golden.json` (`header.assetHash` plus one `notes` sentence each); `docs/decisions.md`
+(a fourth `[CORRECTED]` bracket on the Lock-lane row, matching the two already there); this spec (the Review
+Findings checkbox, this entry). Nothing else -- the author's own narrow scope held, and the lead's own bounded-
+outcome sweep (a whole-playfield swept strand census) is explicitly this iteration's own next step, not this one's.
 
 
 **2026-09-04 -- rework iteration 3, opened by the lead. This is the LAST iteration before the 3-rework cap.**
@@ -1087,6 +1331,24 @@ Four additional review findings (structural-join exemption enumeration gap; a th
   - `low` `reject` A comment in `test/asset-contract.test.ts` describing a dedicated pin test for `col_post_lock_ceiling_west_fill_e` as having "used to exist" and being "`[REMOVED, rework iteration 3 round 7]`" was flagged by the blind-hunter review layer as fabricating a removal invisible in this pass's own diff against `baseline_revision`. Checked directly: the comment accurately describes intra-pass history (added during this same rework iteration 3's own internal round 2, removed during round 7, per the Spec Change Log's own seven-round account) that never touched version control at any intermediate point, since nothing was committed until this pass's own finalize -- a diff against `baseline_revision` cannot see uncommitted intra-pass history by construction, which is what the reviewer's own verification method mistook for fabrication. Rejected as a false positive; no change made.
   - `low` `reject` The blind-hunter review layer re-raised `ATTRIBUTIONS.md`'s and `docs/decisions.md`'s growing changelog rows as a new finding. Already tracked as an occurrence of this story's own pre-existing frontmatter `deferred:` entry on the identical root cause (added at the 2026-09-03 review pass, above); not re-added as a duplicate entry.
 
+### 2026-09-04 — Review pass (bmad-build-auto step-04, rework iteration 4's implementation)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2: (high 0, medium 1, low 1)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 7: (high 0, medium 0, low 7)
+- addressed_findings:
+  - `medium` `patch` The `col_post_dragon_leg_r` fix's own real, post-fix sweep (x = 198..236, y = 640..720) verified the whole neighbourhood clear, but only the band's own centre (x = 211) was committed as a permanent regression column, so a future edit re-stranding a different nearby point (independently duplicated by the blind-hunter and edge-case-hunter review layers). Added `descend-dragon-leg-r-post-210`/`-212` (the strand band's own measured west/east edges -- the exact two coordinates the original HIGH finding reproduced) to `test/util/shot-cases.ts` and `test/shot-routing.test.ts`'s same descending-drop sweep, each field measured against the real physics pipeline (`closestApproachOverAll`) and independently confirmed via `pnpm check:reachability` (exit 0, 45 cases / 472 releases / 23 reachable / 22 unreachable, both new columns agreeing with the live sweep) and the full suite (91 files / 1418 passed / 0 failed).
+  - `low` `patch` `docs/decisions.md`'s "Lock-lane bounding" row header still read its own original `2026-09-03` date though its own body now carries three later dated corrections, the most recent this iteration's own (found by the blind-hunter review layer). Added "last corrected 2026-09-04" to the header.
+  - `medium` `defer` `col_post_dragon_leg_r`'s own fix is verified BY HAND (a one-off point-vs-line computation) to genuinely protrude past `col_dragon_leg_r`'s own sloped face rather than being buried under it, but no automated test asserts a post stays genuinely exposed -- the same root cause as the sibling `col_post_lock_ceiling_e` deferred entry above (a post can satisfy the generic distance-based termination gate while being wholly subsumed by a neighbouring body's footprint) (found by the blind-hunter review layer). Recorded in frontmatter `deferred:` as a companion entry to the existing one rather than fixed -- a systemic footprint-overlap check touching the gate every `col_post_*` relies on is out of proportion to this iteration's own one-post, author-authorized scope.
+  - `low` `reject` No `DW-n` ticket names the `col_post_dragon_leg_r` strand defect, unlike sibling stranding defects elsewhere in this file (blind-hunter). This defect was found and fixed within the same pass rather than deferred; per this story's own ledger discipline (Rule 15), `bmad-build-auto` never writes the ledger and a `DW-n` is assigned there, not invented ad hoc for a closed, in-pass fix -- no other fixed (non-deferred) HIGH/MED in this same spec carries one either.
+  - `low` `reject` The rework iteration 4 paragraph appended to all five golden `notes` fields is byte-identical across all five, less golden-specific than earlier entries in the same fields (blind-hunter, x2 for the duplication and its own maintenance-risk framing, deduplicated to one reject here). The underlying factual claim (no golden's own traced ball path enters the affected region) was independently verified true both by this pass's own per-golden tick tracing and by the verification-gap review layer's own test runs (`test/replay-goldens.test.ts`, 51/51 passed) -- a documentation-style observation about an established, pre-existing convention this diff follows faithfully, not a functional gap.
+  - `low` `reject` The `notes` field's own ever-growing single-line-string convention makes this and prior diffs hard to review at the string level (blind-hunter). Pre-existing convention across the whole file and every prior iteration, not something this one-defect fix introduced or could change without touching every golden's own established shape.
+  - `low` `reject` The rework iteration 4 fix note was appended to `docs/decisions.md`'s "Lock-lane bounding, the swallow fix" row, whose own subject (corridor-ceiling zone bounding) differs from this fix's own subject (an FR-31 post terminator) (blind-hunter). Follows the exact precedent the same row's own iteration-2 and iteration-3 corrections already set (append chronologically to the same row rather than open a new one); not a new inconsistency this pass introduced.
+  - `low` `reject` `DRAGON_LEG_L_POST_OFFSET_MM` (an X/west offset) and the new `DRAGON_LEG_R_POST_OFFSET_MM` (a Y/south offset) read as parallel constants for parallel legs but move different axes, with the axis disambiguated only by the adjacent prose comment, not the name (blind-hunter). Renaming either would touch an already-shipped, already-tested sibling constant outside this iteration's own one-defect, author-authorized scope.
+  - `low` `reject` No audit was run of the table's other `col_post_*` bodies for the same "unoffset post straddling a shelf edge" defect class (blind-hunter). Already the explicit, planned next step assigned to the LEAD, not this implementation stage, per this iteration's own Spec Change Log "Bounded outcome rule" (a one-off whole-playfield swept strand sweep after this fix lands).
+  - `low` `reject` The binary `assets/src/dragonwar.blend` diff is opaque and cannot by itself prove the regeneration was faithful (blind-hunter). Cross-verified via the testable side of the same re-export (`public/assets/dragonwar.collision.json`'s own 20-line diff matches exactly the intended 3.0 mm south translation, nothing else) and via full live test runs against the regenerated document; a binary asset's own diff opacity is a structural property of the format, not a defect in this change.
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).**
@@ -1139,7 +1401,7 @@ Four additional review findings (structural-join exemption enumeration gap; a th
 - `pnpm test` -- expected: **at or above 90 files / 1370 passing / 0 failing** with `BLENDER` exported, plus this story's new tests; without `BLENDER`, the same less **23** Blender-gated skips (22 today plus task 15's new case), with `test/export-py-skip-visibility.test.ts`'s `expectedSkips` formula updated to match. **[CORRECTED, rework iteration 3: measured 91 files / 1406 passing / 0 failing with BLENDER exported -- up from this rework's own starting 1392 (13 new tests: the HIGH finding's own descending-drop columns and net-displacement assertions, the isJoined() point-in-polygon fix's own new dimensional pins, and the inert-backstop pin).]**
 - `pnpm check:ad7` -- expected: **exit 1**, naming `AD-7`, `DW-70` and `bd_trough`, with `[true,true,true,true]` and `[true,true,true,false]` both in the output. A green run is a regression to revert and log.
 - `pnpm check:corridor` -- expected: **exit 1**, naming `DW-137`, `2.1f` and the measured shortfall. Story 2.1f's, not this story's.
-- `pnpm check:reachability` -- expected: **exit 0**, 39 cases, 472 releases. **[CORRECTED 2026-09-04, code review iteration 2: this line still read "25 reachable / 14 unreachable" -- Story 2.1e's inherited baseline -- after this story's own geometry legitimately superseded it. The measured, explained result is 23 reachable / 16 unreachable** (one case up, three down; the full per-case arithmetic and the reason for each flip are in the Spec Change Log's own "Task 8's reachability fallout" entry, which was already correct). Re-measured independently at this review: exit 0, 39 cases, 472 releases evaluated, 23 reachable / 16 unreachable, every declaration agreeing with the sweep's own independent best approach. Corrected here because this is the line a future runner checks a live run against, and a stale expectation on the operative command is how a green gate comes to look like a failure -- or worse, how a real flip gets edited away to match a number.] A moved verdict is explained and recorded, never edited. **[CORRECTED AGAIN, rework iteration 3: three new SHOT_CASES columns (the HIGH finding's own descending-drop pins) bring the total to 42 cases / 472 releases (the WITNESSES table itself is unchanged this pass, so the release count does not move) -- exit 0, 23 reachable / 19 unreachable (all three new columns measured unreachable, every prior verdict UNCHANGED -- no flip), every declaration agreeing with the live sweep.]**
+- `pnpm check:reachability` -- expected: **exit 0**, 39 cases, 472 releases. **[CORRECTED 2026-09-04, code review iteration 2: this line still read "25 reachable / 14 unreachable" -- Story 2.1e's inherited baseline -- after this story's own geometry legitimately superseded it. The measured, explained result is 23 reachable / 16 unreachable** (one case up, three down; the full per-case arithmetic and the reason for each flip are in the Spec Change Log's own "Task 8's reachability fallout" entry, which was already correct). Re-measured independently at this review: exit 0, 39 cases, 472 releases evaluated, 23 reachable / 16 unreachable, every declaration agreeing with the sweep's own independent best approach. Corrected here because this is the line a future runner checks a live run against, and a stale expectation on the operative command is how a green gate comes to look like a failure -- or worse, how a real flip gets edited away to match a number.] A moved verdict is explained and recorded, never edited. **[CORRECTED AGAIN, rework iteration 3: three new SHOT_CASES columns (the HIGH finding's own descending-drop pins) bring the total to 42 cases / 472 releases (the WITNESSES table itself is unchanged this pass, so the release count does not move) -- exit 0, 23 reachable / 19 unreachable (all three new columns measured unreachable, every prior verdict UNCHANGED -- no flip), every declaration agreeing with the live sweep.]** **[CORRECTED AGAIN, rework iteration 4: one new SHOT_CASES column (`descend-dragon-leg-r-post`, the HIGH finding's own regression pin) brings the total to 43 cases / 472 releases (the WITNESSES table is again unchanged, so the release count does not move) -- exit 0, 23 reachable / 20 unreachable (the one new column measured unreachable at 144.163 mm against its declared 144.472 mm, every prior verdict UNCHANGED -- no flip), every declaration agreeing with the live sweep. Independently re-measured while verifying this iteration.]** **[CORRECTED AGAIN, rework iteration 4's own step-04 review pass (2026-09-04, patch): two more columns (`descend-dragon-leg-r-post-210`/`-212`, the strand band's own measured west/east edges, blind-hunter/edge-case-hunter finding -- one committed point under-covered a swept-and-cleared neighbourhood) bring the total to 45 cases / 472 releases -- exit 0, 23 reachable / 22 unreachable (both new columns measured unreachable at 143.838 mm / 144.494 mm against their declared 144.149 mm / 144.802 mm, every prior verdict UNCHANGED), every declaration agreeing with the live sweep.]**
 - `pnpm build && pnpm check:dist && pnpm check:size` -- expected: exit 0 for each.
 
 **Mutations (Rule 19 -- one per AC; applied, observed red, reverted, tree verified byte-identical via `git status --short` and `git diff --stat`):**
@@ -1153,6 +1415,7 @@ Four additional review findings (structural-join exemption enumeration gap; a th
      The falsifier that **does** exercise the probe loop, applied and observed red at this review, then reverted (`md5sum -c`, `git status --short` both clean): `mutation: keep BOTH ceiling bodies present (so the node lookup resolves and the 50 mm/80 mm gap guards stay satisfied) but shrink col_lock_ceiling so it no longer spans the corridor -- bboxMm.max.x 194 -> 152, footprintMm narrowed to match -- directly in public/assets/dragonwar.collision.json -> the descending test goes red on the assertion it is named for: "a ball released at (155, 634) and left to descend must not park in bd_lock ... expected [ true, false, false ] to deeply equal [ false, false, false ]", after 113 ms of real ball driving.` That is the probe loop failing in the direction the defect actually lives.
      Independently re-measured at the same review, for the static enclosure test, a falsifier the bounding box cannot see (iteration 1's exact blind spot): `mutation: move col_dragon_leg_l's footprintMm vertex (150,600) -> (130,600), leaving bboxMm byte-identical at x 90..150 / y 480..620 -> the static test goes red: "sw_lock_1: col_dragon_leg_l's own TRUE material at y = 544 only reaches x = 139.333 -- short of this zone's own west face (150), a gap a bounding-box check cannot see".` Iteration 1's bbox-based test stayed green under this mutation; the rewritten one does not.
   4. **Rework iteration 3 (code review 2026-09-04, verification-gap finding) -- the round-7 strand fix's own new pinning tests had no recorded mutation.** `mutation: directly revert col_lock_ceiling's footprintMm in public/assets/dragonwar.collision.json to the pre-round-7 geometry ((146,598)(194,598)(194,614)(159.44,624)(146,614) -- symmetric 614 mm shoulders, peak 624) -> a 28-column descending-drop sweep (x = 92..200, step 4, y = 680, matching this pass's own new SHOT_CASES release height) finds 4 stranded columns, all resting at (182.6, 631.3), net tail-window displacement 0.009-0.044 mm over the final 1000 of 12000 ticks -- reproducing the review's own original measurement almost exactly.` Applied and observed red by the lead directly against the real physics pipeline (a throwaway harness, not the committed suite, to keep the demonstration independent of the code being demonstrated); reverted via `BLENDER="$BLENDER" pnpm export:assets` (re-exporting from the unchanged, already-correct `.blend` -- `git checkout` on this file alone would wipe the whole uncommitted rework, not just the mutation, since nothing is committed yet) and confirmed byte-identical (`git diff --stat` unchanged before/after). Against the CURRENT (round-7) geometry, the identical 28-column sweep strands zero columns.
+  5. **Rework iteration 4 (code review 2026-09-04, HIGH finding) -- the `col_post_dragon_leg_r` fix's own new pinning column, demonstrated against the real committed suite (not a throwaway harness).** `mutation: git checkout -- public/assets/dragonwar.collision.json` (the file's only uncommitted change at that point was this iteration's own 3.0 mm south offset on `col_post_dragon_leg_r`'s `bboxMm`/`footprintMm`, so checking out HEAD reverts exactly that post to its pre-fix centre (212.5, 610), confirmed by `git diff` showing only those y-coordinates before mutating) `-> npx vitest run test/shot-routing.test.ts -t "flat-topped"` reddens exactly the new `'col_dragon_leg_r, the col_post_dragon...'` case and no other: `AssertionError: Descending release (211, 680): the ball must not be permanently at rest -- net positional progress over the final 500 ticks was only 0.01 mm ... final pos: {"x":208.06,"y":626.77} ... expected 0.0078 to be greater than 15` -- the exact stranding coordinate the HIGH finding recorded, and every other descending column (including the three `descend-lock-ceiling-*` columns) stays green, proving the new column -- not some unrelated shared fixture -- is what discriminates this fix. Reverted by restoring the pre-mutation file content (byte-identical, `git hash-object` `0c57ada3...` before and after; `git diff --stat` against HEAD unchanged, still the same 20-line/10-insertion/10-deletion diff as before the mutation) and re-confirmed green (`test/shot-routing.test.ts -t "flat-topped"`: 16 passed, matching the pre-mutation run). A genuine behavioural falsifier, not a throw or a lookup failure. **[PATCHED, this iteration's own step-04 review, 2026-09-04: the blind-hunter and edge-case-hunter layers both independently flagged that only the band's own centre (x = 211) was pinned as a permanent column, though the fix's own verification swept the whole x = 198..236 / y = 640..720 neighbourhood clear -- a future edit re-stranding an unwitnessed nearby point would go undetected. Closed by adding `descend-dragon-leg-r-post-210`/`-212` (the band's own measured west/east edges, the exact two coordinates the original HIGH finding reproduced) to `test/util/shot-cases.ts` and `test/shot-routing.test.ts`'s same sweep; re-ran `pnpm check:reachability` (exit 0, 45 cases / 472 releases / 23 reachable / 22 unreachable, both new columns agreeing with the live sweep) and the full suite (91 files / 1418 passed / 0 failed).]**
 - **AC 3** -- `mutation: change one guide-end post's surface from rubber_post to metal in tools/make-placeholder-blend.py and re-export -> the termination gate goes red naming that guide, its free end's coordinates and the nearest post.` Second, for the widening -- **this is the mutation that proves the gate is no longer prefix-scoped**: `mutation: delete one newly-added post on a body whose name does NOT start with col_guide_ (a top-lane divider tip or a loop funnel mouth) and re-export -> the gate goes red naming that body, where the same deletion is invisible to the pre-widening gate.` Third, for the allowlist's reverse direction: `mutation: add a body with a genuinely terminated end to the exemption allowlist -> the gate goes red naming it as a stale exemption.` Fourth, **for rework iteration 3's own `isJoined()` point-in-polygon rewrite** (the MED "four posts not load-bearing" fix, code review 2026-09-04): `mutation: delete col_post_lock_ceiling_west_fill_e directly from public/assets/dragonwar.collision.json -> the gate goes red: "col_lock_ceiling_west_fill's free end at table (150.00, 625.00) has no rubber_post within one post radius ... nearest post is col_post_lock_ceiling_w at 19.42 mm (post radius 4.00 mm)".` Applied and observed red by the lead directly (this exact node, chosen because it is one of the two posts the old 1.0 mm edge-tolerance `isJoined()` could not see as load-bearing); reverted via `BLENDER="$BLENDER" pnpm export:assets` and confirmed byte-identical. The spec's own Spec Change Log records the broader sweep this single demonstration is drawn from: all 48 posts re-asserted as load-bearing by the same one-at-a-time deletion, both before and after round 7's own geometry change.
 - **AC 4** -- `mutation: revert one golden's header.assetHash to the pre-change value -> that golden goes red with StaleReplayHeaderError naming assetHash, before any hash is computed.` Second, for the rename: `mutation: rename vis_spinner_l back to col_spinner_l without reverting the mesh re-authoring and re-export -> the node reappears in dragonwar.collision.json, assetHash moves and all five goldens go red` -- record the observation rather than shipping it. The `notes` correction has no mutation and needs none: `test/replay-goldens.test.ts:140-144` already pins the `DW-70` and `deviceSlots` literals, and the corrected sentence's own falsifier is AC 1's boot-occupancy test.
 - **AC 5** -- `mutation: restore the settleTicks + 1 arithmetic in src/sim/physics/switches.ts alone (leaving cabinet/index.ts corrected) -> test/cabinet-switch-tracker-agreement.test.ts goes red at settleTicks 3, 8 and 20 while the two trackers disagree by exactly one tick, and the retimed real s_dragon_d case at test/switch-zones.test.ts:257-287 goes red reporting a break at 23 against the expected 22.`
@@ -1390,6 +1653,129 @@ Spec Change Log already documents), with `git diff --stat` confirmed byte-identi
 the four new low-severity deferred findings from this pass's own review, the rework-cap boundary) stand as
 written; this pass's own four patches were comment/data corrections with no behavioural surface, confirmed by the
 unchanged suite counts and unchanged deliberate-red gates.
+
+Status: done
+Blocking condition: none
+
+**2026-09-04 -- rework iteration 4 (appended to this same section; the pass this update describes). AUTHORISED BY THE AUTHOR at the 3-iteration cap, narrowly scoped to exactly one defect.**
+
+Status: done
+Blocking condition: none
+
+**Summary of implemented change.** The lead's code review of rework iteration 3 (recorded above) found one HIGH,
+independently reproduced against the real physics pipeline: this story's own new FR-31 terminator
+`col_post_dragon_leg_r` -- centred, unoffset, on `col_dragon_leg_r`'s own sloped-cap midpoint (212.5, 610) -- created
+a fresh permanent-rest strand at (208.0-208.06, 626.76-626.80), the same class of defect as the iteration-2/3
+strands above. The author considered the lead's recommendation to split the story and decided against it, narrowing
+this iteration's scope to exactly that one defect (see `## Spec Change Log`'s own rework iteration 4 entry) --
+`col_loop_top`/DW-146 stays re-owned to Story 2.1f, and the six MED findings from the same code review pass (also
+recorded in that review's own `### Review Findings`) were deliberately NOT fixed this iteration: they are recorded
+in frontmatter `deferred:` for the lead's harvest, per the author's own narrow-scope instruction. **The fix**:
+`DRAGON_LEG_R_POST_OFFSET_MM = 3.0` (a SOUTH offset -- the right leg's lane-facing corner is the UNDROPPED, high
+one, the mirror of the already-shipped LEFT-leg WEST offset, whose lane-facing corner is the DROPPED, low one),
+moving the post's centre from (212.5, 610) to (212.5, 607); chosen by sweeping 1/2/3/4 mm south against the real
+physics pipeline (1 and 2 mm each left a residual strand at (212, 660); 3 mm is the smallest that clears a full
+x = 198..236 / y = 640..720 sweep outright; 4 mm also clears but leaves the post's own octagon essentially fully
+buried, the same "post not load-bearing" class as the deferred `col_post_lock_ceiling_e` finding). A new permanent
+regression pin was added (`descend-dragon-leg-r-post`, the strand band's own centre), and this pass's own step-04
+review (below) widened it to the band's own two measured edges.
+
+**The two properties the author required to be preserved, both independently re-measured directly (not merely
+reported):**
+1. **No swallow.** A temporary in-suite census probe (built, run, and reverted byte-identically this pass) drove
+   the FULL current `SHOT_CASES` manifest (43 cases at measurement time, later 45 after this pass's own step-04
+   patch) through the real `driveCase()`/`classifyTerminal()` pipeline: **exactly 2 cases close a lock switch --
+   `lock-lane-immediate` and `lock-lane-long`, both `terminal: 'locked'`, both `firstMakes: s_lock_lane, s_lock_1`
+   -- both intended captures, zero unintended.** Unaffected by this iteration's own change (no `bd_lock`-adjacent
+   geometry was touched).
+2. **No strand on the ceiling.** `col_lock_ceiling`'s footprint was not touched by this iteration (verified by
+   inspecting the diff): its east flank remains 24.84 degrees, west 64.36 degrees, byte-identical to the author's
+   own recorded figures. The `descend-lock-ceiling-west`/`-east`/`-west-fill` columns all still PASS (verified
+   directly, `npx vitest run test/shot-routing.test.ts -t "flat-topped"`, all three green both before and after
+   this pass's own patches).
+
+**Rule 19 falsifiability, demonstrated independently by me (not only reported by the implementation subagent):**
+`git checkout -- public/assets/dragonwar.collision.json` (the file's only uncommitted change at that point was
+this iteration's own 3.0 mm south offset, confirmed by `git diff` before mutating) reverts `col_post_dragon_leg_r`
+to its exact pre-fix centre (212.5, 610). Re-running `npx vitest run test/shot-routing.test.ts -t "flat-topped"`
+reddens EXACTLY the new `'col_dragon_leg_r, the col_post_dragon...'` column and no other:
+`AssertionError: Descending release (211, 680): ... final pos: {"x":208.06,"y":626.77} ... expected 0.0078 to be
+greater than 15` -- the exact stranding coordinate the HIGH finding recorded. Reverted by restoring the
+pre-mutation file (byte-identical, `git hash-object` `0c57ada3...` before and after this pass's own step-04 patch
+too) and re-confirmed green. A genuine behavioural falsifier, not a throw or a lookup failure.
+
+**This build-auto run then ran its own step-04 review** (blind-hunter, edge-case-hunter, verification-gap,
+intent-alignment, all four launched in parallel and returned) over the diff since `baseline_revision`
+(`b3812ea49f3afc91dbbdaab60569439f10462b69`), scoped to the real implementation files (the spec's own bookkeeping
+diff was excluded from the reviewed content as process record-keeping, not implementation). No `intent_gap` and no
+`bad_spec`: every genuine finding was either mechanically patchable, an out-of-proportion systemic ask correctly
+deferred, or noise against an established, pre-existing convention this diff faithfully follows. Full account in
+`## Review Triage Log`'s own 2026-09-04 (rework iteration 4) entry.
+
+**Files changed, this pass:**
+- `tools/make-placeholder-blend.py` -- `DRAGON_LEG_R_POST_OFFSET_MM = 3.0` and its own `[REWORK ITERATION 4]` note
+  (implementation subagent).
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.collision.json` -- re-exported (implementation subagent).
+- `test/util/shot-cases.ts`, `test/shot-routing.test.ts` -- `descend-dragon-leg-r-post` added (implementation
+  subagent); `descend-dragon-leg-r-post-210`/`-212` added (this pass's own step-04 patch, widening one committed
+  point to the swept band's own two measured edges).
+- `test/replays/*.golden.json` (all 5) -- `header.assetHash` refreshed (`a587a44e` -> `dbd72bf0`) plus one `notes`
+  sentence each; `header.tableHash` and both `expectedHash`/`expectedGameStateHash` are BYTE-IDENTICAL in all five
+  (a header-only freshness refresh, not a re-record -- every golden's own recorded ball path traced tick-by-tick
+  against the fixed geometry never enters the affected region) (implementation subagent).
+- `docs/decisions.md` -- a fourth `[CORRECTED]` bracket on the Lock-lane row (implementation subagent); the row's
+  own stale header date corrected to note the 2026-09-04 correction (this pass's own step-04 patch).
+- `_bmad-output/implementation-artifacts/spec-2-1d-device-behaviour-and-guide-terminations.md` -- this file:
+  frontmatter (`baseline_revision`, `status`, `followup_review_recommended`, `deferred:` gained seven new entries --
+  six out-of-scope MEDs plus one new step-04 finding), the HIGH Review Finding resolved and the six MEDs marked
+  `[Review][Defer]`, a new `## Spec Change Log` entry (plus its own step-04 patch addendum), `## Verification`
+  updated (a new AC 2 mutation item 5, the Commands section's `check:reachability` line corrected twice for the
+  case-count growth), a new `## Review Triage Log` entry, this section.
+
+**Review findings breakdown, this pass's own step-04 review.**
+- Patches applied (2): (1, medium) the fix's own real post-fix sweep verified a whole neighbourhood clear, but
+  only its centre was pinned as a permanent column (independently duplicated by blind-hunter and edge-case-hunter)
+  -- closed by adding the band's own two measured edges as permanent columns. (2, low) a stale date in
+  `docs/decisions.md`'s row header (blind-hunter).
+- Items deferred (1, medium): `col_post_dragon_leg_r`'s own non-buried protrusion is verified by hand, not by an
+  automated test -- the same root cause as the already-deferred `col_post_lock_ceiling_e` finding (blind-hunter).
+  Recorded as a companion frontmatter `deferred:` entry; a systemic footprint-overlap check is out of proportion to
+  this iteration's own one-post scope.
+- Items rejected (7, all low): no `DW-n` ticket for this in-pass-fixed (not deferred) defect; the duplicated,
+  less-golden-specific rework-4 paragraph across all five goldens' `notes`; the `notes` field's own
+  ever-growing-string convention; the fix note appended to a `docs/decisions.md` row whose own subject differs
+  (follows established precedent); an axis-ambiguous offset-constant name (matches its sibling's own convention);
+  no audit of other `col_post_*` bodies for the same class (already the lead's own planned next step per this
+  iteration's "Bounded outcome rule"); the binary `.blend` diff's own inherent opacity (cross-verified via the
+  testable JSON side and live test runs). Full detail in `## Review Triage Log`.
+
+**Follow-up review recommendation.** This pass's own patched-finding counts: 0 high, 1 medium, 1 low. No high
+severity; score `3 x 1 + 1 x 1 = 4`, below the >= 5 threshold. **`followup_review_recommended: false`** (frontmatter
+set accordingly).
+
+**Verification performed** (all commands re-run for real by me after this pass's own patches, from
+`C:/git/dragonwar/.worktrees/epic-2`, `BLENDER` exported in the shell to the host's portable install -- the path
+itself deliberately not written here, `DW-46`/`DW-131`):
+| Command | Result |
+| --- | --- |
+| `"$BLENDER" --background --factory-startup --python tools/make-placeholder-blend.py` | exit 0 (implementation subagent) |
+| `BLENDER="$BLENDER" pnpm export:assets` | exit 0 (implementation subagent) |
+| `pnpm test` (BLENDER exported) | **91 files / 1418 passed / 0 failed** -- up from this iteration's own starting 1410 (8 new: the two widened regression columns, each driven by both `test/shot-routing.test.ts` and `test/shot-reachability.test.ts`'s own per-case loop, plus their reachability declarations) |
+| `pnpm check:ad7` | **exit 1**, naming `AD-7`/`DW-70`/`bd_trough`, both `[true,true,true,true]`/`[true,true,true,false]` literals present -- unchanged, confirmed this iteration's patches never touch `bd_trough`'s own code path |
+| `pnpm check:corridor` | **exit 1**, naming `DW-137`/`2.1f` and the measured shortfall (50.990 mm) -- unchanged |
+| `pnpm check:reachability` | **exit 0**, 472 releases / 45 cases (up from 43) / 23 reachable / 22 unreachable, every declaration (including the two new columns, 143.838 mm / 144.494 mm measured against 144.149 mm / 144.802 mm declared) agreeing with the live sweep -- no verdict flip |
+| `pnpm typecheck` | exit 0, all three projects clean |
+| `pnpm lint:boundaries` | exit 0, 83 files cruised, no violations |
+| `pnpm check:headers` | exit 0 |
+| `pnpm check:attributions` | exit 0 |
+| `pnpm build && pnpm check:dist && pnpm check:size` | exit 0 for each (0.848 MB against a 2.750 MB budget) |
+
+**Residual risks, this pass.** None new beyond the one newly-recorded deferred finding above (the post-protrusion
+automated-check gap, medium severity, a companion to the pre-existing `col_post_lock_ceiling_e` entry). The
+author's own "Bounded outcome rule" -- a one-off whole-playfield swept strand sweep to confirm no other post
+strands exist -- is explicitly the LEAD's next step, not this stage's; it was not run here. The six MED findings
+deliberately left unfixed this iteration (author-scoped) remain open in frontmatter `deferred:` for the lead's
+harvest and eventual routing to a story or the epic's burn-down gate.
 
 Status: done
 Blocking condition: none

@@ -2440,17 +2440,51 @@ def main():
 	# resolves both, within the gate's own postRadius + 0.5 mm budget of the
 	# UNMOVED free-end coordinate (task 13); east and north were tried and
 	# rejected, south (into the solid body) also happens to clear but west
-	# is the more principled choice (further from the Lock lane, matching
-	# the RIGHT leg's own already-clear placement below).
+	# is the more principled choice (further from the Lock lane).
+	#
+	# [REWORK ITERATION 4, code review 2026-09-04, HIGH finding] The RIGHT
+	# leg's own placement was NOT already clear, contrary to this note's own
+	# prior claim -- an UNOFFSET post centred on (212.5, 610) (this leg's own
+	# cap midpoint) creates the identical straddling shelf the LEFT leg's own
+	# offset above exists to avoid, and it strands a ball: descending
+	# releases at (210, 680)/(211, 680)/(212, 680) all came to permanent rest
+	# at (208.0-208.03, 626.76-626.77), leftPlay=false, trailing-1000-tick net
+	# displacement 0.01-0.02 mm, reproduced against the real physics pipeline
+	# in an isolated in-memory harness (no tracked file written). Deleting
+	# only this post frees every column, so the post -- not the leg -- is the
+	# proximate cause, the same class as the LEFT leg's own pre-fix defect
+	# above. Unlike the LEFT leg (whose lane-facing side is the DROPPED,
+	# low corner), the RIGHT leg's lane-facing side (x0 = 190) is the HIGH,
+	# UNDROPPED corner -- so "further into the leg's own solid material" here
+	# means SOUTH (smaller y), not west or east: a 3.0 mm SOUTH offset was
+	# swept against the real pipeline across x = 198..236 (step 2 mm) at the
+	# original release height (680) and across y = 640..720 (step 1 mm in
+	# x = 206..216) with zero strands found anywhere in either sweep -- a 1.0
+	# mm SOUTH offset left one residual strand at exactly (212, 660); 2.0 mm
+	# left one at (212, 660) too; 3.0 mm is the smallest tested offset that
+	# clears both sweeps outright. At 3.0 mm the post's own octagon still
+	# genuinely protrudes past the leg's own sloped face by roughly 1 mm at
+	# its own two north-easternmost vertices (verified by direct point-vs-
+	# line computation, not just bbox overlap) -- exposed, not buried, unlike
+	# the "post wholly inside another body" class this same review pass
+	# flagged elsewhere (col_post_lock_ceiling_e, deferred). 3.0 mm is also
+	# well inside the gate's own postRadius + 0.5 mm = 4.5 mm budget measured
+	# from the UNMOVED free-end coordinate (212.5, 610), so FR-31 termination
+	# holds. North, east and unoffset were each tried and reproduce a strand
+	# (at a different nearby point each time, never simply "safe further
+	# out") -- south is the only direction that empties the whole swept
+	# neighbourhood.
 	DRAGON_LEG_CAP_MIDPOINT_DROP_MM = 10.0  # authored -- half of add_box_wall_sloped's own 20.0 mm drop, above
 	DRAGON_LEG_L_POST_OFFSET_MM = 4.0
+	DRAGON_LEG_R_POST_OFFSET_MM = 3.0  # authored, rework iteration 4 -- see the [REWORK ITERATION 4] note immediately above for the swept measurement this SOUTH offset is based on
 
 	def leg_north_cap_mid_mm(leg_x0, leg_x1):
 		return ((leg_x0 + leg_x1) / 2, DRAGON_LEG_Y1_MM - DRAGON_LEG_CAP_MIDPOINT_DROP_MM)
 
 	dragon_leg_l_cap_mid = leg_north_cap_mid_mm(dragon_leg_l_x0, dragon_leg_l_x1)
 	dragon_leg_l_post_mm = (dragon_leg_l_cap_mid[0] - DRAGON_LEG_L_POST_OFFSET_MM, dragon_leg_l_cap_mid[1])
-	dragon_leg_r_post_mm = leg_north_cap_mid_mm(dragon_leg_r_x0, dragon_leg_r_x1)
+	dragon_leg_r_cap_mid = leg_north_cap_mid_mm(dragon_leg_r_x0, dragon_leg_r_x1)
+	dragon_leg_r_post_mm = (dragon_leg_r_cap_mid[0], dragon_leg_r_cap_mid[1] - DRAGON_LEG_R_POST_OFFSET_MM)
 	add_rubber_post('col_post_dragon_leg_l', dragon_leg_l_post_mm)
 	add_rubber_post('col_post_dragon_leg_r', dragon_leg_r_post_mm)
 	# col_ramp_return_1's own HIGH (downstream, inlane-facing) end -- 2.1c.
