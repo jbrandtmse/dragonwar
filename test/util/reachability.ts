@@ -28,6 +28,7 @@ import { fromPhysics } from '../../src/sim/table/frames';
 import { TABLE } from '../../src/sim/table/dragonwar';
 import { readCollisionDoc } from './collision-doc';
 import { pointToSegmentDistanceMm } from './plan-geometry';
+import { SHOT_CASES } from './shot-cases';
 import type { InputFrame } from '../../src/sim/contracts/input';
 import type { CoilCommand, SwitchName } from '../../src/sim/table/names';
 
@@ -450,8 +451,27 @@ export const MIN_WITNESS_PATH_MM = 1500;
  * than a corpus of two, for a right-bat shot) -- checked separately below,
  * since family breadth and switch breadth are different claims.
  * `assertWitnessCorpusHealthy()` reads both.
+ *
+ * [CORRECTED 2026-09-05, code review] The `distinct(expectedSwitch)`
+ * derivation above was ALSO structurally unfalsifiable, in the same
+ * direction as the `WITNESSES.length` it rejected: for any array `A`,
+ * `|distinct(map(A, f))| <= |A|` is a theorem, so
+ * `WITNESSES.length >= MIN_WITNESSES` could not fail at ANY corpus size.
+ * Measured at the time: 15 entries, 11 distinct switches -- and a corpus cut
+ * to three entries recomputes the floor to three and still passes, an 80%
+ * loss with no assertion moving. A floor computed from the very array it
+ * guards is not a floor however it is spelled; that is exactly what
+ * `MIN_SHOT_CASES` avoids by deriving from the collision document instead of
+ * from `SHOT_CASES`. So this now derives from a source the corpus does not
+ * define: the distinct witness ids that `SHOT_CASES` itself NAMES in its
+ * `reachable` declarations (13 of the 15 entries today). Every one of those
+ * ids must resolve to a live entry -- `witnessPath()` throws on an unknown
+ * id -- so a corpus that drops below this count has provably broken a
+ * declaration some case depends on, and the assertion reddens.
  */
-export const MIN_WITNESSES = new Set(WITNESSES.map((w) => w.expectedSwitch)).size;
+export const MIN_WITNESSES = new Set(
+	SHOT_CASES.flatMap((c) => (c.reachability.kind === 'reachable' ? [c.reachability.witness] : [])),
+).size;
 
 /**
  * Anti-vacuity floor (I/O matrix, "Vacuous pass -- a dead witness"): a

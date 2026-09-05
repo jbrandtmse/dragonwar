@@ -293,6 +293,18 @@ ball has somewhere to go, and `col_loop_r` is split into `col_loop_r` /
 `col_loop_r_lower` to leave a gap at the crossing's height. Measured:
 `s_ramp_enter -> s_ramp_made -> s_inlane_r`, then the right bat band, at
 every in-channel entry offset from 350 to 359 mm.
+**[SUPERSEDED 2026-09-05, Story 2.1f code review: the coordinates above are
+pre-2.1f. `RAMP_ENTER_X_MM = 355` no longer sites the channel — Story 2.1f
+re-solved the bottom-right quadrant and moved both Ramp walls west
+(`col_ramp_wall_l` 326..338 -> 286.4..298.4, `col_ramp_wall_r` 372..384 ->
+354.4..366.4), so the `350 to 359 mm` offsets name x values outside the
+channel they describe. What is NEW and worth recording here: until 2.1f the
+Ramp could not be reached from below at all (DW-137 — the corridor was
+50.990 mm too narrow, and the 2.1c delivery above was driven from a
+teleported release). It is now reachable by a real, never-teleported shot —
+a 285-tick plunge, the Right Loop return onto the RIGHT bat, one flip —
+and the ball still lands in the right inlane. Read the live constants and
+`test/util/shot-cases.ts` for figures.]**
 `s_ramp_enter`/`s_ramp_made` mark entry and
 completion. No sloped-plane primitive exists in this collision model (see
 `tools/make-placeholder-blend.py`'s own constants-block note), so the bed is

@@ -274,7 +274,7 @@ function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3960, holdTicks: 80 } });
 	recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 4040, holdTicks: 30 } });
 	recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 4110, holdTicks: 60 } });
-	// [STORY 2.1f] The three recipes this story added to WITNESSES.
+	// [STORY 2.1f] The FOUR recipes this story added to WITNESSES.
 	recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3969, holdTicks: 40 } });
 	recipes.push({ plungeHoldTicks: 285, flip: { side: 'r', atTick: 3890, holdTicks: 100 } });
 	recipes.push({ plungeHoldTicks: 285, flip: { side: 'r', atTick: 3899, holdTicks: 60 } });
@@ -416,6 +416,53 @@ interface AxisCoverage {
 	readonly flipTicks: number;
 	readonly flipSides: number;
 }
+
+/**
+ * [ADDED 2026-09-05, code review] The ABSOLUTE density floor, restored.
+ *
+ * The built-vs-realised comparison above is a real assertion, but it is
+ * blind in exactly one direction, and its own comment says so: it cannot see
+ * the BUILT grid shrink, because built and realised shrink together. The
+ * hand-typed `MIN_DISTINCT_PLUNGE_STRENGTHS = 50` / `MIN_DISTINCT_FLIP_TICKS
+ * = 60` this story deleted were the only things guarding that direction.
+ * Deleting both grid loops in `buildSweepRecipes()` leaves the 15 explicit
+ * `WITNESSES` pushes -- about 5 plunge strengths and 11 flip ticks -- and
+ * every remaining assertion still passes: realised equals built, both bat
+ * sides survive on the explicit right-bat pushes, `releasesEvaluated` equals
+ * the shrunken `recipes.length`, and `mismatches` stays empty because every
+ * `reachable` case is witnessed by its own explicit push while every
+ * `unreachable` case stays missed. The sweep degrades into a replay of the
+ * in-suite witness corpus and still reports "no release reaches here" for
+ * the 20 `unreachable` verdicts it exists to certify -- the precise failure
+ * this file's own header names as its reason for existing.
+ *
+ * This is the floor the comment beside the grid bounds already promised
+ * ("the floor computed from them exceeds what the shrunken recipe set
+ * actually reaches, so the assertion reddens") and which nothing computed.
+ * It is derived, not hand-typed, but derived from the NAMED GRID BOUNDS
+ * rather than from the recipe array -- a source that survives the deletion
+ * of the loop it describes, which is the whole point. Measured against the
+ * shipped grid: 59 plunge strengths and 66 flip ticks from the bounds alone,
+ * against 60 and 73 actually built once the explicit witness pushes are
+ * added.
+ */
+function gridDensityFloors(): { readonly plungeStrengths: number; readonly flipTicks: number } {
+	const strengths = new Set<number>();
+	for (let h = COARSE_PLUNGE_MIN_TICKS; h <= COARSE_PLUNGE_MAX_TICKS; h += COARSE_PLUNGE_STEP_TICKS) {
+		strengths.add(h);
+	}
+	for (let h = FINE_PLUNGE_MIN_TICKS; h <= FINE_PLUNGE_MAX_TICKS; h += FINE_PLUNGE_STEP_TICKS) {
+		strengths.add(h);
+	}
+	const ticks = new Set<number>();
+	for (let t = LEFT_FLIP_MIN_TICK; t <= LEFT_FLIP_MAX_TICK; t += LEFT_FLIP_STEP_TICKS) {
+		ticks.add(t);
+	}
+	for (let t = RIGHT_FLIP_MIN_TICK; t <= RIGHT_FLIP_MAX_TICK; t += RIGHT_FLIP_STEP_TICKS) {
+		ticks.add(t);
+	}
+	return { plungeStrengths: strengths.size, flipTicks: ticks.size };
+}
 function axisCoverage(recipes: readonly ReleaseRecipe[]): AxisCoverage {
 	return {
 		releases: recipes.length,
@@ -442,6 +489,23 @@ describe('reachability-sweep (pnpm check:reachability) -- the dense, out-of-proc
 		const coverage = axisCoverage(allRecipes);
 		const distinctStrengths = coverage.plungeStrengths;
 		const distinctFlipTicks = coverage.flipTicks;
+
+		// [ADDED 2026-09-05, code review] The absolute floor FIRST: what the
+		// named grid bounds say must be built, checked against what was
+		// actually built. This is the one direction the built-vs-realised
+		// pair below structurally cannot see -- a thinned or deleted grid
+		// loop, which shrinks built and realised together.
+		const floors = gridDensityFloors();
+		expect(
+			coverage.plungeStrengths,
+			`the sweep BUILT only ${coverage.plungeStrengths} distinct plunge strengths, below the ${floors.plungeStrengths} its own named grid bounds `
+			+ `(COARSE_PLUNGE_* / FINE_PLUNGE_*) describe -- a grid loop has been thinned or deleted, and the sweep is proving less than it reports`,
+		).toBeGreaterThanOrEqual(floors.plungeStrengths);
+		expect(
+			coverage.flipTicks,
+			`the sweep BUILT only ${coverage.flipTicks} distinct flip ticks, below the ${floors.flipTicks} its own named grid bounds `
+			+ `(LEFT_FLIP_* / RIGHT_FLIP_*) describe -- a grid loop has been thinned or deleted, and every "unreachable" verdict below rests on a search that shrank`,
+		).toBeGreaterThanOrEqual(floors.flipTicks);
 
 		const { verdicts, releasesEvaluated, runtimeMs, realizedCoverage } = main();
 

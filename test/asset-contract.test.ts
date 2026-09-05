@@ -1773,6 +1773,28 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 			centreFreedomMm,
 			`the DRAGON bank approach corridor gives ${centreFreedomMm.toFixed(3)} mm of ball-centre freedom -- it was 7.485 mm before Story 2.1f`,
 		).toBeGreaterThan(20);
+		// [ADDED 2026-09-05, code review] The TRUE constriction, past the
+		// post. Both figures above measure to col_sling_r's own west face
+		// (332.4), but col_post_sling_r_west -- which this story re-sited
+		// ONTO that face precisely so it would protrude (task 5) -- reaches
+		// x = 328.4, four millimetres further west. A ball passing the
+		// slingshot must clear the POST, not the band. The gate's conclusion
+		// is unchanged (30.000 mm still admits a 26.99 mm ball) but the
+		// surplus is 3.010 mm, not the 7.010 mm the face-to-face figure
+		// implies, and that is the number a later change has to respect.
+		// Asserted here so the real margin is pinned rather than inferred.
+		// mutation: widen POST_RADIUS_MM, or move col_post_sling_r_west west,
+		// so the post reaches below 325.39 -> this assertion goes red naming
+		// the post and the measured clear.
+		const postSlingRWest = doc.nodes.find((n) => n.name === 'col_post_sling_r_west');
+		expect(postSlingRWest, 'col_post_sling_r_west missing').toBeDefined();
+		const clearPastPostMm = postSlingRWest!.bboxMm.min.x - wallL!.bboxMm.max.x;
+		expect(
+			clearPastPostMm,
+			`the corridor's TRUE narrowest clear -- col_post_sling_r_west's west edge (${postSlingRWest!.bboxMm.min.x.toFixed(3)}) to col_ramp_wall_l's east face `
+			+ `(${wallL!.bboxMm.max.x.toFixed(3)}) -- measures ${clearPastPostMm.toFixed(3)} mm, leaving ${(clearPastPostMm - TABLE.reference.ballMm).toFixed(3)} mm over the `
+			+ `${TABLE.reference.ballMm} mm ball. The face-to-face figure above is ${(measured - clearPastPostMm).toFixed(3)} mm more generous because the post protrudes into it.`,
+		).toBeGreaterThanOrEqual(TABLE.reference.ballMm);
 	});
 
 	it('the Lock lane\'s clear width (between the Dragon\'s two legs) is the authored 40 mm (LOCK_LANE_CLEAR_MM)', () => {

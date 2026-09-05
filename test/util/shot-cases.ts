@@ -334,7 +334,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	//
 	// Measured, per release (clear / witness / closest approach), and each
 	// verified to close its OWN letter when driven:
-	//   d (228.9, 520) 15.500 / plunge-then-bat-r-3906 / 1.449
+	//   d (227.4, 520) 14.000 / plunge-then-bat-r-3906 / 2.891
 	//   r (233.4, 520) 20.000 / plunge-then-bat-r-3906 / 2.878
 	//   a (244.4, 620) 36.892 / plunge-then-bat-r-3906 / 0.036
 	//   g (255.4, 480) 31.401 / plunge-then-bat-r-3906 / 0.145
@@ -344,10 +344,36 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	// width of 10 and a +/-2 mm zone margin, so d's release also closes r and
 	// n's also closes o; neither weakens the per-letter assertion, which is
 	// that each case closes ITS OWN switch.
+	//
+	// [CORRECTED 2026-09-05, code review] d's release was (228.9, 520), and
+	// that number closed `s_dragon_d` WITHOUT EVER STRIKING col_dragon_d.
+	// The target spans x 217.4..227.4; 228.9 is 1.5 mm EAST of its east edge
+	// and 0.5 mm INSIDE col_dragon_r's own span (228.4..238.4). Driven, the
+	// ball's apex was (228.90, 686.48) -- in contact with col_dragon_r's
+	// south face (700 - 13.495 = 686.505), which it reaches before
+	// col_dragon_d's east corner at 686.589 -- so it struck r, and
+	// `s_dragon_d` closed only because that switch zone runs 2 mm past its
+	// target's east edge to 229.4. DW-136's acceptance is that all six
+	// targets are STRIKABLE, and d is the one target most in doubt; proving
+	// it with a shot that hits its neighbour is the weakest link in AC 3.
+	// Re-sited to 227.4 -- d's own east edge, the easternmost x that both
+	// strikes d and clears DW-77. Verified on the shipped geometry: apex
+	// (227.40, 686.48), inside col_dragon_d's span; clearance 14.000 mm from
+	// col_dragon_leg_r's east face (213.4) against DW-77's 13.495 floor;
+	// still reachable on the SAME witness, plunge-then-bat-r-3906, at
+	// 2.891 mm (was 1.449 mm), far inside the 13.495 mm tolerance.
+	// The window is genuinely narrow -- x in (226.895, 227.4] is the whole
+	// of it, because DRAGON_BANK_LEG_CLEAR_MM = 4.0 leaves the westernmost
+	// target sitting in col_dragon_leg_r's shadow at this release height.
+	// Releases at y >= 630 clear the leg entirely and strike d comfortably,
+	// but no witness passes within 13.495 mm of them (nearest 18.3 mm), so
+	// they cannot carry a `reachable` verdict.
+	// mutation: move col_dragon_d 10 mm west in the committed document ->
+	// this case alone goes red naming s_dragon_d; the other five stay green.
 	{
 		id: 'dragon-target-d',
 		label: 'DRAGON target D, struck on its own column',
-		startMm: { x: 228.9, y: 520, z: 13.5 },
+		startMm: { x: 227.4, y: 520, z: 13.5 },
 		speedMmPerS: 1600,
 		dirDeg: 0,
 		ticks: 5000,
@@ -704,18 +730,22 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		},
 	},
 	{
-		// [STORY 2.1f] Re-sited (376, 758) -> (360.4, 760): col_ramp_wall_r
+		// [STORY 2.1f] Re-sited (376, 758) -> (352, 760): col_ramp_wall_r
 		// moved west with the channel (372..384 -> 354.4..366.4), and
 		// col_ramp_return_1's own west end followed ramp_lane_x1, leaving the
-		// old point 12.089 mm clear (DW-77). x = 352 is deliberately 2.4 mm
-		// WEST of the wall's own live centreline (360.4): a ball released on
+		// old point 12.089 mm clear (DW-77). x = 352 is deliberately 8.4 mm
+		// WEST of the wall's own live centreline (360.4) -- equivalently
+		// 2.4 mm west of its west FACE (354.4) -- because a ball released on
 		// the centreline settles into a perfectly balanced equilibrium on
 		// col_post_ramp_wall_r_crossing's own octagon apex (measured: 0.00 mm
 		// of progress over the final 500 ticks, parked at (360.40, 757.52)),
 		// the same knife-edge col_pop_1 produces for top-lane-1 and
 		// col_loop_top's own ridge peak produces for the loop-top columns.
-		// A ball at 352 still descends onto the wall's own north cap (its
-		// body spans 338.5..365.5) and rolls off it.
+		// A ball at 352 still descends onto the wall's own north cap: the
+		// BALL's own body spans 338.505..365.495 at that centre, overlapping
+		// the wall's 354.4..366.4 footprint, and it rolls off it. (The
+		// 338.5..365.5 span is the ball's, not the wall's -- an earlier
+		// draft of this note attributed it to the body.)
 		id: 'descend-ramp-wall-r-cap',
 		label: 'Descending release onto the Ramp right wall cap (col_ramp_wall_r)',
 		startMm: { x: 352, y: 760, z: 13.5 },
@@ -842,6 +872,48 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		reachability: { kind: 'reachable', witness: 'plunge-weak-345' },
+	},
+	// [STORY 2.1f, code review] col_wall_lane's own north cap. This story's
+	// AC 9 generator FOUND a genuine DW-119 swallow here the moment the
+	// subject set stopped being hand-listed -- a ball released at
+	// (474.40, 979.0) came to PERMANENT rest at (474.40, 963.49), 0.00 mm of
+	// net progress over the final 500 ticks -- and the fix bevelled the cap
+	// to atan(6/12) = 26.565 deg (LANE_WALL_CAP_DROP_MM, tools/make-
+	// placeholder-blend.py). The fix then made the face INVISIBLE to the
+	// gate that found it: at 26.565 deg it takes the AC 9 gate's own "steep
+	// enough" branch and needs no column, so nothing would ever drop a ball
+	// on the repaired face again.
+	//
+	// That inference is not safe HERE specifically, and this story's own
+	// measurement is what proves it: PLUNGE_DEFLECTOR_CAP_RISE_MM's
+	// provenance comment records that on col_loop_r_deflector, 25 mm away, a
+	// 17 mm rise -- 26.57 deg, the SAME grade, "comfortably above the
+	// 16.699 deg slide threshold" -- was measured INSUFFICIENT, a ball
+	// released at (497.40, 1046.0) still coming to permanent rest ON the
+	// sloped face at (493.90, 1038.63). The deflector was therefore fixed by
+	// removing its pocket outright (55.8 deg); col_wall_lane was fixed by
+	// tilting alone, to the very grade that failed next door. A repair for a
+	// proven, reachable swallow must be pinned by a ball, not by an angle
+	// the same change recorded as unreliable in this neighbourhood.
+	//
+	// Measured at this release point on the shipped geometry: clearance
+	// 26.217 mm from the nearest footprint (col_loop_r_deflector), well over
+	// DW-77's 13.495 mm; witness plunge-full passes 6.794 mm away, so a real
+	// ball genuinely travels here; and the driven ball now makes 185.0 mm of
+	// net progress over its trailing window, closing s_loop_r_out,
+	// s_loop_r_in and s_inlane_r instead of parking.
+	// mutation: revert LANE_WALL_CAP_DROP_MM to 0.0 (a dead-flat cap) and
+	// re-export -> this column goes red in assertNotStranded naming the
+	// permanent rest at (474.40, 963.49).
+	{
+		id: 'descend-wall-lane-cap',
+		label: 'Descending release onto col_wall_lane\'s bevelled north cap (DW-119)',
+		startMm: { x: 474.4, y: 979, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 3000,
+		switchesUnderTest: [],
+		reachability: { kind: 'reachable', witness: 'plunge-full' },
 	},
 	// Rework iteration 3 (code review 2026-09-04, HIGH finding): col_lock_
 	// ceiling's own east flank stranded a ball at (182.6, 631.3) after

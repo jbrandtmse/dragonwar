@@ -1019,6 +1019,14 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		{ label: 'Ramp return rail (col_ramp_return_1)', id: 'descend-ramp-return-rail' },
 		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', id: 'descend-dragon-d' },
 		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', id: 'descend-dragon-n' },
+		// [STORY 2.1f, code review] col_wall_lane's own north cap: the DW-119
+		// swallow this story's AC 9 generator found and this story bevelled
+		// to 26.565 deg. Pinned by a ball because the "steep enough" branch
+		// that now exempts it is the inference this same change measured
+		// UNRELIABLE 25 mm away (PLUNGE_DEFLECTOR_CAP_RISE_MM's own comment:
+		// 26.57 deg still stranded on col_loop_r_deflector). See the case's
+		// own note in test/util/shot-cases.ts for the measurements.
+		{ label: 'shooter-lane divider cap (col_wall_lane)', id: 'descend-wall-lane-cap' },
 		// Story 2.1c review fix (MED finding): col_loop_top's own north face
 		// (the re-joined DW-123 connector) is 368.4 mm wide (x 50..418.4) --
 		// by far the largest north face on the table. It USED to be dead
