@@ -29,7 +29,7 @@
 import { LineSegSlingshot, type SlingshotSurfaceData } from './line-seg-slingshot';
 import type { PlayerPhysics } from './game/player-physics';
 import type { CollisionEvent } from './collision-event';
-import { Vertex2D } from './math/vertex2d';
+import type { Vertex2D } from './math/vertex2d';
 import type { CoilName } from '../table/names';
 
 /** One kick, reported WITHOUT a `tick` -- `machine.ts` stamps the tick once it drains the sink after `physics.step()` returns (see this file's header). */
@@ -55,6 +55,18 @@ export interface SlingKick {
  * not a second, possibly-inconsistent evaluation, it is the same test read
  * one statement earlier so the OUTCOME can be reported after the mutation
  * has happened.
+ *
+ * KNOWN LIMIT of that equivalence (code review, this pass -- stated so the
+ * guarantee is not read as stronger than it is): "the kick branch ran" is
+ * not "a non-zero impulse was delivered". Inside the branch the port scales
+ * its impulse by a parabolic profile `0.5 * (1 - f*f)` that peaks at the
+ * segment's centre and reaches exactly ZERO at either end, so a contact
+ * within a fraction of a mm of a footprint vertex reports a `coil_fire`
+ * while imparting essentially nothing. Reachable only in that narrow band
+ * (at 10% in from an end the kick is still ~777 mm/s), and deliberately not
+ * guarded here: the guard would have to re-derive the frozen port's own
+ * profile arithmetic in this subclass, which is exactly the drift DW-79's
+ * freeze exists to prevent. Ledgered rather than coded around.
  */
 export class KickReportingSlingshot extends LineSegSlingshot {
 	private readonly kickSurfaceData: SlingshotSurfaceData;
@@ -85,7 +97,7 @@ export class KickReportingSlingshot extends LineSegSlingshot {
 	}
 }
 
-/** Every ballId reported since the last `drain()` call, in firing order; `drain()` clears the buffer. One per coil (see `createSlingshotMechanics()`), so the coil identity is carried by WHICH sink recorded a ballId, never by a value stored inside the record itself. */
+/** Every ballId reported since the last `drain()` call, in firing order WITHIN this one coil; `drain()` clears the buffer. One per coil (see `createSlingshotMechanics()`), so the coil identity is carried by WHICH sink recorded a ballId, never by a value stored inside the record itself -- which is also why `drainKicks()` can only promise per-coil ordering, never a single chronological order across both slings (code review, this pass: the previous wording said "in firing order" unqualified). Harmless today, and deliberately not fixed with a shared buffer: nothing downstream reads the relative order of two different coils' actuations, and AD-2 puts `coil_fire` on the contact channel for one-sound-per-actuation, not for sequencing. */
 interface SlingshotSink {
 	record(ballId: number): void;
 	drain(): readonly number[];
@@ -148,7 +160,7 @@ export interface SlingshotMechanics {
 	readonly surfaceData: SlingSurfaceDataByCoil;
 	/** One segment builder per coil, for `loader/index.ts` to call once per footprint edge of that coil's own node. */
 	readonly segmentBuilderByCoil: Readonly<Record<SlingCoilName, SlingshotSegmentBuilder>>;
-	/** Every `coil_fire` produced since the last drain, in firing order, with `tick` still unset -- `machine.ts` stamps it once it drains this AFTER `physics.step()` returns (the kick fires DURING the solve, which receives no `tick` of its own). */
+	/** Every `coil_fire` produced since the last drain, grouped by coil and in firing order within each coil (see `SlingshotSink` for why cross-coil order is not promised), with `tick` still unset -- `machine.ts` stamps it once it drains this AFTER `physics.step()` returns (the kick fires DURING the solve, which receives no `tick` of its own). */
 	drainKicks(): readonly SlingKick[];
 }
 
@@ -169,9 +181,14 @@ export function createSlingshotMechanics(options: {
 
 	// DW-149 anti-vacuity: the coil set this mechanism covers is derived from
 	// `SLING_NODE_BY_COIL`'s own key set, never a hand-typed literal count --
-	// a future third slingshot added to that map is covered automatically,
-	// and an emptied map fails loudly here rather than silently building
-	// nothing.
+	// a future third slingshot added to that map is covered automatically
+	// HERE and in `machine.ts`'s own per-tick `isDisabled` mirror (which was
+	// two hand-written assignments until this story's code review derived it
+	// from `slingSurfaceData`'s key set); the `surfaceData` literal just
+	// below is the one remaining site a third sling must be added to, and
+	// `SlingSurfaceDataByCoil` makes forgetting it a COMPILE error, never a
+	// silent gap. An emptied map fails loudly here rather than silently
+	// building nothing.
 	const coils = Object.keys(SLING_NODE_BY_COIL) as SlingCoilName[];
 	if (coils.length === 0) {
 		throw new Error('createSlingshotMechanics(): SLING_NODE_BY_COIL has no entries -- nothing to build');

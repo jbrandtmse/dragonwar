@@ -145,8 +145,11 @@ export const PRE_STEP_HARDWARE_RULES = [
  * `PRE_STEP_HARDWARE_RULES` above (checked BEFORE `physics.step();`), every
  * entry here is checked AFTER `switchTracker.step(` and BEFORE `step()`'s own
  * `return` -- the skirt edge this device reacts to does not exist until the
- * tracker has run (see this file's header, "Pop -- immediately after :296,
- * before the return"). The slingshot needs no entry here (and none in
+ * tracker has run (the reasoning is Story 2.2's spec Code Map, "Pop --
+ * immediately after `switchTracker.step()`, before the return"; the `:296`
+ * this comment used to cite was a line number in that Code Map's own reading
+ * of the PRE-change file, not a line in this one -- code review, this pass).
+ * The slingshot needs no entry here (and none in
  * `PRE_STEP_HARDWARE_RULES` either): its kick fires INSIDE `physics.step()`
  * itself, via the `KickReportingSlingshot` instances `loadCollision()` built
  * (`sim/physics/slings.ts`), so there is no separate `receiver.method(...)`
@@ -256,8 +259,19 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// disable-then-contact is honoured with no rules round trip -- the
 		// same DW-74 discipline the enabledPulses filter below already
 		// applies to a pulsed coil.
-		loaded.slingSurfaceData.c_sling_l.isDisabled = !coilEnabled.c_sling_l;
-		loaded.slingSurfaceData.c_sling_r.isDisabled = !coilEnabled.c_sling_r;
+		//
+		// DERIVED from loadCollision()'s own returned key set (code review,
+		// this pass -- these were two hand-written assignments, while
+		// slings.ts's own header claimed "a future third slingshot added to
+		// that map is covered automatically". It was not: the pop side's
+		// equivalent hand-list is defended by a `satisfies
+		// Readonly<Record<PopCoilName, boolean>>` clause that turns an
+		// omission into a COMPILE error, and this mirror had no such guard,
+		// so a third sling would have compiled and silently never mirrored
+		// its enable state.) Now it genuinely is automatic.
+		for (const slingCoil of Object.keys(loaded.slingSurfaceData) as Array<keyof typeof loaded.slingSurfaceData>) {
+			loaded.slingSurfaceData[slingCoil].isDisabled = !coilEnabled[slingCoil];
+		}
 
 		// AD-5: the hardware rules read `frame` and run BEFORE physics.step(),
 		// so a button closing at tick *t* moves its coil in the SAME step --
@@ -354,8 +368,8 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// Story 2.2 (AD-5): the pop's own placement -- immediately after the
 		// switch tracker has produced this tick's edges, before the return.
 		// The skirt edge this device reacts to does not exist until the line
-		// above has run (see this file's header, "Pop -- immediately after
-		// :296, before the return", and SWITCH_EDGE_HARDWARE_RULES above).
+		// above has run -- see SWITCH_EDGE_HARDWARE_RULES above, which is the
+		// manifest that pins this placement.
 		const popResult = popMechanics.applyPostSwitchEdges(tick, switchEdges, movements, {
 			c_pop_1: coilEnabled.c_pop_1,
 			c_pop_2: coilEnabled.c_pop_2,
@@ -366,7 +380,9 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		return {
 			switchEvents: [...commandResult.switchEvents, ...plungerResult.switchEvents, ...cabinetResult.switchEvents, ...switchEdges, ...entryResult.switchEvents],
 			// Story 2.2: two new sources join this deliberately hand-picked
-			// order (this file's own header, ":301"). `slingContactEvents`
+			// order (the `:301` this comment used to cite was a line number in
+			// Story 2.2's spec Code Map, describing the PRE-change file, not a
+			// line here -- code review, this pass). `slingContactEvents`
 			// sits right after `plungerResult` -- chronologically, the sling's
 			// kick fires during physics.step(), which runs immediately after
 			// plungerResult/commandResult are computed and before

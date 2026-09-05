@@ -192,11 +192,15 @@ export function createPopMechanics(options: {
 			// is dozens of mm across) are never touched by it.
 			const dx = rawDx >= 0 ? Math.max(rawDx, POP_KICK_TIE_BREAK_MM) : Math.min(rawDx, -POP_KICK_TIE_BREAK_MM);
 			const len = Math.hypot(dx, dy);
-			// A ball dead-centre over the octagon's own centroid on BOTH
-			// axes (dy also zero -- not reachable from any authored
-			// geometry today, since every pop's own centroid sits well
-			// inside its own zone, but kept as an honest fallback rather
-			// than a division by zero) falls back to a pure lateral kick.
+			// Guards a division by zero. Note (code review, this pass) that
+			// this else-branch is DEAD BY CONSTRUCTION, not merely
+			// unreachable from today's geometry as an earlier version of
+			// this comment claimed: the line above guarantees
+			// `|dx| >= POP_KICK_TIE_BREAK_MM` (5 mm), so `len` is never
+			// below 5 and `len > 1e-6` always holds. It is retained as a
+			// total-function guard -- the tie-break's own value is what
+			// makes it dead, and a future change to that constant (or to
+			// the floor's shape) is exactly when it would stop being.
 			const dir = len > 1e-6 ? { x: dx / len, y: dy / len, z: 0 } : { x: 1, y: 0, z: 0 };
 			const impulse = tableSpeedToPhysicsVelocity(dir, tuning.hardware.popKickMmPerS.value);
 			resolved.ball.hit.vel.add(impulse);

@@ -1,22 +1,28 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 1.8's sweep, Part A: the user-directed hardware-rule registry
-// (`src/sim/physics/machine.ts`'s `PRE_STEP_HARDWARE_RULES`), verified as a
-// MANIFEST against the real source text -- never executed (see the spec's
-// Design Notes, "The hardware-rule registry is a manifest, not an executable
-// array", for why an executable loop would silently collapse `step()`'s
-// three differently-ordered return-channel spreads into one order).
+// Story 1.8's sweep, Part A: the hardware-rule registries in
+// `src/sim/physics/machine.ts` -- `PRE_STEP_HARDWARE_RULES` (the
+// user-directed ones) and, since Story 2.2, `SWITCH_EDGE_HARDWARE_RULES`
+// (the pop bumper, whose trigger is produced BY the solve and so cannot run
+// before it) -- verified as MANIFESTS against the real source text, never
+// executed (see the spec's Design Notes, "The hardware-rule registry is a
+// manifest, not an executable array", for why an executable loop would
+// silently collapse `step()`'s three differently-ordered return-channel
+// spreads into one order).
 //
-// Two independent checks, both table-driven over the manifest so a fifth
-// hardware rule added later gets the same coverage automatically:
-//   1. Ordering: every `receiver.method(` call site the manifest names must
-//      appear in `step()`'s source TEXT before the `physics.step();`
-//      statement, and never after it.
-//   2. Completeness: every `const X = create…(...)` `createMachine()`
-//      constructs must be either a manifest `receiver` or on the explicit
-//      `NOT_A_HARDWARE_RULE` allowlist below -- so a sixth mechanics object
-//      added without a manifest row fails loudly instead of silently
-//      escaping both this test and AD-5.
+// Three independent checks, all table-driven over the manifests so a later
+// hardware rule gets the same coverage automatically:
+//   1. Pre-step ordering: every `receiver.method(` call site
+//      `PRE_STEP_HARDWARE_RULES` names must appear in `step()`'s source TEXT
+//      before the `physics.step();` statement, and never after it.
+//   2. Switch-edge ordering (Story 2.2): every `receiver.method(` call site
+//      `SWITCH_EDGE_HARDWARE_RULES` names must appear AFTER
+//      `switchTracker.step(` and BEFORE `step()`'s own `return {`.
+//   3. Completeness: every `const X = create…(...)` `createMachine()`
+//      constructs must be a receiver in EITHER manifest (the two are
+//      unioned) or on the explicit `NOT_A_HARDWARE_RULE` allowlist below --
+//      so a mechanics object added without a manifest row fails loudly
+//      instead of silently escaping both this test and AD-5.
 //
 // What this does NOT guarantee (state honestly, per the spec's Design
 // Notes): (a) it only catches a participant built as a `const X =
@@ -24,10 +30,16 @@
 // escapes the scan, and the allowlist (not a regex) is where a developer
 // would have to lie to hide one; (b) it is a source-text check on
 // machine.ts ONLY -- a participant that keeps its call site but buffers its
-// effect for the next tick passes this test, which is exactly why the four
+// effect for the next tick passes this test, which is exactly why the five
 // BEHAVIOURAL pins (flipper-mover.test.ts, plunger.test.ts,
 // cabinet-integration.test.ts, machine-serve-drain.test.ts's eject-pose
-// test) are not optional decoration; (c) a sub-rule added inside an
+// test, and pop-bumper.test.ts for the switch-edge manifest) are not
+// optional decoration; (b2) the SLINGSHOT is in neither manifest and is
+// pinned by neither ordering check -- its kick fires inside
+// `physics.step()` itself via the `KickReportingSlingshot` instances
+// `loadCollision()` builds, so there is no `receiver.method(` call site for
+// a manifest to name; `test/slingshot.test.ts` is its only pin; (c) a
+// sub-rule added inside an
 // existing participant is invisible to both checks; (d) the check is
 // formatting-sensitive -- it splits on the literal statement
 // `physics.step();` after stripping comments (line and block), so a

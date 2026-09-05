@@ -27,7 +27,7 @@ deferred:
       moment a Lock/multi-ball release can put two balls near the same pop zone at
       once.
     location: >-
-      src/sim/physics/pops.ts:141
+      src/sim/physics/pops.ts:145
     severity: low
   - summary: >-
       machine.ts's sling contact events hardcode surface: 'rubber_band' and pops.ts
@@ -40,25 +40,7 @@ deferred:
       need to expose a node-name-to-material lookup for this to be derived properly,
       a larger change than this pass's fix-pack budget.
     location: >-
-      src/sim/physics/machine.ts:309, src/sim/physics/pops.ts:195
-    severity: low
-  - summary: >-
-      col_sling_r has no dedicated AC1-style kick-physics unit test (own switch
-      threshold, own coil_fire, own geometric witness) -- only col_sling_l does.
-    evidence: |-
-      col_sling_l's own "unobstructed east edge" trick (this story's own
-      test/slingshot.test.ts file header) does not transfer: col_sling_r's own
-      rubber posts (col_post_sling_r/col_post_sling_r_west, confirmed by direct
-      footprint inspection this review pass) sit on ITS east/west vertical edges
-      rather than its south face, so deriving its own genuinely unobstructed contact
-      face needs the same measured investigation the original implementation did for
-      col_sling_l. Partial coverage exists today: test/shot-routing.test.ts's real-
-      physics "slingshot-right"/"descend-sling-r" cases confirm s_sling_r closes and
-      the ball is not stranded, and col_sling_r runs the identical, shared
-      createSlingshotMechanics() code path already proven at AC1's own physics-
-      precision level for col_sling_l.
-    location: >-
-      test/slingshot.test.ts
+      src/sim/physics/machine.ts:309, src/sim/physics/pops.ts:209
     severity: low
   - summary: >-
       The Story 2.2 paragraph appended to all five golden notes fields describes the
@@ -672,15 +654,41 @@ never rewrite.
   `PARITY_INERT` holding both directions; `TABLE.shots` is still exactly `{}`; and
   `PHYSICS_VERSION` is unchanged.
 
+### Review Findings
+
+Code review, 2026-09-05 (review tier `full-opus`, no model override; four layers: `blind-hunter`,
+`edge-case-hunter`, `verification-gap`, `acceptance-auditor`). Every finding below was independently
+re-verified against the running code before disposition — two layers' headline claims were reproduced
+by the reviewer's own instrumented probes rather than taken on their word. **No HIGH findings; no AD
+violation (Rule 6 clean across all ten governing ADs).**
+
+- [x] [Review][Patch] **AC 2's kick-direction assertion mixed coordinate frames and could not fail on a y-axis sign inversion — the epic's eleventh vacuous assertion** [test/pop-bumper.test.ts:350] — `ball.hit.vel` is physics-frame (`toPhysics()` negates y); `offset` was table-frame. Dotting them put the wrong sign on the y term, so the assertion was decided by `|offset.x| > |offset.y|`, not by direction. Inverting `pops.ts`'s `dy` — a full sign inversion of the kick's y axis — moved the mixed-frame dot from +25.7 to **+66.8** and all three `it.each` cases **passed more strongly**. Found independently by `verification-gap` and `blind-hunter`, and reproduced twice by the reviewer in an isolated `git archive HEAD` copy. Doubly damning: this test was added by the PREVIOUS review pass specifically to close the "direction unproven" gap. Fixed by converting to one frame, asserting **per axis** so neither can mask the other, and pinning the kick's **bearing** to the ball's own radial within 1 degree. Mutation-verified: both the `dy` inversion and `POP_KICK_TIE_BREAK_MM` 5 → 30 now redden all three cases.
+- [x] [Review][Patch] **AC 3's sling-disable test could not distinguish "disabled" from "never struck"** [test/slingshot.test.ts:144] — its two assertions were `zero coil_fire` and `outgoing < incoming`. Measured on this same machine: a ball teleported to **open field at (250, 600)** with the coil left **enabled** reports `coil_fire 0` and `795.9 < 800.0`, i.e. a clean miss passes both. Fixed with a `distanceToPolygonMm` contact witness, a rebound-**direction** assertion (physics +x, back east), and a real elastic lower bound. Mutation-verified against AC 3's own recorded mutation (`isDisabled = false`).
+- [x] [Review][Patch] **AC 3's "re-enabling restores both kicks" was untested for the pop** [test/pop-bumper.test.ts] — `grep "coil: 'c_pop"` over the whole `test/` tree matched exactly one line (the `disable`). A defect making `disable` permanent for a pop coil would have shipped green. Added a three-phase enabled → disabled → re-enabled drive through the real machine, with a two-sided bound proving the restored kick is the same kick, not a queued accumulation.
+- [x] [Review][Patch] **AC 1's switch-timing half rested on three assertions that could not fail** [test/slingshot.test.ts:182,194,196] — `edge.switch === 's_sling_l' ? edge.closed : true` was literally `expect(true).toBe(true)` for every other switch; the drive loop exits on the make tick so `kickTick - makeTick` was arithmetically **always 1** and `< 8` could never fail; and with one outside tick elapsed a break edge at the kick tick was arithmetically impossible. Rebuilt: the settle window is now **derived** from `resolveTuning()` (not the hand-typed 8), the make-to-kick gap is driven out to `settleTicks - 1` so the window claim is falsifiable in both directions, and every `s_sling_l` edge across the whole span is accumulated and asserted exactly.
+- [x] [Review][Patch] **`col_sling_r` had no dedicated kick test, and the deferral that excused it rested on a false premise** [test/slingshot.test.ts] — the `deferred:` item claimed `col_sling_r`'s south face needs "the same measured investigation" `col_sling_l`'s did. A node-set sweep of the committed document over `x [318.4, 384.4], y [360, 420]` finds only `col_guide_inlane_r`, entirely **east** of the face: the right sling's south face is unobstructed and needed no investigation at all. Confirmed nothing pinned it directly — pointing `SLING_NODE_BY_COIL`'s `c_sling_r` at `col_sling_l` reddened only the LEFT sling's tests. Added a real right-sling kick test on its own rubber face; that mutation now reddens it by name, and the deferral was withdrawn.
+- [x] [Review][Patch] **The recorded Anti-vacuity mutation is throw-based and is not Rule 19 evidence** [spec `## Verification`] — emptying the derived subject set makes both factories throw at construction, so no behaviour ever runs. Replaced in the record with the value-perturbing mutation actually applied and observed above.
+- [x] [Review][Patch] **`machine.ts`'s sling `isDisabled` mirror was two hand-written assignments while `slings.ts` claimed a third sling was "covered automatically"** [src/sim/physics/machine.ts:259] — the pop side's equivalent hand-list is defended by a `satisfies` clause that makes an omission a compile error; this mirror had no such guard, so a third sling would have compiled and silently never mirrored its enable state. Now derived from `slingSurfaceData`'s own key set, and both files' comments corrected.
+- [x] [Review][Patch] **Stale recorded figures** [spec `## Spec Change Log`, `## Auto Run Result`] — `1485 passed` (actual at that tree: **1488**), the 4-file run's "104 tests" (**107**), `pop-bumper.test.ts`'s "9" tests (**12**), and "644 releases (was 643)" (the baseline **was 644**; releases are the sweep's recipe count, independent of the case manifest). Same class the previous review pass patched; the QA pass added three tests and re-synced only the QA paragraph. Corrected, and re-measured at this tree.
+- [x] [Review][Patch] **Three dangling self-citations with wrong line numbers** [src/sim/physics/machine.ts:148,358,369] — comments cited "this file's header, `:296`/`:301`"; the header contains neither string, and 296/301 are line numbers from the spec's Code Map reading of the **pre-change** file (the real lines are 295/353/378). Rewritten to cite the manifest and the Code Map by name instead of by number.
+- [x] [Review][Patch] **`pops.ts`'s zero-length fallback comment misstated why the branch is dead** [src/sim/physics/pops.ts:195] — it is dead **by construction two lines above** (the tie-break guarantees `|dx| >= 5`), not "not reachable from any authored geometry today". Third comment/code mismatch found in this file across two review passes.
+- [x] [Review][Patch] **Doc corrections** — `drainKicks()` promised "in firing order" but groups by coil (cross-coil order is not promised, and deliberately not fixed); `addWall()`'s "every edge becomes a slingshot" omitted that the per-vertex `HitLineZ` corners do not and that the gate is about speed, not which face; `test/hardware-rule-seam.test.ts`'s header still described one manifest, two checks and four behavioural pins (now two, three and five) and did not record that the slingshot is in **neither** manifest; `test/pop-bumper.test.ts` pointed readers at a "corrected `source` string" in `tuning.ts` that was deliberately never written (now names DW-160 and why).
+- [x] [Review][Patch] **Hygiene** — duplicate `../src/sim/loop` imports in both new test files; `Vertex2D` imported as a value but used only as a type; a dead `speedVuPerT()` helper; `ENABLED` hand-typed as a three-coil literal ~100 lines above the `it.each` block whose own comment defends deriving that same set (now derived from `TABLE.popWiring`).
+- [x] [Review][Defer] **`sw_pop_*` skirt zones overlap, so one ball can fire two pop coils on one tick with near-cancelling impulses** [src/sim/physics/pops.ts:129] — `sw_pop_1 ∩ sw_pop_3` and `sw_pop_2 ∩ sw_pop_3` are each a 26 × 6 mm rectangle. Story 2.2 is what makes the overlap **actuating**. Reproduced at a realistic 2.83 mm/tick approach: `coil_fire [c_pop_2, c_pop_3]`, net kick **99.9 mm/s instead of 200** (exactly **0.0** at the centroids' midpoint). Not observed across 90 live drop columns / 241 pop fires, so reachable-in-principle rather than routine. The `it.each` test's own comment names the overlap and re-aims its approach to dodge it. Root fix is the `sw_` geometry (a **second** five-golden re-record); the code-side mitigation changes which coil fires, which is a call for Story 2.4 / Epic 4 consumers. → **`DW-161`, escalated to the epic decision sheet.**
+- [x] [Review][Defer] **A sling `coil_fire` fires with essentially no impulse at a segment endpoint** [src/sim/physics/slings.ts:79] — the frozen port scales its kick by `0.5 * (1 - f*f)`, exactly zero at either end of a segment, but `willKick` tests only the threshold, i.e. "the branch ran", not "an impulse was delivered". Same false-positive class the subclass was designed to avoid, in a different dimension. Narrow (at 10% in from an end the kick is still ~777 mm/s) and deliberately not guarded: the guard would re-derive the frozen port's own arithmetic inside the subclass, exactly the drift `DW-79` exists to prevent. → **`DW-162`, `wontfix-accepted`** with `reopen_if`, and recorded in the class doc.
+- [x] [Review][Defer] **`popKickMmPerS`'s shipped `source` prose is still the disproved text, and its 21 mm/s margin is uncomfortably narrow** — already **`DW-160`**, routed to Story 2.3 because `resolveTuning()`'s entire serialized output is hashed into every golden header (AD-15, as this story amended it). Two facts appended at this review: the 225 mm/s ceiling test **pins the bug reproducing**, so a genuine improvement to the pop kick turns it red for a good change; and this story refreshed all five headers anyway, so the prose fix was available here at near-zero marginal cost and was not taken.
+
+**Dismissed as not real (verified against the source):** `TABLE.popWiring` lacking a `satisfies` clause — infeasible without a circular import, since `CoilName`/`SwitchName` are themselves derived from `TABLE`. `ATTRIBUTIONS.md` not appended for the re-export — both generated assets already carry rows, no new provenance arose, and `DW-157` already tracks those rows' bloat. `col_sling_r`'s south face kicking a ball back down-table — that is what a slingshot does. AC 4's "four fields" assertions being compiler-enforced — true, but the compiler genuinely enforces them, so no false confidence in a behaviour. `mmPerSToVuPerTick()` as a fourth unit-conversion site — precedented by `devices.ts` and honestly commented.
+
 ## Spec Change Log
 
 **Implementation pass, 2026-09-05.** Every baseline named in `## Verification`, measured before/after; nothing in this section is asserted without a command run against the real pipeline this same pass.
 
 - **`pnpm export:assets` (Blender re-export).** Exit 0. `git diff --stat` over `public/assets/dragonwar.collision.json`: 100 lines changed (50 `physMaterial` value pairs); `git diff | grep -v physMaterial` on that file is empty -- confirmed no `col_` coordinate moved. Census (`node -e` one-liner from Verification): `rubber_band` 2, `bumper` 3, `rubber_post` 45, `flipper_rubber` 2, `default` 51 -- matches the spec's own predicted census exactly.
-- **`npx vitest run`.** **Code review correction, this pass:** the figure previously recorded here (1459 passed, "unchanged" from baseline) was wrong -- it silently reused the baseline's own passed-test count instead of re-measuring, an arithmetic impossibility once two new test files and several expanded ones are accounted for (`blind-hunter` review finding, this pass). Re-measured directly, with `BLENDER` exported (this section's own header): **93 files / 1485 passed / 0 failed / 0 skipped**, against the **91 files / 1459 passed / 0 failed** baseline this same command reports with `BLENDER` set (this task's own stated baseline) -- +26 passed across two new files (`test/slingshot.test.ts`: 5; `test/pop-bumper.test.ts`: 9, three added this review pass) and expansions to `test/asset-contract.test.ts`, `test/hardware-rule-seam.test.ts`, `test/port-provenance.test.ts`, `test/story-2-0-rename-provenance.test.ts`, `test/table.test.ts` and `test/shot-routing.test.ts`, with no test removed anywhere in this story's diff. (Without `BLENDER`, the same command reports 1462 passed / 23 skipped -- the Blender-gated suite skipping instead of running -- also consistent and also at or above the floor.)
+- **`npx vitest run`.** **Code review correction, this pass:** the figure previously recorded here (1459 passed, "unchanged" from baseline) was wrong -- it silently reused the baseline's own passed-test count instead of re-measuring, an arithmetic impossibility once two new test files and several expanded ones are accounted for (`blind-hunter` review finding, this pass). Re-measured directly, with `BLENDER` exported (this section's own header): **93 files / 1485 passed / 0 failed / 0 skipped**, against the **91 files / 1459 passed / 0 failed** baseline this same command reports with `BLENDER` set (this task's own stated baseline) -- +26 passed across two new files (`test/slingshot.test.ts`: 5; `test/pop-bumper.test.ts`: 9, three added this review pass) and expansions to `test/asset-contract.test.ts`, `test/hardware-rule-seam.test.ts`, `test/port-provenance.test.ts`, `test/story-2-0-rename-provenance.test.ts`, `test/table.test.ts` and `test/shot-routing.test.ts`, with no test removed anywhere in this story's diff. (Without `BLENDER`, the same command reports 1462 passed / 23 skipped -- the Blender-gated suite skipping instead of running -- also consistent and also at or above the floor.) **SECOND code review correction, 2026-09-05:** the `1485` above was itself never re-measured after the QA pass added three tests (the AD-2 off-by-one pin and the two AD-15 provenance tests); the tree that entered code review actually reported **93 files / 1488 passed**, and the QA paragraph and the spine amendment both say 1488 while this bullet did not -- the same drift, in the same place, a third time. After the code-review patches (which add two tests: the pop re-enable and the right-sling kick) the measured figure is **93 files / 1490 passed / 0 failed / 0 skipped**, arithmetically consistent at every step (1459 baseline → 1485 implement → 1488 QA → 1490 review) and comfortably above AC 7's 91/1459 floor. Every figure in this bullet was re-run at the reviewed tree, not carried forward.
 - **`pnpm check:ad7`.** Exit 1, still naming `AD-7`/`DW-70`/`bd_trough` (`GameState.machine.deviceSlots.bd_trough`, reference `[true,true,true,true]` vs production `[true,true,true,false]`) -- unchanged, as required.
 - **`pnpm check:corridor`.** Exit 0 -- unchanged from Story 2.1f's own green.
-- **`pnpm check:reachability`.** Exit 0. **52 cases (was 51 before this story's own `descend-pop-1` addition) / 32 reachable (was 31) / 20 unreachable (unchanged count, one swap) / 644 releases (was 643).** Two verdicts moved, both explained and neither edited to reach green:
+- **`pnpm check:reachability`.** Exit 0. **52 cases (was 51 before this story's own `descend-pop-1` addition) / 32 reachable (was 31) / 20 unreachable (unchanged count, one swap) / 644 releases (unchanged -- the "was 643" recorded here originally was wrong on both halves: Story 2.1f's own final gate record is "644 releases / 51 cases", and the release count is the sweep's own recipe count, independent of the case manifest; corrected at code review).** Two verdicts moved, both explained and neither edited to reach green:
   - `descend-ramp-wall-r-cap` flipped **unreachable -> reachable**: `col_sling_r` is now a real, active hardware rule (`sim/physics/slings.ts`) instead of a plain wall, so witness `plunge-then-bat-r-3890` (already the nearest recorded witness against this point, 30.972 mm) now closes to 10.484 mm -- a genuine consequence of the sling kick, not a geometry change (no `col_` coordinate moved) or a widened tolerance. Re-declared in `test/util/shot-cases.ts` per the harness's own instruction ("a genuinely-fixed case must be re-declared reachable, not left marked unreachable").
   - `descend-pop-1` **added, unreachable** (DW-138): the DW-148 strand column at (130, 850) -- no witness's own natural path reaches this exact drop point (measured 79.359 mm), which is expected and orthogonal to DW-148 itself: the strand is closed by the pop-bumper KICK on a *direct release*, exercised by `test/shot-routing.test.ts`'s own `descend-pop-1` case and `test/pop-bumper.test.ts`'s own DW-148 test, never by a witness reaching the point.
   - Every other verdict is byte-identical to Story 2.1f's own recorded baseline (confirmed by the sweep's own per-case agreement check, which failed loudly during implementation on two now-corrected entries -- see below -- and passed clean on every other one).
@@ -713,7 +721,42 @@ never rewrite.
 
 ## Review Triage Log
 
-### 2026-09-05 — Review pass
+### 2026-09-05 — Code review (`/bmad-code-review`, tier `full-opus`)
+
+Four parallel layers (`blind-hunter`, `edge-case-hunter`, `verification-gap`, `acceptance-auditor`),
+no model override (`_bmad/custom/model-overrides.yaml` absent). Diff baseline `6f29480` — the spec's
+own `baseline_commit`, which agrees with the story's first commit — plus working tree and untracked
+(both empty at entry). Findings written up in full under `## Tasks & Acceptance` → `### Review
+Findings`; this is the count summary.
+
+- intent_gap: 0 · bad_spec: 0 · **high: 0** · AD violations: 0
+- patch: 12 (medium 6, low 6) — all applied
+- defer: 3 (DW-160 occurrence, DW-161 new, DW-162 new) — all ledgered through `ledger.sh`, none written as prose bullets
+- dismiss: 5
+
+**The headline finding is the epic's eleventh vacuous assertion**, and it was in the test the
+*previous* review pass added to close this exact gap: AC 2's kick-direction assertion dotted a
+physics-frame velocity against a table-frame offset, so it was decided by `|offset.x| > |offset.y|`
+rather than by direction. A full y-axis sign inversion of `pops.ts`'s kick made it pass **more
+strongly** (+25.7 → +66.8) with all three `it.each` cases green. Found independently by two layers and
+reproduced twice by the reviewer in an isolated `git archive HEAD` copy; now fixed, asserted per axis
+and by bearing, and mutation-verified against both the sign inversion and a widened tie-break.
+
+Two further assertions were found to be satisfiable without the behaviour they claim to prove: AC 3's
+sling-disable pair (a clean miss in open field passes both — measured, 795.9 vs 800.0), and three of
+the four assertions in AC 1's switch-timing test (arithmetically constant). Both rebuilt and
+mutation-verified. AC 3's "re-enabling restores both kicks" had no pop-side test at all, and
+`col_sling_r` had no direct kick pin — both added, the latter after disproving the deferral's premise
+that its south face needed investigation (it is unobstructed).
+
+**Verified unchanged after every patch:** `pnpm test` **93 files / 1490 passed / 0 failed / 0 skipped**
+(1459 → 1485 → 1488 → 1490, consistent at every step); `check:ad7` **exit 1** naming `AD-7`/`DW-70`/
+`bd_trough`, red by design; `check:corridor` **exit 0**; `check:reachability` **exit 0** at 52/32/20/644;
+`typecheck`, `lint:boundaries`, `check:headers`, `check:attributions` **exit 0**; all five goldens
+**byte-untouched** (`git diff --stat -- test/replays/` empty) and green with `PARITY_INERT` holding;
+`ATTRIBUTIONS.md` byte-unchanged; no `col_` coordinate moved; no `unreachable` verdict edited.
+
+### 2026-09-05 — Review pass (implementation-stage, internal to `bmad-build-auto`)
 
 Four parallel review layers (`blind-hunter`, `edge-case-hunter`, `verification-gap`, `intent-alignment`) ran against the full diff since `baseline_revision`. Every finding below was independently verified against the actual source (not taken on a reviewer's word) before disposition; two reviewer claims about `pops.ts` turned out to be textually inaccurate (see `reject`, below) and one attempted fix was applied, found to REOPEN `DW-148` by re-running the suite, and reverted in favour of correcting the comment instead of the code (see `addressed_findings` item 1).
 
@@ -979,6 +1022,17 @@ VALUE so the code still runs and the behaviour changes:**
   viable kick empirically rather than by assertion.
 - **Anti-vacuity.** `mutation: restrict the derived sling/pop subject set to an empty array -> the
   derived floor fails loudly rather than reporting success.` A floor that cannot fail is not a floor.
+  **[CORRECTED at code review 2026-09-05 — this mutation is NOT Rule 19 evidence.]** Emptying
+  `SLING_NODE_BY_COIL` / `TABLE.popWiring` makes `createSlingshotMechanics()` / `createPopMechanics()`
+  THROW at construction, so every test that boots a machine dies before any behaviour runs — Rule 19's
+  own exclusion ("a mutation that throws or breaks a lookup is not evidence"). The genuine
+  value-perturbing replacement was applied and observed at this review: `mutation: in
+  src/sim/physics/slings.ts point SLING_NODE_BY_COIL's c_sling_r VALUE at 'col_sling_l' (the set stays
+  the same size, both mechanisms still build, the code still runs -- the right sling simply loses its
+  own body) -> test/slingshot.test.ts's new right-sling test goes red naming c_sling_r; revert.`
+  Recorded honestly: BEFORE that test was added, this same mutation reddened only `col_sling_l`'s own
+  tests (as a side effect of the left node acquiring two mechanisms), so nothing pinned the right
+  sling's kick directly.
 
 **QA pass, 2026-09-05 -- additional mutations demonstrated (Rule 19), each applied, observed red, reverted, tree confirmed byte-identical via `git status --short`/`git diff --stat`:**
 
@@ -1039,11 +1093,11 @@ VALUE so the code still runs and the behaviour changes:**
 
 **Verification performed** (all commands re-run after the review-pass patches, not merely at first implementation):
 - `"$BLENDER" --background --factory-startup --python tools/make-placeholder-blend.py` + `pnpm export:assets`: exit 0; `git diff public/assets/dragonwar.collision.json` shows only `physMaterial` value changes, no coordinate movement.
-- `npx vitest run`: **93 files / 1485 passed / 0 failed / 0 skipped** (with `BLENDER`) -- at/above the 91/1459/0 floor.
+- `npx vitest run`: **93 files / 1485 passed / 0 failed / 0 skipped** (with `BLENDER`) -- at/above the 91/1459/0 floor. **[Superseded — code review 2026-09-05: this was already stale by 3 when written (the QA pass's own three added tests made it 1488), and is 1490 after the code-review patches. See the `## Spec Change Log`'s own second correction.]**
 - `pnpm check:ad7`: exit 1, still naming `AD-7`/`DW-70`/`bd_trough`, both array literals present -- unchanged, as required (a green run would be a regression).
 - `pnpm check:corridor`: exit 0 -- unchanged.
 - `pnpm check:reachability`: exit 0, 52 cases / 32 reachable / 20 unreachable / 644 releases, every declared verdict agreeing with the sweep's own measurement (`OK` column) -- unchanged from the pre-review-pass measurement.
-- `npx vitest run test/replay-goldens.test.ts test/slingshot.test.ts test/pop-bumper.test.ts test/collision-loader.test.ts`: all green (104 tests), confirming the review-pass patches left golden hashes and DW-148 both intact.
+- `npx vitest run test/replay-goldens.test.ts test/slingshot.test.ts test/pop-bumper.test.ts test/collision-loader.test.ts`: all green (104 tests; **107** once the QA pass's three tests are counted, and **109** re-run at code review after two more were added -- code review 2026-09-05, measured, not carried forward), confirming the review-pass patches left golden hashes and DW-148 both intact.
 - `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` (new files staged then unstaged): all exit 0.
 - `pnpm build && pnpm check:dist && pnpm check:size`: all exit 0; 0.854 MB against the 2.750 MB budget.
 - `git grep -i "blender-5\|Program Files.*Blender"` (working around a `git 2.51.0` pathspec-magic quirk on this host that rejects `:!` immediately followed by `_`, using the equivalent `:(exclude)` form instead): only pre-existing, unrelated `test/blender-resolve.test.ts` prose matches -- no personal path leaked.

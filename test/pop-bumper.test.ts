@@ -30,7 +30,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createLoop } from '../src/sim/loop';
+import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { createMachine, type Machine } from '../src/sim/physics/machine';
 import { createPopMechanics, type PopCoilName } from '../src/sim/physics/pops';
 import { createSwitchTracker } from '../src/sim/physics/switches';
@@ -38,7 +38,6 @@ import { loadCollision } from '../src/sim/physics/loader';
 import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { toPhysics, MM_PER_VU } from '../src/sim/table/frames';
-import { NO_FRAME } from '../src/sim/loop';
 import { switchZoneMm } from './util/collision-doc';
 import type { Ball } from '../src/sim/physics/ball/ball';
 
@@ -77,10 +76,6 @@ function driveToFirstPopMake(machine: Machine, startTick: number): { tick: numbe
 		}
 	}
 	throw new Error('driveToFirstPopMake(): s_pop_1 never made within the drive window -- test fixture is broken');
-}
-
-function speedVuPerT(vel: { x: number; y: number; z: number }): number {
-	return Math.hypot(vel.x, vel.y, vel.z);
 }
 
 describe('sim/physics/pops.ts -- the pop-bumper hardware rule (AD-5, AD-2, AC 2, AC 3, DW-148)', () => {
@@ -125,6 +120,43 @@ describe('sim/physics/pops.ts -- the pop-bumper hardware rule (AD-5, AD-2, AC 2,
 		expect(result.switchEvents.some((e) => e.switch === 's_pop_1' && e.closed), 'the skirt is not the coil -- s_pop_1 still closes').toBe(true);
 		expect(result.contactEvents.filter((c) => c.kind === 'coil_fire'), 'disabled: zero coil_fire').toHaveLength(0);
 		expect(delta, 'disabled: no impulse -- only ordinary per-tick gravity/friction drift, nowhere near a real kick').toBeLessThan(1);
+	});
+
+	// Code review, this pass: AC 3's final clause is "re-enabling restores
+	// both kicks", and `test/slingshot.test.ts` proved it for the sling --
+	// but `grep -n "coil: 'c_pop"` over the whole `test/` tree matched
+	// exactly ONE line before this test existed (the `disable` above), so a
+	// defect that made `disable` PERMANENT for a pop coil shipped green.
+	// Drives the same approach three times through the real machine --
+	// enabled, disabled, re-enabled -- so the restored kick is measured
+	// against this device's own two other states rather than an absolute.
+	it('AC 3 (pop half): re-enabling c_pop_1 restores the kick -- the same drive kicks, then does not while disabled, then kicks again', () => {
+		const { machine, tick: bootTick } = bootMachine();
+		let tick = bootTick;
+
+		const kickDelta = (): number => {
+			const { tick: madeAt, beforeVel, result } = driveToFirstPopMake(machine, tick);
+			tick = madeAt;
+			const v = machine.balls[0]!.hit.vel;
+			return Math.hypot(v.x - beforeVel.x, v.y - beforeVel.y, v.z - beforeVel.z) * (result.contactEvents.some((c) => c.kind === 'coil_fire' && c.device === 'c_pop_1') ? 1 : -1);
+		};
+
+		const enabledFirst = kickDelta();
+		expect(enabledFirst, 'baseline: the coil starts enabled and kicks, with its own coil_fire').toBeGreaterThan(1);
+
+		tick += 1;
+		machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_pop_1', action: 'disable', tick }]);
+		const whileDisabled = kickDelta();
+		expect(whileDisabled, 'disabled: no kick and no coil_fire (a negative value here is the "no coil_fire" marker, not a reversed impulse)').toBeLessThan(1);
+
+		tick += 1;
+		machine.step(tick, NO_FRAME, [{ type: 'coil', coil: 'c_pop_1', action: 'enable', tick }]);
+		const afterReEnable = kickDelta();
+		expect(afterReEnable, 're-enabled: the kick is restored, with its own coil_fire back').toBeGreaterThan(1);
+		// Two-sided (this story's own Anti-vacuity trap 2): the restored kick
+		// is the SAME kick, not a larger accumulated one -- a disable that
+		// merely buffered its impulses would show up here.
+		expect(Math.abs(afterReEnable - enabledFirst), 'the restored kick matches the original in magnitude -- a disable must drop its impulses, never queue them').toBeLessThan(0.5);
 	});
 
 	it('Integration AC (pop half): a kick fired through the real host seam (createLoop().advance()) is observable in FrameOutput.contactEvents', () => {
@@ -185,7 +217,13 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 		return { popMechanics, switchTracker, loaded };
 	}
 
-	const ENABLED: Readonly<Record<PopCoilName, boolean>> = { c_pop_1: true, c_pop_2: true, c_pop_3: true };
+	// DERIVED from TABLE.popWiring's own key set (DW-149, code review this
+	// pass -- this was a hand-typed three-coil literal sitting ~100 lines
+	// above the `it.each` block whose own comment defends deriving the very
+	// same set). A fourth pop bumper is now covered here automatically too.
+	const ENABLED: Readonly<Record<PopCoilName, boolean>> = Object.fromEntries(
+		(Object.keys(TABLE.popWiring) as PopCoilName[]).map((coil) => [coil, true]),
+	) as Readonly<Record<PopCoilName, boolean>>;
 
 	it('I/O matrix "Pop, inside the settle window": a ball that exits and re-enters within bumper_skirt\'s 2-tick settle window produces no second make edge and therefore no second kick', () => {
 		const { popMechanics, switchTracker } = realPopMechanicsAndZones();
@@ -342,14 +380,50 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 			expect(result.contactEvents.map((c) => c.device), `exactly one coil_fire, and it must be ${coil} -- never a sibling pop`).toEqual([coil]);
 
 			// Direction: the velocity change must point AWAY from THIS
-			// device's own centroid (positive dot product with the ball's
-			// own offset), not toward it and not along the wrong axis --
-			// this is what a sign/axis regression in pops.ts's dx/dy
+			// device's own centroid, not toward it and not along the wrong
+			// axis -- this is what a sign/axis regression in pops.ts's dx/dy
 			// computation, or a tie-break floor that over-widens a real
 			// small offset, would break.
+			//
+			// FRAME (code review, this pass -- the previous version of this
+			// block was measurably blind to the very regression it names).
+			// `ball.hit.vel` is PHYSICS-frame: `toPhysics()` maps table +y to
+			// physics -y (`frames.ts`, `y: (heightMm - v.y) / MM_PER_VU`), so
+			// `tableSpeedToPhysicsVelocity()` returns a y component that is
+			// the NEGATION of the table-frame one. `offset` below is
+			// table-frame. Dotting the two frames directly puts the wrong
+			// sign on the y term, which made the assertion decide on
+			// `|offset.x| > |offset.y|` rather than on direction: with this
+			// fixture's own (+15, +10) offset, inverting pops.ts's `dy` to
+			// `device.centroidMm.y - resolved.afterMm.y` -- a full y-axis
+			// sign inversion of the kick -- moved the mixed-frame dot from
+			// +25.7 to +66.8 and the assertion passed MORE strongly
+			// (reproduced twice, independently, in an isolated copy).
+			// Converted back to one frame here, and asserted PER AXIS so a
+			// single-axis inversion can never be masked by the other axis's
+			// larger magnitude.
 			const offset = { x: insideMm.x - centroid.x, y: insideMm.y - centroid.y };
-			const dot = fakeBall.hit.vel.x * offset.x + fakeBall.hit.vel.y * offset.y;
-			expect(dot, "the kick must be directed away from this device's own centroid (positive dot product with the ball's own offset)").toBeGreaterThan(0);
+			const kickTableFrame = { x: fakeBall.hit.vel.x, y: -fakeBall.hit.vel.y };
+
+			expect(Math.sign(kickTableFrame.x), `the kick's x component must point away from ${coil}'s own centroid (offset.x = ${offset.x.toFixed(2)} mm)`).toBe(Math.sign(offset.x));
+			expect(Math.sign(kickTableFrame.y), `the kick's y component must point away from ${coil}'s own centroid (offset.y = ${offset.y.toFixed(2)} mm)`).toBe(Math.sign(offset.y));
+
+			const dot = kickTableFrame.x * offset.x + kickTableFrame.y * offset.y;
+			expect(dot, "the kick must be directed away from this device's own centroid (positive table-frame dot product with the ball's own offset)").toBeGreaterThan(0);
+
+			// MAGNITUDE (code review, this pass): a sign-only test also
+			// cannot see `POP_KICK_TIE_BREAK_MM` growing until it dominates
+			// ordinary off-centre approaches -- 5 -> 30 mm left every
+			// assertion above green while silently overriding this fixture's
+			// own real 15 mm offset. Pin the ANGLE instead: this offset is
+			// comfortably clear of the floor, so the kick must lie along the
+			// ball's own genuine radial, not along a tie-break-biased one.
+			const offsetAngleDeg = (Math.atan2(offset.y, offset.x) * 180) / Math.PI;
+			const kickAngleDeg = (Math.atan2(kickTableFrame.y, kickTableFrame.x) * 180) / Math.PI;
+			expect(
+				Math.abs(kickAngleDeg - offsetAngleDeg),
+				`the kick's bearing (${kickAngleDeg.toFixed(2)} deg) must follow the ball's own radial from ${coil}'s centroid (${offsetAngleDeg.toFixed(2)} deg) -- a widened POP_KICK_TIE_BREAK_MM would bias it off-radial`,
+			).toBeLessThan(1);
 		},
 	);
 });
@@ -386,7 +460,16 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 //     corrected `source` string records the re-measured onsets for the
 //     next person who touches this constant).
 //
-// See tuning.ts's own corrected `source` string for the full accounting.
+// NOT YET CORRECTED IN `tuning.ts` (code review, this pass -- the previous
+// wording pointed the reader at a "corrected `source` string" that does not
+// exist). `TUNING.hardware.popKickMmPerS`'s shipped `source` still carries
+// all three disproved claims. That is deliberate and ledgered as **DW-160**,
+// routed to Story 2.3: `resolveTuning()`'s ENTIRE serialized output --
+// `source` and `confidence` prose included -- is hashed into every golden
+// header (AD-15, as this story itself amended it), so a prose-only edit
+// costs a five-golden re-record. Story 2.3 re-records anyway. Until then the
+// two tests below, not the prose, are the authority on this constant's real
+// bounds.
 // These two tests pin the corrected floor and ceiling directly (never the
 // production value alone, which the existing DW-148 test above already
 // covers) so a future change to this constant, or to the physics it

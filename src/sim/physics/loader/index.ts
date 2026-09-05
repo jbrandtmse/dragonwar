@@ -521,6 +521,17 @@ function assertConvexCcwFootprint(nodeName: string, footprint: readonly Vec2Mm[]
  * real high-speed contact, so no special-casing which edge is the "real"
  * rubber face is needed, and every OTHER wall node is entirely unaffected
  * (`slingBuilder` is `undefined` for all 101+ of them).
+ *
+ * Two limits of "every edge", recorded rather than left implied (code
+ * review, this pass): (a) the per-vertex `HitLineZ` objects built below are
+ * NOT wrapped, so a contact resolved against a sling's corner rather than
+ * one of its edges rebounds passively and emits no `coil_fire`; (b) the
+ * `dot <= -threshold` gate is about SPEED, not about which face was struck,
+ * so every face of a sling body kicks -- which is correct for the rubber
+ * face and is what makes the sling a real device, but means the DW-119
+ * north slope kicks too. Both are consequences of the spec's own task 5
+ * ("one `LineSegSlingshot` per footprint edge") and are measured, not
+ * incidental: `check:reachability` moved exactly one verdict as a result.
  */
 function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials'], slingBuilder?: SlingshotSegmentBuilder): void {
 	const footprint = node.footprintMm!;
