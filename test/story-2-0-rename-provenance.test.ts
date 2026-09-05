@@ -191,7 +191,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		expect(ad16, 'AD-16 must still forbid retiring any of the three gates').toMatch(/none may be retired/i);
 	});
 
-	it('test/port-provenance.test.ts still reports its current, deliberately-updated structural shape: four describe blocks, 105 tests (57 / 1 / 44 / 3)', { timeout: 180_000 }, () => {
+	it('test/port-provenance.test.ts still reports its current, deliberately-updated structural shape: four describe blocks, 107 tests (59 / 1 / 44 / 3)', { timeout: 180_000 }, () => {
 		const result = spawnSync(
 			process.execPath,
 			[resolveVitestBin(), 'run', 'test/port-provenance.test.ts', '--reporter=json'],
@@ -241,8 +241,13 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		// this file's AUTHORED_FILES -- a genuine new assertion, not file-count
 		// drift, so it raises the block count (3 -> 4) and the total (102 -> 105)
 		// deliberately, exactly as this note anticipates.
-		expect(report.numTotalTests, `total test count must stay 105. ${SHAPE_NOTE}`).toBe(105);
-		expect(report.numPassedTests, `all 105 tests must pass. ${SHAPE_NOTE}`).toBe(105);
+		//
+		// Story 2.2: two new genuinely authored files under
+		// src/sim/physics/** (slings.ts, pops.ts) each add one test to the
+		// per-file header-provenance block (57 -> 59), raising the total
+		// 105 -> 107 -- exactly the SHAPE_NOTE's own anticipated case.
+		expect(report.numTotalTests, `total test count must stay 107. ${SHAPE_NOTE}`).toBe(107);
+		expect(report.numPassedTests, `all 107 tests must pass. ${SHAPE_NOTE}`).toBe(107);
 
 		const byTopDescribe = new Map<string, number>();
 		for (const file of report.testResults) {
@@ -254,7 +259,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		const found = `found: ${[...byTopDescribe.keys()].join(' | ')}`;
 
 		expect(byTopDescribe.size, `expected exactly 4 top-level describe blocks; ${found}`).toBe(4);
-		expect(byTopDescribe.get('src/sim/physics/** header provenance (AD-16)'), `${SHAPE_NOTE} ${found}`).toBe(57);
+		expect(byTopDescribe.get('src/sim/physics/** header provenance (AD-16)'), `${SHAPE_NOTE} ${found}`).toBe(59);
 		expect(
 			// Rule 14: the em dash is escaped, never a literal byte.
 			byTopDescribe.get('src/sim/physics/constants.ts \u2014 AD-15 verbatim solver constants pin'),

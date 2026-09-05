@@ -71,6 +71,8 @@ export const AUTHORED_PHYSICS_FILES = [
 	'cabinet/index',
 	'hop',
 	'geometry',
+	'slings',
+	'pops',
 ];
 const PORTED_PHYSICS_FILE_PATTERN =
 	`^src/sim/physics/(?!(?:${AUTHORED_PHYSICS_FILES.join('|').replace(/\//g, '\\/')})\\.tsx?$).+\\.tsx?$`;

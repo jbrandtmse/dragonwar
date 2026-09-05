@@ -48,13 +48,28 @@ import { HitLine3D } from '../hit-line-3d';
 import { HitPlane } from '../hit-plane';
 import { HitTriangle } from '../hit-triangle';
 import { LineSeg } from '../line-seg';
+import { createSlingshotMechanics, type SlingKick, type SlingSurfaceDataByCoil, type SlingshotSegmentBuilder } from '../slings';
 import { Vertex2D } from '../math/vertex2d';
 import { Vertex3D } from '../math/vertex3d';
 import { TABLE } from '../../table/dragonwar';
-import { MM_PER_IN, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
+import { MM_PER_IN, MM_PER_VU, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
 import { TUNING, resolveTuning, type ResolvedTuning } from '../../table/tuning';
-import type { BallDeviceName, SwitchName } from '../../table/names';
+import type { BallDeviceName, CoilName, SwitchName } from '../../table/names';
 import type { LoadedFlipper } from './loaded-flipper';
+
+// Declared independently of `sim/physics/pops.ts`'s own identical one-liners
+// (never imported from there): `pops.ts` already imports `LoadedSwitchZone`
+// FROM this file, so an import the other way would close a cycle
+// `tools/dependency-cruiser.config.mjs`'s `no-circular` rule forbids between
+// two authored (non-ported) physics files. Both derive from the SAME
+// canonical source (`TABLE.popWiring`), and TypeScript's structural typing
+// means `LoadedCollision.popCentroidsMm` below and `pops.ts`'s own
+// `PopCentroidsByCoil` parameter type are interchangeable at every call site
+// despite being two nominally separate declarations, so the two can never
+// silently drift apart in practice either.
+type PopCoilName = keyof typeof TABLE.popWiring;
+/** Each pop bumper's own collision-node centroid, table-frame millimetres, DERIVED below from the committed document's own `footprintMm` -- never hand-typed (this story's spec, "Anti-vacuity"). */
+export type PopCentroidsByCoil = Readonly<Record<PopCoilName, { readonly x: number; readonly y: number }>>;
 
 // Story 2.1a (DW-105): `LoadedFlipper` itself is declared in the leaf module
 // `./loaded-flipper` and re-exported here so every existing `from '../loader'`
@@ -138,6 +153,12 @@ export interface LoadedCollision {
 	readonly devices: readonly LoadedDevice[];
 	/** `col_flipper_l` and `col_flipper_r`, derived rather than registered as static geometry (Story 1.6). Always exactly the two, in no particular order. */
 	readonly flippers: readonly LoadedFlipper[];
+	/** Story 2.2, AD-5: per-coil slingshot surface-data handles, held by reference inside the `KickReportingSlingshot` instances `addWall()` built below -- `machine.ts` mutates `.isDisabled` on these SAME objects every tick from its own `coilEnabled` map, so a flip takes effect on the very next contact with no re-load. */
+	readonly slingSurfaceData: SlingSurfaceDataByCoil;
+	/** Story 2.2, AD-2: drains every sling kick recorded since the last call, in firing order, with no `tick` set yet -- the kick fires DURING `physics.step()`, which receives no tick of its own, so `machine.ts` stamps it once it drains this immediately after `physics.step()` returns. */
+	drainSlingKicks(): readonly SlingKick[];
+	/** Story 2.2, DW-148: each pop bumper's own collision-node centroid, DERIVED from the committed document's own footprint (never hand-typed) -- `sim/physics/pops.ts`'s kick direction. */
+	readonly popCentroidsMm: PopCentroidsByCoil;
 }
 
 // ---------------------------------------------------------------------------
@@ -491,7 +512,17 @@ function assertConvexCcwFootprint(nodeName: string, footprint: readonly Vec2Mm[]
 	}
 }
 
-function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
+/**
+ * `slingBuilder`, when given (Story 2.2): called once per footprint edge
+ * INSTEAD of `new LineSeg(...)` -- the literal drop-in the spec's Code Map
+ * names for `col_sling_l`/`col_sling_r`. Every edge of a sling node becomes a
+ * `KickReportingSlingshot`, not only the one rubber-facing face: the ported
+ * model's own per-edge `dot <= -threshold` test already gates the kick to
+ * real high-speed contact, so no special-casing which edge is the "real"
+ * rubber face is needed, and every OTHER wall node is entirely unaffected
+ * (`slingBuilder` is `undefined` for all 101+ of them).
+ */
+function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials'], slingBuilder?: SlingshotSegmentBuilder): void {
 	const footprint = node.footprintMm!;
 	assertConvexCcwFootprint(node.name, footprint);
 	const zLowVu = toPhysics({ x: 0, y: 0, z: node.zLowMm! }).z;
@@ -518,7 +549,11 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource
 		const p1 = physicsPoints[i];
 		const p2 = physicsPoints[(i + 1) % physicsPoints.length];
 		const [a, b] = orientedEdge(p1, p2, centroid);
-		const lineSeg = new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
+		const zMin = Math.min(zLowVu, zHighVu);
+		const zMax = Math.max(zLowVu, zHighVu);
+		const lineSeg: LineSeg = slingBuilder
+			? slingBuilder(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax)
+			: new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax);
 		applyMaterial(materialsSource, lineSeg, node.physMaterial, node.name);
 		physics.addStaticHitObject(lineSeg);
 	}
@@ -555,6 +590,39 @@ function outwardTriangle(a: Vertex3D, b: Vertex3D, c: Vertex3D, hint: Vec3): [Ve
 	const nz = e0x * e1y - e0y * e1x;
 	const dot = nx * hint.x + ny * hint.y + nz * hint.z;
 	return dot >= 0 ? [a, b, c] : [a, c, b];
+}
+
+/**
+ * Story 2.2: mm/s -> physics VU/T, the SCALAR half of `devices.ts`'s own
+ * `tableSpeedToPhysicsVelocity()` (re-derived here rather than imported,
+ * exactly as that function's own header keeps its `/100` T-scaling local --
+ * "not part of `frames.ts`'s contract"). `MM_PER_VU` is the one frame
+ * constant (AD-10, `frames.ts`); the `/100` is physics's own VP TIME-UNIT
+ * convention. Used only for `SlingshotSurfaceData.slingshotThreshold`, which
+ * is compared directly against a physics-internal `dot` product inside the
+ * frozen port (`line-seg-slingshot.ts`), so it must arrive already converted.
+ */
+function mmPerSToVuPerTick(speedMmPerS: number): number {
+	return speedMmPerS / MM_PER_VU / 100;
+}
+
+/** Story 2.2, DW-148: the three pop nodes' collision-node names, keyed by coil -- object KEYS, never a quoted string literal (`pnpm lint:boundaries`'s device-name-literal rule), the same reasoning `flippers.ts`'s own `SIDE_BY_COIL` states for itself. The VALUE side is a plain `col_`-prefixed literal, which that rule does not restrict. (The two SLING nodes' own equivalent lives in `sim/physics/slings.ts` and is read back via `slingMechanics.nodeNameByCoil` below -- never duplicated here.) */
+const POP_NODE_BY_COIL: Readonly<Record<PopCoilName, string>> = {
+	c_pop_1: 'col_pop_1',
+	c_pop_2: 'col_pop_2',
+	c_pop_3: 'col_pop_3',
+};
+
+/** The vertex-average of a wall node's own footprint, in TABLE-frame millimetres (never physics space -- `pops.ts` compares it against `movements`' own table-frame ball positions). Derived from `footprintMm`, never hand-typed (DW-149). Coincides with the true geometric centre only for a REGULAR polygon (code review finding, this pass) -- correct for this story's three regular-octagon pop nodes, but not a general-purpose centroid: an irregular footprint would silently skew this toward its denser vertex cluster. */
+function footprintCentroidMm(node: CollisionNodeDoc): { x: number; y: number } {
+	const footprint = node.footprintMm;
+	if (!footprint || footprint.length === 0) {
+		throw new Error(`loadCollision(): node "${node.name}" has no footprintMm to derive a centroid from`);
+	}
+	return {
+		x: footprint.reduce((sum, p) => sum + p.x, 0) / footprint.length,
+		y: footprint.reduce((sum, p) => sum + p.y, 0) / footprint.length,
+	};
 }
 
 function addBox(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
@@ -723,6 +791,30 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 	const materialsSource = tuning.materials;
 	const physics = new PlayerPhysics();
 
+	// Story 2.2 (AD-5): built before the node loop so its segment builders
+	// are ready for addWall()'s dispatch below.
+	const slingMechanics = createSlingshotMechanics({
+		physics,
+		thresholdVuPerTick: mmPerSToVuPerTick(tuning.hardware.slingshotThresholdMmPerS.value),
+		force: tuning.hardware.slingshotForce.value,
+	});
+	// Reverse-lookup built from slingMechanics' OWN nodeNameByCoil (never a
+	// second local copy of the coil<->node pairing) -- `CoilName`, not a
+	// hand-written literal union, is the map's value type.
+	const slingCoilByNodeName = new Map<string, CoilName>();
+	for (const [coil, nodeName] of Object.entries(slingMechanics.nodeNameByCoil)) {
+		// Code review finding, this pass: symmetric with the pop-bumper
+		// node check below (":859-864") -- a renamed or removed sling node
+		// must fail loudly at load time, the same "fail loudly rather than
+		// silently doing nothing" principle this story's I/O matrix states
+		// for a degenerate input, never silently fall through the node loop
+		// below as an ordinary, un-kicked wall.
+		if (!parsed.nodes.some((n) => n.name === nodeName)) {
+			throw new Error(`loadCollision(): expected a slingshot node named "${nodeName}" for coil "${coil}", but the document has none`);
+		}
+		slingCoilByNodeName.set(nodeName, coil as CoilName);
+	}
+
 	const playfieldNode = findNode(parsed, TABLE.nodes.colPlayfield);
 	const glassNode = findNode(parsed, TABLE.nodes.colGlass);
 	assertPlaneShaped(playfieldNode);
@@ -755,13 +847,32 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 			throw new Error(`loadCollision(): node "${node.name}" is an unexpected plane-shaped node -- only col_playfield and col_glass may be plane-shaped`);
 		}
 		if (node.shape === 'wall') {
-			addWall(physics, node, materialsSource);
+			const slingCoil = slingCoilByNodeName.get(node.name);
+			const slingBuilder = slingCoil && slingCoil in slingMechanics.segmentBuilderByCoil
+				? slingMechanics.segmentBuilderByCoil[slingCoil as keyof typeof slingMechanics.segmentBuilderByCoil]
+				: undefined;
+			addWall(physics, node, materialsSource, slingBuilder);
 		} else {
 			addBox(physics, node, materialsSource);
 		}
 	}
 
 	physics.finalizeStatics();
+
+	// Story 2.2, DW-148: each pop bumper's centroid, derived from its OWN
+	// node's footprint -- a separate pass over `parsed.nodes` (not
+	// interleaved with the hit-object construction above, which needs no
+	// special-casing for the three pop nodes at all: their collision
+	// response is ordinary `addWall()` output, driven entirely by their
+	// `bumper` material).
+	const popCentroidsMm = {} as { -readonly [K in PopCoilName]: { x: number; y: number } };
+	for (const [coil, nodeName] of Object.entries(POP_NODE_BY_COIL) as Array<[PopCoilName, string]>) {
+		const popNode = parsed.nodes.find((n) => n.name === nodeName);
+		if (!popNode) {
+			throw new Error(`loadCollision(): expected a pop-bumper node named "${nodeName}" for coil "${coil}", but the document has none`);
+		}
+		popCentroidsMm[coil] = footprintCentroidMm(popNode);
+	}
 
 	const flippers: LoadedFlipper[] = [
 		loadFlipper(parsed, TABLE.nodes.colFlipperL, 'l'),
@@ -815,5 +926,13 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 		}
 	}
 
-	return { physics, switchZones, devices, flippers };
+	return {
+		physics,
+		switchZones,
+		devices,
+		flippers,
+		slingSurfaceData: slingMechanics.surfaceData,
+		drainSlingKicks: () => slingMechanics.drainKicks(),
+		popCentroidsMm,
+	};
 }

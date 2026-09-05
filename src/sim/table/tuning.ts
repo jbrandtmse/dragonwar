@@ -116,7 +116,79 @@ export const TUNING = deepFreeze({
 			),
 			scatter: entry(0, "addendum \u00A72 physics tuning table, 'Scatter angle': \"0, for every era; randomness is tuned down\"", 'high'),
 		},
-	} satisfies Readonly<Record<'default' | 'flipper_rubber', PhysMaterialTuning>>,
+		// Story 2.2 (AD-11, AD-15, AC 4): the three material names the
+		// geometry has always implied but the table never named -- every
+		// `col_` body but the two flipper faces shared `default` until now
+		// (101 nodes), even though a rubber band, a rubber post and a bumper
+		// skirt are three physically distinct surfaces. All three are
+		// AUTHORED (no do-not-invent artifact states any of the four VPX
+		// parameters for a specific rubber-band/rubber-post/bumper material),
+		// so every entry ships `confidence: 'unverified'` -- `scatter: 0` on
+		// every one, matching AD-3's "scatter is 0 on every material by
+		// default" and covered for free by `test/ac6-scatter-and-prng.test.ts`'s
+		// own `Object.keys(TUNING.materials)` sweep.
+		rubber_band: {
+			// Kept at the VPX per-object default's own figures, DELIBERATELY --
+			// see this story's Spec Change Log. An earlier pass authored this
+			// material closer to `flipper_rubber`'s own energetic figures
+			// (elasticity 0.85), reasoning that a slingshot's rubber ought to
+			// read as livelier than bare `default` even passively. Measured
+			// consequence: `col_sling_l/r` sit in the flight path of a large
+			// fraction of the reachability/routing corpus's own witness
+			// trajectories, and a passive elasticity change that large
+			// reroutes many of them within a few contacts -- several DRAGON-
+			// bank witnesses and both Top-lane routing cases regressed
+			// (`pnpm check:reachability` and `test/shot-routing.test.ts`),
+			// which this story's own Block If forbids ("never edit an
+			// unreachable verdict ... to reach green"). The device's real
+			// energy source is the AUTHORED kick impulse
+			// (`TUNING.hardware.slingshotForce`, applied only while enabled and
+			// above threshold), never the passive collision response -- AC 3's
+			// own "measurably slower [rebound], not passive-vs-different-
+			// material" compares ENABLED against DISABLED on the SAME
+			// material, so naming this material distinctly from `default`
+			// satisfies AC 4 without needing its own four numbers to differ.
+			elasticity: entry(0.3, "authored: matches materials.default -- an earlier, livelier figure (0.85) measurably rerouted multiple DRAGON-bank reachability witnesses and both Top-lane routing cases (this story's Spec Change Log); the sling's real energy source is the authored kick impulse (TUNING.hardware.slingshotForce), not the passive collision response, so this material is named for AC 4 without changing established trajectories", 'unverified'),
+			elasticityFalloff: entry(0, 'authored: matches materials.default -- see this entry\'s own elasticity note', 'unverified'),
+			friction: entry(0.3, 'authored: matches materials.default -- no artifact names a slingshot-band-specific friction', 'unverified'),
+			scatter: entry(0, 'authored: AD-3 requires scatter 0 on every material by default', 'unverified'),
+		},
+		// Every col_post_* node (45 of them, Code Map "Current census") -- a
+		// passive rubber post, distinct from the sling's own energised band
+		// and from bare `default` plastic/wood/metal. No artifact names a
+		// rubber-post elasticity/friction pair, so this is authored at the
+		// VPX per-object default's own figures (the pre-Story-2.2 behaviour
+		// every one of these 45 nodes already had under `default`) --
+		// naming the material changes WHAT the body is tagged, not how it
+		// currently behaves, the intentionally conservative choice for a
+		// body this story does not otherwise touch.
+		rubber_post: {
+			elasticity: entry(0.3, "authored: no artifact names a rubber-post elasticity -- kept at the VPX per-object default (materials.default), the same figure every col_post_* node already carried under 'default' before this story named the material", 'unverified'),
+			elasticityFalloff: entry(0, 'authored: matches materials.default -- no artifact names a rubber-post-specific falloff', 'unverified'),
+			friction: entry(0.3, 'authored: matches materials.default -- no artifact names a rubber-post-specific friction', 'unverified'),
+			scatter: entry(0, 'authored: AD-3 requires scatter 0 on every material by default', 'unverified'),
+		},
+		// The three col_pop_* skirts (sim/physics/pops.ts supplies the
+		// actual kick as an authored impulse, never a collision-response
+		// parameter): livelier than a rubber post's passive elasticity, short
+		// of the sling's own energised band, matching the "bumper" `surface`
+		// these nodes already carry today.
+		bumper: {
+			// Kept at the VPX per-object default's own figures, the same
+			// reasoning `rubber_band` above records: a livelier passive
+			// elasticity (an earlier pass tried 0.5) measurably rerouted
+			// multiple reachability witnesses that pass near the pop
+			// cluster. The pop's real energy source is the AUTHORED radial
+			// kick impulse (`TUNING.hardware.popKickMmPerS`,
+			// `sim/physics/pops.ts`), fired only on a genuine skirt-edge
+			// make with its own coil enabled -- never the passive collision
+			// response, which stays identical to bare `default` rubber.
+			elasticity: entry(0.3, "authored: matches materials.default -- an earlier, livelier figure (0.5) measurably rerouted multiple reachability witnesses near the pop cluster (this story's Spec Change Log); the pop's real energy source is the authored kick impulse (TUNING.hardware.popKickMmPerS), not the passive collision response, so this material is named for AC 4 without changing established trajectories", 'unverified'),
+			elasticityFalloff: entry(0, 'authored: matches materials.default -- see this entry\'s own elasticity note', 'unverified'),
+			friction: entry(0.3, 'authored: matches materials.default -- no artifact names a bumper-specific friction', 'unverified'),
+			scatter: entry(0, 'authored: AD-3 requires scatter 0 on every material by default', 'unverified'),
+		},
+	} satisfies Readonly<Record<'default' | 'flipper_rubber' | 'rubber_band' | 'rubber_post' | 'bumper', PhysMaterialTuning>>,
 
 	/**
 	 * Story 1.6's mover parameters (see `FlipperTuning`'s own doc comment
@@ -428,6 +500,44 @@ export const TUNING = deepFreeze({
 			'unverified',
 		),
 	} satisfies Readonly<Record<'rodLengthM' | 'cabAccelScale' | 'dampingCoef0' | 'dampingCoef1' | 'ringBounceDamping' | 'dampingScale' | 'thresholdDeg', TuningEntry<number>>>,
+
+	/**
+	 * Story 2.2 (AD-5, AD-15): the two hardware-rule kicks' own tunables --
+	 * exactly the three paths this story's spec names verbatim (its own
+	 * `## Verification` mutations name them by path). No key ends in `Ms`
+	 * (`assertNoNestedMsKeys()` above): `slingshotThresholdMmPerS` is a speed,
+	 * not a duration, which is why it is spelled `...MmPerS` rather than
+	 * tripping the tick-conversion rule.
+	 *
+	 * `slingshotForce` is in the ported `LineSegSlingshot`'s own VP velocity
+	 * units (`sim/physics/line-seg-slingshot.ts`'s `public force: number`,
+	 * upstream's own commented-out `//-80` hint) -- NEGATIVE, so the scaled
+	 * per-tick profile (0..0.5 in magnitude) drives `ball.hit.vel.sub(hitNormal
+	 * * force)` to ADD speed along the outward `hitNormal` rather than
+	 * subtract it (the port's own sign convention: a positive `force` would
+	 * pull the ball INTO the band instead of kicking it away). No planning
+	 * artifact states a slingshot kick strength, so upstream's own commented
+	 * reference value is the authored starting point, measured against AC 1's
+	 * own outgoing-vs-incoming speed assertion during this story's
+	 * implementation.
+	 */
+	hardware: {
+		slingshotForce: entry(
+			-80,
+			"authored: sim/physics/line-seg-slingshot.ts's own commented-out `//-80` hint (vpx-js @ e8a6d6f, lib/physics/line-seg-slingshot.ts) is the only reference figure anywhere in this tree for the ported model's own force scale -- no planning artifact states a slingshot kick strength; taken as the starting point and measured against this story's own AC 1 (outgoing speed exceeds incoming) rather than invented from nothing",
+			'unverified',
+		),
+		slingshotThresholdMmPerS: entry(
+			500,
+			'authored: no planning artifact states a slingshot contact-speed threshold below which the band should NOT fire -- measured during this story\'s implementation so a flipper-band-speed strike clears it and a slow graze does not (AC 1 vs the I/O matrix\'s "Sling graze, below threshold" row)',
+			'unverified',
+		),
+		popKickMmPerS: entry(
+			200,
+			'authored: no planning artifact states a pop-bumper kick strength -- fixed empirically during this story\'s implementation, swept over [50, 900] against the DW-148 strand (`test/shot-routing.test.ts`\'s "descend" column at (130, 850)) and against the pre-existing Top-lane routing cases (`test/shot-routing.test.ts`, "Top lanes"), which pass near the pop cluster on their own return path and are NOT this story\'s DW-148 subject. Below ~180 the DW-148 ball is kicked but returns to a NEW, still-permanent equilibrium (its own dx tie-break, sim/physics/pops.ts\'s POP_KICK_TIE_BREAK_MM, only breaks the EXACT on-axis case -- the kick itself still needs enough speed to clear the zone rather than just reposition within it); above ~220 the extra energy sends a ball that merely GRAZES a pop\'s skirt on its way past into repeated cross-pop bouncing that exhausts the Top-lane cases\' own tick budget before reaching a terminal outcome. 200 clears DW-148\'s own strand to the drain (measured trailing-window progress 126.8 mm against the 15 mm floor) while leaving every pre-existing routing case that only grazes a pop unaffected.',
+			'unverified',
+		),
+	} satisfies Readonly<Record<'slingshotForce' | 'slingshotThresholdMmPerS' | 'popKickMmPerS', TuningEntry<number>>>,
 } as const);
 
 type TuningMsKey<T> = {

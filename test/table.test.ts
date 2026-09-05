@@ -275,8 +275,11 @@ describe('TABLE.lightGroups -- Story 1.4 populates the placeholder\'s three grou
 });
 
 describe('TABLE.physMaterials -- Story 1.4 names the phys_material keys tuning.ts defines', () => {
-	it('has exactly default, flipper_rubber', () => {
-		expect(Object.keys(TABLE.physMaterials).sort()).toEqual(['default', 'flipper_rubber']);
+	// Story 2.2 (AC 4) added the three material names the geometry always
+	// implied -- rubber_band (both slings), rubber_post (every col_post_*
+	// node), bumper (all three col_pop_* nodes).
+	it('has exactly default, flipper_rubber, rubber_band, rubber_post, bumper', () => {
+		expect(Object.keys(TABLE.physMaterials).sort()).toEqual(['bumper', 'default', 'flipper_rubber', 'rubber_band', 'rubber_post']);
 	});
 });
 

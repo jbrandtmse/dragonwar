@@ -137,8 +137,14 @@ function primaryPulseCoil(device: BallDevice): CoilName | undefined {
  * VP TIME-UNIT convention (1 T = 10 ms, `constants.ts`'s documented unit
  * block) -- a time-domain scaling, not a table/physics FRAME conversion, so
  * it is not part of `frames.ts`'s contract.
+ *
+ * Exported (Story 2.2): `sim/physics/pops.ts` reuses this SAME function for
+ * the pop bumper's own radial kick (a direction -- the ball's position minus
+ * `col_pop_N`'s centroid, normalised -- and a speed,
+ * `tuning.hardware.popKickMmPerS`) rather than re-deriving the identical
+ * mm/s -> VU/T arithmetic a second time.
  */
-function tableSpeedToPhysicsVelocity(dir: Vec3, speedMmPerS: number): Vertex3D {
+export function tableSpeedToPhysicsVelocity(dir: Vec3, speedMmPerS: number): Vertex3D {
 	const origin = toPhysics({ x: 0, y: 0, z: 0 });
 	const tip = toPhysics({ x: dir.x * speedMmPerS, y: dir.y * speedMmPerS, z: dir.z * speedMmPerS });
 	const vuPerSecond: Vec3 = { x: tip.x - origin.x, y: tip.y - origin.y, z: tip.z - origin.z };

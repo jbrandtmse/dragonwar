@@ -377,6 +377,27 @@ export const TABLE = deepFreeze({
 		},
 	} satisfies Readonly<Record<'popBumpers', AuthoredEntry<number>>>,
 
+	/**
+	 * Story 2.2 (AD-11 "TABLE owns ... wiring"): each pop bumper's coil
+	 * paired with the SKIRT SWITCH that triggers its kick. `sim/physics/
+	 * pops.ts` derives its three-entry subject set from `Object.keys()` here
+	 * (DW-149: never a second hand-typed list) and never needs an `s_pop_*`
+	 * string literal of its own to name the switch it reads -- `pnpm
+	 * lint:boundaries`'s device-name-literal rule bans one outside this file
+	 * (this section only exists because that correlation cannot be derived
+	 * any other way -- unlike the coil<->collision-node pairing, which stays
+	 * local to `sim/physics/pops.ts`/`loader/index.ts` as a plain `col_`-
+	 * prefixed value, exactly the way `flippers.ts`'s own `SIDE_BY_COIL`
+	 * keeps its coil<->side pairing local). Mirrors `bd_trough.slots`/
+	 * `.ejectCoil` above, which already carry their own wiring as literal
+	 * values in this exempt file.
+	 */
+	popWiring: {
+		c_pop_1: { switch: 's_pop_1' },
+		c_pop_2: { switch: 's_pop_2' },
+		c_pop_3: { switch: 's_pop_3' },
+	},
+
 	/** AD-9: the architectural GI channels, set once per phase via `GiCommand.level`. */
 	giChannels: {
 		gi_backbox: {} as Record<string, never>,
@@ -441,5 +462,15 @@ export const TABLE = deepFreeze({
 	physMaterials: {
 		default: {} as Record<string, never>,
 		flipper_rubber: {} as Record<string, never>,
+		// Story 2.2 (AD-11, AC 4): the three material names the geometry has
+		// always implied -- rubber_band (both slings), rubber_post (every
+		// col_post_* node), bumper (all three col_pop_* nodes) -- named here
+		// so `tools/export.py` validates the re-authored `.blend`'s
+		// `phys_material` property against a real registry entry rather than
+		// an unenforced convention. `test/asset-contract.test.ts` pins this
+		// list against `Object.keys(TUNING.materials)` both ways.
+		rubber_band: {} as Record<string, never>,
+		rubber_post: {} as Record<string, never>,
+		bumper: {} as Record<string, never>,
 	},
 } as const);

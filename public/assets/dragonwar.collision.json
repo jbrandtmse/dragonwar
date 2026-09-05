@@ -1460,7 +1460,7 @@
         }
       ],
       "name": "col_pop_1",
-      "physMaterial": "default",
+      "physMaterial": "bumper",
       "shape": "wall",
       "surface": "bumper",
       "zHighMm": 50.0,
@@ -1514,7 +1514,7 @@
         }
       ],
       "name": "col_pop_2",
-      "physMaterial": "default",
+      "physMaterial": "bumper",
       "shape": "wall",
       "surface": "bumper",
       "zHighMm": 50.0,
@@ -1568,7 +1568,7 @@
         }
       ],
       "name": "col_pop_3",
-      "physMaterial": "default",
+      "physMaterial": "bumper",
       "shape": "wall",
       "surface": "bumper",
       "zHighMm": 50.0,
@@ -1622,7 +1622,7 @@
         }
       ],
       "name": "col_post_channel_l_1",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -1676,7 +1676,7 @@
         }
       ],
       "name": "col_post_channel_l_2",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -1730,7 +1730,7 @@
         }
       ],
       "name": "col_post_channel_r_1",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -1784,7 +1784,7 @@
         }
       ],
       "name": "col_post_channel_r_2",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -1838,7 +1838,7 @@
         }
       ],
       "name": "col_post_divider_l_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -1892,7 +1892,7 @@
         }
       ],
       "name": "col_post_divider_l_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -1946,7 +1946,7 @@
         }
       ],
       "name": "col_post_divider_r_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2000,7 +2000,7 @@
         }
       ],
       "name": "col_post_divider_r_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2054,7 +2054,7 @@
         }
       ],
       "name": "col_post_dragon_leg_l_south",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2108,7 +2108,7 @@
         }
       ],
       "name": "col_post_dragon_leg_r",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2162,7 +2162,7 @@
         }
       ],
       "name": "col_post_dragon_leg_r_south",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2216,7 +2216,7 @@
         }
       ],
       "name": "col_post_feed_l_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2270,7 +2270,7 @@
         }
       ],
       "name": "col_post_feed_l_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2324,7 +2324,7 @@
         }
       ],
       "name": "col_post_feed_r_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2378,7 +2378,7 @@
         }
       ],
       "name": "col_post_feed_r_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2432,7 +2432,7 @@
         }
       ],
       "name": "col_post_inlane_l_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2486,7 +2486,7 @@
         }
       ],
       "name": "col_post_inlane_l_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2540,7 +2540,7 @@
         }
       ],
       "name": "col_post_inlane_r_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2594,7 +2594,7 @@
         }
       ],
       "name": "col_post_inlane_r_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2648,7 +2648,7 @@
         }
       ],
       "name": "col_post_lock_ceiling_west_fill_e",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2702,7 +2702,7 @@
         }
       ],
       "name": "col_post_lock_ceiling_west_fill_w",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2756,7 +2756,7 @@
         }
       ],
       "name": "col_post_loop_l_funnel",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2810,7 +2810,7 @@
         }
       ],
       "name": "col_post_loop_r_funnel",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2864,7 +2864,7 @@
         }
       ],
       "name": "col_post_loop_r_lower",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2918,7 +2918,7 @@
         }
       ],
       "name": "col_post_loop_r_south",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -2972,7 +2972,7 @@
         }
       ],
       "name": "col_post_loop_turn_r",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3026,7 +3026,7 @@
         }
       ],
       "name": "col_post_outer_l_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3080,7 +3080,7 @@
         }
       ],
       "name": "col_post_outer_r_hi",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3134,7 +3134,7 @@
         }
       ],
       "name": "col_post_pocket_l",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3188,7 +3188,7 @@
         }
       ],
       "name": "col_post_pocket_r",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3242,7 +3242,7 @@
         }
       ],
       "name": "col_post_ramp_return_1_a",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3296,7 +3296,7 @@
         }
       ],
       "name": "col_post_ramp_return_1_b",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3350,7 +3350,7 @@
         }
       ],
       "name": "col_post_ramp_turn",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3404,7 +3404,7 @@
         }
       ],
       "name": "col_post_ramp_wall_l_crossing",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3458,7 +3458,7 @@
         }
       ],
       "name": "col_post_ramp_wall_l_entrance",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3512,7 +3512,7 @@
         }
       ],
       "name": "col_post_ramp_wall_r_crossing",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3566,7 +3566,7 @@
         }
       ],
       "name": "col_post_ramp_wall_r_entrance",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3620,7 +3620,7 @@
         }
       ],
       "name": "col_post_sling_l",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3674,7 +3674,7 @@
         }
       ],
       "name": "col_post_sling_l_north",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3728,7 +3728,7 @@
         }
       ],
       "name": "col_post_sling_r",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3782,7 +3782,7 @@
         }
       ],
       "name": "col_post_sling_r_west",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3836,7 +3836,7 @@
         }
       ],
       "name": "col_post_top_divider_195_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3890,7 +3890,7 @@
         }
       ],
       "name": "col_post_top_divider_295_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3944,7 +3944,7 @@
         }
       ],
       "name": "col_post_top_divider_376_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -3998,7 +3998,7 @@
         }
       ],
       "name": "col_post_top_divider_95_lo",
-      "physMaterial": "default",
+      "physMaterial": "rubber_post",
       "shape": "wall",
       "surface": "rubber_post",
       "zHighMm": 50.0,
@@ -4188,7 +4188,7 @@
         }
       ],
       "name": "col_sling_l",
-      "physMaterial": "default",
+      "physMaterial": "rubber_band",
       "shape": "wall",
       "surface": "rubber_band",
       "zHighMm": 50.0,
@@ -4226,7 +4226,7 @@
         }
       ],
       "name": "col_sling_r",
-      "physMaterial": "default",
+      "physMaterial": "rubber_band",
       "shape": "wall",
       "surface": "rubber_band",
       "zHighMm": 50.0,

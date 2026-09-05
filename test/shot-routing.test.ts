@@ -1098,6 +1098,13 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// and not merely its direction. See test/util/shot-cases.ts's own
 		// note on this case for the measurement.
 		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r residual band a 1 mm offset trim reopens', id: 'descend-dragon-leg-r-post-660' },
+		// Story 2.2, DW-148: the same discipline applied to a VERTEX rather
+		// than a flat face -- a ball released dead-centre over col_pop_1's
+		// own apex settles into a permanent equilibrium exactly like every
+		// other body in this sweep, closed here by the pop-bumper kick
+		// (sim/physics/pops.ts) rather than by a geometry change (no col_
+		// coordinate moved this story).
+		{ label: 'col_pop_1, the DW-148 apex-vertex strand', id: 'descend-pop-1' },
 	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ id }) => {
 		const result = driveCase(id);
 		const { x, y } = shotCase(id).startMm;

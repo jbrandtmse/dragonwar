@@ -433,17 +433,31 @@ export const SHOT_CASES: readonly ShotCase[] = [
 
 	// -- Top lanes (test/shot-routing.test.ts:860-883) --
 	{
+		// Story 2.2 (DW-148): RESTORED 110 -> 130 -- the independent second
+		// falsifier this story's own spec names. x = 130 is col_pop_1's own
+		// centre x; before this story a ball released here descended dead
+		// onto the octagon's single apex vertex and settled into the
+		// DW-148 equilibrium this story's own pop-bumper kick now clears
+		// (sim/physics/pops.ts). Restoring the ORIGINAL release point and
+		// re-verifying the routing clause still passes is proof that the
+		// KICK fixed it, not that the release point was moved to dodge it a
+		// second time.
 		id: 'top-lane-1',
 		label: 'Top lane 1',
-		startMm: { x: 110, y: 900, z: 13.5 },
+		startMm: { x: 130, y: 900, z: 13.5 },
 		speedMmPerS: 1500,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: ['s_top_1'],
+		// Story 2.2: closestApproachMm re-measured (65.43 -> 85.271) against
+		// the real physics pipeline after the release point restored to x =
+		// 130 above -- still unreachable by any witness's own natural path
+		// (a direct release here, not a witness trajectory, is what
+		// test/shot-routing.test.ts's own routing case exercises).
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
-			closestApproachMm: 65.43,
+			closestApproachMm: 85.271,
 			note: 'no witness the in-suite search could construct reaches this high up-table at this x -- see DW-138.',
 		},
 	},
@@ -753,15 +767,16 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
-		// Story 2.1d task 8: closestApproachMm re-measured (46.901 -> 47.930)
-		// against the real physics pipeline after this story's own geometry
-		// changes -- still unreachable, essentially unchanged.
-		reachability: {
-			kind: 'unreachable',
-			ledger: 'DW-138',
-			closestApproachMm: 30.972,
-			note: 'sits above the Ramp channel, which Story 2.1f re-solved (DW-137 closed); this drop point itself is still unreached by any witness -- see DW-138.',
-		},
+		// Story 2.2: RE-DECLARED reachable. col_sling_r is now a real hardware
+		// rule (sim/physics/slings.ts) rather than a plain wall, so a witness
+		// that clips the band on its way past the inlane now leaves it on a
+		// measurably different line -- plunge-then-bat-r-3890 was already the
+		// nearest witness recorded against this point (30.972 mm) and now
+		// closes to 10.484 mm, inside the 13.495 mm tolerance. This is a
+		// genuine consequence of the sling kick, not a geometry change (no
+		// col_ coordinate moved this story) or a widened tolerance -- the
+		// DW-138 note below no longer applies to this point.
+		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3890' },
 	},
 	{
 		// [STORY 2.1f] Re-sited (360, 895) -> (344, 940): col_ramp_turn grew
@@ -1060,6 +1075,34 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:212,y:660}). See DW-138.
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 47.294, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
+	},
+	// Story 2.2, DW-148: the ledger's own strand -- a ball released AT REST
+	// directly above col_pop_1 descends dead onto the octagon's single apex
+	// vertex (x = 130 is col_pop_1's own centre x, spec Code Map) and, before
+	// this story, settled permanently at (130.00, 833.55) INSIDE sw_pop_1
+	// (only 13.550 mm of assertReleaseClear() clearance, and inside the very
+	// zone under test -- both make it unusable as a release point). (130, 850)
+	// gives 30.000 mm clearance and lies in no zone (DW-148's own recorded
+	// evidence). The pop-bumper kick (sim/physics/pops.ts) now clears it --
+	// see this case's own mutation in the spec's Verification section.
+	{
+		id: 'descend-pop-1',
+		label: 'Descending release directly above the pop-bumper cluster (col_pop_1), DW-148',
+		startMm: { x: 130, y: 850, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 6600,
+		switchesUnderTest: ['s_pop_1'],
+		// Measured via closestApproachOverAll({x:130,y:850}) -- unreachable by
+		// any witness's own natural path (this is a strand-column probe, not a
+		// shot; test/shot-routing.test.ts's own descend-pop-1 case is what
+		// exercises the pop-bumper kick this ledger entry is really about).
+		reachability: {
+			kind: 'unreachable',
+			ledger: 'DW-138',
+			closestApproachMm: 79.359,
+			note: 'no witness the in-suite search could construct reaches this drop point directly -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138. The strand DW-148 names is closed by the pop kick, exercised as a direct release in test/shot-routing.test.ts, not by any witness reaching this exact point.',
+		},
 	},
 ];
 

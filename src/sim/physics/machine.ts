@@ -11,18 +11,24 @@
 // Per tick, in order: (1) `commands` are partitioned into `pulse`s and
 // `enable`/`disable`s -- the latter update the per-coil enabled map this file
 // owns (AD-7: `hardwareEnabled`-like state, but physics-side and never read
-// by rules); (2) the flipper and manual-plunger HARDWARE RULES
-// (`sim/physics/flippers.ts`, `sim/physics/plunger.ts`) read `frame` and the
-// enabled map and command their movers -- this is the one place `InputFrame`
-// is read, and it happens BEFORE `physics.step()` so a switch closing at
-// tick *t* moves its coil in the SAME step (AD-5: "no rules round trip");
-// (3) this tick's `pulse`s apply to the devices layer (may spawn/launch a
-// ball); (4) `PlayerPhysics.step()` runs exactly once; (5) the zone tests
-// (`switches.ts`) and the device entry tests (`devices.ts`) run over every
-// ball's swept segment this tick produced. Ball ids are assigned here and
-// stable for a ball's lifetime; a ball parked and later ejected gets a NEW
-// id (`devices.ts`'s own `nextBallId` callback). All table<->physics
-// conversion goes through `sim/table/frames.ts`.
+// by rules) AND (Story 2.2) each sling's own `SlingshotSurfaceData.isDisabled`,
+// mirrored from that same map every tick; (2) the flipper and manual-plunger
+// HARDWARE RULES (`sim/physics/flippers.ts`, `sim/physics/plunger.ts`) read
+// `frame` and the enabled map and command their movers -- this is the one
+// place `InputFrame` is read, and it happens BEFORE `physics.step()` so a
+// switch closing at tick *t* moves its coil in the SAME step (AD-5: "no
+// rules round trip"); (3) this tick's `pulse`s apply to the devices layer
+// (may spawn/launch a ball); (4) `PlayerPhysics.step()` runs exactly once --
+// the SLINGSHOT hardware rule (Story 2.2, `sim/physics/slings.ts`) fires
+// INSIDE this call, at the moment of contact, via the `KickReportingSlingshot`
+// instances `loadCollision()` built; (5) the zone tests (`switches.ts`) and
+// the device entry tests (`devices.ts`) run over every ball's swept segment
+// this tick produced, and the POP-BUMPER hardware rule (Story 2.2,
+// `sim/physics/pops.ts`) runs immediately after the zone tests, reacting to
+// this tick's own switch edges (see `SWITCH_EDGE_HARDWARE_RULES`, below).
+// Ball ids are assigned here and stable for a ball's lifetime; a ball parked
+// and later ejected gets a NEW id (`devices.ts`'s own `nextBallId` callback).
+// All table<->physics conversion goes through `sim/table/frames.ts`.
 //
 // This file is authored, not ported (AD-16, declared in
 // `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
@@ -35,6 +41,7 @@ import { createFlipperMechanics } from './flippers';
 import { createHopMechanics, type HopBallVelocitySample } from './hop';
 import { createPlungerMechanics } from './plunger';
 import { loadCollision } from './loader';
+import { createPopMechanics, type PopCoilName } from './pops';
 import { createSwitchTracker } from './switches';
 import { TABLE } from '../table/dragonwar';
 import { fromPhysics } from '../table/frames';
@@ -131,6 +138,25 @@ export const PRE_STEP_HARDWARE_RULES = [
 ] as const;
 
 /**
+ * Story 2.2 (AD-5): the pop bumper's own manifest, DECLARED rather than
+ * allowlisted onto `NOT_A_HARDWARE_RULE` -- AD-5 calls pop bumpers hardware
+ * rules, so `test/hardware-rule-seam.test.ts`'s completeness check must keep
+ * meaning what it says for this participant too. Unlike
+ * `PRE_STEP_HARDWARE_RULES` above (checked BEFORE `physics.step();`), every
+ * entry here is checked AFTER `switchTracker.step(` and BEFORE `step()`'s own
+ * `return` -- the skirt edge this device reacts to does not exist until the
+ * tracker has run (see this file's header, "Pop -- immediately after :296,
+ * before the return"). The slingshot needs no entry here (and none in
+ * `PRE_STEP_HARDWARE_RULES` either): its kick fires INSIDE `physics.step()`
+ * itself, via the `KickReportingSlingshot` instances `loadCollision()` built
+ * (`sim/physics/slings.ts`), so there is no separate `receiver.method(...)`
+ * call site for a manifest to pin.
+ */
+export const SWITCH_EDGE_HARDWARE_RULES = [
+	{ receiver: 'popMechanics', method: 'applyPostSwitchEdges', pinnedBy: 'test/pop-bumper.test.ts' },
+] as const;
+
+/**
  * Builds the cabinet machine from an already-parsed collision document
  * (`loadCollision()`'s own contract: `sim/` never parses a file, AD-1).
  * `tuning` is the caller's already-resolved tuning (`resolveTuning()`,
@@ -175,6 +201,9 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 	const flipperMechanics = createFlipperMechanics({ physics, flippers: loaded.flippers, tuning });
 	const plungerMechanics = createPlungerMechanics({ deviceMechanics, tuning });
 	const cabinetMechanics = createCabinetMechanics({ physics, tuning });
+	// Story 2.2 (AD-5): the pop bumper's own post-switch-edge participant --
+	// see SWITCH_EDGE_HARDWARE_RULES above for why it is not a PRE_STEP one.
+	const popMechanics = createPopMechanics({ switchZones: loaded.switchZones, popCentroidsMm: loaded.popCentroidsMm, tuning });
 	// Story 1.9, AC 2: NOT a hardware rule -- runs AFTER physics.step(), a
 	// collision-response modifier over what the step produced, never a
 	// mover-commanding participant read from `frame` before it. See
@@ -218,6 +247,18 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 			}
 		}
 
+		// Story 2.2 (AD-5): mirrors this tick's coilEnabled state onto EACH
+		// sling's own SlingshotSurfaceData -- held by reference inside the
+		// KickReportingSlingshot instances loadCollision() built
+		// (sim/physics/slings.ts), so a mutation here reaches the very next
+		// contact with no re-load. Written every tick (not only on a
+		// transition) and BEFORE physics.step() runs, so a same-tick
+		// disable-then-contact is honoured with no rules round trip -- the
+		// same DW-74 discipline the enabledPulses filter below already
+		// applies to a pulsed coil.
+		loaded.slingSurfaceData.c_sling_l.isDisabled = !coilEnabled.c_sling_l;
+		loaded.slingSurfaceData.c_sling_r.isDisabled = !coilEnabled.c_sling_r;
+
 		// AD-5: the hardware rules read `frame` and run BEFORE physics.step(),
 		// so a button closing at tick *t* moves its coil in the SAME step --
 		// never round-tripped through sim/rules (RulesStepResult.commands
@@ -252,6 +293,22 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		}
 
 		physics.step();
+
+		// Story 2.2, AD-1/AD-2: the sling's kick fires INSIDE physics.step()
+		// itself (LineSegSlingshot.collide(), called by the solver at the
+		// moment of contact) -- drained immediately after, since the solve
+		// receives no `tick` argument of its own to stamp a ContactEvent
+		// with. Order matters for AC 1's "same step" claim, not for
+		// determinism: the kick already happened synchronously above: this
+		// is bookkeeping, not physics.
+		const slingContactEvents: ContactEventLike[] = loaded.drainSlingKicks().map((kick) => ({
+			type: 'contact',
+			kind: 'coil_fire',
+			device: kick.coil,
+			ballId: kick.ballId,
+			surface: 'rubber_band',
+			tick,
+		}));
 
 		// AC 2: runs immediately after physics.step() and before this tick's
 		// switch/entry tests. Precisely what that buys (review finding, this
@@ -294,11 +351,31 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		}
 
 		const switchEdges = switchTracker.step(tick, movements.map((m) => ({ before: m.beforeMm, after: m.afterMm })));
+		// Story 2.2 (AD-5): the pop's own placement -- immediately after the
+		// switch tracker has produced this tick's edges, before the return.
+		// The skirt edge this device reacts to does not exist until the line
+		// above has run (see this file's header, "Pop -- immediately after
+		// :296, before the return", and SWITCH_EDGE_HARDWARE_RULES above).
+		const popResult = popMechanics.applyPostSwitchEdges(tick, switchEdges, movements, {
+			c_pop_1: coilEnabled.c_pop_1,
+			c_pop_2: coilEnabled.c_pop_2,
+			c_pop_3: coilEnabled.c_pop_3,
+		} satisfies Readonly<Record<PopCoilName, boolean>>);
 		const entryResult = deviceMechanics.detectEntries(tick, movements);
 
 		return {
 			switchEvents: [...commandResult.switchEvents, ...plungerResult.switchEvents, ...cabinetResult.switchEvents, ...switchEdges, ...entryResult.switchEvents],
-			contactEvents: [...flipperResult.contactEvents, ...commandResult.contactEvents, ...plungerResult.contactEvents, ...entryResult.contactEvents],
+			// Story 2.2: two new sources join this deliberately hand-picked
+			// order (this file's own header, ":301"). `slingContactEvents`
+			// sits right after `plungerResult` -- chronologically, the sling's
+			// kick fires during physics.step(), which runs immediately after
+			// plungerResult/commandResult are computed and before
+			// entryResult/popResult (both post-step). `popResult` sits LAST
+			// in this array by deliberate placement, not by computation
+			// order (code review finding, this pass -- the two are computed
+			// in the opposite order: `popResult` above, then `entryResult`
+			// immediately below, right before this return).
+			contactEvents: [...flipperResult.contactEvents, ...commandResult.contactEvents, ...plungerResult.contactEvents, ...slingContactEvents, ...entryResult.contactEvents, ...popResult.contactEvents],
 			semanticEvents: [...commandResult.failures, ...plungerResult.failures, ...entryResult.failures],
 		};
 	}

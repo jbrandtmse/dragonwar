@@ -314,6 +314,54 @@ describe('asset contract -- TABLE.physMaterials <-> TUNING.materials drift pin',
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Story 2.2, AC 4: the three material names the geometry has always implied,
+// now actually assigned in the re-exported document. Node -> material
+// assignment, never merely "the name exists somewhere in TABLE.physMaterials"
+// (already covered above and by the generic per-node check earlier in this
+// file) -- a story could add the three names and never assign one of them,
+// which neither of those checks would catch.
+// ---------------------------------------------------------------------------
+describe('asset contract -- Story 2.2, AC 4: material assignment', () => {
+	function physMaterialOf(nodeName: string): string | undefined {
+		const doc = readCollisionDoc();
+		const node = doc.nodes.find((n) => n.name === nodeName);
+		if (!node) {
+			throw new Error(`physMaterialOf(): expected a "${nodeName}" node in the committed collision document, found none`);
+		}
+		return node.physMaterial;
+	}
+
+	it('col_sling_l and col_sling_r reference rubber_band', () => {
+		expect(physMaterialOf('col_sling_l')).toBe('rubber_band');
+		expect(physMaterialOf('col_sling_r')).toBe('rubber_band');
+	});
+
+	it('col_pop_1, col_pop_2 and col_pop_3 reference bumper', () => {
+		expect(physMaterialOf('col_pop_1')).toBe('bumper');
+		expect(physMaterialOf('col_pop_2')).toBe('bumper');
+		expect(physMaterialOf('col_pop_3')).toBe('bumper');
+	});
+
+	it('every col_post_* node references rubber_post -- derived from the document\'s own name set (DW-149), never a hand-typed list or count', () => {
+		const doc = readCollisionDoc();
+		const posts = doc.nodes.filter((n) => n.name.startsWith('col_post_'));
+		expect(posts.length, 'sanity: there must be at least one col_post_* node, or this check is vacuous').toBeGreaterThan(0);
+		for (const post of posts) {
+			expect(post.physMaterial, `${post.name}: expected phys_material "rubber_post"`).toBe('rubber_post');
+		}
+	});
+
+	it('every named material carries all four TuningEntry fields with scatter === 0 (AD-3)', () => {
+		for (const [name, material] of Object.entries(TUNING.materials)) {
+			expect(typeof material.elasticity.value, `${name}.elasticity`).toBe('number');
+			expect(typeof material.elasticityFalloff.value, `${name}.elasticityFalloff`).toBe('number');
+			expect(typeof material.friction.value, `${name}.friction`).toBe('number');
+			expect(material.scatter.value, `${name}.scatter must be 0 (AD-3)`).toBe(0);
+		}
+	});
+});
+
 /**
  * Story 2.1d task 12 (DW-128): the free-end derivation every guide
  * termination check in this file uses. `col_guide_*`'s own doc comment

@@ -1658,14 +1658,20 @@ def main():
 	# (57.5..82.5), read once rather than repeating the literal. ----
 	flipper_y_mid = (flipper_y0 + flipper_y1) / 2  # 70.0
 
-	def add_guide_wall(name, x0, x1, y0, y1):
+	def add_guide_wall(name, x0, x1, y0, y1, phys_material='default'):
 		wall = new_prism_mesh(name, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 0.0, WALL_H_MM, parent=playfield_root)
-		set_props(wall, col_shape='wall', surface='plastic', phys_material='default')
+		set_props(wall, col_shape='wall', surface='plastic', phys_material=phys_material)
 		return wall
 
-	def add_rubber_post(name, center_mm):
+	def add_rubber_post(name, center_mm, phys_material='rubber_post'):
+		# Story 2.2 (AC 4): every col_post_* node this file draws is a passive
+		# rubber post -- the physics material name the geometry has always
+		# implied. Defaulted here (rather than left 'default' at every one of
+		# the ~45 call sites) precisely BECAUSE every existing call site wants
+		# the same value; the parameter still exists, per this story's own
+		# task list, for a future post that genuinely needs a different one.
 		post = new_prism_mesh(name, octagon_points_mm(center_mm, POST_RADIUS_MM), 0.0, WALL_H_MM, parent=playfield_root)
-		set_props(post, col_shape='wall', surface='rubber_post', phys_material='default')
+		set_props(post, col_shape='wall', surface='rubber_post', phys_material=phys_material)
 		return post
 
 	def add_channel_rail(name, p0, p1, thickness_mm):
@@ -1828,15 +1834,20 @@ def main():
 	# channels, before the switch-zone block.
 	# =========================================================================
 
-	def add_box_wall(name, x0, x1, y0, y1, surface):
+	def add_box_wall(name, x0, x1, y0, y1, surface, phys_material='default'):
 		"""A rectangular col_ 'wall' node spanning z in [0, WALL_H_MM] -- the
 		shared shape every interior guide, target face, divider and gate body
 		this story draws is built from (col_guide_divider_l/r's own prototype,
 		2.1a's add_guide_wall(), generalised over `surface` so this story's
 		many surface classes -- 'dragon', 'target', 'ramp', 'rubber_band',
-		'bumper', 'plastic' -- share one call site)."""
+		'bumper', 'plastic' -- share one call site). `phys_material` (Story
+		2.2, AC 4) defaults to 'default', unchanged from every existing call
+		site's own behaviour before this story named the other materials --
+		`surface` and `phys_material` are different things (the audio/contact
+		enum vs. the physics key), so widening `surface`'s own vocabulary
+		here never implied a `phys_material` change on its own."""
 		wall = new_prism_mesh(name, [(x0, y0), (x1, y0), (x1, y1), (x0, y1)], 0.0, WALL_H_MM, parent=playfield_root)
-		set_props(wall, col_shape='wall', surface=surface, phys_material='default')
+		set_props(wall, col_shape='wall', surface=surface, phys_material=phys_material)
 		return wall
 
 	# Rework iteration 2 (2026-09-01 lead investigation): eleven bodies this
@@ -1857,7 +1868,7 @@ def main():
 	# left at the full y1) to every flat-topped body the rework identified;
 	# every call site below states, in its own comment, which side the ball
 	# is meant to slide toward and why.
-	def add_box_wall_sloped(name, x0, x1, y0, y1, surface, drop_mm, drop_corner):
+	def add_box_wall_sloped(name, x0, x1, y0, y1, surface, drop_mm, drop_corner, phys_material='default'):
 		if drop_corner == 'x0':
 			points = [(x0, y0), (x1, y0), (x1, y1), (x0, y1 - drop_mm)]
 		elif drop_corner == 'x1':
@@ -1865,7 +1876,7 @@ def main():
 		else:
 			raise ValueError(f"add_box_wall_sloped({name}): drop_corner must be 'x0' or 'x1', got {drop_corner!r}")
 		wall = new_prism_mesh(name, points, 0.0, WALL_H_MM, parent=playfield_root)
-		set_props(wall, col_shape='wall', surface=surface, phys_material='default')
+		set_props(wall, col_shape='wall', surface=surface, phys_material=phys_material)
 		return wall
 
 	# ---- Left and Right Loops (task 3, CAP-26): a chain of convex prisms
@@ -2613,8 +2624,12 @@ def main():
 	# TABLE CENTRE -- away from the perimeter wall each sling sits beside --
 	# so a resting ball is pushed back into the open field rather than
 	# wedged against col_wall_left/_lane. ----
-	add_box_wall_sloped('col_sling_l', SLING_L_X0_MM, SLING_L_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band', 20.0, 'x1')
-	add_box_wall_sloped('col_sling_r', SLING_R_X0_MM, SLING_R_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band', 20.0, 'x0')
+	# Story 2.2 (AC 4): phys_material='rubber_band', matching the `surface`
+	# these two nodes already carried -- the physics key and the audio/contact
+	# enum were named the same word by coincidence (a real slingshot band IS
+	# both), not because setting one already set the other.
+	add_box_wall_sloped('col_sling_l', SLING_L_X0_MM, SLING_L_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band', 20.0, 'x1', phys_material='rubber_band')
+	add_box_wall_sloped('col_sling_r', SLING_R_X0_MM, SLING_R_X1_MM, SLING_Y0_MM, SLING_Y1_MM, 'rubber_band', 20.0, 'x0', phys_material='rubber_band')
 
 	# ---- Pop bumpers (task 8): a nest of exactly three (author-decided
 	# 2026-08-31 -- TABLE.authoredCounts.popBumpers records the count and its
@@ -2623,7 +2638,9 @@ def main():
 	POP_POSITIONS_MM = ((130.0, 800.0), (230.0, 800.0), (180.0, 870.0))
 	for i, center in enumerate(POP_POSITIONS_MM):
 		post = new_prism_mesh(f'col_pop_{i + 1}', octagon_points_mm(center, POP_BUMPER_RADIUS_MM), 0.0, WALL_H_MM, parent=playfield_root)
-		set_props(post, col_shape='wall', surface='bumper', phys_material='default')
+		# Story 2.2 (AC 4): phys_material='bumper', matching the `surface`
+		# these three nodes already carried.
+		set_props(post, col_shape='wall', surface='bumper', phys_material='bumper')
 
 	# ---- Story 2.1d (task 9, AC 3, FR-31/AD-11): guide free-end
 	# terminations. Story 2.1b drew its whole shot map under surfaces other

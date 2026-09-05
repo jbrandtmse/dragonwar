@@ -72,14 +72,16 @@ const ALLOWLIST_REASONS: Readonly<Record<string, string>> = {
 		'the boot entry point itself -- composes DOM (document.getElementById), a press-to-begin gesture, fetch() and the Babylon engine boot; importing it as a module would require a real browser DOM and WebGL2 context, which this headless suite never has. Proven instead by text-level pins (test/entry-html-csp.test.ts) and by the lead\'s per-story manual smoke in a real browser (epic context: "A headless engine never decodes images ... a per-story smoke in a real browser is what catches it").',
 	'src/host/build-info.ts':
 		'BUILD_SHA, substituted at build time via import.meta.env.VITE_BUILD_SHA (Vite define/env replacement) -- reachable at runtime only through src/host/boot.ts above, which is itself never imported as a module for the same reason. Text-scanned instead by test/entry-html-csp.test.ts and test/typecheck-sim-boundary.test.ts.',
-	'src/sim/physics/anim-object.ts':
-		'a vpx-js port for animated table objects (bumpers, gates); no table geometry this epic loads constructs one -- Epic 1\'s placeholder table has no such device. Dead code ahead of the feature that needs it, same class as its two siblings below.',
-	'src/sim/physics/anim-slingshot.ts':
-		'a vpx-js port for the slingshot\'s own animation; DragonWar has no slingshot yet (a later epic\'s device) -- only reachable, if at all, through line-seg-slingshot.ts below, which is itself unreached.',
 	'src/sim/physics/hit-3dpoly.ts':
 		'a vpx-js port for 3D-polygon (ramp) collision; Epic 1\'s collision loader (sim/physics/loader) only ever constructs the wall/box/plane primitive set the placeholder table declares (AD-11) -- no ramp geometry exists yet to reach this hit-testing path.',
-	'src/sim/physics/line-seg-slingshot.ts':
-		'a vpx-js port for the slingshot\'s own line-segment collision; same reason as anim-slingshot.ts above -- no slingshot device exists on this placeholder table.',
+	// Story 2.2: 'src/sim/physics/anim-object.ts', 'src/sim/physics/anim-slingshot.ts'
+	// and 'src/sim/physics/line-seg-slingshot.ts' are REMOVED from this
+	// allowlist -- wiring the sling (sim/physics/slings.ts, imported by
+	// sim/physics/loader/index.ts, imported by every test that drives a real
+	// machine) makes line-seg-slingshot.ts import-reachable, which makes
+	// anim-slingshot.ts (imported by it) and anim-object.ts (imported by
+	// THAT) reachable in turn. This test's own "no stale entry" assertion
+	// below is what catches a reachability change like this one.
 };
 
 interface DepCruiseModule {
