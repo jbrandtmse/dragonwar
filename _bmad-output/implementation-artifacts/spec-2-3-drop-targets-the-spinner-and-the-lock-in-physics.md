@@ -1161,6 +1161,94 @@ reddens the lookup and is NOT evidence):**
   `git diff --stat` clean afterwards, and record the observed red for each next to its test in this
   section.
 
+### QA pass (2026-09-05) -- additional pins and independent re-verification
+
+The implement/review passes left every AC's own pinning test green and every one of their own 14
+Rule 19 mutations demonstrated. QA's own brief was to find whichever pin was still softest rather
+than re-litigate what was already proven; five areas were checked against the shipped code, two
+produced genuine gaps (closed below with new tests `(QA)`), and two of the already-recorded
+mutations were independently re-run from a fresh reading of the code (not re-trusted from the
+implementation subagent's or reviewer's own report) to confirm they still reproduce.
+
+**New tests added, both discoverable by the default `pnpm test` run (Rule 8: ordinary `describe`/`it`
+blocks in already-registered `test/*.test.ts` files, no new file, no tag):**
+
+- `test/drop-targets.test.ts` **(QA)** -- `describe('drop-target bank (AC 2) -- bank reset')`, new
+  case: "with D and N down (two of six, non-adjacent), a reset raises both, emits exactly two
+  closed:false edges -- D and N, never the other four -- and one bank_reset contact". Gap found: every
+  existing AC 2 case pinned only the two BOUNDARY counts a reset can emit -- zero down (0 edges) and
+  one down (1 edge) -- so a bug that stops after the first down target it finds in
+  `applyPreStepReset()`'s own loop (or one that emits for every target whenever ANY is down) would
+  pass both boundary cases unchanged; nothing exercised a middle count.
+  `mutation: in src/sim/physics/drop-targets.ts's applyPreStepReset(), break out of the per-letter
+  loop immediately after emitting the first closed:false edge -> the new two-down case goes red
+  naming only s_dragon_d in the observed breaks array (s_dragon_n missing) and N still reporting down
+  after the reset, while both pre-existing boundary cases (zero down, one down) stay green -- proving
+  the boundary cases alone could not have caught this; applied by hand, observed red, reverted,
+  `git status --short` / `git diff --stat` confirmed clean.`
+- `test/lock-device-behaviour.test.ts` **(QA)** -- `describe('bd_lock: over-capacity entry (AC 6) ...')`,
+  new case: "a ball that is rejected, retreats south of the slot band, and genuinely re-approaches
+  produces its OWN second device_overflow -- the latch does not latch permanently". Gap found: the
+  existing AC 6 case (315 -> 1) sends one ball on one approach-dwell-retreat-drain lifecycle and never
+  observes a SECOND rejected entry, so it could not distinguish "cleared once genuinely outside" (the
+  doc comment's own claim) from an accidental permanent per-ball latch that happens to still read 1
+  the first time. Re-sends the SAME ball to the mouth (y = 440, south of the margined clear boundary
+  at y ~ 534 -- `OVERFLOW_CLEAR_MARGIN_MM` widening `s_lock_1`'s own 544 mm south face by 10 mm) and
+  drives it back up the identical centreline a second time.
+  `mutation: in src/sim/physics/devices.ts's detectEntries(), disable the overflow-latch-clearing
+  branch (guard it with a literal false) so overflowReportedForDevice never releases a ball -> the new
+  re-approach case goes red naming the second approach's overflow tick as never observed (-1) and the
+  total event count staying at 1 instead of 2, while the PRE-EXISTING single-approach case (315 -> 1)
+  stays green unchanged -- proving that test alone could not have caught a permanent latch; applied by
+  hand, observed red, reverted, `git status --short` / `git diff --stat` confirmed clean.`
+
+**Independent re-verification (not new tests -- re-running an already-recorded mutation from a fresh
+reading of the code, since two of the five review areas named the mutation as "performed by the
+implementation subagent, confirmed... per its own report," i.e. self-reported rather than externally
+observed):**
+
+- **AC 1b** (`test/drop-targets.test.ts`'s x = 228.9 case). Re-derived a different but equivalent
+  reproduction of "the drop is caused by the zone, not the strike": rather than editing
+  `drop-targets.ts` itself, restored the OLD zone-based path as a SECOND source by excluding
+  `s_dragon_d` alone from `switches.ts`'s `deviceModuleOwnedSwitches()` set (so the generic tracker
+  tests `sw_dragon_d`'s own zone independently of the strike-based bank). `mutation: in
+  src/sim/physics/switches.ts's deviceModuleOwnedSwitches(), skip adding 's_dragon_d' to the owned set
+  -> the AC 1b test goes red naming s_dragon_d closed at tick 415 (through the zone's own +2 mm
+  margin) where only col_dragon_r was genuinely struck, reproducing the exact vacuity shape AC 1b
+  exists to catch, from a different code path than the spec's own recorded mutation; reverted,
+  confirmed clean.`
+- **AC 4 / DW-155** (`test/shot-routing.test.ts`'s `lock-lane-long` case). Re-ran the spec's own
+  recorded mutation (`devices.ts`'s park branch, skip `physics.removeBall()`) directly.
+  `mutation: in src/sim/physics/devices.ts's detectEntries(), comment out the physics.removeBall(
+  movement.ball) call in the park branch -> the lock-lane-long test goes red at
+  "bd_lock must hold exactly one ball in its lowest slot", observing [true,true,true] instead of
+  [true,false,false] (the un-removed ball re-enters the zone on subsequent ticks and fills every
+  slot) -- confirms the assertion reads the real park, not a switch-make inference; reverted,
+  confirmed clean.`
+
+**Areas checked with no new gap found (existing coverage judged sufficient on inspection):**
+
+- The bank's switch-ownership exclusion (`switches.ts`'s `deviceModuleOwnedSwitches()`) is derived
+  from `TABLE.dropBankWiring`/`TABLE.spinnerWiring` key sets, never hand-listed, and is already
+  behaviourally pinned against a real `createSwitchTracker()` in
+  `test/switch-zones.test.ts`'s "the DRAGON bank and the spinner are device-owned end to end" block
+  (added this story's own review pass, itself verified red-on-removal there).
+- The five re-recorded goldens were independently diffed against the pre-story baseline commit
+  (`7685d9e`) field-by-field: `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`,
+  `expectedGameStateHash` and `header.assetHash` are byte-identical on all five; only `tableHash` and
+  the `gameStart.tuning`-shaped keys changed; every `notes` field contains `DW-70` and `deviceSlots`
+  and is a superset of (never rewrites) its pre-story text. No new automated test added for this --
+  a diff against a specific historical commit is a one-time audit, not a durable regression pin.
+
+**Full suite re-run after the two additions:** `pnpm test` -- **95 files / 1519 passed / 0 failed**
+(+2 over this story's own recorded 95/1517/0). `pnpm check:ad7` -- exit 1, still naming `AD-7`,
+`DW-70`, `bd_trough` (unchanged, by design). `pnpm check:corridor` -- exit 0. `pnpm check:reachability`
+-- exit 0, 52/32/20 unchanged. `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`,
+`pnpm check:attributions` -- all exit 0. `git diff --stat -- public/assets/` -- empty. Every mutation
+in this QA pass (four total: two for new tests, two independent re-verifications) was applied,
+observed red, reverted, and confirmed byte-identical via `git status --short` / `git diff --stat`
+before moving to the next.
+
 ## Auto Run Result
 
 Status: done
