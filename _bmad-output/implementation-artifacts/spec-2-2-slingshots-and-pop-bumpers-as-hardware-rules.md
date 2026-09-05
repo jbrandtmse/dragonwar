@@ -1,0 +1,887 @@
+---
+title: 'Story 2.2: Slingshots and pop bumpers as hardware rules'
+type: 'feature' # feature | bugfix | refactor | chore
+created: '2026-09-05'
+status: 'ready-for-dev' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: 'ee41e3f920e3b4e8c0bb673e30dfcc9ca2915923'
+baseline_commit: 'ee41e3f920e3b4e8c0bb673e30dfcc9ca2915923'
+review_loop_iteration: 0
+followup_review_recommended: false
+context:
+  - '{project-root}/CLAUDE.md'
+  - '{project-root}/AGENTS.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/spec-2-1f-the-bottom-right-corridor-the-ramp-and-the-dragon-bank-made.md'
+  - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
+warnings: ['multiple-goals', 'oversized']
+deferred: []
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** The lower playfield is inert. `col_sling_l/r` and `col_pop_1..3` are plain
+collision walls: a ball that reaches them bounces off dead rubber and, on the pops,
+stops altogether -- `DW-148` measures a ball coming to permanent rest at
+(130.00, 833.55) against `col_pop_1`. The coils `c_sling_l/r` and `c_pop_1..3` are
+declared in `TABLE` but energise nothing, `ContactKind`'s `'coil_fire'` has never been
+emitted by any code in `src/`, and the vpx-js slingshot port that Story 1.1 brought in
+to build exactly this on (`line-seg-slingshot.ts`, `anim-slingshot.ts`) is still dormant
+and allowlisted as unreached. Meanwhile the material table in `tuning.ts` holds only
+`default` and `flipper_rubber`, so all 101 non-flipper `col_` bodies -- rubber bands,
+rubber posts and bumpers alike -- share one generic response.
+
+**Approach:** Give the two devices the two different hardware rules a real machine gives
+them, both inside the physics step and both gated only by coil enable/disable. The
+**slingshot** becomes the ported model itself: register `LineSegSlingshot` for
+`col_sling_l/r` so its parabolic kick fires inside the collision solve at the moment of
+contact, with `surfaceData.isDisabled` driven from the coil-enable map. The **pop
+bumper** is a skirt device and is authored: on the `s_pop_N` make edge, an impulse
+radially away from `col_pop_N`'s centroid. Both push a
+`ContactEvent { kind: 'coil_fire', device }` onto the tick's contact channel. Separately,
+name the materials the geometry has always implied -- `rubber_band`, `rubber_post`,
+`bumper` -- in `TUNING.materials` and `TABLE.physMaterials`, assign them in the `.blend`,
+and re-export. That last change plus the new tunables moves all three golden-invalidating
+inputs, so the story carries one deliberate five-golden re-record.
+
+## Boundaries & Constraints
+
+**Always:**
+
+- **The kick is the fix for `DW-148`, never a geometry change.** No `col_pop_*` or
+  `col_sling_*` footprint, position or bbox may move. The corridor Story 2.1f just
+  re-solved, the DW-119 sling north-face slopes and every dimensional gate stay exactly
+  as committed.
+- **Both actuations live inside `machine.step(t)`** and are gated only by
+  `CoilCommand enable | disable` (AD-5). No rules round trip: `RulesStepResult.commands`
+  stays `readonly never[]` for this story, and `sim/rules/**` neither reads nor emits a
+  `ContactEvent` (AD-2).
+- **The ported files are frozen (DW-79).** `line-seg-slingshot.ts`, `anim-slingshot.ts`,
+  `anim-object.ts` and `line-seg.ts` are pinned byte-for-byte in `PORT_BODY_HASHES`.
+  Wire them from outside -- construct, subclass, inject -- never edit. Any new authored
+  file under `src/sim/physics/` lands in `AUTHORED_PHYSICS_FILE_RELATIVE_PATHS` **and**
+  `tools/dependency-cruiser.config.mjs`'s `AUTHORED_PHYSICS_FILES` in the same change,
+  carries the GPL-3.0 header line in its first five lines, and contains neither port marker.
+- **`scatter` is 0 on every material**, including every material this story adds
+  (AD-3, AD-15). `test/ac6-scatter-and-prng.test.ts` already iterates
+  `Object.keys(TUNING.materials)`, so a new material is covered the moment it is added.
+- **Every new tunable carries `source` and `confidence`** (AD-15); an authored figure
+  ships `confidence: 'unverified'` with the authoring stated in `source`. Non-ASCII in
+  source is written as an escape sequence, never a literal byte (Rule 14) -- match
+  `tuning.ts`'s existing `\u00A7` / `\u2026` usage.
+- **`pnpm check:ad7` stays red.** It is `DW-70`, owned by Story 2.5, and stays red
+  through Story 2.4. A green run is a regression to revert and report, not a win.
+- **Anti-vacuity: every floor this story authors is derived from its subject set**
+  (`DW-149`), never a hand-typed literal and never `<the array it guards>.length`.
+  The sling/pop subject set is derived from the collision document's own
+  `switchZones` / node names, or from `TABLE.coils` keys -- not a second hand list.
+- **Provenance before code** (`CLAUDE.md`). See `## Design Notes` -- the slingshot needs
+  no new `ATTRIBUTIONS.md` row and the pop must not acquire one by being ported.
+
+**Block If:**
+
+- **The pop kick cannot clear the ball out of `sw_pop_N`.** The rest point (130.00, 833.55)
+  is *inside* `sw_pop_1` (x 92..168, y 762..838), so a ball resting there holds `s_pop_1`
+  reported closed and never produces a second make edge. If the authored kick cannot lift
+  the ball clear of the zone so the switch can break and re-arm, `DW-148` is not closed --
+  HALT rather than declaring it fixed on a single kick that leaves the ball inside the skirt.
+- **A golden needs a moved threshold, a weakened assertion or a deleted scenario block**
+  to pass after the re-record. Re-recording is permitted under the author's grant of
+  2026-09-02 for all five, on the condition that each is traced correct and **still asserts
+  its own subject**. A golden that only passes once its own claim is softened is a HALT.
+- **The corridor, reachability or shot-routing baselines move in the negative direction**
+  (`check:corridor` leaves 0, a case flips `reachable` -> `unreachable`, a routing case
+  that passed now fails). Never edit an `unreachable` verdict, and never relax a routing
+  assertion, to reach green.
+- **A pop or sling kick model is taken from an upstream file whose licence cannot be
+  established at its pinned commit.** "Probably GPLv3" is not a licence. HALT.
+
+**Never:**
+
+- Never move geometry, re-aim the camera, or touch `TABLE.shots` (it stays `{}` until
+  Story 2.4, AD-19).
+- Never build the drop-bank, spinner or Lock mechanisms (Story 2.3), the devices-and-shots
+  layer (Story 2.4), device-slot ownership / `DW-70` (Story 2.5), or any presentation-side
+  audio or visual reaction to `coil_fire` (Epic 4, AD-13).
+- Never route a kick through `sim/rules` or let a `ContactEvent` reach rules.
+- Never write the Blender executable path into a tracked file (`DW-46` / `DW-131`).
+- Never fix `DW-70`, `DW-82`, `DW-134`, `DW-155`, `DW-157` or `DW-138` here -- they belong
+  to other stories.
+- Never resolve a degenerate input (a zone with no ball in it, a footprint with no
+  vertices, an unknown material) to a silent pass; fail loudly.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Sling kick, enabled | Ball drives into `col_sling_l`'s face at normal speed above `slingshotThresholdMmPerS`; `c_sling_l` enabled | Inside `machine.step(t)`'s collision solve, `LineSegSlingshot.collide()` adds the ported parabolic impulse along `-hitNormal`; the ball leaves faster than it arrived; one `ContactEvent { kind: 'coil_fire', device: 'c_sling_l', tick: t }` appears in that tick's `FrameOutput.contactEvents`; `s_sling_l` is reported closed at `t` | No error expected |
+| Sling graze, below threshold | Ball contacts `col_sling_l` with normal velocity below the threshold | `collide3DWall` only -- elastic bounce, **no** impulse and **no** `coil_fire` event | No error expected |
+| Sling disabled | `CoilCommand { coil: 'c_sling_l', action: 'disable' }` issued, then the same drive as row 1 | `surfaceData.isDisabled` is true, so the ported model skips the kick branch and runs `collide3DWall` alone -- passive rubber, measurably slower rebound than row 1, and **zero** `coil_fire` events | No error expected |
+| Pop kick, enabled | Ball's swept segment enters `sw_pop_1` at tick `t`; `c_pop_1` enabled | `s_pop_1` make edge at `t`; in the same `machine.step(t)`, after `switchTracker.step()`, an impulse radially away from `col_pop_1`'s centroid (130, 800) is added to that ball; one `ContactEvent { kind: 'coil_fire', device: 'c_pop_1', tick: t }` | No error expected |
+| Pop, inside the settle window | Ball leaves `sw_pop_1` and re-enters within `settleTicks` (2) | No second `closed: true` edge (`switches.ts` cancels the pending break instead of emitting a make), therefore **no second kick and no second `coil_fire`** | No error expected |
+| Pop disabled | `c_pop_1` disabled, ball enters `sw_pop_1` | `s_pop_1` still closes (the switch is not the coil); **no** impulse, **no** `coil_fire`; the ball bounces off `col_pop_1` as a plain wall | No error expected |
+| Pop skirt closed, no ball resolvable | `s_pop_N` make edge but no ball's swept segment lies inside `sw_pop_N` this tick | Fail loudly in dev assertion terms rather than kicking an arbitrary ball or silently doing nothing; emit no `coil_fire` | Degenerate input -- must not resolve to a silent pass |
+| `DW-148` strand | Ball released at rest from (130, 850) above `col_pop_1` | The pop kick lifts it clear of `sw_pop_1`, the skirt switch breaks and re-arms, and the ball makes net positional progress -- `assertNotStranded` passes where it would have measured ~0.02 mm | No error expected |
+| Unknown `phys_material` | A `col_` node names a material absent from `TUNING.materials` | `resolveMaterial()` throws `loadCollision(): node "<name>" has unknown phys_material "<value>"` at load | Load-time throw, already implemented |
+| Golden replay after the change | Any of the five goldens replayed against the new `TUNING` / `TABLE` / collision doc | `StaleReplayHeaderError` until re-recorded; after the re-record, every hash matches and every per-golden scenario block still asserts its own subject | Header gate throws by name |
+
+</intent-contract>
+
+## Code Map
+
+Read at HEAD `ee41e3f920e3b4e8c0bb673e30dfcc9ca2915923` (tree clean, branch `DW-1-epic2`).
+Story 2.1f's Code Map is a superset for the geometry this story does not touch. Every
+figure below was measured against the committed document during planning.
+
+### The physics step, and where each actuation has to sit
+
+`src/sim/physics/machine.ts`, `step()` at `:209-304`:
+
+```
+:210-219  partition commands -> pulses[]; enable/disable written into coilEnabled
+:225      flipperMechanics.applyFrame   <-- PRE-step hardware rules, driven by InputFrame
+:226      plungerMechanics.applyFrame
+:230      cabinetMechanics.applyFrame
+:238-239  enabledPulses = pulses.filter(p => coilEnabled[p.coil]); deviceMechanics.applyCommands
+:241-252  snapshot each ball's before-position and before-velocity
+:254      physics.step()                <-- THE COLLISION SOLVE. The sling kick fires HERE.
+:266-281  hopMechanics.applyPostStep    <-- precedent for a post-step velocity-only participant
+:283-294  build movements[]
+:296      switchTracker.step(...)       <-- switch EDGES first exist here. The pop kick fires AFTER this.
+:297      deviceMechanics.detectEntries
+:299-303  return { switchEvents, contactEvents, semanticEvents }
+```
+
+**This is the crux of the story.** The existing hardware-rule seam (`:225-239`) reads
+`InputFrame` and runs before the solve. A sling or pop switch closes only as a *result*
+of the solve, so neither device can copy the flipper/plunger placement literally. The two
+devices therefore take two different, physically correct placements:
+
+- **Sling -- inside the solve (`:254`).** `LineSegSlingshot.collide()` is called by the
+  solver at the moment of contact. Kick and contact coincide by construction; the ball's
+  position responds within the same tick's integration. No new `createMachine()`
+  participant is needed, so **no `PRE_STEP_HARDWARE_RULES` row is required for the sling**.
+- **Pop -- immediately after `:296`, before the return.** The skirt edge does not exist
+  until `switchTracker.step()` has run. This is exactly the shape `hopMechanics.applyPostStep`
+  already legitimises (`:266-281`, and its own comment at `:256-265` states the consequence
+  honestly: the impulse is inside the hashed physics step, but positions were already
+  integrated, so the *positional* effect first appears at `t+1`). The `coil_fire` event and
+  the velocity change are both at tick `t`, which is what AC 2 asserts.
+
+`coilEnabled` is a closure-local `Record<CoilName, boolean>` at `:190-207`, all eleven coils
+defaulting `true`, including `c_sling_l/r` and `c_pop_1..3` (`:198-204`, added by Story 2.1b).
+It is written at `:215`/`:217` and read at `:225`/`:226`/`:238`. **There is no exported
+"is coil X enabled" predicate** -- the existing style threads the boolean as an explicit
+argument, and this story should follow it rather than invent a shared predicate.
+
+The contact channel is assembled at `:301` in a deliberate, hand-picked order
+(`flipperResult, commandResult, plungerResult, entryResult`) that differs from `switchEvents`'
+order at `:300`. Two new sources join it; keep the ordering deliberate and note it.
+
+### The ported slingshot -- already in the tree, dormant, and safe to wire
+
+`src/sim/physics/line-seg-slingshot.ts` (frozen, `PORT_BODY_HASHES` entry
+`a676a0e3b48bf69ef440801f855dff38597d334eb8095fe44190257a16aa8658`):
+
+- `export interface SlingshotSurfaceData { isDisabled: boolean; slingshotThreshold: number }` (`:39-42`)
+- `export class LineSegSlingshot extends LineSeg` (`:44`), public fields `force` (default `0`,
+  upstream's commented hint `//-80`) and `doHitEvent`; constructor
+  `(surfaceData, p1: Vertex2D, p2: Vertex2D, zLow, zHigh, physics: PlayerPhysics)` (`:53`).
+- `collide(coll)` (`:59-103`) is the kick:
+  `dot = hitNormal.dot(ball.hit.vel)`; `threshold = dot <= -surfaceData.slingshotThreshold`;
+  if `!isDisabled && threshold`, a parabolic profile `force = 0.5 * (1 - f*f)` peaking at the
+  segment centre, scaled by `this.force`, applied as `ball.hit.vel.sub(hitNormal * force)`;
+  then **always** `ball.hit.collide3DWall(hitNormal, this.elasticity, this.elasticityFalloff,
+  this.friction, this.scatter)`.
+
+Two hazards checked and cleared during planning:
+
+1. **The event tail (`:91-102`) is guarded** -- `if (this.obj && this.fe && !this.surfaceData.isDisabled && this.threshold)`.
+   `obj` is a `HitObject` field this project never sets, so the tail is dead: it neither
+   throws nor touches `physics.timeMsec`. **This retires the blocker recorded in
+   `docs/spikes/spike-1.md:358-365`** ("`PlayerPhysics.timeMsec` is never advanced ...
+   whichever future story wires up a slingshot needs to give `timeMsec` a real driver
+   first"): that warning applies only to the animation path, which stays dead. Do **not**
+   give `timeMsec` a driver in this story, and do **not** set `obj`/`fe`/`threshold` to
+   reach `fireGroupEvent` -- its guard is `this.threshold`, not the local `threshold`
+   const, so it would fire on grazes that produced no kick and manufacture exactly the
+   false-positive `coil_fire` this epic has already been burned by.
+2. **Because `LineSegSlingshot extends LineSeg`**, its `elasticity` / `elasticityFalloff` /
+   `friction` / `scatter` come from the same `applyMaterial()` call every other wall edge
+   uses (`loader/index.ts:400-410`). AC 4's `rubber_band` material therefore feeds AC 1's
+   kick directly -- the two goals touch the same object.
+
+`src/sim/physics/anim-slingshot.ts` is animation only and stays dormant.
+`test/module-coverage.test.ts:75-83` allowlists `anim-object.ts`, `anim-slingshot.ts` and
+`line-seg-slingshot.ts` as knowingly unreached; that file's own two-directional check
+(`:179-185`) **fails on a stale entry**, so wiring the sling means **deleting the
+`line-seg-slingshot.ts` entry** (and re-checking whether `anim-slingshot.ts` /
+`anim-object.ts` become reachable through it -- they are imported by it, so they will).
+
+### Where wall bodies are built, and where the sling dispatch goes
+
+`src/sim/physics/loader/index.ts` (authored, already in `AUTHORED_PHYSICS_FILE_RELATIVE_PATHS`):
+
+- `addWall()` at `:494-541` -- builds one `LineSeg` per footprint edge (`:521`), calls
+  `applyMaterial(...)` (`:522`), `physics.addStaticHitObject(lineSeg)` (`:523`), plus a
+  `HitLineZ` per vertex (`:536-540`).
+- `resolveMaterial()` `:384-398` -- unknown name throws
+  `loadCollision(): node "<name>" has unknown phys_material "<value>"` (`:395`). No silent
+  fallback.
+- `applyMaterial()` `:400-410` -- the single point where the four params reach physics.
+- `loadCollision(doc, tuning = resolveTuning())` at `:719`; `materialsSource = tuning.materials` (`:723`).
+- Node dispatch at `:757-758`; `col_sling_*` and `col_pop_*` are all `shape: "wall"`.
+
+`LineSegSlingshot` is a literal drop-in at `:521` for the two sling nodes. It additionally
+needs the `PlayerPhysics` handle (the loader already has `physics`) and a `SlingshotSurfaceData`
+object. Return those `surfaceData` objects from `loadCollision()` keyed by coil so
+`machine.ts` can flip `isDisabled` when a `disable` command arrives -- the object is held by
+reference inside the hit object, so a mutation takes effect on the next contact with no
+re-load.
+
+### Committed geometry -- measured, do not move
+
+```
+col_sling_l   footprint (98,420) (130,420) (130,435) (98,455)   centroid (114.000, 432.500)
+              surface rubber_band   physMaterial default   z 0..50   south face flat at y = 420
+col_sling_r   footprint x 332.4..370.4, y 420..455              centroid (351.400, 432.500)
+col_pop_1     octagon, 8 verts, x 110..150, y 780..820          centroid (130.000, 800.000)
+col_pop_2     octagon, x 210..250, y 780..820                   centroid (230.000, 800.000)
+col_pop_3     octagon, x 160..200, y 850..890                   centroid (180.000, 870.000)
+col_post_sling_l (110,416)-(118,424)   col_post_sling_l_north (110,441)-(118,449)
+col_post_sling_r (366.4,433.5)-(374.4,441.5)   col_post_sling_r_west (328.4,423.5)-(336.4,431.5)
+
+sw_sling_l  x  94.0..134.0   y 380.005..405.005   z 0..30    (s_sling_l, settleClass standup)
+sw_sling_r  x 328.4..374.4   y 380.005..405.005   z 0..30    (s_sling_r, settleClass standup)
+sw_pop_1    x  92.0..168.0   y 762.0..838.0       z 0..30    (s_pop_1, settleClass bumper_skirt)
+sw_pop_2    x 192.0..268.0   y 762.0..838.0       z 0..30    (s_pop_2)
+sw_pop_3    x 142.0..218.0   y 832.0..908.0       z 0..30    (s_pop_3)
+```
+
+**The sling zone leads contact, and that is authored on purpose.**
+`tools/make-placeholder-blend.py:3095-3106` sets
+`sling_zone_y1 = SLING_Y0_MM - BALL_RADIUS_MM - 1.5` and `sling_zone_y0 = sling_zone_y1 - 25.0`.
+So the zone's north edge sits at ball-centre `y = 405.005` while contact with the flat
+south face needs centre `y = 420 - 13.495 = 406.505` -- the zone ends **1.5 mm before**
+contact and is **25 mm deep** so no ball speed skips it (FR-11). Consequence, computed:
+a ball approaching from the south closes `s_sling_l` while still up to **26.5 mm short of
+the band**, i.e. roughly 5 ticks early at 5 m/s and 26 ticks early at 1 m/s.
+
+**This does not put AC 1 out of reach, and it is why the sling kick belongs at contact
+rather than on the edge.** `standup`'s `settleTicks` is 8, and the break is emitted only
+after 8 consecutive outside ticks, so the switch is still *reported closed* when contact
+happens at every speed checked (at 1 m/s the break would land ~6.5 ticks after contact;
+at 5 m/s far later still). AC 1's "`s_sling_l` closes at tick *t* ... `c_sling_l` fires
+inside the same step" is therefore satisfied in the sense that matters and that a test can
+observe: **at the tick the kick fires, `s_sling_l` is closed and a `coil_fire` for
+`c_sling_l` is on that same tick's contact channel.** Pin the switch's *reported state*
+at the kick tick, not the make-edge tick.
+
+**The pop is the opposite shape and needs the opposite placement.** `sw_pop_1` is a 76 mm
+square around a 40 mm octagon -- the skirt genuinely surrounds the body, exactly like a real
+pop bumper, and the ball need never touch `col_pop_1` to trigger it (`s_pop_1` closes with
+the ball still 4.505 mm clear of the body, and closes for a ball passing ~18 mm off the
+flank). So AC 2's "the ball touches the skirt ... the pop coil fires on the same tick, the
+ball is kicked away from the bumper centre" describes a *skirt-edge-triggered radial*
+impulse, and AC 1's "the sling's kick from the ported model" describes a *contact-triggered
+parabolic* one. The two ACs are precise about two genuinely different mechanisms; do not
+unify them.
+
+### Switch semantics -- already correct, this story only conforms
+
+`src/sim/physics/switches.ts`, `step()` `:105-174`:
+
+- Make latches immediately, no debounce (`:152-158`): `settleTicks` gates the BREAK, never
+  the MAKE (AD-2 as amended 2026-09-01, `DW-67`).
+- Break is gated (`:160-171`) by `elapsedTicks >= tracked.settleTicks - 1` -- the Story 2.1d
+  off-by-one correction, applied to **both** trackers in one change.
+- **"Cannot re-close inside its settle window" is `:112-120`**: while `raw === tracked.reported`
+  the pending break is *cancelled, not paused*, and no second `closed: true` is emitted. So
+  a pop re-entered one tick after its make produces no second edge and therefore no second
+  kick. **This mechanism already exists and needs no change** -- AC 2's third clause is a
+  conformance assertion over it, not new behaviour.
+- `settleTicks` resolution (`:96-97`): `TABLE.switches[zone.switch].settleClass` ->
+  `resolvedTuning.switchSettleTicksByClass`. `TICK_HZ = 1000`, so 1 tick = 1 ms and
+  `standup: 8` -> **8 ticks**, `bumper_skirt: 2` -> **2 ticks** (matching AC 2's stated value).
+
+The second tracker is `src/sim/physics/cabinet/index.ts` `stepLevel()` `:161-190`, a
+deliberate byte-for-byte parallel implementation pinned by
+`test/cabinet-switch-tracker-agreement.test.ts`. **Any change to one must be mirrored** --
+which is what makes the settle-window off-by-one such a good mutation (it reddens two files'
+worth of assertions).
+
+### The contact channel
+
+- `ContactKind` at `src/sim/contracts/events.ts:49-56` **already contains `'coil_fire'`**;
+  nothing in `src/` emits it. This story is its first producer -- **no contract change needed.**
+- `ContactEvent<TDevice>` `:67-76`: `{ type, kind, ballId?, speed?, surface?, pos?, device?, tick }`.
+- `ContactSurface` `:30-43` already contains `'rubber_band'`, `'rubber_post'` and `'bumper'`.
+- Physics-side shape: `ContactEventLike` at `src/sim/physics/devices.ts:56-66`, reused by
+  `flippers.ts` for `flipper_eos` rather than a second type -- reuse it again.
+- Path to the presentation seam: `MachineStepResult.contactEvents` (`machine.ts:75`, `:301`)
+  -> `src/sim/loop/index.ts:347` -> `FrameOutput.contactEvents`
+  (`src/sim/contracts/snapshot.ts:119`) -> `src/host/loop.ts:198` `onFrame(output)`.
+  **`FrameOutput.contactEvents` is the outermost surface AC 1's "emitted to presentation"
+  names, and is where its pinning test must observe.**
+- Rules never receive a `ContactEvent` -- structurally true, not linted:
+  `sim/rules/index.ts:46` is `step(state, switchEvents, tick)` with no contact channel, and
+  `sim/loop/index.ts:340` calls it with `switchEvents` only.
+- **`runReplay()` exposes `events: readonly SemanticEvent[]` only** (`replay.ts:286-297`) --
+  contact events are not visible through the replay path, so no golden can pin them.
+
+### The material table
+
+`src/sim/table/tuning.ts:98-119`, `TUNING.materials`, exactly two entries. Shape type
+`PhysMaterialTuning` at `:53-59`; `TuningEntry<T>` and `entry(value, source, confidence)` at
+`:42-51`; `Confidence` from `dragonwar.ts:54`.
+
+Load-bearing format facts:
+
+- Non-ASCII is escaped (`\u00A7` for the section sign) -- Rule 14, and the file's own convention.
+- `satisfies Readonly<Record<'default' | 'flipper_rubber', PhysMaterialTuning>>` at `:119`
+  **must be widened for each new material name** or it is a type error.
+- `TUNING` is `deepFreeze({...} as const)` (`:92`, `:431`); `assertNoNestedMsKeys()` (`:508-526`)
+  throws for any nested key ending in `Ms` -- not a risk inside `materials`, but it is for the
+  new kick tunables, so name them carefully.
+
+`src/sim/table/dragonwar.ts:433-444` -- `TABLE.physMaterials` is the name list
+`tools/export-assets.mjs` dumps for `tools/export.py` to validate against.
+**A new material name must be added in both places**; `test/asset-contract.test.ts:311-315`
+pins `Object.keys(TABLE.physMaterials)` against `Object.keys(TUNING.materials)` both ways.
+
+`TABLE.coils` entries are typed `Record<string, never>` (`dragonwar.ts:195-197`, `:204-212`),
+which **forbids adding any field to a coil**. Kick strength therefore lives in `TUNING`,
+never on the coil -- the same reason the pop-bumper count lives in `authoredCounts`.
+
+Blender side: `set_props(obj, **props)` at `make-placeholder-blend.py:1455-1457`; every node
+carries both `surface=` (the audio/contact enum) and `phys_material=` (the physics key) --
+**they are different things**, and only the two flipper nodes are non-`default` today
+(`:1644`, `:1651`). Authoring sites: slings `:2616-2617` (`add_box_wall_sloped`), pops
+`:2624-2627` (`POP_POSITIONS_MM`, octagon prisms), posts `add_rubber_post()` `:1666-1669`.
+The helpers `add_box_wall`, `add_box_wall_sloped`, `add_rubber_post` and `add_guide_wall`
+**all hardcode `phys_material='default'` in their bodies** and need the parameter threaded.
+Export writes `'physMaterial': obj.get('phys_material')` at `export.py:455-467`; validation
+at `:157-190` fails on absence and on an unknown value.
+
+Current census: **101 nodes `default`, 2 `flipper_rubber`.** By `surface`: `rubber_post` 45,
+`plastic` 27, `wood` 9, `target` 7, `dragon` 4, `bumper` 3, `ramp` 3, `flipper` 2,
+`rubber_band` 2, `glass` 1.
+
+### Golden blast radius -- measured, decisive, and unavoidable
+
+Both hashes are FNV-1a over canonical JSON (`src/sim/loop/replay.ts`):
+`tableHash()` `:139-141` over the whole `TABLE`; `assetHash(doc)` `:144-146` over the parsed
+collision document. `assertHeaderMatchesLiveEnvironment()` `:213-256` is called by
+`runReplay()` at `:304` **before any tick runs**, and gates five things: `tickHz`,
+`tableHash`, `assetHash`, `PHYSICS_VERSION`, and
+`JSON.stringify(canonicalize(resolveTuning()))` vs `header.gameStart.tuning`.
+
+| Change this story makes | moves `tableHash` | moves `assetHash` | breaks goldens |
+|---|---|---|---|
+| Add materials + kick tunables to `TUNING` | no | no | **all 5** -- `StaleReplayHeaderError` on `gameStart.tuning`, thrown before tick 1 |
+| Add names to `TABLE.physMaterials` | **yes** | no | **all 5** |
+| Re-author `phys_material` on `col_` nodes + re-export | no | **yes** | **all 5** |
+
+`PHYSICS_VERSION` is **not** touched (no solver constant moves). There is no partial-credit
+path: **plan one deliberate five-golden re-record at the end.** `PARITY_INERT`
+(`test/replay-goldens.test.ts:212-217`, exactly `nudge-coupling` and `two-ball-collision`)
+is checked two-directionally and must be re-verified after the re-record, because a changed
+physics response can flip a golden's parity sensitivity either way.
+
+**There is no recording tool** -- no `tools/record-*`, no `--record` flag.
+`src/host/dev/replay-recorder.ts` is browser-side. Every previous re-record used a throwaway,
+uncommitted Node harness over the shipped `runReplay()`. The exact surface it needs:
+`runReplay(options): RunReplayResult` (`:301`), `buildHeader({ gameStart, physicsSeed, collisionDoc })`
+(`:192`), `tableHash()` (`:139`), `assetHash(doc)` (`:144`), `PHYSICS_VERSION` (`:161`);
+`RunReplayResult` gives `finalHash` and `finalGameStateHash`. It must preserve each golden's
+`notes` (checked at `:140-144` for the `DW-70` and `deviceSlots` literals) and append to it,
+never rewrite.
+
+### The verification harness surface
+
+- **Same-step prior art, all `t` vs `t+1` through the real pipeline:**
+  `test/flipper-mover.test.ts:111-138` (angle unchanged at `t`, moved by `t+1`);
+  `test/plunger.test.ts:55-78` (**position, not speed**, is the discriminator -- its header
+  explains why speed looks launched under both orderings);
+  `test/machine-serve-drain.test.ts:597-619` (the coil-pulse variant, ~0.29 mm correct vs
+  exactly 0 under the mutation) -- **this last one is the closest analogue for a kick**.
+- **Settle-window prior art:** `test/switch-zones.test.ts:184-212` drives
+  `createSwitchTracker(zones, tuning)` directly, tick by tick, asserting the exact edge array
+  per tick with explicit off-by-one guards one tick early and one tick late. Copy this shape
+  for AC 2's third clause.
+- **Driving the sim:** there is no shared stepping helper. Two idioms --
+  `createLoop({ collisionDoc }).advance(1, [])` (one tick; plus `.pulseCoil()`,
+  `.setCoilEnabled()`) as in `test/coil-enable.test.ts:35-43`, and
+  `createMachine(doc, resolveTuning()).step(tick, NO_FRAME, commands)` as in
+  `test/shot-routing.test.ts:228-302`. **AC 1/AC 3 must use the `createLoop` form** because
+  `FrameOutput.contactEvents` is the surface they name.
+- **`test/coil-enable.test.ts` is the exact template for AC 3** -- it already proves, for
+  `c_trough_eject` and `c_autolaunch`, that a disabled coil produces silence rather than a
+  failure event, and that a same-tick disable-then-pulse loses regardless of array order.
+  It proves nothing about slings or pops.
+- **The seam manifest:** `PRE_STEP_HARDWARE_RULES` at `machine.ts:126-131`;
+  `test/hardware-rule-seam.test.ts` splits `machine.ts`'s comment-stripped source on
+  `'physics.step();'` and asserts each receiver appears before and not after, plus a
+  **set-equality** check (`:124`) that every `const X = create…(` inside `createMachine()`
+  is either a manifest receiver or on `NOT_A_HARDWARE_RULE = new Set(['switchTracker', 'hopMechanics'])`
+  (`:60`). **A new `popMechanics` const fails this test until the manifest is extended**, and
+  its `pinnedBy` path must exist on disk (`:112-113`). The file's own header states the gap
+  honestly: "a participant that keeps its call site but buffers its effect for the next tick
+  passes this test", which is why the behavioural pins are not optional.
+- **The strand harness (`DW-148`):** `test/util/shot-cases.ts` declares `ShotCase`s
+  (`:29-38`); a `descend-*` column is `speedMmPerS: 1`, `ticks: 6600`, released from
+  `z: 13.5` directly above a body. `test/shot-routing.test.ts:999-1108` drives 18 of them
+  through `driveCase(id)` + `assertNotStranded(...)`. The stranding measure is
+  `positionalProgressMm()` (`:406-419`) over `PROGRESS_WINDOW_TICKS = 500` against
+  `PROGRESS_MIN_DISPLACEMENT_MM = 15` (`:400`, `:404`); it returns `Infinity` for fewer than
+  two samples. `assertReleaseClear()`'s floor is `RELEASE_CLEAR_MARGIN_MM = 13.495` (`:318`).
+  `MIN_SHOT_CASES` is **derived** (`shot-cases.ts:80-107`, from the document's distinct switch
+  count -- deliberately not `SHOT_CASES.length`) and moves on its own.
+  `test/shot-reachability.test.ts:257-278` **fails any manifest entry whose id string does not
+  appear in `shot-routing.test.ts`'s raw source**, so a new case needs both a manifest entry
+  and an `it.each` row.
+- **Measured release points for the new column:** the `DW-148` rest point (130.00, 833.55)
+  has only 13.550 mm clearance (0.055 mm over the floor) **and is inside `sw_pop_1`** --
+  unusable. **(130, 850) gives 30.000 mm clearance and lies in no zone**; (130, 900) gives
+  39.208 mm. `DW-148`'s own evidence says releases at (130, 850/900/950/980) all come to
+  rest at (130.00, 833.55).
+- **A free second falsifier:** `test/shot-routing.test.ts:912-922` records that
+  `top-lane-1`'s release was moved `x 145 -> 110` *specifically to dodge this strand* --
+  "x = 130 is col_pop_1's own centre x -- the ball descends dead onto that octagon's single
+  apex vertex ... pinned to y = 833.5 +/- 0.05 mm for the remaining ~5600 ticks". Restoring
+  `x = 130` after the kick lands is an independent proof that the kick, not the release
+  point, is what changed.
+- **The derived north-face generator is structurally blind to `DW-148`.**
+  `deriveExposedNorthFaces()` (`test/shot-routing.test.ts:1141-1330`) requires a column only
+  for faces shallower than `SLIDE_THRESHOLD_DEG = atan(TUNING.materials.default.friction) = 16.699 deg`.
+  `col_pop_1`'s north faces are 22.5 deg and 67.5 deg -- both above it. The strand is an
+  **apex-vertex equilibrium**, not a shallow-face slide, so the generator will not prompt the
+  new column and must not be expected to. Say so rather than assuming coverage.
+  **Note also `SLIDE_THRESHOLD_DEG` is derived from `TUNING.materials.default.friction`** --
+  if this story changes any body's material away from `default`, check whether that generator's
+  own threshold should follow the body's actual material rather than `default`'s.
+- **No test anywhere asserts a contact event reaches presentation.** Nothing under
+  `src/presentation/**` or `src/host/**` reads `contactEvents`. The channel is plumbed and
+  unconsumed; this story is its first producer and must invent the assertion.
+- **Nothing today can say WHICH body was struck.** `ContactEvent` carries `surface` (an enum)
+  and `device` (a `TABLE` name), never a `col_*` node name, and switch edges come from the
+  `sw_` zone, not the body. Precedent for the ad-hoc fix is `DW-150`'s evidence
+  (a throwaway per-tick `distanceToPolygonMm(pos, footprint) - ballRadius`). Helpers available:
+  `test/util/plan-geometry.ts` (`pointToSegmentDistanceMm`, `pointInPolygon`,
+  `distanceToPolygonMm`) and `test/util/collision-doc.ts` (`readCollisionDoc`, `nodeBboxMm`,
+  `switchZoneMm`).
+
+### Provenance surface
+
+- `ATTRIBUTIONS.md` row 2 (line 28) covers **`src/sim/physics/**` from `vpdb/vpx-js @ e8a6d6f`,
+  GPL-2.0-or-later, verified 2026-08-27 in source-file headers**. `line-seg-slingshot.ts` and
+  `anim-slingshot.ts` are already inside that glob, already from that pin, already hashed into
+  the freeze, already header-compliant.
+- Row 3 (line 29) covers **`src/sim/physics/cabinet/**` only**, from `vpinball/vpinball @ 3f838c14...`,
+  GPL-3.0-or-later established **per file from each file's own `// license:GPLv3+` first line**.
+  It does **not** cover a bumper file.
+- `test/attributions.test.ts` pins the *text* of existing rows -- **adding a row is safe;
+  editing or trimming an existing row breaks it.**
+- `pnpm check:headers` (`tools/check-licence-headers.mjs`) is a presence-only 3-way substring
+  check. `pnpm check:attributions` reads **npm dependencies only** and **cannot see a ported
+  source file** -- it will not catch a provenance mistake here.
+- `test/port-provenance.test.ts` is the real structural gate: provenance sets declared and
+  disjoint (`AUTHORED_PHYSICS_FILE_RELATIVE_PATHS` `:70-83`, `VPINBALL_PORTED_FILES` `:144`,
+  vpx-js by default), the AD-15 solver-constant pin (`:289-315`), and the `DW-79` port-body
+  freeze (`:340-443`). Its describe at `:456-473` asserts the authored list and
+  `tools/dependency-cruiser.config.mjs`'s `AUTHORED_PHYSICS_FILES` agree **in both directions**.
+
+## Tasks & Acceptance
+
+**Execution:**
+
+1. `ATTRIBUTIONS.md` -- **decide and record provenance BEFORE any code lands.** The slingshot
+   needs no change (see Design Notes). Confirm in the spec's own record that the pop kick is
+   **authored**, not ported, so no row is required; if the implementer instead wants upstream's
+   bumper feel, that is a `Block If` HALT, not a judgement call.
+2. `src/sim/table/tuning.ts` -- add the named materials `rubber_band`, `rubber_post` and
+   `bumper` to `TUNING.materials`, each with all four `TuningEntry` fields, `scatter: 0`, an
+   AD-15 `source` and an honest `confidence` (`unverified` for authored figures); **widen the
+   `satisfies Readonly<Record<...>>` union at `:119`**. Add the kick tunables in a new
+   `TUNING.hardware` group -- `TUNING.hardware.slingshotForce` (VP velocity units, upstream's
+   `//-80` hint as the starting reference), `TUNING.hardware.slingshotThresholdMmPerS` and
+   `TUNING.hardware.popKickMmPerS` -- each with `source`/`confidence`. **Use exactly these three
+   paths**; `## Verification`'s mutations name them verbatim. No key may end in `Ms`
+   (`assertNoNestedMsKeys()`, `tuning.ts:508-526`), which is why the threshold is spelled
+   `...MmPerS`. Their values are fixed by measurement during implementation, not asserted here:
+   the `DW-148` mutation below fixes the minimum viable `popKickMmPerS` empirically, and both
+   authored figures ship `confidence: 'unverified'` per AD-15. -- AC 4 and the two kick models
+   both need these.
+3. `src/sim/table/dragonwar.ts` -- add the three new names to `TABLE.physMaterials`. Nothing
+   else in `TABLE` changes; coils stay `Record<string, never>`. -- keeps the name list and
+   `TUNING.materials` in sync for `export.py` and `test/asset-contract.test.ts:311-315`.
+4. `tools/make-placeholder-blend.py` -- thread a `phys_material` parameter through
+   `add_box_wall`, `add_box_wall_sloped`, `add_rubber_post` and `add_guide_wall` (all four
+   hardcode `'default'`), and assign `rubber_band` to the two slings, `bumper` to the three
+   pops, `rubber_post` to the 45 rubber-post nodes. **No coordinate, footprint or bbox may
+   change.** -- AC 4.
+5. `src/sim/physics/slings.ts` (**new, authored**) -- export a small factory that builds one
+   `LineSegSlingshot` per footprint edge of `col_sling_l/r`, owning the per-coil
+   `SlingshotSurfaceData`, setting `force` and `slingshotThreshold` from tuning, and emitting
+   `ContactEvent { kind: 'coil_fire', device }` **exactly when the ported kick branch ran**.
+   Prefer a thin subclass that re-evaluates the same `dot <= -slingshotThreshold` test, calls
+   `super.collide(coll)` and then pushes to an injected sink -- never edit the frozen port, and
+   never reach `fireGroupEvent` (its guard is `this.threshold`, so it fires on kick-less
+   grazes). Carry the GPL-3.0 header. -- AC 1, AC 3.
+6. `src/sim/physics/loader/index.ts` -- dispatch `col_sling_l/r` through the new factory at the
+   `addWall()` edge-construction site (`:521`) instead of a plain `LineSeg`, keeping
+   `applyMaterial()` unchanged; return the per-coil `SlingshotSurfaceData` handles and the
+   contact sink from `loadCollision()`. -- AC 1, AC 3.
+7. `src/sim/physics/pops.ts` (**new, authored**) -- export `createPopMechanics(...)` with a
+   post-switch-edge entry point that, for each `s_pop_N` make edge this tick and each enabled
+   `c_pop_N`, resolves the ball whose swept segment lies inside `sw_pop_N`, applies an impulse
+   radially away from `col_pop_N`'s **centroid** ((130,800) / (230,800) / (180,870), derived from
+   the document's footprint, not hard-coded), and emits `coil_fire`. A make edge with no
+   resolvable ball must fail loudly, never kick an arbitrary ball and never silently pass.
+   Carry the GPL-3.0 header. -- AC 2, AC 3, `DW-148`.
+8. `src/sim/physics/machine.ts` -- construct both participants; flip each sling's
+   `surfaceData.isDisabled` from `coilEnabled.c_sling_*` when an enable/disable is processed;
+   call the pop entry point **between `switchTracker.step()` (`:296`) and the return**, passing
+   this tick's edges and the pop coils' enable state; merge both new contact sources into the
+   `:301` array, keeping the ordering deliberate and commented. -- AC 1, AC 2, AC 3.
+9. `src/sim/physics/machine.ts` + `test/hardware-rule-seam.test.ts` -- extend the seam manifest
+   so the pop's post-step placement is **declared and pinned** rather than allowlisted away:
+   add a `SWITCH_EDGE_HARDWARE_RULES` array beside `PRE_STEP_HARDWARE_RULES` and assert its
+   receivers appear **after** `switchTracker.step(` and **before** the return, with a
+   `pinnedBy` path that exists. Do not simply add `popMechanics` to `NOT_A_HARDWARE_RULE` --
+   AD-5 calls pop bumpers hardware rules, so the gate must keep meaning what it says. -- AC 2.
+10. `test/port-provenance.test.ts` + `tools/dependency-cruiser.config.mjs` -- add
+    `slings.ts` and `pops.ts` to `AUTHORED_PHYSICS_FILE_RELATIVE_PATHS` and
+    `AUTHORED_PHYSICS_FILES` (both directions are asserted). -- keeps the provenance sets disjoint.
+11. `test/module-coverage.test.ts` -- **delete** the now-stale `line-seg-slingshot.ts`
+    allowlist entry, and re-check `anim-slingshot.ts` / `anim-object.ts`, which become
+    reachable through it. The file's own two-directional check fails a stale entry. -- AC 1.
+12. `test/util/shot-cases.ts` + `test/shot-routing.test.ts` -- add a strand column released at
+    **(130, 850, 13.5)** (30.000 mm clear, in no zone) over the pop cluster with its
+    `reachability` verdict, plus the matching `it.each` row, and restore `top-lane-1`'s release
+    to `x = 130` as the independent second falsifier. -- `DW-148`.
+13. `test/` -- author the behavioural suites for all four ACs (see `## Verification` for the
+    surfaces each must observe and the mutation each must survive), including an I/O-matrix
+    edge-case test per row: below-threshold graze, disabled sling, disabled pop, re-entry
+    inside the settle window, and the degenerate no-ball-resolvable make edge.
+14. Re-export: `"$BLENDER" --background --factory-startup --python tools/make-placeholder-blend.py`
+    then `pnpm export:assets`. `BLENDER` is set **in the shell only** and never written to a
+    tracked file (`DW-46`/`DW-131`). Commit the regenerated `.collision.json` and `.glb`.
+15. **Re-record all five goldens** with a throwaway, uncommitted Node harness over
+    `runReplay()` / `buildHeader()`. Trace each one correct *before* recording, append the
+    reasoning to its own `notes` (never rewrite -- the `DW-70` and `deviceSlots` literals are
+    checked), and re-verify `PARITY_INERT` two-directionally afterwards. -- the author's grant
+    of 2026-09-02, condition: each traced correct and **still asserting its own subject**.
+16. `_bmad-output/implementation-artifacts/` -- record in this spec's `## Spec Change Log` the
+    measured before/after for every baseline named in `## Verification`, and explain any that moved.
+
+**Acceptance Criteria:**
+
+- **AC 1 (sling).** Given a ball driven into `col_sling_l`'s face with normal speed above
+  `slingshotThresholdMmPerS` and `c_sling_l` enabled, when the loop advances the single tick in
+  which contact occurs, then the ball's outgoing speed exceeds its incoming speed by the ported
+  model's parabolic profile, `s_sling_l` is reported closed on that same tick, and exactly one
+  `ContactEvent { kind: 'coil_fire', device: 'c_sling_l', tick: t }` appears in that tick's
+  `FrameOutput.contactEvents`.
+- **AC 2 (pop).** Given a ball whose swept segment enters `sw_pop_1` at tick `t` with `c_pop_1`
+  enabled, when `machine.step(t)` runs, then `s_pop_1` emits `closed: true` at `t`, an impulse
+  directed away from `col_pop_1`'s centroid (130, 800) is applied to that ball at `t`, exactly one
+  `coil_fire` for `c_pop_1` is emitted at `t`, and a re-entry within the 2-tick settle window
+  produces **no** second make edge, **no** second impulse and **no** second `coil_fire`.
+- **AC 3 (disable).** Given `CoilCommand disable` for `c_sling_l` and `c_pop_1`, when the same
+  two drives are repeated, then both bodies act as passive rubber -- the ball still rebounds
+  elastically off each, measurably slower than the enabled case -- and **zero** `coil_fire`
+  events are emitted for either coil; re-enabling restores both kicks.
+- **AC 4 (materials).** Given the material table in `tuning.ts`, when the collision document is
+  loaded, then `col_sling_l/r` reference `rubber_band`, `col_pop_1..3` reference `bumper`, and
+  every `col_post_*` references `rubber_post`; each named material carries all four of
+  `{ elasticity, elasticityFalloff, friction, scatter }` with `scatter === 0`; and
+  `Object.keys(TABLE.physMaterials)` still equals `Object.keys(TUNING.materials)` both ways.
+- **Integration AC (Rules 1/2).** Given the host seam `createLoop().advance()`, when a sling or
+  pop kick fires, then the `coil_fire` event is observable in `FrameOutput.contactEvents` -- the
+  same object `src/host/loop.ts:198` hands to `onFrame` -- proving the event reaches the
+  presentation boundary rather than only `MachineStepResult`.
+- **`DW-148`.** Given a ball released at rest from (130, 850) above `col_pop_1`, when it descends,
+  then the pop kick lifts it clear of `sw_pop_1` so the skirt switch breaks and re-arms, and
+  `assertNotStranded` passes -- against a pre-change baseline of 0.002-0.019 mm of trailing-window
+  motion at (130.00, 833.55) versus the 15 mm floor. `top-lane-1` restored to `x = 130` passes too.
+- **AC 7 (no regression).** Given the baselines measured at `ee41e3f`, when the full suite and
+  every check script are re-run after this story's changes, then `pnpm test` reports at or above
+  **91 files / 1459 passed / 0 failed** with no test deleted, skipped or weakened;
+  `pnpm check:ad7` still exits **1** naming `AD-7`, `DW-70` and `bd_trough`;
+  `pnpm check:corridor` exits **0**; `pnpm check:reachability` exits **0** with no `unreachable`
+  verdict edited; all five goldens pass with every per-golden scenario block intact and
+  `PARITY_INERT` holding both directions; `TABLE.shots` is still exactly `{}`; and
+  `PHYSICS_VERSION` is unchanged.
+
+## Spec Change Log
+
+## Review Triage Log
+
+## Design Notes
+
+**Governing architecture decisions (Rule 6).**
+
+- **AD-5** (primary) -- "Flippers, the manual plunger, slingshots and pop bumpers are **hardware
+  rules** inside the physics step -- switch or button -> coil on the same tick -- each behind its
+  coil (`c_flipper_l`, `c_flipper_r`, `c_sling_l`, `c_sling_r`, `c_pop_*`) and gated only by
+  `CoilCommand enable | disable`; Tilt, game over and Attract disable all of them together."
+  This story is the second half of that Rule, and its `Prevents` list names the exact failure to
+  avoid: "a flipper or slingshot kick routed through the rules tick".
+- **AD-2** -- the switch/contact contract. `settleTicks` gates the BREAK never the MAKE (amended
+  2026-09-01, `DW-67`); `closed: true` latches on the tick first observed; and contacts *and
+  actuations* (`coil_fire` named explicitly) go to presentation only, "so every mechanical sound
+  has exactly one source. Rules never receive a `ContactEvent`." AC 2's third clause is a
+  conformance claim over the amended text.
+- **AD-6** (both amendments read) -- physics owns ball bodies and mechanical state; rules own
+  accounting. This story touches neither the pass-through spinner (2026-09-03) nor per-device boot
+  occupancy (2026-09-04) and must not disturb either.
+- **AD-15** -- table tunables in one file with `source` and `confidence`; the four per-object
+  material parameters with VPX defaults in a named material table; solver constants never tunable.
+  Every figure this story adds is a table tunable; **not one solver constant moves**, which is why
+  `PHYSICS_VERSION` is unchanged. A kick is not a licence to touch `PHYS_SKIN`.
+- **AD-3** -- one clock, no unseeded randomness; "scatter is 0 on every material by default".
+  The new materials keep that, and `test/ac6-scatter-and-prng.test.ts` enforces it for free.
+- **AD-11** -- the `.blend` is the sole owner of placement; `col_` carries `surface` **and**
+  `phys_material`; the export script validates both against a `TABLE` dump; both loaders fail fast
+  on an unknown value. AC 4 lives entirely inside this Rule.
+- **AD-19** -- `sim/rules/devices/` is the only consumer of `SwitchEvent`, and `TABLE.shots` stays
+  `{}` until Story 2.4. This story consumes switch edges **inside physics**, not in rules, so it
+  does not encroach.
+- **AD-17** -- static bundle and size budget; `pnpm build && pnpm check:dist && pnpm check:size`
+  stay green.
+- **AD-16 / Consistency Conventions** -- ported files keep their notices; new files carry the
+  GPL-3.0 header; three complementary gates, none retirable.
+
+**No AC contradicts an AD, so there is no Rule 6 intent gap.** AC 1's "same step" and AD-5's
+"same tick" agree; the only interpretive work is *which* same-tick placement each device takes,
+and the ACs themselves select it (below).
+
+**Why the two devices get two different placements -- the one real design decision here.**
+The existing hardware-rule seam runs before `physics.step()` on an `InputFrame`. Neither of these
+devices is button-driven: their triggers are produced *by* the solve. A literal copy of the
+flipper placement is therefore impossible, and the two ACs describe two different mechanisms
+precisely enough to select the right one for each:
+
+- AC 1 says the kick comes "from the ported model", and the ported model is
+  `LineSegSlingshot.collide()` -- a contact-time, hit-point-dependent parabolic impulse. It cannot
+  be evaluated without a hit point, so it belongs inside the solve. Measured consequence, recorded
+  rather than hidden: the sling's zone leads contact by up to 26.5 mm (its north edge is authored
+  1.5 mm before contact and it is 25 mm deep), so the make *edge* precedes the kick by ~5 ticks at
+  5 m/s and ~26 at 1 m/s -- but `standup`'s `settleTicks` of 8 means the switch is still **reported
+  closed** at the kick tick at every speed checked. AC 1's pinning test therefore asserts the
+  switch's *reported state* at the kick tick, not an edge coincidence.
+- AC 2 says "the ball touches the **skirt**" and "kicked away from the **bumper centre**" -- a
+  radial impulse triggered by a zone that surrounds the body (76 mm square around a 40 mm octagon),
+  exactly like a real pop bumper, where the ball need never touch the body at all. That trigger is
+  a switch edge, which exists only after `switchTracker.step()`, so the pop is a post-edge
+  participant in the mould of `hopMechanics.applyPostStep`.
+
+Both are inside `machine.step(t)`, both are gated only by coil enable/disable, and neither
+round-trips through rules -- which is what AD-5 actually requires. Unifying them would break one
+AC to satisfy the other.
+
+**Provenance (`CLAUDE.md`, the project's hardest constraint).**
+`ATTRIBUTIONS.md` row 2 already covers `src/sim/physics/**` from `vpdb/vpx-js @ e8a6d6f`
+(GPL-2.0-or-later, verified at source 2026-08-27), and both slingshot files are already inside
+that glob, already hashed into the `DW-79` freeze, and already header-compliant. **Wiring the
+sling therefore needs no new row and no row edit** -- and existing row text must not be touched,
+because `test/attributions.test.ts` pins it. The pop bumper is different: **no bumper model exists
+anywhere in this tree** (vpx-js's lives in `lib/vpt/bumper/`, outside the `lib/physics/` closure
+Story 1.1 ported), so it is **authored from scratch** and needs no row either. That choice is
+deliberate and is the cheapest provenance-safe path. If a later reviewer wants upstream's bumper
+feel instead, note the two traps that then apply: a `vpdb/vpx-js` file from a *different upstream
+directory* was not part of row 2's 2026-08-27 verification and would require amending that row
+after reading the file's own header at the pinned commit; and a `vpinball/vpinball` file is usable
+**only** if its own first line reads `// license:GPLv3+`, and row 3's glob covers
+`src/sim/physics/cabinet/**` only, so it would need a new row plus a `VPINBALL_PORTED_FILES` and
+`PORT_BODY_HASHES` entry. Either way the row lands **before** the file. Note that
+`pnpm check:attributions` reads npm dependencies only and **cannot catch a mistake here** -- the
+real gates are `pnpm check:headers`, `test/port-provenance.test.ts`, and human review.
+
+**Integration ACs and linkage (Rules 1/2).**
+
+- `Consumes:` `TUNING.materials` and the loader's `applyMaterial()` seam (Story 1.9);
+  `createSwitchTracker` and the amended `settleTicks` semantics (Story 2.1b/2.1d, `DW-67`);
+  the coil-enable map and `test/coil-enable.test.ts`'s proven disable semantics (`DW-74`);
+  Story 2.1b's `col_sling_*` / `col_pop_*` bodies and `sw_` zones and its `c_sling_*` / `c_pop_*`
+  coil declarations; Story 2.1f's settled sling span and pose; Story 2.1e's reachability harness
+  and Story 2.1d's strand-column machinery. All exercised against real instances, never mocks.
+- `Consumed-by:` **Story 2.4** (the devices-and-shots layer) consumes the `s_sling_*` / `s_pop_*`
+  switch edges this story leaves untouched and unblocked. **Epic 4 / AD-13 audio** is the first
+  real consumer of `coil_fire` -- one mechanical sound per actuation is exactly why AD-2 puts
+  actuations on the contact channel. **Story 2.11** (Tilt) consumes the coil-disable path this
+  story makes meaningful: "flippers, slings, pops and autolaunch are disabled together".
+  **Story 2.3** inherits the material table this story establishes for its own drop targets.
+- **The Integration AC is stated above** and is deliberately placed at
+  `FrameOutput.contactEvents` -- the object `src/host/loop.ts:198` hands to `onFrame` -- rather
+  than at `MachineStepResult`, because AC 1 says "emitted to presentation" and that is the
+  outermost surface the intent names. **Honest caveat to record:** no presentation module reads
+  `contactEvents` yet, so this story proves the event *reaches the boundary*, not that a sound
+  plays. That is the correct scope; the audio consumer is Epic 4's.
+
+**Ledger inbox (Rule 17).** Exactly one entry is owned by this story and it is **addressed, not
+declined**: **`DW-148`** -- by AC 2 (the kick itself), by the `DW-148` acceptance criterion, and by
+tasks 7 and 12. Its own routing note is explicit that "the fix must be the **kick**, not a geometry
+change", which this spec's `Always` block makes binding. Two facts shape how it is proved: the rest
+point (130.00, 833.55) sits **inside `sw_pop_1`**, so a resting ball holds the skirt closed and gets
+no second make edge -- the kick must clear the zone in one go or the entry is not closed (`Block If`);
+and the three pop-bumper shot cases still read `unreachable` under `DW-138` (owner `burndown`, not
+this story's), so the strand column, not live play, is the observable that proves it.
+Entries deliberately **not** touched, named so the omission is legible: `DW-70` (Story 2.5, and its
+red check is a fixture of this story's baseline), `DW-138` (`burndown`), `DW-149` (`burndown`, but
+its pattern binds every floor this story authors), `DW-152` (a tuning-`source` correction whose own
+note says "the cheapest carrier is a story that already re-records the goldens" -- **this story is
+such a carrier, but adopting it is the lead's call at harvest, not this spec's to take**),
+`DW-158` (the derived north-face generator computes but never drives), `DW-134`/`DW-155` (Story 2.3),
+`DW-82`/`DW-157` (Story 6.7). Any residual belongs in frontmatter `deferred:` for the lead's
+harvest, never written to the ledger by this stage.
+
+**Anti-vacuity discipline (`DW-149`, and the eight vacuous assertions this epic has already paid for).**
+Every floor this story authors is derived from its subject set. The sling/pop subject set is
+`col_`/`sw_` node names read from the committed collision document, or `TABLE.coils` keys matching
+the sling/pop pattern -- never a second hand-typed list and never the length of the array it guards.
+Three specific traps to avoid, each of which this epic has actually shipped:
+
+1. **A `coil_fire` count is not evidence that the intended body was struck.** This epic already
+   shipped an assertion that passed because a switch closed through a zone's 2 mm margin off a
+   *neighbouring* body's face. Nothing in the codebase names the struck `col_` body, so a sling or
+   pop assertion must be paired with a geometric witness -- per-tick
+   `distanceToPolygonMm(ballPos, node.footprintMm) - 13.495 <= 0` for the sling (real contact), or
+   ball-inside-`sw_pop_N` for the pop -- and must name the coil, the body and the measured approach
+   in its failure message.
+2. **A speed-only check cannot distinguish a kick from a bounce.** Follow
+   `test/plunger.test.ts`'s recorded lesson (position, not speed, was the discriminator there) and
+   `test/machine-serve-drain.test.ts`'s two-sided bound: assert the outgoing speed exceeds the
+   incoming speed, which pure elastic response with `elasticity < 1` cannot produce, and bound it
+   above so an absurd impulse fails too.
+3. **A mutation that makes something throw reddens the lookup, not the behaviour.** Every mutation
+   below perturbs a *value* so the code still runs and the outcome changes.
+
+**What a mutation must be (Rule 19).** 2.1d's and 2.1f's verified pattern: move a constant or a
+vertex **by value**, watch the behavioural column go red **at a named quantity**, revert, confirm
+byte-identical via `git status --short` and `git diff --stat`. For this story's timing ACs the
+natural mutations are the off-by-one on the tick and the settle window +/-1, exactly as the epic's
+own lessons prescribe. Where a mutation needs the collision document, mutate the committed JSON and
+revert via `git checkout --` (this project's established substitute where Blender is not needed);
+where it needs the authored source, prefer re-deriving through the real export pipeline in an
+isolated copy rather than in the worktree.
+
+## Verification
+
+**Commands (all with `BLENDER` exported in the shell only, never written to a tracked file):**
+
+- `export BLENDER="C:/Users/Josh/tools/blender-5.2.1-windows-x64/blender.exe"` -- shell only (`DW-46`/`DW-131`).
+- `"$BLENDER" --background --factory-startup --python tools/make-placeholder-blend.py` then
+  `pnpm export:assets` -- expected: exit 0 each; `dragonwar.collision.json` and `dragonwar.glb`
+  rewritten, with **only `physMaterial` values changed** in the collision document
+  (`git diff public/assets/dragonwar.collision.json` must show no coordinate movement).
+- `npx vitest run` -- expected: at or above **91 files / 1459 passed / 0 failed**, skip count
+  unchanged, no test deleted, skipped or weakened.
+- `pnpm check:ad7` -- expected: **exit 1**, naming `AD-7`, `DW-70` and `bd_trough`, with both array
+  literals present. **A green run is a regression to revert and report** (`DW-70`, Story 2.5).
+- `pnpm check:corridor` -- expected: **exit 0** (Story 2.1f turned it green; it must stay green).
+- `pnpm check:reachability` -- expected: **exit 0**; record the case / reachable / unreachable /
+  release counts against the **51 cases / 31 reachable / 20 unreachable / 644 releases** baseline
+  and explain every verdict that moved. **Never edit an `unreachable` verdict to reach green.**
+- `npx vitest run test/replay-goldens.test.ts` -- expected: all five green including every
+  per-golden scenario block and the two-directional `PARITY_INERT` sweep.
+- `npx vitest run test/hardware-rule-seam.test.ts test/switch-zones.test.ts test/cabinet-switch-tracker-agreement.test.ts test/coil-enable.test.ts` -- expected: green, with the extended seam manifest exercised.
+- `npx vitest run test/asset-contract.test.ts test/ac6-scatter-and-prng.test.ts test/collision-loader.test.ts test/module-coverage.test.ts` -- expected: green; the material name lists agree both ways and every material's `scatter` is 0.
+- `npx vitest run test/port-provenance.test.ts test/attributions.test.ts` -- expected: green; the
+  two new authored files are declared, the frozen port hashes are untouched, no attribution row edited.
+- `pnpm typecheck` -- expected: all three projects clean. (`test/fixtures/**` is excluded from
+  `tsconfig.node.json`, so harnesses have no compiler net -- check their imports by running them.)
+- `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` -- expected: exit 0 each;
+  both new files carry the GPL-3.0 header line. Stage new files (`git add`) before the
+  header/attribution checks, which read `git ls-files`, then unstage.
+- `pnpm build && pnpm check:dist && pnpm check:size` -- expected: exit 0 each.
+- `git diff --stat -- test/replays/` -- expected: **non-empty** (the five re-recorded goldens),
+  every change explained in `## Spec Change Log`.
+- `git grep -i "blender-5\|Program Files.*Blender" -- ':!tools/blender.mjs' ':!_bmad-output/'` --
+  expected: **empty** (`DW-46`).
+- `node -e "const d=require('./public/assets/dragonwar.collision.json');const m={};for(const n of d.nodes)if(n.physMaterial)m[n.physMaterial]=(m[n.physMaterial]||0)+1;console.log(m)"` --
+  expected: `rubber_band` 2, `bumper` 3, `rubber_post` 45, `flipper_rubber` 2, remainder `default`.
+
+**Mutations (Rule 19 -- one per AC; each applied, red observed at a named value, reverted, tree
+confirmed byte-identical via `git status --short` and `git diff --stat`). Every one perturbs a
+VALUE so the code still runs and the behaviour changes:**
+
+- **AC 1 (sling kick + same-step + reaches presentation).**
+  `mutation: set TUNING.hardware.slingshotForce to 0 (leaving the body, the material and the switch
+  untouched) -> the sling test goes red naming the measured outgoing/incoming speed ratio, which
+  falls to the pure-elastic value, while the contact itself still happens and the ball still
+  rebounds; revert.` Behavioural: the code runs identically, only the kick's magnitude changes.
+  Second, for the same-step half: `mutation: buffer the sling's coil_fire push by one tick (emit it
+  into the next step's array) -> the assertion that the event's tick equals the tick on which
+  s_sling_l is reported closed and the speed gain was measured goes red naming both ticks; revert.`
+- **AC 2 (pop kick, same tick, settle window).**
+  `mutation: change TUNING.hardware.popKickMmPerS to 0 -> the pop test goes red naming the ball's
+  unchanged velocity and its failure to leave sw_pop_1, while s_pop_1 still closes -- proving the
+  assertion reads the KICK and not the switch; revert.`
+  Second, the settle window, which is the epic's prescribed off-by-one:
+  `mutation: in src/sim/physics/switches.ts change the break gate from
+  elapsedTicks >= tracked.settleTicks - 1 to elapsedTicks >= tracked.settleTicks -> the pop
+  re-entry test goes red at a named tick (the break lands one tick late, so a re-entry that must
+  produce no second make now does), AND test/cabinet-switch-tracker-agreement.test.ts goes red
+  because only one of the two parallel trackers moved; revert.` Also apply the opposite sign
+  (`settleTicks + 1` -> `settleTicks - 2`) to prove the window is bounded on both sides.
+- **AC 3 (disable -> passive rubber).**
+  `mutation: in the disable path write surfaceData.isDisabled = false instead of true (and leave
+  coilEnabled.c_pop_1 true for the pop half) -> the passive-rubber test goes red naming the
+  measured speed gain that should not exist and the coil_fire event that should not have been
+  emitted; revert.` Behavioural and value-based: the disable command still arrives and is still
+  processed, it simply records the wrong value.
+- **AC 4 (materials).**
+  `mutation: set the new bumper material's scatter from 0 to 0.1 in tuning.ts ->
+  test/ac6-scatter-and-prng.test.ts goes red naming that material; revert.`
+  Second, for the assignment half: `mutation: in the committed collision document change
+  col_sling_l's physMaterial from rubber_band back to default -> the material-assignment test goes
+  red naming the node, the expected material and the found one, while the loader still loads (a
+  known material, so no throw -- the behaviour changes, not the lookup); revert with git checkout --
+  and confirm byte-identical.`
+- **Integration AC.** `mutation: stop merging the two new contact sources into machine.ts's :301
+  array while still producing them internally -> the createLoop-level test goes red reporting an
+  empty FrameOutput.contactEvents, while any machine-level assertion would still have passed --
+  which is precisely why the pin sits at the outer surface; revert.`
+- **`DW-148`.** `mutation: set TUNING.hardware.popKickMmPerS to a value too small to clear
+  sw_pop_1 (start from the measured minimum and step down) -> the new (130, 850) strand column goes
+  red through assertNotStranded, naming the trailing-window displacement against the 15 mm floor
+  and the final position; revert.` This is the entry's own falsifier and it also fixes the minimum
+  viable kick empirically rather than by assertion.
+- **Anti-vacuity.** `mutation: restrict the derived sling/pop subject set to an empty array -> the
+  derived floor fails loudly rather than reporting success.` A floor that cannot fail is not a floor.
+
+**Manual checks:**
+
+- Confirm the `coil_fire` assertions distinguish the **intended body** from a neighbour: for the
+  sling, a per-tick geometric witness showing `distanceToPolygonMm(pos, col_sling_l.footprintMm) - 13.495 <= 0`
+  at the kick tick; for the pop, the ball inside `sw_pop_N` at the make tick. A switch-only
+  assertion is not evidence (this epic has already shipped one that passed off a neighbouring
+  body's face through a 2 mm margin).
+- Confirm **no `col_` coordinate moved**: diff the regenerated collision document and check that
+  only `physMaterial` strings changed. The corridor, the DW-119 sling slopes and every dimensional
+  gate depend on it.
+- Confirm each re-recorded golden was **traced correct before recording**, that its `notes` was
+  **appended to and not rewritten**, that it still contains the `DW-70` and `deviceSlots` literals,
+  and that its scenario block still asserts its own subject rather than a softened one.
+- Confirm `PARITY_INERT` still holds exactly `nudge-coupling` and `two-ball-collision` in both
+  directions after the re-record.
+- Confirm `TABLE.shots` is still exactly `{}` and no solver constant moved
+  (`PHYSICS_VERSION` unchanged across all five goldens).
+- Confirm `ATTRIBUTIONS.md` needed **no** new row and **no** edit -- and that the pop kick is
+  genuinely authored, not pasted from an upstream bumper. If that ceases to be true, the row lands
+  **before** the file (`CLAUDE.md`).
+- Confirm the two new authored files appear in **both** `AUTHORED_PHYSICS_FILE_RELATIVE_PATHS` and
+  `tools/dependency-cruiser.config.mjs`'s `AUTHORED_PHYSICS_FILES` (asserted both directions), and
+  that the `DW-79` port-body hashes are untouched.
+- Confirm `test/module-coverage.test.ts` has **no stale allowlist entry** for any slingshot file
+  that is now reachable.
+- Re-read `DW-148` with `bash _bmad/scripts/ledger.sh _bmad-output/implementation-artifacts/deferred-work.md show DW-148`
+  and confirm the delivered fix is the kick, with the strand column as its recorded observable.
+
+## Auto Run Result
+
+Status: ready-for-dev
+Blocking condition: none
