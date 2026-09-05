@@ -1199,6 +1199,21 @@ So that the lower playfield is alive and the pops disturb the ball as on a real 
 **When** slings, posts and rubber bands are assigned `phys_material`
 **Then** each `col_` mesh references a named material with `{ elasticity, elasticityFalloff, friction, scatter }` and `scatter` is 0
 
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-148: a ball can come to **permanent rest against `col_pop_1`**, because the pop bumpers are inert collision
+  bodies until this story gives them their kick (ledger; routed by adjudication 2026-09-04). Measured at Story
+  2.1d's author-mandated whole-playfield strand sweep: 811 clearance-filtered descending releases, of which
+  (130, 850/900/950/980) all come to rest at **(130.00, 833.55)** with 0.002-0.019 mm of trailing-window motion
+  against a 15 mm floor -- 13.55 mm from `col_pop_1`, i.e. in contact. **Not a geometry defect and not introduced
+  by 2.1d**: the body has been inert since it was drawn, and a resting ball is the expected state of a bumper
+  whose kick does not exist yet. This story's own "the pop coil fires on the same tick, the ball is kicked away
+  from the bumper centre" AC resolves it by construction -- the point of recording it here is that the fix must be
+  the **kick**, not a geometry change, and that a strand column over the pop cluster is the observable that proves
+  it. Note the three pop-bumper shot cases currently read `unreachable` (DW-138), so this state may be hard to
+  reach in play today; that is a reason to pin it alongside the kick rather than to dismiss it, since 2.2 and 2.1f
+  between them are expected to make the cluster reachable.
+
 ### Story 2.3: Drop targets, the spinner and the Lock in physics
 
 As a player,
