@@ -1359,6 +1359,15 @@ So that a complete game is playable from Start to the last ball.
 **Given** `ballsInPlay` reaches 0 by a drain outside a save window
 **When** the ball controller processes it
 **Then** every active mode receives `_will_stop` before `ball_ended { player, bonusByCategory, multiplier, total, tilted }` fires, `modes[]` is empty, and the next player (or the same player's next ball) starts with `ball_will_start` resetting `ballSave`, `tilt` and `multiball`
+[AMENDED 2026-09-06, Story 2.5 spec gate -- Rule 5 tier-1: the `_will_stop` half is **narrowed to what this story can
+falsify**; the ordering promise is unchanged and lands in full at Story 3.1]. Measured at this tree: `src/sim/rules/modes/`
+**does not exist**, `modes: []` is the only value ever assigned, and the string `_will_stop` appears **nowhere** under
+`src/` or `test/`. So as worded the clause is **vacuously true here** -- and a vacuous acceptance criterion is this epic's
+single most-repeated defect (nineteen found so far, every one by deliberate falsification and none by a passing run).
+Story 2.5 therefore pins the half it can genuinely falsify: **a stub mode present in `modes[]` before the drain is gone
+after it, and its teardown is observed strictly before `ball_ended`** -- with a mutation that reorders the two. The full
+per-mode `_will_stop` broadcast is asserted by **Story 3.1**, which owns the mode-stack convention and already carries the
+identical assertion in its own block, where modes actually exist. Nothing is dropped; it is asserted where it is real.
 
 **Given** balls per game is an adjustment (default 3)
 **When** the last player's last ball ends
