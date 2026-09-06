@@ -2339,3 +2339,114 @@ describe('asset contract -- Story 2.1c QA: the orbit\'s own top-turn and Ramp-tu
 		).toBeCloseTo(loopR!.bboxMm.min.x, 1);
 	});
 });
+
+// Story 2.6, task "extend test/asset-contract.test.ts": vis_backbox's own
+// glb contract -- parent cabinet_root, extras.lightgroup === 'lg_cabinet',
+// exactly one material, TEXCOORD_0 AND TEXCOORD_1 present, and the
+// DMD-facing quad's own TEXCOORD_0 spanning the full [0,1] range on both
+// axes. Node-only glTF JSON-chunk parsing for the node/mesh/extras
+// structure (this file's own established technique, header comment) plus a
+// raw BIN-chunk float read for the UV values themselves -- `uv_layers.new()`
+// never writes accessor min/max for TEXCOORD_0 (measured: only POSITION
+// accessors carry bounds in this export), so there is no shortcut through
+// the JSON chunk alone for this one assertion.
+describe('asset contract -- Story 2.6: vis_backbox\'s glb contract (AD-11, the DMD Backglass\'s mounting quad)', () => {
+	interface GltfAccessor {
+		readonly bufferView: number;
+		readonly byteOffset?: number;
+		readonly componentType: number;
+		readonly count: number;
+		readonly type: string;
+	}
+	interface GltfBufferView {
+		readonly buffer: number;
+		readonly byteOffset?: number;
+		readonly byteLength: number;
+		readonly byteStride?: number;
+	}
+	interface GltfDocumentWithAccessors extends GltfDocument {
+		readonly accessors: readonly GltfAccessor[];
+		readonly bufferViews: readonly GltfBufferView[];
+	}
+
+	/** The raw BIN chunk bytes, following the (possibly padded) JSON chunk -- this file's own `readGlbJson()` stops after the JSON chunk, so this is a second, minimal reader for the one assertion that needs vertex data rather than node/extras structure. */
+	function readGlbBin(): Buffer {
+		const bytes = readFileSync(GLB_PATH);
+		const jsonLength = bytes.readUInt32LE(12);
+		const binChunkStart = 20 + jsonLength;
+		const binChunkLength = bytes.readUInt32LE(binChunkStart);
+		expect(bytes.readUInt32LE(binChunkStart + 4), 'second chunk type must be BIN').toBe(0x004e4942);
+		return bytes.subarray(binChunkStart + 8, binChunkStart + 8 + binChunkLength);
+	}
+
+	/** Every (u, v) pair a VEC2/FLOAT accessor declares, decoded from the raw BIN chunk (tightly packed -- no byteStride override anywhere in this export, measured). */
+	function readUvAccessor(doc: GltfDocumentWithAccessors, bin: Buffer, accessorIndex: number): Array<{ u: number; v: number }> {
+		const accessor = doc.accessors[accessorIndex]!;
+		expect(accessor.componentType, 'expected a FLOAT (5126) UV accessor').toBe(5126);
+		expect(accessor.type, 'expected a VEC2 UV accessor').toBe('VEC2');
+		const bufferView = doc.bufferViews[accessor.bufferView]!;
+		const stride = bufferView.byteStride ?? 8;
+		const base = (bufferView.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+		const uvs: Array<{ u: number; v: number }> = [];
+		for (let i = 0; i < accessor.count; i++) {
+			const offset = base + i * stride;
+			uvs.push({ u: bin.readFloatLE(offset), v: bin.readFloatLE(offset + 4) });
+		}
+		return uvs;
+	}
+
+	it('is a child of cabinet_root (never playfield_root -- it must stay level while the playfield pitches), with lightgroup lg_cabinet and exactly one material', () => {
+		const doc = readGlbJson();
+		const backboxIndex = doc.nodes.findIndex((n) => n.name === 'vis_backbox');
+		expect(backboxIndex, 'vis_backbox node not found in the committed glb').toBeGreaterThanOrEqual(0);
+		const backbox = doc.nodes[backboxIndex]!;
+
+		expect(backbox.extras?.lightgroup, 'vis_backbox must carry lightgroup: lg_cabinet').toBe('lg_cabinet');
+
+		const cabinetRootIndex = doc.nodes.findIndex((n) => n.name === TABLE.nodes.cabinetRoot);
+		expect(cabinetRootIndex).toBeGreaterThanOrEqual(0);
+		expect(
+			doc.nodes[cabinetRootIndex]!.children ?? [],
+			'vis_backbox must be a child of cabinet_root',
+		).toContain(backboxIndex);
+
+		const playfieldRootIndex = doc.nodes.findIndex((n) => n.name === TABLE.nodes.playfieldRoot);
+		expect(
+			doc.nodes[playfieldRootIndex]!.children ?? [],
+			'vis_backbox must NOT be a child of playfield_root -- it would then incorrectly pitch with the playfield',
+		).not.toContain(backboxIndex);
+
+		expect(backbox.mesh, 'vis_backbox must carry a mesh').toBeDefined();
+		const mesh = doc.meshes[backbox.mesh!]!;
+		expect(mesh.primitives.length, 'AD-11: one material each -- exactly one primitive (one material slot) for this box').toBe(1);
+	});
+
+	it('carries TEXCOORD_0 AND TEXCOORD_1, and TEXCOORD_0 spans the full [0,1] range on both u and v -- the DMD face\'s own texture substrate', () => {
+		const doc = readGlbJson() as GltfDocumentWithAccessors;
+		const backbox = doc.nodes.find((n) => n.name === 'vis_backbox');
+		expect(backbox?.mesh, 'vis_backbox node/mesh not found').toBeDefined();
+		const primitive = doc.meshes[backbox!.mesh!]!.primitives[0]!;
+
+		expect(primitive.attributes.TEXCOORD_0, 'vis_backbox is missing TEXCOORD_0').toBeDefined();
+		expect(primitive.attributes.TEXCOORD_1, 'vis_backbox is missing TEXCOORD_1 (AD-12)').toBeDefined();
+
+		const bin = readGlbBin();
+		const uvs = readUvAccessor(doc, bin, primitive.attributes.TEXCOORD_0);
+		expect(uvs.length, 'sanity: a box mesh\'s UV set must be non-empty').toBeGreaterThan(0);
+
+		const us = uvs.map((uv) => uv.u);
+		const vs = uvs.map((uv) => uv.v);
+		expect(Math.min(...us), 'TEXCOORD_0 must reach u = 0').toBeCloseTo(0, 5);
+		expect(Math.max(...us), 'TEXCOORD_0 must reach u = 1').toBeCloseTo(1, 5);
+		expect(Math.min(...vs), 'TEXCOORD_0 must reach v = 0').toBeCloseTo(0, 5);
+		expect(Math.max(...vs), 'TEXCOORD_0 must reach v = 1').toBeCloseTo(1, 5);
+
+		// Non-vacuity (Design Notes: "a collapsed all-zero UV set is the
+		// failure mode this catches"): a genuinely collapsed UV set would pass
+		// a naive "min/max are numbers" check trivially -- assert the actual
+		// spread is non-degenerate on BOTH axes independently, so neither can
+		// mask the other collapsing.
+		expect(Math.max(...us) - Math.min(...us), 'u must have real spread, not a collapsed constant').toBeGreaterThan(0.5);
+		expect(Math.max(...vs) - Math.min(...vs), 'v must have real spread, not a collapsed constant').toBeGreaterThan(0.5);
+	});
+});

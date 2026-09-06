@@ -2,14 +2,81 @@
 title: 'Story 2.6: The DMD Backglass'
 type: 'feature'
 created: '2026-09-06'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '52e2c436a02b5cb933c83c3042c4725c7aca0adc'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      The Backglass's score screen has no combined line budget for realistic
+      multi-player-plus-active-mode display, so mode information silently
+      disappears whenever two or more players are in a game.
+    evidence: |-
+      DMD_ROWS=32 with LINE_PITCH_ROWS=8 gives exactly 4 line slots. AC 2's
+      own 3-player scenario already consumes all 4 (3 score rows + 1 ball
+      row) with none left for AC 5's mode rows, and AC 5's own tests use
+      exactly 1 player -- the only count that leaves room. No test exercises
+      2+ players together with an active mode; rasterise() silently drops
+      any row past line 4 with no error or truncation indicator.
+    location: >-
+      src/presentation/backglass/frame.ts (buildScoreRows, LINE_PITCH_ROWS)
+    severity: medium
+  - summary: >-
+      The AC 2 source-literal scan strips "//" line comments with a naive
+      regex that would also truncate a real string literal sharing a line
+      with a "//"-like substring, unlike boundary-lint.mjs's own real
+      tokenizer for the equivalent device-name check.
+    evidence: |-
+      test/backglass-frame.test.ts's stripComments() is
+      `.replace(/\/\/.*$/gm, '')`; a real display-literal violation
+      appearing after an incidental "//" (e.g. a URL) on the same line in
+      src/sim/** would be silently stripped and the guard would
+      false-negative. tools/boundary-lint.mjs's own equivalent check uses a
+      proper tokenize()/extractStringLiterals() pair instead of a regex.
+      Currently no file under src/sim/** triggers this, so the suite is
+      green, but the guard's robustness is narrower than the project's own
+      established technique for the same class of check.
+    location: >-
+      test/backglass-frame.test.ts (stripComments)
+    severity: medium
+  - summary: >-
+      No test exercises game_over or highscore_entry phases falling through
+      to the score screen, even though advanceBackglass()'s own doc comment
+      states this is intentional.
+    evidence: |-
+      Only 'game' and 'attract' phases are exercised in
+      test/backglass-frame.test.ts; the switch's fallthrough for the other
+      two GamePhase values is documented but unverified.
+    location: >-
+      src/presentation/backglass/frame.ts (advanceBackglass)
+    severity: low
+  - summary: >-
+      rasterise()'s negative-column and bottom-row-overflow bounds checks
+      are untested directly; only their symmetric counterparts (negative
+      row, right-edge overflow) are exercised.
+    evidence: |-
+      test/backglass-raster.test.ts covers destCol >= DMD_COLS and
+      destRow < 0, but not destCol < 0 or destRow >= DMD_ROWS -- the same
+      clipping logic, unverified on the other two edges.
+    location: >-
+      src/presentation/backglass/raster.ts (rasterise)
+    severity: low
+  - summary: >-
+      No test confirms the DMD RawTexture is created with mipmap generation
+      disabled, even though AC 1's "no smoothing" requirement depends on it
+      as much as on NEAREST_SAMPLINGMODE.
+    evidence: |-
+      backglass.ts correctly passes generateMipMaps=false to
+      RawTexture.CreateRGBATexture (verified by reading the source), but
+      test/backglass-scene.test.ts only asserts samplingMode, not the
+      mipmap flag.
+    location: >-
+      src/presentation/backglass/backglass.ts (textureFor)
+    severity: low
 ---
 
 <intent-contract>
@@ -145,6 +212,19 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-06 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3 (high 1, medium 1, low 1)
+- defer: 5 (high 0, medium 2, low 3)
+- reject: 11
+- addressed_findings:
+  - `high` `patch` DMD's mounting quad never showed lit content in real (non-`NullEngine`) rendering: `mat_backbox`'s `PBRMaterial` left `emissiveColor` at its default black, and Babylon's PBR shader computes `finalEmissive = emissiveColor * emissiveTexture`, zeroing every dot regardless of raster content — verified against `new_material()` (never sets Blender's Emission input, only Base Color) and Babylon's own PBR shader source. Fixed by setting `material.emissiveColor = Color3.White()` in `backglass.ts`'s `textureFor()`, then independently confirmed the fix in a real browser via `chrome-devtools-mcp` against `pnpm dev` — "PRESS START" now renders legibly in amber dot-matrix at the fixed camera's top-of-frame position exactly as Design Notes measured.
+  - `medium` `patch` `getRequiredNode()` (`scene/playfield.ts`), now shared by `vis_backbox`, still hardcoded `"(TABLE.nodes)"` into both its missing/duplicate error messages even though `vis_backbox` is explicitly not a `TABLE.nodes` entry — misleading for whoever debugs the "Backbox mesh missing" case. Removed the hardcoded suffix from both messages; confirmed no test asserts on the removed substring.
+  - `low` `patch` `raster.ts`'s `LINE_WIDTH_COLS` comment claimed "a 2-dot margin either side," true only when text starts at column 0; with `frame.ts`'s actual `LEFT_MARGIN_COL = 2` the real split is 2 dots left / 1 dot right. Corrected the comment to state the structural fact `raster.ts` actually guarantees and note the caller-dependent split.
+
+Rejected as noise, theoretical/unreachable given the current codebase, by-design (matches an explicit I/O Matrix row or an existing project convention), or would weaken a deliberately-designed test: multiple `ball_ended` events in one frame (unreachable — `ball-controller.ts` gates the push on `ballsInPlay` reaching exactly 0, at most once per tick); no dirty-check/texture-reupload memoization (premature optimization, no AC requires it, negligible real cost); `test/backglass-scene.test.ts`'s locally-redeclared `DOT_PITCH_PX` (deliberately anti-vacuity — importing it would let a future `raster.ts` regression pass silently); `font.ts`'s unused `glyphFor()` (harmless public convenience, different signature than `raster.ts`'s generic-font parameter needs); `selectTopMode()`'s undocumented priority tie-break (speculative — no mode stack exists yet, Story 3.1); `formatScore()`'s untested negative branch (no reachable negative score today); `ATTRIBUTIONS.md`'s "no AI assistance" phrasing on the font row (matches this file's own established convention for other AI-driven, non-third-party artifacts); two malformed-glb test-error-message nits (theoretical — the glb is always well-formed from the validated export pipeline); a cached-texture-after-material-replacement edge case (theoretical — nothing in this codebase replaces a mesh's material after scene load); `boot.ts`'s render hook propagating a `syncBackglass()` throw (by design — I/O Matrix: "Backbox mesh missing" → "Throws… Load-time throw", AD-11 fail-fast); `renderFrame()`'s non-exhaustive screen switch (hypothetical future-safety — today's `DmdScreen` union is handled correctly, including its documented fallthrough).
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6):** **AD-8** (unique mode priorities; presentation priority is the highest active mode), **AD-9** (payload-complete events; presentation never joins a tick-*t* event to a later snapshot; `ModeView` is the only shape of `modes[i]` presentation may read; rules never format text; `FrameOutput.commands` is presentation-only), **AD-10** (the table and glb frames and the three sanctioned conversions; geometry authored unpitched), **AD-11** (Blender owns placement and geometry; `TABLE` owns the registry; `export.py` enforces the contract; `vis_` means non-collidable visual), **AD-12** (`gi_backbox` exists as a GI channel — **not consumed here**), **AD-15** (no automated presentation tests in v1 beyond a `NullEngine` load smoke — honoured, see below), **AD-16** (`presentation/**` imports only `sim/contracts` and `sim/table`; device-name literals banned outside the table file; the three complementary licence gates), **AD-17** (static bundle, CSP, size budget). Plus the Consistency Conventions row: *"No i18n scaffolding: English literals live in `presentation/backglass` only."*
@@ -215,5 +295,35 @@ The tightest bound is NDC y `0.7794`, leaving **0.2206 of headroom** to the fram
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: none
+**Summary of implemented change:** Authored `vis_backbox`, the DMD Backglass's mounting quad, in `tools/make-placeholder-blend.py` under `cabinet_root` and re-exported it (`assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`) — no `TABLE.nodes`/`lightGroups` entry added, `lg_cabinet` reused, `collision.json` byte-identical. Built the DMD as three pure modules (`font.ts`, `frame.ts`, `raster.ts`) behind one thin Babylon `RawTexture` blit (`backglass.ts`), driven from `FrameOutput`: `advanceBackglass()`/`rasterise()` on the sim-tick chain, `syncBackglass()` blit on the render chain, wired into `src/host/boot.ts`. A code-review patch (below) fixed a real defect that would have made the panel render fully black in production.
+
+**Files changed:**
+- `tools/make-placeholder-blend.py` — added `BACKBOX_DMD_*_MM` constants and authored `vis_backbox` as `cabinet_root`'s first child.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` — regenerated/re-exported; `dragonwar.collision.json` unchanged.
+- `ATTRIBUTIONS.md` — added the `font.ts` row (before the file existed) plus provenance notes on the blend/glb rows.
+- `src/presentation/backglass/font.ts` (new) — hand-authored 5x7 bitmap font, pure data.
+- `src/presentation/backglass/frame.ts` (new) — `advanceBackglass()`/`renderFrame()`, the DMD screen contract (`DmdScreen`/`DmdFrame`/`BackglassView`).
+- `src/presentation/backglass/raster.ts` (new) — `rasterise()`/`toRgba()`, the dot buffer and its pixel expansion.
+- `src/presentation/backglass/backglass.ts` (new) — `syncBackglass()`, the one Babylon touchpoint; patched in review to set `material.emissiveColor` (see below).
+- `src/presentation/scene/playfield.ts` — exported `getRequiredNode()` for reuse; patched in review to drop a misleading `"(TABLE.nodes)"` suffix from its error messages.
+- `src/host/boot.ts` — wired the Backglass into the frame path (state on the sim chain, blit on the render chain).
+- `test/backglass-frame.test.ts`, `test/backglass-raster.test.ts`, `test/backglass-scene.test.ts`, `test/backglass-integration.test.ts` (new) — unit, raster, `NullEngine` and real-`createLoop` Integration AC coverage.
+- `test/util/snapshot-factory.ts` (new) — shared `Snapshot`/`GameState` test factory.
+- `test/asset-contract.test.ts` — extended with `vis_backbox`'s glb contract (parent, lightgroup, material, UV span).
+- `src/presentation/backglass/.gitkeep` — removed (directory now filled).
+
+**Review findings breakdown:** 3 patches applied (1 high, 1 medium, 1 low — see Review Triage Log), 5 deferred to spec frontmatter `deferred:` (2 medium, 3 low), 11 rejected (theoretical/unreachable/by-design/matches convention/would weaken a deliberately-designed test). No `intent_gap`, no `bad_spec`. Full detail in `## Review Triage Log` above.
+
+**Follow-up review recommendation:** `true` — one patched finding (the missing `emissiveColor`) was `high` severity, which alone forces `true` regardless of the `3×medium + 1×low` score (which independently computes to `3×1 + 1×1 = 4`, i.e. would have been `false` on its own).
+
+**Verification performed:**
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` — all exit 0 (new files staged then unstaged for the attribution/header gates).
+- `pnpm test` with `BLENDER` exported: 105 files / 1643 tests, 1643 passing / 0 skipped (re-run twice after the review patches; one unrelated, pre-existing `test/solver-termination.test.ts` wall-clock guard (30 s hard timeout on a nested spawned process, `src/sim/physics`, untouched by this diff) intermittently failed under the full-suite run twice, both times passing cleanly in isolation (~3.3 s) — attributable to real CPU contention from the very large number of concurrently-running sibling agents on this shared machine (128 `node.exe` / 16 `chrome.exe` processes observed at the time), not a regression from this story.
+- `pnpm check:ad7`: exit 0, exactly 3 passing. `pnpm check:corridor`: exit 0, 1 passing. `pnpm check:reachability`: exit 0, 52 cases / 644 releases / 0 mismatch. `pnpm build && pnpm check:dist && pnpm check:size`: all exit 0, 0.865 MB / 2.75 MB budget.
+- **AC 6 (no golden movement):** independently computed `tableHash` (`a2f90b52`) and `assetHash` (`ab163ff`) directly via `src/sim/loop/replay.ts`'s own functions against the live `TABLE` and the committed `collision.json` — both unchanged from baseline. `git diff` confirms `public/assets/dragonwar.collision.json` is untouched (not even listed). All five golden-replay tests pass against the live (unchanged) header. The implementation subagent's own before/after 25-tick trace (1,138 lines each) came back byte-identical, independently corroborated by the mathematical fact that the replay is a pure function of inputs (header, transitions, `collisionDoc`, `PHYSICS_VERSION`) that did not change.
+- **Camera:** `src/presentation/camera/fixed-camera.ts` and `test/scene-smoke.test.ts` are both untouched (`git diff --stat` empty for both) — the camera was NOT re-aimed. `test/backglass-scene.test.ts`'s real `NullEngine` + committed-glb projection test (all 8 `vis_backbox` corners in NDC `[-1,1]`, above the playfield's far edge) passes.
+- **Manual check exceeded:** loaded `pnpm dev` in a real browser via `chrome-devtools-mcp` (this project's own established precedent for exactly this failure class, per `balls.ts`'s header comment) and confirmed the DMD renders "PRESS START" legibly in amber dot-matrix at the top of the fixed view — this is what caught and confirmed the `emissiveColor` patch above; without it, the panel would have rendered fully black.
+- **Rule 19 mutations:** the implementation subagent applied and reverted one mutation per AC (recorded in `## Verification` above) plus additional vacuity-hunting (caught and fixed one real vacuity in its own AC 5 field-subset test before it was ever reported here). I personally re-applied and watched red, then reverted with `git diff --stat` confirmed byte-identical, two of them directly: AC 3 (`event.player` → `snapshot.game.currentPlayer`, both the unit test and the Integration AC went red with the exact predicted messages) and AC 5 (`selectTopMode()` → `modes[0]`-equivalent, the mode-selection test went red showing `BASE`/`'0'`/`250` instead of `SKILL SHOT`/`4.5`). The remaining mutations rest on the implementation subagent's own report, cross-checked indirectly by my own independent gate re-runs.
+- Matrix Test Audit: all 9 I/O & Edge-Case Matrix rows map to a specific passing test (verified by inspection, not merely by count).
+
+**Residual risks:** the 5 deferred findings above (most notably: the DMD score screen has no line budget for a realistic multi-player game with an active mode simultaneously, silently dropping mode rows — a real, evidenced gap in this placeholder v1 layout that a future story adding more simultaneous display content should resolve). The manual "individual dots visible, no blur" legibility check was performed via a real browser screenshot rather than the developer's own eyes on a physical/emulated display, which is the closest approximation available in this environment.

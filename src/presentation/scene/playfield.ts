@@ -23,7 +23,14 @@ export interface PlayfieldNodes {
 	readonly pivotPitch: TransformNode;
 }
 
-function getRequiredNode(scene: Scene, name: string): TransformNode {
+/**
+ * Resolves one required node by name, throwing with the node name in the
+ * message on zero OR more than one match. Exported (Story 2.6) so
+ * `backglass.ts` can resolve `vis_backbox` through the SAME hardening this
+ * file already applies to the three `TABLE.nodes` entries below, rather than
+ * a second, drifting `getXByName()`-style lookup.
+ */
+export function getRequiredNode(scene: Scene, name: string): TransformNode {
 	// Counted rather than fetched by name: Babylon's getXByName() returns the
 	// FIRST match, so a glb carrying two nodes under one name would silently
 	// pitch one of them and leave the other behind. `src/sim/physics/loader`'s
@@ -35,10 +42,10 @@ function getRequiredNode(scene: Scene, name: string): TransformNode {
 		...scene.meshes.filter((m) => m.name === name),
 	];
 	if (matches.length === 0) {
-		throw new Error(`playfield.ts: required node "${name}" (TABLE.nodes) was not found in the loaded scene`);
+		throw new Error(`playfield.ts: required node "${name}" was not found in the loaded scene`);
 	}
 	if (matches.length > 1) {
-		throw new Error(`playfield.ts: the loaded scene has ${matches.length} nodes named "${name}" (TABLE.nodes) -- node names must be unique`);
+		throw new Error(`playfield.ts: the loaded scene has ${matches.length} nodes named "${name}" -- node names must be unique`);
 	}
 	return matches[0];
 }

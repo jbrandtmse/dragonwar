@@ -69,6 +69,18 @@ PLAYFIELD_THICKNESS_MM = 19.0
 GLASS_Z_MM = 400.0
 GLASS_THICKNESS_MM = 10.0
 
+# Story 2.6: the DMD Backglass's mounting quad, `vis_backbox`, authored under
+# `cabinet_root` (table-frame, unpitched -- AD-10). Centred on the playfield's
+# X span; its south (-Y) face sits flush with the playfield's far edge
+# (PLAYFIELD_H_MM) and faces the player, exactly as a real backbox DMD does.
+# Placement and the fixed-camera projection measurement that clears it both
+# live in this story's spec Design Notes -- see that story's own placement
+# envelope before moving any of these four figures.
+BACKBOX_DMD_W_MM = 400.0
+BACKBOX_DMD_H_MM = 100.0
+BACKBOX_DMD_Z_MM = 250.0
+BACKBOX_DMD_THICK_MM = 5.0
+
 # Story 2.1b task 10 (DW-53): the true perimeter walls (left, top, right, and
 # the plunger-lane wall separating it from the main field) now reach the
 # glass -- derived from GLASS_Z_MM, not a second invented figure -- so a ball
@@ -1491,9 +1503,11 @@ def main():
 	cabinet_root = new_empty('cabinet_root', (0, 0, 0))
 	# The physical tilt hinge: the playfield's bottom-front edge, centred on X.
 	pivot_pitch = new_empty('pivot_pitch', (PLAYFIELD_W_MM / 2, 0, 0))
-	# cabinet_root carries no children this story (nothing cabinet-mounted is
-	# in scope yet); referenced so linters do not flag it as unused.
-	_ = cabinet_root
+	# cabinet_root's first child: Story 2.6's DMD Backglass mounting quad,
+	# authored below (search "vis_backbox"). `applyPitch()`
+	# (src/presentation/scene/playfield.ts) rotates only `playfield_root`, so
+	# anything parented here stays level in world space exactly as a real
+	# backbox does while the playfield tilts underneath it.
 
 	# ---- Materials -----------------------------------------------------
 	translucency_img = new_image('img_playfield_translucency')
@@ -3230,15 +3244,40 @@ def main():
 	l_insert_left.parent = playfield_root
 	set_props(l_insert_left, lightgroup='lg_inserts')
 
+	# ---- vis_backbox: Story 2.6's DMD Backglass mounting quad, the first
+	# child of cabinet_root (AD-11: Blender is the sole owner of every
+	# position and mesh; a vis_ mesh is built procedurally in presentation
+	# nowhere). Table-frame AABB, unpitched, centred on the playfield's X
+	# span, its south (-Y) face flush with the playfield's far edge and
+	# facing the player -- same new_material() + new_box_mesh(...,
+	# second_uv=True) + set_props(lightgroup=...) pattern vis_spinner_l
+	# (above) and vis_playfield use. lg_cabinet is a pre-existing
+	# TABLE.lightGroups member no mesh has used until now, so this adds
+	# neither a TABLE.nodes nor a TABLE.lightGroups entry (either would move
+	# tableHash and redden all five goldens -- Design Notes).
+	mat_backbox = new_material('mat_backbox', base_color=(0.05, 0.05, 0.06, 1.0))
+	backbox_x0 = (PLAYFIELD_W_MM - BACKBOX_DMD_W_MM) / 2
+	backbox_x1 = backbox_x0 + BACKBOX_DMD_W_MM
+	backbox_y0 = PLAYFIELD_H_MM
+	backbox_y1 = backbox_y0 + BACKBOX_DMD_THICK_MM
+	backbox_z0 = BACKBOX_DMD_Z_MM
+	backbox_z1 = backbox_z0 + BACKBOX_DMD_H_MM
+	vis_backbox = new_box_mesh(
+		'vis_backbox',
+		(backbox_x0, backbox_y0, backbox_z0), (backbox_x1, backbox_y1, backbox_z1),
+		parent=cabinet_root, material=mat_backbox, second_uv=True,
+	)
+	set_props(vis_backbox, lightgroup='lg_cabinet')
+
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):
-	# the three roots, vis_playfield, l_insert_left, bd_trough, bd_shooter,
-	# bd_lock (Story 2.1b). col_/sw_ nodes are excluded -- collision
-	# scaffolding, never rendered. ----
+	# the three roots, vis_playfield, vis_spinner_l, vis_backbox,
+	# l_insert_left, bd_trough, bd_shooter, bd_lock. col_/sw_ nodes are
+	# excluded -- collision scaffolding, never rendered. ----
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	presentation_objects = [
 		playfield_root, cabinet_root, pivot_pitch,
-		vis_playfield, vis_spinner_l, l_insert_left, bd_trough, bd_shooter, bd_lock,
+		vis_playfield, vis_spinner_l, vis_backbox, l_insert_left, bd_trough, bd_shooter, bd_lock,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

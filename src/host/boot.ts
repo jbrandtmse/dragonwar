@@ -17,6 +17,10 @@
 import { bootScene } from '../presentation/scene/create-engine';
 import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
+import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presentation/backglass/frame';
+import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
+import { syncBackglass } from '../presentation/backglass/backglass';
+import { FONT_5X7 } from '../presentation/backglass/font';
 import { createHostLoop } from './loop';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
 import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
@@ -187,6 +191,15 @@ async function onBegin(): Promise<void> {
 		const collisionDoc: unknown = await collisionResponse.json();
 
 		let latestSnapshot: Snapshot | undefined;
+		// Story 2.6: the Backglass's own view state, folded forward every SIM
+		// frame (never the Babylon render frame -- the two rAF chains are
+		// independent, and driving BackglassView from the render chain would
+		// let one `ball_ended` be seen zero, one or several times depending on
+		// how the chains happen to interleave). `latestRaster` is the one thing
+		// the render hook below actually blits -- it never touches
+		// `backglassView` or `advanceBackglass()` itself.
+		let backglassView = INITIAL_BACKGLASS_VIEW;
+		let latestRaster: DmdRaster | undefined;
 		// Story 1.8 (AC 3): the recorder is constructed once per boot and
 		// tapped via createHostLoop()'s third argument -- never wired into
 		// sim/ itself (AD-1). start()/save()/invalidate() are exposed on
@@ -215,6 +228,12 @@ async function onBegin(): Promise<void> {
 			(output) => {
 				latestSnapshot = output.snapshot;
 				replayPlayer.onFrame(output.snapshot);
+				// Story 2.6: fold this frame's events into the Backglass view
+				// (`ball_ended` reads output.events -- the ONE place FrameOutput.events
+				// reaches anything today) and rasterise it against this same frame's
+				// snapshot -- state from the sim chain, blit from the render chain.
+				backglassView = advanceBackglass(backglassView, output);
+				latestRaster = rasterise(renderFrame(backglassView, output.snapshot), FONT_5X7);
 			},
 			(_elapsedMs, transitions, tick) => {
 				replayRecorder.recordTransitions(transitions, tick);
@@ -238,6 +257,9 @@ async function onBegin(): Promise<void> {
 			}
 			syncBalls(scene, nodes.playfieldRoot, latestSnapshot);
 			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
+			if (latestRaster) {
+				syncBackglass(scene, latestRaster);
+			}
 		});
 
 		const hostLoopRef = hostLoop;
