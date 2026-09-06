@@ -7,7 +7,7 @@ paradigm: 'Ports-and-adapters around a virtual pinball machine — Physics is th
 scope: 'DragonWar v1 whole system: physics core, rules layer, presentation, host loop, assets, persistence, build and deployment'
 status: final
 created: '2026-08-26'
-updated: '2026-09-05'
+updated: '2026-09-06'
 binds: [FR-1..FR-55, NFR-1..NFR-9, UJ-1..UJ-4]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-dragonwar-2026-08-26/prd.md
@@ -153,11 +153,11 @@ erDiagram
   }
 ```
 
-### AD-8 — Modes stack by unique numeric priority and speak the four-phase event convention `[ADOPTED]`
+### AD-8 — Modes stack by unique numeric priority and speak the four-phase event convention `[ADOPTED]` `[AMENDED 2026-09-06 — phasing recorded: Epic 2 builds the minimal stack, Story 3.1 makes the four-phase convention real; no rule is relaxed]`
 
 - **Binds:** FR-33..FR-41; `sim/rules/modes`
 - **Prevents:** two modes both claiming the Backglass; a Hurry-up timer paused by a multiball; ad-hoc start/stop hooks; a mode parsing raw switches
-- **Rule:** Priorities are unique — base 100, skill shot 200, Hurry-up 300, Joust 310, Quick multiball 400, War 500 — and a duplicate is a dev-mode assertion. Each active mode receives every device and shot event (AD-19), highest priority first; scoring accrues from all active modes; presentation priority is the highest active mode. A mode owns its internal timers and contributes lamp roles by priority to `lampsOf(state)` (AD-9); it never emits a `CoilCommand`. Start and stop go only through `mode_<name>_will_start / _starting / _started` and `_will_stop / _stopping / _stopped`.
+- **Rule:** Priorities are unique — base 100, skill shot 200, Hurry-up 300, Joust 310, Quick multiball 400, War 500 — and a duplicate is a dev-mode assertion. Each active mode receives every device and shot event (AD-19), highest priority first; scoring accrues from all active modes; presentation priority is the highest active mode. A mode owns its internal timers and contributes lamp roles by priority to `lampsOf(state)` (AD-9); it never emits a `CoilCommand`. Start and stop go only through `mode_<name>_will_start / _starting / _started` and `_will_stop / _stopping / _stopped`. **Phasing (recorded 2026-09-06, Story 2.7 spec gate).** This Rule states the *target*, and the author's own epic structure already phases it: Story 3.1 (`epics.md`) is chartered to take “the minimal stack from Story 2.7” and *generalise* it — the once-declared priority table, the duplicate-registration assertion, and the four-phase lifecycle as the only start/stop path — and Story 2.5's AC 5 was formally amended on 2026-09-06 handing the `_will_stop` broadcast to 3.1 in writing. So Epic 2 ships a **minimal** stack (base 100 + skill shot 200) that starts and stops modes directly, with no lifecycle events and no registry. Until Story 3.1 lands, an implementation that omits the six lifecycle events is conforming, not violating; from Story 3.1 onward the Rule binds in full and a direct start/stop path is a defect. This amendment records a decision the planning artifacts already carry — it relaxes nothing and adds no new permission.
 
 ### AD-9 — Closed command union; outputs address devices by name and semantic step; lamp state is a projection
 

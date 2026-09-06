@@ -1639,6 +1639,9 @@ So that the game closes the way a real machine does.
 **When** it runs
 **Then** the Backglass cycles the last scores and shows the flipper, plunge and Start keys once from `ViewConfig.bindings` before cycling; the Walk-up camera sequence is added in Epic 4
 
+- DW-197: the Backglass score screen has no combined line budget, so with several players plus an active mode the mode information silently drops off the display rather than degrading visibly; the author's decision is to give the ball number a shared or shortened line rather than its own (ledger; routed by merge_gate 2026-09-06)
+- DW-198: the DMD never identifies WHICH player a score belongs to -- `DmdRow.emphasis` is set and asserted but no renderer reads it, and the Attract scores screen emits bare unlabelled numbers; the author's decision is to render `emphasis` as the current player's row highlighted or boxed, and its pinning test must assert that the rendered DOTS differ between an emphasised and an unemphasised row, never merely that the field is set (ledger; routed by merge_gate 2026-09-06)
+
 ## Epic 3: The Campaign and the War
 
 The five modes and the moment: lock two balls under the Dragon, spell DRAGON in either order, the Mouth opens and fires them back as fire, ten Strikes win the Jackpot. Hurry-up, Quick multiball, Joust, the Lock arbiter, the War, Strikes and the progressive Jackpot, re-qualification, stacking by priority, the extra-ball achievement menu, and the Dragon's mouth and hit-reaction shows. Scoring values freeze after this epic's first full playtest.
