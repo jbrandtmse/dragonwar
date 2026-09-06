@@ -167,3 +167,94 @@ describe('AC 1 -- vis_backbox\'s eight world-bbox corners project inside the fix
 		}
 	});
 });
+
+describe('[SMOKE] DW-199 -- vis_backbox\'s own thickness cannot project a visible extra dot-row above its DMD face', () => {
+	it('the box\'s front/back edge, projected at the panel\'s own top height, differs in NDC y by well under one dot row', async () => {
+		// Root cause (tools/make-placeholder-blend.py, BACKBOX_DMD_THICK_MM's own
+		// comment): vis_backbox is a plain six-face box carrying exactly ONE
+		// material slot (AD-11's export contract permits no more), so the SAME
+		// emissive DMD RawTexture that lights the player-facing (-Y / glb +Z)
+		// face ALSO lights the box's other five faces, each independently
+		// UV-unwrapped to its own full [0,1] square. Viewed from the fixed
+		// camera's real elevation, the box's TOP face -- a thin
+		// BACKBOX_DMD_THICK_MM-deep strip at the panel's own top height -- is
+		// visible nearly edge-on just above the front face's own top edge, and
+		// projects to a real, non-zero screen sliver that (whatever texel row
+		// its own coarse UV happens to sample) can render as a stray line of lit
+		// dots sitting right where the DMD's top text row starts -- this is
+		// DW-199, "the DMD's TOP text line is clipped by the backbox quad",
+		// found by the lead's browser smoke (AD-15 forbids a pixel-level
+		// automated assertion for the smoke itself). MEASURED (isolating
+		// vis_backbox's six faces one at a time via a real WebGL pixel readback,
+		// never NullEngine, whose readPixels() is null): the DMD-facing face
+		// alone renders every dot row completely and correctly with zero
+		// clipping -- the defect is entirely the TOP face's own independent
+		// ghost, not a UV or anchor problem on the real face. There is no
+		// material-level fix (AD-11 permits exactly one slot), so the only lever
+		// is the shared face's own screen footprint: this asserts it stays under
+		// a quarter of one dot row's own NDC height, the data-level invariant
+		// that was FALSE at the original BACKBOX_DMD_THICK_MM = 5.0 (measured
+		// delta 0.00309, over three and a half dot-row-quarters) and is TRUE
+		// after shrinking it to 1.0 (measured delta 0.00062).
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			const { scene } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' });
+			try {
+				const camera = scene.activeCamera;
+				expect(camera, 'scene has no active camera -- committed glb or loader wiring regressed').not.toBeNull();
+				const viewMatrix = camera!.getViewMatrix();
+				const projMatrix = camera!.getProjectionMatrix(true);
+				const viewProj = viewMatrix.multiply(projMatrix);
+				const ndcY = (v: Vector3): number => Vector3.TransformCoordinates(v, viewProj).y;
+
+				const backbox = scene.getMeshByName('vis_backbox');
+				expect(backbox, 'vis_backbox not found in the committed glb').not.toBeNull();
+				const corners = backbox!.getBoundingInfo().boundingBox.vectorsWorld;
+
+				// World Y is table Z (AD-10: glb +Y = table +Z) -- the box's own
+				// height axis. World Z is -table Y (the box's thin front/back
+				// axis). Group by height first (top = max world Y, 4 corners),
+				// then split that group into front (max world Z, nearer the
+				// camera) and back (min world Z) -- two corners each, differing
+				// only in the box's own thickness.
+				const maxY = Math.max(...corners.map((c) => c.y));
+				const topCorners = corners.filter((c) => Math.abs(c.y - maxY) < 1e-6);
+				expect(topCorners.length, 'sanity: the box\'s top face contributes exactly 4 of the 8 bbox corners').toBe(4);
+				const maxZAtTop = Math.max(...topCorners.map((c) => c.z));
+				const minZAtTop = Math.min(...topCorners.map((c) => c.z));
+				const frontTopNdcYs = topCorners.filter((c) => Math.abs(c.z - maxZAtTop) < 1e-6).map(ndcY);
+				const backTopNdcYs = topCorners.filter((c) => Math.abs(c.z - minZAtTop) < 1e-6).map(ndcY);
+				expect(frontTopNdcYs.length).toBe(2);
+				expect(backTopNdcYs.length).toBe(2);
+
+				// The largest front/back gap across both X sides -- a conservative
+				// (not averaged-away) bound on the top face's own screen footprint.
+				const thicknessNdcDelta = Math.max(
+					...frontTopNdcYs.flatMap((f) => backTopNdcYs.map((b) => Math.abs(b - f))),
+				);
+
+				// One dot row's own NDC height, from the SAME front face's already-
+				// asserted top and bottom corners above -- grounds the threshold in
+				// the DMD's own geometry rather than an arbitrary constant.
+				const minY = Math.min(...corners.map((c) => c.y));
+				const bottomCorners = corners.filter((c) => Math.abs(c.y - minY) < 1e-6);
+				expect(bottomCorners.length, 'sanity: the box\'s bottom face contributes exactly 4 of the 8 bbox corners').toBe(4);
+				const frontBottomCandidates = bottomCorners.filter((c) => Math.abs(c.z - Math.max(...bottomCorners.map((b) => b.z))) < 1e-6).map(ndcY);
+				expect(frontBottomCandidates.length, 'sanity: exactly two bottom corners share the front (max-Z) edge').toBe(2);
+				const frontBottomNdcY = frontBottomCandidates[0]!;
+				const frontTopNdcY = frontTopNdcYs[0]!;
+				const dotRowNdcHeight = Math.abs(frontTopNdcY - frontBottomNdcY) / DMD_ROWS;
+
+				expect(
+					thicknessNdcDelta,
+					`vis_backbox's thickness projects a ${thicknessNdcDelta.toFixed(6)} NDC-y sliver at the panel's top -- must stay under a quarter of one dot row's own NDC height (${(dotRowNdcHeight / 4).toFixed(6)}) or the shared-material top face can render a spurious extra line of dots there (DW-199)`,
+				).toBeLessThan(dotRowNdcHeight / 4);
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+});

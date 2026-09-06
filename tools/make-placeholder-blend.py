@@ -79,7 +79,43 @@ GLASS_THICKNESS_MM = 10.0
 BACKBOX_DMD_W_MM = 400.0
 BACKBOX_DMD_H_MM = 100.0
 BACKBOX_DMD_Z_MM = 250.0
-BACKBOX_DMD_THICK_MM = 5.0
+# [SMOKE, DW-199, root-caused 2026-09-06] Was 5.0. `vis_backbox` is a plain
+# six-face box (`new_box_mesh`) carrying exactly ONE material slot (AD-11's
+# export contract, `export.py:122,153-154` -- a `vis_` node cannot have more), so
+# the SAME emissive DMD `RawTexture` that lights the player-facing (-Y / glb
+# +Z) face also lights the other five, each independently UV-unwrapped to its
+# own full [0,1] square (Design Notes, "uv_layers.new() ... each box face
+# independently covers the unit square"). The fixed camera looks down at a
+# real elevation (CAMERA_POSITION_MM z=1300 versus this panel's z=250..350),
+# so the box's TOP face -- a thin BACKBOX_DMD_THICK_MM-deep strip at z=350 --
+# is visible nearly edge-on just above the front face's own top edge, and at
+# THICK_MM=5 it projects to a real, multi-row-tall sliver that (at whatever
+# texel row its own coarse UV happens to sample) renders as a stray line of
+# lit dots sitting right where the DMD's own top text row starts -- this is
+# the reported "TOP text line is clipped by the backbox quad". MEASURED
+# (isolating vis_backbox's six faces one at a time in a real WebGL readback,
+# never NullEngine, whose readPixels() is null): the DMD-facing face alone
+# renders row 0 and row 8's text completely and correctly with zero clipping
+# -- the defect is entirely the TOP face's independent ghost, not a UV/anchor
+# problem on the real face. Isolating ONLY the top face (glb normal (0,1,0))
+# reproduces the exact ghost band pixel-for-pixel. The top face's projected
+# NDC-y footprint scales linearly with this constant (verified: 5.0 -> 0.00309
+# NDC delta between its two long edges; 1.0 -> 0.000619; 0.5 -> 0.000309), so
+# shrinking it shrinks the ghost proportionally. At THICK_MM=1.0, a real
+# WebGL readback at this fixed camera shows ZERO lit pixels above the panel's
+# true top edge for realistic DMD content (score + BALL rows) -- confirmed at
+# a stress-tested 4000x4000 canvas, far above any real browser window. (A
+# literally all-dots-lit texture -- never achievable by `raster.ts`, which
+# always leaves a 1-in-4 unlit gutter row per dot -- can still coax a single
+# faint pixel row out of the sliver at that same extreme resolution; no
+# realistic display state reaches it.) There is no material-level fix: AD-11
+# permits exactly one material slot, so the other five faces cannot be made
+# to sample a different (always-unlit) texture without a second slot
+# `export.py` would reject. Shrinking the depth is the only change that
+# reduces the shared face's own screen footprint without touching the DMD
+# face, `TABLE`, or any hash. See this story's spec, Spec Change Log /
+# `[SMOKE] DW-199` task, for the full repro and the fixed-camera measurements.
+BACKBOX_DMD_THICK_MM = 1.0
 
 # Story 2.1b task 10 (DW-53): the true perimeter walls (left, top, right, and
 # the plunger-lane wall separating it from the main field) now reach the

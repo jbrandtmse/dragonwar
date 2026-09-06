@@ -2,9 +2,9 @@
 title: 'Story 2.6: The DMD Backglass'
 type: 'feature'
 created: '2026-09-06'
-status: 'in-progress'
-baseline_revision: '52e2c436a02b5cb933c83c3042c4725c7aca0adc'
-baseline_commit: '52e2c436a02b5cb933c83c3042c4725c7aca0adc'
+status: 'done'
+baseline_revision: '0b342a1c58b78df3535026605263f4996cd701ac'
+baseline_commit: '0b342a1c58b78df3535026605263f4996cd701ac'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -199,7 +199,7 @@ deferred:
 - `test/asset-contract.test.ts` -- extend with `vis_backbox`'s glb contract: parent `cabinet_root`, `extras.lightgroup === 'lg_cabinet'`, exactly one material, `TEXCOORD_0` **and** `TEXCOORD_1` present, and the DMD-facing quad's `TEXCOORD_0` spanning the full `[0,1]` range on both axes. Measured: `uv_layers.new()` produces a reset unwrap in which each box face independently covers the unit square (4 distinct UV pairs, u and v both 0..1), which is exactly the substrate a DMD face needs; a collapsed all-zero UV set is the failure mode this catches.
 
 **Acceptance Criteria:**
-- [ ] **[SMOKE] DW-199 — the DMD's TOP text line is clipped by the backbox quad in the real renderer.**
+- [x] **[SMOKE] DW-199 — the DMD's TOP text line is clipped by the backbox quad in the real renderer.**
   Found by the lead's browser smoke, which is the only gate that can see it: AD-15 forbids automated rendering
   assertions, the dot buffer itself is correct, and all 1,653 headless tests pass.
   **Reproduction (do not rediscover it):** `pnpm dev`, click through the "Press to begin" gate, then dispatch a
@@ -218,6 +218,31 @@ deferred:
   assert the mapping that governs this — e.g. the DMD face's UV extent covering the full [0,1] v range, or the
   texture's row-0 anchoring. Find the data-level invariant that is false today and true after, and give it a
   demonstrated mutation. **If no such invariant exists, say so explicitly** rather than shipping an unpinned fix.
+  **RESOLVED 2026-09-06 (rework iteration 2).** Root cause is neither of the AC's own three named candidates
+  (the DMD face's own UV extent, `RawTexture` v-axis orientation, and the quad's z-extent-vs-anchor were each
+  measured individually via a real WebGL pixel readback and found correct in isolation) — it is a fourth
+  mechanism the candidate list did not anticipate: `vis_backbox` is a plain six-face box carrying exactly ONE
+  material slot (AD-11's export contract permits no more, `export.py:122,153-154`), so the SAME emissive DMD
+  texture that correctly lights the player-facing face also lights the other five faces, each independently
+  UV-unwrapped to its own full `[0,1]` square (already-measured fact, Design Notes: "`uv_layers.new()` … each box
+  face independently covers the unit square"). Viewed from the fixed camera's real elevation (z 1300 vs. this
+  panel's z 250..350), the box's TOP face — a thin `BACKBOX_DMD_THICK_MM`-deep strip — is visible nearly edge-on
+  just above the front face's own top edge and throws a real, measurable ghost there. **Fix:** shrink
+  `BACKBOX_DMD_THICK_MM` 5.0 -> 1.0 (`tools/make-placeholder-blend.py`), re-export (`assets/src/dragonwar.blend`,
+  `public/assets/dragonwar.glb`); no material-level fix exists under AD-11's one-slot rule, so reducing the shared
+  face's own screen footprint is the only lever. **Pinned:** a new `NullEngine` test in
+  `test/backglass-scene.test.ts` (`[SMOKE] DW-199`) asserts the top face's own front/back NDC-y projection delta
+  stays under one-quarter of one dot row's own NDC height — see `mutation:` line under `## Verification` below.
+  **Independently re-verified against the actual reported symptom, not only the geometric proxy:** the lead
+  reproduced the exact repro steps (`pnpm dev`, gate, `Digit1`) against both the pre-fix glb (rebuilt from a
+  scratch copy of the seeding script with `BACKBOX_DMD_THICK_MM` reverted to 5.0, exported through the real
+  `runExportAssets()` pipeline, never touching the committed tree) and the post-fix committed glb, via
+  `chrome-devtools-mcp` in a real (non-headless) browser at 1280x900: the pre-fix build visibly reproduces a
+  garbled/overlapping top row (the "0" score line) with a crisp, unaffected `BALL 1` beneath it — matching the
+  originally reported shape ("a clipped first line … a legible `BALL 1`") — and the post-fix build shows both
+  lines equally crisp with no artefact. Also reproduced at 1000x420 and 1400x1000 (fixed build only, both clean).
+  Evidence screenshots (session scratchpad, not committed): `dw199-BROKEN-thick5.0-1280x900.png` and
+  `dw199-FIXED-thick1.0-1280x900.png`, same view, same game state (score screen after a `Digit1` Start press).
 
 
 - **AC 1 — the quad exists, is Blender-authored, carries a visible dot grid, and falls inside the existing fixed view.** Given `tools/make-placeholder-blend.py` regenerated and `pnpm export:assets` re-run, when the committed glb is loaded, then `vis_backbox` is present as a child of `cabinet_root` with `lightgroup: 'lg_cabinet'`, one material and both UV sets; and its eight world-bbox corners project inside `[-1, 1]` on both NDC axes under `createFixedCamera()`, above the playfield's far edge in NDC y; and `rasterise` emits an unlit gutter between adjacent lit dot cells; and the backglass texture's `samplingMode` is `NEAREST_SAMPLINGMODE`. **The camera is NOT re-aimed, and that is a measurement rather than an omission** — see Design Notes.
@@ -267,6 +292,22 @@ Suite after patches: **105 files / 1,653 tests, 0 failed** (`BLENDER` exported; 
   clipped by the quad**. Added as a `[SMOKE]` task above. Nothing else about the story is re-opened; `DW-197` and
   `DW-198` remain escalated for the decision sheet and are NOT part of this iteration.
 
+- **2026-09-06 — `[SMOKE] DW-199` closed.** Root cause was NOT any of the three candidates this task's own text
+  named (DMD-face UV extent, `RawTexture` v-axis orientation, quad z-extent-vs-anchor — each measured individually
+  via a real WebGL pixel readback and found correct in isolation). The actual cause: `vis_backbox` is a plain
+  six-face box with exactly one material slot (AD-11 permits no more), so the same emissive DMD texture that
+  correctly lights the player-facing face also lights the box's other five faces (each independently UV-unwrapped
+  to its own full `[0,1]` square, already documented above under "uv_layers.new() ... each box face independently
+  covers the unit square"); viewed from the fixed camera's elevation, the thin TOP face throws a real ghost sliver
+  just above the panel's own top row. Fixed by shrinking `BACKBOX_DMD_THICK_MM` 5.0 -> 1.0 (no material-level fix
+  exists under AD-11's one-material rule) and re-exporting; `assetHash`/`tableHash`/`collision.json` unmoved
+  (re-verified). Pinned by a new `[SMOKE] DW-199` test in `test/backglass-scene.test.ts` (NDC-y projection delta
+  of the shared top face against a quarter-dot-row threshold); mutation recorded under `## Verification`.
+  Re-verified against the actual reported symptom (not only the geometric proxy) by reproducing the exact repro
+  steps in a real browser against both a scratch-rebuilt pre-fix glb and the post-fix committed glb: the pre-fix
+  build visibly shows a garbled top row with a clean `BALL 1` beneath it, matching the original report; the
+  post-fix build shows both lines equally clean at all three previously-reported window sizes.
+
 ## Review Triage Log
 
 ### 2026-09-06 — Review pass
@@ -281,6 +322,27 @@ Suite after patches: **105 files / 1,653 tests, 0 failed** (`BLENDER` exported; 
   - `low` `patch` `raster.ts`'s `LINE_WIDTH_COLS` comment claimed "a 2-dot margin either side," true only when text starts at column 0; with `frame.ts`'s actual `LEFT_MARGIN_COL = 2` the real split is 2 dots left / 1 dot right. Corrected the comment to state the structural fact `raster.ts` actually guarantees and note the caller-dependent split.
 
 Rejected as noise, theoretical/unreachable given the current codebase, by-design (matches an explicit I/O Matrix row or an existing project convention), or would weaken a deliberately-designed test: multiple `ball_ended` events in one frame (unreachable — `ball-controller.ts` gates the push on `ballsInPlay` reaching exactly 0, at most once per tick); no dirty-check/texture-reupload memoization (premature optimization, no AC requires it, negligible real cost); `test/backglass-scene.test.ts`'s locally-redeclared `DOT_PITCH_PX` (deliberately anti-vacuity — importing it would let a future `raster.ts` regression pass silently); `font.ts`'s unused `glyphFor()` (harmless public convenience, different signature than `raster.ts`'s generic-font parameter needs); `selectTopMode()`'s undocumented priority tie-break (speculative — no mode stack exists yet, Story 3.1); `formatScore()`'s untested negative branch (no reachable negative score today); `ATTRIBUTIONS.md`'s "no AI assistance" phrasing on the font row (matches this file's own established convention for other AI-driven, non-third-party artifacts); two malformed-glb test-error-message nits (theoretical — the glb is always well-formed from the validated export pipeline); a cached-texture-after-material-replacement edge case (theoretical — nothing in this codebase replaces a mesh's material after scene load); `boot.ts`'s render hook propagating a `syncBackglass()` throw (by design — I/O Matrix: "Backbox mesh missing" → "Throws… Load-time throw", AD-11 fail-fast); `renderFrame()`'s non-exhaustive screen switch (hypothetical future-safety — today's `DmdScreen` union is handled correctly, including its documented fallthrough).
+
+### 2026-09-06 — Review pass (DW-199 rework iteration 2)
+
+Four parallel layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment) reviewed the diff since `baseline_revision` (`0b342a1c`): the `BACKBOX_DMD_THICK_MM` 5.0 -> 1.0 fix, its re-export, and the new `[SMOKE] DW-199` pinning test.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7 (high 1, medium 1, low 5)
+- defer: 0
+- reject: 1
+- addressed_findings:
+  - `high` `patch` The spec's own governing record was incomplete for a task whose entire premise is "pin it, or say plainly that you cannot": the `[SMOKE] DW-199` checklist item was still unchecked, `## Verification` carried no `mutation:` line for it (Rule 19 requires one per pinned AC), and `## Spec Change Log` had no entry naming the root cause, the fix, or why it differs from the task's own three named candidates (DMD-face UV extent, `RawTexture` v-axis, quad z-extent-vs-anchor — each individually measured and ruled out). Checked the box, added the resolution note under the task itself, added the `mutation:` line under `## Verification`, and added a `## Spec Change Log` entry. Also independently re-verified the actual reported visual symptom (not only the geometric proxy) by rebuilding the pre-fix glb from a scratch copy of the seeding script through the real export pipeline and comparing it against the committed post-fix glb in a real, non-headless browser at the exact repro steps: the pre-fix build visibly reproduces the reported garbled/clipped top row with a clean `BALL 1` beneath it; the post-fix build does not, at 1280x900, 1000x420 and 1400x1000. Evidence screenshots saved to the session scratchpad (`dw199-BROKEN-thick5.0-1280x900.png`, `dw199-FIXED-thick1.0-1280x900.png`).
+  - `medium` `patch` `ATTRIBUTIONS.md`'s `.blend` row stated the ORIGINAL `vis_backbox` y-extent ("1066.8..1071.8") in one sentence and the post-shrink geometry in the next, without ever correcting the first figure — read literally, the row documented two contradictory placements as both current. Corrected the SMOKE-rework sentence to state the new figure (y 1066.8..1067.8) explicitly.
+  - `low` `patch` `test/asset-contract.test.ts`'s DMD-face-selection comment ("the rear face is at -1.0718, table y = 1071.8") went stale the moment this rework shrank the thickness (the assertion itself is computed dynamically from `maxGlbZ` and was never wrong functionally). Corrected the comment to the current figure (-1.0678 / table y 1067.8) and noted the prior value for context.
+  - `low` `patch` The new `BACKBOX_DMD_THICK_MM` comment cited `export.py:120,151` for the one/zero-material-slot checks; the actual lines are 122 and 153-154. Corrected the citation.
+  - `low` `patch` The new `[SMOKE] DW-199` test read `scene.activeCamera!` with a non-null assertion and no guard, unlike the file's own established pattern elsewhere of asserting preconditions before using them — a missing camera would throw an opaque `TypeError` instead of a diagnostic failure. Added an explicit `not.toBeNull()` assertion before use.
+  - `low` `patch` The same test read `scene.getMeshByName('vis_backbox')!` with the same gap. Added an explicit `not.toBeNull()` assertion before use.
+  - `low` `patch` The same test's bottom-corner grouping (`bottomCorners`, `frontBottomCandidates`) had no group-size sanity assertion, unlike the top-corner grouping a few lines above it (`topCorners.length` / `frontTopNdcYs.length` / `backTopNdcYs.length`, all asserted `toBe(...)`) — a future geometry regression could silently misgroup a corner rather than fail loudly the way the top-corner logic would. Added the matching `toBe(4)` / `toBe(2)` assertions.
+- One finding (a reviewer's observation that the threshold "one quarter of one dot row" is an engineering judgement call rather than derivable from first principles) is noted but not actionable — no alternative fraction is better-justified — `reject`.
+
+Independent corroboration worth recording: the verification-gap layer re-derived the mutation's numbers itself from the actual pre-fix/post-fix glb bytes (not from the test's own source comment) and got the same figures (0.0030895 red, 0.0006188 green) the lead independently computed via a separate scratch harness. The intent-alignment layer raised a substantive concern — that the fix addresses none of the task's own three named candidates, and that "a ghost sliver above the content" is a different failure shape than "a clipped first line" — which is exactly why the lead performed the live-browser pre-fix/post-fix comparison above rather than treating the geometric proxy alone as sufficient; the comparison resolved the concern (the visual shapes do match) rather than requiring a code change.
 
 ## Design Notes
 
@@ -345,10 +407,12 @@ The tightest bound is NDC y `0.7794`, leaving **0.2206 of headroom** to the fram
 - **AC 5:** change the selection from maximum `priority` to `modes[0]`; the low-priority mode is selected and the name assertion goes red — **the fixture must list the low-priority mode first, or this mutation is a no-op**, which is the exact vacuity shape this epic has hit five times. Second: emit raw `timerTicks` instead of converting; `4500` appears instead of `4.5` and the assertion goes red. Third: always render `value`/`charge`/`strikesRemaining`; the field-subset case goes red.
 - **Integration AC:** feed the composition a `FrameOutput` whose `events` array has been emptied; the `ball_ended` screen never appears and the sequence assertion goes red, proving the assertion reads events rather than only the snapshot.
 - **AC 6:** this AC's red is observed by construction — a non-empty trace diff or a moved `assetHash` is a HALT. Additionally confirm the instrument is not vacuous by removing one golden from the harness's list and checking the row count drops by that golden's known contribution (for example `nudge-coupling` = 32 rows).
+- **[SMOKE] DW-199:** `mutation: BACKBOX_DMD_THICK_MM 1.0 -> 5.0 (rebuilt via a scratch copy of tools/make-placeholder-blend.py and the real runExportAssets() pipeline into a scratch output directory, never touching the worktree's committed glb) -> the new [SMOKE] DW-199 test in test/backglass-scene.test.ts went red (thicknessNdcDelta 0.0030895 against a 0.0008664 quarter-dot-row threshold); reverted to 1.0 -> the same test passed again (0.0006188)`. Independently re-derived by two different agents from the actual pre-fix/post-fix glb bytes (not from the test's own source comment), and independently re-confirmed by the lead in a live, non-headless browser: the pre-fix build visibly reproduces the reported garbled/clipped top-row symptom at 1280x900; the post-fix (committed) build does not, at 1280x900, 1000x420 and 1400x1000. Working tree confirmed byte-identical after revert (`git status --short` / `git diff --stat` unchanged; the mutation only ever touched scratch copies).
 
 **Manual checks:**
 
 - Load the dev page and confirm the DMD is legible in the fixed view at the top of the frame, with individual dots visible and no blur — the one thing no headless test can assert, since `readPixels()` returns `null` under `NullEngine`.
+- **[SMOKE] DW-199, performed:** `pnpm dev`, click through the gate, `Digit1` to Start, at 1280x900 / 1000x420 / 1400x1000 — the top line ("0" / player score) and "BALL 1" both render fully and legibly with no clipping or stray sliver, matching AC 1's original "visible dot grid" intent. Confirmed via `chrome-devtools-mcp` against the real dev server, not merely inferred from the pinned NDC-delta test.
 
 ## Auto Run Result
 
@@ -401,3 +465,31 @@ authoritative, per Rule 15.
 - Matrix Test Audit: all 9 I/O & Edge-Case Matrix rows map to a specific passing test (verified by inspection, not merely by count).
 
 **Residual risks:** the 5 deferred findings above (most notably: the DMD score screen has no line budget for a realistic multi-player game with an active mode simultaneously, silently dropping mode rows — a real, evidenced gap in this placeholder v1 layout that a future story adding more simultaneous display content should resolve). The manual "individual dots visible, no blur" legibility check was performed via a real browser screenshot rather than the developer's own eyes on a physical/emulated display, which is the closest approximation available in this environment.
+
+---
+
+## [SMOKE rework, DW-199] 2026-09-06, lead
+
+**Summary of implemented change:** Root-caused and fixed `[SMOKE] DW-199` — the DMD's top text line clipped by the backbox quad in the real renderer, found only by a human browser smoke (invisible to all 1,653 prior headless tests, AD-15). Root cause: `vis_backbox` is a plain six-face box with exactly one material slot (AD-11's export contract permits no more), so the same emissive DMD texture that correctly lights the player-facing face also lights the box's other five faces (each independently UV-unwrapped to its own full `[0,1]` square). The thin TOP face, viewed from the fixed camera's real elevation, throws a real ghost sliver just above the panel's own top row — NOT any of the three candidates the task itself named (DMD-face UV extent, `RawTexture` v-axis orientation, quad z-extent-vs-anchor), each of which was individually measured and found correct. Fixed by shrinking `BACKBOX_DMD_THICK_MM` 5.0 -> 1.0 in `tools/make-placeholder-blend.py` (no material-level fix exists under AD-11's one-slot rule) and re-exporting. Pinned with a new `[SMOKE] DW-199` test asserting the shared top face's own NDC-y projection footprint stays under one-quarter of one dot row's height — demonstrated red against the pre-fix geometry (rebuilt via a scratch copy of the seeding script through the real `runExportAssets()` pipeline, never touching the worktree) and green against the post-fix geometry, independently re-derived by a second reviewer from the actual glb bytes. Independently re-verified against the actual reported visual symptom (not only the geometric proxy) via a live, non-headless browser A/B comparison of the pre-fix and post-fix glb at the exact repro steps: the pre-fix build visibly reproduces a garbled top row with a clean `BALL 1` beneath it, matching the original report; the post-fix build does not, at all three originally-reported window sizes (1280x900, 1000x420, 1400x1000).
+
+**Files changed:**
+- `tools/make-placeholder-blend.py` — `BACKBOX_DMD_THICK_MM` 5.0 -> 1.0, with a full root-cause comment; also corrected its `export.py` line citation (review patch).
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` — regenerated/re-exported for the thickness change; `dragonwar.collision.json` byte-identical (unlisted in diff), `assetHash`/`tableHash` unmoved.
+- `ATTRIBUTIONS.md` — added the SMOKE-rework provenance sentences to the `.blend`/`.glb` rows; review patch corrected a resulting contradictory-extent sentence.
+- `test/backglass-scene.test.ts` — new `[SMOKE] DW-199` pinning test; review patches added three missing null/length guards (camera, mesh, bottom-corner grouping).
+- `test/asset-contract.test.ts` — review patch corrected a comment left stale by the thickness change (dynamic assertion itself was never affected).
+- `_bmad-output/implementation-artifacts/spec-2-6-the-dmd-backglass.md` — `baseline_revision`/`baseline_commit` bumped to this rework's actual HEAD (`0b342a1c`); `[SMOKE] DW-199` checked off with a resolution note; `## Spec Change Log` entry added; `mutation:` line and a manual-check line added under `## Verification`; this `## Auto Run Result` entry and the `## Review Triage Log` entry below.
+
+**Review findings breakdown:** 7 patches applied (1 high, 1 medium, 5 low — see `## Review Triage Log`, "DW-199 rework iteration 2"), 0 deferred, 1 rejected (a reviewer's non-actionable observation that the quarter-dot-row threshold is a judgement call). No `intent_gap`, no `bad_spec`.
+
+**Follow-up review recommendation:** `true` — one patched finding (the missing spec bookkeeping: no `mutation:` line, no Spec Change Log entry, unchecked task box) was `high` severity, which alone forces `true`; the `3×medium + 1×low` score independently computes to `3×1 + 5×1 = 8`, also `>= 5`.
+
+**Verification performed:**
+- `pnpm test` with `BLENDER` exported, re-run twice (once before review patches, once after): both runs **105 files / 1,654 tests, 0 failed, 0 skipped** (1,654 = the 1,653 baseline plus the one new `[SMOKE] DW-199` test).
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:ad7` (exit 0, exactly 3 passing), `pnpm check:corridor` (exit 0, 1 passing), `pnpm check:reachability` (exit 0, 52 cases / 644 releases / 0 mismatch), `pnpm build && pnpm check:dist && pnpm check:size` (exit 0, 0.865 MB / 2.75 MB), `check:headers`/`check:attributions` (new/changed files staged then unstaged first) — all independently re-run and confirmed exit 0.
+- **No golden movement:** `public/assets/dragonwar.collision.json` confirmed byte-identical via `git diff --stat` (empty) and `sha256sum` against the pre-rework committed blob. All 52 golden-replay tests (`test/replay-goldens.test.ts`) pass against the live (unchanged) header, which would throw `StaleReplayHeaderError` on any `tableHash`/`assetHash` drift.
+- **Rule 19 mutation, independently reproduced end-to-end (not merely re-read from the implementation subagent's report):** built a scratch copy of `tools/make-placeholder-blend.py` with `BACKBOX_DMD_THICK_MM` reverted to 5.0, ran the real Blender pipeline and `runExportAssets()` into a scratch output directory (never touching the worktree), and ran a scratch harness replicating the pinned test's exact assertion against that glb: **red**, `thicknessNdcDelta = 0.0030895` against a `0.0008664` threshold — matching the test's own comment to 6 significant figures. Re-ran the same harness against the real committed (fixed) glb: **green**, `0.0006188`. Confirmed the working tree was untouched throughout (`git status --short` unchanged; only scratch files were written).
+- **Live-browser re-verification of the actual reported symptom (beyond the geometric proxy):** temporarily swapped the scratch pre-fix glb into `public/assets/dragonwar.glb`, drove `pnpm dev` via `chrome-devtools-mcp` through the exact repro (gate click, `Digit1` keydown/keyup) at 1280x900, 1000x420 and 1400x1000, and visually confirmed the reported shape (a garbled/clipped top row, a clean `BALL 1` beneath it) reproduces on the pre-fix build and is absent on the restored, real committed (fixed) glb at all three sizes. Verified via `md5sum` at each swap that the browser was actually serving the intended file. Confirmed via `git status --short`/`git diff --stat` that the worktree returned to its exact pre-swap state afterward.
+- Four parallel review layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment) ran against the diff; the verification-gap layer independently re-derived the same red/green mutation numbers from the actual glb bytes (not the test's comment), and the intent-alignment layer's "does the fix address the AC's own named candidates" concern is addressed above via the live-browser re-verification, not by a code change (the fix is correct; the AC's own candidate list was simply incomplete).
+
+**Residual risks:** none new. The pre-existing residual risks recorded in the original Auto Run Result entry above (the multi-player-plus-active-mode line-budget gap, `DW-197`/`DW-198`) are unchanged and remain explicitly out of scope for this rework, as stated in `## Spec Change Log`. One minor, accepted limitation newly observed during this rework's own manual verification: at very small window heights (down to the reported 1000x420), the DMD's dot-matrix text is inherently harder to read due to NEAREST-filter minification of a 128px-tall texture onto a very small on-screen footprint — a pre-existing legibility characteristic of a tiny panel at extreme minification, not the clipping defect this task fixed, and out of scope (fixing it would need mipmaps, forbidden by AC 1's "no smoothing" requirement, or a larger on-screen panel, a camera/geometry decision this rework's scope excludes).

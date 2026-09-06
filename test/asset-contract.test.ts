@@ -2483,7 +2483,8 @@ describe('asset contract -- Story 2.6: vis_backbox\'s glb contract (AD-11, the D
 		).toBe(4);
 		// Corroborate the normal-based pick against geometry: all four must sit
 		// at table y = 1066.8, i.e. the MAXIMUM glb z (-1.0668) -- the rear face
-		// is at -1.0718 (table y = 1071.8).
+		// is at -1.0678 (table y = 1067.8, BACKBOX_DMD_THICK_MM = 1.0 as of the
+		// [SMOKE] DW-199 rework; was -1.0718 / table y 1071.8 before it).
 		const maxGlbZ = Math.max(...positions.map((p) => p.z));
 		for (const i of dmdFaceIndices) {
 			expect(
