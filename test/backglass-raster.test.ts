@@ -116,6 +116,23 @@ describe('rasterise() -- clamping (I/O Matrix: "Text exceeds the panel")', () =>
 		expect(litDots(raster).length).toBeGreaterThan(0);
 	});
 
+	it('DW-196: a glyph authored to overflow the BOTTOM edge of the buffer never wraps its dots into an earlier row (the symmetric counterpart of the right-edge overflow test above)', () => {
+		// "I" is GLYPH_H (7) tall; starting two rows from the bottom edge
+		// forces its bottom rows past DMD_ROWS.
+		const overflowRow = DMD_ROWS - 2;
+		const overflowCol = 40;
+		const raster = rasterise(frameOf(row({ text: 'I', col: overflowCol, row: overflowRow })), FONT_5X7);
+
+		for (const [r, c] of litDots(raster)) {
+			expect(r, `every lit dot must stay within this glyph's own row band (${overflowRow}..${DMD_ROWS - 1}) -- a dot outside it (e.g. wrapped to an earlier row) means the overflow was not clipped`).toBeGreaterThanOrEqual(overflowRow);
+			expect(r, 'no lit dot may sit at or past the buffer\'s bottom edge').toBeLessThan(DMD_ROWS);
+			expect(c, `every lit dot must stay within this glyph's own column band (${overflowCol}..${overflowCol + GLYPH_W - 1}) -- a dot outside it means the overflow wrapped into a neighbouring column`).toBeGreaterThanOrEqual(overflowCol);
+			expect(c).toBeLessThan(overflowCol + GLYPH_W);
+		}
+		// The glyph must still have drawn SOMETHING (its top, in-bounds rows) -- proves the clip is partial, not "silently drew nothing at all".
+		expect(litDots(raster).length).toBeGreaterThan(0);
+	});
+
 	it('a row authored partially above the buffer (negative row) clips the off-buffer portion and renders only the in-bounds rows, at the correct coordinates', () => {
 		const raster = rasterise(frameOf(row({ text: 'I', col: 0, row: -4 })), FONT_5X7);
 		const glyph = FONT_5X7['I']!;
@@ -133,6 +150,26 @@ describe('rasterise() -- clamping (I/O Matrix: "Text exceeds the panel")', () =>
 			}
 		}
 		expect(expected.length, 'sanity: at least one in-bounds row must remain lit, or this test proves nothing').toBeGreaterThan(0);
+		expect(litDots(raster).sort()).toEqual(expected.sort());
+	});
+
+	it('DW-196: a row authored partially left of the buffer (negative column) clips the off-buffer portion and renders only the in-bounds columns, at the correct coordinates (the symmetric counterpart of the negative-row test above)', () => {
+		const raster = rasterise(frameOf(row({ text: 'I', col: -2, row: 0 })), FONT_5X7);
+		const glyph = FONT_5X7['I']!;
+		const expected: Array<[number, number]> = [];
+		for (let gy = 0; gy < GLYPH_H; gy++) {
+			for (let gx = 0; gx < GLYPH_W; gx++) {
+				const destCol = -2 + gx;
+				if (destCol < 0) {
+					continue;
+				}
+				const lit = (glyph[gy]! >> (GLYPH_W - 1 - gx)) & 1;
+				if (lit) {
+					expected.push([gy, destCol]);
+				}
+			}
+		}
+		expect(expected.length, 'sanity: at least one in-bounds column must remain lit, or this test proves nothing').toBeGreaterThan(0);
 		expect(litDots(raster).sort()).toEqual(expected.sort());
 	});
 });

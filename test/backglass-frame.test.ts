@@ -58,6 +58,18 @@ describe('renderFrame() -- the score screen (AC 2)', () => {
 	});
 });
 
+describe('advanceBackglass() -- game_over and highscore_entry also fall through to the score screen (DW-196: only phase "game" was previously exercised, though the doc comment above advanceBackglass() names all three)', () => {
+	it.each(['game_over', 'highscore_entry'] as const)('phase "%s" selects the score screen, exactly like phase "game"', (phase) => {
+		const game: GameState = {
+			...BASE_GAME_STATE,
+			phase,
+			players: [buildPlayer({ score: 42, ballNumber: 1 })],
+		};
+		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ game }) }));
+		expect(view.screen).toBe('score');
+	});
+});
+
 describe('AC 3 -- the end-of-ball screen names the player from the event payload, built from a REAL runRulesScript run', () => {
 	it('ball_ended.player and snapshot.game.currentPlayer genuinely disagree (Hot seat rotation), and the screen names the PAYLOAD player, not the snapshot\'s', () => {
 		// Design Notes, "AC 3's disagreement is real": close('s_start') twice
@@ -230,10 +242,84 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 
 	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL '];
 
-	/** Comments freely discuss balls and players in English prose -- this scan cares about actual source TEXT (string/template literal content), never comments, so strip both comment styles first (the same "comments exempt" carve-out `boundary-lint.mjs`'s own device-name-literal check applies). */
+	/**
+	 * Comments freely discuss balls and players in English prose -- this scan
+	 * cares about actual source TEXT (string/template literal content), never
+	 * comments, so strip both comment styles first (the same "comments exempt"
+	 * carve-out `boundary-lint.mjs`'s own device-name-literal check applies).
+	 *
+	 * DW-195: a prior version of this function used
+	 * `source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')` --
+	 * both regexes look for "//" or `/*` ANYWHERE on a line, including inside
+	 * a live string or template literal (e.g. a URL like `"http://example"`,
+	 * or a genuine display-literal string that merely follows one earlier on
+	 * the same line). That would truncate everything from the false "comment
+	 * start" to end of line, silently deleting real source TEXT this scan is
+	 * supposed to see -- which could hide an actual display-literal violation
+	 * under `src/sim/**` from the negative-control test below, or hide a
+	 * genuine literal from the positive control above. This version walks the
+	 * source character by character, tracking whether it is inside a `'`/`"`/
+	 * `` ` `` string (respecting `\`-escapes) so a `//` or `/*` inside a live
+	 * string is left completely alone -- only a REAL comment, outside any
+	 * string, is stripped.
+	 */
 	function stripComments(source: string): string {
-		return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+		let out = '';
+		let inString: '\'' | '"' | '`' | null = null;
+		for (let i = 0; i < source.length; i++) {
+			const c = source[i];
+			if (inString) {
+				out += c;
+				if (c === '\\' && i + 1 < source.length) {
+					out += source[i + 1];
+					i += 1;
+				} else if (c === inString) {
+					inString = null;
+				}
+				continue;
+			}
+			if (c === '\'' || c === '"' || c === '`') {
+				inString = c;
+				out += c;
+				continue;
+			}
+			if (c === '/' && source[i + 1] === '/') {
+				while (i < source.length && source[i] !== '\n') {
+					i += 1;
+				}
+				out += '\n';
+				continue;
+			}
+			if (c === '/' && source[i + 1] === '*') {
+				i += 2;
+				while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) {
+					i += 1;
+				}
+				i += 1; // land on the closing '/'; the loop's i++ advances past it
+				continue;
+			}
+			out += c;
+		}
+		return out;
 	}
+
+	it('DW-195: stripComments() does not truncate a real string literal that shares a line with an earlier "//" inside ANOTHER string (the naive regex this replaced would delete everything after the first "//" on the line, comment or not)', () => {
+		// "http://also-real" is real string content containing "//" -- a naive
+		// line-comment regex firing on the FIRST "//" it sees would treat it as
+		// a comment start and delete everything after it on the line, including
+		// the "PLAYER " literal in the SECOND string below.
+		const source = 'const url = "http://also-real"; const label = "PLAYER ";';
+		const stripped = stripComments(source);
+		expect(stripped, 'a "//" inside a string must not be treated as a comment start').toContain('http://also-real');
+		expect(stripped, 'a real string literal sharing the line with an earlier "//"-in-a-string must survive').toContain('PLAYER ');
+	});
+
+	it('DW-195 control: stripComments() still strips a GENUINE line comment, including one that follows real code on the same line', () => {
+		const source = 'const label = "PLAYER "; // PRESS START is only ever discussed here, in prose';
+		const stripped = stripComments(source);
+		expect(stripped, 'the real string literal before the comment must survive').toContain('PLAYER ');
+		expect(stripped, 'a genuine comment must still be removed').not.toContain('PRESS START');
+	});
 
 	it('every display literal actually appears somewhere under src/presentation/backglass/** (a non-vacuous positive control)', () => {
 		const backglassDir = path.resolve(__dirname, '..', 'src', 'presentation', 'backglass');

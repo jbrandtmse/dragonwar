@@ -86,6 +86,28 @@ describe('syncBackglass() -- the RawTexture wiring (AC 1: NEAREST_SAMPLINGMODE, 
 		}
 	});
 
+	it('DW-196: the emissive RawTexture is created with mipmap generation disabled -- AC 1\'s "no smoothing" would otherwise rest on an unasserted property', async () => {
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			const { scene } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' });
+			try {
+				const raster = rasterise(EMPTY_FRAME, FONT_5X7);
+				syncBackglass(scene, raster);
+
+				const node = getRequiredNode(scene, 'vis_backbox') as AbstractMesh;
+				const material = node.material as PBRMaterial;
+				const texture = material.emissiveTexture;
+				expect(texture, 'syncBackglass() must assign the mesh material\'s emissiveTexture').not.toBeNull();
+				expect(texture!.noMipmap, 'AC 1: mipmap generation must be disabled on the DMD texture, or a mip-level LOD swap could blur it despite NEAREST_SAMPLINGMODE').toBe(true);
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+
 	it('a scene with no vis_backbox throws naming the node (I/O Matrix: "Backbox mesh missing")', () => {
 		const engine = new NullEngine();
 		const scene = new Scene(engine);
