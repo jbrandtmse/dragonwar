@@ -2,8 +2,8 @@
 title: 'Story 2.5: Start, Hot seat and the ball lifecycle'
 type: 'feature'
 created: '2026-09-05'
-status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
-baseline_revision: 'd9f351f17fcef30bf3e1a3ffbdef4002bf277f7c'
+status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: '875babbf2515f1ac8ddb0002861d81ba3f68292b'
 baseline_commit: 'd9f351f17fcef30bf3e1a3ffbdef4002bf277f7c'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -63,6 +63,31 @@ deferred:
       story's ACs.
     location: 'src/sim/loop/index.ts (initialMachineState) vs src/sim/physics/machine.ts (coilEnabled defaults)'
     severity: low
+  - summary: >-
+      The [CI] rework's ANSI-fragility fix for test/ad7-device-slots.test.ts re-implements
+      human-summary-line scraping (stripAnsi/extractPassingCount) instead of adopting the
+      JSON-reporter pattern this codebase already established for the identical failure class
+      in test/export-py-skip-visibility.test.ts (DW-107).
+    evidence: |-
+      Verification-gap review, 2026-09-06 ([CI] rework pass). DW-107
+      (_bmad-output/implementation-artifacts/deferred-work.md) closed an identical
+      ANSI-colourised-summary-line failure by spawning with `--reporter=json
+      --outputFile=...` and reading structured `numPassedTests`/`numFailedTests` fields, with
+      the generalized rationale recorded there: "A reporter contract cannot drift with a
+      terminal's colour support; a human summary line can, and did." This rework's fix instead
+      widens the ANSI-stripping regex and disables colour at the source, which closes the
+      reported CI failure (verified) but remains exposed to any future vitest summary-line
+      wording drift unrelated to colour -- the same failure class, a different trigger. Not
+      adopted in this pass: switching test/ad7-device-slots.test.ts's nested-harness invocation
+      to a JSON reporter is a larger, riskier change to a CI-critical meta-gate than this
+      narrowly-scoped CI-red rework should absorb untested against the actual Ubuntu runner --
+      the same "unreproducible locally by construction" constraint that caused the original bug
+      also limits confidence in validating a differently-shaped fix locally. No concrete second
+      failure demonstrated; this is a structural precedent match, not a reproduced bug.
+    location: >-
+      test/ad7-device-slots.test.ts:30-99 (stripAnsi/extractPassingCount) vs
+      test/export-py-skip-visibility.test.ts:145-206 (the JSON-reporter precedent, DW-107)
+    severity: medium
 ---
 
 <intent-contract>
@@ -219,7 +244,7 @@ deferred:
 19. `test/replay-goldens.test.ts` — the stale prose. **`:32-33` must stop naming Story 2.5 as the prologue remover** and name Epic 3 / Story 3.7 / `DW-175` instead. Also correct: `:501-502` (`// 7300` / `// 8100` against the real 8650 / 9250), `:546` (a tick-7394 / "94 ticks after the press" clause anchored to the retired 7300), `:213` and `:216` (an "8110-tick window" that now precedes the 8650 press, against `durationTicks: 9600`), `:217-218` (claims the description says "drains shortly after release"; it says the ball is **still in play** at `durationTicks`), and `:546-548`/`:594` ("48.30 mm" against the notes' recorded 103.8 mm). *Rationale: Story 2.4 task 13's own rationale — a comment that is now false is a review finding; and `:32-33` is the one place in the repository that still assumes prologue removal.*
 
 **Acceptance Criteria:**
-- [ ] **[CI] Checks / Test: `test/ad7-device-slots.test.ts` fails on Ubuntu while passing on Windows** — run
+- [x] **[CI] Checks / Test: `test/ad7-device-slots.test.ts` fails on Ubuntu while passing on Windows** — run
   34038163487 on `97d859b`, job "Checks", step "Test". 1 failed / 1581 passed / 26 skipped (101 files).
   **Diagnosed, do not re-diagnose.** The wrapper scrapes the nested harness's summary with
   `/Tests\s+(\d+)\s+passed/`. On the CI runner **vitest colourises its output**, so the line arrives as
@@ -364,6 +389,32 @@ Rejected (8, all low/theoretical or already resolved elsewhere, dropped silently
 
 Deferred (3, low severity, filed to frontmatter `deferred:` for the lead's harvest): the two independent, un-cross-checked slot-occupancy trackers; `deriveDeviceSlots()`'s untested same-tick multi-edge fold path; and the `hardwareEnabled` semantic-vs-physical boot-time gap (physics coils default enabled at the machine's very first boot despite the new semantic flag reading false — closed for every subsequent Attract phase by the real game-over disables, narrow only at first-ever boot).
 
+### 2026-09-06 — Review pass ([CI] rework)
+
+Four review layers ran in parallel against the diff since `baseline_revision` (`875babbf2515f1ac8ddb0002861d81ba3f68292b` — reset at this rework's implement step to scope the diff to only the `[CI]` fix, not the whole story): blind-hunter, edge-case-hunter, verification-gap, intent-alignment. Diff: the ANSI-proofing fix to `test/ad7-device-slots.test.ts` (`stripAnsi`/`extractPassingCount`, `--no-color`/`NO_COLOR`/`FORCE_COLOR=0`, the synthetic-coloured-input regression test) plus the spec's own `baseline_revision` bump.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4 (0 high, 1 medium, 3 low)
+- defer: 1 (0 high, 1 medium, 0 low)
+- reject: 3 (0 high, 0 medium, 3 low)
+- addressed_findings:
+  - `medium` `patch` verification-gap flagged (Rule 19) that the `[CI]` AC's own prescribed mutation ("revert the ANSI strip → the synthetic test reddens") was personally performed at implementation time but never recorded in `## Verification` — added the `[CI]` mutation entry there, re-verified against the final patched file (reddened `expected null to be 3` as predicted, reverted, tree confirmed byte-identical).
+  - `low` `patch` (blind-hunter + edge-case-hunter, deduplicated) `ANSI_ESCAPE_PATTERN` matched only `m`-terminated SGR escapes, understating its own "robust against a future runner" comment — widened to any CSI sequence terminated by a letter (`/\x1b\[[0-9;]*[a-zA-Z]/g`), still anchored on the literal ESC+`[` prefix so it cannot match ordinary text; re-verified all 6 tests in the file plus `pnpm check:ad7` (3/3) still green after.
+  - `low` `patch` (blind-hunter) the signal-kill diagnostic message interpolated raw, potentially colourised `stdout`/`stderr` while the very next assertion's message already read the ANSI-stripped `output` — made consistent, both now read `output`.
+  - `low` `patch` (blind-hunter) `extractPassingCount`'s JSDoc said "Exported as its own function" when the function carries no `export` keyword (module-local only) — corrected to "Factored out as its own function (module-local, not exported)".
+
+**Deferred (1, medium severity, filed to frontmatter `deferred:` for the lead's harvest):** verification-gap (missing-adoption gap) found that this rework's fix re-implements human-summary-line scraping instead of adopting the JSON-reporter pattern (`--reporter=json`, structured `numPassedTests`) this codebase already established for the identical ANSI-fragility failure class in `test/export-py-skip-visibility.test.ts` (ledger `DW-107`). Real and well-evidenced, but not adopted in this pass: switching this CI-critical meta-gate's harness invocation to a differently-shaped, untested-against-Ubuntu approach carries more risk than this narrowly-scoped CI-red rework should absorb — the same "unreproducible locally by construction" constraint that caused the original bug also limits confidence in validating an alternative fix locally. Filed for the lead to decide whether a follow-up story adopts the JSON-reporter pattern here too.
+
+**Rejected (3, all low, dropped silently per the workflow's own instruction — logged here for the record):**
+- Duplicated CI-diagnosis comment narrative across two comment blocks in the same file (blind-hunter) — deliberate redundancy for standalone readability at each site, not a functional defect; stylistic.
+- A `spawnSync` timeout could in principle kill the child mid-write of an ANSI escape sequence, leaving a partial escape fragment (edge-case-hunter) — unreachable in any observable way: a timeout already fails the test on `result.status`/`result.signal` before the partial-fragment concern would matter, and `HARD_TIMEOUT_MS` (30 s) is far above this harness's measured ~1 s runtime.
+- `baseline_revision` now permanently diverges from `baseline_commit` (edge-case-hunter) — confirmed intentional, per-iteration behavior: `baseline_revision` is reset at each implement dispatch to scope that iteration's review diff, while `baseline_commit` records the story's original starting point; investigated against the kit's own `step-03-implement.md`/`step-04-review.md` definitions, not a bug.
+
+Intent-alignment (descriptive only, per its own charter — no findings requiring disposition): confirmed the diff implements the narrow `[CI]`-task reading precisely and item-by-item, while leaving the frozen `<intent-contract>`'s broader AD-7 guardrails intact (`git diff --stat` touches only `test/ad7-device-slots.test.ts` and the spec markdown; no `src/**` file changed). Noted three structural observations, none prescribing further action: the fix's own belt-and-braces `--no-color` means the real subprocess path will not exercise the colourised branch of `extractPassingCount` going forward (only the synthetic test does, which is the design's known and accepted shape); the "fails locally today" claim rests on inspection plus this pass's own re-run mutation, not a separate captured red commit; and the gate's "red is demonstrable" property now lives as two disjoint mechanisms in the same file (the pre-existing AD-7 source-scan block, untouched, and this rework's ANSI-extraction pin) — not a defect, just worth naming.
+
+Full gate suite re-run green after all four patches: `pnpm test` 101 files / 1611 tests / 1588 passed / 23 skipped / 0 failed (unchanged from before this review pass — none of the four patches touched behavior observed by any other test); `pnpm check:ad7` exit 0, 3/3; `pnpm typecheck`, `pnpm lint:boundaries` (90 files, 0 violations) both exit 0; `git diff --stat -- public/assets/ assets/src/ test/replays/` empty.
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).** **AD-7** (`GameState` scopes; "mutated only inside `rules.step`") is primary and this story is where it becomes true. Also binding: **AD-4** (rules after every physics step; commands issued at *N* are consumed at *N+1*; the three-argument `step()` signature is a pin), **AD-5** (hardware is gated only by coil enable/disable; physics reads no `GameState` flag — verified: `src/sim/physics/**` contains exactly one occurrence of `GameState`, and it is a comment), **AD-6** (device counts are closed slot switches and nothing else), **AD-9** (`CoilCommand` is the rules→physics command and a device eject is a `pulse` on `TABLE.ballDevices[bd].ejectCoil` **resolved by the ball controller**; every semantic event is payload-complete; `FrameOutput.commands` stays presentation-only), **AD-14** (`GameStart` is the only bundle into sim; balls-per-game is a sim adjustment, so it belongs in neither `tuning.ts` nor `TABLE`), **AD-15** (tunable `source`/`confidence` strings are hashed into every golden header; rules are tested headless through the `SwitchName` DSL), **AD-18** (only the ball controller pulses `c_trough_eject`/`c_autolaunch` and mutates `ballsInPlay`), **AD-19** (the ball controller consumes device events, never a raw switch; the spine already enumerates `device_ball_entered/_left { device, slot }` at `:228`, so task 2 needs no amendment). **AD-8** is the one this story must not pre-empt — see the mode-teardown note below.
@@ -430,6 +481,18 @@ Deferred (3, low severity, filed to frontmatter `deferred:` for the lead's harve
 
 **Mutations** (Rule 19 — one per AC; apply, observe the named red, revert, confirm `git status --short` and `git diff --stat` unchanged, record `mutation: <change> -> <test that went red>`):
 
+- **[CI] — the ANSI-colourised-summary extraction fix (2026-09-06 rework).** Revert the `stripAnsi()` call
+  inside `extractPassingCount()` (i.e. match `/Tests\s+(\d+)\s+passed/` directly against the raw combined
+  output again, undoing the fix) → the new synthetic-coloured-input test reddens naming
+  `expected null to be 3`, while every other test in the file — including the real harness-spawn test, which
+  observes plain, `--no-color`-forced output and is unaffected by this particular mutation's target — stays
+  green. **VERIFIED 2026-09-06 (build-auto step-03/step-04, personally applied, run twice — once against
+  the initial fix, once again against the tree after this pass's own step-04 review patches to the same
+  file):** both times reddened exactly as predicted (`expected null to be 3`); both times reverted via a
+  byte-for-byte restore from a pre-mutation backup, with `git status --short` / `git diff --stat` confirmed
+  unchanged immediately after. (Review finding 2026-09-06, verification-gap: this mutation was performed at
+  implementation time but not recorded here until this review pass — Rule 19 requires the record, not only
+  the act.)
 - **AC 1 — the `check:ad7` gate rewrite. Three mutations, because a green gate needs its red proved from three directions.**
   1. **Ownership (the DW-70 regression itself):** restore `machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots }` at `src/sim/loop/index.ts:352-354` → the harness's **identity** assertion reddens (physics allocates a fresh object per read, so `toBe` fails on every tick), `check:ad7` exits 1, and `test/ad7-device-slots.test.ts` reddens on its `toBe(0)`. **This mutation is only meaningful because task 8 makes the harness drive `createLoop()`; against the current harness, which deliberately does not import `sim/loop`, it is a no-op — verify the red, do not assume it.** **VERIFIED 2026-09-06 (build-auto step-03, personally applied):** applied, `check:ad7` exited 1 with `(i) identity across quiet ticks` naming both device-slot views; reverted, `check:ad7` back to 3/3 green, `git diff --stat` on the touched file unchanged.
   2. **Anti-vacuity:** delete one `it()` block from the harness → the wrapper's **exact** passing-test-count assertion reddens, proving a harness gutted to nothing cannot satisfy the wrapper (the failure mode a bare `exit 0` check would miss). Assert an exact count, never `>=`. **VERIFIED 2026-09-06 (personally applied):** deleted `(iii) anti-vacuity`; `test/ad7-device-slots.test.ts` reddened `expected exactly 3 passing tests; got 2`; reverted via the pre-mutation blob (see note below), harness back to 3/3.
@@ -519,6 +582,22 @@ Re-planned at `cycle_iteration` 2 against the three answered intent gaps, which 
 **Verification performed** (all re-measured at this tree, all commands/manual checks passing): `pnpm test` — 99 files / 1597 tests / 1574 passed / 23 skipped / 0 failed (one transient, non-reproducing failure in the pre-existing, untouched `test/host-loop.test.ts` appeared in a single interim run and did not reproduce across three subsequent clean runs — read as environmental flakiness, not a regression, consistent with the implementing subagent's own note). `pnpm check:ad7` — exit 0, 3/3 passing (was the epic's one deliberate red). `pnpm typecheck`, `pnpm lint:boundaries` (90 files, 0 violations), `pnpm check:corridor`, `pnpm check:reachability` (52 cases / 32 reachable / 20 unreachable, unchanged) — all exit 0. `git diff --stat -- public/assets/ assets/src/` — empty. `pnpm check:headers`/`check:attributions` — both exit 0. Golden diff verified structurally: only `flipperTipGapMm.source`, `physicsVersion`, `expectedHash`/`expectedGameStateHash` (and `roll-and-drain`'s new `checkpointTicks`) moved; `coilPrologue`, `transitions`, `durationTicks`, `tableHash`, `assetHash` unchanged on all five; `notes` appended (old text a string-prefix of new) on all five; LF confirmed (both via `test/golden-line-endings.test.ts` and a direct CR-byte scan). A 25-tick-sampling position trace was independently re-run by this pass (stash pre-change source/tests, trace all five goldens' ball positions every 25 ticks and at `durationTicks`, restore, trace again, diff) and found byte-identical at every sampled tick across all five goldens, corroborating the implementing subagent's own trace. All 9 I/O-matrix rows confirmed covered by a passing test (Matrix Test Audit). Mutations: every AC (1–10) and both named task mutations (DW-87, DW-85) were personally applied, observed to redden the predicted test, reverted, and confirmed byte-identical via `git diff --stat`/`git status --short` on the touched file — recorded inline in `## Verification` with dated `VERIFIED` notes; one mutation (AC 4's literal `ballNumber === 1` conjunct against the spec's own 2-player covering test) did not produce the predicted red on its first attempt and is reported as a finding about that test's coverage, per Rule 19, rather than silently adjusted — the discriminating clause for that specific test turned out to be `currentPlayer === 0` instead, and a dedicated single-player test closing that exact gap was added during review triage. The six review-added tests were also each verified by a targeted mutation of their own.
 
 **Residual risks.** Three low-severity items filed to frontmatter `deferred:` for the lead's harvest (two independent, un-cross-checked slot-occupancy trackers; `deriveDeviceSlots()`'s untested same-tick multi-edge fold path; a narrow `hardwareEnabled` semantic-vs-physical gap at the machine's very first boot only). DRAGON letters are never reset on `ball_will_start` (persist across a player's own balls) — AD-7 does not specify a reset and AC 7 only tests cross-player isolation, but Story 3.1 should confirm this matches intent before building on it. A ball parking in `bd_lock` during ordinary play (no Lock arbiter until Story 3.2) ends the current ball via the same generic parking-device drain check rather than being specially held — an accepted, already-documented limitation matching DW-171/DW-174's own routing to Story 3.2.
+
+### [CI] Rework (2026-09-06)
+
+**Summary of implemented change.** Fixed the sole remaining `[CI]` acceptance criterion: `test/ad7-device-slots.test.ts`'s in-suite wrapper scraped the nested AD-7 harness's vitest summary line with `/Tests\s+(\d+)\s+passed/`, which the CI runner's ANSI-colourised output defeated (the SGR escape codes land between `Tests` and the digit). Made the extraction ANSI-proof (a `stripAnsi()` helper feeding a shared `extractPassingCount()`) and disabled colour at the source (`--no-color` plus `NO_COLOR`/`FORCE_COLOR=0` in the nested spawn's env) — belt and braces, as the spec required. Pinned the fix with a new test feeding the exact CI byte shape through the identical extraction path and asserting it yields `3`, converting an unreproducible-on-Windows defect into one that fails locally without the fix. Kept the exact-count assertion (never `>=`) and all existing `AD-7`/`bd_trough`/`DW-70` content checks. A step-04 review pass then found and patched four small robustness/bookkeeping gaps and deferred one larger architectural finding (see below).
+
+**Files changed:**
+- `test/ad7-device-slots.test.ts` — added `stripAnsi()`/`extractPassingCount()`; spawns the nested harness with `--no-color` and a colour-disabling env; added a new `describe` pinning the exact CI ANSI byte shape (plus a plain-input sanity test and a null-case test); routed all sibling content assertions through the stripped output; widened the ANSI pattern to any CSI sequence (not only SGR); made the signal-kill diagnostic message consistent with its neighbour; corrected a JSDoc overstatement.
+- `_bmad-output/implementation-artifacts/spec-2-5-start-hot-seat-and-the-ball-lifecycle.md` — `baseline_revision` reset to this rework's starting commit (`875babbf`) at implement time, per the kit's own per-iteration convention; `[CI]` task checkbox checked; `[CI]` AC's mutation recorded in `## Verification`; one new `deferred:` entry filed; `## Review Triage Log` and this section appended.
+
+**Review findings breakdown:** 8 findings across four parallel review layers. 4 patched (0 high, 1 medium, 3 low) — applied directly and each re-verified (full suite + `check:ad7` green after; the `[CI]` mutation re-run against the final patched file, reddened and reverted). 1 deferred (medium) to frontmatter `deferred:` — a missing-adoption gap against the codebase's own DW-107 JSON-reporter precedent, judged too large/risky a change for this narrowly-scoped rework to absorb untested against the real CI runner. 3 rejected (all low — stylistic, unreachable, or confirmed-intentional). See `## Review Triage Log` → "2026-09-06 — Review pass ([CI] rework)" for the full accounting.
+
+**Follow-up review recommendation.** Counting only this pass's `patch` findings (never defer/reject): 0 high, 1 medium, 3 low. Score = 3×1 + 1×3 = 6, which is ≥ 5, so `followup_review_recommended: true`.
+
+**Verification performed** (all re-measured at this tree): `pnpm check:ad7` — exit 0, 3/3 passing (was the CI-red target). `pnpm test` — 101 files / 1611 tests / 1588 passed / 23 skipped / 0 failed (+3 tests, +3 passed over the 101/1608/1585/23/0 baseline recorded at the top of this run — exactly the three new tests added, no regressions). `pnpm typecheck` — exit 0. `pnpm lint:boundaries` — exit 0, 90 files, 0 violations. `pnpm check:corridor`, `pnpm check:headers`, `pnpm check:attributions` — all exit 0. `git diff --stat -- public/assets/ assets/src/ test/replays/` — empty; no golden, asset, or coil-prologue file touched. `git diff --stat` (whole tree) — exactly two files: `test/ad7-device-slots.test.ts` and this spec's frontmatter. Mutation (Rule 19): the `[CI]` AC's own prescribed mutation (revert the `stripAnsi()` call) applied and observed to redden (`expected null to be 3`) twice — once against the initial fix, once against the tree after this pass's own review patches — reverted both times, `git status --short`/`git diff --stat` confirmed byte-identical immediately after each. No other task or acceptance criterion from the original story was re-opened, re-diagnosed, or re-recorded.
+
+**Residual risks.** One medium-severity item filed to frontmatter `deferred:` for the lead's harvest: `test/ad7-device-slots.test.ts`'s ANSI-fragility fix re-implements summary-line scraping rather than adopting the JSON-reporter pattern already established for the identical failure class by DW-107 (`test/export-py-skip-visibility.test.ts`) — real and well-evidenced, but a larger, riskier change than this rework should absorb untested against the actual Ubuntu runner. All residual risks from the original story's close (recorded above, 2026-09-06) remain unchanged and untouched by this pass.
 
 Status: done
 Blocking condition: none
