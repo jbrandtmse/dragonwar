@@ -4,7 +4,7 @@
 // `ball_launched` (AD-6: "the opening of s_shooter_lane is the one event
 // that means 'plunged'") and decrements it when a ball is parked in the
 // trough (`device_ball_entered` -- emitted only for a PARKING device's slot,
-// per `sim/rules/devices.ts`'s own construction, so every occurrence here
+// per `sim/rules/devices/`'s own construction, so every occurrence here
 // already means "a ball left play into a device"). Owns no physics state and
 // never converts units; `machine.deviceSlots` itself is not written here --
 // it is derived from the closed slot switches (AD-6: "the number of closed

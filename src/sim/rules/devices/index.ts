@@ -35,6 +35,7 @@ import type {
 	ButtonPressedEvent,
 	DeviceEvent,
 	DragonHitEvent,
+	FlipperSide,
 	LaneChangePressedEvent,
 	LaneEnteredEvent,
 	LaneName,
@@ -122,6 +123,15 @@ function buildLaneBySwitch(): ReadonlyMap<SwitchName, LaneName> {
 	return map;
 }
 
+/** Reverse `switch -> flipper side` lookup from `TABLE.flipperButtonWiring`, so a third entry in the registry would emit its own `lane_change_pressed` rather than being silently ignored by a hand-unrolled `left`/`right` branch (DW-149: the subject set is derived, never a second hand-typed list -- the same idiom `buildLaneBySwitch()` above already uses). */
+function buildFlipperSideBySwitch(): ReadonlyMap<SwitchName, FlipperSide> {
+	const map = new Map<SwitchName, FlipperSide>();
+	for (const [side, wiring] of Object.entries(TABLE.flipperButtonWiring) as Array<[FlipperSide, { switch: SwitchName }]>) {
+		map.set(wiring.switch, side);
+	}
+	return map;
+}
+
 /** Every button-class switch (`settleClass: 'button'`), derived from `TABLE.switches` -- the same idiom `sim/loop/index.ts`'s own `buttonSwitchByAction()` uses, independently re-derived here (DW-149: two modules, one TABLE key set, never one importing the other's list). */
 function buildButtonSwitches(): ReadonlySet<SwitchName> {
 	const buttons = new Set<SwitchName>();
@@ -141,6 +151,7 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 	const { slotBySwitch, nonParkingEntries } = buildBallDeviceIndex();
 	const occupancy = buildInitialOccupancy();
 	const laneBySwitch = buildLaneBySwitch();
+	const flipperSideBySwitch = buildFlipperSideBySwitch();
 	const buttonSwitches = buildButtonSwitches();
 	const dropBank = createDropBankTracker();
 	const shots = createShotTracker(tuning);
@@ -239,10 +250,9 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 			if (lane) {
 				events.push({ type: 'lane_entered', lane, tick: event.tick } satisfies LaneEnteredEvent);
 			}
-			if (event.switch === (TABLE.flipperButtonWiring.left.switch as SwitchName)) {
-				events.push({ type: 'lane_change_pressed', side: 'left', tick: event.tick } satisfies LaneChangePressedEvent);
-			} else if (event.switch === (TABLE.flipperButtonWiring.right.switch as SwitchName)) {
-				events.push({ type: 'lane_change_pressed', side: 'right', tick: event.tick } satisfies LaneChangePressedEvent);
+			const flipperSide = flipperSideBySwitch.get(event.switch);
+			if (flipperSide) {
+				events.push({ type: 'lane_change_pressed', side: flipperSide, tick: event.tick } satisfies LaneChangePressedEvent);
 			}
 			if (buttonSwitches.has(event.switch)) {
 				events.push({ type: 'button_pressed', button: event.switch, tick: event.tick } satisfies ButtonPressedEvent);

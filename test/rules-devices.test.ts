@@ -79,14 +79,44 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 		expect(result.events).toEqual([{ type: 'shot_left_loop_made', tick: 100 + LOOP_WINDOW_TICKS - 1 }]);
 	});
 
+	// The Ramp gets a window straddle (AC 2, below) but the Loop did not, and
+	// the Loop's expiry has NO emitted observable of its own -- `entryExclusive:
+	// false` means expiry only deletes the in-flight entry and never pushes
+	// `_broken`. So without this pair, `loopWindowMs` (one of the three
+	// tunables this story exists to introduce) was unpinned in BOTH directions:
+	// measured at code review, gating the whole expiry on `entryExclusive`
+	// (i.e. never enforcing the Loop window at all) left the entire suite green
+	// while a `_out` closing 10x the window later still scored a made Loop.
+	it('window straddle: s_loop_l_out at exactly +loopWindowTicks still makes it; at +loopWindowTicks + 1 the window has lapsed and nothing at all is emitted', () => {
+		const lastInWindow = runSwitchScript(
+			close('s_loop_l_in').at(100).close('s_loop_l_out').at(100 + LOOP_WINDOW_TICKS).build(),
+			{ durationTicks: 100 + LOOP_WINDOW_TICKS + 50 },
+		);
+		expect(lastInWindow.events, 'the exact boundary tick is still inside the window (expiry is `tick > start + window`)').toEqual([
+			{ type: 'shot_left_loop_made', tick: 100 + LOOP_WINDOW_TICKS },
+		]);
+
+		const justOutside = runSwitchScript(
+			close('s_loop_l_in').at(100).close('s_loop_l_out').at(100 + LOOP_WINDOW_TICKS + 1).build(),
+			{ durationTicks: 100 + LOOP_WINDOW_TICKS + 50 },
+		);
+		expect(
+			justOutside.events,
+			'one tick past the window the sequence has already been expired, and a Loop never emits _broken (entryExclusive: false) -- so the whole run is silent',
+		).toEqual([]);
+	});
+
 	it('a Loop taken the wrong way (s_loop_l_out then s_loop_l_in) emits nothing; the same test drives the correct direction and observes shot_left_loop_made', () => {
 		const wrongWay = runSwitchScript(
 			close('s_loop_l_out').at(100).close('s_loop_l_in').at(110).build(),
 			{ durationTicks: 110 + LOOP_WINDOW_TICKS + 5 },
 		);
+		// The WHOLE event array, not a filtered subset: the sibling tests in
+		// this file all assert `toEqual([...])`, and "nothing is emitted for
+		// this shot" is a weaker claim than the test's own name makes.
 		expect(
-			wrongWay.events.filter((e) => e.type === 'shot_left_loop_made' || e.type === 'shot_left_loop_broken'),
-			`nothing emitted for shot_left_loop on the wrong-direction script -- got: ${JSON.stringify(wrongWay.events)}`,
+			wrongWay.events,
+			`nothing at all emitted on the wrong-direction script -- got: ${JSON.stringify(wrongWay.events)}`,
 		).toEqual([]);
 
 		const rightWay = runSwitchScript(
@@ -168,6 +198,27 @@ describe('sim/rules/devices/ -- DW-133: a bare s_loop_*_in is never, on its own,
 		const result = runSwitchScript(script, { durationTicks: 120 + LOOP_WINDOW_TICKS + 20 });
 
 		expect(result.events).toEqual([{ type: 'lane_entered', lane: 'outlane_r', tick: 110 }]);
+	});
+
+	// The THIRD closer of a bare `s_loop_*_in`, and the most frequent one in
+	// real play -- absent from `TABLE.shots`'s own comment, the Design Notes
+	// and AC 3, all of which enumerate only the outlane drain and the made
+	// Ramp. `test/shot-routing.test.ts:562` already asserts in-tree that one
+	// ball making the LEFT Loop closes `s_loop_l_in, s_loop_l_out,
+	// s_loop_r_out, s_loop_r_in` in approach order: every made Loop is an
+	// orbit that ends by closing the OPPOSITE Loop's own entry switch. Driving
+	// that measured order through the layer is what proves a single orbit
+	// scores once and only for the side actually shot.
+	it('the measured Left Loop ORBIT order (s_loop_l_in, s_loop_l_out, s_loop_r_out, s_loop_r_in) scores exactly one shot_left_loop_made and nothing for the right Loop', () => {
+		const result = runSwitchScript(
+			close('s_loop_l_in').at(100)
+				.close('s_loop_l_out').at(200)
+				.close('s_loop_r_out').at(240)
+				.close('s_loop_r_in').at(280)
+				.build(),
+			{ durationTicks: 280 + LOOP_WINDOW_TICKS + 50 },
+		);
+		expect(result.events).toEqual([{ type: 'shot_left_loop_made', tick: 200 }]);
 	});
 
 	it('a genuine s_loop_r_in -> s_loop_r_out pair, in the SAME test file, still observes exactly one shot_right_loop_made', () => {
@@ -261,6 +312,23 @@ describe('sim/rules/devices/ -- the DRAGON drop bank (AC 4)', () => {
 			lifecycleEvents: [{ type: 'ball_will_start', tick: 5 }],
 		});
 		expect(partiallyDown.coilCommands).toEqual([{ type: 'coil', coil: 'c_dragon_bank_reset', action: 'pulse', tick: 5 }]);
+
+		// The state the AC's "whatever the bank state" clause actually exists
+		// for, and the one neither case above reaches: all six letters down and
+		// the `completed` latch already set. Measured at code review that
+		// without this case, guarding onBallWillStart() on the latch left the
+		// whole suite green -- and the consequence is not cosmetic: a new ball
+		// would begin with six letters down and `bank_completed` already
+		// latched, so the DRAGON bank is dead for that entire ball.
+		const letters: Array<keyof typeof TABLE.dropBankWiring> = ['d', 'r', 'a', 'g', 'o', 'n'];
+		const allDown = runSwitchScript(scriptLetters(close(letterSwitch(letters[0])), letters, 'close', 10).build(), {
+			durationTicks: 40,
+			lifecycleEvents: [{ type: 'ball_will_start', tick: 30 }],
+		});
+		expect(allDown.coilCommands, 'the completion pulse at tick 15, then the start-of-ball pulse at tick 30 -- the latch must not suppress the second').toEqual([
+			{ type: 'coil', coil: 'c_dragon_bank_reset', action: 'pulse', tick: 15 },
+			{ type: 'coil', coil: 'c_dragon_bank_reset', action: 'pulse', tick: 30 },
+		]);
 	});
 });
 
@@ -379,6 +447,19 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 		expect(result.events).toEqual([{ type: 'lane_entered', lane: 'top_2', tick: 10 }]);
 	});
 
+	// `s_plunger` is `settleClass: 'button'` in TABLE.switches, so the derived
+	// button set (DW-149) now includes it and every plunge emits a
+	// `button_pressed`. That is a deliberate consequence of deriving the set
+	// from the registry rather than hand-listing it, and it is consistent with
+	// AD-2 (which names s_plunger as one of the four cabinet buttons) -- but
+	// the pre-2.4 test that asserted `s_plunger` produced NOTHING was deleted
+	// in this story without a replacement, so the changed behaviour went
+	// unpinned at exactly the moment it changed. Pinned here instead.
+	it('Plunger: s_plunger is a cabinet button, so its close emits button_pressed -- the behaviour this story changed', () => {
+		const result = runSwitchScript(close('s_plunger').at(10).open().at(20).build(), { durationTicks: 25 });
+		expect(result.events).toEqual([{ type: 'button_pressed', button: 's_plunger', tick: 10 }]);
+	});
+
 	it('Button: s_start closes, then opens -> one button_pressed { button: s_start } on the close only', () => {
 		const result = runSwitchScript(close('s_start').at(10).open().at(20).build(), { durationTicks: 25 });
 		expect(result.events).toEqual([{ type: 'button_pressed', button: 's_start', tick: 10 }]);
@@ -405,6 +486,33 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 		);
 		expect(result.events).toHaveLength(2);
 	});
+});
+
+// Restores (and widens) the pre-2.4 negative test "a switch that belongs to no
+// device produces nothing", which drove only `s_tilt_bob` through the old
+// module-level `processSwitchEvents()` and was dropped when this file was
+// rewritten onto the DSL. Without it nothing pins the NEGATIVE direction of
+// every stage in `sim/rules/devices/index.ts`: a stage that widened its match
+// (a lane lookup that fell back to a default, a button test that keyed off
+// something other than `settleClass`, a spinner counter that counted any edge)
+// would emit for these switches and no other test in this file would notice.
+// The sibling positive tests above prove each stage fires; this proves each
+// one also STOPS.
+describe('sim/rules/devices/ -- switches the layer deliberately maps to nothing (the restored pre-2.4 negative)', () => {
+	// Every switch that is not a ball-device slot, a non-parking entry, a lane,
+	// a cabinet button, the Dragon body, the spinner, a bank letter, the Lock
+	// lane or a member of a declared shot sequence. `s_drain` is the notable
+	// one: it is closed on every drain and the DW-133 outlane case above drives
+	// it, but only incidentally -- nothing there asserts it is silent.
+	const unmapped: readonly SwitchName[] = ['s_tilt_bob', 's_slam_tilt', 's_sling_l', 's_sling_r', 's_pop_1', 's_pop_2', 's_pop_3', 's_drain'];
+
+	for (const name of unmapped) {
+		it(`${name} closing and re-opening produces no device event and no coil command`, () => {
+			const result = runSwitchScript(close(name).at(5).open().at(9).build(), { durationTicks: 15 });
+			expect(result.events, `${name} must map to nothing`).toEqual([]);
+			expect(result.coilCommands, `${name} must issue no coil command`).toEqual([]);
+		});
+	}
 });
 
 describe('sim/rules/devices/ -- construction: one instance per createDevicesLayer(), never module-global', () => {

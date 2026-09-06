@@ -608,10 +608,12 @@ function checkNonAsciiLiterals(srcRoot, relRoot) {
 	return violations;
 }
 
-// Story 2.4 (AD-19, check (g)): `import`/`export ... { SwitchEvent }` (with
-// or without a leading `type` on the whole clause or on the individual
-// specifier) inside a `{ ... }` binding list -- matched on comment/string-
-// masked code, same as every other textual check above. Deliberately not a
+// Story 2.4 (AD-19, check (g)): a file under `src/sim/rules/**` outside
+// `devices/` that names `SwitchEvent` -- in a binding list (with or without a
+// leading `type` on the whole clause or on the individual specifier), through
+// a namespace-import alias, or through an inline type-import expression.
+// Matched on comment/string-masked code, same as every other textual check
+// above. Deliberately not a
 // dependency-cruiser module rule: `SwitchEvent` is re-exported from
 // `sim/table/names.ts` alongside `GameState`/`SemanticEvent`/`MachineState`,
 // which `sim/rules/index.ts` and `sim/rules/ball-controller.ts` legitimately
@@ -620,7 +622,33 @@ function checkNonAsciiLiterals(srcRoot, relRoot) {
 // rule would fire on two innocent files and still miss a real leak (this
 // story's Design Notes, "Why the AD-19 gate is textual, not a
 // dependency-cruiser rule").
-const RULES_SWITCH_EVENT_BINDING_PATTERN = /\b(?:import|export)\s+(?:type\s+)?\{([^}]*)\}/g;
+// The check matches THREE syntactic shapes, because the binding list alone was
+// bypassable and was measured so (DW-169, reproduced against the shipped tool
+// at code-review time -- both shapes below produced zero violations):
+//
+//   (g1) a `{ ... }` binding list naming `SwitchEvent`. The whitespace after
+//        `import`/`export` and after `type` is OPTIONAL, and a default
+//        binding may precede the list -- `import{SwitchEvent}from'...'`,
+//        `import type{SwitchEvent}from'...'` and
+//        `import Names, { SwitchEvent } from '...'` are all valid TypeScript
+//        and all three scored clean against the first version of this check
+//        (measured at code-review time, with (g2)/(g3) already in place).
+//   (g2) a namespace import plus a property access:
+//          import * as Names from '../table/names';  ...  Names.SwitchEvent
+//   (g3) an inline type-import expression:
+//          function f(event: import('../table/names').SwitchEvent) {}
+//
+// None of the three may depend on the module specifier: `maskForCodeOnly()`
+// blanks every string span before these patterns run, so `from '../table/names'`
+// has already become whitespace by the time they see it. (g2) therefore binds
+// any namespace alias declared in the file and looks for `<alias>.SwitchEvent`;
+// (g3) matches `import( ... ).SwitchEvent` with the specifier blanked out.
+// An alias is a JS identifier, so `$` is the only regex metacharacter it can
+// contain -- escaped below -- and the leading lookbehind stands in for `\b`,
+// which does not work against a name beginning with `$`.
+const RULES_SWITCH_EVENT_BINDING_PATTERN = /\b(?:import|export)\s*(?:type\s*)?(?:[A-Za-z_$][A-Za-z0-9_$]*\s*,\s*)?\{([^}]*)\}/g;
+const RULES_SWITCH_EVENT_NAMESPACE_ALIAS_PATTERN = /\b(?:import|export)\s+(?:type\s+)?\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
+const RULES_SWITCH_EVENT_INLINE_IMPORT_PATTERN = /\bimport\s*\([^)]*\)\s*\.\s*SwitchEvent\b/g;
 
 /** True if `bindingList` (the raw text between `{` and `}`) names `SwitchEvent` as a specifier, ignoring a per-specifier `type` prefix or an `as` alias. */
 function bindingListNamesSwitchEvent(bindingList) {
@@ -631,11 +659,18 @@ function bindingListNamesSwitchEvent(bindingList) {
 		.some((item) => item.replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim() === 'SwitchEvent');
 }
 
+/** `<alias>.SwitchEvent`, for one namespace-import alias. `$` is the one regex metacharacter a JS identifier may contain; the lookbehind replaces a leading `\b`, which does not fire before `$`. */
+function namespaceMemberPattern(alias) {
+	const escaped = alias.replace(/\$/g, '\\$');
+	return new RegExp(String.raw`(?<![A-Za-z0-9_$.])${escaped}\s*\.\s*SwitchEvent\b`, 'g');
+}
+
 /** Check (g): `rules-no-switch-event-outside-devices` (AD-19) -- over `src/sim/rules/**`, excluding `src/sim/rules/devices/**`, on comment/string-masked code. */
 function checkRulesNoSwitchEventOutsideDevices(rulesRoot, relRoot) {
 	const violations = [];
 	const devicesDirPrefix = `${toPosix(path.join('src', 'sim', 'rules', 'devices'))}/`;
 	const files = listFilesRecursive(rulesRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	const message = `names "SwitchEvent" outside src/sim/rules/devices/ (AD-19: sim/rules/devices/ is the only consumer of SwitchEvent under sim/rules/)`;
 	for (const file of files) {
 		const relative = toPosix(path.relative(relRoot, file));
 		if (relative.startsWith(devicesDirPrefix)) {
@@ -643,18 +678,43 @@ function checkRulesNoSwitchEventOutsideDevices(rulesRoot, relRoot) {
 		}
 		const source = readFileSync(file, 'utf8');
 		const codeOnly = maskForCodeOnly(source, tokenize(source, relative));
-		const pattern = new RegExp(RULES_SWITCH_EVENT_BINDING_PATTERN.source, 'g');
-		let match;
-		while ((match = pattern.exec(codeOnly)) !== null) {
-			if (!bindingListNamesSwitchEvent(match[1])) {
-				continue;
-			}
+		const report = (index) => {
 			violations.push({
 				rule: 'rules-no-switch-event-outside-devices',
 				file: relative,
-				line: lineOf(source, match.index),
-				message: `imports/exports "SwitchEvent" outside src/sim/rules/devices/ (AD-19: sim/rules/devices/ is the only consumer of SwitchEvent under sim/rules/)`,
+				line: lineOf(source, index),
+				message,
 			});
+		};
+
+		// (g1) binding list.
+		const bindingPattern = new RegExp(RULES_SWITCH_EVENT_BINDING_PATTERN.source, 'g');
+		let match;
+		while ((match = bindingPattern.exec(codeOnly)) !== null) {
+			if (bindingListNamesSwitchEvent(match[1])) {
+				report(match.index);
+			}
+		}
+
+		// (g2) namespace-import alias, then `<alias>.SwitchEvent`. The alias set
+		// is collected first because the declaration may follow the use (a type
+		// position is hoisted) and because one alias may be used many times.
+		const aliases = new Set();
+		const aliasPattern = new RegExp(RULES_SWITCH_EVENT_NAMESPACE_ALIAS_PATTERN.source, 'g');
+		while ((match = aliasPattern.exec(codeOnly)) !== null) {
+			aliases.add(match[1]);
+		}
+		for (const alias of aliases) {
+			const usePattern = namespaceMemberPattern(alias);
+			while ((match = usePattern.exec(codeOnly)) !== null) {
+				report(match.index);
+			}
+		}
+
+		// (g3) inline type-import expression.
+		const inlinePattern = new RegExp(RULES_SWITCH_EVENT_INLINE_IMPORT_PATTERN.source, 'g');
+		while ((match = inlinePattern.exec(codeOnly)) !== null) {
+			report(match.index);
 		}
 	}
 	return violations;

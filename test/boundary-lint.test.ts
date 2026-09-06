@@ -299,8 +299,53 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/switch-event-leak (S
 		expect(stderr).toContain('src/sim/rules/leaks-switch-event.ts');
 	});
 
+	// DW-169: the check originally matched only a `{ ... }` binding list, and
+	// both shapes below were measured to produce ZERO violations against the
+	// shipped tool. They are separate cases rather than one combined fixture so
+	// a regression names which shape stopped being caught.
+	it('fires on the namespace-import bypass (import * as Names ... Names.SwitchEvent) -- DW-169', () => {
+		expect(stderr).toContain('src/sim/rules/leaks-via-namespace.ts');
+	});
+
+	it("fires on the inline type-import bypass (import('...').SwitchEvent, no import statement at all) -- DW-169", () => {
+		expect(stderr).toContain('src/sim/rules/leaks-via-inline-type.ts');
+	});
+
+	it('fires on the no-whitespace binding-list bypasses (import{X}from and import type{X}from) -- both lines', () => {
+		expect(stderr).toContain('src/sim/rules/leaks-no-space.ts:6');
+		expect(stderr).toContain('src/sim/rules/leaks-no-space.ts:7');
+	});
+
+	it('fires on the default-binding bypass (import Names, { SwitchEvent } from ...)', () => {
+		expect(stderr).toContain('src/sim/rules/leaks-default-binding.ts');
+	});
+
 	it('does NOT fire on the identical import inside src/sim/rules/devices/ -- the exclusion is proved, not merely asserted', () => {
 		expect(stderr).not.toContain('src/sim/rules/devices/index.ts');
+	});
+
+	it('does NOT fire on ANY of the bypass forms inside src/sim/rules/devices/ -- the exclusion covers every widened shape', () => {
+		expect(stderr).not.toContain('src/sim/rules/devices/bypass-forms.ts');
+	});
+
+	// The file SET, not a raw count: this is what makes the two `not.toContain`
+	// assertions above non-vacuous (a rule that fired on nothing at all would
+	// satisfy them both), and it reddens if a future widening starts
+	// over-firing on a file that is not a deliberate fixture violation.
+	it('reports exactly the five deliberate violating files and no others', () => {
+		const violatingFiles = new Set(
+			stderr
+				.split('\n')
+				.filter((line) => line.includes('[rules-no-switch-event-outside-devices]'))
+				.map((line) => line.trim().split(' ')[1].split(':')[0]),
+		);
+		expect([...violatingFiles].sort()).toEqual([
+			'src/sim/rules/leaks-default-binding.ts',
+			'src/sim/rules/leaks-no-space.ts',
+			'src/sim/rules/leaks-switch-event.ts',
+			'src/sim/rules/leaks-via-inline-type.ts',
+			'src/sim/rules/leaks-via-namespace.ts',
+		]);
 	});
 });
 

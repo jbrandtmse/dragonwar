@@ -254,7 +254,7 @@ export function createLoop(options: CreateLoopOptions): Loop {
 
 		// Story 2.3, task 10: the machine's real dropTargets/spinner state --
 		// DELIBERATELY read straight from `machine.mechanisms`, never routed
-		// through the `:341-344`-area `deviceSlots` overwrite below, which is
+		// through the `:352-355`-area `deviceSlots` overwrite below, which is
 		// `DW-70` (Story 2.5's own seam to remove).
 		const mechanisms: MechanismsSnapshot<BallDeviceName> = {
 			flippers: machine.mechanisms.flippers,
