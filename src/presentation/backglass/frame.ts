@@ -34,7 +34,18 @@ function isBallEndedEvent(event: { readonly type: string }): event is BallEndedE
 export const DMD_COLS = 128;
 export const DMD_ROWS = 32;
 
-/** One line of text at a dot position. `emphasis` marks the row visually distinguished (the current player's score row). */
+/**
+ * One line of text at a dot position.
+ *
+ * `emphasis` flags the current player's score row. **It is a contract field
+ * only: nothing renders it yet.** `rasterise()` reads `text`, `col` and `row`
+ * and ignores `emphasis`, and the dot buffer is 1-bit, so on the real panel
+ * the current player's row is currently indistinguishable from the others.
+ * How to express emphasis on a 1-bit dot grid (invert the line, a leading
+ * marker glyph, a brighter amber) is a display-design decision recorded in
+ * the ledger for the epic's decision sheet rather than invented here -- do
+ * not read this flag as "already visible" (code review, Story 2.6).
+ */
 export interface DmdRow {
 	readonly text: string;
 	readonly col: number;
@@ -137,7 +148,25 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		};
 	}
 
-	if (view.screen === 'ball_ended' && view.holdUntilTick !== null && tick < view.holdUntilTick) {
+	// A live hold is a HALF-OPEN WINDOW, not merely "tick is below the
+	// deadline": the hold was armed at `holdUntilTick - BALL_ENDED_HOLD_TICKS`,
+	// so a tick BELOW that lower bound is not "still holding", it is a tick
+	// from a different timeline. `src/host/loop.ts`'s `reset()` (called by the
+	// tuning panel's hot-apply, by replay playback and by the two dev hatches
+	// in `boot.ts`) rebuilds the sim with `createLoop()`, restarting the tick
+	// count at 0 while `boot.ts`'s `backglassView` survives in its closure.
+	// Without the lower bound, a reset landing inside an end-of-ball hold left
+	// `tick` (~0) below a `holdUntilTick` of whatever the old timeline had
+	// reached, so this branch returned the stale view on every frame and the
+	// DMD froze on the previous game's end-of-ball screen -- for the whole of
+	// the old tick count, i.e. minutes, not the intended 3 seconds
+	// (code review, Story 2.6).
+	if (
+		view.screen === 'ball_ended' &&
+		view.holdUntilTick !== null &&
+		tick < view.holdUntilTick &&
+		tick >= view.holdUntilTick - BALL_ENDED_HOLD_TICKS
+	) {
 		return view;
 	}
 
@@ -268,7 +297,22 @@ export function renderFrame(view: BackglassView, snapshot: Snapshot): DmdFrame {
 		case 'ball_ended':
 			return { screen: 'ball_ended', rows: view.heldBallEnded ? buildBallEndedRows(view.heldBallEnded) : [] };
 		case 'score':
-		default:
 			return { screen: 'score', rows: buildScoreRows(snapshot.game) };
+		default: {
+			// `DmdScreen` is a GROWTH CONTRACT (see its own doc comment): Stories
+			// 2.7, 2.11 and 2.13 each add a member. A bare `default:` would let
+			// every one of those additions compile clean and silently render as
+			// the score screen -- the exact "reaching around the union" the
+			// Consumed-by note forbids. This `never` binding turns each future
+			// addition into a compile error HERE, at the one place that must be
+			// updated, while the runtime fallback keeps `renderFrame()`'s
+			// documented "never throws" promise (code review, Story 2.6).
+			// NOTE: `advanceBackglass()`'s documented `game_over` /
+			// `highscore_entry` fallthrough is unaffected -- that fallthrough
+			// lives in the PHASE switch there, not in this SCREEN switch.
+			const unhandledScreen: never = view.screen;
+			void unhandledScreen;
+			return { screen: 'score', rows: buildScoreRows(snapshot.game) };
+		}
 	}
 }

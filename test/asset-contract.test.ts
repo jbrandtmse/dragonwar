@@ -2395,6 +2395,22 @@ describe('asset contract -- Story 2.6: vis_backbox\'s glb contract (AD-11, the D
 		return uvs;
 	}
 
+	/** Every (x, y, z) a VEC3/FLOAT accessor declares, decoded from the raw BIN chunk -- needed to tell the six box faces apart (code review: the UV assertion below must isolate the DMD face). */
+	function readVec3Accessor(doc: GltfDocumentWithAccessors, bin: Buffer, accessorIndex: number): Array<{ x: number; y: number; z: number }> {
+		const accessor = doc.accessors[accessorIndex]!;
+		expect(accessor.componentType, 'expected a FLOAT (5126) POSITION accessor').toBe(5126);
+		expect(accessor.type, 'expected a VEC3 POSITION accessor').toBe('VEC3');
+		const bufferView = doc.bufferViews[accessor.bufferView]!;
+		const stride = bufferView.byteStride ?? 12;
+		const base = (bufferView.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+		const out: Array<{ x: number; y: number; z: number }> = [];
+		for (let i = 0; i < accessor.count; i++) {
+			const offset = base + i * stride;
+			out.push({ x: bin.readFloatLE(offset), y: bin.readFloatLE(offset + 4), z: bin.readFloatLE(offset + 8) });
+		}
+		return out;
+	}
+
 	it('is a child of cabinet_root (never playfield_root -- it must stay level while the playfield pitches), with lightgroup lg_cabinet and exactly one material', () => {
 		const doc = readGlbJson();
 		const backboxIndex = doc.nodes.findIndex((n) => n.name === 'vis_backbox');
@@ -2434,19 +2450,65 @@ describe('asset contract -- Story 2.6: vis_backbox\'s glb contract (AD-11, the D
 		const uvs = readUvAccessor(doc, bin, primitive.attributes.TEXCOORD_0);
 		expect(uvs.length, 'sanity: a box mesh\'s UV set must be non-empty').toBeGreaterThan(0);
 
-		const us = uvs.map((uv) => uv.u);
-		const vs = uvs.map((uv) => uv.v);
-		expect(Math.min(...us), 'TEXCOORD_0 must reach u = 0').toBeCloseTo(0, 5);
-		expect(Math.max(...us), 'TEXCOORD_0 must reach u = 1').toBeCloseTo(1, 5);
-		expect(Math.min(...vs), 'TEXCOORD_0 must reach v = 0').toBeCloseTo(0, 5);
-		expect(Math.max(...vs), 'TEXCOORD_0 must reach v = 1').toBeCloseTo(1, 5);
+		// Code review: this assertion used to take min/max across the WHOLE
+		// TEXCOORD_0 accessor. MEASURED: `count` is 24 -- six box faces x four
+		// vertices -- so the union of all six faces spanned [0,1] no matter what
+		// the DMD face itself did. A packing unwrap (Smart UV Project, lightmap
+		// pack) that gave the player-facing face a sixth of the atlas, or a
+		// collapse of that ONE face, left every assertion here green while the
+		// panel showed a crop of (or nothing of) the dot texture. There is no
+		// second guard: `readPixels()` returns null under NullEngine, so no
+		// rendering test can catch it either. Select the DMD face explicitly.
+		//
+		// Which face: `backglass.ts` assigns the dot texture as the mesh's
+		// emissiveTexture, and the DMD face is the -Y face at table y = 1066.8,
+		// facing the player. AD-10: glb -Z = table +Y, so table -Y (toward the
+		// player) is glb +Z, and that face's outward NORMAL is (0, 0, 1).
+		// Selecting by normal rather than by position matters: a box duplicates
+		// each geometric corner once per face, so the twelve vertices sharing
+		// this face's glb z belong to THREE different faces -- measured. The
+		// normal picks out exactly the four that are the DMD face.
+		const normals = readVec3Accessor(doc, bin, primitive.attributes.NORMAL!);
+		const positions = readVec3Accessor(doc, bin, primitive.attributes.POSITION!);
+		expect(normals.length, 'NORMAL and TEXCOORD_0 must be per-vertex parallel arrays').toBe(uvs.length);
+		expect(positions.length, 'POSITION and TEXCOORD_0 must be per-vertex parallel arrays').toBe(uvs.length);
+		const dmdFaceIndices = normals
+			.map((normal, i) => ({ normal, i }))
+			.filter(({ normal }) => normal.z > 0.99)
+			.map(({ i }) => i);
+		const dmdFaceUvs = dmdFaceIndices.map((i) => uvs[i]!);
+		expect(
+			dmdFaceUvs.length,
+			'the player-facing face (outward normal glb +Z = table -Y) must contribute exactly four vertices',
+		).toBe(4);
+		// Corroborate the normal-based pick against geometry: all four must sit
+		// at table y = 1066.8, i.e. the MAXIMUM glb z (-1.0668) -- the rear face
+		// is at -1.0718 (table y = 1071.8).
+		const maxGlbZ = Math.max(...positions.map((p) => p.z));
+		for (const i of dmdFaceIndices) {
+			expect(
+				positions[i]!.z,
+				'every DMD-face vertex must sit on the player-facing plane (maximum glb z = table y 1066.8)',
+			).toBeCloseTo(maxGlbZ, 5);
+		}
+		expect(
+			dmdFaceUvs.length,
+			'the DMD face must be a strict SUBSET of the mesh -- if it were the whole accessor this test would be back to asserting the union of all six faces',
+		).toBeLessThan(uvs.length);
+
+		const us = dmdFaceUvs.map((uv) => uv.u);
+		const vs = dmdFaceUvs.map((uv) => uv.v);
+		expect(Math.min(...us), 'the DMD face\'s own TEXCOORD_0 must reach u = 0').toBeCloseTo(0, 5);
+		expect(Math.max(...us), 'the DMD face\'s own TEXCOORD_0 must reach u = 1').toBeCloseTo(1, 5);
+		expect(Math.min(...vs), 'the DMD face\'s own TEXCOORD_0 must reach v = 0').toBeCloseTo(0, 5);
+		expect(Math.max(...vs), 'the DMD face\'s own TEXCOORD_0 must reach v = 1').toBeCloseTo(1, 5);
 
 		// Non-vacuity (Design Notes: "a collapsed all-zero UV set is the
 		// failure mode this catches"): a genuinely collapsed UV set would pass
 		// a naive "min/max are numbers" check trivially -- assert the actual
 		// spread is non-degenerate on BOTH axes independently, so neither can
 		// mask the other collapsing.
-		expect(Math.max(...us) - Math.min(...us), 'u must have real spread, not a collapsed constant').toBeGreaterThan(0.5);
-		expect(Math.max(...vs) - Math.min(...vs), 'v must have real spread, not a collapsed constant').toBeGreaterThan(0.5);
+		expect(Math.max(...us) - Math.min(...us), 'u must have real spread on the DMD face, not a collapsed constant').toBeGreaterThan(0.5);
+		expect(Math.max(...vs) - Math.min(...vs), 'v must have real spread on the DMD face, not a collapsed constant').toBeGreaterThan(0.5);
 	});
 });

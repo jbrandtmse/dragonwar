@@ -15,7 +15,7 @@
 // this table's own "no permanent stranding" design invariant (2.1a-2.1d's
 // many DW-119-class fixes) -- drains deterministically in a bounded number
 // of ticks (measured during this story's own planning: ~4,278 ticks with
-// this exact setup, reproduced 3/3 times). Disabling those two coils is a
+// this exact setup, reproduced 3/3 times). Disabling those five coils (three pops, two slingshots -- code review: this comment previously said "two") is a
 // real, physically legitimate configuration (AD-5: "Disabled, they act as
 // passive rubber and emit no actuation"), not a mock of the drain itself.
 
@@ -24,6 +24,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW, type DmdScreen } from '../src/presentation/backglass/frame';
+import { rasterise } from '../src/presentation/backglass/raster';
+import { FONT_5X7 } from '../src/presentation/backglass/font';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { CoilName, GameStart } from '../src/sim/table/names';
@@ -63,21 +65,48 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 		const screenSequence: DmdScreen[] = [];
 		let ballEndedScreen: ReturnType<typeof renderFrame> | undefined;
 		let ballEndedTick = -1;
+		let playersAtEnd = -1;
+		let currentPlayerAtEnd = -1;
+		let payloadPlayerAtEnd = -1;
 
-		for (let tick = 1; tick <= MAX_TICKS; tick++) {
+		for (let iteration = 1; iteration <= MAX_TICKS; iteration++) {
 			const output = loop.advance(1, []);
 			view = advanceBackglass(view, output);
 			screenSequence.push(view.screen);
-			if (output.events.some((e) => e.type === 'ball_ended')) {
-				ballEndedTick = tick;
+			const ended = output.events.find((e) => e.type === 'ball_ended');
+			if (ended && ended.type === 'ball_ended') {
+				ballEndedTick = output.snapshot.tick;
+				playersAtEnd = output.snapshot.game.players.length;
+				currentPlayerAtEnd = output.snapshot.game.currentPlayer;
+				payloadPlayerAtEnd = ended.player;
 				ballEndedScreen = renderFrame(view, output.snapshot);
 				break;
 			}
 		}
 
-		expect(ballEndedTick, `the served ball must genuinely drain within ${MAX_TICKS} ticks -- the whole test is vacuous otherwise`).toBeGreaterThan(0);
+		expect(ballEndedTick, `the served ball must genuinely drain within ${MAX_TICKS} advances -- the whole test is vacuous otherwise`).toBeGreaterThan(0);
+
+		// Code review: the PLAYER 1 / not-PLAYER 2 pair below only discriminates
+		// payload-from-snapshot if Hot seat genuinely added a second player AND
+		// currentPlayer genuinely rotated off the ending player. If Hot seat
+		// ever regressed to a single player, `nextPlayer` would wrap to 0, the
+		// two sources would AGREE, `PLAYER 1` would still be correct, and a
+		// snapshot-reading implementation would pass silently. This story's own
+		// unit sibling guards exactly this (test/backglass-frame.test.ts:89-90);
+		// the Integration AC did not.
+		expect(playersAtEnd, 'Hot seat must have genuinely added a second player, or the payload/snapshot discriminator below is vacuous').toBe(2);
+		expect(payloadPlayerAtEnd, 'the ENDING player must be player 0').toBe(0);
+		expect(currentPlayerAtEnd, 'currentPlayer must have genuinely rotated off the ending player by the time this same-frame snapshot arrives').not.toBe(payloadPlayerAtEnd);
+
 		expect(screenSequence, 'the sequence must pass through an in-game score screen before ball_ended').toContain('score');
+		// Code review: assert the ball_ended screen appears ONCE, at the end --
+		// `expect(last).toBe('ball_ended')` alone was tautological, since the
+		// loop pushes `view.screen` and breaks on that same iteration.
 		expect(screenSequence[screenSequence.length - 1]).toBe('ball_ended');
+		expect(
+			screenSequence.slice(0, -1).includes('ball_ended'),
+			'ball_ended must appear only at the frame carrying the event, never before it',
+		).toBe(false);
 
 		expect(ballEndedScreen!.screen).toBe('ball_ended');
 		// This is the story's own sharpest discriminator (Design Notes): the
@@ -86,6 +115,19 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 		// snapshot.game.currentPlayer, is what makes this assertion meaningful.
 		expect(ballEndedScreen!.rows.some((r) => r.text === 'PLAYER 1'), 'must name PLAYER 1 (the ENDING player, 0-indexed 0, 1-indexed for display)').toBe(true);
 		expect(ballEndedScreen!.rows.some((r) => r.text === 'PLAYER 2'), 'must NOT name PLAYER 2 -- that would mean reading currentPlayer post-rotation instead of the event payload').toBe(false);
+
+		// Code review: the Integration AC stopped one call short of the
+		// composition src/host/boot.ts:236 actually runs -- it is
+		// `rasterise(renderFrame(...), FONT_5X7)`, not `renderFrame` alone. Take
+		// the real loop's own end-of-ball frame all the way to lit dots, so the
+		// frame -> raster leg is exercised against real loop output and not only
+		// against synthetic frames.
+		const realRaster = rasterise(ballEndedScreen!, FONT_5X7);
+		expect(realRaster.dots.length).toBe(realRaster.cols * realRaster.rows);
+		expect(
+			realRaster.dots.some((d) => d === 1),
+			'the real end-of-ball frame must actually light dots once rasterised -- a blank panel is the failure this pins',
+		).toBe(true);
 	});
 
 	it('control (Rule 19): the identical composition, with this frame\'s events emptied, never shows ball_ended -- proving the assertion above reads events, not only the snapshot', () => {

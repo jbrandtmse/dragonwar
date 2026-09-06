@@ -58,6 +58,96 @@ describe('renderFrame() -- the score screen (AC 2)', () => {
 	});
 });
 
+/** The distinct dot ROWS carrying at least one lit dot -- the observable that proves text actually reached the panel. */
+function litDotRows(raster: { cols: number; rows: number; dots: Uint8Array }): number[] {
+	const rows: number[] = [];
+	for (let r = 0; r < raster.rows; r++) {
+		for (let c = 0; c < raster.cols; c++) {
+			if (raster.dots[r * raster.cols + c] === 1) {
+				rows.push(r);
+				break;
+			}
+		}
+	}
+	return rows;
+}
+
+/** The leftmost lit dot COLUMN across the whole buffer, or -1 when nothing is lit. */
+function leftmostLitCol(raster: { cols: number; rows: number; dots: Uint8Array }): number {
+	let min = -1;
+	for (let r = 0; r < raster.rows; r++) {
+		for (let c = 0; c < raster.cols; c++) {
+			if (raster.dots[r * raster.cols + c] === 1 && (min === -1 || c < min)) {
+				min = c;
+			}
+		}
+	}
+	return min;
+}
+
+describe('code review -- a REAL renderFrame() output actually LIGHTS DOTS, at the dot coordinates frame.ts assigns', () => {
+	// Found by code review: before this test, nothing anywhere tied a real
+	// `renderFrame()` output to a single lit dot. Every assertion in this file
+	// read `.text` / `.emphasis` / `rows.length`; the one place a real frame
+	// reached `rasterise()` (the over-width case below) asserted only
+	// `not.toThrow()` and the buffer's LENGTH -- both of which hold for an
+	// all-zero buffer. `frame.ts`'s `LEFT_MARGIN_COL` and `LINE_PITCH_ROWS`,
+	// and every `col`/`row` they produce, were therefore completely unpinned:
+	// MEASURED, `LEFT_MARGIN_COL = 200` pushes every glyph past `DMD_COLS` so
+	// `raster.ts` drops it and the panel is COMPLETELY BLANK in production --
+	// and all 33 backglass tests still passed. This is the composition
+	// `src/host/boot.ts:236` actually ships (`rasterise(renderFrame(...))`),
+	// so it is the one that has to be observable.
+	it('the score screen lights dots in four distinct 8-row bands with genuinely unlit gutter rows between them, and starts near the left edge', () => {
+		const game: GameState = {
+			...BASE_GAME_STATE,
+			phase: 'game',
+			currentPlayer: 1,
+			players: [
+				buildPlayer({ score: 1234, ballNumber: 1 }),
+				buildPlayer({ score: 5678, ballNumber: 3 }),
+				buildPlayer({ score: 90, ballNumber: 1 }),
+			],
+		};
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		expect(frame.rows.length, 'sanity: three scores plus the ball row').toBe(4);
+
+		const raster = rasterise(frame, FONT_5X7);
+		const lit = litDotRows(raster);
+
+		// (a) SOMETHING is lit. Kills LEFT_MARGIN_COL = 200 (blank panel).
+		expect(lit.length, 'a real score frame must light at least one dot -- a blank panel is the failure this pins').toBeGreaterThan(0);
+
+		// (b) The text starts near the left edge, not off-panel to the right.
+		expect(leftmostLitCol(raster), 'the score rows must begin within a few dots of the left edge').toBeLessThan(8);
+
+		// (c) All four lines are present, each inside its own 7-row glyph band.
+		//     Kills LINE_PITCH_ROWS = 0 (all four lines overprinted on rows 0-6).
+		const BANDS = [0, 8, 16, 24];
+		for (const band of BANDS) {
+			expect(
+				lit.some((r) => r >= band && r <= band + 6),
+				`line at dot row ${band} must light at least one dot -- a missing band means that line never reached the panel`,
+			).toBe(true);
+		}
+
+		// (d) The gutter rows between the bands are genuinely unlit. This is
+		//     what pins LINE_PITCH_ROWS = 8 against GLYPH_H = 7: any overlap or
+		//     any different pitch puts a lit dot on one of these rows.
+		for (const gutter of [7, 15, 23, 31]) {
+			expect(lit, `dot row ${gutter} is the gutter between two lines and must carry no lit dot`).not.toContain(gutter);
+		}
+
+		// (e) No lit dot outside the four bands at all.
+		for (const r of lit) {
+			expect(
+				BANDS.some((band) => r >= band && r <= band + 6),
+				`lit dot row ${r} falls outside every line band -- the line arithmetic has drifted`,
+			).toBe(true);
+		}
+	});
+});
+
 describe('advanceBackglass() -- game_over and highscore_entry also fall through to the score screen (DW-196: only phase "game" was previously exercised, though the doc comment above advanceBackglass() names all three)', () => {
 	it.each(['game_over', 'highscore_entry'] as const)('phase "%s" selects the score screen, exactly like phase "game"', (phase) => {
 		const game: GameState = {
@@ -109,6 +199,71 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 		expect(frame.rows.some((r) => r.text === 'PLAYER 1'), 'must name PLAYER 1 (event.player 0, 1-indexed for display) -- reading currentPlayer instead would say PLAYER 2').toBe(true);
 		expect(frame.rows.some((r) => r.text === '1,111'), 'must show player 0\'s own score (1,111), not player 1\'s (2,222)').toBe(true);
 		expect(frame.rows.some((r) => r.text === '2,222'), 'player 1\'s score must NOT appear on this screen').toBe(false);
+	});
+
+	/** The same REAL 20-tick disagreeing end-of-ball frame the case above builds, reusable by the hold cases below. */
+	function realBallEndedFrame(): { output: FrameOutput; game: GameState } {
+		const script = close('s_start').at(5).at(8).open('s_shooter_lane').at(10).close('s_trough_1').at(20);
+		const result = runRulesScript(script.build(), { durationTicks: 20 });
+		const eventsAtTick20 = result.events.filter((e) => e.tick === 20);
+		expect(eventsAtTick20.some((e) => e.type === 'ball_ended'), 'sanity: the script must still produce ball_ended at tick 20').toBe(true);
+		const game: GameState = {
+			...result.finalState,
+			players: result.finalState.players.map((player, index) => ({ ...player, score: index === 0 ? 1111 : 2222 })),
+		};
+		return { output: frameOutput({ snapshot: buildSnapshot({ tick: 20, game }), events: eventsAtTick20 }), game };
+	}
+
+	// Found by code review: the hold branch and the frozen `heldBallEnded`
+	// payload had NO coverage anywhere -- every existing case (this file's AC 3
+	// case and both integration cases) stopped at or before the ARMING frame,
+	// so nothing ever passed `advanceBackglass()` a view whose screen was
+	// already 'ball_ended'. MEASURED: setting BALL_ENDED_HOLD_TICKS to 0 --
+	// which reduces the end-of-ball screen to a single 1 ms tick nobody could
+	// ever see -- left all 33 backglass tests green.
+	it('code review: the end-of-ball screen HOLDS across later event-free frames, keeps its frozen payload, and releases at the deadline', () => {
+		const { output, game } = realBallEndedFrame();
+		const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, output);
+		expect(armed.screen).toBe('ball_ended');
+		expect(armed.holdUntilTick, 'arming must set a hold deadline').not.toBeNull();
+
+		// The NEXT sim frame carries NO event and the snapshot has already moved
+		// on -- exactly what boot.ts feeds it 1 ms later.
+		const nextTickFrame = frameOutput({ snapshot: buildSnapshot({ tick: 21, game }), events: [] });
+		const held = advanceBackglass(armed, nextTickFrame);
+		expect(held.screen, 'the frame after ball_ended must STILL show the end-of-ball screen').toBe('ball_ended');
+		const heldRows = renderFrame(held, nextTickFrame.snapshot).rows;
+		expect(heldRows.some((r) => r.text === 'PLAYER 1'), 'the held screen must keep naming the ENDING player, from the frozen payload').toBe(true);
+		expect(heldRows.some((r) => r.text === '1,111'), 'the held screen must keep the ENDING player\'s own score').toBe(true);
+		expect(heldRows.some((r) => r.text === '2,222'), 'the held screen must never show the rotated-to player\'s score').toBe(false);
+
+		// At the deadline it releases back to live play.
+		const releaseFrame = frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game }), events: [] });
+		expect(advanceBackglass(held, releaseFrame).screen, 'at holdUntilTick the hold must expire').toBe('score');
+	});
+
+	// Found by code review: `src/host/loop.ts`'s `reset()` (tuning hot-apply,
+	// replay playback, both boot.ts dev hatches) rebuilds the sim and restarts
+	// the tick count at 0, while boot.ts's `backglassView` survives in its
+	// closure. The hold check used to be `tick < holdUntilTick` alone, so a
+	// reset landing inside an end-of-ball hold froze the DMD on the previous
+	// game's screen for the whole of the OLD tick count.
+	it('code review: a hold armed on a PREVIOUS timeline does not survive a reset -- a tick below the hold window releases instead of freezing the panel', () => {
+		const staleFromLongGame: BackglassView = {
+			screen: 'ball_ended',
+			holdUntilTick: 500_000,
+			attractCycleOriginTick: 0,
+			heldBallEnded: { player: 0, score: 1111 },
+		};
+		const game: GameState = {
+			...BASE_GAME_STATE,
+			phase: 'game',
+			currentPlayer: 0,
+			players: [buildPlayer({ score: 0, ballNumber: 1 })],
+		};
+		// hostLoop.reset() -> createLoop() -> tick restarts near 0.
+		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game }), events: [] }));
+		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
 	});
 });
 
@@ -331,7 +486,14 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 
 	it('no display literal appears anywhere under src/sim/** (outside comments -- comments freely discuss balls and players in English prose)', () => {
 		const simDir = path.resolve(__dirname, '..', 'src', 'sim');
-		for (const file of listTsFiles(simDir)) {
+		const simFiles = listTsFiles(simDir);
+		// Code review: without this guard the whole check is vacuous if the
+		// listing ever returns nothing (a moved directory, a changed
+		// readdirSync signature) -- the loop body simply never runs and the
+		// test passes. Its positive-control sibling above is self-guarding
+		// because it asserts on the JOINED contents; this one is not.
+		expect(simFiles.length, 'the scan must actually find files under src/sim/** -- an empty listing would make every assertion below vacuous').toBeGreaterThan(20);
+		for (const file of simFiles) {
 			const contents = stripComments(readFileSync(file, 'utf8'));
 			for (const literal of DISPLAY_LITERALS) {
 				expect(contents.includes(literal), `${path.relative(simDir, file)} must not contain the display literal "${literal}" outside a comment (AD-9: rules never format text)`).toBe(false);
