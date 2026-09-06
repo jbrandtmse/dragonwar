@@ -2,7 +2,7 @@
 title: 'Story 2.6: The DMD Backglass'
 type: 'feature'
 created: '2026-09-06'
-status: 'done'
+status: 'in-progress'
 baseline_revision: '52e2c436a02b5cb933c83c3042c4725c7aca0adc'
 baseline_commit: '52e2c436a02b5cb933c83c3042c4725c7aca0adc'
 review_loop_iteration: 0
@@ -199,6 +199,26 @@ deferred:
 - `test/asset-contract.test.ts` -- extend with `vis_backbox`'s glb contract: parent `cabinet_root`, `extras.lightgroup === 'lg_cabinet'`, exactly one material, `TEXCOORD_0` **and** `TEXCOORD_1` present, and the DMD-facing quad's `TEXCOORD_0` spanning the full `[0,1]` range on both axes. Measured: `uv_layers.new()` produces a reset unwrap in which each box face independently covers the unit square (4 distinct UV pairs, u and v both 0..1), which is exactly the substrate a DMD face needs; a collapsed all-zero UV set is the failure mode this catches.
 
 **Acceptance Criteria:**
+- [ ] **[SMOKE] DW-199 — the DMD's TOP text line is clipped by the backbox quad in the real renderer.**
+  Found by the lead's browser smoke, which is the only gate that can see it: AD-15 forbids automated rendering
+  assertions, the dot buffer itself is correct, and all 1,653 headless tests pass.
+  **Reproduction (do not rediscover it):** `pnpm dev`, click through the "Press to begin" gate, then dispatch a
+  `Digit1` keydown/keyup to press Start. The panel then shows a **clipped first line**, a legible `0`, and a
+  legible `BALL 1`, with the panel's lower portion empty. The Attract screen shows the same shape — `PRESS START`
+  sits flush against the panel's top edge. Reproduced at **1280x900, 1000x420 and 1400x1000**, so it is not an
+  aspect artefact. Evidence screenshot: `smoke-2-6-dmd-clipped-top-row.png` in the session scratchpad.
+  **The diagnosis is open — root-cause it.** The quad is 400x100 mm and the DMD is 128x32, both exactly 4:1, so a
+  1:1 map should show all 32 dot rows. The loss is therefore in the **mapping or the anchoring**, not the aspect:
+  candidates are the `vis_backbox` UV assignment on the DMD face, the `RawTexture` v-axis orientation, or the
+  quad's own z extent versus where the texture is anchored. Measure before changing.
+  **Constraints:** do NOT move `assetHash` (`ab163ff`) or `tableHash` (`a2f90b52`) — verify both after any change,
+  and adding to `TABLE.nodes` or `TABLE.lightGroups` would move `tableHash`. If the fix needs a Blender re-export,
+  that is allowed (this story already owns one), but the collision document must stay byte-identical.
+  **Pin it so it cannot regress silently.** A headless test cannot assert rendered pixels (AD-15), but it CAN
+  assert the mapping that governs this — e.g. the DMD face's UV extent covering the full [0,1] v range, or the
+  texture's row-0 anchoring. Find the data-level invariant that is false today and true after, and give it a
+  demonstrated mutation. **If no such invariant exists, say so explicitly** rather than shipping an unpinned fix.
+
 
 - **AC 1 — the quad exists, is Blender-authored, carries a visible dot grid, and falls inside the existing fixed view.** Given `tools/make-placeholder-blend.py` regenerated and `pnpm export:assets` re-run, when the committed glb is loaded, then `vis_backbox` is present as a child of `cabinet_root` with `lightgroup: 'lg_cabinet'`, one material and both UV sets; and its eight world-bbox corners project inside `[-1, 1]` on both NDC axes under `createFixedCamera()`, above the playfield's far edge in NDC y; and `rasterise` emits an unlit gutter between adjacent lit dot cells; and the backglass texture's `samplingMode` is `NEAREST_SAMPLINGMODE`. **The camera is NOT re-aimed, and that is a measurement rather than an omission** — see Design Notes.
 - **AC 2 — the score screen reads the current player's own state.** Given `phase: 'game'` with three players scoring 1234 / 5678 / 90, `currentPlayer: 1`, `players[0].ballNumber: 1` and `players[1].ballNumber: 3`, when a frame is rendered, then all three scores appear formatted with thousands separators, **exactly** the row at index 1 is flagged current, and the ball row reads the current player's ball number (3, not 1). A source-level scan additionally asserts the Backglass's English display literals appear under `src/presentation/backglass/**` and **nowhere under `src/sim/**`**.
@@ -240,6 +260,12 @@ Suite after patches: **105 files / 1,653 tests, 0 failed** (`BLENDER` exported; 
 **Record-integrity note for the lead (no file changed):** the frontmatter `deferred:` list still describes the pre-QA tree -- four of its five entries were fixed *in this same diff* (`DW-194`'s harness timeout, `DW-195`'s `stripComments()` rewrite, and `DW-196`'s three coverage tests), and only `DW-197` was genuinely still open when this review began. All four are already in the ledger, so **re-harvesting that list would double-file them.** Likewise `## Auto Run Result` records "105 files / 1643 tests" (a count no run produced -- the cycle log for that same run reads 1 failed / 1642 passed, and QA's green was 1650) and still attributes the `solver-termination` failure to CPU contention, the diagnosis QA falsified and this diff's own `TEST_TIMEOUT_MS = 15_000` fix disproves. Left as written rather than rewritten, since `status:` and the auto-run record are the lead's to reconcile.
 
 ## Spec Change Log
+
+- **2026-09-06 — re-opened for one rework iteration: the lead's browser smoke failed.** The Backglass works end
+  to end in a real browser (it sits above the playfield, shows `PRESS START` in amber with a visible dot grid, and
+  a real Start press flips it to the score screen with `BALL 1` and a served ball) — but the **top text line is
+  clipped by the quad**. Added as a `[SMOKE]` task above. Nothing else about the story is re-opened; `DW-197` and
+  `DW-198` remain escalated for the decision sheet and are NOT part of this iteration.
 
 ## Review Triage Log
 
