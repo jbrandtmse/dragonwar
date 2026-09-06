@@ -102,6 +102,19 @@ export interface PlayerState {
 	readonly warsStarted: number;
 	/** Names of the modes this player has played this game. */
 	readonly modesPlayed: readonly string[];
+	/**
+	 * Story 2.5: the ball number currently (or most recently) in play for
+	 * THIS player, 1-indexed -- `0` before their first ball has started.
+	 * Incremented by the ball controller every time `ball_will_start` starts
+	 * a ball for them (AD-18: the ball controller alone owns the lifecycle),
+	 * and is what `GameStart.adjustments.ballsPerGame` (AD-14) is compared
+	 * against to decide "the last player's last ball" (AC 6). Necessarily
+	 * player-scoped (AD-7): Hot seat lets each player be on a different ball
+	 * number relative to the OTHERS only in the sense that this field, not a
+	 * single game-wide counter, is what the rotation and game-over checks
+	 * read.
+	 */
+	readonly ballNumber: number;
 }
 
 /**

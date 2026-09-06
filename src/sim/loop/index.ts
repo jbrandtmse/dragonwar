@@ -20,15 +20,42 @@
 // cap is `MAX_OWED_TICKS`, already expressed in ticks there.
 //
 // `pulseCoil(coil)` is a DEV-ONLY escape hatch (Design Notes, "Why the dev
-// pulse exists"): the story's own acceptance criteria drive `bd_trough`'s
-// eject and the autolauncher from a "dev action" because `advance()`'s
-// signature (fixed by AD-4) carries no room for one. It enqueues into
+// pulse exists"): kept for general dev/test use (any coil, not only the
+// trough) after Story 2.5, which replaces it as the PRODUCTION serve path --
+// the ball controller (`sim/rules/ball-controller.ts`) is now the only thing
+// that pulses `c_trough_eject` in real play (AD-18); this hatch enqueues into
 // EXACTLY the same next-tick command queue a rules-issued `CoilCommand`
-// would use, so physics cannot tell the difference. Story 2.5 ("Start, hot
-// seat and the ball lifecycle") replaces it with the real serve path.
+// would use, so physics cannot tell the difference.
+//
+// Story 2.5, task 5/6 (AD-14, AD-7, DW-70): `gameStart?: GameStart` seeds the
+// initial `GameState` (`rng` from `gameStart.seed`, `machine.highscores` from
+// `gameStart.highscores`) and its `adjustments` ride `createRules()`'s SECOND
+// constructor argument -- never `step()`'s three-argument signature, which
+// stays AD-4's pin. `initialMachineState()`'s `deviceSlots` is now seeded from
+// `bootDeviceSlots()` (`sim/rules`, TABLE-derived) rather than the physics
+// machine's own `deviceSlots` getter -- the boot seed is construction, not
+// the DW-70 violation itself (Design Notes, "the boot seed is construction,
+// not mutation"), but this removes even that one physics read, so
+// `initialMachineState()` no longer needs a physics-shaped argument at all.
+// `hardwareEnabled` now boots `false` (was hardcoded `true`): AD-7 says
+// "ball_starting enables hardware", which is vacuous if the boot value is
+// already `true` (Design Notes, "why hardwareEnabled must start false").
+//
+// DW-70's own live violation -- `state = { ...rulesResult.state, machine: {
+// ...rulesResult.state.machine, deviceSlots: machine.deviceSlots } }`,
+// overwriting `GameState.machine.deviceSlots` from the physics machine's own
+// live view AFTER `rules.step()` returns -- is DELETED in this story:
+// `state = rulesResult.state` is now the whole assignment. `deviceSlots` is
+// derived entirely inside `rules.step()` (`sim/rules/index.ts`,
+// `sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`) from this tick's
+// device events, never copied from physics. `buildSnapshot()` below is
+// UNCHANGED -- it still reads `machine.deviceSlots` directly for the
+// snapshot's own `mechanisms.devices` view, which is now the INDEPENDENT
+// second derivation the AD-7 gate (`test/fixtures/dw70-ad7/`) cross-checks
+// against.
 
 import { createMachine } from '../physics/machine';
-import { createRules } from '../rules';
+import { createRules, bootDeviceSlots } from '../rules';
 import { msToTicksExact, ticksToMs, MAX_OWED_TICKS } from '../contracts/time';
 import { resolveTuning, type ResolvedTuning } from '../table/tuning';
 import { TABLE } from '../table/dragonwar';
@@ -38,6 +65,7 @@ import type {
 	CoilCommand,
 	CoilName,
 	FrameOutput,
+	GameStart,
 	GameState,
 	MachineState,
 	SemanticEvent,
@@ -171,15 +199,24 @@ function physicsVelocityToTableMmPerS(vel: Vec3): Vec3 {
 	return { x: (tip.x - origin.x) * 100, y: (tip.y - origin.y) * 100, z: (tip.z - origin.z) * 100 };
 }
 
-function initialMachineState(deviceSlots: Readonly<Record<BallDeviceName, readonly boolean[]>>): MachineState {
+/**
+ * Story 2.5, task 6: `deviceSlots` is now TABLE-derived (`bootDeviceSlots()`,
+ * `sim/rules`), never a physics read -- `initialMachineState()` no longer
+ * takes the physics machine's `deviceSlots` getter as an argument at all.
+ * `hardwareEnabled` now boots `false` (was hardcoded `true`) -- see this
+ * file's header. `highscores` is seeded from `gameStart?.highscores` (AD-14:
+ * "highscores (read-only, from GameStart)"), defaulting to `[]` exactly as
+ * before this story when no `GameStart` is supplied.
+ */
+function initialMachineState(gameStart: GameStart | undefined): MachineState {
 	return {
 		ballsInPlay: 0,
-		hardwareEnabled: true,
+		hardwareEnabled: false,
 		ballSave: { untilTick: null, sources: [] },
 		tilt: { tilted: false, slamTilted: false },
 		multiball: null,
-		highscores: [],
-		deviceSlots,
+		highscores: gameStart?.highscores ?? [],
+		deviceSlots: bootDeviceSlots(),
 	};
 }
 
@@ -201,6 +238,16 @@ export interface CreateLoopOptions {
 	 * `src/host/loop.ts`'s `reset()`.
 	 */
 	readonly tuning?: ResolvedTuning;
+	/**
+	 * Story 2.5, task 5 (AD-14): the one bundle a caller hands the sim at game
+	 * start. Seeds the initial `GameState` (`rng` from `.seed`,
+	 * `machine.highscores` from `.highscores`) and its `.adjustments` ride
+	 * `createRules()`'s second constructor argument -- never `step()`'s
+	 * three-argument signature (AD-4's pin). Omitted, behaviour is
+	 * byte-identical to before this story: `rng: 0`, `highscores: []`, and
+	 * `createRules()`'s own default adjustments (`ballsPerGame: 3`).
+	 */
+	readonly gameStart?: GameStart;
 }
 
 export function createLoop(options: CreateLoopOptions): Loop {
@@ -212,7 +259,9 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	// occupancy, the pending Lock-lane closure), so a module-level instance
 	// would leak between two loops in one process (Story 2.3's own spinner
 	// defect, repeated).
-	const rules = createRules(tuning);
+	// Story 2.5, task 5: `options.gameStart?.adjustments` rides this SECOND
+	// constructor argument (AD-4: never step()'s call signature).
+	const rules = createRules(tuning, options.gameStart?.adjustments);
 
 	let tick = 0;
 	let owedRemainderTicks = 0;
@@ -228,11 +277,14 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	let state: GameState = {
 		tick: 0,
 		phase: 'attract',
-		machine: initialMachineState(machine.deviceSlots),
+		machine: initialMachineState(options.gameStart),
 		players: [],
 		currentPlayer: 0,
 		modes: [],
-		rng: 0,
+		// Story 2.5, task 5 (AD-14, AD-3): seeded from GameStart's own seed when
+		// supplied -- rules randomness (Match, the skill-shot lane) draws from
+		// this field. Omitted, `0` exactly as before this story.
+		rng: options.gameStart?.seed ?? 0,
 	};
 
 	function buildSnapshot(): Snapshot {
@@ -349,10 +401,11 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			const switchEvents: SwitchEvent[] = [...edges, ...machineResult.switchEvents];
 
 			const rulesResult = rules.step(state, switchEvents, tick);
-			state = {
-				...rulesResult.state,
-				machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots },
-			};
+			// DW-70 (AD-7): `machine.deviceSlots` is derived entirely INSIDE
+			// rules.step() now (sim/rules/index.ts, ball-controller.ts's
+			// deriveDeviceSlots()) -- no longer overwritten here from the
+			// physics machine's own live view. This is the whole assignment.
+			state = rulesResult.state;
 
 			events.push(...machineResult.semanticEvents, ...rulesResult.events);
 			contactEvents.push(...machineResult.contactEvents);

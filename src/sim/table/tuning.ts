@@ -481,7 +481,7 @@ export const TUNING = deepFreeze({
 	 */
 	flipperTipGapMm: entry(
 		40.65,
-		'authored: derived arithmetic, not a second invented figure -- the gap between the right bat\'s tip (col_flipper_r.bboxMm.min.x = 277.525 mm) and the left bat\'s tip (col_flipper_l.bboxMm.max.x = 236.875 mm) at end-of-stroke, both a direct consequence of DW-78\'s reconciliation (each box moved outward by baseRadius = 12.5 mm around its own unchanged pivot). No planning artifact states a tip gap the sourced 9.5-12.7 mm figure (digests/geometry-r1-1.md:91,204, low confidence) is narrower than the 26.99 mm reference ball and therefore unusable as authored truth (Code Map, "Read-only evidence")',
+		'authored: derived arithmetic, not a second invented figure -- the gap between the right bat\'s tip (col_flipper_r.bboxMm.min.x = 277.525 mm) and the left bat\'s tip (col_flipper_l.bboxMm.max.x = 236.875 mm) at end-of-stroke, both a direct consequence of DW-78\'s reconciliation (each box moved outward by baseRadius = 12.5 mm around its own unchanged pivot). No planning artifact states a tip gap; the sourced 9.5-12.7 mm figure (digests/geometry-r1-1.md:91,204, low confidence) is narrower than the 26.99 mm reference ball and therefore unusable as authored truth (Code Map, "Read-only evidence")',
 		'unverified',
 	),
 	outlaneWidthLeftMm: entry(

@@ -9,12 +9,17 @@
 //
 // PROVENANCE NOTE (spec Design Notes, "The goldens bake DW-70's value into
 // the reference hash"): `stateHash()` hashes the whole `game` tree, which
-// includes `machine.deviceSlots` -- every golden below therefore freezes the
-// LOOP-WRITTEN value of `deviceSlots` (the live AD-7 violation tracked as
-// `DW-70`, `sim/loop/index.ts:352-355`) as part of its reference hash. If
-// Story 2.5's fix is faithful the values will be identical and nothing
-// breaks; if a golden here ever breaks on `deviceSlots` alone, check DW-70
-// before assuming the physics changed. Each golden file's own `notes` field
+// includes `machine.deviceSlots` -- every golden below therefore freezes
+// `deviceSlots`'s own value as part of its reference hash. Story 2.5 fixed
+// `DW-70` (`machine.deviceSlots` is now derived entirely inside
+// `rules.step()`, never copied from physics by `sim/loop/index.ts`): the
+// derivation was traced faithful before recording (every parking-slot write
+// is paired 1:1 with a switch edge in the same tick physics already
+// produces, so a rules replay of those edges lands on the identical value at
+// the identical tick), and the five goldens below reproduce their own
+// pre-fix hashes exactly on `deviceSlots` alone -- if a golden here ever
+// breaks on `deviceSlots` specifically, that is a NEW derivation bug, not
+// evidence that DW-70 itself regressed. Each golden file's own `notes` field
 // repeats this next to the data itself, per that Design Notes section's own
 // instruction.
 //
@@ -29,21 +34,36 @@
 // ball existed by tick X"), which is the failure a bare hash mismatch alone
 // would not localise to the prologue specifically.
 //
-// Story 2.5 removes the prologue once Start serves through the rules layer,
-// and re-records every golden then -- do not widen this mechanism further.
+// The coil prologue's own removal is NOT Story 2.5's work (author's decision
+// at that story's plan halt, 2026-09-06; `epics.md:654` amended) -- it is
+// deferred WHOLE to Epic 3, at or after Story 3.7 (Quick multiball), or
+// formally retired there, and tracked as `DW-175`. Two measurements make it
+// impossible before then: `two-ball-collision`'s own two-pulse prologue needs
+// `machine.multiball`, which does not exist until Story 3.7; and AD-4's
+// *N+1* pin means a rules-issued eject cannot fire before tick 2 while every
+// prologue fires at tick 1, a +1-tick serve shift `two-ball-collision`'s own
+// 0.191 mm centre-separation margin cannot survive. The goldens are
+// physics-determinism pins, not end-to-end Start coverage -- removing the
+// prologue would make them end-to-end, and that is not what covers Start;
+// Story 2.5 tests the Start path directly, with its own headless and
+// integration tests (`test/rules-lifecycle.test.ts`,
+// `test/rules-lifecycle-integration.test.ts`). Do not widen this mechanism
+// further before then.
 //
-// [CORRECTED, Story 2.4] The paragraph above used to add "(RulesStepResult.commands
-// is `readonly never[]`, the rules layer cannot issue one)" as the reason no
-// coil can be reached from an `InputTransition[]` body. That is no longer
-// true in general: Story 2.4 gives the rules layer a SEPARATE `coilCommands`
-// channel to physics (the devices-and-shots layer pulses `c_dragon_bank_reset`
-// through it), routed through `sim/loop`'s `pendingCommands` exactly like
-// `pulseCoil()`. `RulesStepResult.commands` itself is unaffected -- it stays
-// `readonly never[]`, the presentation-only channel AD-9's Seam Contracts
-// table pins `FrameOutput.commands` to. This prologue mechanism survives
-// unchanged regardless: nothing in Epic 2 before Story 2.5 turns a button
-// press into a coil pulse that SERVES a ball, so `InputTransition[]` still
-// has no path to one.
+// [CORRECTED, Story 2.4] An earlier pass of this comment argued no coil
+// could ever be reached from an `InputTransition[]` body because
+// `RulesStepResult.commands` is `readonly never[]`. That is no longer true
+// in general: Story 2.4 gave the rules layer a SEPARATE `coilCommands`
+// channel to physics (the devices-and-shots layer pulses
+// `c_dragon_bank_reset` through it; Story 2.5's ball controller pulses
+// `c_trough_eject` the same way, in response to a real `s_start`
+// `InputTransition`), routed through `sim/loop`'s `pendingCommands` exactly
+// like `pulseCoil()`. `RulesStepResult.commands` itself is unaffected -- it
+// stays `readonly never[]`, the presentation-only channel AD-9's Seam
+// Contracts table pins `FrameOutput.commands` to. None of these five goldens
+// presses `s_start` (they stay in `phase: 'attract'` throughout, per Story
+// 2.5's ball controller, which only acts once a game is in progress), so
+// the coil prologue mechanism they rely on is unaffected either way.
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -55,6 +75,7 @@ import {
 	NonCanonicalValueError,
 	runReplay,
 	StaleReplayHeaderError,
+	stateHash,
 	type CoilPrologueEntry,
 } from '../src/sim/loop/replay';
 import { MM_PER_VU } from '../src/sim/table/frames';
@@ -83,6 +104,19 @@ interface GoldenFile {
 	readonly durationTicks: number;
 	readonly expectedHash: string;
 	readonly expectedGameStateHash: string;
+	/**
+	 * Story 2.5, task 18 (DW-85): optional, test-local -- an intermediate
+	 * ball position entering the hashed evidence, so a defect that changes
+	 * the trajectory MID-run but happens to still drain inside the window
+	 * (the ledger's own "can only ever detect defects that change the
+	 * endpoint" gap) is caught. Only `roll-and-drain` carries these today.
+	 * The SHIPPED `Replay`/`ReplayHeader` types (`:72-76` above) are
+	 * untouched -- `runReplay()`'s own `checkpointTicks` option already
+	 * exists for exactly this (Story 1.8).
+	 */
+	readonly checkpointTicks?: readonly number[];
+	/** `stateHash(snap.game, snap.balls)` at each of `checkpointTicks`, keyed by tick (as a string, since JSON object keys are always strings). */
+	readonly expectedCheckpointHashes?: Readonly<Record<string, string>>;
 	readonly notes: string;
 }
 
@@ -205,21 +239,30 @@ describe('AC 5 parity-hash falsifiability: which goldens\' GameState-only hash a
 	 * 2026-08-31 after Story 2.1a task 25 (DW-119 residual) reshaped
 	 * col_wall_bottom_l/_r's own top edge from a dead-flat face into a ramp.
 	 *
-	 * `hold-and-release` REMOVED this pass: its own reason used to read "the
-	 * ball neither launches nor drains within this golden" -- true only
-	 * because, on the OLD flat-topped wall, a ball with no sideways force
-	 * ever reaching col_wall_bottom_l simply parked there forever, identically
-	 * whether or not the flipper had touched it first, within the golden's
-	 * 8110-tick window. The new sloped face gives every such ball a genuine,
-	 * non-zero drift toward the drain, and the flipper's own deflection
-	 * during the recorded hold measurably changes how fast it gets there:
-	 * WITH the body, the ball reaches bd_trough by tick 8110 (matching this
-	 * golden's own `description`, "drains shortly after release", which the
-	 * pre-fix geometry could not actually deliver inside the window);
-	 * WITHOUT it, the ball is still mid-drift, not yet parked or drained.
-	 * That is a genuine, desirable gain in parity-hash sensitivity, not a
-	 * scenario break -- the golden's own per-golden test below (contact,
-	 * hold, deflection) is unaffected.
+	 * `hold-and-release` REMOVED this pass (Story 2.1a, DW-119's sloped-wall
+	 * fix): its own reason used to read "the ball neither launches nor drains
+	 * within this golden" -- true only because, on the OLD flat-topped wall, a
+	 * ball with no sideways force ever reaching col_wall_bottom_l simply
+	 * parked there forever, identically whether or not the flipper had
+	 * touched it first. The new sloped face gives every such ball a genuine,
+	 * non-zero drift, which is what makes the flipper's own deflection during
+	 * the recorded hold change the outcome at all.
+	 *
+	 * [CORRECTED 2026-09-06, Story 2.5 task 19: the specific tick figures and
+	 * WITH/WITHOUT direction below were stale against Story 2.1c's own
+	 * retiming of this golden (press/release moved to 8650/9250,
+	 * durationTicks 8110 -> 9600 -- there is no "8110-tick window" any more)
+	 * and its own current `description`, which states the ball is STILL IN
+	 * PLAY at durationTicks, never "drains shortly after release".] Measured
+	 * at the CURRENT recorded durationTicks (9600): WITH the body (the
+	 * flipper hold), the ball is still in play, resting/rolling near the
+	 * raised bat (matching the golden's own `description` exactly);
+	 * WITHOUT it (no flipper touch at all), the ball has ALREADY drained by
+	 * durationTicks (`ballsInPlay` 0, `balls` empty) -- the flipper's own
+	 * deflection is what keeps it in play long enough to still be there at
+	 * the tick bound. That is a genuine, desirable gain in parity-hash
+	 * sensitivity, not a scenario break -- the golden's own per-golden test
+	 * below (contact, hold, deflection) is unaffected.
 	 */
 	const PARITY_INERT: Readonly<Record<string, string>> = {
 		'nudge-coupling':
@@ -493,13 +536,52 @@ describe('roll-and-drain golden: the ball genuinely returns to bd_trough', () =>
 		expect(result.finalSnapshot.game.machine.ballsInPlay, 'ballsInPlay must settle back to 0').toBe(0);
 		expect(result.finalSnapshot.mechanisms.devices.bd_trough.slots, 'the drained ball must have re-filled a trough slot').toEqual([true, true, true, true]);
 	});
+
+	// Story 2.5, task 18 (DW-85): the ledger's own gap -- this golden's
+	// terminal GameState is discrete and low-cardinality (an empty balls
+	// array, a full trough), so two trajectories that both drain inside the
+	// window hash identically at the END alone. An intermediate ball
+	// position (`checkpointTicks`) closes that: a defect that perturbs the
+	// MID-run trajectory but still happens to drain inside the window would
+	// leave `expectedHash`/`expectedGameStateHash` unchanged while moving a
+	// checkpoint's own `stateHash()`.
+	it('DW-85: an intermediate ball position (checkpointTicks) enters the hashed evidence, not just the discrete terminal state', () => {
+		const golden = loadGolden('roll-and-drain');
+		expect(golden.checkpointTicks, 'this golden must declare its own checkpointTicks, or the assertion below is vacuous').toBeDefined();
+		expect(golden.expectedCheckpointHashes, 'this golden must declare its own expectedCheckpointHashes').toBeDefined();
+
+		const result = runReplay({
+			replay: toReplay(golden),
+			collisionDoc: loadCollisionDoc(),
+			durationTicks: golden.durationTicks,
+			coilPrologue: golden.coilPrologue,
+			checkpointTicks: golden.checkpointTicks,
+		});
+
+		let sawANonEmptyCheckpoint = false;
+		for (const tick of golden.checkpointTicks!) {
+			const snapshot = result.checkpoints.get(tick);
+			expect(snapshot, `checkpoint at tick ${tick} must exist`).toBeDefined();
+			if (snapshot!.balls.length > 0) {
+				sawANonEmptyCheckpoint = true;
+			}
+			const hash = stateHash(snapshot!.game, snapshot!.balls);
+			expect(hash, `checkpoint at tick ${tick}: stateHash`).toBe(golden.expectedCheckpointHashes![String(tick)]);
+		}
+		// Vacuity guard (mirrors the "nothing arranged" guard above, :491
+		// family): a checkpoint set that never observed a ball in play would
+		// let the hash comparison above pass on the SAME discrete, empty
+		// state the terminal hash already covers -- exactly the gap this
+		// test exists to close.
+		expect(sawANonEmptyCheckpoint, 'at least one checkpoint must have observed a ball actually in play').toBe(true);
+	});
 });
 
 describe('hold-and-release golden: the coil hardware rule genuinely energises, holds, and the ball genuinely contacts the raised bat -- within the declared prologue+transitions, never re-derived from a value this same run produced', () => {
 	it('the flipper reaches end-of-stroke shortly after the press, is STILL held at the release tick, and the raised bat measurably deflects the ball (a real contact, against a no-flipper control run)', () => {
 		const golden = loadGolden('hold-and-release');
-		const pressTick = golden.transitions[0]!.tick; // 7300, declared in the golden's own data
-		const releaseTick = golden.transitions[1]!.tick; // 8100
+		const pressTick = golden.transitions[0]!.tick; // 8650, declared in the golden's own data (Story 2.1c's retiming)
+		const releaseTick = golden.transitions[1]!.tick; // 9250
 		const result = runReplay({
 			replay: toReplay(golden),
 			collisionDoc: loadCollisionDoc(),
@@ -543,10 +625,13 @@ describe('hold-and-release golden: the coil hardware rule genuinely energises, h
 		// own; the flag was true either way and could never fail for the state
 		// its own message denied. The control comparison below IS
 		// discriminating: across the hold window the two trajectories diverge
-		// by up to 48.30 mm (first exceeding 1 mm at tick 7394, 94 ticks after
-		// the press), while the control's bat never leaves its 141 deg rest
-		// angle. The 5 mm bound sits ~10x below the measured divergence and far
-		// above any float noise.
+		// by up to 92.25 mm [re-measured 2026-09-06, Story 2.5 task 19,
+		// against the retimed press/release above -- superseding the earlier
+		// "48.30 mm ... at tick 7394", measured against the pre-retiming
+		// 7300/8100 press/release and now stale] (first exceeding 1 mm at
+		// tick 8916, 266 ticks after the press), while the control's bat
+		// never leaves its 141 deg rest angle. The 5 mm bound sits well below
+		// the measured divergence and far above any float noise.
 		const controlPositions = new Map<number, { x: number; y: number; z: number }>();
 		const controlAngles = new Map<number, number>();
 		runReplay({
@@ -591,7 +676,7 @@ describe('hold-and-release golden: the coil hardware rule genuinely energises, h
 		).toBe(atRest.mechanisms.flippers.l.angleDeg);
 		expect(
 			maxDivergenceMm,
-			`the raised bat must have measurably deflected the ball: the golden's trajectory must diverge from the identical no-flipper control run by more than 5 mm somewhere in the hold window (measured this pass: 48.30 mm). Observed maximum divergence: ${maxDivergenceMm.toFixed(4)} mm`,
+			`the raised bat must have measurably deflected the ball: the golden's trajectory must diverge from the identical no-flipper control run by more than 5 mm somewhere in the hold window (measured this pass: 92.25 mm). Observed maximum divergence: ${maxDivergenceMm.toFixed(4)} mm`,
 		).toBeGreaterThan(5);
 	});
 });

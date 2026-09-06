@@ -40,16 +40,23 @@ import {
 	C_CONTACTVEL,
 	C_DISP_GAIN,
 	C_DISP_LIMIT,
+	C_EMBEDSHOT,
+	C_EMBEDVELLIMIT,
 	C_INTERATIONS,
 	C_LOWNORMVEL,
 	C_PRECISION,
+	C_TOL_RADIUS,
+	DEFAULT_TABLE_GRAVITY,
+	GRAVITYCONST,
 	PHYS_FACTOR,
 	PHYS_SKIN,
 	PHYS_TOUCH,
 	PHYSICS_STEPTIME,
+	STATICCNTS,
 	STATICTIME,
 	VELOCITY_EPSILON,
 } from '../src/sim/physics/constants';
+import { PHYSICS_VERSION_PAYLOAD_KEYS } from '../src/sim/loop/replay';
 import { AUTHORED_PHYSICS_FILES as AUTHORED_PHYSICS_FILES_NO_EXT } from '../tools/dependency-cruiser.config.mjs';
 import { listFilesRecursive } from './util/list-files';
 
@@ -315,6 +322,56 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 		// Story 1.6: the flipper port (flipper-hit.ts's MFP root search) relies
 		// on this one -- added to the pin per this story's own task list.
 		expect(C_INTERATIONS, 'C_INTERATIONS (lib/physics/constants.ts, Flippers)').toBe(20);
+		// Story 2.5, task 15 (DW-87): five integration-affecting constants the
+		// ledger named as absent from both this pin and `PHYSICS_VERSION`'s own
+		// hashed payload, plus `DEFAULT_TABLE_GRAVITY` (a sixth candidate of the
+		// same class -- both it and GRAVITYCONST feed `machine.ts:201`'s gravity
+		// vector together). Widened here in the SAME change `replay.ts` widens
+		// the hash, per the completeness assertion immediately below.
+		expect(GRAVITYCONST, 'GRAVITYCONST (machine.ts:201)').toBe(1.81751);
+		expect(DEFAULT_TABLE_GRAVITY, 'DEFAULT_TABLE_GRAVITY (machine.ts:201)').toBe(0.97);
+		expect(STATICCNTS, 'STATICCNTS (game/player-physics.ts:266,:345)').toBe(10);
+		expect(C_EMBEDVELLIMIT, 'C_EMBEDVELLIMIT (ball/ball-hit.ts:459)').toBe(5);
+		expect(C_TOL_RADIUS, 'C_TOL_RADIUS (line-seg.ts:97)').toBe(0.005);
+		expect(C_EMBEDSHOT, 'C_EMBEDSHOT (ball/ball-hit.ts:282,:341, flipper/flipper-hit.ts:270)').toBe(0.05);
+	});
+
+	// DW-87's own remedy: a completeness assertion ALONE is not the fix (it
+	// would have been green on the day it was written while GRAVITYCONST still
+	// broke every golden as a bare hash mismatch) -- it is the RATCHET that
+	// keeps this pin and `PHYSICS_VERSION`'s hashed payload from silently
+	// drifting apart again. `PINNED_PAYLOAD_KEYS` below is this test's OWN
+	// declared list of every constant the `it()` above asserts a value for,
+	// spelled the same way `replay.ts`'s own `canonicalize()` payload keys
+	// them -- compared, sorted, for set equality against
+	// `PHYSICS_VERSION_PAYLOAD_KEYS` (exported alongside `PHYSICS_VERSION`
+	// for exactly this purpose). A future constant added to one list and not
+	// the other reddens here, by name, before it can become a bare hash
+	// mismatch on some later golden.
+	it('DW-87: this pin\'s own constant set is identical to PHYSICS_VERSION\'s hashed payload key set (the ratchet, not the fix)', () => {
+		const PINNED_PAYLOAD_KEYS = [
+			'tickHz',
+			'physicsStepTimeUs',
+			'physFactor',
+			'physSkin',
+			'physTouch',
+			'cPrecision',
+			'cLowNormVel',
+			'cContactVel',
+			'cDispGain',
+			'cDispLimit',
+			'staticTime',
+			'velocityEpsilon',
+			'ballBallRestitution',
+			'cInterations',
+			'gravityConst',
+			'defaultTableGravity',
+			'staticCnts',
+			'cEmbedVelLimit',
+			'cTolRadius',
+			'cEmbedShot',
+		];
+		expect([...PINNED_PAYLOAD_KEYS].sort()).toEqual([...PHYSICS_VERSION_PAYLOAD_KEYS].sort());
 	});
 });
 

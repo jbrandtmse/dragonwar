@@ -175,9 +175,20 @@ const FORBIDDEN_FAMILIES: ReadonlyArray<{ readonly label: string; readonly match
 	{ label: 'node:fs', matches: (s) => /^(?:node:)?fs(?:\/|$)/.test(s) },
 ];
 
-const ENTRY_FILES = [path.join(__dirname, 'rules-devices.test.ts'), path.join(__dirname, 'util', 'switch-script.ts')];
+// Story 2.5, task 13: test/rules-lifecycle.test.ts (the new headless
+// lifecycle suite, AC 9) is appended here -- a new test file is an ENTRY,
+// never reachable transitively from the two files already listed, so an
+// ungated file would defeat this scan's own claim (this file's own
+// :186-192 warning named this story by name: "sim/rules/index.ts is one
+// import away from dragging in 55 physics modules", and the ball controller
+// is exactly what task 4 wires into it).
+const ENTRY_FILES = [
+	path.join(__dirname, 'rules-devices.test.ts'),
+	path.join(__dirname, 'rules-lifecycle.test.ts'),
+	path.join(__dirname, 'util', 'switch-script.ts'),
+];
 
-describe('AC 9 (headless) -- nothing in test/rules-devices.test.ts\'s TRANSITIVE module closure is physics, loop, rendering or filesystem code (DW-172)', () => {
+describe('AC 9 (headless) -- nothing in test/rules-devices.test.ts\'s or test/rules-lifecycle.test.ts\'s TRANSITIVE module closure is physics, loop, rendering or filesystem code (DW-172, Story 2.5)', () => {
 	const { files, edges } = importClosure(ENTRY_FILES);
 
 	// Scanning only the two entry files' own import lists was the original

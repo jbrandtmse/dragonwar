@@ -139,6 +139,11 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(event.type).toBe('sim_time_discarded');
 	});
 
+	it('ball_started (Story 2.5, AC 2: the third member of ball_will_start -> ball_starting -> ball_started)', () => {
+		const event: SemanticEvent = { type: 'ball_started', tick: 21 };
+		expect(event.type).toBe('ball_started');
+	});
+
 	it('ball_ended carries the AD-9-named payload', () => {
 		const event: SemanticEvent = {
 			type: 'ball_ended',
@@ -168,6 +173,8 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return 'ball will start';
 				case 'ball_starting':
 					return 'ball starting';
+				case 'ball_started':
+					return 'ball started';
 				case 'ball_launched':
 					return 'ball launched';
 				case 'ball_missing':

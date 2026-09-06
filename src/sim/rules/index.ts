@@ -12,9 +12,17 @@
 // closing over a module-level layer instance would leak that state between
 // two loops in one process, the exact defect Story 2.3's spinner hit with
 // its own module-level `occupied` boolean. `createLoop()` calls
-// `createRules(tuning)` ONCE (mirroring `createMachine(collisionDoc,
+// `createRules(tuning, adjustments)` ONCE (mirroring `createMachine(collisionDoc,
 // tuning)`) and keeps the one `Rules` instance for the life of that loop;
 // `step()`'s own three-argument signature (AD-4's pin) is unchanged.
+//
+// Story 2.5: `createRules()` gains a SECOND, optional constructor argument
+// (`adjustments`, AD-14's `GameStart.adjustments`) -- never a fourth argument
+// to `step()` itself, which would widen AD-4's pin. `step()` now also
+// introduces the ball controller (`./ball-controller.ts`), which is the real
+// producer of the lifecycle events `ball_will_start`/`ball_starting`/
+// `ball_started`/`ball_ended` and the sole writer of `machine.deviceSlots`
+// (DW-70) and every player-scoped field.
 //
 // This file no longer names `SwitchEvent` (AD-19; `tools/boundary-lint.mjs`'s
 // `rules-no-switch-event-outside-devices` rule would otherwise fire on it,
@@ -25,23 +33,52 @@
 // input contract rather than the raw switch vocabulary -- AD-19's intent
 // stated in types.
 //
-// `state.machine.deviceSlots` is NOT written here: AD-6 defines it as "the
-// number of closed slot switches and nothing else", a pure function of the
-// physics machine's OWN current state -- and `step()`'s three-argument
-// signature carries no channel to that state. `sim/loop` copies it straight
-// from `machine.deviceSlots` onto the `GameState` this function returns,
-// immediately after calling it, so the single source of truth stays in one
-// place (the physics-side machine) rather than being re-derived or
-// duplicated here.
+// `state.machine.deviceSlots` IS written here now (via the ball controller's
+// own `deriveDeviceSlots()`, called below) -- AD-7's own text: "GameState ...
+// mutated only inside rules.step". Before this story it was copied straight
+// from the physics machine's own live view by `sim/loop/index.ts`, AFTER this
+// function returned -- that copy (DW-70, a live AD-7 violation) is deleted in
+// the same change (`sim/loop/index.ts`, task 6). `deviceSlots` is now derived
+// PURELY from this tick's `device_ball_entered`/`_left` events, never read
+// from physics.
+//
+// Sequencing note (why the drop bank's `ball_will_start` reset is one tick
+// behind the semantic event): the ball controller needs THIS tick's device
+// events (`button_pressed { button: s_start }`, `device_ball_entered`, ...)
+// as INPUT, which only `devicesLayer.step()` can produce from `switchEvents`
+// -- so the devices layer necessarily runs BEFORE the ball controller decides
+// whether `ball_will_start` fires this tick. That makes it impossible to feed
+// a lifecycle event produced by the ball controller back into the SAME
+// `devicesLayer.step()` call that produced its own trigger (the devices layer
+// holds cross-tick state, so calling it a second time this tick -- once for
+// switch events, once for the lifecycle event -- would double-process it, not
+// merely no-op). This module therefore queues `ball_will_start` events for
+// the NEXT tick's `devicesLayer.step()` call, mirroring AD-4's own
+// "commands issued at tick N are consumed at N+1" shape. No test in this
+// story's own footprint (or Story 2.4's) pins the drop bank's reset to the
+// SAME tick as the button press that starts a ball -- the existing
+// `ball_will_start` -> bank-reset tests all drive the devices layer directly
+// via `lifecycleEvents`, independent of this module's own wiring.
 
-import { applyDeviceEvents } from './ball-controller';
-import { createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
-import type { GameState, SemanticEvent, CoilCommand } from '../table/names';
-import type { BallLaunchedEvent } from '../contracts/events';
+import { applyDeviceEvents, createBallController, deriveDeviceSlots } from './ball-controller';
+import { bootDeviceSlots, createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
+import { TABLE } from '../table/dragonwar';
+import type { GameState, MachineState, SemanticEvent, CoilCommand } from '../table/names';
+import type { BallLaunchedEvent, BallWillStartEvent } from '../contracts/events';
+import type { GameAdjustments } from '../contracts/replay';
 import type { ResolvedTuning } from '../table/tuning';
 
 /** The devices layer's own declared switch-events input -- see this file's header on why it is reached this way rather than by naming `SwitchEvent` directly. */
 type SwitchEventsParam = Parameters<DevicesLayer['step']>[0];
+
+/**
+ * Re-exported so `sim/loop/index.ts` reaches it through the SAME `../rules`
+ * import it already uses for `createRules()` (the `loop --> rules` arrow the
+ * architecture spine draws), rather than reaching past this module into
+ * `sim/rules/devices/` directly. Task 6's own boot seed for
+ * `GameState.machine.deviceSlots` -- TABLE-derived, never a physics read.
+ */
+export { bootDeviceSlots };
 
 export interface RulesStepResult {
 	readonly state: GameState;
@@ -72,32 +109,77 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
 	// also part of the closed SemanticEvent contract -- see this file's
 	// header and sim/rules/devices/events.ts's own comment on why
 	// device_ball_entered/_left (and every other device/shot event) never
-	// cross this boundary.
+	// cross this boundary. Every OTHER member of the closed SemanticEvent
+	// union this story adds (`ball_will_start`, `ball_starting`,
+	// `ball_started`, `ball_ended`) is produced directly by the ball
+	// controller, not filtered from the devices layer's output.
 	return event.type === 'ball_launched';
 }
 
 /**
- * `createRules(tuning)` mirrors `createMachine(collisionDoc, tuning)`:
- * builds ONE devices-and-shots layer instance, resolved against `tuning`
- * once at construction (the shots' own tick windows and DW-166's capture
- * window are derived here, not re-derived every step), and returns `{ step }`
- * closing over it. `createLoop()` owns the one instance for the life of that
- * loop.
+ * Default sim adjustments for a `Rules` instance built WITHOUT a `GameStart`
+ * (every pre-existing single-argument `createRules(tuning)` call site --
+ * `test/rules-devices.test.ts`, the DW-70 harness, `test/machine-serve-drain.test.ts`
+ * -- keeps compiling unchanged). `ballsPerGame: 3` mirrors the repeated
+ * literal already used at `src/host/boot.ts`'s own dev `GameStart` and every
+ * golden replay header; AD-14 makes it a sim adjustment, so it is authored
+ * here rather than in `sim/table/tuning.ts` or `TABLE`.
  */
-export function createRules(tuning: ResolvedTuning): Rules {
+const DEFAULT_ADJUSTMENTS: GameAdjustments = {
+	pitchDeg: TABLE.reference.pitchDeg,
+	tiltWarnings: 1,
+	ballsPerGame: 3,
+	matchProbability: 0.08,
+};
+
+/**
+ * `createRules(tuning, adjustments?)` mirrors `createMachine(collisionDoc,
+ * tuning)`: builds ONE devices-and-shots layer instance and ONE ball
+ * controller, both resolved once at construction, and returns `{ step }`
+ * closing over them. `createLoop()` owns the one instance for the life of
+ * that loop.
+ */
+export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments = DEFAULT_ADJUSTMENTS): Rules {
 	const devicesLayer = createDevicesLayer(tuning);
+	const ballController = createBallController(adjustments);
+
+	// See this file's header, "Sequencing note": ball_will_start events the
+	// ball controller decided on THIS tick, delivered to the devices layer's
+	// lifecycle parameter on the NEXT tick's step() call.
+	let pendingLifecycleEvents: readonly BallWillStartEvent[] = [];
 
 	function step(state: GameState, switchEvents: SwitchEventsParam, tick: number): RulesStepResult {
-		// Story 2.4, task 4: no producer of `ball_will_start` exists until
-		// Story 2.5 wires the ball controller in -- an empty lifecycle list is
-		// this story's own honest statement of that, not a placeholder left
-		// for later wiring to silently fill in.
-		const result = devicesLayer.step(switchEvents, [], tick);
-		const machine = applyDeviceEvents(state.machine, result.events);
-		const nextState: GameState = machine === state.machine ? { ...state, tick } : { ...state, tick, machine };
-		const events: SemanticEvent[] = result.events.filter(isBallLaunched);
+		const lifecycleForDevices = pendingLifecycleEvents;
+		pendingLifecycleEvents = [];
 
-		return { state: nextState, events, commands: [], coilCommands: result.coilCommands };
+		const deviceResult = devicesLayer.step(switchEvents, lifecycleForDevices, tick);
+
+		// AD-6/AD-7/DW-70: ballsInPlay accounting and deviceSlots derivation,
+		// BOTH purely a function of this tick's device events -- never a
+		// physics read. Structural sharing preserved at every step: an empty
+		// (or irrelevant) deviceResult.events leaves `machine` and
+		// `machine.deviceSlots` as the SAME references `state` already carried
+		// (the DW-70 identity gate's own premise).
+		let machine: MachineState = applyDeviceEvents(state.machine, deviceResult.events);
+		const deviceSlots = deriveDeviceSlots(machine.deviceSlots, deviceResult.events);
+		if (deviceSlots !== machine.deviceSlots) {
+			machine = { ...machine, deviceSlots };
+		}
+		const stateAfterAccounting: GameState = machine === state.machine ? state : { ...state, machine };
+
+		const controllerResult = ballController.step(stateAfterAccounting, deviceResult.events, tick);
+		pendingLifecycleEvents = controllerResult.ballWillStartEvents;
+
+		const nextState: GameState = { ...controllerResult.state, tick };
+
+		const events: SemanticEvent[] = [...deviceResult.events.filter(isBallLaunched), ...controllerResult.events];
+
+		return {
+			state: nextState,
+			events,
+			commands: [],
+			coilCommands: [...deviceResult.coilCommands, ...controllerResult.coilCommands],
+		};
 	}
 
 	return { step };

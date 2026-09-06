@@ -102,16 +102,41 @@ function buildBallDeviceIndex(): {
 	return { slotBySwitch, nonParkingEntries };
 }
 
-/** Every parking device's own slot occupancy, seeded from its declared boot state (`startsFullAtBoot`) -- mirrors physics's own boot rule (AD-6) so this layer's Lock-lane "device full" check (DW-166) starts truthful. */
-function buildInitialOccupancy(): Record<ParkingDeviceName, boolean[]> {
-	const occupancy = {} as Record<ParkingDeviceName, boolean[]>;
+/**
+ * Every ball device's own slot occupancy at boot -- parking devices seeded
+ * from their declared `startsFullAtBoot` (mirrors physics's own boot rule,
+ * AD-6, so this layer's Lock-lane "device full" check, DW-166, starts
+ * truthful); the non-parking `bd_shooter` seeded `[false]` (mirrors
+ * `physics/machine.ts`'s own `deviceSlots` getter, which synthesises a
+ * non-parking device's single slot from its entry switch's live state --
+ * always open at boot). Widened (Story 2.5, task 2) from
+ * `Record<ParkingDeviceName, boolean[]>` so `bd_shooter`'s own occupancy has
+ * somewhere to live once its entry switch starts emitting
+ * `device_ball_entered`/`_left` too (DW-70's whole-record derivation needs a
+ * total record, `state.ts:72`) -- never a second hand-typed device list
+ * (DW-149).
+ */
+function buildInitialOccupancy(): Record<BallDeviceName, boolean[]> {
+	const occupancy = {} as Record<BallDeviceName, boolean[]>;
 	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, (typeof TABLE.ballDevices)[BallDeviceName]]>) {
-		if (device.kind !== 'parking') {
-			continue;
-		}
-		occupancy[name as ParkingDeviceName] = device.slots.map(() => device.startsFullAtBoot);
+		occupancy[name] = device.kind === 'parking' ? device.slots.map(() => device.startsFullAtBoot) : [false];
 	}
 	return occupancy;
+}
+
+/**
+ * Public seam (Story 2.5, task 2, "Expose the boot occupancy for the
+ * rules-side seed"): the SAME table-declared boot occupancy this layer seeds
+ * its own tracking from, exposed so `sim/rules/index.ts` can re-export it for
+ * `sim/loop/index.ts`'s own initial `GameState.machine.deviceSlots` (task 6)
+ * -- a TABLE-derived value, not a physics read, so the boot seed no longer
+ * needs `machine.deviceSlots` (DW-70: the boot seed is construction, not the
+ * per-tick overwrite that IS the violation, but task 6 removes even that one
+ * physics read). A fresh object on every call -- never shared, mutable
+ * state with a `createDevicesLayer()` instance's own internal `occupancy`.
+ */
+export function bootDeviceSlots(): Readonly<Record<BallDeviceName, readonly boolean[]>> {
+	return buildInitialOccupancy();
 }
 
 /** Reverse `switch -> lane` lookup from `TABLE.laneWiring`, so a lane switch edge resolves its `lane` payload from `TABLE`, never a literal. */
@@ -189,8 +214,24 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 		// `occupancy` (DW-166's own capture-resolution input).
 		for (const event of switchEvents) {
 			const entryDevice = nonParkingEntries.get(event.switch);
-			if (entryDevice && !event.closed) {
-				events.push({ type: 'ball_launched', tick: event.tick });
+			if (entryDevice) {
+				// Story 2.5, task 2 (DW-70): the shooter lane's own occupancy is
+				// now tracked too -- CLOSE means a served ball arrived and is
+				// resting there (`device_ball_entered`), OPEN means it left, which
+				// is ALSO the one event that means "plunged" (AD-6) and so keeps
+				// emitting `ball_launched` alongside `device_ball_left`, exactly
+				// as before this story. `device_ball_left` first: the bookkeeping
+				// edge, then the semantic consequence -- the same order Stage 1's
+				// parking branch below already uses (entered/left, then any
+				// consequence such as `lock_lane_entered`).
+				if (event.closed) {
+					events.push({ type: 'device_ball_entered', device: entryDevice, slot: 0, tick: event.tick });
+					occupancy[entryDevice][0] = true;
+				} else {
+					events.push({ type: 'device_ball_left', device: entryDevice, slot: 0, tick: event.tick });
+					occupancy[entryDevice][0] = false;
+					events.push({ type: 'ball_launched', tick: event.tick });
+				}
 				continue;
 			}
 			const slot = slotBySwitch.get(event.switch);
@@ -199,9 +240,7 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 			}
 			if (event.closed) {
 				events.push({ type: 'device_ball_entered', device: slot.device, slot: slot.slot, tick: event.tick });
-				if (slot.device in occupancy) {
-					occupancy[slot.device as ParkingDeviceName][slot.slot] = true;
-				}
+				occupancy[slot.device][slot.slot] = true;
 				// DW-166: a capture landing inside the window resolves the
 				// pending Lock-lane closure immediately.
 				if (
@@ -214,9 +253,7 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 				}
 			} else {
 				events.push({ type: 'device_ball_left', device: slot.device, slot: slot.slot, tick: event.tick });
-				if (slot.device in occupancy) {
-					occupancy[slot.device as ParkingDeviceName][slot.slot] = false;
-				}
+				occupancy[slot.device][slot.slot] = false;
 			}
 		}
 

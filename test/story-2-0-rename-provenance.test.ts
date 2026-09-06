@@ -191,7 +191,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		expect(ad16, 'AD-16 must still forbid retiring any of the three gates').toMatch(/none may be retired/i);
 	});
 
-	it('test/port-provenance.test.ts still reports its current, deliberately-updated structural shape: four describe blocks, 109 tests (61 / 1 / 44 / 3)', { timeout: 180_000 }, () => {
+	it('test/port-provenance.test.ts still reports its current, deliberately-updated structural shape: four describe blocks, 110 tests (61 / 2 / 44 / 3)', { timeout: 180_000 }, () => {
 		const result = spawnSync(
 			process.execPath,
 			[resolveVitestBin(), 'run', 'test/port-provenance.test.ts', '--reporter=json'],
@@ -252,8 +252,14 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 		// to the per-file header-provenance block (59 -> 61), raising the
 		// total 107 -> 109 -- the same SHAPE_NOTE case again. Neither file is
 		// a port, so the port-body-freeze count (44) is unchanged.
-		expect(report.numTotalTests, `total test count must stay 109. ${SHAPE_NOTE}`).toBe(109);
-		expect(report.numPassedTests, `all 109 tests must pass. ${SHAPE_NOTE}`).toBe(109);
+		//
+		// Story 2.5, task 15 (DW-87): the AD-15 solver-constants describe block
+		// gains a SECOND test (the completeness-ratchet assertion that
+		// PHYSICS_VERSION's hashed payload and this pin's own constant set are
+		// identical) -- a genuine new assertion, not file-count drift, raising
+		// that block's own count (1 -> 2) and the total (109 -> 110).
+		expect(report.numTotalTests, `total test count must stay 110. ${SHAPE_NOTE}`).toBe(110);
+		expect(report.numPassedTests, `all 110 tests must pass. ${SHAPE_NOTE}`).toBe(110);
 
 		const byTopDescribe = new Map<string, number>();
 		for (const file of report.testResults) {
@@ -270,7 +276,7 @@ describe('Story 2.0: test/sim-boundary.test.ts -> test/port-provenance.test.ts r
 			// Rule 14: the em dash is escaped, never a literal byte.
 			byTopDescribe.get('src/sim/physics/constants.ts \u2014 AD-15 verbatim solver constants pin'),
 			`${SHAPE_NOTE} ${found}`,
-		).toBe(1);
+		).toBe(2);
 		expect(
 			byTopDescribe.get(
 				"src/sim/physics/** port-body freeze (DW-79): every declared ported file's content is pinned, normalised line endings",

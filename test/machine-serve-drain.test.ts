@@ -453,6 +453,16 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		const tuning = resolveTuning();
 		const machine = createMachine(loadDoc(), tuning);
 		const rules = createRules(tuning);
+		// Story 2.5, task 10: the hand-rolled per-tick copy below (`deviceSlots:
+		// machine.deviceSlots`, re-applied after every rules.step()) was a
+		// verbatim duplicate of DW-70's own violating line and masked the fix --
+		// dropped. This test never reads `state.machine.deviceSlots` (only
+		// `state.machine.ballsInPlay` and the physics machine's OWN
+		// `machine.deviceSlots` directly), so the boot seed below is a
+		// TABLE-derived literal (`bd_trough` full, `bd_lock`/`bd_shooter` empty,
+		// matching `TABLE.ballDevices[*].startsFullAtBoot`) rather than a
+		// physics read -- an AD-7-conforming construction, never touched again
+		// outside `rules.step()`'s own returned state.
 		let state: GameState = {
 			tick: 0,
 			phase: 'attract',
@@ -463,7 +473,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 				tilt: { tilted: false, slamTilted: false },
 				multiball: null,
 				highscores: [],
-				deviceSlots: machine.deviceSlots,
+				deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
 			},
 			players: [],
 			currentPlayer: 0,
@@ -474,7 +484,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		function step(tick: number, commands: CoilCommand[] = []) {
 			const result = machine.step(tick, NO_FRAME, commands);
 			const rulesResult = rules.step(state, result.switchEvents, tick);
-			state = { ...rulesResult.state, machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots } };
+			state = rulesResult.state;
 			return result;
 		}
 

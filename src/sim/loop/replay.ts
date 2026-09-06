@@ -31,13 +31,19 @@ import {
 	C_CONTACTVEL,
 	C_DISP_GAIN,
 	C_DISP_LIMIT,
+	C_EMBEDSHOT,
+	C_EMBEDVELLIMIT,
 	C_INTERATIONS,
 	C_LOWNORMVEL,
 	C_PRECISION,
+	C_TOL_RADIUS,
+	DEFAULT_TABLE_GRAVITY,
+	GRAVITYCONST,
 	PHYS_FACTOR,
 	PHYS_SKIN,
 	PHYS_TOUCH,
 	PHYSICS_STEPTIME,
+	STATICCNTS,
 	STATICTIME,
 	VELOCITY_EPSILON,
 } from '../physics/constants';
@@ -158,6 +164,40 @@ export function assetHash(doc: unknown): string {
  * duration this file converts, so it does not trip `pnpm lint:boundaries`'
  * tick/ms rule.
  */
+// Story 2.5, task 15 (DW-87): widened from the 13 AD-15-pinned solver
+// constants to also cover the five integration-affecting constants the
+// ledger named as absent from both this hash and the AD-15 pin -- plus
+// `DEFAULT_TABLE_GRAVITY`, a sixth candidate of the same class (both it and
+// `GRAVITYCONST` feed `machine.ts:201`'s gravity vector together). Widening
+// this alone moves ONE header field (`physicsVersion`, a pure identity
+// string -- its only readers are this file's own write below and
+// `assertHeaderMatchesLiveEnvironment()`'s comparison) and no expected hash.
+// `PHYSICS_VERSION_PAYLOAD_KEYS` below is the completeness ratchet:
+// `test/port-provenance.test.ts`'s AD-15 pin asserts its own key set is
+// IDENTICAL to this one, so the two can never silently drift apart again.
+export const PHYSICS_VERSION_PAYLOAD_KEYS = [
+	'tickHz',
+	'physicsStepTimeUs',
+	'physFactor',
+	'physSkin',
+	'physTouch',
+	'cPrecision',
+	'cLowNormVel',
+	'cContactVel',
+	'cDispGain',
+	'cDispLimit',
+	'staticTime',
+	'velocityEpsilon',
+	'ballBallRestitution',
+	'cInterations',
+	'gravityConst',
+	'defaultTableGravity',
+	'staticCnts',
+	'cEmbedVelLimit',
+	'cTolRadius',
+	'cEmbedShot',
+] as const;
+
 export const PHYSICS_VERSION: string = (() => {
 	const payload = canonicalize({
 		tickHz: LIVE_TICK_HZ,
@@ -174,6 +214,12 @@ export const PHYSICS_VERSION: string = (() => {
 		velocityEpsilon: VELOCITY_EPSILON,
 		ballBallRestitution: BALL_BALL_RESTITUTION,
 		cInterations: C_INTERATIONS,
+		gravityConst: GRAVITYCONST,
+		defaultTableGravity: DEFAULT_TABLE_GRAVITY,
+		staticCnts: STATICCNTS,
+		cEmbedVelLimit: C_EMBEDVELLIMIT,
+		cTolRadius: C_TOL_RADIUS,
+		cEmbedShot: C_EMBEDSHOT,
 	});
 	return `v1-${fnv1aHex(JSON.stringify(payload))}`;
 })();

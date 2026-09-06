@@ -54,12 +54,25 @@ function state(overrides: Partial<GameState> = {}): GameState {
 }
 
 describe('sim/rules/devices/ -- ball launch and ball-device slot bookkeeping (AD-6, AD-19)', () => {
-	it('the OPENING of the shooter lane is ball_launched; the closing is not (unchanged from before this story)', () => {
+	it('the OPENING of the shooter lane is ball_launched (plus its own device_ball_left, DW-70 task 2); the closing is device_ball_entered, never a launch', () => {
+		// Story 2.5, task 2 (DW-70): bd_shooter now has occupancy too, so BOTH
+		// edges carry a bookkeeping event alongside whatever they already meant
+		// -- the CLOSE (arrival) is `device_ball_entered`, never a launch; the
+		// OPEN (plunge) is STILL the one event that means "plunged" (AD-6), now
+		// paired with its own `device_ball_left`. Whole-array `toEqual` per
+		// `:114-116` -- a defect that widened either edge's meaning would show up
+		// as an extra or missing member here, not merely a filtered subset.
 		const launch = runSwitchScript(open('s_shooter_lane').at(7).build(), { durationTicks: 10 });
-		expect(launch.events).toEqual([{ type: 'ball_launched', tick: 7 }]);
+		expect(launch.events).toEqual([
+			{ type: 'device_ball_left', device: 'bd_shooter', slot: 0, tick: 7 },
+			{ type: 'ball_launched', tick: 7 },
+		]);
 
 		const arrival = runSwitchScript(close('s_shooter_lane').at(7).build(), { durationTicks: 10 });
-		expect(arrival.events, 'a ball ARRIVING in the shooter lane is not a launch').toEqual([]);
+		expect(
+			arrival.events,
+			'a ball ARRIVING in the shooter lane is not a launch -- it is device_ball_entered only',
+		).toEqual([{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 7 }]);
 	});
 
 	it('a parking device\'s slot switch edges become device_ball_entered/_left with the slot index from TABLE, not a literal', () => {

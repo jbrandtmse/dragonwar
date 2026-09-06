@@ -59,13 +59,15 @@
 import { createLoop } from '../sim/loop';
 import { createKeyboardInput, type KeyboardEventTarget } from './input';
 import { msToTicksExact, MAX_OWED_TICKS } from '../sim/contracts/time';
-import type { CoilName, FrameOutput } from '../sim/table/names';
+import type { CoilName, FrameOutput, GameStart } from '../sim/table/names';
 import type { InputTransition } from '../sim/contracts/input';
 import type { ResolvedTuning } from '../sim/table/tuning';
 
 export interface ResetOptions {
 	/** Story 1.9: an already-resolved tuning set to rebuild the sim from -- see `sim/loop/index.ts`'s `CreateLoopOptions.tuning` doc comment. Omitted, the rebuilt loop uses the live `TUNING` default (the same tuning it already had, unless `TUNING` itself changed). */
 	readonly tuning?: ResolvedTuning;
+	/** Story 2.5, task 5: an already-built `GameStart` to rebuild the sim from -- see `sim/loop/index.ts`'s `CreateLoopOptions.gameStart` doc comment. Omitted, the rebuilt loop starts with no `GameStart` (byte-identical to before this story), regardless of what the PREVIOUS loop was given -- mirrors `tuning` above, which is not carried forward either. */
+	readonly gameStart?: GameStart;
 }
 
 export interface HostLoop {
@@ -114,12 +116,20 @@ export function createHostLoop(
 	collisionDoc: unknown,
 	onFrame: (output: FrameOutput) => void,
 	onAdvance?: (elapsedMs: number, transitions: readonly InputTransition[], tick: number) => void,
+	/**
+	 * Story 2.5, task 5 (AD-14): forwarded straight into `createLoop()`'s own
+	 * `gameStart` option below. Optional, and not yet supplied by
+	 * `src/host/boot.ts` (there is no player-facing settings/Attract flow to
+	 * source one from yet) -- the plumbing exists end to end so a future story
+	 * can supply one without touching this seam again.
+	 */
+	gameStart?: GameStart,
 ): HostLoop {
 	// `let`, not `const` (Story 1.9): `reset()` below rebuilds this binding
 	// wholesale rather than mutating the sim it points at -- every reader in
 	// this file (tick(), pulseCoil(), setCoilEnabled()) reads `loop` at CALL
 	// time, so a rebuild is transparent to them without any further change.
-	let loop = createLoop({ collisionDoc });
+	let loop = createLoop({ collisionDoc, gameStart });
 
 	let rafHandle: number | null = null;
 	let lastFrameMs: number | null = null;
@@ -269,7 +279,7 @@ export function createHostLoop(
 				rafHandle = null;
 			}
 
-			loop = createLoop({ collisionDoc, tuning: resetOptions?.tuning });
+			loop = createLoop({ collisionDoc, tuning: resetOptions?.tuning, gameStart: resetOptions?.gameStart });
 			// A stale injection from before this reset must never leak into the
 			// fresh sim -- its tick numbers are meaningless against a new origin.
 			injectedTransitions = [];

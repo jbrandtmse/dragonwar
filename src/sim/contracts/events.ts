@@ -105,6 +105,21 @@ export interface BallStartingEvent {
 }
 
 /**
+ * Story 2.5, AC 2: the third member of the Start-of-ball lifecycle
+ * (`ball_will_start` -> `ball_starting` -> `ball_started`), authored so the
+ * ball controller has a closed-union event for "the ball is now fully
+ * started" -- additive, consistent with the existing two-thirds of the
+ * vocabulary (`events.ts:96-105`), and deliberately trips
+ * `test/contracts.test.ts`'s exhaustive `never` guard at `pnpm typecheck`
+ * until a `case` arm is added there (Design Notes, "`ball_started` must be
+ * authored").
+ */
+export interface BallStartedEvent {
+	readonly type: 'ball_started';
+	readonly tick: number;
+}
+
+/**
  * AD-6: the one event that means "plunged" -- the opening of the shooter-lane
  * switch, from which the ball controller increments `ballsInPlay`, starts the
  * ball-save timer and arms the skill shot (later-story consumers).
@@ -166,6 +181,7 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| SimTimeDiscardedEvent
 	| BallWillStartEvent
 	| BallStartingEvent
+	| BallStartedEvent
 	| BallLaunchedEvent
 	| BallMissingEvent
 	| BallEndedEvent
