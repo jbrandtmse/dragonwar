@@ -255,8 +255,7 @@ deferred:
   (I tried, both on the outer run and on the nested command directly).
   **What the fix must do:**
   1. Make the extraction ANSI-proof — strip escape sequences from the captured output before matching, and
-     also spawn the nested runner with colour disabled (`--no-color` plus `NO_COLOR`/`FORCE_COLOR=0` in the
-     spawn env). Belt and braces: either alone would have prevented this, and the strip is what makes the
+     also spawn the nested runner with colour disabled (`--no-color` plus `NO_COLOR` in the spawn env -- and see the correction below). Belt and braces: either alone would have prevented this, and the strip is what makes the
      assertion robust to a future runner that colourises regardless.
   2. **Pin it with a test that fails locally today.** The whole reason this reached CI is that no local test
      exercised coloured input. Feed a **synthetic coloured summary string** (the exact byte shape from the CI
@@ -266,7 +265,30 @@ deferred:
      of the harness's three `it()` blocks leaves `check:ad7` still exiting 0, and this count is the only thing
      that catches it. Keep the `AD-7` / `bd_trough` content assertions too.
   4. Check the sibling assertions in the same file for the same ANSI fragility.
+    **[CORR] 2026-09-06, lead — my own recipe above was wrong on one point, and the re-review caught it.**
+  I prescribed `FORCE_COLOR=0` as a colour-disable signal. It is not: tinyrainbow **presence-tests** the key,
+  so setting it to `'0'` *adds* it and would turn colour **on**. It was inert here only because `NO_COLOR`
+  short-circuits first. The shipped fix **deletes** `FORCE_COLOR`/`FORCE_TTY` from the child env instead,
+  which is correct. Recorded rather than quietly edited, because the instruction was mine and a later reader
+  would otherwise inherit the error. Tracked as `DW-191`.
+  **[SUPERSEDED] 2026-09-06 — the ANSI approach itself was replaced.** `DW-189`: the codebase had already
+  closed this failure class in Epic 1 (`DW-107`) by reading vitest's **JSON reporter** rather than scraping
+  rendered output. The wrapper now uses that contract, so `stripAnsi`/`extractPassingCount` are gone and the
+  ANSI pin is inverted into a case asserting the raw CI bytes are **rejected loudly**. The mutation below
+  applied to the ANSI fix and was demonstrated at the time; the JSON conversion carries its own four.
+
   **Mutation to demonstrate:** revert the ANSI strip → the new synthetic-coloured-input test goes red.
+  **[CORR] 2026-09-06 (code-review re-review, `DW-189`) — this item is SATISFIED AND SUPERSEDED; two things
+  in its own recipe are wrong and must not be copied into a future spec.** (a) `FORCE_COLOR=0` is **not** a
+  colour-disable signal for the library vitest colours with: tinyrainbow presence-tests the key
+  (`"FORCE_COLOR" in env`), never its value, so setting it to `'0'` *adds* the key and would turn colour
+  **on** — inert here only because `NO_COLOR` short-circuits ahead of it. The portable disable is to **delete**
+  the inherited key. (b) Item 1's whole premise — "make the extraction ANSI-proof" — treats a colour trigger
+  as the defect when the defect is the *class*: scraping a human summary line at all. `DW-107` had already
+  closed that class in this repository by reading vitest's JSON reporter, and the wrapper now does the same,
+  so no assertion in the file reads rendered output and there is no ANSI extraction left to be proof of.
+  Items 2, 3 and 4 are preserved in substance (a locally-failing pin on the exact CI byte shape, an exact `3`
+  never `>=`, and the sibling sweep). See `### Review Findings` → *Re-review 2*.
 
 
 - **AC 1 (AD-7 holds, and the gate's red is provable).** Given the change is complete, when `grep -rn 'deviceSlots' src/sim/loop/ src/sim/physics/` runs, then no assignment to any `GameState` field appears outside `src/sim/rules/`; and when `pnpm check:ad7` runs, then it exits **0**, while `test/ad7-device-slots.test.ts` passes and asserts the exit code, the harness's **exact** passing-test count, and that the output names `AD-7` and `bd_trough`.
@@ -311,6 +333,29 @@ deferred:
 **Not accepted (selected).** Start pressed while `game_over` (Story 2.13's own charter); `emptyPlayer()` reading nothing from `GameStart` (no `PlayerState` field is `GameStart`-derived in the shipped contract — the AC's "from `GameStart`" describes the provenance of the *game*, not per-field defaults); the `START_BUTTON` template-literal construction (already documented in-code with a review-corrected comment, and reaching it through `TABLE` would make `sim/rules` re-derive `sim/loop`'s own filter); the drop bank's one-tick-late reset (documented, deliberate, and forced by the devices layer's cross-tick state).
 
 **Gates after every patch:** `pnpm test` **101 files / 1608 tests / 1585 passed / 23 skipped / 0 failed** (up 5 from the 1603/1580 baseline, all of them new pins); `pnpm check:ad7` **exit 0, 3/3**; `pnpm typecheck`, `pnpm lint:boundaries` (90 files, 0 violations), `pnpm check:corridor`, `pnpm check:reachability`, `pnpm check:headers`, `pnpm check:attributions` all exit 0; `git diff --stat -- public/assets/ assets/src/` empty; all five goldens' `expectedHash` / `expectedGameStateHash` **unmoved** by this review's patches.
+
+---
+
+**Code review, 2026-09-06 — re-review 2 (after the `[CI]` rework; CI green on `c68c37c`, run `34040623036`) — `review_tier: full-opus`** (no `_bmad/custom/model-overrides.yaml` exists, so all four layers inherited the Opus tier). Layers run: `blind-hunter`, `edge-case-hunter`, `verification-gap`, `acceptance-auditor` — all four returned; none failed or returned empty. Diff baseline `d9f351f` (3829 lines, 32 files), reviewed in full (large-diff chunking declined), effort concentrated on the rework diff `a02b024..HEAD -- test/ad7-device-slots.test.ts`. Working tree clean and the whole story committed at `2ea7b1a` going in. Every gate re-measured at this tree.
+
+**Headline: `DW-189` is closed by conversion — and doing it surfaced a 24th vacuity on this epic, again on the AD-7 gate, again in a pin that had been added to close an earlier vacuity.**
+
+**Fixed at review (6).**
+
+1. **`med` — `DW-189`: the AD-7 wrapper scraped vitest's human summary line; converted to the `DW-107` JSON-reporter contract.** The `[CI]` rework closed the *colour* trigger (ANSI strip + `--no-color`) but not the *class*. The wrapper now spawns with `--reporter=json --outputFile=…` and reads `numPassedTests` / `numTotalTests` / `assertionResults[].fullName`, exactly as `test/export-py-skip-visibility.test.ts` has since Story 1.10. **All four stated constraints hold:** the count stays an **exact `3`** (never `>=`); `AD-7` / `bd_trough` / `DW-70` are re-derived from `fullName` rather than dropped; the exit-0 assertion is kept; and the synthetic-coloured-input pin is not deleted but **inverted** — it feeds the exact CI byte shape and asserts the parse now *rejects* it loudly. `stripAnsi()`, `ANSI_ESCAPE_PATTERN` and `extractPassingCount()` are gone; **no assertion in the file reads rendered output.** (`DW-189`, resolved)
+2. **`med` — the value pin added last pass to close "gutted-in-place" was itself satisfied by the harness's own TITLE.** Harness case `(iii)` was titled *"… is OBSERVED leaving `[true,true,true,true]`"*, and `--reporter=verbose` prints titles on a **green** run, so `toContain('[true,true,true,true]')` matched the wording whether or not the body computed anything. *Measured* (verification-gap, then reproduced here): all three bodies emptied in place with every title kept left `pnpm check:ad7` at exit 0 / 3 passed **and the whole wrapper green**. **Fixed** in the same stroke as (1) — the harness publishes its computed views on `task.meta`, which vitest's JSON reporter carries verbatim into `assertionResults[].meta` (verified in vitest's own `JsonReporter`, which assigns `meta: t.meta`), so the value exists only if the body ran; and the literal was removed from the harness title. The same gutted harness now reddens by name while `check:ad7` still exits 0 — which is the point: the wrapper is the only thing that can see it. (`DW-190`)
+3. **`low` — `FORCE_COLOR: '0'` is an *enable* signal, not a disable.** tinyrainbow (what vitest colours with) presence-tests the key — `!("NO_COLOR" in env || argv.includes("--no-color")) && ("FORCE_COLOR" in env || …)` — so `'0'` *adds* it; inert today only because `NO_COLOR` short-circuits first. A future cleanup dropping `NO_COLOR` as "redundant with `--no-color`" would silently restore the CI failure. **Fixed:** the child env now *deletes* the inherited `FORCE_COLOR`/`FORCE_TTY` keys. The `[CI]` acceptance item is where the wrong recipe came from and now carries a **`[CORR]`** annotation in place so it is not copied forward. (`DW-191`)
+4. **`low` — the spawn asserted neither `result.error` nor `maxBuffer`.** A spawn that never launches (moved vitest entry → `ENOENT`) or overruns Node's 1 MiB default (`ENOBUFS`, silently truncating output) yields `status: null`, `signal: null` and empty output — the least informative failure a nested-run gate can produce, on a file whose whole job is diagnosing a nested run. **Fixed** here; the sibling sites are ledgered as `DW-192`.
+5. **`low` — AC 1's whole-invariant source scan was pinned to `src/sim/loop/index.ts` alone** while AC 1's wording is repo-wide, so a `GameState` write introduced in `src/sim/loop/replay.ts` would escape `DW-180`'s ratchet. No violation today (*measured:* `replay.ts` yields zero matches — it only reads `GameState`), so this is a ratchet, not a repair. **Fixed:** every `.ts` under `src/sim/loop/` is scanned, with an anti-vacuity floor so an empty directory listing cannot pass silently.
+6. **`low` — the file header had gone stale, and the precedent was uncited.** The header described one subject while the file holds three independent gates; and nothing in it named `DW-107` — which is *how the class survived a second time*, since the second author re-derived the whole diagnosis instead of inheriting it. **Fixed:** header rewritten to name all three gates, `DW-107` cited in full, and a **reciprocal pointer added in `test/export-py-skip-visibility.test.ts`** so the next author finds the pair from either end.
+
+**Closed at review (1).** **`DW-192` `wontfix-accepted`** — the four nested-vitest spawn sites have drifted to four different levels of spawn hygiene (`resolveVitestBin()` duplicated verbatim in two, hardcoded in two; `result.error`/`maxBuffer` guarded in only two). Not a two-way door: the real fix is a shared `test/util/` helper touching three more files, and `DW-188`'s `ENTRY_FILES` ratchet also governs new `test/util/` runners. The failure mode is a poor diagnostic, never a silent pass. `reopen_if=` a fourth spawn site, a renamed vitest bin entry, or any nested spawn failing with an uninformative "exit null / empty output".
+
+**Not accepted (selected) — mostly *dissolved* rather than judged.** The ANSI pattern's remaining gaps (private-parameter CSI `\x1b[?25l`, OSC-8 hyperlinks), "nothing exercises the widening", "`extractPassingCount` cannot distinguish no-summary from failures-reported", and "the third synthetic case does not discriminate" all cease to exist with the pattern and the function they describe. The `// eslint-disable-next-line no-control-regex` on a repository with no ESLint went away with its regex.
+
+**Bookkeeping.** The frontmatter `deferred:` list still carries `DW-189`'s original deferral text: that is the historical record of what `bmad-build-auto` reported, already harvested into the ledger, which is authoritative — `DW-189`'s last trailer line now reads `resolved-by:2-5-…`. The prior `[CI]` pass's gate list omitted `pnpm check:reachability`; re-run here.
+
+**Gates after every patch, re-measured at this tree:** `pnpm test` **101 files / 1615 tests / 1592 passed / 23 skipped / 0 failed** (up 4 from the 1611/1588 baseline — 3 net-new JSON-contract cases replacing the ANSI trio, plus the new `src/sim/loop/` sibling scan); `pnpm check:ad7` **exit 0, 3/3**; `pnpm typecheck`, `pnpm lint:boundaries` (90 files, 0 violations), `pnpm check:reachability` (exit 0, 118.44 s), `pnpm check:headers` all exit 0; `git diff --stat -- src/ public/assets/ assets/src/ test/replays/` **empty** — no `src/**` file, no golden, no `assetHash` and no coil prologue was touched by this pass.
 
 ## Spec Change Log
 
@@ -493,6 +538,34 @@ Full gate suite re-run green after all four patches: `pnpm test` 101 files / 161
   unchanged immediately after. (Review finding 2026-09-06, verification-gap: this mutation was performed at
   implementation time but not recorded here until this review pass — Rule 19 requires the record, not only
   the act.)
+  **[SUPERSEDED 2026-09-06 by the `DW-189` conversion — see the four mutations immediately below.** The ANSI
+  strip no longer exists, so this mutation is no longer applicable; its successor pins the same property from
+  the other side, by proving the parse *rejects* that byte shape instead of extracting from it.)
+- **`DW-189` — the AD-7 wrapper reads vitest's JSON reporter contract, never rendered output (code-review
+  re-review, 2026-09-06). Four mutations, all personally applied at this tree, observed, reverted, and each
+  confirmed byte-identical afterwards by `md5sum -c` on the touched file plus `git status --porcelain` /
+  `git diff --stat -- src/ public/assets/ assets/src/ test/replays/`.**
+  1. **Anti-vacuity, the exact count (the constraint that must survive):** `it(` → `it.skip(` on the
+     harness's `(iii)` case → `test/ad7-device-slots.test.ts` reddens
+     `expected exactly 3 PASSING tests in the harness's JSON report; got 2` (`expected 2 to be 3`), 1 failed /
+     9 passed. The count is still an **exact `3`**, read from `numPassedTests`, never `>=`.
+  2. **The gutted-in-place hole, which the old wrapper could NOT see (`DW-190`, the 24th vacuity on this
+     epic):** all three harness bodies replaced in place by `expect(true).toBe(true)`, **every title kept —
+     including the old `(iii)` title carrying the literal `[true,true,true,true]`**. `pnpm check:ad7` still
+     exits **0 with 3 passed**, and under the *previous* wrapper every assertion still passed (measured by
+     the verification-gap layer against captured output). Now the wrapper reddens
+     `the harness must publish the boot-full bd_trough view it actually computed (task.meta.bdTroughAtBoot)`.
+  3. **A realistic parse break — the heir of the ANSI pin:** make `parseHarnessReport()` tolerant (return
+     `{ numTotalTests: 0, numPassedTests: 0, assertions: [] }` from the `JSON.parse` catch instead of
+     throwing) → the *"REJECTS the human summary line — including the exact ANSI bytes that reddened CI run
+     34038163487"* case reddens `expected [Function] to throw an error`. The historical byte shape is still
+     pinned locally; it is now pinned as something the gate **cannot be fooled by** rather than as something
+     it must extract from.
+  4. **The widened AC 1 source scan (acceptance-auditor finding):** append `let state = 0;` / `state = 1;` to
+     `src/sim/loop/replay.ts` → the new sibling-file case reddens
+     `src/sim/loop/replay.ts writes the \`state\` binding, which AC 1 forbids outside src/sim/rules/`.
+     Measured clean before widening (`replay.ts` yields zero matches; it only reads `GameState`), so this is
+     a ratchet, not a repair.
 - **AC 1 — the `check:ad7` gate rewrite. Three mutations, because a green gate needs its red proved from three directions.**
   1. **Ownership (the DW-70 regression itself):** restore `machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots }` at `src/sim/loop/index.ts:352-354` → the harness's **identity** assertion reddens (physics allocates a fresh object per read, so `toBe` fails on every tick), `check:ad7` exits 1, and `test/ad7-device-slots.test.ts` reddens on its `toBe(0)`. **This mutation is only meaningful because task 8 makes the harness drive `createLoop()`; against the current harness, which deliberately does not import `sim/loop`, it is a no-op — verify the red, do not assume it.** **VERIFIED 2026-09-06 (build-auto step-03, personally applied):** applied, `check:ad7` exited 1 with `(i) identity across quiet ticks` naming both device-slot views; reverted, `check:ad7` back to 3/3 green, `git diff --stat` on the touched file unchanged.
   2. **Anti-vacuity:** delete one `it()` block from the harness → the wrapper's **exact** passing-test-count assertion reddens, proving a harness gutted to nothing cannot satisfy the wrapper (the failure mode a bare `exit 0` check would miss). Assert an exact count, never `>=`. **VERIFIED 2026-09-06 (personally applied):** deleted `(iii) anti-vacuity`; `test/ad7-device-slots.test.ts` reddened `expected exactly 3 passing tests; got 2`; reverted via the pre-mutation blob (see note below), harness back to 3/3.

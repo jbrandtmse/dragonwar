@@ -155,6 +155,16 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 		// the whole time -- CI reported exactly the 22 this formula predicts. A
 		// reporter contract cannot drift with a terminal's colour support; a
 		// human summary line can, and did.
+		//
+		// Reciprocal pointer (DW-189, Story 2.5): the identical defect recurred
+		// in test/ad7-device-slots.test.ts, which scraped the same summary line
+		// for the same reason and went red on the same Ubuntu runner (CI run
+		// 34038163487). Nothing in either file named the other, so the second
+		// author re-derived the whole diagnosis from scratch rather than
+		// inheriting this conclusion -- which is precisely how the class
+		// survived a second time. That file now reads its nested harness's
+		// result through this same JSON-reporter contract; if a THIRD nested
+		// vitest spawn is ever added, start from these two.
 		const reportDir = mkdtempSync(path.join(tmpdir(), 'dw-skip-visibility-'));
 		const reportPath = path.join(reportDir, 'nested-run.json');
 		try {

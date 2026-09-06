@@ -49,6 +49,37 @@ import { createLoop } from '../../../src/sim/loop';
 import { TABLE } from '../../../src/sim/table/dragonwar';
 import type { BallDeviceName } from '../../../src/sim/table/names';
 
+// Review finding 2026-09-06 (code-review re-review, DW-189): the device-slot
+// views this harness computes are now published on `task.meta` as WELL as
+// printed. `task.meta` is carried verbatim into vitest's JSON reporter
+// (`assertionResults[].meta` -- verified in node_modules/vitest's own
+// JsonReporter, which assigns `meta: t.meta`), so the wrapper
+// (`test/ad7-device-slots.test.ts`) can read the VALUES this harness actually
+// computed out of a structured reporter contract instead of scraping them
+// back out of rendered console output. That is the whole point of DW-189: a
+// reporter contract cannot drift with a terminal's colour support or with a
+// runner's summary wording; rendered output can, and did (CI run
+// 34038163487). The `console.log` calls below are KEPT -- they are what a
+// human sees when they run `pnpm check:ad7` directly, where no JSON reporter
+// is involved -- but no assertion anywhere depends on them any more.
+//
+// This `declare module` augmentation is vitest's own documented way to extend
+// task metadata. `test/fixtures/**` is excluded from `tsconfig.node.json`, so
+// this file is not typechecked today; the augmentation is written properly
+// anyway so that stays true by choice rather than by luck.
+declare module 'vitest' {
+	interface TaskMeta {
+		/** (iii) `bd_trough` at boot, before any eject -- expected `[true,true,true,true]`. */
+		bdTroughAtBoot?: boolean[];
+		/** (iii) `bd_trough` after a real `c_trough_eject` pulse -- expected `[true,true,true,false]`. */
+		bdTroughAfterEject?: boolean[];
+		/** (ii) the rules-derived `bd_trough` view after the eject (this harness's own subject). */
+		bdTroughRulesDerivedAfterEject?: boolean[];
+		/** (ii) the snapshot's independent physics-derived `bd_trough` view after the eject. */
+		bdTroughPhysicsDerivedAfterEject?: boolean[];
+	}
+}
+
 const COLLISION_PATH = path.resolve(__dirname, '..', '..', '..', 'public', 'assets', 'dragonwar.collision.json');
 
 function loadDoc(): unknown {
@@ -72,7 +103,7 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 		).toBe(outA.snapshot.game.machine.deviceSlots);
 	});
 
-	it('(ii) whole-record cross-derivation: the rules-derived deviceSlots agree with the snapshot\'s own independent physics-derived view, for all three ball devices, across a real trough eject', () => {
+	it('(ii) whole-record cross-derivation: the rules-derived deviceSlots agree with the snapshot\'s own independent physics-derived view, for all three ball devices, across a real trough eject', ({ task }) => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		loop.pulseCoil('c_trough_eject');
 		let out = loop.advance(1, []);
@@ -83,14 +114,20 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 		const rulesDerived = out.snapshot.game.machine.deviceSlots;
 		const physicsDerived = out.snapshot.mechanisms.devices;
 
-		// Review finding 2026-09-06 (code-review, verification-gap): printed
+		// Review finding 2026-09-06 (code-review, verification-gap): published
 		// UNCONDITIONALLY, not only inside an `expect()` failure message. The
-		// wrapper (`test/ad7-device-slots.test.ts`) asserts on these printed
-		// arrays, which restores the VALUE-level evidence the pre-fix wrapper
-		// had (`.toContain('[true,true,true,false]')`) and closes the
+		// wrapper (`test/ad7-device-slots.test.ts`) asserts on these VALUES,
+		// which restores the value-level evidence the pre-fix wrapper had
+		// (`.toContain('[true,true,true,false]')`) and closes the
 		// "gutted-in-place" hole: the exact passing-count assertion catches a
 		// DELETED `it()`, but three bodies replaced by `expect(true).toBe(true)`
 		// would leave the count, the exit code and the titles all intact.
+		// DW-189 (code-review re-review, 2026-09-06): the wrapper now reads
+		// these off `task.meta` through vitest's JSON reporter rather than out
+		// of the printed lines; the `console.log`s stay for the human running
+		// `pnpm check:ad7` directly.
+		task.meta.bdTroughRulesDerivedAfterEject = rulesDerived.bd_trough;
+		task.meta.bdTroughPhysicsDerivedAfterEject = physicsDerived.bd_trough?.slots;
 		console.log(`DW-70 rules-derived bd_trough: ${JSON.stringify(rulesDerived.bd_trough)}`);
 		console.log(`DW-70 physics-derived bd_trough: ${JSON.stringify(physicsDerived.bd_trough?.slots)}`);
 
@@ -108,10 +145,11 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 		}
 	});
 
-	it('(iii) anti-vacuity: bd_trough is OBSERVED leaving [true,true,true,true] -- the drive genuinely happened, this is not a vacuous pass', () => {
+	it('(iii) anti-vacuity: bd_trough is OBSERVED leaving the boot-full view -- the drive genuinely happened, this is not a vacuous pass', ({ task }) => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		const before = loop.advance(1, []).snapshot.game.machine.deviceSlots.bd_trough;
-		// Printed unconditionally -- see the note in (ii) above.
+		// Published unconditionally -- see the note in (ii) above.
+		task.meta.bdTroughAtBoot = before;
 		console.log(`DW-70 bd_trough before the eject: ${JSON.stringify(before)}`);
 		expect(before, `bd_trough must boot full -- got ${JSON.stringify(before)}`).toEqual([true, true, true, true]);
 
@@ -120,6 +158,9 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 		for (let i = 0; i < 300; i++) {
 			out = loop.advance(1, []);
 		}
+
+		task.meta.bdTroughAfterEject = out.snapshot.game.machine.deviceSlots.bd_trough;
+		console.log(`DW-70 bd_trough after the eject: ${JSON.stringify(out.snapshot.game.machine.deviceSlots.bd_trough)}`);
 
 		expect(
 			out.snapshot.game.machine.deviceSlots.bd_trough,
