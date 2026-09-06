@@ -37,7 +37,7 @@
 // 2026-09-05: applied, watched red on both the direct assertion and the
 // arrayContaining("sim/physics") check below, reverted, tree byte-identical.)
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -197,6 +197,52 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-device-slots-agreement.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
+
+// Review finding 2026-09-06 (code-review, blind-hunter): ENTRY_FILES was
+// hand-maintained with nothing asserting it was COMPLETE, so the next headless
+// rules test file would silently escape this gate entirely -- precisely the
+// trap the comment above describes for rules-lifecycle.test.ts, left standing
+// as a comment rather than a check after this story and QA appended three
+// entries by hand between them. The convention is already unambiguous in the
+// tree: a `test/rules-*.test.ts` file is headless UNLESS it is named
+// `*-integration.test.ts` (those deliberately drive a real createLoop and real
+// physics -- rules-devices-integration.test.ts, rules-lifecycle-integration.test.ts),
+// or is this gate file itself. That makes the completeness rule mechanical.
+// The list is complete at this tree, so this is a ratchet, not a fix: it is
+// green today and reddens the moment a file is added without being listed.
+const HEADLESS_RULES_TESTS = readdirSync(__dirname)
+	.filter(
+		(name) =>
+			name.startsWith('rules-') &&
+			name.endsWith('.test.ts') &&
+			!name.endsWith('-integration.test.ts') &&
+			name !== 'rules-devices-headless.test.ts',
+	)
+	.sort();
+
+describe('AC 9 (headless), completeness: every headless rules test file is actually listed in ENTRY_FILES', () => {
+	it('ENTRY_FILES names every test/rules-*.test.ts that is not an -integration test and not this gate itself', () => {
+		const listed = ENTRY_FILES.map((f) => path.basename(f))
+			.filter((n) => n.startsWith('rules-'))
+			.sort();
+		expect(
+			listed,
+			`a headless rules test file that is not in ENTRY_FILES is ungated -- it claims headlessness with nothing ` +
+				`proving it (Rule 8). Add it to ENTRY_FILES, or name it *-integration.test.ts if it genuinely drives ` +
+				`sim/loop or sim/physics on purpose.`,
+		).toEqual(HEADLESS_RULES_TESTS);
+	});
+
+	it('sanity: the scan finds real files and excludes the integration tests -- it is discriminating, not vacuously empty', () => {
+		expect(HEADLESS_RULES_TESTS.length, 'the headless rules test set must be non-empty').toBeGreaterThan(0);
+		expect(HEADLESS_RULES_TESTS, 'this gate file must never gate itself').not.toContain('rules-devices-headless.test.ts');
+		expect(
+			existsSync(path.join(__dirname, 'rules-lifecycle-integration.test.ts')) &&
+				!HEADLESS_RULES_TESTS.includes('rules-lifecycle-integration.test.ts'),
+			'an -integration test must exist on disk AND be excluded, or the exclusion rule is untested',
+		).toBe(true);
+	});
+});
 
 describe('AC 9 (headless) -- nothing in any of this file\'s ENTRY_FILES\' TRANSITIVE module closure is physics, loop, rendering or filesystem code (DW-172, Story 2.5; DW-176/DW-178 entries added at QA)', () => {
 	const { files, edges } = importClosure(ENTRY_FILES);

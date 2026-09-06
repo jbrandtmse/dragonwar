@@ -37,7 +37,26 @@ describe('Story 2.5, AC 8 -- Integration: a real createLoop, a real s_start pres
 	it('FrameOutput.events carries the lifecycle events; physics ejects a ball on the FOLLOWING tick (AD-4); ballsInPlay reaches 1 after the plunge; a disabled c_trough_eject serves nothing (control)', () => {
 		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: gameStart() });
 
-		const startOut = loop.advance(1, [{ tick: 1, frame: { ...NO_FRAME, start: true } }]);
+		// Review finding 2026-09-06 (code-review, verification-gap + blind-hunter,
+		// two independent hits): the ONLY executable observers of the boot
+		// `hardwareEnabled: false` flip (task 6) were the five golden hashes,
+		// re-recorded from the code under test in this same commit -- so a
+		// revert shipped as five opaque hash mismatches on goldens whose own
+		// notes record a dozen prior legitimate re-records, the failure mode
+		// most likely to be closed by re-recording rather than investigating.
+		// AC 2's own headless pin cannot observe it: `runRulesScript` starts
+		// from `test/util/switch-script.ts`'s `DEFAULT_INITIAL_STATE`, whose
+		// `false` is a test-local literal, and AC 9's headless gate
+		// STRUCTURALLY forbids that file from importing `sim/loop`. This test
+		// already holds a real `createLoop()`, and is outside that gate.
+		const bootOut = loop.advance(1, []);
+		expect(
+			bootOut.snapshot.game.machine.hardwareEnabled,
+			'a real createLoop() must boot with hardware DISABLED -- AD-7 ("ball_starting enables hardware") is vacuous if the boot value is already true',
+		).toBe(false);
+		expect(bootOut.snapshot.game.phase, 'sanity: still in Attract, so the assertion above is about the BOOT value').toBe('attract');
+
+		const startOut = loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
 		expect(
 			startOut.events.map((e) => e.type),
 			`expected ball_will_start, ball_starting and ball_started among this tick's events; got ${JSON.stringify(startOut.events)}`,

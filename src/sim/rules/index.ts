@@ -124,6 +124,17 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * literal already used at `src/host/boot.ts`'s own dev `GameStart` and every
  * golden replay header; AD-14 makes it a sim adjustment, so it is authored
  * here rather than in `sim/table/tuning.ts` or `TABLE`.
+ *
+ * Review correction 2026-09-06 (code-review, blind-hunter + acceptance-auditor):
+ * the "mirrors" claim above is true of `ballsPerGame` ONLY. `tiltWarnings`
+ * and `matchProbability` deliberately do NOT match `src/host/boot.ts:281` or
+ * the golden headers, which both carry `tiltWarnings: 3` / `matchProbability: 0`;
+ * this default carries `1` / `0.08`. Neither field has a reader yet (tilt is
+ * Story 2.11, Match is Story 2.13) so nothing observes the divergence today,
+ * and reconciling it is a product call those stories own -- `DW-36` already
+ * tracks the tilt-warning default's missing transcription and is routed to
+ * Story 2.11. Recorded here so the next reader challenges the numbers rather
+ * than trusting a comment that overstated them.
  */
 const DEFAULT_ADJUSTMENTS: GameAdjustments = {
 	pitchDeg: TABLE.reference.pitchDeg,

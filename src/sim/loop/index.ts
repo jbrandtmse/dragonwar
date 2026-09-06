@@ -305,9 +305,16 @@ export function createLoop(options: CreateLoopOptions): Loop {
 		}
 
 		// Story 2.3, task 10: the machine's real dropTargets/spinner state --
-		// DELIBERATELY read straight from `machine.mechanisms`, never routed
-		// through the `:352-355`-area `deviceSlots` overwrite below, which is
-		// `DW-70` (Story 2.5's own seam to remove).
+		// DELIBERATELY read straight from `machine.mechanisms`, never through
+		// `GameState`. Story 2.5 removed the post-`rules.step()` `deviceSlots`
+		// overwrite this comment used to warn about (DW-70), so the warning is
+		// retired; the deliberate part SURVIVES and is now load-bearing for a
+		// different reason. `devices` above reads the physics machine's own
+		// `deviceSlots` getter directly, which makes `buildSnapshot()` the
+		// INDEPENDENT second derivation the AD-7 gate
+		// (`test/fixtures/dw70-ad7/`) cross-checks `GameState`'s rules-derived
+		// slots against -- routing either through the other would collapse the
+		// two views into one and make that gate vacuous.
 		const mechanisms: MechanismsSnapshot<BallDeviceName> = {
 			flippers: machine.mechanisms.flippers,
 			plunger: machine.mechanisms.plunger,

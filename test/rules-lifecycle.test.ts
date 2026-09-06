@@ -217,7 +217,20 @@ describe('Story 2.5 -- AC 6: game over, threshold straddled', () => {
 		expect(ended.finalState.phase).toBe('game_over');
 		expect(ended.finalState.machine.hardwareEnabled).toBe(false);
 		const disables = ended.coilCommands.filter((c) => c.action === 'disable');
-		expect(disables.length, 'coilCommands must carry at least one disable').toBeGreaterThan(0);
+		// Review finding 2026-09-06 (code-review): `disables.length > 0` alone
+		// does NOT pin AC 6's "a disable for EACH hardware coil" -- confirmed by
+		// mutation, reducing the game-over batch to `HARDWARE_COILS.slice(0, 1)`
+		// left the whole suite green (101 files / 1580 passed), i.e. six of the
+		// seven AD-5 hardware coils could stay energised after game over
+		// ("Tilt, game over and Attract disable all of them together") with
+		// nothing in the repository objecting. Asserted against `HARDWARE_COILS`
+		// itself, mirroring the ball_starting enable-batch pin above (never a
+		// hand-typed coil list, DW-149).
+		const disabledCoils = new Set(disables.map((c) => c.coil));
+		for (const coil of HARDWARE_COILS) {
+			expect(disabledCoils.has(coil), `${coil} must receive a disable CoilCommand at game over`).toBe(true);
+		}
+		expect(HARDWARE_COILS.length, 'sanity: the hardware set is non-empty, or the loop above is vacuous').toBeGreaterThan(0);
 		expect(
 			disables.some((c) => c.coil === TROUGH_EJECT_COIL || c.coil === TABLE.ballDevices.bd_shooter.ballSearchOrder[0]!.coil),
 			'the disable set must exclude the serving coils (task 7) or the controller could never serve again',
@@ -231,6 +244,38 @@ describe('Story 2.5 -- AC 6: game over, threshold straddled', () => {
 	// -- confirmed by mutation, that substitution leaves the test above green.
 	// A 2-player game where the LAST player (index 1, not 0) reaches the
 	// threshold is the case that actually discriminates the real formula.
+	// Review finding 2026-09-06 (code-review, acceptance-auditor): AC 6 says
+	// "GameStart.adjustments.ballsPerGame is 3 and REACHES rules.step through
+	// createRules's constructor", and task 5 exists solely to make it
+	// reachable ("Without this, AC 6 is not implementable as worded"). But
+	// every test in the repository used ballsPerGame 3, which is also
+	// `DEFAULT_ADJUSTMENTS`'s own value -- so replacing `adjustments.ballsPerGame`
+	// in the controller with a literal `3` left the whole suite green
+	// (confirmed by mutation). The plumbing shipped untested. Driving a
+	// NON-default value through `runRulesScript`'s own `adjustments` option
+	// (declared but, until now, passed by no caller) is what makes the
+	// constructor path falsifiable, straddled on both sides.
+	it('a NON-default ballsPerGame (2) supplied through the createRules constructor governs the threshold -- task 5 plumbing is actually read', () => {
+		const twoBall = { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 2, matchProbability: 0 };
+
+		const control = runRulesScript(close('s_trough_4').at(1).build(), {
+			durationTicks: 1,
+			initialState: stateOnBall(1),
+			adjustments: twoBall,
+		});
+		expect(control.finalState.phase, 'ball 1 of 2 must NOT end the game').toBe('game');
+
+		const ended = runRulesScript(close('s_trough_4').at(1).build(), {
+			durationTicks: 1,
+			initialState: stateOnBall(2),
+			adjustments: twoBall,
+		});
+		expect(
+			ended.finalState.phase,
+			'ball 2 of 2 MUST end the game -- with the default ballsPerGame of 3 this is still ball 2 of 3 and stays in play, so this assertion fails unless the constructor value is genuinely read',
+		).toBe('game_over');
+	});
+
 	it('a 2-player game ends when the LAST player (index 1) reaches ballsPerGame, straddled the same way', () => {
 		function twoPlayerStateOnBall(lastPlayerBallNumber: number): GameState {
 			return {

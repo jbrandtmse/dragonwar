@@ -175,54 +175,43 @@ export function assetHash(doc: unknown): string {
 // `PHYSICS_VERSION_PAYLOAD_KEYS` below is the completeness ratchet:
 // `test/port-provenance.test.ts`'s AD-15 pin asserts its own key set is
 // IDENTICAL to this one, so the two can never silently drift apart again.
-export const PHYSICS_VERSION_PAYLOAD_KEYS = [
-	'tickHz',
-	'physicsStepTimeUs',
-	'physFactor',
-	'physSkin',
-	'physTouch',
-	'cPrecision',
-	'cLowNormVel',
-	'cContactVel',
-	'cDispGain',
-	'cDispLimit',
-	'staticTime',
-	'velocityEpsilon',
-	'ballBallRestitution',
-	'cInterations',
-	'gravityConst',
-	'defaultTableGravity',
-	'staticCnts',
-	'cEmbedVelLimit',
-	'cTolRadius',
-	'cEmbedShot',
-] as const;
+//
+// Review finding 2026-09-06 (code-review, verification-gap + blind-hunter,
+// two independent hits): the ratchet was previously a SECOND hand-written
+// key list sitting beside the payload literal, so it compared one hand-typed
+// list against another and was blind to the only drift that matters -- a
+// constant added to the hashed payload and to NEITHER list left both lists
+// equal, the ratchet green, and every golden failing as the bare hash
+// mismatch DW-87 exists to prevent (confirmed by mutation). The payload is
+// therefore declared ONCE below and the exported key set is DERIVED from it,
+// so the ratchet's subject is now the object actually hashed.
+const PHYSICS_VERSION_PAYLOAD = {
+	tickHz: LIVE_TICK_HZ,
+	physicsStepTimeUs: PHYSICS_STEPTIME,
+	physFactor: PHYS_FACTOR,
+	physSkin: PHYS_SKIN,
+	physTouch: PHYS_TOUCH,
+	cPrecision: C_PRECISION,
+	cLowNormVel: C_LOWNORMVEL,
+	cContactVel: C_CONTACTVEL,
+	cDispGain: C_DISP_GAIN,
+	cDispLimit: C_DISP_LIMIT,
+	staticTime: STATICTIME,
+	velocityEpsilon: VELOCITY_EPSILON,
+	ballBallRestitution: BALL_BALL_RESTITUTION,
+	cInterations: C_INTERATIONS,
+	gravityConst: GRAVITYCONST,
+	defaultTableGravity: DEFAULT_TABLE_GRAVITY,
+	staticCnts: STATICCNTS,
+	cEmbedVelLimit: C_EMBEDVELLIMIT,
+	cTolRadius: C_TOL_RADIUS,
+	cEmbedShot: C_EMBEDSHOT,
+} as const;
 
-export const PHYSICS_VERSION: string = (() => {
-	const payload = canonicalize({
-		tickHz: LIVE_TICK_HZ,
-		physicsStepTimeUs: PHYSICS_STEPTIME,
-		physFactor: PHYS_FACTOR,
-		physSkin: PHYS_SKIN,
-		physTouch: PHYS_TOUCH,
-		cPrecision: C_PRECISION,
-		cLowNormVel: C_LOWNORMVEL,
-		cContactVel: C_CONTACTVEL,
-		cDispGain: C_DISP_GAIN,
-		cDispLimit: C_DISP_LIMIT,
-		staticTime: STATICTIME,
-		velocityEpsilon: VELOCITY_EPSILON,
-		ballBallRestitution: BALL_BALL_RESTITUTION,
-		cInterations: C_INTERATIONS,
-		gravityConst: GRAVITYCONST,
-		defaultTableGravity: DEFAULT_TABLE_GRAVITY,
-		staticCnts: STATICCNTS,
-		cEmbedVelLimit: C_EMBEDVELLIMIT,
-		cTolRadius: C_TOL_RADIUS,
-		cEmbedShot: C_EMBEDSHOT,
-	});
-	return `v1-${fnv1aHex(JSON.stringify(payload))}`;
-})();
+/** Every key of the object `PHYSICS_VERSION` actually hashes -- derived, never re-typed (see the note above). */
+export const PHYSICS_VERSION_PAYLOAD_KEYS: readonly string[] = Object.keys(PHYSICS_VERSION_PAYLOAD);
+
+export const PHYSICS_VERSION: string = `v1-${fnv1aHex(JSON.stringify(canonicalize(PHYSICS_VERSION_PAYLOAD)))}`;
 
 // ---------------------------------------------------------------------------
 // buildHeader() / runReplay() -- AC 1 and AC 2.
@@ -240,7 +229,7 @@ export function buildHeader(options: BuildHeaderOptions): ReplayHeader {
 	return {
 		gameStart: options.gameStart,
 		physicsSeed: options.physicsSeed,
-		tickHz: LIVE_TICK_HZ,
+	tickHz: LIVE_TICK_HZ,
 		tableHash: tableHash(),
 		assetHash: assetHash(options.collisionDoc),
 		physicsVersion: PHYSICS_VERSION,

@@ -46,6 +46,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLoop } from '../../../src/sim/loop';
+import { TABLE } from '../../../src/sim/table/dragonwar';
+import type { BallDeviceName } from '../../../src/sim/table/names';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', '..', '..', 'public', 'assets', 'dragonwar.collision.json');
 
@@ -81,7 +83,21 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 		const rulesDerived = out.snapshot.game.machine.deviceSlots;
 		const physicsDerived = out.snapshot.mechanisms.devices;
 
-		for (const device of ['bd_trough', 'bd_lock', 'bd_shooter'] as const) {
+		// Review finding 2026-09-06 (code-review, verification-gap): printed
+		// UNCONDITIONALLY, not only inside an `expect()` failure message. The
+		// wrapper (`test/ad7-device-slots.test.ts`) asserts on these printed
+		// arrays, which restores the VALUE-level evidence the pre-fix wrapper
+		// had (`.toContain('[true,true,true,false]')`) and closes the
+		// "gutted-in-place" hole: the exact passing-count assertion catches a
+		// DELETED `it()`, but three bodies replaced by `expect(true).toBe(true)`
+		// would leave the count, the exit code and the titles all intact.
+		console.log(`DW-70 rules-derived bd_trough: ${JSON.stringify(rulesDerived.bd_trough)}`);
+		console.log(`DW-70 physics-derived bd_trough: ${JSON.stringify(physicsDerived.bd_trough?.slots)}`);
+
+		// Review finding 2026-09-06 (code-review, blind-hunter): iterated from
+		// TABLE, never a second hand-typed device list (DW-149) -- a fourth
+		// ball device would otherwise be silently outside this gate.
+		for (const device of Object.keys(TABLE.ballDevices) as BallDeviceName[]) {
 			expect(
 				rulesDerived[device],
 				`DW-70 (AD-7): GameState.machine.deviceSlots.${device} (rules-derived) disagrees with the snapshot's own ` +
@@ -95,6 +111,8 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 	it('(iii) anti-vacuity: bd_trough is OBSERVED leaving [true,true,true,true] -- the drive genuinely happened, this is not a vacuous pass', () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		const before = loop.advance(1, []).snapshot.game.machine.deviceSlots.bd_trough;
+		// Printed unconditionally -- see the note in (ii) above.
+		console.log(`DW-70 bd_trough before the eject: ${JSON.stringify(before)}`);
 		expect(before, `bd_trough must boot full -- got ${JSON.stringify(before)}`).toEqual([true, true, true, true]);
 
 		loop.pulseCoil('c_trough_eject');
