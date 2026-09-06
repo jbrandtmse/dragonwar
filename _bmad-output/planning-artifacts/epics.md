@@ -651,7 +651,7 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 **When** CI runs Vitest in Node
 **Then** goldens for roll-and-drain, **hold-and-release**, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the two-ball golden also asserts the balls' separation never drops below one diameter
-**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Story 2.5** removes the prologue when Start serves through the rules layer, and re-records the goldens
+**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Epic 3** removes the prologue and re-records the goldens, at or after Story 3.7 (Quick multiball), or formally retires the obligation there `[AMENDED 2026-09-06 — see the story change log below]`
 
 **Given** a browser test page or Vitest browser run
 **When** each golden is replayed in Chrome and Safari
@@ -679,6 +679,27 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
   the pocket its breakage would read as "re-record me" rather than "ask why". The hold is kept well inside
   the ~1 s window where behaviour is stable and will not change when the pocket arrives, so this golden
   survives Story 2.1 intact. A golden must not claim behaviour the table cannot produce.
+
+- **2026-09-06 — the prologue's removal moves from Story 2.5 to Epic 3.**
+  *Why it moves.* Story 2.4 built the rules→physics coil channel (`RulesStepResult.coilCommands`), so the
+  premise above — that the rules layer cannot issue a `CoilCommand` — is no longer what blocks removal.
+  Two measurements taken at Story 2.5's plan gate block it instead. **The two-ball golden needs two balls
+  in play**: `two-ball-collision.golden.json` carries `transitions: []` and a prologue of four pulses,
+  including **two** `c_trough_eject` (ticks 1 and 196), so replaying it from the rules layer requires
+  `machine.multiball`, which does not exist until **Story 3.7**. And **removal shifts every serve by one
+  tick**: AD-4 pins a rules-issued command to tick *N+1*, so `c_trough_eject` cannot fire before tick 2,
+  while every prologue fires at tick 1. That shift is survivable for the four single-ball goldens but not
+  for the two-ball one, whose minimum centre separation is **27.181 mm against a 26.99 mm ball — a
+  0.191 mm margin**. Removal is therefore a **trajectory** re-record, not the header-only refresh Story
+  2.4 performed.
+  *Why Epic 3 whole, rather than four now and one later.* Splitting it would leave the goldens in two
+  states across the rest of Epic 2 and foreclose nothing useful. Deferring the whole removal keeps every
+  option open: Epic 3 can complete it once multiball is real, **or formally retire the obligation** — there
+  is a genuine argument that a replay harness serving its own ball is better isolated from rules churn
+  than one that depends on the full rules layer.
+  *What this does not weaken.* **The goldens are physics-determinism pins.** Removing the prologue would
+  make them end-to-end; it is not what covers Start. **Story 2.5 tests the Start path directly, with its
+  own tests**, so the Start path is asserted either way. Tracked as `DW-175`, routed to Story 3.7.
 
 ### Story 1.9: Dev tuning panel and the first feel ritual
 

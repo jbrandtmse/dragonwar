@@ -2,7 +2,7 @@
 title: 'Story 2.5: Start, Hot seat and the ball lifecycle'
 type: 'feature'
 created: '2026-09-05'
-status: 'blocked' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'draft' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: '8c0213074b8a34ce81663d7c085b41a32269d1f3'
 baseline_commit: '8c0213074b8a34ce81663d7c085b41a32269d1f3'
 review_loop_iteration: 0
@@ -32,6 +32,29 @@ deferred: []
 - **AD-4: commands issued at tick *N* are consumed by physics at *N+1*.** `RulesStepResult.coilCommands` -> `pendingCommands` (`src/sim/loop/index.ts:365-367`) is the channel Story 2.4 built; `step()`'s three-argument signature is AD-4's pin and **must not change**.
 - **Rule 19 governs every AC.** A negative assertion carries a positive control **in the same test**; a threshold is straddled on both sides; every AC records a demonstrated `mutation:`.
 - Re-measure every baseline at your own tree (see `## Verification`); never carry a figure forward.
+- **ANSWERED 2026-09-06 (author, at this story's plan halt) — the goldens' coil prologue is NOT this story's
+  work, and removing it is out of scope.** The obligation was a forward reference in **Story 1.8's** block
+  (`epics.md:654`) naming Story 2.5; it is now **deferred whole to Epic 3**, to be completed at or after
+  **Story 3.7 (Quick multiball)** or **formally retired there**. Tracked as **`DW-175`**, routed to 3.7;
+  `epics.md:654` has been amended with the reasoning. Two measurements make it impossible here:
+  `two-ball-collision.golden.json` has `transitions: []` and **two** `c_trough_eject` pulses (ticks 1 and
+  196), so it needs `machine.multiball` — Epic 3; and AD-4's *N+1* pin means a rules-issued eject cannot
+  fire before tick 2 while every prologue fires at tick 1, an unavoidable **+1-tick serve shift** that the
+  two-ball golden's **0.191 mm** separation margin cannot survive. Removal is a **trajectory** re-record,
+  not a header refresh.
+  **State this framing in `## Design Notes` so Epic 3 inherits it rather than re-deriving it: the goldens
+  are *physics-determinism pins*. Removing the prologue would make them end-to-end; it is not what covers
+  Start. This story tests the Start path directly, with its own tests.** So do NOT plan any golden
+  re-record for prologue removal. (A golden header refresh is still owed for **`DW-113`**'s `source`-string
+  correction — that is a separate, header-only change and remains in scope.)
+- **ANSWERED 2026-09-06 — the `_will_stop` clause is narrowed and `epics.md` already carries the amendment.**
+  `src/sim/rules/modes/` does not exist, `modes: []` is the only value ever assigned, and the string
+  `_will_stop` appears nowhere under `src/` or `test/`, so the clause as originally worded is **vacuously
+  true**. Pin the half this story can falsify: **a stub mode present in `modes[]` before the drain is gone
+  after it, and its teardown is observed strictly before `ball_ended`**, with a mutation that reorders the
+  two. The full per-mode broadcast stays asserted by **Story 3.1**, where modes are real.
+- **ANSWERED 2026-09-06 — `DW-174` is re-owned to Story 3.2 and is no longer this story's inbox.** Keep the
+  `Declined DW-174` note and its evidence in `## Design Notes`; do not plan work for it.
 
 **Block If:**
 
@@ -152,6 +175,18 @@ deferred: []
 - **AC 10 (no regression).** Given the change is complete, when the gates run, then `pnpm test` is green with a recorded file/test/skip count, `pnpm typecheck` exits 0, `pnpm lint:boundaries` exits 0, `pnpm check:corridor` and `pnpm check:reachability` exit 0 with their case/reachable/unreachable/release counts re-measured, `git diff --stat -- public/assets/ assets/src/` is **empty**, and every golden difference is accounted for field by field against the trace.
 
 ## Spec Change Log
+
+- **2026-09-06 — plan-stage `intent gap` answered; spec reset to `draft` for re-planning.** The stage raised
+  three gaps. The author answered the first: the coil-prologue removal defers **whole** to Epic 3 (Story 3.7
+  or formally retired), not four-goldens-now-one-later, because that forecloses nothing — recorded above and
+  as `DW-175`, with `epics.md:654` amended under a one-time scoped grant. The lead resolved the other two
+  before the halt: the `_will_stop` clause was narrowed in `epics.md` (Rule 5 tier-1) to the half this story
+  can falsify, and `DW-174` was re-owned to Story 3.2 (`device_overflow` never reaches `rules.step()`, and a
+  `c_mouth` eject resolves to `lastIndexOf(true)` — a legitimately locked ball, not the offender, leaking
+  `ballsInPlay`). Two corrections were also appended to `DW-87`: its anchor is stale (the live AD-15 pin is
+  `test/port-provenance.test.ts:293-319`, not `test/sim-boundary.test.ts:269-284`), and it is cheaper than
+  filed — `PHYSICS_VERSION` is a pure identity string, so widening it moves one header field and no
+  expected hash.
 
 ## Review Triage Log
 
