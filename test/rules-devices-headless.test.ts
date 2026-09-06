@@ -182,13 +182,23 @@ const FORBIDDEN_FAMILIES: ReadonlyArray<{ readonly label: string; readonly match
 // :186-192 warning named this story by name: "sim/rules/index.ts is one
 // import away from dragging in 55 physics modules", and the ball controller
 // is exactly what task 4 wires into it).
+// Story 2.5 QA (DW-176, DW-178): the two new headless unit-test files closing
+// those ledger entries (deriveDeviceSlots()'s multi-edge fold and the
+// devices-layer-occupancy/deviceSlots agreement check) are appended here for
+// the same reason task 13's own comment above gives -- neither is reachable
+// transitively from the entries already listed (ordinary test files never
+// import each other), so leaving either out would let it claim headlessness
+// with no gate actually proving it, exactly the gap task 13 closed for
+// rules-lifecycle.test.ts.
 const ENTRY_FILES = [
 	path.join(__dirname, 'rules-devices.test.ts'),
 	path.join(__dirname, 'rules-lifecycle.test.ts'),
+	path.join(__dirname, 'rules-derive-device-slots-fold.test.ts'),
+	path.join(__dirname, 'rules-device-slots-agreement.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 
-describe('AC 9 (headless) -- nothing in test/rules-devices.test.ts\'s or test/rules-lifecycle.test.ts\'s TRANSITIVE module closure is physics, loop, rendering or filesystem code (DW-172, Story 2.5)', () => {
+describe('AC 9 (headless) -- nothing in any of this file\'s ENTRY_FILES\' TRANSITIVE module closure is physics, loop, rendering or filesystem code (DW-172, Story 2.5; DW-176/DW-178 entries added at QA)', () => {
 	const { files, edges } = importClosure(ENTRY_FILES);
 
 	// Scanning only the two entry files' own import lists was the original

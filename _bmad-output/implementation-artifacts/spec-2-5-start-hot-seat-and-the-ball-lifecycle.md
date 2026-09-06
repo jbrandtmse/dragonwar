@@ -393,6 +393,29 @@ Deferred (3, low severity, filed to frontmatter `deferred:` for the lead's harve
 - Confirm `test/rules-devices-headless.test.ts`'s `ENTRY_FILES` lists every new rules test file and every new `test/util/` runner, and that its `describe` title at `:180` was updated.
 - Confirm `test/replay-goldens.test.ts:32-33` no longer names Story 2.5 as the prologue remover, and that no other file in the repository does.
 
+**QA pass, 2026-09-06 (this tree's own re-measured baseline going in: 99 files / 1597 tests / 1574 passed / 23 skipped / 0 failed — matches the recorded baseline above, so nothing had drifted).**
+
+New test files (QA):
+- `test/rules-derive-device-slots-fold.test.ts` (QA) — closes `DW-176`.
+- `test/rules-device-slots-agreement.test.ts` (QA) — closes `DW-178`.
+
+Files touched by QA to keep the AC 9 headless gate and the AC 7 pin complete:
+- `test/rules-devices-headless.test.ts` (QA) — appended both new files above to `ENTRY_FILES`; updated the `describe` title. Re-run: both its own tests still pass.
+- `test/rules-lifecycle.test.ts` (QA) — appended one new test under AC 7 (see mutation list below); no existing test in this file was weakened, skipped or deleted.
+
+Mutations demonstrated by QA (Rule 19 — every one applied, observed red, reverted, `git status --short`/`git diff --stat` confirmed byte-identical on the touched `src/` file immediately after):
+
+- **DW-176** — `src/sim/rules/ball-controller.ts`'s `deriveDeviceSlots()` fold accumulator, `const source = next ?? current;` → `const source = current;` → both new same-tick-multi-edit tests in `test/rules-derive-device-slots-fold.test.ts` reddened (cross-device case: `bd_trough` reverted to its pre-edit value once the second event, on `bd_lock`, ran; same-device case: `bd_lock`'s first slot edit was lost once the second slot's edit ran), while the anti-vacuity (no occupancy-changing event) test stayed green; reverted.
+- **DW-178** — `src/sim/rules/devices/index.ts`'s Stage 1 parking closed-edge push, `slot: slot.slot` → `slot: 0` (occupancy write on the next line left untouched) → both directions of the new `test/rules-device-slots-agreement.test.ts` reddened on the rules-derived-view (`machine.deviceSlots.bd_lock`) half, while the devices-layer-occupancy-behaviour half (the immediate-vs-windowed `lock_lane_entered`) and all 47 of `test/rules-devices.test.ts`'s own tests stayed green — confirmed not independently caught by any pre-existing test; reverted.
+- **AC 7 vacuity probe (new finding, closed)** — `src/sim/rules/ball-controller.ts`'s letters-credit guard, `index === currentPlayer` → `index === 0` → the existing AC 7 test (`test/rules-lifecycle.test.ts`) stayed GREEN (its own script never moves `currentPlayer` away from 0 during its letters-dropping window), i.e. a genuine, previously undetected vacuity distinct from the "wipes/credits every player" case the story's own review already found. Closed with a new test in the same `describe` block ("after rotation, a dropped letter credits whichever player is NOW current") that drops a letter only after rotation has moved `currentPlayer` to 1: reddened `player 2 (now current) is credited: expected '' to be 'D'` under the same mutation, while the original AC 7 test stayed green; reverted.
+- **AC 7, other direction (re-verified, no gap)** — `src/sim/rules/ball-controller.ts`'s `startBall()` player-map, widened to reset every player's `letters` to `''` on any ball start (simulating a "wipes everyone" regression) → the ORIGINAL AC 7 test reddened (`player 1 keeps their letters: expected '' to be 'DRA'`, tripped by the second `startBall()` call the test's own drain triggers) — confirms this direction is genuinely covered without a new test; reverted.
+- **AC 3 (re-verified)** — the four-player cap, `players.length < 4` → `<= 4` → the fifth-press assertion reddened (`expected [...5] to have a length of 4 but got 5`) with presses 1–4 (the positive control) still green; reverted.
+- **AC 4, both conjuncts (re-verified)** — the Hot-seat-window guard `currentPlayer === 0 && players[0]?.ballNumber === 1`: removing the first conjunct reddened the original 2-player AC 4 test (`expected 2 to have a length... got 3`) while the single-player wrap-around test stayed green; removing the second conjunct instead reddened the single-player wrap-around test (`expected [...1] to have a length of 1 but got 2`) while the 2-player test stayed green — confirms each conjunct is discriminated by a different one of the two tests, exactly as the story's own Review Triage Log claims; both reverted.
+- **AC 5 (re-verified)** — mode teardown moved to credit `nextState.currentPlayer` after rotation instead of the captured `endingPlayer` before it → reddened `the ENDING player (0) is credited: expected [] to deeply equal ['stub']`; reverted.
+- **AC 6 (re-verified)** — `isLastPlayer = endingPlayer === nextState.players.length - 1` → hardcoded `endingPlayer === 0` → the 2-player last-player (index 1) test reddened (`expected 'game' to be 'game_over'`) while the single-player test stayed green; reverted.
+
+`mutations_demonstrated=9` (2 closing DW-176/DW-178, 1 closing a newly found AC 7 gap, 6 re-verifying existing pinning tests already claimed in this spec's own Verification log — all reproduced independently at this tree with the predicted red).
+
 ## Auto Run Result
 
 ### Summary

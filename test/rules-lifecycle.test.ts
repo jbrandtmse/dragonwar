@@ -275,6 +275,40 @@ describe('Story 2.5 -- AC 7: Hot seat isolation, two-sided', () => {
 		expect(result.finalState.players[0]!.letters, 'player 1 keeps their letters').toBe('DRA');
 		expect(result.finalState.players[1]!.letters, 'player 2 starts with none').toBe('');
 	});
+
+	// QA probe 2026-09-06 (Rule 19 vacuity check on the test above): its own
+	// script never moves `currentPlayer` away from 0 during the whole
+	// letters-dropping window (both drops happen before the drain at tick 30),
+	// so a mutation that hardcodes the credited index to 0 -- instead of
+	// reading `nextState.currentPlayer` -- passes it unchanged (confirmed:
+	// `src/sim/rules/ball-controller.ts`'s `index === currentPlayer` credit
+	// guard mutated to `index === 0`, run in isolation, left the test above
+	// GREEN). That mutation is a real "leaks to the wrong player" defect
+	// distinct from the one the story's own review already found and fixed
+	// (crediting/wiping EVERY player) -- this test discriminates it by
+	// dropping a letter AFTER rotation, while player 2 (index 1) is current,
+	// and asserting the credit lands on player 2, not player 1.
+	//
+	// Mutation (Rule 19): `src/sim/rules/ball-controller.ts`'s
+	// `index === currentPlayer ? ... : player` -> `index === 0 ? ... : player`.
+	// QA-observed 2026-09-06: reddened `player 2 (now current) is credited:
+	// expected '' to be 'D'` while `test/rules-lifecycle.test.ts`'s OTHER AC 7
+	// test (letters dropped only while player 1 is current) stayed green,
+	// confirming this is the test that newly discriminates the hardcoded-index
+	// defect; reverted, `git status --short` / `git diff --stat` unchanged.
+	it('after rotation, a dropped letter credits whichever player is NOW current (player 2), not a hardcoded player 1 -- closes a vacuity in the test above, whose own script never changes currentPlayer during its letters window', () => {
+		const script = close('s_start').at(5)
+			.at(8)
+			.open('s_shooter_lane').at(20)
+			.close('s_trough_1').at(30)
+			.close(TABLE.dropBankWiring.d.switch).at(32)
+			.build();
+		const result = runRulesScript(script, { durationTicks: 35 });
+
+		expect(result.finalState.currentPlayer, 'sanity: rotation happened, player 2 is now current').toBe(1);
+		expect(result.finalState.players[1]!.letters, 'player 2 (now current) is credited').toBe('D');
+		expect(result.finalState.players[0]!.letters, 'player 1, no longer current, is untouched').toBe('');
+	});
 });
 
 describe('Story 2.5 -- DW-70: slot derivation and identity stability', () => {
