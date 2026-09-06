@@ -2,7 +2,7 @@
 title: 'Story 2.5: Start, Hot seat and the ball lifecycle'
 type: 'feature'
 created: '2026-09-05'
-status: 'done' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'in-progress' # draft | ready-for-dev | in-progress | in-review | done | blocked
 baseline_revision: 'd9f351f17fcef30bf3e1a3ffbdef4002bf277f7c'
 baseline_commit: 'd9f351f17fcef30bf3e1a3ffbdef4002bf277f7c'
 review_loop_iteration: 0
@@ -219,6 +219,30 @@ deferred:
 19. `test/replay-goldens.test.ts` — the stale prose. **`:32-33` must stop naming Story 2.5 as the prologue remover** and name Epic 3 / Story 3.7 / `DW-175` instead. Also correct: `:501-502` (`// 7300` / `// 8100` against the real 8650 / 9250), `:546` (a tick-7394 / "94 ticks after the press" clause anchored to the retired 7300), `:213` and `:216` (an "8110-tick window" that now precedes the 8650 press, against `durationTicks: 9600`), `:217-218` (claims the description says "drains shortly after release"; it says the ball is **still in play** at `durationTicks`), and `:546-548`/`:594` ("48.30 mm" against the notes' recorded 103.8 mm). *Rationale: Story 2.4 task 13's own rationale — a comment that is now false is a review finding; and `:32-33` is the one place in the repository that still assumes prologue removal.*
 
 **Acceptance Criteria:**
+- [ ] **[CI] Checks / Test: `test/ad7-device-slots.test.ts` fails on Ubuntu while passing on Windows** — run
+  34038163487 on `97d859b`, job "Checks", step "Test". 1 failed / 1581 passed / 26 skipped (101 files).
+  **Diagnosed, do not re-diagnose.** The wrapper scrapes the nested harness's summary with
+  `/Tests\s+(\d+)\s+passed/`. On the CI runner **vitest colourises its output**, so the line arrives as
+  `ESC[2m      Tests ESC[22m ESC[1mESC[32m3 passedESC[39m...` — the ANSI codes sit between `Tests` and
+  the digits, `\s+` does not match them, and `match` is `null`. The assertion message proves it: it prints
+  `Tests  3 passed (3)` in the very output it says has no match. `pnpm test` is green on Windows and this is
+  **unreproducible locally by construction** — Git Bash pipes give plain output even under `FORCE_COLOR=1`
+  (I tried, both on the outer run and on the nested command directly).
+  **What the fix must do:**
+  1. Make the extraction ANSI-proof — strip escape sequences from the captured output before matching, and
+     also spawn the nested runner with colour disabled (`--no-color` plus `NO_COLOR`/`FORCE_COLOR=0` in the
+     spawn env). Belt and braces: either alone would have prevented this, and the strip is what makes the
+     assertion robust to a future runner that colourises regardless.
+  2. **Pin it with a test that fails locally today.** The whole reason this reached CI is that no local test
+     exercised coloured input. Feed a **synthetic coloured summary string** (the exact byte shape from the CI
+     log above) through the same extraction path and assert it yields `3`. That converts an
+     unreproducible-on-Windows defect into a locally-falsifiable one.
+  3. **Do not weaken the exact-count assertion** to `>=` or drop it. It is the anti-vacuity pin: skipping one
+     of the harness's three `it()` blocks leaves `check:ad7` still exiting 0, and this count is the only thing
+     that catches it. Keep the `AD-7` / `bd_trough` content assertions too.
+  4. Check the sibling assertions in the same file for the same ANSI fragility.
+  **Mutation to demonstrate:** revert the ANSI strip → the new synthetic-coloured-input test goes red.
+
 
 - **AC 1 (AD-7 holds, and the gate's red is provable).** Given the change is complete, when `grep -rn 'deviceSlots' src/sim/loop/ src/sim/physics/` runs, then no assignment to any `GameState` field appears outside `src/sim/rules/`; and when `pnpm check:ad7` runs, then it exits **0**, while `test/ad7-device-slots.test.ts` passes and asserts the exit code, the harness's **exact** passing-test count, and that the output names `AD-7` and `bd_trough`.
 - **AC 2 (Start).** Given `phase: 'attract'`, `players: []` and `hardwareEnabled: false`, when `s_start` closes, then `phase` becomes `'game'`, exactly one player is created from `GameStart`, `ball_will_start` -> `ball_starting` -> `ball_started` are emitted in that order, `hardwareEnabled` is true from `ball_starting`, and `coilCommands` carries exactly one `c_trough_eject` pulse — all asserted on the returned `GameState` and `RulesStepResult`, never on an internal counter.
@@ -264,6 +288,12 @@ deferred:
 **Gates after every patch:** `pnpm test` **101 files / 1608 tests / 1585 passed / 23 skipped / 0 failed** (up 5 from the 1603/1580 baseline, all of them new pins); `pnpm check:ad7` **exit 0, 3/3**; `pnpm typecheck`, `pnpm lint:boundaries` (90 files, 0 violations), `pnpm check:corridor`, `pnpm check:reachability`, `pnpm check:headers`, `pnpm check:attributions` all exit 0; `git diff --stat -- public/assets/ assets/src/` empty; all five goldens' `expectedHash` / `expectedGameStateHash` **unmoved** by this review's patches.
 
 ## Spec Change Log
+
+- **2026-09-06 — re-opened for one rework iteration: CI red on Ubuntu.** The story committed green locally
+  (101 files / 1608 / 1585 passed) but run 34038163487 failed on `test/ad7-device-slots.test.ts`: the
+  wrapper's summary regex does not survive the CI runner's ANSI colour. This is the field case the kit warns
+  about -- a suite that passes on the lead's machine is evidence about that machine. Added as a `[CI]` task
+  above. Nothing else about the story is re-opened.
 
 - **2026-09-06 — plan-stage `intent gap` answered; spec reset to `draft` for re-planning.** The stage raised
   three gaps. The author answered the first: the coil-prologue removal defers **whole** to Epic 3 (Story 3.7
