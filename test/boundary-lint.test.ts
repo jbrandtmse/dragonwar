@@ -253,6 +253,31 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/suppression (DW-38: 
 		expect(lines(12), `expected exactly one violation on line 12, got:\n${lines(12).join('\n')}`).toHaveLength(1);
 		expect(lines(12)[0]).toContain('[no-device-name-literal]');
 	});
+
+	// Story 2.8 (code review pass 3, Rule 19): `checkSimNoColour()` wires
+	// `collectLineSuppressions` and returns early on
+	// `suppressions.get(line) === 'sim-no-colour'`, and nothing exercised
+	// that branch -- the presentation fixture above lives under
+	// `src/presentation/**`, which this rule (scoped to `src/sim/**`) never
+	// scans. Same "an unfalsified patch is not evidence" class the review
+	// pass itself corrected for the hex matchers, one function over.
+	// `mutation: delete the `if (suppressions.get(line) === 'sim-no-colour')
+	// return;` guard in tools/boundary-lint.mjs -> the first case below red.`
+	const colourLines = (n: number) => stderr.split('\n').filter((line) => line.includes(`src/sim/suppressed-colour.ts:${n}`));
+
+	it('sim-no-colour honours its own "// boundary-lint-disable-next-line sim-no-colour"', () => {
+		expect(colourLines(9), `expected no violation on line 9, got: ${colourLines(9).join(' | ')}`).toHaveLength(0);
+	});
+
+	it('sim-no-colour still flags the line after the suppressed one', () => {
+		expect(colourLines(10), `expected exactly one violation on line 10, got: ${colourLines(10).join(' | ')}`).toHaveLength(1);
+		expect(colourLines(10)[0]).toContain('[sim-no-colour]');
+	});
+
+	it('a suppression naming a DIFFERENT rule does not suppress a sim-no-colour violation', () => {
+		expect(colourLines(13), `expected exactly one violation on line 13, got: ${colourLines(13).join(' | ')}`).toHaveLength(1);
+		expect(colourLines(13)[0]).toContain('[sim-no-colour]');
+	});
 });
 
 describe('tools/boundary-lint.mjs -- test/fixtures/boundary/exemption-exact (DW-39: exact-path exemptions really hold)', () => {

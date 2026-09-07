@@ -84,9 +84,40 @@ describe('syncLamps -- trap 1: shared material (material.clone() per insert)', (
 			const lit = emissiveColorOf(scene, 'l_top_1');
 			expect(lit).toEqual(scaledEmissive(LAMP_GRAMMAR.lit)); // grammar's own 'lit' colour (white), dimmed by INSERT_EMISSIVE_LEVEL (HIGH 2d)
 
+			// Code review pass 3 (Rule 19). EVERY rendered-emissive expectation
+			// in this file and in `test/lighting-integration.test.ts` is
+			// computed THROUGH `INSERT_EMISSIVE_LEVEL` (`scaledEmissive()`
+			// above), so actual and expected move together and no assertion in
+			// the suite could fail on a change to that constant. Measured by
+			// the reviewer: setting `INSERT_EMISSIVE_LEVEL = 0` -- which
+			// renders every insert pitch black, and the emissive is the ONLY
+			// thing carrying a lamp's visible signal (`epics.md`'s amended
+			// AC 5: "carried by the insert's emissive material alone", the
+			// dynamic light measuring 0.00 luma) -- left the WHOLE suite green
+			// at 112 files / 1824 tests. This assertion and the band pin below
+			// are what make that mutation red.
+			expect(
+				lit.r + lit.g + lit.b,
+				'a LIT insert must be genuinely non-black on the rendered artefact -- the scaledEmissive()-derived expectations structurally cannot fail on INSERT_EMISSIVE_LEVEL, so this is the one that does',
+			).toBeGreaterThan(0);
+
 			const stillBlack = emissiveColorOf(scene, 'l_top_2');
 			expect(stillBlack).toEqual({ r: 0, g: 0, b: 0 });
 		});
+	});
+
+	// Code review pass 3 (Rule 19), the other half of the same gap: the
+	// value of `INSERT_EMISSIVE_LEVEL` itself. `lamp-driver.ts`'s own doc
+	// comment records it as a TUNED quantity inside an author-authorised
+	// band (roughly 0.5..0.7, HIGH 2d) that Story 4.1 is expected to revisit
+	// once the render path has real exposure/tonemap headroom -- so it will
+	// be edited again, by hand, and nothing else in the suite constrains
+	// what it may become. `mutation: INSERT_EMISSIVE_LEVEL = 0 -> this test
+	// red ("expected 0 to be greater than or equal to 0.5"), plus the
+	// non-black assertion above; without both, all 1824 tests stayed green.`
+	it('INSERT_EMISSIVE_LEVEL stays inside the author-authorised 0.5..0.7 headroom band (HIGH 2d)', () => {
+		expect(INSERT_EMISSIVE_LEVEL, 'INSERT_EMISSIVE_LEVEL below the authorised band dims the lit reading of the whole table further than the headroom fix requires -- and at 0 every insert renders black, with no other assertion in the suite able to see it').toBeGreaterThanOrEqual(0.5);
+		expect(INSERT_EMISSIVE_LEVEL, 'INSERT_EMISSIVE_LEVEL above the authorised band leaves under half the headroom this constant exists to create for the transmitted term').toBeLessThanOrEqual(0.7);
 	});
 });
 
@@ -380,6 +411,44 @@ describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exerc
 				enabledPointLights += mesh.lightSources.filter((l) => l.isEnabled() && l instanceof PointLight).length;
 			}
 			expect(enabledPointLights, 'the default budget (20) must comfortably exceed fourteen real lamps -- every lit insert gets its own enabled light with no override at all').toBe(Object.keys(TABLE.lamps).length);
+		});
+	});
+
+	// Code review pass 3 (blind-hunter + acceptance-auditor, Rule 19): zero
+	// is the ONE budget value this story's whole verification story turns
+	// on, and no test constructed it. `epics.md`'s amended AC 4 names
+	// `window.__dragonwarBoot.setLightBudget(0)` as THE instrument -- "the
+	// instrument, named so the measurement is repeatable" -- and Story 4.1's
+	// own falsification criterion re-runs that same A/B expecting it to go
+	// non-zero. `setLightBudget()` deliberately admits 0 (its validation is
+	// `>= 0`, not `> 0`), and `boot.ts` marshals it with an explicit
+	// `=== null` test precisely so a literal 0 is not swallowed as falsy.
+	// A "defensive" floor on the cap would silently make 0 unreachable, and
+	// the A/B would then keep reading 0.00 luma of separation forever --
+	// reading as confirmation of AC 4's recorded limitation rather than as
+	// the regression it is. `mutation: change `enabledCount < budget` to
+	// `enabledCount < Math.max(budget, 1)` in `syncLamps()` -> ONLY this
+	// test reddens ("expected 1 to be +0"); every other case in this file,
+	// including the { budget: 1 }, { budget: 2 } and default-budget ones,
+	// stays green, because none of them constructs the value the instrument
+	// actually uses.`
+	it("with { budget: 0 } (the exact value setLightBudget(0) produces -- AC 4's named instrument) NO light is enabled, while every lit insert keeps its emissive colour", async () => {
+		await withScene(async (scene, playfieldRoot) => {
+			const view: LampView = {};
+			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
+				view[name] = { role: 'lit', step: 1 };
+			}
+			syncLamps(scene, playfieldRoot, view, 0, { budget: 0 });
+
+			let enabledPointLights = 0;
+			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
+				const mesh = getRequiredNode(scene, name) as AbstractMesh;
+				enabledPointLights += mesh.lightSources.filter((l) => l.isEnabled() && l instanceof PointLight).length;
+				// The whole point of the A/B: the LIGHTS go away, the emissive
+				// material does not.
+				expect(emissiveColorOf(scene, name), `${name}: budget 0 must leave the emissive colour untouched -- that is what isolates the light's own contribution`).toEqual(scaledEmissive(LAMP_GRAMMAR.lit));
+			}
+			expect(enabledPointLights, 'budget 0 must enable NO dynamic light at all -- setLightBudget(0) is the instrument epics.md AC 4 names, and it must genuinely turn the light half off').toBe(0);
 		});
 	});
 });

@@ -134,11 +134,33 @@ describe('sim/contracts -- commands are discriminated on type and carry tick', (
 		void role;
 	});
 
-	it('LampState<TLamp>: one entry per lamp, each a LampProjectionEntry', () => {
+	// Code review pass 3 (verification-gap, Rule 19): this used to construct
+	// `{ l_dummy: entry }` and then assert that same object's own two fields.
+	// `LampState`/`LampProjectionEntry` are TYPES with no runtime
+	// representation -- as this file's own header says -- so no
+	// implementation of anything could redden it, and unlike the neighbouring
+	// `toHaveLength(7)` case there was no load-bearing assertion inside the
+	// same `it()`. The load-bearing checks are the `@ts-expect-error`
+	// directives below, enforced by `pnpm typecheck` (vitest's esbuild
+	// transform strips types and never sees them) -- the same enforcement
+	// point the role-rejection case above relies on. The runtime assertions
+	// are kept only as executable documentation of the shape.
+	it('LampState<TLamp> is TOTAL over its lamp union and closed to LampStep (compile-time; runtime lines are shape documentation only)', () => {
 		const entry: LampProjectionEntry = { role: 'dragon', step: 2 };
 		const state: LampState<'l_dummy'> = { l_dummy: entry };
 		expect(state.l_dummy.role).toBe('dragon');
 		expect(state.l_dummy.step).toBe(2);
+
+		// @ts-expect-error -- LampState is a total Record, never Partial: a lamp in the union may not be omitted.
+		const missing: LampState<'l_dummy' | 'l_other'> = { l_dummy: entry };
+		void missing;
+
+		// @ts-expect-error -- 4 is outside LampStep's closed {0,1,2,3}.
+		const badStep: LampProjectionEntry = { role: 'dragon', step: 4 };
+		void badStep;
+
+		// @ts-expect-error -- LampProjectionEntry's fields are readonly; the projection is recomputed whole, never mutated in place (AD-9).
+		entry.step = 1;
 	});
 
 	it('GiCommand', () => {

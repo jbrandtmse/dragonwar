@@ -178,6 +178,37 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 			`the accumulated command stream must include a "lit" LampCommand for ${drawnLane}`,
 		).toBe(true);
 
+		// Code review pass 3 (blind-hunter, Rule 19): AC 1 says `sim/loop`
+		// emits a `LampCommand` "only for lamps whose `role` or `step`
+		// changed". Nothing in the suite pinned the CARDINALITY half of that.
+		// The one live detector for the diff (`test/flipper-mover.test.ts`)
+		// proves only the NOTHING-changed case -- real attract frames, an
+		// all-off projection, `commands` asserted `[]` -- and the two
+		// assertions immediately above prove only that the stream is
+		// non-empty and mentions the drawn lane. So a loop that pushed the
+		// WHOLE fourteen-lamp projection on any tick where ANY lamp changed
+		// (rather than pushing only the changed lamps) left the entire
+		// 1824-test suite green. `mutation: in `src/sim/loop/index.ts`, drop
+		// the per-lamp `previous.role !== current.role || previous.step !==
+		// current.step` guard and instead push every lamp whenever the
+		// projections differ at all -> red here, fourteen commands on the
+		// arming tick.`
+		const lampCommandsPerTick = new Map<number, number>();
+		for (const command of lampCommands) {
+			lampCommandsPerTick.set(command.tick, (lampCommandsPerTick.get(command.tick) ?? 0) + 1);
+		}
+		const busiestTick = [...lampCommandsPerTick.entries()].sort((a, b) => b[1] - a[1])[0];
+		expect(
+			busiestTick?.[1] ?? 0,
+			`no single tick of this run may carry more than two LampCommands -- a lane rotation (one lamp off, one lamp on) is the widest legitimate simultaneous change here, and fourteen would mean the loop pushed the whole projection instead of the diff. Busiest tick was ${JSON.stringify(busiestTick)}`,
+		).toBeLessThanOrEqual(2);
+		// ...and no lamp is named twice on one tick, which the diff makes
+		// structurally impossible (one comparison per TABLE.lamps key).
+		for (const [tick, count] of lampCommandsPerTick) {
+			const namesOnTick = new Set(lampCommands.filter((c) => c.tick === tick).map((c) => c.lamp));
+			expect(namesOnTick.size, `tick ${tick} named the same lamp more than once (${count} commands, ${namesOnTick.size} distinct lamps)`).toBe(count);
+		}
+
 		expect(viewAtArm, 'the drawn lane\'s own lamp must already have been folded into the view as lit/2 before any plunge').toEqual({ role: 'lit', step: 2 });
 
 		// The drawn lane's lit flag survives the whole run (nothing un-lights

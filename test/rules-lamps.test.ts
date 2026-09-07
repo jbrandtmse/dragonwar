@@ -17,6 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { lampsOf } from '../src/sim/rules/lamps';
+import { bootDeviceSlots } from '../src/sim/rules';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { close, runRulesScript } from './util/switch-script';
@@ -251,9 +252,18 @@ function describeMatrix(basePlayer: 0 | 1): void {
 			expect(lamps.l_dragon_r).toEqual({ role: 'dragon', step: 1 });
 			expect(lamps.l_dragon_a).toEqual({ role: 'dragon', step: 1 });
 			expect(lamps.l_lock).toEqual({ role: 'dragon', step: 1 });
-			// Everything else this scenario did not light is off.
-			for (const name of ['l_top_2', 'l_top_3', 'l_inlane_l', 'l_outlane_l', 'l_outlane_r', 'l_dragon_g', 'l_dragon_o', 'l_dragon_n']) {
-				expect(lamps[name as keyof typeof lamps]).toEqual(ALL_OFF);
+			// Everything else this scenario did not light is off. Code review
+			// pass 3 (acceptance-auditor, DW-149): DERIVED from
+			// `Object.keys(TABLE.lamps)` minus the lamps asserted above, never
+			// a second hand-typed lamp list -- Story 2.9 adds `l_ball_save` to
+			// `TABLE.lamps`, and against the old literal array it would have
+			// joined the projection without joining this assertion. The same
+			// file's own `allLampsOff()` already used this idiom.
+			const litHere = new Set(['l_top_1', 'l_inlane_r', 'l_dragon_d', 'l_dragon_r', 'l_dragon_a', 'l_lock']);
+			const restOff = Object.keys(TABLE.lamps).filter((name) => !litHere.has(name));
+			expect(restOff.length, 'the derived "everything else" set must not be empty, or this assertion proves nothing').toBeGreaterThan(0);
+			for (const name of restOff) {
+				expect(lamps[name as keyof typeof lamps], `${name} was not lit by this scenario and must read off/0`).toEqual(ALL_OFF);
 			}
 		});
 	});
@@ -261,6 +271,53 @@ function describeMatrix(basePlayer: 0 | 1): void {
 
 describeMatrix(0);
 describeMatrix(1);
+
+// Code review pass 3 (blind-hunter, Rule 19). `src/sim/rules/lamps.ts`'s own
+// header rests two load-bearing arguments on ONE unstated-until-now
+// precondition -- that `bootDeviceSlots()` leaves `bd_lock` empty:
+//   (a) the golden argument ("every lamp really is off/0 throughout all
+//       five"), which is why this story's refresh is header-only; and
+//   (b) `sim/loop/index.ts`'s `previousLamps = lampsOf(state)` boot seed,
+//       which agrees with `syncLamps()`'s own "absent means off" default
+//       ONLY while the boot projection is all-off. A lamp already ON in the
+//       boot projection would never be transmitted to presentation at all,
+//       because the diff has nothing to report and the view starts empty.
+// The precondition was written in prose and enforced by nothing.
+describe('lampsOf -- the boot precondition both the golden argument and the loop seed rest on', () => {
+	it('bootDeviceSlots() leaves every bd_lock slot empty, so the boot projection really is all-off', () => {
+		const slots = bootDeviceSlots();
+		expect(slots.bd_lock.some((slot) => slot === true), 'a ball device that starts FULL at boot would light l_lock in the boot projection -- which sim/loop seeds previousLamps from, so that lamp would never produce a command and presentation would show it off forever').toBe(false);
+		expect(lampsOf(gameState({ modes: [], players: [], bdLock: [...slots.bd_lock] as boolean[] })), 'the boot projection must be all-off').toEqual(allLampsOff());
+	});
+});
+
+// Code review pass 3 (blind-hunter). `epics.md` Story 2.8's AC 5 says "the
+// skill-shot lane blinks at step 2" -- SINGULAR. `lampsOf()` promotes EVERY
+// lit Top lane to step 2 whenever a `skill_shot` mode is anywhere on the
+// stack; it reads the mode's presence, never which lane it drew. That is
+// correct TODAY only because the base mode clears the lit set at ball start
+// and any Top-lane closure resolves the skill shot in the same step, so at
+// most one Top lane is ever lit while the skill shot is live -- an invariant
+// that lives in `src/sim/rules/modes/skill-shot.ts` and was stated in
+// `lamps.ts` and in no test. Story 2.14 (the lit-Top-lane rotation) and the
+// still-open DW-204 both land on exactly this coupling, so it is pinned
+// here, visibly, rather than left to be rediscovered.
+describe('lampsOf -- the step-2 promotion is per-STACK, not per-lane (a coupling Story 2.14 lands on)', () => {
+	it('two lit Top lanes with skill_shot on the stack: BOTH read step 2 -- pinned as the current behaviour, NOT endorsed as the AC wording', () => {
+		const state = gameState({
+			players: [player({ lit: { top_1: true, top_3: true } })],
+			modes: [
+				{ mode: 'base', priority: 100, player: 0 },
+				{ mode: 'skill_shot', priority: 200, player: 0, launched: true },
+			],
+		});
+		const lamps = lampsOf(state);
+		expect(lamps.l_top_1, 'l_top_1 reads step 2').toEqual({ role: 'lit', step: 2 });
+		expect(lamps.l_top_3, "l_top_3 ALSO reads step 2 -- lampsOf() reads the skill shot PRESENCE, never the lane it drew. epics.md AC 5 says the skill-shot lane (singular); the two agree only while at most one Top lane can be lit during a live skill shot, which is an invariant of skill-shot.ts and not of this module").toEqual({ role: 'lit', step: 2 });
+		// The non-Top lit set is unaffected by the skill shot either way.
+		expect(lamps.l_top_2).toEqual(ALL_OFF);
+	});
+});
 
 describe('lampsOf -- purity and stability', () => {
 	it('two calls against the same state produce a structurally-equal (though not necessarily reference-equal) projection', () => {

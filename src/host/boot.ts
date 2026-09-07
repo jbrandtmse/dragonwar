@@ -23,7 +23,7 @@ import { syncBackglass } from '../presentation/backglass/backglass';
 import { FONT_5X7 } from '../presentation/backglass/font';
 import { advanceLamps, INITIAL_LAMP_VIEW, type LampView } from '../presentation/lighting/lamp-view';
 import { syncLamps } from '../presentation/lighting/lamp-driver';
-import { createHostLoop } from './loop';
+import { createHostLoop, type HostLoop, type ResetOptions } from './loop';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
 import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
 import { createTuningPanel, buildOverriddenTuning, type TuningPanel } from './dev/tuning-panel';
@@ -337,7 +337,34 @@ async function onBegin(): Promise<void> {
 			);
 		});
 
-		const hostLoopRef = hostLoop;
+		// Story 2.8 (code review pass 3). `lampView` is purely command-driven
+		// -- unlike `backglassView`, which self-corrects every frame because
+		// `renderFrame()` re-derives it from the live snapshot -- and a rebuilt
+		// loop re-seeds its own `previousLamps` all-off, so it emits NO "off"
+		// command for a lamp that was lit before the reset. Code review pass 2
+		// found that and fixed it at the two reset-shaped hatches INSIDE this
+		// file. It is now fixed at the seam instead, because `hostLoop.reset()`
+		// has TWO MORE call sites that reach this same live loop from other
+		// modules and were missed: `dev/replay-player.ts`'s reset-before-play
+		// (reached from `replayRecorder.play()`) and `dev/tuning-panel.ts`'s
+		// hot-apply. Both left every insert lit before the reset lit forever,
+		// with no state behind it. `HostLoop.reset()`'s own doc comment names
+		// those exact two as "the ONE seam" it exists for, so everything
+		// downstream of this line receives a wrapper whose `reset()` clears the
+		// view state the rebuilt loop can no longer restate. `lightBudgetOverride`
+		// rides along for the same reason `setLightBudget`'s own JSDoc already
+		// claims ("the override is also cleared back to `null` by `reset()`, so a
+		// stale A/B setting never survives a reset") -- true of one hatch before
+		// this, true of every reset path now.
+		const liveHostLoop = hostLoop;
+		const hostLoopRef: HostLoop = {
+			...liveHostLoop,
+			reset: (resetOptions?: ResetOptions): void => {
+				liveHostLoop.reset(resetOptions);
+				lampView = INITIAL_LAMP_VIEW;
+				lightBudgetOverride = null;
+			},
+		};
 		window.__dragonwarBoot = {
 			gestureMs,
 			firstFrameMs,
@@ -370,16 +397,9 @@ async function onBegin(): Promise<void> {
 					// then start()") and the Design Notes say the same ("the
 					// panel's Record resets first"). The fresh loop really is at
 					// tick 0, so 0 is what is passed, not a stale snapshot tick.
+					// Story 2.8: `hostLoopRef.reset()` also clears `lampView` and
+					// `lightBudgetOverride` -- see its wrapper above.
 					hostLoopRef.reset();
-					// Story 2.8 (code review pass 2): the fresh loop re-seeds its
-					// own `previousLamps` from the boot state (all-off,
-					// `sim/loop/index.ts`), so it emits NO "off" command for a
-					// lamp that was lit before the reset. `lampView` is purely
-					// command-driven -- unlike `backglassView`, which
-					// self-corrects because `renderFrame()` re-derives from the
-					// live snapshot every frame -- so without this it would keep
-					// those inserts lit forever, with no state behind them.
-					lampView = INITIAL_LAMP_VIEW;
 					replayRecorder.start(
 						{
 							seed: 0,
@@ -414,18 +434,10 @@ async function onBegin(): Promise<void> {
 				},
 			},
 			reset: () => {
+				// Story 2.8: clears `lampView` and `lightBudgetOverride` too --
+				// see `hostLoopRef`'s wrapper above for why that lives on the
+				// seam rather than here.
 				hostLoopRef.reset();
-				// Story 2.8 (code review pass 2): see the record path above --
-				// the rebuilt loop's lamp diff is re-seeded all-off and emits
-				// nothing, so the held view must be cleared with it or every
-				// lamp lit before the reset stays lit forever.
-				lampView = INITIAL_LAMP_VIEW;
-				// Story 2.8 (code review, rework iteration 3 follow-up): a
-				// light-budget override left over from a prior setLightBudget()
-				// call would otherwise survive reset() and silently skew the
-				// NEXT browser A/B, since this override is never re-derived from
-				// anything reset() already rebuilds.
-				lightBudgetOverride = null;
 			},
 			setLightBudget: (budget: number | null) => {
 				// Story 2.8 (code review, rework iteration 3 follow-up): reject

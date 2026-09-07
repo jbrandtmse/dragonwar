@@ -148,10 +148,23 @@ export const INSERT_LIGHT_RANGE_M = 0.05;
  * header above, and `test/lighting-scene.test.ts`'s geometric-half test,
  * both establish `N.L < 0` unconditionally for a light strictly beneath a
  * +table-z face), so the ordinary term this trade scales away is already
- * exactly zero at every point this light can ever reach. Trading 100% of a
- * genuinely-zero quantity for the transmitted term costs nothing -- it is
- * not "maxing out a knob", it is recognising the knob has nothing else on
- * it for this particular light/surface pair.
+ * exactly zero across that face. Trading 100% of a genuinely-zero quantity
+ * for the transmitted term therefore costs nothing on the one surface the
+ * player can see -- it is not "maxing out a knob", it is recognising the
+ * knob has nothing else on it for THAT face.
+ *
+ * Stated precisely rather than as an absolute (code review pass 3): the
+ * `(1.0 - translucencyIntensity)` factor applies to every non-hemispheric
+ * light contribution on the WHOLE mesh, not only on the lens top. The cup
+ * FLOOR (table z = -7 mm, normal -table-z) sits below this light at
+ * z = -4 mm, so `NdotL > 0` there and a genuinely non-zero ordinary term IS
+ * discarded on that plane -- `test/lighting-scene.test.ts`'s geometric-half
+ * test measures that exact plane as `cupFloorMm`. It is invisible in
+ * practice: the cup interior is sealed inside an opaque box that no camera
+ * angle reaches (`epics.md` Story 4.2 is what makes it visible), and
+ * `includedOnlyMeshes` keeps this light off every other mesh. The claim is
+ * therefore about the lens top face, which is the only face this trade has
+ * to be free on.
  *
  * Exported (review, rework iteration 3 follow-up): so
  * `test/lighting-scene.test.ts`'s material-half test can assert the EXACT

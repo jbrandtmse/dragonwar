@@ -21,8 +21,19 @@ import type { LampProjectionEntry } from '../../sim/contracts/commands';
 /** The presentation-held view of every lamp `syncLamps()` has ever heard about -- a lamp `advanceLamps()` has never seen a command for is simply absent (`Partial`), never defaulted to `off` here; `lamp-driver.ts` is what resolves an absent entry, since it alone knows every `TABLE.lamps` key. */
 export type LampView = Partial<Record<LampName, LampProjectionEntry>>;
 
-/** The view a fresh boot (or a fresh test) starts from: nothing heard yet. */
-export const INITIAL_LAMP_VIEW: LampView = {};
+/**
+ * The view a fresh boot (or a fresh test) starts from: nothing heard yet.
+ *
+ * Frozen (code review pass 3): this is a SHARED exported object, and
+ * `src/host/boot.ts` re-seeds `lampView` from it on every reset path, so a
+ * single in-place write anywhere would poison every subsequent reset and
+ * every test that starts from it. `advanceLamps()` below already copies
+ * before its first write -- and `test/lighting-grammar.test.ts` asserts that
+ * copy-on-write by reference equality, which makes the shared identity
+ * load-bearing rather than incidental -- so freezing costs nothing today and
+ * turns a future in-place write into a throw instead of silent corruption.
+ */
+export const INITIAL_LAMP_VIEW: LampView = Object.freeze({});
 
 function isLampCommand(command: FrameOutput['commands'][number]): command is LampCommand {
 	return command.type === 'lamp';
