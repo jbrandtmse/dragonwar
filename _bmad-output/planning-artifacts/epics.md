@@ -1463,6 +1463,8 @@ So that arming myself on the plunge is a real shot and I can steer which lane is
 **When** `lane_entered` matches the lit lane
 **Then** the player is awarded the skill-shot value from `tuning.ts` plus one DRAGON letter, and the mode stops; when the first closure is any non-Top-lane playfield switch, the mode stops with no award
 
+[AMENDED 2026-09-06, Story 2.7 implement gate -- Rule 5 tier-1, author-decided: **the unlit Top lane case is now stated explicitly**, because this criterion's silence about it let one intent become two different games in two artifacts. The skill shot closes on **the first playfield closure of any kind at or after `ball_launched`, Top lane included** -- an **unlit** Top lane is a **miss, not a skip**: the mode stops and pays nothing. Only the lit Top lane pays. AD-6's parenthetical previously read "closes on the next playfield closure that is *not* a Top lane", which would instead have let the ball rattle through unlit lanes and still pay on the lit one, with lane change live during flight; PRD FR-18 ("the Skill shot is only available until the first other switch closes") and this criterion's own "before any other playfield switch closes" both say otherwise. The author decided the FR-18 reading -- **lane change matters before the plunge, not during** -- and AD-6 was amended to match in the same commit. Nothing is dropped; the ambiguity is removed.]
+
 **Given** the base mode owns lane state
 **When** `lane_change_pressed { side }` arrives
 **Then** the lit insert among the Top lanes and among the inlane/outlane set moves one position in that direction, wrapping, and a completed set is recorded on the player
