@@ -106,12 +106,30 @@ export function createModeStack(tuning: ResolvedTuning): ModeStack {
 		}
 
 		// AD-8: highest-priority mode delivered first -- skill shot (200) then
-		// base (100). Neither mode reads the other's own device-event
-		// vocabulary in this story's minimal scope (base: lane_entered,
-		// lane_change_pressed; skill shot: ball_launched,
-		// playfield_switch_closed), so this ordering has no observable effect
-		// yet, but is followed regardless as the stated contract Story 3.1
-		// generalises.
+		// base (100). The two modes consume DISJOINT device-event types in this
+		// story's minimal scope (base: lane_entered, lane_change_pressed; skill
+		// shot: ball_launched, playfield_switch_closed) but they SHARE one piece
+		// of state, `players[p].lanes.lit` -- the base mode writes it, the skill
+		// shot reads it to decide the award -- so this ordering is load-bearing,
+		// not decorative.
+		//
+		// [CORRECTED 2026-09-06, code review] This comment previously claimed the
+		// ordering "has no observable effect yet". It does. Running the skill
+		// shot first is exactly what makes a `lane_entered` arriving in the SAME
+		// batch as the resolving `playfield_switch_closed` land AFTER the award
+		// is judged, so the award reads the lit pattern as it stood when the ball
+		// arrived rather than one the same closure had already changed.
+		//
+		// Note also that this fan-out is mode-MAJOR (each mode is handed the
+		// whole batch in turn), not event-major (each event offered to every mode
+		// highest-first). AD-8's rule text -- "each active mode receives every
+		// device and shot event, highest priority first" -- is satisfiable by
+		// either shape and does not yet say which. The two differ observably on a
+		// tick carrying both a `lane_change_pressed` and the resolving closure:
+		// mode-major judges the award against the PRE-rotation lane, event-major
+		// against the post-rotation one. Story 3.1 (`epics.md:1648`) owns the
+		// fan-out contract and is where that choice gets stated; it is recorded
+		// in the ledger rather than settled here.
 		const events: ModeEvent[] = [];
 		const skillShotResult = skillShot.step(nextState, deviceEvents, tick);
 		nextState = skillShotResult.state;

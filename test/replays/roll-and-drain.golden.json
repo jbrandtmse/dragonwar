@@ -550,10 +550,7 @@
   "durationTicks": 9282,
   "expectedHash": "5bd3a8dc",
   "expectedGameStateHash": "23599d0",
-  "checkpointTicks": [
-    5000,
-    9280
-  ],
+  "checkpointTicks": [5000, 9280],
   "expectedCheckpointHashes": {
     "5000": "9561e345",
     "9280": "796ae0e9"

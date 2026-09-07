@@ -275,12 +275,40 @@ describe('sim/contracts -- Snapshot / FrameOutput / ModeView', () => {
 	});
 
 	it('ModeView is the only shape of an active mode presentation may read', () => {
-		// Story 2.7: reconciled to the real sim mode id ('skill_shot',
-		// underscored) -- this was a local type-assignability literal only, so
-		// the mismatch was harmless, but the story's own Design Notes invited
-		// this one-line consistency fix.
-		const view: ModeView = { mode: 'skill_shot', priority: 200, player: 0, timerTicks: 500 };
-		expect(view.mode).toBe('skill_shot');
+		// Story 2.7 QA stage (Rule 19): the previous version of this test
+		// (`const view: ModeView = { mode: 'skill_shot', ... }; expect(view.mode)
+		// .toBe('skill_shot')`) asserted a literal against the value assigned to
+		// the very same field two lines above -- it could not go red for any
+		// change to ModeView's shape, including deleting the interface's `mode`
+		// field entirely (only `pnpm typecheck` would ever have caught that, and
+		// nothing routed the assertion there). Replaced with checks that are
+		// actually falsifiable at the boundary this interface exists to police
+		// (AD-9: "ModeView is the only shape of `modes[i]` presentation may
+		// read"), using the `@ts-expect-error` convention `table.test.ts`
+		// already established for this codebase's other name-union contracts --
+		// caught by `pnpm typecheck`, since vitest's esbuild transform strips
+		// types and never sees these directives.
+		const minimal: ModeView = { mode: 'base', priority: 100, player: 0 };
+		expect(minimal.timerTicks, 'the four extra fields are genuinely optional, not merely defaulted').toBeUndefined();
+
+		const full: ModeView = { mode: 'skill_shot', priority: 200, player: 1, timerTicks: 500, value: 3, charge: 0.5, strikesRemaining: 2 };
+		expect(Object.keys(full).sort()).toEqual(['charge', 'mode', 'player', 'priority', 'strikesRemaining', 'timerTicks', 'value']);
+
+		// @ts-expect-error -- `mode` is required; omitting it must fail
+		// typecheck. A version of ModeView that made `mode` optional would make
+		// this line compile silently and this directive would report an unused
+		// '@ts-expect-error'.
+		const missingMode: ModeView = { priority: 200, player: 0 };
+		void missingMode;
+
+		// @ts-expect-error -- AD-9: ModeView is the ONLY shape presentation may
+		// read. `launched` is a real mode-local field (the skill-shot mode's own
+		// launch gate, carried on `ActiveModeState`'s open index signature,
+		// Story 2.7) that must NOT be readable through ModeView -- if ModeView
+		// ever grew an index signature of its own (mirroring ActiveModeState's),
+		// this line would compile and the directive above would report unused.
+		const leaked: ModeView = { mode: 'skill_shot', priority: 200, player: 0, launched: true };
+		void leaked;
 	});
 });
 

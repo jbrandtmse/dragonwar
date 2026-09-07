@@ -1557,6 +1557,8 @@ So that every ball has a payoff beyond its live scoring.
 **When** `ball_will_start` fires
 **Then** the bonus categories and multiplier reset while the letters persist
 
+- DW-208: `RulesStepResult.modeEvents` has no production consumer -- `sim/loop` never reads it, so the `lanes_completed { set: 'top' }` event this story's multiplier advances on cannot leave `rules.step()` in the shipped product. Story 2.7 produced the event and declared this story its first consumer; wiring it through the loop is therefore part of this story, not an assumption it may make (ledger; routed by cr 2026-09-06)
+
 ### Story 2.11: Tilt warnings, Tilt and Slam tilt
 
 As a player,

@@ -368,6 +368,50 @@ describe('AC 5 -- a completed set is recorded, emits lanes_completed, and resets
 	});
 });
 
+// Code review 2026-09-06 (verification gap): every other case in this file and
+// in test/rules-modes-integration.test.ts runs ONE player at index 0 (AC I1
+// deliberately presses Start once, per the DW-197 line-budget boundary), so
+// `ActiveModeState.player` -- the field AC 1's own "for player *p*" rests on --
+// could be replaced by the literal `0`, or by `state.currentPlayer`, and the
+// whole suite would stay green. AD-7 makes `lanes` player-scoped, and
+// test/rules-lifecycle.test.ts's rotating drain is the delivered path that
+// makes p != 0 real, so the scoping is load-bearing rather than hypothetical.
+//
+// These cases pin it by setting `currentPlayer: 0` while the active modes carry
+// `player: 1`. That discriminates all three implementations at once: reading
+// `active.player` writes player 1 (correct); reading `state.currentPlayer` or a
+// hardcoded `0` writes player 0 and reddens both assertions below.
+describe('AD-7 player scoping -- the modes write the mode entry\'s OWN player, not currentPlayer and not player 0', () => {
+	it('base mode: a lane entry lights the lane for the mode\'s player, leaving the other player untouched', () => {
+		const initial = gameState({
+			players: [player({}), player({})],
+			modes: [{ mode: 'base', priority: 100, player: 1 }],
+		});
+		const result = runRulesScript(close('s_top_2').at(1).build(), { durationTicks: 1, initialState: initial });
+		const after = result.finalState;
+
+		expect(after.players[1]!.lanes.lit.top_2, "the mode's own player (1) must be the one lit").toBe(true);
+		expect(after.players[0]!.lanes.lit, 'player 0 -- currentPlayer, but NOT this mode\'s player -- must be untouched').toEqual({});
+	});
+
+	it('skill shot: the award and the DRAGON letter land on the mode\'s player, not on currentPlayer', () => {
+		const initial = gameState({
+			players: [player({}), player({ lit: { top_2: true } })],
+			modes: [
+				{ mode: 'base', priority: 100, player: 1 },
+				{ mode: 'skill_shot', priority: 200, player: 1, launched: true },
+			],
+		});
+		const result = runRulesScript(close('s_top_2').at(1).build(), { durationTicks: 1, initialState: initial });
+		const after = result.finalState;
+
+		expect(after.players[1]!.score, "the mode's own player (1) must be paid").toBe(TUNING.skillShotAward.value);
+		expect(after.players[1]!.letters, "the mode's own player (1) must get the letter").toHaveLength(1);
+		expect(after.players[0]!.score, 'player 0 must not be paid').toBe(0);
+		expect(after.players[0]!.letters, 'player 0 must get no letter').toBe('');
+	});
+});
+
 describe('AC 7 -- Attract: no mode is ever pushed, rng is never advanced, lanes are never written', () => {
 	it('closing a button, a lane and an unrelated playfield switch in Attract leaves modes/rng/lanes untouched', () => {
 		const initial: GameState = {
@@ -453,8 +497,16 @@ describe('AC 6 -- deterministic under a fixed seed; a different seed diverges', 
 	// Seeds and their expected sequences were computed directly from
 	// src/sim/rules/rng.ts's own algorithm (a scratch Node harness, verified
 	// at implementation time) -- never guessed. Seed 0 was rejected for the
-	// PRIMARY seed specifically because it draws [top_3, top_3, top_3] (all
+	// PRIMARY seed specifically because it draws [top_1, top_1, top_1] (all
 	// three the SAME lane), which AC 6 explicitly forbids as the pinned case.
+	// [CORRECTED 2026-09-06, code review] This comment previously named
+	// [top_3, top_3, top_3]. Seed 0's first three bound-3 draws are indices
+	// 0,0,0 -- lane index 0 is `top_1`, not `top_3` -- re-derived here from
+	// the shipped `nextRng`/`nextRngInt` and agreeing with the three other
+	// artifacts that record it (`src/host/game-seed.ts`'s header, spec task
+	// 22, and DW-201's own ledger evidence line, all of which say index 0).
+	// Only the lane NAME was wrong; the "all three the same lane" half --
+	// the reason seed 0 is unusable here -- was and is correct.
 	const SEED = 12345;
 	const EXPECTED_SEQUENCE: readonly LaneName[] = ['top_3', 'top_1', 'top_2'];
 	const OTHER_SEED = 42;
