@@ -54,6 +54,8 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'loopWindowMs',
 			'rampWindowMs',
 			'lockCaptureWindowMs',
+			// Story 2.7 (AD-15): the first scoring value in the file.
+			'skillShotAward',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];

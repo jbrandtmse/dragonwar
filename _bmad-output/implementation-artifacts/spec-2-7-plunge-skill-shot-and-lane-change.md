@@ -2,7 +2,8 @@
 title: 'Story 2.7: Plunge, Skill shot and lane change'
 type: 'feature' # feature | bugfix | refactor | chore
 created: '2026-09-06'
-status: 'ready-for-dev' # draft | ready-for-dev | in-progress | in-review | done | blocked
+status: 'blocked' # draft | ready-for-dev | in-progress | in-review | done | blocked
+baseline_revision: '18dd67cbfa50069f1edb303d3ad2873f03dfff74'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -66,7 +67,7 @@ deferred: []
 | No Top lane lit | Skill shot armed but the lit Top lane was cleared by a set reset | First playfield closure resolves the mode with **no** award | No error expected |
 | Non-playfield closures are inert | `s_shooter_lane`, `s_trough_2`, `s_lock_1`, `s_flipper_l`, `s_start`, `s_tilt_bob`, `s_slam_tilt` close | No `playfield_switch_closed` emitted; the skill shot stays armed | No error expected |
 | Attract | `phase !== 'game'` | No mode is ever pushed, `rng` is never advanced, `lanes` is never written | No error expected |
-| Ball ends | Drain outside a save window | Ball controller credits `modesPlayed` with `['base','skill_shot']` (or `['base']`) and clears `modes: []` — unchanged Story 2.5 behaviour; the next ball's `ball_starting` re-arms in the same tick | No error expected |
+| Ball ends | Drain outside a save window | Ball controller credits `modesPlayed` with `['base','skill_shot']` (or `['base']`) and clears `modes: []` — unchanged Story 2.5 behaviour. **[AMENDED 2026-09-06, lead, intent gap 1 — Rule 5 tier-1.]** The next ball's modes arm on the tick **after** `ball_starting`, not the same tick. The original "re-arms in the same tick" wording is *factually impossible* against delivered Story 2.5 behaviour, which this spec's own Block If protects: `ball-controller.ts:254` emits `ball_will_start`, `ball_starting` and `ball_started` in **one** event batch, and on a drain that rotates players that batch lands in the **same tick as `ball_ended`** — so `test/rules-lifecycle.test.ts`'s Story 2.5 pin, which asserts `modes` is strictly `[]` at the end of that tick, cannot hold if arming is same-tick. Arming is therefore deferred one tick **uniformly**, mirroring the codebase's existing N→N+1 idiom (`sim/rules/index.ts` already queues `ball_will_start` for the next tick's devices layer, "mirroring AD-4's own 'commands issued at tick N are consumed at N+1' shape"). Uniform, not conditional: a rule that defers only on a detected same-tick collision is more code, more branches and a timing rule that changes with context, for a difference of one tick that no player can perceive. The story's own acceptance criterion pins arming to `ball_starting` **firing**, not to a tick index, so intent is preserved | No error expected |
 
 </intent-contract>
 
@@ -126,6 +127,10 @@ deferred: []
 18. `test/table.test.ts` — add assertions pinning the new `laneWiring` metadata: every entry carries a `set` and an `order`; each set's `order` values are exactly `0..n-1` with no gaps or duplicates; and — reading `public/assets/dragonwar.collision.json` — **the authored `order` within each set matches the ascending x-centre of that lane's `sw_` zone**. — *This is the check that would have caught a "tidied" in/out order; declaration order is not physical order.*
 19. `test/replays/*.golden.json` (all five) — **header-only refresh**: rewrite `header.tableHash` and `header.gameStart.tuning`; leave `header.assetHash`, `header.tickHz`, `header.physicsVersion`, `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, `checkpointTicks` and `expectedCheckpointHashes` **byte-identical**; **append**, never rewrite, each `notes` (naming old→new `tableHash`, the added tunable, and how identity was confirmed). Keep LF endings. Follow the procedure in Design Notes exactly. — *`tableHash()` hashes the whole `TABLE` (task 1) and `gameStart.tuning` is compared as whole-tree canonical JSON (task 2); either alone invalidates all five.*
 
+20. **[Review] DW-203 — make the skill-shot `launched` guard falsifiable.** The stage proved by an applied mutation that disabling the guard outright leaves all 28 `rules-modes` tests green. Add a test that closes a playfield switch **while the ball is still in the shooter lane** (before `ball_launched`) and asserts the skill shot is **still armed**; removing the guard must redden it. — *Rule 19: an AC whose pinning test cannot fail is a defect to fix, not a test to count. This is the 28th vacuity this epic has caught and the fourth found by deliberate falsification rather than by a passing run.*
+21. **[Review] DW-202 — compose lane change with the skill-shot award.** No test exercises the spec's own load-bearing design claim, that "the skill shot pays on whichever lane is lit at the moment of entry, because it reads `lanes.lit` rather than caching its own draw". Add one test: draw, press `lane_change_pressed`, enter the **new** lit lane, assert the award pays. Named mutation: make the skill shot cache its drawn lane at draw time — the new test must go red while every existing test stays green. — *Without it, a caching implementation passes the whole suite.*
+22. **[Review] DW-201 — the shipped game must not light the same lane every ball.** `src/host/boot.ts:301` hardcodes `seed: 0`, so every real game draws the identical sequence, and seed 0's first three bound-3 draws are `0,0,0` — the same Top lane on all three balls of a real game, which is precisely what AC 5 forbids. Derive a real seed **host-side** at game start and pass it through the existing `GameStart.seed` contract (AD-14: the host owns this; `GameStart` is the only bundle into `sim/`, and AD-3 is satisfied because `sim/` still draws only from `GameState.rng`). Replay reproducibility is preserved because the seed is already recorded in the replay header. **`src/host/**` is outside this epic's `paths_hint` but is uncontended — the lead reports it under `footprint_extensions:`.** Add a test that the boot path does not supply a constant seed. — *AC 5 is false in the shipped product today; AC 6 passes anyway because it picks its own seed. Green test, broken product.*
+
 **Acceptance Criteria:**
 
 - **AC 1** — Given `phase` is `game` and `ball_starting` fires for player *p*, when the mode stack steps, then `modes[]` contains exactly `{ mode:'base', priority:100, player:p }` and `{ mode:'skill_shot', priority:200, player:p }`; exactly one lane whose `set` is `'top'` has `players[p].lanes.lit === true`; `state.rng` has advanced from its pre-tick value; and no lane in the `'inout'` set is lit.
@@ -142,11 +147,34 @@ deferred: []
 
 ## Spec Change Log
 
+- **2026-09-06, lead, intent gap 1 — RESOLVED (Rule 5 tier-1, applied).** The frozen I/O Matrix's "re-arms in the same tick" clause contradicted the frozen Block If's protection of Story 2.5's mode-teardown pin. I verified both sides at source rather than from the stage's report: `ball-controller.ts:254` emits the three start-of-ball events in one batch, and `startBall()` is shared by the first Start press *and* every rotation, so `ball_ended` and `ball_starting` genuinely co-occur on a rotating drain. The contradiction is real. Resolved as option (a): arming is deferred one tick **uniformly**, which is what the implementation already does and tests. Chosen over the narrower "same-tick except on collision" option because uniform beats conditional — the narrow fix adds a branch and a context-dependent timing rule for a one-tick difference no player can perceive — and because the one-tick deferral is already this codebase's established idiom for exactly this hazard. **Intent gap 2 (AD-6) is NOT resolved here** and is with the author.
+- **2026-09-06, lead.** Three review findings the stage recorded as `defer` were harvested as **in-story** ledger entries **DW-201**, **DW-202** and **DW-203**, not deferrals — Rule 15 makes an in-footprint MED with fix-risk ≤ med fix-now, and all three are about this story's own acceptance criteria. They are added as `[Review]` tasks below. DW-201 in particular is this epic's signature vacuity shape: AC 6 proves determinism under a seed *it chooses*, while the seed the game actually ships with (`boot.ts:301`, the literal `0`) lights the same Top lane on all three balls of a real game — green test, broken product.
+
 - **2026-09-06, lead spec gate.** `DW-197` / `DW-198` were decided by the author while this spec was being planned. Both are now `routed owner=2-13-match-game-over-and-return-to-attract` (2.13 AC 1 is literally "the Backglass shows final scores **by player**", so it is the story whose own gate fails while they stand) with acceptance bullets in `epics.md`. The decision changes **nothing** in this story's plan: the fix lands in 2.13, so at 2.7's tree the DMD line budget is exactly as measured, the skill-shot mode still publishes no optional `ModeView` fields, and AC I1 still presses Start once. The Design Notes paragraph was updated to say so; the frozen `<intent-contract>` Block If was deliberately left alone because its instruction -- do not decide the multi-player layout here -- is still correct.
 - **2026-09-06, lead spec gate.** The `BASE`-on-the-score-screen consequence this spec surfaced under "A derived, product-visible consequence" was filed as ledger entry **DW-200**, `decision-pending owner=burndown`, for the epic-close decision sheet. It is a product call and is **not** to be designed around in this story, exactly as the Design Notes say.
 - **2026-09-06, lead spec gate.** **AD-8 was amended in the architecture spine** to record the phasing this spec relies on: Epic 2 ships the minimal stack, Story 3.1 makes the four-phase lifecycle convention real, and until 3.1 lands an implementation that omits the six lifecycle events is *conforming, not violating*. The phasing was already ratified in `epics.md` (Story 3.1's charter, and Story 2.5's AC 5 amendment of 2026-09-06); the spine simply did not say it, which would have made the reviewer's Rule 6 check fire HIGH on a seam the author chartered. No rule was relaxed.
 
 ## Review Triage Log
+
+### 2026-09-06 — Review pass
+- intent_gap: 2 (high 2, medium 0, low 0)
+- bad_spec: 0
+- patch: 1 (low 1)
+- defer: 3 (medium 2, low 1)
+- reject: 4 (low 4)
+- addressed_findings:
+  - `[low]` `[patch]` Added a missing `ATTRIBUTIONS.md` row for the mulberry32 PRNG construction now shipped in `src/sim/rules/rng.ts` (CC0/public domain, verified at its source gist, https://gist.github.com/tommyettinger/46a874533244883189143505d203312c) — a real provenance-rule gap (`CLAUDE.md`) independent of the intent gaps below, cheap and unambiguous to fix, so applied directly rather than left pending.
+
+Findings not listed above (moot per this workflow's cascading rule once an intent_gap exists — recorded here for the record, not acted on this pass):
+- intent_gap #1 — same-tick mode-start timing (see `## Auto Run Result`).
+- intent_gap #2 — AD-6 "not a Top lane" resolving-condition mismatch (see `## Auto Run Result`).
+- defer — real production boot never seeds `GameState.rng` from anything but a fixed default (`src/host/boot.ts:226` passes no `gameStart` to `createHostLoop`, so `sim/loop/index.ts` defaults `rng` to `0`); verified empirically that ten sequential skill-shot draws from seed `0` come out `[0,0,0,0,1,1,1,1,1,1,...]` (four identical draws, then six more identical draws) — every fresh cabinet boot would show the same "random" Top lane for the first several balls. Root cause predates this story (the optional `gameStart` parameter and the `?? 0` default both already existed); this story is only the first consumer that makes it consequential. Owner: host/boot layer, not this story.
+- defer — no test exercises the story's own central promise (lane-change repositioning the skill shot's paying lane): AC 2/AC 3 hardcode `lit` directly in their fixtures rather than arming via a real draw, pressing `lane_change_pressed`, then closing the newly-lit lane. Low functional risk (both mechanisms read/write the same shared `lanes.lit` field, so the composition is logically implied by AC 2 + AC 4 individually), but the interaction itself is unproven.
+- defer — the skill-shot `launched` gate (a closure before `ball_launched` must not resolve the mode, AD-6) has no test that can observe it; verified empirically that disabling the guard entirely (`if (active.launched !== true)` forced to never fire) leaves all 28 `rules-modes`/`rules-modes-integration` tests green. A Rule-19-class vacuous-verification gap.
+- reject — "BASE" renders on the DMD for the rest of every ball once the skill shot resolves (AD-8 + Story 2.6 AC 5's mechanical consequence). Independently rediscovered by review, but already known, already ledgered as `DW-200` (`decision-pending owner=burndown`), and the frozen Design Notes already say "do not design around it in this story." No new ledger entry needed.
+- reject — `test/contracts.test.ts`'s `ModeView` assertion is tautological (asserts a literal against the value assigned two lines above). Pre-existing pattern; this diff only relabeled the literal (`'skillshot'` -> `'skill_shot'`).
+- reject — no explicit `mutation:` line for AC 9 in `## Verification`. AC 9 is a whole-suite meta-AC ("given the whole suite... then all pass"), not a single-behavior AC with one pinning assertion; the union of every other AC's mutation plus the Verification Commands already exercises it.
+- reject — `test/replays/roll-and-drain.golden.json`'s `checkpointTicks` array was reformatted (one element per line instead of one line) by the re-record's `JSON.stringify(doc, null, 2)` serialisation; values and hashes are unchanged. Cosmetic; would have been a trivial patch but is moot given the intent-gap HALT.
 
 ## Design Notes
 
@@ -218,5 +246,70 @@ The **inlane/outlane set starts with nothing lit**: nothing in the intent lights
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: none
+Status: blocked
+Blocking condition: intent gap
+
+### Summary
+
+A full implementation was produced and independently verified (typecheck, boundary lint, licence headers, the whole test suite, `check:ad7`/`check:corridor`/`check:reachability`, and byte-identity of all five golden hashes) — see "Implementation and verification performed" below. Review then surfaced **two genuine, unresolved contradictions inside the frozen `<intent-contract>`** (one internal to this spec, one against the ratified architecture spine). Per this workflow's own routing rule ("intent_gap — Root cause is inside `<intent-contract>`"), this is an intent-gap HALT, not a judgment call to make unilaterally. The working tree was **not reverted** (see "Deviation from the skill's revert step" below) — the full, working, fully-tested implementation is left in place, uncommitted, for the lead to inspect directly, alongside a lossless copy saved to `_bmad-output/implementation-artifacts/patch-2-7-plunge-skill-shot-and-lane-change-intent-gap-2026-09-06.patch`.
+
+### Intent gap 1 — same-tick mode-start timing contradicts a protected regression, inside the frozen contract itself
+
+The frozen I/O & Edge-Case Matrix's last row states, in its own words: "the next ball's `ball_starting` re-arms **in the same tick**." The frozen Block If, in the same `<intent-contract>`, requires `test/rules-lifecycle.test.ts:151-187` (Story 2.5's AC 5 mode-teardown pin) to "keep passing **unmodified**." I verified directly that these cannot both hold: that test drains player 0 and rotates to player 1 **within one `durationTicks: 1` step**, and asserts `after.modes` is strictly `[]` at the end of that tick. If the mode stack starts player 1's modes same-tick (as the Matrix row demands), that assertion breaks.
+
+The implementation resolved this by deferring every `ball_starting`'s mode-start to the *following* tick, unconditionally (mirroring the codebase's existing `pendingLifecycleEvents` N→N+1 idiom in `src/sim/rules/index.ts:180`) — documented at length in `src/sim/rules/modes/index.ts`'s own header. This is a defensible, disclosed, tested resolution, but it is **broader than the actual collision requires**: a same-tick rotation is structurally detectable (the controller emits `ball_ended` and `ball_starting` in the same tick's event array only in that exact scenario — confirmed in `test/rules-lifecycle.test.ts`'s own AC 2 fixture), so a narrower fix could satisfy the Matrix's literal "same tick" wording everywhere except the one named colliding case. An independent intent-alignment audit, run with no knowledge of this reasoning, reached the identical conclusion from the diff alone and enumerated three defensible readings of the contract, confirming this is not resolvable to one reading without a decision.
+
+**Recommended amendment (pick one, or provide another):**
+- (a) Ratify the shipped, tested, uniform one-tick-deferred behavior: amend the I/O Matrix's "Ball ends" row and the "Scope boundary against Story 3.1" Design Notes paragraph to say arming happens one tick after `ball_starting`, not the same tick — the simpler design, already fully implemented and tested.
+- (b) Require the narrower fix: same-tick arming in every case except a same-tick `ball_ended`+`ball_starting` collision, where deferral is scoped specifically to that case. More literally faithful to the current Matrix wording; not yet implemented.
+
+### Intent gap 2 — the architecture spine's AD-6 excludes Top lanes from resolving the skill shot; the frozen contract's own Matrix does not
+
+I read the architecture spine directly (`ARCHITECTURE-SPINE.md`, AD-6): "arms the skill shot (which **closes on the next playfield closure that is not a Top lane**)." Read literally, this means a Top-lane closure (lit or unlit) should never resolve the mode — it should keep waiting for a genuinely non-Top-lane switch. But this spec's own frozen I/O Matrix explicitly lists "an **unlit** Top lane's switch" as a case that resolves the mode with no award (a miss, not a skip), and the shipped implementation and its tests (`AC 3`'s `s_top_1` case) match the Matrix, not AD-6's literal text. This is a direct AD-vs-frozen-contract conflict (Rule 6: AD conflicts are HIGH severity and an intent gap, not a judgment call), independently flagged by the blind-hunter review layer from the diff alone, with no knowledge of the spine text.
+
+**Recommended amendment (pick one, or provide another):**
+- (a) Correct AD-6's spine wording to match the shipped, Matrix-consistent, PRD-FR-18-consistent behavior: the skill shot resolves on the first playfield closure of any kind at or after `ball_launched`, Top lane included; only the lit Top lane pays.
+- (b) Change the implementation to match AD-6 literally: a Top-lane closure (lit or unlit) never resolves the mode; only a genuinely non-Top-lane closure does. This is a real behavior change requiring new code and new/changed tests, not a wording fix.
+
+### Deviation from the skill's revert step
+
+The intent-gap branch of this workflow calls for reverting code changes after saving the patch. My dispatch brief carries an explicit, repeatedly-emphasized, incident-motivated prohibition: never run `git reset`/`git rebase`/`git checkout --`/`git stash` or "anything else that discards working-tree state." Restoring ~19 tracked files to their exact baseline byte content (whether via a git command or by hand-writing baseline content over them) is functionally the same act the prohibition targets. Given the direct conflict between the skill's generic revert instruction and my specific dispatch-level prohibition, I chose the reversible, lossless option: the full implementation is left in the working tree exactly as tested (nothing discarded), and a complete, untruncated copy of the same diff plus every new file's full content is additionally saved to `_bmad-output/implementation-artifacts/patch-2-7-plunge-skill-shot-and-lane-change-intent-gap-2026-09-06.patch` for the record. Nothing was committed, pushed, or otherwise made permanent.
+
+### Files changed (all left in place, uncommitted)
+
+- `src/sim/rules/rng.ts` (new) — the project's first seeded PRNG (AD-3), pure `nextRng`/`nextRngInt`.
+- `src/sim/rules/modes/{events,base,skill-shot,index}.ts` (new) — the minimal AD-8 mode stack; `index.ts` carries the deferred-start design at the center of intent gap 1.
+- `src/sim/rules/index.ts` — wires the mode stack into `createRules()`, adds `modeEvents` to `RulesStepResult`.
+- `src/sim/rules/devices/{events,index}.ts` — new `playfield_switch_closed` event and the derived, subtraction-based `PLAYFIELD_SWITCHES` (28 switches, AC 8).
+- `src/sim/table/dragonwar.ts` — `laneWiring` entries gain `{ set, order }`.
+- `src/sim/table/tuning.ts` — new `skillShotAward` tunable (25000, `unverified`).
+- `src/presentation/backglass/frame.ts` — `MODE_DISPLAY_NAMES` maps `skill_shot` -> `'ARM YOURSELF'`.
+- `test/rules-modes.test.ts`, `test/rules-modes-integration.test.ts` (new) — headless + real-loop coverage of every I/O Matrix row and both Integration ACs.
+- `test/{backglass-frame,contracts,rules-devices,rules-devices-headless,table,tuning,util/switch-script}.test.ts` — updated for the new event/tuning/lane-metadata surface.
+- `test/replays/*.golden.json` (all five) — header-only refresh (`tableHash`, `gameStart.tuning`), `notes` appended; `expectedHash`/`expectedGameStateHash`/`expectedCheckpointHashes` verified byte-identical.
+- `ATTRIBUTIONS.md` — added the missing mulberry32 (CC0, Tommy Ettinger) row, applied directly as a `patch`-tier finding (see Review Triage Log).
+- `_bmad-output/implementation-artifacts/patch-2-7-plunge-skill-shot-and-lane-change-intent-gap-2026-09-06.patch` (new) — the saved copy described above.
+
+### Review findings breakdown
+
+patches applied: 1 (low). items deferred: 3 (medium 2, low 1) — recorded in `## Review Triage Log` above, not yet in the frontmatter `deferred:` list (this workflow's `defer` handling writes to that list; given the run HALTs on intent_gap before reaching that step, they are left in the triage log narrative for the lead to harvest or re-surface on redispatch). items rejected: 4 (low 4, all recorded with reasons above).
+
+### Follow-up review recommendation
+
+Not computed — moot: this pass ends in a HALT, not a `done`/`in-review` completion, so there is no "next" review pass to flag. `followup_review_recommended` left at its prior value (`false`) in frontmatter.
+
+### Implementation and verification performed (personally, by this run's supervising agent — not just the implementation subagent's self-report)
+
+- Independently re-ran, myself: `pnpm typecheck` (exit 0), `pnpm lint:boundaries` (exit 0), `pnpm check:headers` (exit 0), `pnpm test` (107 files, 1663 passed + 23 skipped [Blender-gated] = 1686, 0 failed), `pnpm check:ad7`/`check:corridor`/`check:reachability` (all exit 0), and re-ran `test/export-py.test.ts` specifically with `BLENDER` exported (all 24 pass, including the byte-for-byte re-export identity check).
+- Independently confirmed all five golden diffs are header-only: `git diff test/replays/ | grep -E '^[+-].*"expected(Hash|GameStateHash|CheckpointHashes)"'` returns nothing; read the full diff of `full-plunge.golden.json` by eye to confirm the `notes` field was appended to, not rewritten.
+- Independently performed the Matrix Test Audit: traced every I/O & Edge-Case Matrix row to a specific named test in `test/rules-modes.test.ts` / `test/rules-modes-integration.test.ts` / `test/rules-devices.test.ts` (AC 8) and confirmed each ran and passed in the verification output above.
+- **Personally applied and observed red, then reverted and confirmed `git status --short`/`git diff --stat` byte-identical, for 3 of the 13 named Rule 19 mutations**: (1) AC 7's phase-gate mutation (forced `pendingStartPlayer` to be set every tick regardless of `ball_starting`) — reddened AC 7 and all five golden `expectedGameStateHash`/`finalHash` checks, exactly as predicted; (2) the AC 3/AC 8 mutation (excluded `s_sling_l` from the derived `PLAYFIELD_SWITCHES`) — reddened both AC 8's membership pin and AC 3's slingshot case; (3) the AC 1/AC I1 mutation (deleted the `skill_shot` entry from `MODE_DISPLAY_NAMES`) — reddened the unit-level frame test and the real-loop AC I1 integration test. The remaining 10 named mutations rest on the implementation subagent's own report, not on my personal observation.
+- **Additionally, independently of the named list**, applied and reverted one more mutation prompted by the verification-gap review layer's specific claim: disabled the skill-shot `launched` guard entirely and re-ran the full `rules-modes`/`rules-modes-integration` suite (28 tests) — confirmed **all 28 still pass**, proving this is a genuine, currently-unguarded verification gap (recorded as `defer` above), not a false alarm.
+- Independently verified the mulberry32 licence at its primary source (fetched the gist directly) before adding the `ATTRIBUTIONS.md` row, per `CLAUDE.md`'s provenance rule.
+- Did not personally re-verify the remaining review findings beyond the specific checks named above (the AD-6 spine text was read directly and quoted verbatim; the boot-seed defect was independently reproduced with a standalone Node script running the actual `nextRng`/`nextRngInt` arithmetic from seed 0).
+
+### Residual risks
+
+- The working tree is currently **dirty** (uncommitted) with a fully-implemented, fully-tested Story 2.7 sitting on top of two unresolved intent gaps. It must not be discarded; it should be resumed once the two gaps above are decided (whichever option is chosen, the amount of rework is small — likely a Design Notes/Matrix wording fix for gap 1's option (a), or an AD-6 wording fix for gap 2's option (a); the other options in each pair require actual code changes).
+- The `review_loop_iteration` frontmatter field was not incremented (the "increment before a bad_spec loopback" instruction does not apply to an intent_gap HALT, which does not loop).
+- The three `defer`-tier findings (production RNG boot-seed, lane-change/skill-shot composition coverage, and the `launched` verification gap) are recorded in the Review Triage Log narrative above but not yet in frontmatter `deferred:` or the ledger — this run halted before reaching that step. The lead should harvest them on redispatch regardless of which way the intent gaps resolve, since none of the three depend on that resolution.

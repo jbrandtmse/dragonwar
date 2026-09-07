@@ -40,6 +40,7 @@ import type {
 	LaneEnteredEvent,
 	LaneName,
 	LockLaneEnteredEvent,
+	PlayfieldSwitchClosedEvent,
 	SpinnerSpinEvent,
 } from './events';
 
@@ -57,6 +58,7 @@ export type {
 	LaneEnteredEvent,
 	LaneName,
 	LockLaneEnteredEvent,
+	PlayfieldSwitchClosedEvent,
 	ShotBrokenEvent,
 	ShotMadeEvent,
 	SpinnerSpinEvent,
@@ -167,6 +169,54 @@ function buildButtonSwitches(): ReadonlySet<SwitchName> {
 	}
 	return buttons;
 }
+
+/**
+ * Story 2.7 (AD-6, AD-19, DW-149): every `TABLE.switches` key that is a
+ * genuine PLAYFIELD switch, derived by SUBTRACTION from `TABLE` -- never a
+ * hand-typed list. Excludes the four button switches (`settleClass:
+ * 'button'`), the two cabinet-mechanism switches (`s_tilt_bob`/`s_slam_tilt`,
+ * `settleClass` `'tilt_bob'`/`'slam'`), every parking device's own slot
+ * switches (`bd_trough`'s four, `bd_lock`'s three -- `TABLE.ballDevices[*].slots`)
+ * and every non-parking device's own entry switch (`bd_shooter.entry`,
+ * `s_shooter_lane` -- resting in the shooter lane is not yet "on the
+ * playfield"; the lane's own opening is `ball_launched`, the event this
+ * whole set exists to be judged AGAINST, per AD-6's Rule text). 42 switches
+ * minus 14 excluded = 28 remaining, verified at this tree by AC 8.
+ */
+function buildPlayfieldSwitches(): ReadonlySet<SwitchName> {
+	const excluded = new Set<SwitchName>();
+	for (const [name, sw] of Object.entries(TABLE.switches) as Array<[SwitchName, { settleClass: string }]>) {
+		if (sw.settleClass === 'button' || sw.settleClass === 'tilt_bob' || sw.settleClass === 'slam') {
+			excluded.add(name);
+		}
+	}
+	for (const device of Object.values(TABLE.ballDevices) as Array<(typeof TABLE.ballDevices)[BallDeviceName]>) {
+		if (device.kind === 'parking') {
+			for (const slot of device.slots) {
+				excluded.add(slot as SwitchName);
+			}
+		} else {
+			excluded.add(device.entry as SwitchName);
+		}
+	}
+	const playfield = new Set<SwitchName>();
+	for (const name of Object.keys(TABLE.switches) as SwitchName[]) {
+		if (!excluded.has(name)) {
+			playfield.add(name);
+		}
+	}
+	return playfield;
+}
+
+/**
+ * Test-only export (the `HARDWARE_COILS` precedent, `ball-controller.ts:169`):
+ * lets a test assert the exact membership (AC 8) without hand-duplicating
+ * this derivation (DW-149). Computed once, module-level -- purely a function
+ * of the frozen `TABLE`, so every `createDevicesLayer()` instance shares the
+ * identical set, exactly as `HARDWARE_COILS` is shared across every
+ * `createBallController()` instance.
+ */
+export const PLAYFIELD_SWITCHES: ReadonlySet<SwitchName> = buildPlayfieldSwitches();
 
 interface PendingLockLaneClosure {
 	readonly startTick: number;
@@ -282,6 +332,14 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 			}
 			if (event.switch === (TABLE.dragonBodyWiring.switch as SwitchName)) {
 				events.push({ type: 'dragon_hit', tick: event.tick } satisfies DragonHitEvent);
+			}
+			// Story 2.7: emitted BEFORE lane_entered for the same switch --
+			// every Top/inlane/outlane switch is also a playfield switch, so a
+			// mode resolving on the first playfield_switch_closed (the skill
+			// shot) sees this event no later than the matching lane_entered in
+			// the SAME tick's batch.
+			if (PLAYFIELD_SWITCHES.has(event.switch)) {
+				events.push({ type: 'playfield_switch_closed', switch: event.switch, tick: event.tick } satisfies PlayfieldSwitchClosedEvent);
 			}
 			const lane = laneBySwitch.get(event.switch);
 			if (lane) {

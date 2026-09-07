@@ -14,7 +14,7 @@
 // closed slot switches and nothing else".
 
 import { describe, expect, it } from 'vitest';
-import { createDevicesLayer } from '../src/sim/rules/devices';
+import { createDevicesLayer, PLAYFIELD_SWITCHES } from '../src/sim/rules/devices';
 import { applyDeviceEvents } from '../src/sim/rules/ball-controller';
 import { createRules } from '../src/sim/rules';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -89,7 +89,14 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 	it('Loop made: s_loop_l_in closes at t, s_loop_l_out closes at t + loopWindowTicks - 1 -> exactly one shot_left_loop_made, no _broken', () => {
 		const script = close('s_loop_l_in').at(100).close('s_loop_l_out').at(100 + LOOP_WINDOW_TICKS - 1).build();
 		const result = runSwitchScript(script, { durationTicks: 100 + LOOP_WINDOW_TICKS + 50 });
-		expect(result.events).toEqual([{ type: 'shot_left_loop_made', tick: 100 + LOOP_WINDOW_TICKS - 1 }]);
+		// Story 2.7: both loop-entry switches are also playfield switches, so
+		// each closure reports its own playfield_switch_closed alongside the
+		// shot vocabulary this test is actually about.
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 100 + LOOP_WINDOW_TICKS - 1 },
+			{ type: 'shot_left_loop_made', tick: 100 + LOOP_WINDOW_TICKS - 1 },
+		]);
 	});
 
 	// The Ramp gets a window straddle (AC 2, below) but the Loop did not, and
@@ -106,6 +113,8 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 			{ durationTicks: 100 + LOOP_WINDOW_TICKS + 50 },
 		);
 		expect(lastInWindow.events, 'the exact boundary tick is still inside the window (expiry is `tick > start + window`)').toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 100 + LOOP_WINDOW_TICKS },
 			{ type: 'shot_left_loop_made', tick: 100 + LOOP_WINDOW_TICKS },
 		]);
 
@@ -115,8 +124,11 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 		);
 		expect(
 			justOutside.events,
-			'one tick past the window the sequence has already been expired, and a Loop never emits _broken (entryExclusive: false) -- so the whole run is silent',
-		).toEqual([]);
+			'one tick past the window the sequence has already been expired, and a Loop never emits _broken (entryExclusive: false) -- so only the two playfield_switch_closed reports remain, no shot event',
+		).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 100 + LOOP_WINDOW_TICKS + 1 },
+		]);
 	});
 
 	it('a Loop taken the wrong way (s_loop_l_out then s_loop_l_in) emits nothing; the same test drives the correct direction and observes shot_left_loop_made', () => {
@@ -126,11 +138,17 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 		);
 		// The WHOLE event array, not a filtered subset: the sibling tests in
 		// this file all assert `toEqual([...])`, and "nothing is emitted for
-		// this shot" is a weaker claim than the test's own name makes.
+		// this shot" is a weaker claim than the test's own name makes. Story
+		// 2.7: both switches are still playfield switches regardless of order,
+		// so their own playfield_switch_closed reports remain -- only the Loop
+		// SHOT vocabulary is silent.
 		expect(
 			wrongWay.events,
-			`nothing at all emitted on the wrong-direction script -- got: ${JSON.stringify(wrongWay.events)}`,
-		).toEqual([]);
+			`no Loop shot event on the wrong-direction script -- got: ${JSON.stringify(wrongWay.events)}`,
+		).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 110 },
+		]);
 
 		const rightWay = runSwitchScript(
 			close('s_loop_l_in').at(100).close('s_loop_l_out').at(150).build(),
@@ -145,7 +163,10 @@ describe('sim/rules/devices/ -- shots: the Ramp, entryExclusive (AC 2, AC 2 stra
 		const enterTick = 100;
 		const script = close('s_ramp_enter').at(enterTick).build();
 		const result = runSwitchScript(script, { durationTicks: enterTick + RAMP_WINDOW_TICKS + 20 });
-		expect(result.events).toEqual([{ type: 'shot_ramp_broken', tick: enterTick + RAMP_WINDOW_TICKS + 1 }]);
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_ramp_enter', tick: enterTick },
+			{ type: 'shot_ramp_broken', tick: enterTick + RAMP_WINDOW_TICKS + 1 },
+		]);
 	});
 
 	it('window straddle: completing at rampWindowTicks - 1 makes it; completing at rampWindowTicks + 1 breaks it first and the late close starts nothing', () => {
@@ -155,7 +176,11 @@ describe('sim/rules/devices/ -- shots: the Ramp, entryExclusive (AC 2, AC 2 stra
 			close('s_ramp_enter').at(enterTick).close('s_ramp_made').at(enterTick + RAMP_WINDOW_TICKS - 1).build(),
 			{ durationTicks: enterTick + RAMP_WINDOW_TICKS + 20 },
 		);
-		expect(inWindow.events).toEqual([{ type: 'shot_ramp_made', tick: enterTick + RAMP_WINDOW_TICKS - 1 }]);
+		expect(inWindow.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_ramp_enter', tick: enterTick },
+			{ type: 'playfield_switch_closed', switch: 's_ramp_made', tick: enterTick + RAMP_WINDOW_TICKS - 1 },
+			{ type: 'shot_ramp_made', tick: enterTick + RAMP_WINDOW_TICKS - 1 },
+		]);
 
 		const straddled = runSwitchScript(
 			close('s_ramp_enter').at(enterTick).close('s_ramp_made').at(enterTick + RAMP_WINDOW_TICKS + 1).build(),
@@ -163,8 +188,12 @@ describe('sim/rules/devices/ -- shots: the Ramp, entryExclusive (AC 2, AC 2 stra
 		);
 		expect(
 			straddled.events,
-			'the window expires (shot_ramp_broken) and the late s_ramp_made starts nothing -- no shot_ramp_made anywhere in the run',
-		).toEqual([{ type: 'shot_ramp_broken', tick: enterTick + RAMP_WINDOW_TICKS + 1 }]);
+			'the window expires (shot_ramp_broken) and the late s_ramp_made starts nothing -- no shot_ramp_made anywhere in the run, but both closures still report their own playfield_switch_closed',
+		).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_ramp_enter', tick: enterTick },
+			{ type: 'playfield_switch_closed', switch: 's_ramp_made', tick: enterTick + RAMP_WINDOW_TICKS + 1 },
+			{ type: 'shot_ramp_broken', tick: enterTick + RAMP_WINDOW_TICKS + 1 },
+		]);
 	});
 
 	it('re-entry restarts the window: a second s_ramp_enter closure BEFORE the first attempt expires completes against the SECOND entry, never a stale _broken from the first', () => {
@@ -185,7 +214,12 @@ describe('sim/rules/devices/ -- shots: the Ramp, entryExclusive (AC 2, AC 2 stra
 		expect(
 			result.events,
 			`expected exactly one shot_ramp_made at ${madeTick}, measured from the SECOND entry -- got: ${JSON.stringify(result.events)}`,
-		).toEqual([{ type: 'shot_ramp_made', tick: madeTick }]);
+		).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_ramp_enter', tick: firstEnter },
+			{ type: 'playfield_switch_closed', switch: 's_ramp_enter', tick: secondEnter },
+			{ type: 'playfield_switch_closed', switch: 's_ramp_made', tick: madeTick },
+			{ type: 'shot_ramp_made', tick: madeTick },
+		]);
 	});
 });
 
@@ -210,7 +244,12 @@ describe('sim/rules/devices/ -- DW-133: a bare s_loop_*_in is never, on its own,
 		const script = close('s_loop_r_in').at(100).close('s_outlane_r').at(110).close('s_drain').at(120).build();
 		const result = runSwitchScript(script, { durationTicks: 120 + LOOP_WINDOW_TICKS + 20 });
 
-		expect(result.events).toEqual([{ type: 'lane_entered', lane: 'outlane_r', tick: 110 }]);
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_outlane_r', tick: 110 },
+			{ type: 'lane_entered', lane: 'outlane_r', tick: 110 },
+			{ type: 'playfield_switch_closed', switch: 's_drain', tick: 120 },
+		]);
 	});
 
 	// The THIRD closer of a bare `s_loop_*_in`, and the most frequent one in
@@ -231,13 +270,23 @@ describe('sim/rules/devices/ -- DW-133: a bare s_loop_*_in is never, on its own,
 				.build(),
 			{ durationTicks: 280 + LOOP_WINDOW_TICKS + 50 },
 		);
-		expect(result.events).toEqual([{ type: 'shot_left_loop_made', tick: 200 }]);
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 200 },
+			{ type: 'shot_left_loop_made', tick: 200 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_out', tick: 240 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: 280 },
+		]);
 	});
 
 	it('a genuine s_loop_r_in -> s_loop_r_out pair, in the SAME test file, still observes exactly one shot_right_loop_made', () => {
 		const script = close('s_loop_r_in').at(100).close('s_loop_r_out').at(150).build();
 		const result = runSwitchScript(script, { durationTicks: 200 });
-		expect(result.events).toEqual([{ type: 'shot_right_loop_made', tick: 150 }]);
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: 100 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_out', tick: 150 },
+			{ type: 'shot_right_loop_made', tick: 150 },
+		]);
 	});
 });
 
@@ -273,6 +322,9 @@ describe('sim/rules/devices/ -- the DRAGON drop bank (AC 4)', () => {
 		const result = runSwitchScript(script, { durationTicks: 20 });
 
 		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: letterSwitch('d'), tick: 10 },
+			{ type: 'playfield_switch_closed', switch: letterSwitch('g'), tick: 10 },
+			{ type: 'playfield_switch_closed', switch: letterSwitch('n'), tick: 10 },
 			{ type: 'bank_target_down', letter: 'd', tick: 10 },
 			{ type: 'bank_target_down', letter: 'g', tick: 10 },
 			{ type: 'bank_target_down', letter: 'n', tick: 10 },
@@ -355,7 +407,12 @@ describe('sim/rules/devices/ -- the spinner (AC 8)', () => {
 			.open().at(50)
 			.build();
 		const result = runSwitchScript(script, { durationTicks: 55 });
-		expect(result.events).toEqual([{ type: 'spinner_spin', count: 3, tick: 50 }]);
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'spinner_spin', count: 3, tick: 50 },
+		]);
 	});
 
 	it('a tick with no s_spinner edge produces no spinner_spin at all (never a count: 0 event)', () => {
@@ -389,7 +446,13 @@ describe('sim/rules/devices/ -- the spinner (AC 8)', () => {
 			.close().at(50)
 			.build();
 		const result = runSwitchScript(script, { durationTicks: 55 });
-		expect(result.events).toEqual([{ type: 'spinner_spin', count: 4, tick: 50 }]);
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'playfield_switch_closed', switch: 's_spinner', tick: 50 },
+			{ type: 'spinner_spin', count: 4, tick: 50 },
+		]);
 	});
 });
 
@@ -408,7 +471,7 @@ describe('sim/rules/devices/ -- the Lock lane, DW-166 (AC 6)', () => {
 	it('not captured: s_lock_lane closes, no slot switch closes at all, bd_lock not full -> nothing is emitted', () => {
 		const script = close('s_lock_lane').at(100).build();
 		const result = runSwitchScript(script, { durationTicks: 100 + LOCK_CAPTURE_WINDOW_TICKS + 50 });
-		expect(result.events).toEqual([]);
+		expect(result.events).toEqual([{ type: 'playfield_switch_closed', switch: 's_lock_lane', tick: 100 }]);
 	});
 
 	it('window straddle (Rule 19, mirroring AC 2\'s Ramp straddle): a slot closing at EXACTLY lockCaptureWindowTicks is credited; one tick later it is not', () => {
@@ -452,12 +515,22 @@ describe('sim/rules/devices/ -- the Lock lane, DW-166 (AC 6)', () => {
 describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', () => {
 	it('Dragon body: s_dragon_body closes -> one dragon_hit', () => {
 		const result = runSwitchScript(close('s_dragon_body').at(10).build(), { durationTicks: 15 });
-		expect(result.events).toEqual([{ type: 'dragon_hit', tick: 10 }]);
+		// dragon_hit is checked BEFORE the Story 2.7 playfield_switch_closed
+		// report in Stage 3's own switch statement, so it comes first here.
+		expect(result.events).toEqual([
+			{ type: 'dragon_hit', tick: 10 },
+			{ type: 'playfield_switch_closed', switch: 's_dragon_body', tick: 10 },
+		]);
 	});
 
 	it('Lane entry: s_top_2 closes -> one lane_entered { lane: top_2 }', () => {
 		const result = runSwitchScript(close('s_top_2').at(10).build(), { durationTicks: 15 });
-		expect(result.events).toEqual([{ type: 'lane_entered', lane: 'top_2', tick: 10 }]);
+		// Story 2.7: playfield_switch_closed is emitted BEFORE lane_entered for
+		// the same switch (task 6's own ordering rule).
+		expect(result.events).toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_top_2', tick: 10 },
+			{ type: 'lane_entered', lane: 'top_2', tick: 10 },
+		]);
 	});
 
 	// `s_plunger` is `settleClass: 'button'` in TABLE.switches, so the derived
@@ -511,13 +584,15 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 // would emit for these switches and no other test in this file would notice.
 // The sibling positive tests above prove each stage fires; this proves each
 // one also STOPS.
+//
+// Story 2.7 (task 6): `s_sling_l`/`s_sling_r`/`s_pop_1..3`/`s_drain` moved OUT
+// of this negative set -- they are genuine PLAYFIELD switches (none of the
+// button/tilt/slam/parking-slot/non-parking-entry exclusions apply to them),
+// so they now correctly produce exactly one `playfield_switch_closed`. Only
+// `s_tilt_bob`/`s_slam_tilt` (cabinet-mechanism switches, explicitly excluded
+// from `PLAYFIELD_SWITCHES`) remain genuinely unmapped.
 describe('sim/rules/devices/ -- switches the layer deliberately maps to nothing (the restored pre-2.4 negative)', () => {
-	// Every switch that is not a ball-device slot, a non-parking entry, a lane,
-	// a cabinet button, the Dragon body, the spinner, a bank letter, the Lock
-	// lane or a member of a declared shot sequence. `s_drain` is the notable
-	// one: it is closed on every drain and the DW-133 outlane case above drives
-	// it, but only incidentally -- nothing there asserts it is silent.
-	const unmapped: readonly SwitchName[] = ['s_tilt_bob', 's_slam_tilt', 's_sling_l', 's_sling_r', 's_pop_1', 's_pop_2', 's_pop_3', 's_drain'];
+	const unmapped: readonly SwitchName[] = ['s_tilt_bob', 's_slam_tilt'];
 
 	for (const name of unmapped) {
 		it(`${name} closing and re-opening produces no device event and no coil command`, () => {
@@ -528,20 +603,114 @@ describe('sim/rules/devices/ -- switches the layer deliberately maps to nothing 
 	}
 });
 
+// Story 2.7 (task 6, AD-6, AD-19): the switches above that DID map to nothing
+// before this story now report the new `playfield_switch_closed` event on
+// their own CLOSE edge (never the re-open) and issue no coil command --
+// `s_drain` is the notable one: it is closed on every drain and the DW-133
+// outlane case above drives it, but only incidentally, so this is its first
+// dedicated assertion.
+describe('sim/rules/devices/ -- Story 2.7: the derived playfield-switch set reports playfield_switch_closed on close only', () => {
+	const playfieldOnly: readonly SwitchName[] = ['s_sling_l', 's_sling_r', 's_pop_1', 's_pop_2', 's_pop_3', 's_drain'];
+
+	for (const name of playfieldOnly) {
+		it(`${name} closing produces exactly one playfield_switch_closed; re-opening produces nothing more; no coil command either way`, () => {
+			const result = runSwitchScript(close(name).at(5).open().at(9).build(), { durationTicks: 15 });
+			expect(result.events, `${name} must report exactly one playfield_switch_closed, on the close edge`).toEqual([
+				{ type: 'playfield_switch_closed', switch: name, tick: 5 },
+			]);
+			expect(result.coilCommands, `${name} must issue no coil command`).toEqual([]);
+		});
+	}
+});
+
+// AC 8: the derived set, judged against an explicit expected list -- never
+// trusting the derivation to check itself. 42 switches in TABLE.switches
+// (test/table.test.ts's own count) minus the 4 button switches, s_tilt_bob,
+// s_slam_tilt, s_shooter_lane (bd_shooter's non-parking entry), bd_trough's
+// 4 slots and bd_lock's 3 slots = 14 excluded, 28 remaining.
+describe('sim/rules/devices/ -- AC 8: PLAYFIELD_SWITCHES is exactly the 28 genuine playfield switches', () => {
+	it('matches an explicit expected list, and excludes every button/tilt/slam/parking-slot/non-parking-entry switch by name', () => {
+		const expected: readonly SwitchName[] = [
+			's_loop_l_in',
+			's_loop_l_out',
+			's_loop_r_in',
+			's_loop_r_out',
+			's_spinner',
+			's_ramp_enter',
+			's_ramp_made',
+			's_dragon_d',
+			's_dragon_r',
+			's_dragon_a',
+			's_dragon_g',
+			's_dragon_o',
+			's_dragon_n',
+			's_dragon_body',
+			's_lock_lane',
+			's_top_1',
+			's_top_2',
+			's_top_3',
+			's_inlane_l',
+			's_inlane_r',
+			's_outlane_l',
+			's_outlane_r',
+			's_sling_l',
+			's_sling_r',
+			's_pop_1',
+			's_pop_2',
+			's_pop_3',
+			's_drain',
+		];
+
+		expect([...PLAYFIELD_SWITCHES].sort()).toEqual([...expected].sort());
+		expect(PLAYFIELD_SWITCHES.size, 'sanity: exactly 28 (AC 8)').toBe(28);
+
+		const excluded: readonly SwitchName[] = [
+			's_start',
+			's_flipper_l',
+			's_flipper_r',
+			's_plunger',
+			's_tilt_bob',
+			's_slam_tilt',
+			's_shooter_lane',
+			's_trough_1',
+			's_trough_2',
+			's_trough_3',
+			's_trough_4',
+			's_lock_1',
+			's_lock_2',
+			's_lock_3',
+		];
+		for (const name of excluded) {
+			expect(PLAYFIELD_SWITCHES.has(name), `${name} must be excluded from PLAYFIELD_SWITCHES`).toBe(false);
+		}
+		expect(Object.keys(TABLE.switches).length, 'sanity: 28 + 14 excluded = the whole switch set').toBe(
+			expected.length + excluded.length,
+		);
+	});
+});
+
 describe('sim/rules/devices/ -- construction: one instance per createDevicesLayer(), never module-global', () => {
 	it('two independently-constructed layers do not share state (Story 2.3\'s own spinner defect, guarded against here)', () => {
 		const tuning = resolveTuning();
 		const layerA = createDevicesLayer(tuning);
 		const layerB = createDevicesLayer(tuning);
 
+		// Story 2.7: s_ramp_enter/s_ramp_made are both playfield switches now,
+		// so each closure also reports its own playfield_switch_closed --
+		// unrelated to the Ramp SHOT sequence this test is actually about,
+		// which is what the `shot_ramp_made` absence below still pins.
 		const resultA = layerA.step([{ type: 'switch', switch: 's_ramp_enter', closed: true, tick: 1 }], [], 1);
-		expect(resultA.events).toEqual([]); // just starts tracking, no event yet
+		expect(resultA.events, 'just starts tracking the Ramp sequence -- no shot event yet, but the playfield report fires').toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_ramp_enter', tick: 1 },
+		]);
 
 		// layerB has never seen s_ramp_enter -- if state leaked between
 		// instances, this late s_ramp_made would wrongly complete layerB's own
 		// (nonexistent) in-flight sequence.
 		const resultB = layerB.step([{ type: 'switch', switch: 's_ramp_made', closed: true, tick: 2 }], [], 2);
-		expect(resultB.events, 'layerB must not see layerA\'s in-flight Ramp sequence').toEqual([]);
+		expect(resultB.events, 'layerB must not see layerA\'s in-flight Ramp sequence').toEqual([
+			{ type: 'playfield_switch_closed', switch: 's_ramp_made', tick: 2 },
+		]);
 	});
 });
 

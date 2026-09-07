@@ -7,6 +7,8 @@
 // runtime surprise -- proven by a real consumer module (sim/table/names.ts)
 // with a type-level negative.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TABLE, deepFreeze } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING } from '../src/sim/table/tuning';
@@ -293,6 +295,90 @@ describe('TABLE.laneWiring / dragonBodyWiring / lockLaneWiring / flipperButtonWi
 		for (const [lane, wiring] of Object.entries(TABLE.laneWiring)) {
 			expect(Object.keys(TABLE.switches), `laneWiring.${lane} names an unknown switch "${wiring.switch}"`).toContain(wiring.switch);
 		}
+	});
+
+	// Story 2.7 (task 1, task 18): laneWiring widened from `{ switch }` to
+	// `{ switch, set, order }`. `set` membership and `order`'s numeric shape
+	// are pinned here; whether `order` actually matches the PHYSICAL
+	// left-to-right geometry is a SEPARATE, stronger check below (this one
+	// would pass even if the two Top lanes were swapped, as long as the
+	// numbering stayed 0..n-1 with no gaps).
+	it('every laneWiring entry carries a set and an order; each set\'s order values are exactly 0..n-1 with no gaps or duplicates', () => {
+		const bySet = new Map<string, number[]>();
+		for (const [lane, wiring] of Object.entries(TABLE.laneWiring)) {
+			expect(typeof wiring.set, `laneWiring.${lane}.set must be a string`).toBe('string');
+			expect(Number.isInteger(wiring.order), `laneWiring.${lane}.order must be an integer`).toBe(true);
+			const orders = bySet.get(wiring.set) ?? [];
+			orders.push(wiring.order);
+			bySet.set(wiring.set, orders);
+		}
+		expect([...bySet.keys()].sort(), 'sanity: exactly the two declared lane sets').toEqual(['inout', 'top']);
+		for (const [set, orders] of bySet) {
+			const sorted = [...orders].sort((a, b) => a - b);
+			const expected = orders.map((_, index) => index);
+			expect(sorted, `laneWiring's "${set}" set's order values must be exactly 0..${orders.length - 1} with no gaps or duplicates`).toEqual(expected);
+		}
+	});
+
+	// Story 2.7 (task 18): the check that would have caught a "tidied" in/out
+	// declaration order -- the entry's authored `order` must match the
+	// PHYSICAL left-to-right sequence measured from the real geometry, never
+	// merely be a self-consistent 0..n-1 numbering (the check above alone
+	// cannot tell physical order from declaration order).
+	describe('laneWiring.*.order matches the ascending x-centre of that lane\'s own sw_ collision zone', () => {
+		const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
+
+		interface SwitchZone {
+			readonly switch: string;
+			readonly minMm: { readonly x: number };
+			readonly maxMm: { readonly x: number };
+		}
+
+		function xCentreBySwitch(): ReadonlyMap<string, number> {
+			const doc = JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as { switchZones: readonly SwitchZone[] };
+			const map = new Map<string, number>();
+			for (const zone of doc.switchZones) {
+				map.set(zone.switch, (zone.minMm.x + zone.maxMm.x) / 2);
+			}
+			return map;
+		}
+
+		it('the Top set (top_1, top_2, top_3) is ascending order left to right, matching ascending x-centre', () => {
+			const xCentre = xCentreBySwitch();
+			const topLanes = (Object.entries(TABLE.laneWiring) as Array<[string, { switch: string; set: string; order: number }]>)
+				.filter(([, wiring]) => wiring.set === 'top')
+				.sort((a, b) => a[1].order - b[1].order);
+			expect(topLanes, 'sanity: the Top set has three members').toHaveLength(3);
+			const xs = topLanes.map(([, wiring]) => xCentre.get(wiring.switch)!);
+			expect(xs.every((x) => x !== undefined), 'every Top lane switch must have a measured collision zone').toBe(true);
+			for (let i = 1; i < xs.length; i++) {
+				expect(xs[i], `ascending order must match ascending x-centre: ${topLanes[i - 1][0]} (${xs[i - 1]}) then ${topLanes[i][0]} (${xs[i]})`).toBeGreaterThan(xs[i - 1]);
+			}
+		});
+
+		it('the inout set\'s DECLARATION order (inlane_l, inlane_r, outlane_l, outlane_r) is NOT its physical order, but the authored `order` field is: outlane_l, inlane_l, inlane_r, outlane_r ascending by x-centre', () => {
+			const xCentre = xCentreBySwitch();
+			const inout = (Object.entries(TABLE.laneWiring) as Array<[string, { switch: string; set: string; order: number }]>).filter(
+				([, wiring]) => wiring.set === 'inout',
+			);
+			expect(inout, 'sanity: the inout set has four members').toHaveLength(4);
+
+			// Sanity: the DECLARATION order really does differ from physical
+			// order -- if this ever changes (someone "tidies" laneWiring's own
+			// key order to match `order`), the comment above the entries in
+			// dragonwar.ts explicitly asks the next reader not to.
+			const declarationOrderXs = inout.map(([, wiring]) => xCentre.get(wiring.switch)!);
+			const isAscending = declarationOrderXs.every((x, i) => i === 0 || x > declarationOrderXs[i - 1]);
+			expect(isAscending, 'sanity: declaration order must NOT already be physical order, or this test proves nothing').toBe(false);
+
+			const byOrder = [...inout].sort((a, b) => a[1].order - b[1].order);
+			const xs = byOrder.map(([, wiring]) => xCentre.get(wiring.switch)!);
+			expect(xs.every((x) => x !== undefined), 'every inout lane switch must have a measured collision zone').toBe(true);
+			for (let i = 1; i < xs.length; i++) {
+				expect(xs[i], `ascending order must match ascending x-centre: ${byOrder[i - 1][0]} (${xs[i - 1]}) then ${byOrder[i][0]} (${xs[i]})`).toBeGreaterThan(xs[i - 1]);
+			}
+			expect(byOrder.map(([lane]) => lane)).toEqual(['outlane_l', 'inlane_l', 'inlane_r', 'outlane_r']);
+		});
 	});
 
 	it('dragonBodyWiring names the real s_dragon_body switch', () => {

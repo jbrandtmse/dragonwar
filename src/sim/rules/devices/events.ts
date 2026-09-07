@@ -98,6 +98,25 @@ export interface LaneChangePressedEvent {
 	readonly tick: number;
 }
 
+/**
+ * Story 2.7 (AD-6, AD-19): a `closed: true` edge of any switch in the
+ * derived "playfield switch" set (`sim/rules/devices/index.ts`'s own
+ * `PLAYFIELD_SWITCHES` -- every `TABLE.switches` key MINUS the four button
+ * switches, `s_tilt_bob`, `s_slam_tilt`, every parking device's slot
+ * switches and every non-parking device's own entry switch). Exists so "the
+ * first playfield closure that is not a Top lane" (AD-6's own Rule text,
+ * the skill shot's resolving condition) is DECIDABLE without a mode ever
+ * naming a raw `SwitchEvent` (AD-19: `sim/rules/devices/` is the only
+ * consumer) -- several of the switches this event's own subject set covers
+ * (`s_sling_*`, `s_pop_*`, `s_drain`, a bare `s_ramp_*`) emit no OTHER
+ * device event at all today.
+ */
+export interface PlayfieldSwitchClosedEvent {
+	readonly type: 'playfield_switch_closed';
+	readonly switch: SwitchName;
+	readonly tick: number;
+}
+
 /** Any cabinet button (`settleClass: 'button'` in `TABLE.switches`) closed -- on the CLOSE only, never the open. A flipper button closing emits both this and `LaneChangePressedEvent`. */
 export interface ButtonPressedEvent {
 	readonly type: 'button_pressed';
@@ -148,6 +167,7 @@ export type DeviceEvent =
 	| SpinnerSpinEvent
 	| LaneEnteredEvent
 	| LaneChangePressedEvent
+	| PlayfieldSwitchClosedEvent
 	| ButtonPressedEvent
 	| ShotMadeEvent
 	| ShotBrokenEvent;

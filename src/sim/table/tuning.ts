@@ -609,6 +609,18 @@ export const TUNING = deepFreeze({
 	} satisfies Readonly<
 		Record<'slingshotForce' | 'slingshotThresholdMmPerS' | 'popKickMmPerS' | 'spinnerGainDegPerSPerMmPerS' | 'spinnerDecayPerTick', TuningEntry<number>>
 	>,
+
+	/**
+	 * Story 2.7 (AD-3, AD-15): the skill shot's fixed award -- the first
+	 * scoring value in this file. No unit suffix (a raw score point, never a
+	 * duration -- must not end in `Ms`, `assertNoNestedMsKeys`/
+	 * `sim-no-literal-ms`).
+	 */
+	skillShotAward: entry(
+		25000,
+		'authored: PRD FR-18 states the mechanism (the Skill shot "awards a fixed value plus lighting a letter") and marks the figure itself "[ASSUMPTION: award]"; the PRD review rubric records that no planning artifact states any scoring value, and the spine defers every scoring value to the post-playtest freeze (Story 3.11). No artifact states this figure. It is the first scoring value in the game, so it sets the scale rather than fitting one -- change it by playtest, not by argument',
+		'unverified',
+	),
 } as const);
 
 type TuningMsKey<T> = {

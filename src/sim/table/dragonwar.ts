@@ -453,14 +453,32 @@ export const TABLE = deepFreeze({
 	 * edge to a lane id from `TABLE`, never a literal, mirroring
 	 * `popWiring`/`spinnerWiring`'s own `Object.entries()` idiom.
 	 */
+	//
+	// Story 2.7 (AD-7, AD-11, DW-149, task 1): each entry widened from a bare
+	// `{ switch }` to `{ switch, set, order }` so the base mode (AD-7: "lanes
+	// ... owned by the base mode") can resolve set membership and rotation
+	// direction from TABLE alone, never by prefix-matching a lane id. `set`
+	// is `'top'` for the three Top lanes and `'inout'` for the inlane/outlane
+	// four; `order` is the 0-based PHYSICAL left-to-right index within that
+	// set, measured from each lane's own `sw_` collision-zone x-centre in
+	// `public/assets/dragonwar.collision.json` (test/table.test.ts pins this
+	// against the live geometry): sw_top_1 145.0, sw_top_2 245.0, sw_top_3
+	// 335.5 (already ascending in declaration order); sw_outlane_l 17.45,
+	// sw_inlane_l 67.9, sw_inlane_r 400.5, sw_outlane_r 450.95. The `inout`
+	// set's DECLARATION order below (inlane_l, inlane_r, outlane_l,
+	// outlane_r) is deliberately NOT its physical order -- `order` alone
+	// carries the physical left-to-right sequence (outlane_l=0, inlane_l=1,
+	// inlane_r=2, outlane_r=3). Do not "tidy" the declaration order to match
+	// `order`, and do not derive rotation direction from declaration order --
+	// only `order` is physical.
 	laneWiring: {
-		top_1: { switch: 's_top_1' },
-		top_2: { switch: 's_top_2' },
-		top_3: { switch: 's_top_3' },
-		inlane_l: { switch: 's_inlane_l' },
-		inlane_r: { switch: 's_inlane_r' },
-		outlane_l: { switch: 's_outlane_l' },
-		outlane_r: { switch: 's_outlane_r' },
+		top_1: { switch: 's_top_1', set: 'top', order: 0 },
+		top_2: { switch: 's_top_2', set: 'top', order: 1 },
+		top_3: { switch: 's_top_3', set: 'top', order: 2 },
+		inlane_l: { switch: 's_inlane_l', set: 'inout', order: 1 },
+		inlane_r: { switch: 's_inlane_r', set: 'inout', order: 2 },
+		outlane_l: { switch: 's_outlane_l', set: 'inout', order: 0 },
+		outlane_r: { switch: 's_outlane_r', set: 'inout', order: 3 },
 	},
 
 	/** Story 2.4 (AD-19, task 2): the Dragon body's own standup face -- a bare `dragon_hit` report, no letter or bank bookkeeping (that is `dropBankWiring` above). */

@@ -347,7 +347,10 @@ describe('AC 5 -- the highest-priority mode, with published fields converted to 
 		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
 		const texts = frame.rows.map((r) => r.text);
 
-		expect(texts).toContain('SKILL SHOT');
+		// Story 2.7: MODE_DISPLAY_NAMES renders 'skill_shot' as 'ARM YOURSELF',
+		// not the mechanical 'SKILL SHOT' this test pinned before that mapping
+		// existed (frame.ts's own modeDisplayName()).
+		expect(texts).toContain('ARM YOURSELF');
 		expect(texts).toContain('4.5');
 		expect(texts.some((t) => t.includes('BASE'))).toBe(false);
 		expect(texts).not.toContain('250');
@@ -363,7 +366,7 @@ describe('AC 5 -- the highest-priority mode, with published fields converted to 
 		// measured live authoring this test: unconditionally rendering
 		// value/charge/strikesRemaining left this exact filtered assertion
 		// green while three stray "undefined" rows had appeared).
-		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', 'SKILL SHOT', '1.0']);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', 'ARM YOURSELF', '1.0']);
 	});
 });
 
@@ -395,7 +398,7 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 			.map((entry) => path.join(dir, entry));
 	}
 
-	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL '];
+	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL ', 'ARM YOURSELF'];
 
 	/**
 	 * Comments freely discuss balls and players in English prose -- this scan

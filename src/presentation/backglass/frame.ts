@@ -190,9 +190,24 @@ function formatScore(n: number): string {
 	return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+/**
+ * Story 2.7: named-mode overrides, consulted BEFORE the mechanical
+ * `split('_').join(' ').toUpperCase()` fallback below -- the skill shot's
+ * sim id (`skill_shot`) would otherwise mechanically render `SKILL SHOT`,
+ * but Story 2.6's own Design Notes name the intended text specifically:
+ * "`ARM YOURSELF` on the plunge, from the skill-shot `ModeView`". Naming the
+ * sim mode `arm_yourself` instead would also render correctly with zero
+ * change here, but would put the English phrase into `sim/` -- this table is
+ * the alternative that keeps it here, per the Consistency Conventions
+ * ("English literals live in `presentation/backglass` only").
+ */
+const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+	skill_shot: 'ARM YOURSELF',
+};
+
 /** `snake_case` mode id -> `UPPER CASE WORDS` display text -- the only place a mode's name becomes English (AD-9: "rules never format text"). */
 function modeDisplayName(mode: string): string {
-	return mode.split('_').join(' ').toUpperCase();
+	return MODE_DISPLAY_NAMES[mode] ?? mode.split('_').join(' ').toUpperCase();
 }
 
 /** Ticks -> seconds, one decimal place, via `TICK_HZ` (never a re-derived constant -- AD-3). */

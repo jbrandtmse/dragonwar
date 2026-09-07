@@ -17,7 +17,7 @@
 // subsequent calls address.
 
 import { createDevicesLayer, type DeviceEvent } from '../../src/sim/rules/devices';
-import { createRules } from '../../src/sim/rules';
+import { createRules, type ModeEvent } from '../../src/sim/rules';
 import { resolveTuning, type ResolvedTuning } from '../../src/sim/table/tuning';
 import type { BallWillStartEvent } from '../../src/sim/contracts/events';
 import type { GameAdjustments } from '../../src/sim/contracts/replay';
@@ -187,6 +187,8 @@ export interface RunRulesScriptResult {
 	readonly events: readonly SemanticEvent[];
 	/** Every `CoilCommand` `rules.step()` returned, across the whole run, in tick order. */
 	readonly coilCommands: readonly CoilCommand[];
+	/** Story 2.7, task 12: every `ModeEvent` (`RulesStepResult.modeEvents`) across the whole run, in tick order -- surfaced so a headless test can observe `lanes_completed` (AC 5) without touching `sim/loop`. */
+	readonly modeEvents: readonly ModeEvent[];
 }
 
 /**
@@ -235,13 +237,15 @@ export function runRulesScript(script: readonly SwitchEvent[], options: RunRules
 	const statesByTick = new Map<number, GameState>();
 	const events: SemanticEvent[] = [];
 	const coilCommands: CoilCommand[] = [];
+	const modeEvents: ModeEvent[] = [];
 	for (let tick = 1; tick <= options.durationTicks; tick++) {
 		const result = rules.step(state, switchEventsByTick.get(tick) ?? [], tick);
 		state = result.state;
 		statesByTick.set(tick, state);
 		events.push(...result.events);
 		coilCommands.push(...result.coilCommands);
+		modeEvents.push(...result.modeEvents);
 	}
 
-	return { finalState: state, statesByTick, events, coilCommands };
+	return { finalState: state, statesByTick, events, coilCommands, modeEvents };
 }

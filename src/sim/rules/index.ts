@@ -62,6 +62,7 @@
 
 import { applyDeviceEvents, createBallController, deriveDeviceSlots } from './ball-controller';
 import { bootDeviceSlots, createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
+import { createModeStack, type ModeEvent } from './modes';
 import { TABLE } from '../table/dragonwar';
 import type { GameState, MachineState, SemanticEvent, CoilCommand } from '../table/names';
 import type { BallLaunchedEvent, BallWillStartEvent } from '../contracts/events';
@@ -80,6 +81,14 @@ type SwitchEventsParam = Parameters<DevicesLayer['step']>[0];
  */
 export { bootDeviceSlots };
 
+/**
+ * Story 2.7: re-exported so `test/util/switch-script.ts`'s `runRulesScript()`
+ * (and any other consumer already importing from this barrel) can name the
+ * mode stack's own event type without reaching past `./modes` -- mirrors the
+ * `bootDeviceSlots` re-export above.
+ */
+export type { LaneSetName, LanesCompletedEvent, ModeEvent } from './modes';
+
 export interface RulesStepResult {
 	readonly state: GameState;
 	readonly events: readonly SemanticEvent[];
@@ -93,6 +102,16 @@ export interface RulesStepResult {
 	 * physics at *N+1*, exactly as `pulseCoil()` already is (AD-4).
 	 */
 	readonly coilCommands: readonly CoilCommand[];
+	/**
+	 * Story 2.7: the mode stack's own event channel (`sim/rules/modes/events.ts`),
+	 * deliberately SEPARATE from `events` above -- `lanes_completed` is
+	 * neither a `DeviceEvent` (AD-19: lane state is the base mode's, not the
+	 * devices layer's) nor a `SemanticEvent` (its only consumer, Story 2.10's
+	 * bonus multiplier, is rules-side, so joining the closed
+	 * presentation-facing union would oblige a `never`-guard arm for no
+	 * reader). Always `[]` before any mode has ever run (Attract, AC 7).
+	 */
+	readonly modeEvents: readonly ModeEvent[];
 }
 
 export interface Rules {
@@ -153,6 +172,7 @@ const DEFAULT_ADJUSTMENTS: GameAdjustments = {
 export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments = DEFAULT_ADJUSTMENTS): Rules {
 	const devicesLayer = createDevicesLayer(tuning);
 	const ballController = createBallController(adjustments);
+	const modeStack = createModeStack(tuning);
 
 	// See this file's header, "Sequencing note": ball_will_start events the
 	// ball controller decided on THIS tick, delivered to the devices layer's
@@ -181,7 +201,15 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		const controllerResult = ballController.step(stateAfterAccounting, deviceResult.events, tick);
 		pendingLifecycleEvents = controllerResult.ballWillStartEvents;
 
-		const nextState: GameState = { ...controllerResult.state, tick };
+		// Story 2.7: runs AFTER the ball controller (so `ball_starting` and any
+		// same-tick rotation's `modes: []` teardown have already landed on
+		// `controllerResult.state`) and BEFORE `nextState` is built, exactly as
+		// this story's Code Map names the insertion point. Fed THIS tick's
+		// device events (never a raw SwitchEvent, AD-19) and the controller's
+		// own SemanticEvent output (the channel `ball_starting` arrives on).
+		const modeStackResult = modeStack.step(controllerResult.state, deviceResult.events, controllerResult.events, tick);
+
+		const nextState: GameState = { ...modeStackResult.state, tick };
 
 		const events: SemanticEvent[] = [...deviceResult.events.filter(isBallLaunched), ...controllerResult.events];
 
@@ -190,6 +218,7 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 			events,
 			commands: [],
 			coilCommands: [...deviceResult.coilCommands, ...controllerResult.coilCommands],
+			modeEvents: modeStackResult.events,
 		};
 	}
 

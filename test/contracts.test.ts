@@ -275,8 +275,12 @@ describe('sim/contracts -- Snapshot / FrameOutput / ModeView', () => {
 	});
 
 	it('ModeView is the only shape of an active mode presentation may read', () => {
-		const view: ModeView = { mode: 'skillshot', priority: 200, player: 0, timerTicks: 500 };
-		expect(view.mode).toBe('skillshot');
+		// Story 2.7: reconciled to the real sim mode id ('skill_shot',
+		// underscored) -- this was a local type-assignability literal only, so
+		// the mismatch was harmless, but the story's own Design Notes invited
+		// this one-line consistency fix.
+		const view: ModeView = { mode: 'skill_shot', priority: 200, player: 0, timerTicks: 500 };
+		expect(view.mode).toBe('skill_shot');
 	});
 });
 
