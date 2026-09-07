@@ -373,8 +373,25 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/colour (Story 2.8, A
 		['src/sim/identifier-red.ts', '"RED"'],
 		['src/sim/identifier-colour.ts', '"colour"'],
 		['src/sim/literal-white.ts', '"white"'],
+		// Code review pass 2: the anchored string-literal matcher (h2) was
+		// case-SENSITIVE while the identifier matcher (h1) was not, so this
+		// file passed the whole gate. AC 2 says "no ... bare colour name",
+		// and a bare colour name is one in any casing.
+		['src/sim/literal-white-uppercase.ts', '"White"'],
 		['src/sim/literal-hex.ts', '"#ff8800"'],
+		// Code review pass 2: every entry in SIM_NO_COLOUR_HEX_PATTERN_SOURCES
+		// now has a fixture. Three of the five shipped unfalsified, including
+		// the 4-digit #rgba form an EARLIER review pass added with no fixture
+		// at all -- an unfalsified patch is not evidence (Rule 19).
+		['src/sim/literal-hex.ts', '"#f80"'],
+		['src/sim/literal-hex.ts', '"#f80c"'],
+		['src/sim/literal-hex.ts', '"#ff8800cc"'],
 		['src/sim/literal-rgba.ts', 'rgba('],
+		['src/sim/literal-rgba.ts', 'hsl('],
+		// Code review pass 2: AC 2 names "no RGB" first, and no matcher saw
+		// the numeric-triple form at all until now.
+		['src/sim/rgb-triple.ts', '{ r: 1, g: 1, b: 1 }'],
+		['src/sim/rgb-triple.ts', '{ r: 1, g: 0.5, b: 0 }'],
 	])('fires on the positive fixture %s, naming %s', (file, needle) => {
 		const lines = stderr.split('\n').filter((line) => line.includes(file));
 		expect(lines.join('\n'), `expected a [sim-no-colour] violation naming ${file}, got:\n${stderr}`).toContain('[sim-no-colour]');
@@ -392,7 +409,7 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/colour (Story 2.8, A
 
 	// The file SET, not a raw count (Story 2.4's own non-vacuity idiom): this
 	// is what makes the four `not.toContain` assertions above non-vacuous.
-	it('reports exactly the five deliberate violating files and no others', () => {
+	it('reports exactly the seven deliberate violating files and no others', () => {
 		const violatingFiles = new Set(
 			stderr
 				.split('\n')
@@ -404,7 +421,9 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/colour (Story 2.8, A
 			'src/sim/identifier-red.ts',
 			'src/sim/literal-hex.ts',
 			'src/sim/literal-rgba.ts',
+			'src/sim/literal-white-uppercase.ts',
 			'src/sim/literal-white.ts',
+			'src/sim/rgb-triple.ts',
 		]);
 	});
 });

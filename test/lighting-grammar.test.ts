@@ -13,7 +13,13 @@ import { buildSnapshot } from './util/snapshot-factory';
 import type { LampRole, LampStep } from '../src/sim/contracts/commands';
 import type { FrameOutput, LampName } from '../src/sim/table/names';
 
-const LIT_ROLES: readonly Exclude<LampRole, 'off'>[] = ['lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special'];
+// Code review pass 2 (DW-149): DERIVED from the runtime closure this story
+// introduced, never a second hand-typed role list. Re-typing it meant an
+// eighth role added to `LAMP_ROLES` and `LAMP_GRAMMAR` together would have
+// got zero coverage from the six `it.each(LIT_ROLES)` step-ladder blocks
+// below, while line 31's own `LAMP_ROLES.filter(...)` assertion (in the same
+// file) already derived correctly.
+const LIT_ROLES: readonly Exclude<LampRole, 'off'>[] = LAMP_ROLES.filter((role): role is Exclude<LampRole, 'off'> => role !== 'off');
 
 describe('LAMP_GRAMMAR -- PRD FR-44\'s held (role -> colour) mapping, pinned exactly', () => {
 	it('pins every non-off role to its exact authored RGB triple', () => {

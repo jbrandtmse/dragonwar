@@ -104,7 +104,20 @@ export type { LaneSetName, LanesCompletedEvent, ModeEvent } from './modes';
 export interface RulesStepResult {
 	readonly state: GameState;
 	readonly events: readonly SemanticEvent[];
-	/** Presentation-only (AD-9's Seam Contracts table pins `FrameOutput.commands` to `(Lamp | Gi | Flasher | Show)Command[]`): always empty in this story -- `TABLE.flashers`/`shows` are empty and the one lamp is never lit. */
+	/**
+	 * Presentation-only (AD-9's Seam Contracts table pins
+	 * `FrameOutput.commands` to `(Lamp | Gi | Flasher | Show)Command[]`):
+	 * deliberately still `readonly never[]`, and NOT because there is nothing
+	 * to say. Story 2.8 (code review pass 2 corrected this doc: it used to
+	 * read "the one lamp is never lit", which stopped being true the moment
+	 * `l_insert_left` became fourteen real inserts). AD-9 and Story 2.8's
+	 * AC 1 both place the lamp DIFF in `sim/loop`, not here: rules export the
+	 * pure projection (`lampsOf`, re-exported above), `sim/loop/index.ts`
+	 * calls it after every rules step and pushes a `LampCommand` for each
+	 * lamp whose `role` or `step` changed. `TABLE.flashers`/`shows` are still
+	 * empty and `GiCommand` still has no producer, so this channel stays
+	 * empty for a second, independent reason too.
+	 */
 	readonly commands: readonly never[];
 	/**
 	 * Story 2.4 (AD-9, AD-4): the rules -> physics coil channel this story

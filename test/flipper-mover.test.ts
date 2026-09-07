@@ -65,12 +65,27 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		const transitions: InputTransition[] = [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }];
 		out = loop.advance(1, transitions); // exactly one more tick
 		// Story 1.8 sweep (Code Map Part D item 1): this message named it an
-		// AD-5 proof, but the assertion is vacuous by its own type -- `readonly
-		// never[]` can never hold anything else, so it holds for any
-		// implementation. Kept as a literal shape check; the real AD-5 ordering
-		// pin is the very next assertion in this test (angle unchanged/changed
-		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
-		expect(out.commands, 'FrameOutput.commands (the presentation-only channel) stays readonly never[] -- type-level fact, not an AD-5 proof by itself (see the ordering assertions in this test); Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
+		// DO NOT DELETE OR RELAX. Story 2.8 (code review pass 2) rewrote this
+		// comment: it previously called the assertion "vacuous by its own type
+		// -- `readonly never[]` can never hold anything else, so it holds for
+		// any implementation", and invited a future reader to treat it as a
+		// disposable shape check. Both halves are now false.
+		//   (a) `FrameOutput.commands` is `readonly PresentationCommand<TLamp,
+		//       ...>[]` (`src/sim/contracts/snapshot.ts`), never `never[]` --
+		//       the old comment conflated it with `RulesStepResult.commands`.
+		//   (b) Story 2.8 makes this channel genuinely carry `LampCommand`s,
+		//       and this line is now the ONLY live detector in the whole suite
+		//       for AD-9 / Story 2.8 AC 1: `sim/loop` must emit the lamp DIFF,
+		//       not the whole projection every step. QA (2026-09-07) applied
+		//       that mutation and measured it: `test/rules-lamps.test.ts`
+		//       stayed 22/22 green while this assertion and its twin below
+		//       went red. Attract runs real frames with `modes: []`, so
+		//       `lampsOf()` projects all-off and the seeded diff emits nothing
+		//       -- an implementation that pushed the full projection every
+		//       step reddens here immediately.
+		// The AD-5 ordering pin remains the very next assertion in this test
+		// (angle unchanged/changed at t vs t+1) plus test/hardware-rule-seam.test.ts.
+		expect(out.commands, 'FrameOutput.commands must stay EMPTY across real attract frames: AD-9/Story 2.8 AC 1 -- sim/loop emits the lamp DIFF, and in attract (modes: []) lampsOf() projects all-off against an all-off seed, so there is nothing to emit. Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
 
 		// A loose upper bound only: the bat starts moving within a handful of
 		// ticks of the press. The PRECISE boundary AC 2 states is pinned by the
@@ -119,12 +134,27 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		out = loop.advance(1, [{ tick: pressTick, frame: { ...NO_FRAME, flipper_l: true } }]);
 		expect(out.snapshot.tick).toBe(pressTick);
 		// Story 1.8 sweep (Code Map Part D item 1): this message named it an
-		// AD-5 proof, but the assertion is vacuous by its own type -- `readonly
-		// never[]` can never hold anything else, so it holds for any
-		// implementation. Kept as a literal shape check; the real AD-5 ordering
-		// pin is the very next assertion in this test (angle unchanged/changed
-		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
-		expect(out.commands, 'FrameOutput.commands (the presentation-only channel) stays readonly never[] -- type-level fact, not an AD-5 proof by itself (see the ordering assertions in this test); Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
+		// DO NOT DELETE OR RELAX. Story 2.8 (code review pass 2) rewrote this
+		// comment: it previously called the assertion "vacuous by its own type
+		// -- `readonly never[]` can never hold anything else, so it holds for
+		// any implementation", and invited a future reader to treat it as a
+		// disposable shape check. Both halves are now false.
+		//   (a) `FrameOutput.commands` is `readonly PresentationCommand<TLamp,
+		//       ...>[]` (`src/sim/contracts/snapshot.ts`), never `never[]` --
+		//       the old comment conflated it with `RulesStepResult.commands`.
+		//   (b) Story 2.8 makes this channel genuinely carry `LampCommand`s,
+		//       and this line is now the ONLY live detector in the whole suite
+		//       for AD-9 / Story 2.8 AC 1: `sim/loop` must emit the lamp DIFF,
+		//       not the whole projection every step. QA (2026-09-07) applied
+		//       that mutation and measured it: `test/rules-lamps.test.ts`
+		//       stayed 22/22 green while this assertion and its twin below
+		//       went red. Attract runs real frames with `modes: []`, so
+		//       `lampsOf()` projects all-off and the seeded diff emits nothing
+		//       -- an implementation that pushed the full projection every
+		//       step reddens here immediately.
+		// The AD-5 ordering pin remains the very next assertion in this test
+		// (angle unchanged/changed at t vs t+1) plus test/hardware-rule-seam.test.ts.
+		expect(out.commands, 'FrameOutput.commands must stay EMPTY across real attract frames: AD-9/Story 2.8 AC 1 -- sim/loop emits the lamp DIFF, and in attract (modes: []) lampsOf() projects all-off against an all-off seed, so there is nothing to emit. Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
 		expect(
 			out.snapshot.mechanisms.flippers.l.angleDeg,
 			'AC 2 (amended): the angle must be UNCHANGED at the press tick t itself -- the coil energises inside this same physics step, but the ported mover\'s torque needs one full step to ramp back through zero (Design Notes, "The AC 2 amendment")',

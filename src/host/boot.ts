@@ -332,6 +332,15 @@ async function onBegin(): Promise<void> {
 					// panel's Record resets first"). The fresh loop really is at
 					// tick 0, so 0 is what is passed, not a stale snapshot tick.
 					hostLoopRef.reset();
+					// Story 2.8 (code review pass 2): the fresh loop re-seeds its
+					// own `previousLamps` from the boot state (all-off,
+					// `sim/loop/index.ts`), so it emits NO "off" command for a
+					// lamp that was lit before the reset. `lampView` is purely
+					// command-driven -- unlike `backglassView`, which
+					// self-corrects because `renderFrame()` re-derives from the
+					// live snapshot every frame -- so without this it would keep
+					// those inserts lit forever, with no state behind them.
+					lampView = INITIAL_LAMP_VIEW;
 					replayRecorder.start(
 						{
 							seed: 0,
@@ -367,6 +376,11 @@ async function onBegin(): Promise<void> {
 			},
 			reset: () => {
 				hostLoopRef.reset();
+				// Story 2.8 (code review pass 2): see the record path above --
+				// the rebuilt loop's lamp diff is re-seeded all-off and emits
+				// nothing, so the held view must be cleared with it or every
+				// lamp lit before the reset stays lit forever.
+				lampView = INITIAL_LAMP_VIEW;
 			},
 			openTuningPanel: () => {
 				if (tuningPanel) {

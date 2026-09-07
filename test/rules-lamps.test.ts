@@ -90,6 +90,44 @@ describe('lampsOf -- Attract / no base mode: every lamp is off/0, never a player
 		const state = gameState({ players: [player({ letters: 'DRAGON', lit: { top_1: true } })], modes: [] });
 		expect(lampsOf(state)).toEqual(allLampsOff());
 	});
+
+	// !!! DIVERGENCE FROM THE FROZEN INTENT CONTRACT -- pinned here so it is
+	// visible, NOT endorsed. Code review pass 2 found that neither attract
+	// test above combines `modes: []` with an OCCUPIED `bd_lock`, which is the
+	// one case that separates the code from the spec:
+	//   - the spec's execution task 5 says "if no base mode is on the stack,
+	//     return every lamp off/0", and the frozen I/O matrix says the same
+	//     twice ("Attract, no modes" -> every lamp off; "Active player is not
+	//     index 0" -> "If modes[] is empty, all lamps are off");
+	//   - `src/sim/rules/lamps.ts` resolves `subject.kind === 'lock'` BEFORE
+	//     the `if (!player)` guard, so an occupied bd_lock projects dragon/1
+	//     with no base mode on the stack. Its own comment argues this is
+	//     RIGHT (the Lock is machine-scoped, AD-7) -- but `## Spec Change Log`
+	//     is empty, so the deviation is undocumented.
+	// It is reachable in a real game: modes are popped on ball end and
+	// re-pushed one tick after `ball_starting`, and Epic 2 has no Lock
+	// arbiter to eject a parked ball, so the slot stays true across that
+	// window. It does NOT threaten the golden/attract argument the loop leans
+	// on -- `bootDeviceSlots()` leaves bd_lock empty, and `previousLamps` is
+	// seeded from the same state either way -- but that precondition was
+	// unstated. Whether the code or the contract is wrong is the lead's call
+	// (ledgered as a decision-pending finding); this test exists so the next
+	// reader cannot mistake the divergence for an accident.
+	it('modes: [] with an OCCUPIED bd_lock -- l_lock reads dragon/1 (machine-scoped, AD-7) while every other lamp is off', () => {
+		const state = gameState({
+			players: [player({ letters: 'DRAGON', lit: { top_1: true } })],
+			modes: [],
+			bdLock: [true, false, false],
+		});
+		const lamps = lampsOf(state);
+		expect(lamps.l_lock, 'l_lock is resolved from machine.deviceSlots.bd_lock BEFORE the no-base-mode guard').toEqual({ role: 'dragon', step: 1 });
+		for (const name of Object.keys(TABLE.lamps)) {
+			if (name === 'l_lock') {
+				continue;
+			}
+			expect(lamps[name as keyof typeof lamps], `${name} must still be off with no base mode on the stack`).toEqual(ALL_OFF);
+		}
+	});
 });
 
 /** Runs the whole scenario matrix once for `basePlayer` (0 or 1) -- `player()`'s OWN index in `state.players`, always distinct from `currentPlayer` (pinned at 0 by `gameState()` above) when `basePlayer` is 1. */

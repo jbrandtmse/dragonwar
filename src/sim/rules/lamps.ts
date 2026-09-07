@@ -20,10 +20,22 @@
 // literal `0` -- Story 2.7's own third vacuity was AD-7 player scoping never
 // being exercised at a player index other than 0 (Code Map, task 21: "the
 // whole matrix repeated with the base mode's player === 1 while
-// currentPlayer === 0"). With no base mode on the stack (Attract, and every
-// tick between balls) every lamp is `off/0` -- which is also every one of
-// this story's five golden replays, none of which ever presses `s_start`
-// (Design Notes, "The golden budget").
+// currentPlayer === 0").
+//
+// With no base mode on the stack (Attract, and every tick between balls)
+// every PLAYER-SCOPED lamp is `off/0`. `l_lock` is the one exception and is
+// resolved before that guard: the Lock is MACHINE-scoped (AD-7), so an
+// occupied `machine.deviceSlots.bd_lock` lights it with no base mode active
+// -- see `projectLamp()` below, and `test/rules-lamps.test.ts`'s own
+// "modes: [] with an OCCUPIED bd_lock" case, which pins it. [Code review
+// pass 2: this header previously claimed "every lamp is off/0" flatly,
+// contradicting `projectLamp()` twelve lines below it and the spec's own
+// frozen I/O matrix. The divergence is real and is with the lead.]
+//
+// The five golden replays are unaffected either way: none of them ever
+// presses `s_start`, and `bootDeviceSlots()` leaves `bd_lock` empty, so
+// every lamp really is `off/0` throughout all five (Design Notes, "The
+// golden budget"). That `bd_lock` precondition was previously unstated.
 
 import { TABLE } from '../table/dragonwar';
 import type { GameState, LampName, LampState } from '../table/names';

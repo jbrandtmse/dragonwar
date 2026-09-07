@@ -40,6 +40,7 @@ import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engi
 import { getRequiredNode } from '../src/presentation/scene/playfield';
 import { syncLamps } from '../src/presentation/lighting/lamp-driver';
 import { advanceLamps, INITIAL_LAMP_VIEW } from '../src/presentation/lighting/lamp-view';
+import { LAMP_GRAMMAR } from '../src/presentation/lighting/grammar';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { CoilName, FrameOutput, GameStart, LampCommand, LampName } from '../src/sim/table/names';
@@ -106,7 +107,22 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 			}
 		}
 		expect(drawnLane, `the skill shot must genuinely arm and draw a Top lane within ${MAX_ARM_TICKS} ticks of a real Start press, or this test is vacuous`).toBeDefined();
-		expect(view[drawnLane!], 'the drawn lane\'s own lamp must already be folded into the view as lit, before any plunge').toEqual({ role: 'lit', step: 2 });
+		// CAPTURED, not asserted here. Code review pass 2 (Rule 19): this used
+		// to be `expect(view[drawnLane!]).toEqual({ role: 'lit', step: 2 })`
+		// right at this point, and the spec's `## Auto Run Result` claimed the
+		// AC I1 mutation ("return every lamp off/0 unconditionally in
+		// lampsOf") "reddened the rendered-artefact assertion". It did not:
+		// `drawnLane` is derived from `snapshot.game.players[0].lanes.lit`,
+		// never from `lampsOf`, so it stays defined under that mutation, this
+		// LampView assertion then failed on `undefined`, and the test aborted
+		// ~30 lines BEFORE the NullEngine scene was even constructed. The
+		// rendered-artefact half -- the entire point of Rule 1's Integration
+		// AC -- was never executed under the mutation it is credited to. Same
+		// class of false verification record QA already corrected for AC 1.
+		// The fix is ordering, not weakening: the render assertions run first
+		// below, and every LampView/command-stream assertion is re-stated
+		// after them, so the mutation reddens the rendered artefact.
+		const viewAtArm = view[drawnLane!];
 
 		// A real plunge (AD-6: "the manual plunge and the autolaunch are one
 		// code path"), then run long enough for the ball to reach the main
@@ -117,23 +133,9 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 			step();
 		}
 
-		expect(allCommands.length, 'the command stream must be non-empty across the whole run').toBeGreaterThan(0);
-		const lampCommands = allCommands.filter(isLampCommand);
-		expect(lampCommands.length, 'at least one LampCommand must have been emitted').toBeGreaterThan(0);
-		expect(
-			lampCommands.some((c) => c.lamp === drawnLane && c.role === 'lit'),
-			`the accumulated command stream must include a "lit" LampCommand for ${drawnLane}`,
-		).toBe(true);
-
-		// The drawn lane's lit flag survives the whole run (nothing un-lights
-		// an individual Top lane other than a lane change or a completed set,
-		// neither of which this run's own script performs) -- so the FOLDED
-		// view still shows it lit, whether the skill shot resolved (step 2 ->
-		// step 1) or is still armed.
-		expect(view[drawnLane!]?.role, `${drawnLane} must still read "lit" at the end of the run`).toBe('lit');
-
-		// Now the real Babylon half: a fresh NullEngine scene loaded from the
-		// COMMITTED glb, driven by the SAME view this real loop produced.
+		// ---- The RENDERED ARTEFACT first (Rule 1, AC I1) ----
+		// A fresh NullEngine scene loaded from the COMMITTED glb, driven by
+		// the SAME view this real loop produced.
 		const engine = new NullEngine();
 		try {
 			const bytes = readFileSync(GLB_PATH);
@@ -144,10 +146,16 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 				const mesh = getRequiredNode(scene, drawnLane!) as AbstractMesh;
 				const material = mesh.material as PBRMaterial;
 				const emissive = material.emissiveColor;
+				// Tightened (code review pass 2): `r > 0 || g > 0 || b > 0`
+				// admitted ANY non-black colour, so a driver that painted the
+				// drawn Top lane orange instead of white passed. The lane
+				// reads role `lit` at this point (asserted below), and
+				// LAMP_GRAMMAR.lit is the colour that role means -- read from
+				// the module, never re-typed here.
 				expect(
-					emissive.r > 0 || emissive.g > 0 || emissive.b > 0,
-					`${drawnLane}'s own emissiveColor must be non-black on the rendered artefact -- got rgb(${emissive.r}, ${emissive.g}, ${emissive.b})`,
-				).toBe(true);
+					{ r: emissive.r, g: emissive.g, b: emissive.b },
+					`${drawnLane}'s own emissiveColor on the rendered artefact must be the grammar's "lit" colour`,
+				).toEqual({ r: LAMP_GRAMMAR.lit.r, g: LAMP_GRAMMAR.lit.g, b: LAMP_GRAMMAR.lit.b });
 
 				const enabledLight = mesh.lightSources.find((l) => l.isEnabled() && l instanceof PointLight);
 				expect(enabledLight, `${drawnLane}'s own mesh must carry an ENABLED PointLight in its lightSources`).toBeDefined();
@@ -157,5 +165,23 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 		} finally {
 			engine.dispose();
 		}
+
+		// ---- then the seam that produced it ----
+		expect(allCommands.length, 'the command stream must be non-empty across the whole run').toBeGreaterThan(0);
+		const lampCommands = allCommands.filter(isLampCommand);
+		expect(lampCommands.length, 'at least one LampCommand must have been emitted').toBeGreaterThan(0);
+		expect(
+			lampCommands.some((c) => c.lamp === drawnLane && c.role === 'lit'),
+			`the accumulated command stream must include a "lit" LampCommand for ${drawnLane}`,
+		).toBe(true);
+
+		expect(viewAtArm, 'the drawn lane\'s own lamp must already have been folded into the view as lit/2 before any plunge').toEqual({ role: 'lit', step: 2 });
+
+		// The drawn lane's lit flag survives the whole run (nothing un-lights
+		// an individual Top lane other than a lane change or a completed set,
+		// neither of which this run's own script performs) -- so the FOLDED
+		// view still shows it lit, whether the skill shot resolved (step 2 ->
+		// step 1) or is still armed.
+		expect(view[drawnLane!]?.role, `${drawnLane} must still read "lit" at the end of the run`).toBe('lit');
 	});
 });

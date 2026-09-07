@@ -82,6 +82,12 @@ interface GltfPositionAccessor {
 interface GltfDocumentWithPositionAccessors extends GltfDocument {
 	readonly accessors: readonly GltfPositionAccessor[];
 }
+/** The node TRS fields `GltfNode` does not declare -- read (code review pass 2) only to ASSERT their absence, see `meshTableBoxMm` below. */
+interface GltfNodeTrs {
+	readonly translation?: readonly number[];
+	readonly rotation?: readonly number[];
+	readonly scale?: readonly number[];
+}
 
 /**
  * Story 2.8 -- there is no glb bounding-box helper before this story
@@ -107,8 +113,26 @@ function meshTableBoxMm(doc: GltfDocument, meshName: string): TableBoxMm {
 	const withAccessors = doc as GltfDocumentWithPositionAccessors;
 	const meshNode = withAccessors.nodes.find((n) => n.name === meshName);
 	expect(meshNode, `glb node "${meshName}" not found`).toBeDefined();
+	// Code review pass 2: two ways this helper could measure the wrong box
+	// and report a confident pass on unmeasured geometry -- exactly the
+	// vacuity shape DW-47's own assertion below must not have.
+	//   (a) it reads `primitives[0]` alone, so a multi-primitive export
+	//       would leave the rest of the mesh unmeasured. AD-11's export
+	//       contract already requires exactly one material slot per mesh
+	//       (`tools/export.py`), which makes this a single primitive -- but
+	//       that is an invariant of a DIFFERENT file, so assert it here.
+	//   (b) it reads vertex bounds only and never composes the node's own
+	//       TRS, so a displacement expressed as `node.translation` (rather
+	//       than baked into the vertices, as `make-placeholder-blend.py`
+	//       does today) would be invisible to the containment, non-overlap
+	//       and z <= 0 assertions alike.
+	const trs = meshNode as GltfNode & GltfNodeTrs;
+	expect(trs.translation, `"${meshName}": this helper measures vertex bounds only, so the node must carry no translation`).toBeUndefined();
+	expect(trs.rotation, `"${meshName}": this helper measures vertex bounds only, so the node must carry no rotation`).toBeUndefined();
+	expect(trs.scale, `"${meshName}": this helper measures vertex bounds only, so the node must carry no scale`).toBeUndefined();
 	const mesh = withAccessors.meshes[meshNode!.mesh!];
 	expect(mesh, `glb node "${meshName}" carries no mesh`).toBeDefined();
+	expect(mesh.primitives, `"${meshName}": must be a single-primitive mesh -- this helper measures primitives[0] alone`).toHaveLength(1);
 	const accessorIndex = mesh.primitives[0]?.attributes.POSITION;
 	expect(accessorIndex, `"${meshName}": primitive has no POSITION attribute`).toBeDefined();
 	const accessor = withAccessors.accessors[accessorIndex!];

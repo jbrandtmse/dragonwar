@@ -124,7 +124,20 @@ const DEVICE_NAME_PATTERN = /^(?:s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$/;
 const SIM_NO_COLOUR_MESSAGE = 'a lamp role is never a colour (AD-9): presentation/lighting/grammar.ts is the one (role, step) -> colour table';
 const SIM_NO_COLOUR_WORD_PATTERN_SOURCE = String.raw`\b(colou?r|rgba?|hsla?|tint|hue)\w*\b`;
 const SIM_NO_COLOUR_NAME_PATTERN_SOURCE = String.raw`\b(red|green|blue|white|black|yellow|orange|purple|amber|cyan|magenta|violet|pink|gold|grey|gray)\b`;
-const SIM_NO_COLOUR_ANCHORED_NAME_PATTERN = /^(?:red|green|blue|white|black|yellow|orange|purple|amber|cyan|magenta|violet|pink|gold|grey|gray)$/;
+const SIM_NO_COLOUR_ANCHORED_NAME_PATTERN = /^(?:red|green|blue|white|black|yellow|orange|purple|amber|cyan|magenta|violet|pink|gold|grey|gray)$/i; // code review pass 2: the 'i' flag -- (h1) above is case-insensitive, so (h2) must be too, or 'White'/'RED' passes the whole gate
+// (h4) identifier-level, over `maskForCodeOnly`: a NUMERIC RGB TRIPLE --
+// `{ r: 1, g: 0.5, b: 0 }`. Code review pass 2: AC 2 names "no RGB" FIRST,
+// and none of (h1)/(h2)/(h3) could see this form -- `LAMP_GRAMMAR`'s own
+// table copied verbatim into `src/sim/rules/lamps.ts` (`lit: { r: 1, g: 1,
+// b: 1 }, hurryup: { r: 1, g: 0, b: 0 }, ...`) matched no colour word, no
+// colour name, no `#hex` and no `rgb(`, and `pnpm lint:boundaries` stayed
+// green. That is the exact second-colour-authority AD-9 exists to prevent.
+// Requires all three keys ADJACENT and each with a numeric value, so a
+// lone `r:`/`g:`/`b:` never fires; measured zero hits across the whole of
+// `src/sim/**` (83 files) before landing. The single-letter `red:`/`green:`
+// /`blue:` key form is already covered by the colour-NAME matcher above,
+// which sees object keys in code like any other identifier.
+const SIM_NO_COLOUR_RGB_TRIPLE_PATTERN_SOURCE = String.raw`\br\s*:\s*[-+]?[0-9]*\.?[0-9]+\s*,\s*g\s*:\s*[-+]?[0-9]*\.?[0-9]+\s*,\s*b\s*:\s*[-+]?[0-9]*\.?[0-9]+`;
 const SIM_NO_COLOUR_HEX_PATTERN_SOURCES = [
 	String.raw`#[0-9a-fA-F]{3}\b`,
 	String.raw`#[0-9a-fA-F]{4}\b`, // code review: 4-digit hex-with-alpha (#rgba shorthand) was missing
@@ -781,6 +794,15 @@ function checkSimNoColour(simRoot, relRoot) {
 			let match;
 			while ((match = pattern.exec(codeOnly)) !== null) {
 				report(lineOf(source, match.index), `references colour-shaped identifier "${match[0]}"`);
+			}
+		}
+
+		// (h4) identifier-level, same masked source: a numeric RGB triple.
+		{
+			const pattern = new RegExp(SIM_NO_COLOUR_RGB_TRIPLE_PATTERN_SOURCE, 'gi'); // fresh RegExp per file
+			let match;
+			while ((match = pattern.exec(codeOnly)) !== null) {
+				report(lineOf(source, match.index), `declares a numeric RGB triple "{ ${match[0].replace(/\s+/g, ' ').trim()} }"`);
 			}
 		}
 

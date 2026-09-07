@@ -74,9 +74,19 @@ function entriesFor(scene: Scene): Map<LampName, LampDriverEntry> {
  * AD-11) -- with the Y (table z) component fixed at
  * `INSERT_LIGHT_TABLE_Z_MM` rather than the combined lens+cup bbox's own
  * (wrong) vertical midpoint. Resolved and validated BEFORE anything is
- * cached (`backglass.ts:59-74`'s own idiom): a scene missing the node, or
- * whose node carries no material, throws naming it on EVERY call, never
- * only the first, and never leaves an orphan cache entry behind.
+ * cached: a scene missing the node, or whose node carries no material,
+ * throws naming it on EVERY call, never only the first, and never leaves an
+ * orphan cache entry behind (the I/O matrix's own "Scene missing an insert
+ * node" row).
+ *
+ * [Code review pass 2 corrected this doc: it used to cite
+ * `backglass.ts:59-74` as "its own idiom", but `backglass.ts` returns from
+ * its `WeakMap` BEFORE resolving. Both orders give the same failure
+ * behaviour (a failed call caches nothing, so the next call throws again);
+ * they differ only on the success path, where this order re-resolves all
+ * fourteen nodes on every render frame and `backglass.ts` resolves once.
+ * That cost is deliberate here and is what the I/O matrix row asks for --
+ * but it is a divergence from the cited precedent, not a copy of it.]
  */
 function entryFor(scene: Scene, playfieldRoot: TransformNode, lampName: LampName): LampDriverEntry {
 	const node = getRequiredNode(scene, lampName) as AbstractMesh;
@@ -127,7 +137,19 @@ export function syncLamps(scene: Scene, playfieldRoot: TransformNode, view: Lamp
 		const entry = entryFor(scene, playfieldRoot, lampName);
 		const projection = view[lampName] ?? { role: 'off' as const, step: 0 as const };
 		const grammar = lookupGrammar(projection.role, projection.step);
-		const isOn = projection.role !== 'off' && isLampOnAt(grammar.blinkPeriodMs, nowMs);
+		// Code review pass 2: this condition MUST be the same one
+		// `lookupGrammar()` itself applies (`role === 'off' || step === 0`
+		// -> `OFF_LOOKUP`), or the two modules read one `(role, step)` pair
+		// two different ways. AD-9 makes step 0 the OFF step for every role,
+		// so `{ role: 'hurryup', step: 0 }` is a legitimate encoding of "that
+		// lamp is off" -- `lampsOf()` never emits it today (only `off/0`),
+		// but `LampCommand` admits it and Stories 3.5/3.6/3.7/3.10 are the
+		// first producers of those roles. Testing `role !== 'off'` alone
+		// enabled the light with the grammar's own zero intensity and black
+		// diffuse, which costs nothing visually but DOES consume one of the
+		// AD-12 live-light budget slots below, starving a genuinely lit
+		// insert of its light once the lamp count passes the budget.
+		const isOn = projection.role !== 'off' && projection.step !== 0 && isLampOnAt(grammar.blinkPeriodMs, nowMs);
 
 		entry.material.emissiveColor = isOn ? new Color3(grammar.r, grammar.g, grammar.b) : Color3.Black();
 
