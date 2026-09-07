@@ -3295,13 +3295,26 @@ def main():
 	# derived from the SAME local variables its own matching
 	# add_switch_zone(...) call above uses (DW-149: never a re-typed
 	# literal), so "the insert sits over its own lane" is true by
-	# construction. DW-47 / this story's own Design Notes: the lens's TOP
-	# face sits at z = 0.0 (flush with the playfield surface, `vis_playfield`
-	# itself spans z -1.0..0.0), never above it -- `l_insert_left`'s own
-	# +0.5 mm protrusion (still visible above, in the git history of this
-	# block) was DW-47's own measured defect, reproduced fourteen times had
-	# this simply copied it forward. ----
-	INSERT_LENS_Z0_MM, INSERT_LENS_Z1_MM = -1.0, 0.0
+	# construction.
+	#
+	# [Story 2.8 rework iteration 1, code review HIGH 1] `l_insert_left`'s own
+	# +0.5 mm protrusion above the playfield was DW-47's measured defect. The
+	# first cut of this story's fourteen inserts traded that for the lens top
+	# sitting EXACTLY flush at z = 0.0 -- coplanar with `vis_playfield`'s own
+	# top face (z -1.0..0.0), sharing both bounding planes exactly. AD-11
+	# says lens and cup sit BELOW the surface, not ON it, and exact
+	# coplanarity is not a reliable "below": `mat_playfield` is alpha-BLEND
+	# (depth-write off) over an opaque `mat_insert` at identical depth, which
+	# is resolved per-fragment by float error -- the lens may not render at
+	# all. Recessed by a real, stated margin instead of a hairline:
+	# INSERT_LENS_RECESS_MM below z = 0, comfortably clear of both
+	# export/float noise and test/asset-contract.test.ts's own DW-47
+	# tolerance, while remaining a shallow insert pocket (real pinball insert
+	# lenses commonly sit a fraction of a millimetre below the playfield to
+	# clear the mylar/clearcoat layer -- an authored placeholder figure, not
+	# a measurement of any real machine; CLAUDE.md's provenance rule). ----
+	INSERT_LENS_RECESS_MM = 0.3
+	INSERT_LENS_Z0_MM, INSERT_LENS_Z1_MM = -1.0, -INSERT_LENS_RECESS_MM
 	INSERT_CUP_Z0_MM, INSERT_CUP_Z1_MM = -7.0, -1.0
 	LANE_INSERT_HALF_MM = 8.0    # 16 x 16 mm lens -- l_insert_left's own authored footprint
 	LANE_CUP_HALF_MM = 10.0      # 20 x 20 mm cup

@@ -2677,18 +2677,29 @@ describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely p
 	});
 
 	// The binding correction this story's own Design Notes record (DW-47 re-
-	// owned to this story): every insert's lens sits at or below z = 0 in the
+	// owned to this story): every insert's lens sits BELOW z = 0 in the
 	// table frame -- l_insert_left's own original +0.5 mm protrusion above
 	// the playfield surface is exactly the defect this pins against the
 	// EXPORTED geometry, not against make-placeholder-blend.py's own source
 	// text (Design Notes: "An assertion that reads the authoring script's
 	// intent instead of the exported geometry ... is the vacuity shape this
 	// epic has caught 36 times").
-	it('DW-47: every insert\'s geometry (lens top face included) sits at or below the playfield surface (table z <= 0)', () => {
+	//
+	// [Story 2.8 rework iteration 1, code review HIGH 1] `<= 0.001` was
+	// itself the defect: it is satisfied by EXACT coplanarity with
+	// `vis_playfield`'s own top face (z = 0), which is the z-fighting
+	// condition the finding measured, not a genuine "below the surface".
+	// Tightened to a real margin -- strictly below -0.1 mm -- comfortably
+	// inside `make-placeholder-blend.py`'s authored INSERT_LENS_RECESS_MM
+	// (0.3 mm) but tight enough to redden on a flush 0.0 lens or on
+	// DW-47's own +0.5 mm protrusion. Rule 19: raising `INSERT_LENS_Z1_MM`
+	// back to 0.0 and re-exporting reddens this assertion (verified,
+	// reverted -- see the Spec Change Log).
+	it('DW-47: every insert\'s geometry (lens top face included) sits genuinely below the playfield surface (table z < -0.1 mm)', () => {
 		const doc = readGlbJson();
 		for (const lampName of Object.keys(TABLE.lamps)) {
 			const box = meshTableBoxMm(doc, lampName);
-			expect(box.max.z, `${lampName}: lens top face (table z = ${box.max.z.toFixed(3)}) must not protrude above the playfield surface (z = 0)`).toBeLessThanOrEqual(0.001);
+			expect(box.max.z, `${lampName}: lens top face (table z = ${box.max.z.toFixed(3)}) must sit a real margin below the playfield surface (z < -0.1), not flush with or above it`).toBeLessThan(-0.1);
 		}
 	});
 
