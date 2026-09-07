@@ -1544,8 +1544,12 @@ So that an early drain is not a lost ball.
 **Then** the longest live window wins; `disarm(source)` of one leaves the other; Tilt disarms all
 
 **Given** a switch-script test
-**When** drains occur at expiry − 1 tick, expiry + grace − 1 tick and expiry + grace + 1 tick
-**Then** the first two save and the third ends the ball
+**When** drains occur at expiry − 1 tick, expiry + grace − 1 tick, **exactly expiry + grace** and expiry + grace + 1 tick `[AMENDED 2026-09-07 — see the story change log below]`
+**Then** the first three save and the fourth ends the ball
+
+**Story change log**
+
+- **2026-09-07 — AC 5 gained a fourth drain probe at exactly `expiry + grace` (spec gate, tier-1, intent-preserving).** The three probes as originally written cannot catch the off-by-one they exist for: `expiry + grace − 1` passes under an inclusive `<=` **and** under an exclusive `<`, and `expiry + grace + 1` fails under both, so the whole set stays green whichever comparison ships. Only a drain at *exactly* `expiry + grace` separates them. The probe set was therefore strengthened rather than the promise changed — the save window, the grace and the observable outcome are all unchanged. The project's only two existing tick windows (`src/sim/rules/devices/shots.ts:67`, `src/sim/rules/devices/index.ts:296-300`) are both inclusive `<=`, which is the reading this criterion now pins. Found by Story 2.9's plan stage while writing the Rule 19 mutation for this AC and confirmed at the source by the lead — an acceptance criterion whose stated probes cannot fail for the reason they exist is precisely the vacuity shape this epic has now found 43 times.
 
 ### Story 2.10: End-of-ball bonus and the multiplier
 
