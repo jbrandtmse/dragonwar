@@ -1648,6 +1648,60 @@ So that the game closes the way a real machine does.
 - DW-197: the Backglass score screen has no combined line budget, so with several players plus an active mode the mode information silently drops off the display rather than degrading visibly; the author's decision is to give the ball number a shared or shortened line rather than its own (ledger; routed by merge_gate 2026-09-06)
 - DW-198: the DMD never identifies WHICH player a score belongs to -- `DmdRow.emphasis` is set and asserted but no renderer reads it, and the Attract scores screen emits bare unlabelled numbers; the author's decision is to render `emphasis` as the current player's row highlighted or boxed, and its pinning test must assert that the rendered DOTS differ between an emphasised and an unemphasised row, never merely that the field is set (ledger; routed by merge_gate 2026-09-06)
 
+### Story 2.14: The lit Top lane -- rotation, and when it may move
+
+As a player,
+I want the lit Top lane to advance through the lanes each plunge rather than be drawn at random,
+So that the skill shot is a pattern I can read, and I never face the same lit lane three balls running.
+
+**Acceptance Criteria:**
+
+**Given** `createSkillShotMode().start()` today draws the lit Top lane from `GameState.rng` (`src/sim/rules/modes/skill-shot.ts`, the single `nextRngInt(state.rng, TOP_LANES.length)` call)
+**When** a ball starts
+**Then** the lit Top lane **advances one position** through `TOP_LANES` in its declared order, wrapping, instead of being drawn -- so the same lane is never lit on two consecutive balls and a three-ball repeat is impossible **by construction**, which is what PRD FR-18's "rotating each plunge" describes
+
+**Given** Story 2.7's criterion "the lit lane differs across balls under the seeded PRNG and replays identically for the same seed"
+**When** it is re-pinned here
+**Then** the pinning test asserts the not-all-same property for **every** starting position rather than for one seed the test itself chose -- DW-205's whole finding was that the old assertion could only ever see the seed it picked -- and its Rule 19 mutation (freeze the advance so one lane is always lit) reddens it
+
+**Given** `test/rules-modes-integration.test.ts`'s DW-201 block, today the only mutation-proven evidence anywhere that `GameStart.seed` reaches `GameState.rng` and changes something observable
+**When** the draw is replaced
+**Then** that evidence is either preserved (the seed still decides the starting position, and the block is rewritten rather than deleted) or deliberately retired with its replacement named -- never silently deleted, and never left asserting a lane the rotation now fixes. A change that leaves the shipped seed with no observable effect anywhere has reintroduced DW-201's user-visible symptom in a new costume, and this criterion exists to make that impossible to do by accident
+
+**Given** `epics.md` Story 2.7 AC 5 and `spec-2-7-*.md` AC 6 both describe the superseded random draw
+**When** this story lands
+**Then** both are amended in the same commit with the reasoning recorded, so no ratified artifact is left describing a game the code no longer plays
+
+- DW-205: the seeded draw repeats the same Top lane on all three balls in 11.2% of games (55.51% on a consecutive pair, measured over 200,000 seeds) while Story 2.7's own criterion forbids it; the author decided the lane advances in sequence each plunge rather than accepting uniform randomness, on PRD FR-18's "rotating each plunge" (ledger; routed by runner 2026-09-07)
+
+**Prerequisites:** Story 2.7 (the skill shot, the lit lane and lane change).
+
+**Story change log**
+
+- **2026-09-07 -- chartered out of Story 2.7 (author's decision).** Story 2.7 shipped the lit Top lane as a
+  seeded uniform draw. DW-205 measured the consequence over 200,000 seeds: **11.20%** of games light one lane
+  on all three balls and **55.51%** repeat on a consecutive pair, while Story 2.7's own AC 5 says the lit lane
+  differs across balls. The reviewer recommended accepting uniform randomness and rewording the criterion.
+  **The author decided the opposite, on evidence the reviewer had not weighed:** PRD FR-18 describes the lit
+  Top lane as *"rotating each plunge"* -- a deterministic advance, not a draw. Rotating makes the criterion
+  hold by construction instead of by luck. The work is chartered here rather than folded into another story
+  because none of Stories 2.9-2.13 owns the skill shot, and because closing DW-205 means amending two ratified
+  artifacts and touching a mutation-proven regression pin -- amendment work that needs its own named record,
+  not in-flight scope on a bonus or tilt story.
+- **Two things the implementer must not rediscover.** (1) `players[p].ballNumber` already exists, is
+  player-scoped (correct for Hot seat), is already inside the hashed `GameState`, and is already correct at the
+  moment the mode stack starts -- a per-ball advance needs no new state field. (2) The lane draw is the **only**
+  consumer of `GameState.rng` in the shipped product today (Match, the planned second consumer, is Story
+  2.13's and is unbuilt), so there is no downstream stream-offset hazard -- but `rng`'s own value **is** hashed,
+  so whether the advance still consumes a step is hash-visible on its own. Measured 2026-09-07: none of the
+  five replay goldens ever starts a game (all five end at `rng = 0`, `phase = attract`), so this change cannot
+  redden a golden **today**. That stops being true once DW-175 re-records the goldens through the rules layer
+  in Epic 3 -- doing this before that re-recording is strictly cheaper.
+- **Coupled to DW-204, which is on the author's decision sheet.** DW-204 asks whether the paying lane freezes
+  at `ball_launched`. Both entries are about which lane is lit and when it may move, both rest on the same
+  FR-18 sentence, and both are load-bearing for the same two DW-202 composition tests. Whoever plans this story
+  should carry DW-204's answer into the same pass rather than edit those tests twice.
+
 ## Epic 3: The Campaign and the War
 
 The five modes and the moment: lock two balls under the Dragon, spell DRAGON in either order, the Mouth opens and fires them back as fire, ten Strikes win the Jackpot. Hurry-up, Quick multiball, Joust, the Lock arbiter, the War, Strikes and the progressive Jackpot, re-qualification, stacking by priority, the extra-ball achievement menu, and the Dragon's mouth and hit-reaction shows. Scoring values freeze after this epic's first full playtest.
@@ -2008,9 +2062,9 @@ So that the inserts read as lamps under plastic, not stickers.
 
 **Acceptance Criteria:**
 
-**Given** every `l_` node carries lens and cup geometry and the playfield material has a translucency mask
+**Given** every `l_` node carries lens and cup geometry, and **Story 2.8 already ships the lens transmitting its own `PointLight` from beneath** — `subSurface.isTranslucencyEnabled` on each insert's own `mat_insert` clone — so a lit insert already reads as a lamp under plastic and is already dark when off `[AMENDED 2026-09-07 — see the story change log below]`
 **When** an insert is lit
-**Then** the lens emissive lights, a point light beneath the lens illuminates the cup interior and spills through the mask onto adjacent playfield art, and the insert is dark when off
+**Then** what this story adds is **the spill**: the playfield material carries a translucency mask, each insert's light is admitted to `vis_playfield`'s light list, and the glow reaches the adjacent playfield art — which is precisely what forces the light-list and `maxSimultaneousLights` restructuring Story 2.8 was forbidden to do, and what makes the cup interior itself visible rather than sealed inside an opaque box
 
 **Given** between 50 and 150 inserts in `TABLE.lamps`
 **When** all are lit at once on the WebGL2 path
@@ -2023,6 +2077,33 @@ So that the inserts read as lamps under plastic, not stickers.
 **Given** the future per-group bake
 **When** the driver is reviewed
 **Then** the emissive-plus-dynamic path sits behind the same `LampDriver` interface so the bake can replace it without touching rules, `TABLE` or mesh names
+
+**Story change log**
+
+- **2026-09-07 — narrowed, because Story 2.8 now delivers the lit-from-beneath half (author's decision).**
+  Story 2.8's code review found that its fourteen insert `PointLight`s **changed no rendered pixel**: each
+  sits at table z = -4 mm inside the cup, the lens's only visible face is its top with normal +table-z, and
+  `includedOnlyMeshes` is the insert's own mesh — so N·L < 0 across that whole face. Fourteen lights and the
+  entire live-light-budget machinery governed a path nobody could see, and no test in 2.8 could catch it
+  because `NullEngine` rasterises nothing (the suite was green at 1822).
+  Story 2.8 recommended deferring the real fix to this story, on the reasoning that a transmissive lens is
+  this story's own title. **The author decided otherwise:** a real pinball insert is a translucent lens lit
+  from beneath, this story's AC 1 says "a dynamic light **beneath** the lens" in its own words, and shipping
+  dormant machinery for two epics to protect a title is the wrong trade. Story 2.8 therefore builds the
+  transmissive lens — a material change on its own per-insert clone that adds no light, changes no light
+  list, raises no `maxSimultaneousLights` and touches no `vis_playfield` (AD-12, amended the same day).
+- **What this story keeps, and why it is still a story.** The half 2.8 cannot reach is **the spill**: a light
+  admitted to `vis_playfield`'s list, a translucency mask on the playfield material, and the glow landing on
+  adjacent art. That is not a material tweak — `mat_insert` carries `maxSimultaneousLights = 4`, so adding
+  `vis_playfield` to every insert's light list blows the limit at the fifth lamp and forces the table-wide
+  light-to-material restructuring this story was always the right home for. The scale criterion (50–150
+  inserts at 60 FPS), the step-2/3 intensity-and-spill ramp, and the bake-swap interface check are all
+  untouched by 2.8 and remain this story's.
+- **One measured constraint inherited from 2.8, so it is not rediscovered here.** `mat_insert` uses physical
+  light falloff (1/d²) and the lens sits ~3.7 mm above its light, so the transmitted term arrives with a very
+  large attenuation factor and clips hard unless the intensity is tuned down. An insert whose colour has
+  clipped to yellow-white has lost the `(role, step)` grammar the channel exists for — treat insert intensity
+  as a tuned quantity, not a constant, when the spill is added on top of it.
 
 ### Story 4.3: Flashers on events
 
