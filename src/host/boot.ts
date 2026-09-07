@@ -26,9 +26,10 @@ import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult
 import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
 import { createTuningPanel, buildOverriddenTuning, type TuningPanel } from './dev/tuning-panel';
 import { BUILD_SHA } from './build-info';
+import { deriveGameSeed } from './game-seed';
 import { resolveTuning } from '../sim/table/tuning';
 import { TABLE } from '../sim/table/dragonwar';
-import type { CoilName, Snapshot } from '../sim/table/names';
+import type { CoilName, GameStart, Snapshot } from '../sim/table/names';
 
 const GLB_URL = './assets/dragonwar.glb';
 const COLLISION_URL = './assets/dragonwar.collision.json';
@@ -223,6 +224,24 @@ async function onBegin(): Promise<void> {
 		// this story's own hardcoded dev GameStart with "the panel's current
 		// set" once the panel exists.
 		let tuningPanel: TuningPanel | undefined;
+		// DW-201: a real, non-constant seed for the game the player is about to
+		// actually play -- see game-seed.ts's own header for why the previous
+		// hardcoded literal-zero seed was a defect (every real machine lit the
+		// same Top lane on every ball of every game) and why deriving it here,
+		// host-side, is the fix AD-3 allows (sim/ still only ever reads
+		// GameState.rng).
+		// `tuning`/`adjustments`/`highscores` mirror this loop's own PRE-EXISTING
+		// implicit defaults exactly -- createLoop()'s own `options.tuning ??
+		// resolveTuning()` and createRules()'s own DEFAULT_ADJUSTMENTS
+		// (`src/sim/rules/index.ts`) -- so this is a seed-only fix, never a
+		// behaviour change to the tuning or sim adjustments a real game boots
+		// with.
+		const gameStart: GameStart = {
+			seed: deriveGameSeed(),
+			tuning: resolveTuning(),
+			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0.08 },
+			highscores: [],
+		};
 		hostLoop = createHostLoop(
 			collisionDoc,
 			(output) => {
@@ -238,6 +257,7 @@ async function onBegin(): Promise<void> {
 			(_elapsedMs, transitions, tick) => {
 				replayRecorder.recordTransitions(transitions, tick);
 			},
+			gameStart,
 		);
 		hostLoop.start();
 

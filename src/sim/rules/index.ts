@@ -155,7 +155,17 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * Story 2.11. Recorded here so the next reader challenges the numbers rather
  * than trusting a comment that overstated them.
  */
-const DEFAULT_ADJUSTMENTS: GameAdjustments = {
+// Test-only named export (the `HARDWARE_COILS` / `PLAYFIELD_SWITCHES`
+// precedent, `ball-controller.ts` / `devices/index.ts`) -- Story 2.7, DW-201
+// code review: `src/host/boot.ts`'s real `createHostLoop(...)` call now
+// hand-types this exact literal for its own `GameStart.adjustments` (it must
+// -- `host/**` may not import `sim/rules/**` directly, AD-1/AD-16, enforced
+// by `dependency-cruiser.config.mjs`'s `host-no-physics-or-rules` rule) so a
+// future change here would otherwise drift from the real boot path with
+// nothing to notice. `test/host-game-seed.test.ts` imports this export to
+// pin the two literals equal; production code never imports it from
+// `host/**`.
+export const DEFAULT_ADJUSTMENTS: GameAdjustments = {
 	pitchDeg: TABLE.reference.pitchDeg,
 	tiltWarnings: 1,
 	ballsPerGame: 3,

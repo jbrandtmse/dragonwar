@@ -118,10 +118,15 @@ export function createHostLoop(
 	onAdvance?: (elapsedMs: number, transitions: readonly InputTransition[], tick: number) => void,
 	/**
 	 * Story 2.5, task 5 (AD-14): forwarded straight into `createLoop()`'s own
-	 * `gameStart` option below. Optional, and not yet supplied by
-	 * `src/host/boot.ts` (there is no player-facing settings/Attract flow to
-	 * source one from yet) -- the plumbing exists end to end so a future story
-	 * can supply one without touching this seam again.
+	 * `gameStart` option below. Optional -- a caller with nothing to supply
+	 * yet gets the same defaults as before this parameter existed. Story 2.7
+	 * (DW-201) is the first real caller: `src/host/boot.ts`'s primary
+	 * `createHostLoop(...)` call now supplies one, with a real host-derived
+	 * seed (`./game-seed.ts`'s `deriveGameSeed()`), so every real game draws
+	 * a genuinely different sequence rather than the fixed default. The dev
+	 * `replayRecorder.start()` / `reset()` hatches further down `boot.ts`
+	 * still omit it deliberately (a reproducible-recording tool, not
+	 * gameplay), which is why this parameter stays optional here.
 	 */
 	gameStart?: GameStart,
 ): HostLoop {

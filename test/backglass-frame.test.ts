@@ -370,17 +370,95 @@ describe('AC 5 -- the highest-priority mode, with published fields converted to 
 	});
 });
 
-describe('a row wider than the panel is clamped by rasterise(), through the real renderFrame() -> rasterise() pipeline', () => {
-	it('an implausibly long mode name never throws and never lights a dot outside the buffer', () => {
+describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes NO rows to the frame, rendered rows and rasterised dots alike', () => {
+	function gameWithOnlyBase(): GameState {
+		return {
+			...BASE_GAME_STATE,
+			phase: 'game',
+			players: [buildPlayer({ score: 0, ballNumber: 1 })],
+			currentPlayer: 0,
+			modes: [{ mode: 'base', priority: 100, player: 0 }],
+		};
+	}
+
+	it('once only the base mode remains active, the mode block is simply absent: no BASE row, and no lit dot at all in the row slot it would have occupied', () => {
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game: gameWithOnlyBase() }));
+
+		// The rendered ROWS: exactly the score and BALL rows -- not a third
+		// row with empty text occupying the mode's slot, no row at all.
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1']);
+		expect(frame.rows.some((r) => r.text.includes('BASE'))).toBe(false);
+
+		// Rule 19 condition this ledger entry (DW-200) imposes explicitly: a
+		// helper returning empty text is not enough to trust -- the
+		// RASTERISED dot buffer must actually be dark where the mode's own
+		// name row would have landed. For a single player the name row would
+		// sit at dot row 16 (player row 0, BALL row 8, mode name row 16 --
+		// LEFT_MARGIN_COL/LINE_PITCH_ROWS math, this file's own AC 5 block)
+		// and span GLYPH_H (7) rows beneath it.
+		const raster = rasterise(frame, FONT_5X7);
+		const MODE_NAME_ROW = 16;
+		const GLYPH_H = 7;
+		for (let row = MODE_NAME_ROW; row < MODE_NAME_ROW + GLYPH_H; row++) {
+			for (let col = 0; col < raster.cols; col++) {
+				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} must be unlit -- no mode row may render`).toBe(0);
+			}
+		}
+	});
+
+	// Code review, intent-alignment layer, 2026-09-06: `buildModeRows()`'s own
+	// doc comment claims an unlabelled mode suppresses "not any of its
+	// published fields either" -- the test above only covers `base`, which
+	// publishes no `ModeView` fields at all, so that specific claim was
+	// otherwise untested (a mode WITH published fields but no authored name
+	// does not exist anywhere in this codebase yet, so this is coverage for a
+	// structural guarantee -- `buildModeRows()` returns before it ever reads
+	// `mode.timerTicks` -- rather than a live product defect today).
+	it('an unmapped mode id that ALSO publishes a ModeView field (timerTicks) still contributes NO rows and no lit dots -- the field is suppressed too, not just the name', () => {
 		const game: GameState = {
 			...BASE_GAME_STATE,
 			phase: 'game',
 			players: [buildPlayer({ score: 0, ballNumber: 1 })],
 			currentPlayer: 0,
-			modes: [{ mode: 'a_very_long_mode_name_indeed_and_then_some', priority: 100, player: 0 }],
+			modes: [{ mode: 'some_unmapped_mode', priority: 100, player: 0, timerTicks: 1000 }],
 		};
 		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
-		const longRow = frame.rows.find((r) => r.text.startsWith('A VERY LONG'));
+
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1']);
+		expect(frame.rows.some((r) => r.text.includes('SOME UNMAPPED MODE') || r.text === '1.0')).toBe(false);
+
+		const raster = rasterise(frame, FONT_5X7);
+		const MODE_NAME_ROW = 16;
+		const GLYPH_H = 7;
+		for (let row = MODE_NAME_ROW; row < MODE_NAME_ROW + GLYPH_H; row++) {
+			for (let col = 0; col < raster.cols; col++) {
+				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} must be unlit -- no mode row may render`).toBe(0);
+			}
+		}
+	});
+});
+
+describe('a row wider than the panel is clamped by rasterise(), through the real renderFrame() -> rasterise() pipeline', () => {
+	it('an implausibly long BALL row never throws and never lights a dot outside the buffer', () => {
+		// DW-200 closed off the vector this test used to use: an unmapped
+		// mode id mechanically rendering its own snake_case text. A mode row
+		// now renders only an authored, short display literal or nothing at
+		// all (frame.ts's MODE_DISPLAY_NAMES), so there is no longer a real
+		// code path that turns an arbitrary long mode id into an on-panel
+		// row. `BALL <n>` (frame.ts's own buildScoreRows(), never clamped
+		// there) is a still-live, still-real vector for the exact same
+		// underlying claim this test exists to prove: rasterise() never
+		// throws and never writes outside its own buffer on an implausibly
+		// wide row.
+		const game: GameState = {
+			...BASE_GAME_STATE,
+			phase: 'game',
+			players: [buildPlayer({ score: 0, ballNumber: 12345678901234567 })],
+			currentPlayer: 0,
+			modes: [],
+		};
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		const longRow = frame.rows.find((r) => r.text.startsWith('BALL '));
 		expect(longRow, 'sanity: the over-width row must actually be present, unclamped, in renderFrame()\'s own output -- clamping is raster.ts\'s job, not frame.ts\'s').toBeDefined();
 		expect(longRow!.text.length).toBeGreaterThan(21);
 

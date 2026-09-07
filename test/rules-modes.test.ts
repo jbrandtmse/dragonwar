@@ -129,6 +129,116 @@ describe('AC 2 -- skill shot made', () => {
 	});
 });
 
+describe('DW-203 -- the launched guard is falsifiable: a closure BEFORE ball_launched must not resolve the skill shot', () => {
+	it('closing the drawn lane\'s own switch while the ball is still in the shooter lane (launched: false) leaves the skill shot armed, with no award', () => {
+		// Closing the LIT lane's own switch, not an unrelated one, is what
+		// makes this test mutation-provable (Rule 19): an observer who only
+		// checked "some playfield closure doesn't resolve it early" could not
+		// tell a real launched-guard from a lucky non-matching miss. Removing
+		// the guard (`if (active.launched !== true) continue;` in
+		// skill-shot.ts) would make THIS exact closure match and pay, since it
+		// genuinely is the drawn, lit lane's switch.
+		const initial = gameState({
+			players: [player({ lit: { top_2: true } })],
+			modes: [
+				{ mode: 'base', priority: 100, player: 0 },
+				{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+			],
+		});
+		const result = runRulesScript(close('s_top_2').at(1).build(), { durationTicks: 1, initialState: initial });
+		const after = result.finalState;
+
+		expect(after.modes.map((m) => m.mode).sort(), 'skill_shot must still be armed -- ball_launched has not fired yet').toEqual(['base', 'skill_shot']);
+		expect(after.players[0]!.score, 'no award before launch, even on the lit lane\'s own switch').toBe(0);
+		expect(after.players[0]!.letters).toBe('');
+	});
+});
+
+describe('DW-202 -- lane change actually repositions the lane the skill shot pays on (composition, not each mechanism proven only in isolation)', () => {
+	/**
+	 * Boots straight into Attract at `rng: 12345` -- the SAME seed AC 6 below
+	 * pins, whose own `EXPECTED_SEQUENCE` records the first ball's draw as
+	 * `top_3` (verified there against `src/sim/rules/rng.ts`'s own
+	 * algorithm, never guessed). Driving this test through the REAL
+	 * `ball_starting` -> `start()` path (rather than the hand-built
+	 * `armedAfterLaunch()` fixture every other test in this file uses) is
+	 * deliberate: it is the only way a mutation that caches the drawn lane
+	 * AT DRAW TIME (rather than re-deriving it from `lanes.lit` live) can be
+	 * distinguished from one that merely never populates a cache at all --
+	 * see this file's own DW-203 block and this describe block's mutation
+	 * notes for why a hand-built fixture cannot discriminate that claim.
+	 */
+	function attractState(): GameState {
+		return {
+			tick: 0,
+			phase: 'attract',
+			machine: {
+				ballsInPlay: 0,
+				hardwareEnabled: false,
+				ballSave: { untilTick: null, sources: [] },
+				tilt: { tilted: false, slamTilted: false },
+				multiball: null,
+				highscores: [],
+				deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
+			},
+			players: [],
+			currentPlayer: 0,
+			modes: [],
+			rng: 12345,
+		};
+	}
+
+	/**
+	 * Real Start -> arm (draws `top_3`, per the seed above) -> real
+	 * `ball_launched` -> a real `lane_change_pressed` (right: `top_3` wraps
+	 * to `top_1`, AC 4's own pinned rotation) -> a real playfield closure at
+	 * `closeSwitch`, whichever the caller wants to test entering.
+	 */
+	function drawTop3ThenRotateToTop1AndClose(closeSwitch: SwitchName): GameState {
+		const script = close('s_start').at(5)
+			.open('s_shooter_lane').at(7)
+			.close('s_flipper_r').at(8)
+			.close(closeSwitch).at(9)
+			.build();
+		const result = runRulesScript(script, { durationTicks: 9, initialState: attractState() });
+
+		// Sanity, both load-bearing for the assertions below: the draw
+		// genuinely landed on top_3 (this seed's own pinned first draw, AC 6),
+		// and the lane-change press genuinely rotated it to top_1 (AC 4's own
+		// pinned top-set right-rotation, wrapping) -- if either failed this
+		// test would prove nothing about composition.
+		expect(litLanesInSet(result.statesByTick.get(6)!, 'top'), 'seed 12345\'s first draw must be top_3 (pinned by AC 6)').toEqual(['top_3']);
+		expect(litLanesInSet(result.statesByTick.get(8)!, 'top'), 'a right press must rotate top_3 -> top_1 (pinned by AC 4)').toEqual(['top_1']);
+
+		return result.finalState;
+	}
+
+	it('draw top_3, lane change rotates it to top_1, entering top_1 pays -- the award reads lanes.lit live, not a lane cached at draw time', () => {
+		const after = drawTop3ThenRotateToTop1AndClose('s_top_1');
+
+		expect(after.players[0]!.score, 'the award must pay on the NEW lit lane (top_1), not the originally-drawn one (top_3)').toBe(TUNING.skillShotAward.value);
+		expect(after.players[0]!.letters, 'the first unspelled DRAGON letter, D').toBe('D');
+		expect(after.modes.map((m) => m.mode)).toEqual(['base']);
+	});
+
+	it('control (the falsifying case): entering the ORIGINALLY drawn lane (top_3) AFTER lane change has moved the lit lane away from it must NOT pay', () => {
+		// This is the mutation this ledger entry names made concrete as its
+		// own second test, not merely a described mutation to apply and
+		// revert: a skill shot that cached its drawn lane (top_3) at start()
+		// time, instead of reading players[p].lanes.lit live, would incorrectly
+		// pay HERE -- top_3 is no longer lit once lane change has rotated it
+		// away to top_1.
+		const after = drawTop3ThenRotateToTop1AndClose('s_top_3');
+
+		expect(
+			after.players[0]!.score,
+			'top_3 is no longer lit after the rotation -- entering it must not pay, proving the mode reads lanes.lit live rather than the lane drawn at start()',
+		).toBe(0);
+		expect(after.players[0]!.letters).toBe('');
+		expect(after.modes.map((m) => m.mode)).toEqual(['base']);
+	});
+});
+
 describe('AC 3 -- skill shot missed', () => {
 	const misses: readonly { readonly label: string; readonly switchName: SwitchName }[] = [
 		{ label: 's_sling_l (an unrelated playfield switch)', switchName: 's_sling_l' },

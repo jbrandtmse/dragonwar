@@ -191,23 +191,35 @@ function formatScore(n: number): string {
 }
 
 /**
- * Story 2.7: named-mode overrides, consulted BEFORE the mechanical
- * `split('_').join(' ').toUpperCase()` fallback below -- the skill shot's
- * sim id (`skill_shot`) would otherwise mechanically render `SKILL SHOT`,
- * but Story 2.6's own Design Notes name the intended text specifically:
+ * Story 2.7: the sole table of authored mode display names (DW-200: there is
+ * no mechanical fallback below any more -- see that entry just below). The
+ * skill shot's sim id (`skill_shot`) would otherwise have no display name at
+ * all, but Story 2.6's own Design Notes name the intended text specifically:
  * "`ARM YOURSELF` on the plunge, from the skill-shot `ModeView`". Naming the
  * sim mode `arm_yourself` instead would also render correctly with zero
  * change here, but would put the English phrase into `sim/` -- this table is
  * the alternative that keeps it here, per the Consistency Conventions
  * ("English literals live in `presentation/backglass` only").
+ *
+ * DW-200 (author decision, 2026-09-06): a mode line shows an AUTHORED name
+ * or nothing at all -- there is deliberately no mechanical
+ * `split('_').join(' ').toUpperCase()` fallback below any more. Before this
+ * fix, the base mode (AD-8: present in `modes[]` at priority 100 for the
+ * whole ball, so it becomes the top mode the instant the skill shot
+ * resolves) rendered the literal internal identifier `BASE` on the score
+ * screen for the rest of every ball. Generalising the fix -- "no entry here
+ * means no row", rather than special-casing `mode === 'base'` -- also
+ * protects every future mode Story 3.1+ adds: an unlabelled mode id can
+ * never leak onto the panel by omission, it can only be silently absent
+ * until someone deliberately authors an entry for it here.
  */
 const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	skill_shot: 'ARM YOURSELF',
 };
 
-/** `snake_case` mode id -> `UPPER CASE WORDS` display text -- the only place a mode's name becomes English (AD-9: "rules never format text"). */
-function modeDisplayName(mode: string): string {
-	return MODE_DISPLAY_NAMES[mode] ?? mode.split('_').join(' ').toUpperCase();
+/** `snake_case` mode id -> `UPPER CASE WORDS` display text -- the only place a mode's name becomes English (AD-9: "rules never format text"). Returns `undefined` for a mode with no authored entry (DW-200) -- `buildModeRows()` reads that as "render nothing for this mode", not as licence to derive one mechanically. */
+function modeDisplayName(mode: string): string | undefined {
+	return MODE_DISPLAY_NAMES[mode];
 }
 
 /** Ticks -> seconds, one decimal place, via `TICK_HZ` (never a re-derived constant -- AD-3). */
@@ -233,9 +245,20 @@ function selectTopMode(state: GameState): ModeView | undefined {
  * subset ... absent fields produce no row and no placeholder"). `charge`
  * and `strikesRemaining` are shown as plain numbers; `timerTicks` is the
  * only field converted (ticks are never a display unit).
+ *
+ * DW-200: a mode with no `MODE_DISPLAY_NAMES` entry contributes NO rows at
+ * all -- not its name, and not any of its published fields either, since a
+ * lone `timerTicks`/`value` row with no name above it would be its own kind
+ * of unlabelled leak. `selectTopMode()`'s caller still calls this
+ * unconditionally whenever a mode is active; returning `[]` here is what
+ * makes "the mode block is simply absent" true from the caller's side.
  */
 function buildModeRows(mode: ModeView, startLine: number): DmdRow[] {
-	const rows: DmdRow[] = [{ text: modeDisplayName(mode.mode), col: LEFT_MARGIN_COL, row: startLine * LINE_PITCH_ROWS, emphasis: false }];
+	const name = modeDisplayName(mode.mode);
+	if (name === undefined) {
+		return [];
+	}
+	const rows: DmdRow[] = [{ text: name, col: LEFT_MARGIN_COL, row: startLine * LINE_PITCH_ROWS, emphasis: false }];
 	let line = startLine + 1;
 	if (mode.timerTicks !== undefined) {
 		rows.push({ text: formatSecondsFromTicks(mode.timerTicks), col: LEFT_MARGIN_COL, row: line * LINE_PITCH_ROWS, emphasis: false });
