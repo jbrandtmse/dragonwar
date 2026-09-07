@@ -1505,6 +1505,8 @@ So that I can read the table without instructions and a colour always means the 
 **When** the table is viewed
 **Then** the lit lanes show white and the dropped letters and the Lock show orange, and the skill-shot lane blinks at step 2
 
+- DW-47: `l_insert_left`'s lens protrudes 0.5 mm above the playfield surface, against AD-11's "lens and cup geometry below the surface". This story authors fourteen real `l_` inserts with the same tooling, so every insert's lens and cup must sit at or below z = 0 in the table frame, pinned against the **exported** artefact rather than the authoring script's intent (ledger; re-owned from Story 4.2 by spec_gate 2026-09-06)
+
 ### Story 2.9: Ball save
 
 As a player,
