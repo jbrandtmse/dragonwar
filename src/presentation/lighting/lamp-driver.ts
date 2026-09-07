@@ -23,6 +23,20 @@
 //     exactly one PointLight, never five.
 //  4. `scene.lights` counts DISABLED lights too -- the live budget below
 //     counts only lights this function itself enables this call.
+//
+// HIGH 2 (rework iteration 2, `## Spec Change Log`, author-overruled the
+// deferral to Story 4.2): a real pinball insert is a translucent lens lit
+// from beneath -- AC 4/AC 5's own words. The lens top's surface normal is
+// +table-z and this light sits strictly beneath it, so N.L < 0
+// UNCONDITIONALLY across the whole face (HIGH 2's own diagnosis, re-proved
+// by `test/lighting-scene.test.ts`'s HIGH-2b geometric-half test): the
+// ordinary (front-lit, clamped-NdotL) diffuse term this light contributes to
+// that face is always exactly zero, and only a TRANSLUCENT material's
+// transmitted term (computed from the UNCLAMPED, negative NdotL) can ever
+// make this light visible at all. See `entryFor()` below for the two
+// concrete traps this addition closes (unbounded inverse-square attenuation
+// at millimetre range, and how much of the -- already zero -- ordinary term
+// to trade away).
 
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
@@ -46,8 +60,99 @@ import type { LampView } from './lamp-view';
  * 20 x 20 mm lane cup or a 10 x 10 mm letter cup. Converted with `toScene()`
  * only (AD-10); no other arithmetic on a table-frame value appears in this
  * file.
+ *
+ * Exported (code review, HIGH 2b): `test/lighting-scene.test.ts`'s
+ * geometric-half pinning test reads this SAME constant rather than
+ * re-typing `-4` -- a re-typed literal would drift silently if this value
+ * ever moved, and the checklist's own named Rule-19 mutation is "raise
+ * `INSERT_LIGHT_TABLE_Z_MM` above the lens top", which only reddens a test
+ * that reads the live constant.
  */
-const INSERT_LIGHT_TABLE_Z_MM = -4;
+export const INSERT_LIGHT_TABLE_Z_MM = -4;
+
+/**
+ * HIGH 2's own WARNING, measured rather than assumed: `mat_insert` (the
+ * SHARED source material) has `usePhysicalLightFalloff = true`, so by
+ * default this light's attenuation is `1 / distance^2`
+ * (`computeDistanceLightFalloff_Physical`,
+ * `pbrDirectLightingFalloffFunctions.js`) -- UNBOUNDED as distance -> 0.
+ * This light sits `INSERT_LIGHT_TABLE_Z_MM` below a lens top only ~3.7 mm
+ * away (cup z spans -7 .. -1 mm; the lens top is recessed to -0.3 mm by the
+ * HIGH-1 fix), so inverse-square gives an attenuation on the order of
+ * `1 / 0.0037^2 ~= 73,000`. Multiplied through every grammar intensity
+ * (1.0 / 1.4 / 1.8), every channel clips to 1.0 and an authored orange or
+ * blue lamp reads as flat white -- destroying the very `(role, step)`
+ * colour grammar this story exists to deliver.
+ *
+ * `light.falloffType` is a PER-LIGHT override, not a material-wide one:
+ * `materialHelper.functions.js`'s `PrepareDefinesForLights` sets a
+ * per-light `LIGHT_FALLOFF_STANDARD{n}` shader define straight from this
+ * property, and `lightFragment.js` checks that per-light define BEFORE
+ * falling back to the material's own `USEPHYSICALLIGHTFALLOFF` default --
+ * so setting it on this one `PointLight` changes only THIS insert's own
+ * light, never `mat_insert`'s shared setting and never any other light in
+ * the scene (including the scene's single `HemisphericLight`, which does
+ * not use distance falloff at all).
+ *
+ * `computeDistanceLightFalloff_Standard(offset, range) =
+ * max(0, 1 - |offset| / range)` is mathematically BOUNDED to `[0, 1]` for
+ * every distance -- never a millimetre-scale singularity -- so multiplying
+ * a grammar intensity by it can only ever SHRINK that intensity, never blow
+ * it past the clamp and wash the colour to white.
+ *
+ * The range itself is authored, not left at the light's own default
+ * (`Number.MAX_VALUE`, which would make the falloff a no-op): comfortably
+ * beyond the largest cup's own half-diagonal (the 20 x 20 mm lane/Lock cup,
+ * ~14.1 mm) plus this light's own depth below the lens (~3.7 mm), i.e.
+ * ~14.6 mm worst case -- so `computeDistanceLightFalloff_Standard` stays a
+ * smooth ~0.71 .. ~0.93 across the WHOLE lens face for every insert
+ * (lane/Lock and letter cups alike), never approaching the ramp's own zero
+ * tail within the insert's own footprint.
+ *
+ * Exported (review, rework iteration 3 follow-up): so
+ * `test/lighting-scene.test.ts` can pin `light.range` against the live
+ * constant instead of re-typing `0.05` -- the WARNING's own named fix had no
+ * test at all before this; a reverted-to-default falloff/range would have
+ * left `pnpm test` fully green while silently reintroducing the ~73,000x
+ * clip-to-white regression this constant exists to close.
+ */
+export const INSERT_LIGHT_RANGE_M = 0.05;
+
+/**
+ * `1.0` here is a proven value, not a knob maxed out for effect
+ * (HIGH 2's own WARNING: "a real trade, not a knob to max out").
+ * `lightFragment.js` trades the ordinary (front-lit) diffuse term for the
+ * transmitted one exactly along this axis:
+ * `info.diffuse = computeDiffuseLighting(...) * (1.0 - translucencyIntensity)`.
+ * `computePointAndSpotPreLightingInfo` clamps that ordinary term's own
+ * `NdotL` with `saturateEps(NdotLUnclamped)` -- and this light's
+ * `NdotLUnclamped` is negative EVERYWHERE on the lens top face (the module
+ * header above, and `test/lighting-scene.test.ts`'s geometric-half test,
+ * both establish `N.L < 0` unconditionally for a light strictly beneath a
+ * +table-z face), so the ordinary term this trade scales away is already
+ * exactly zero at every point this light can ever reach. Trading 100% of a
+ * genuinely-zero quantity for the transmitted term costs nothing -- it is
+ * not "maxing out a knob", it is recognising the knob has nothing else on
+ * it for this particular light/surface pair.
+ *
+ * Exported (review, rework iteration 3 follow-up): so
+ * `test/lighting-scene.test.ts`'s material-half test can assert the EXACT
+ * authored value rather than merely `toBeGreaterThan(0)`, which caught
+ * neither a wrong non-zero value nor -- stated plainly, not overclaimed --
+ * this one specific case: Babylon's own `PBRSubSurfaceConfiguration`
+ * constructor already defaults `translucencyIntensity` to `1` (measured:
+ * its own field initializer). Verified directly (Rule 19): deleting this
+ * assignment line entirely leaves `translucencyIntensity` at that SAME `1`
+ * by coincidence, so the exact-match assertion below still passes -- not
+ * because the assertion is blind, but because that specific mutation is
+ * behaviourally a no-op at the CURRENT value of `1.0`. The exact-match
+ * assertion genuinely does catch a wrong non-zero value (e.g. a future
+ * retune to `0.8` landing here as a typo'd `0.5`) and the spec's own named
+ * "force to 0" mutation; it does not, and structurally cannot, distinguish
+ * "this line runs" from "this line is absent" for the one value that
+ * happens to equal the library default.
+ */
+export const INSERT_TRANSLUCENCY_INTENSITY = 1.0;
 
 interface LampDriverEntry {
 	readonly material: PBRMaterial;
@@ -102,11 +207,36 @@ function entryFor(scene: Scene, playfieldRoot: TransformNode, lampName: LampName
 	const clone = material.clone(`mat_insert_${lampName}`) as PBRMaterial;
 	node.material = clone;
 
+	// HIGH 2 (rework iteration 2): the lens is a translucent surface lit
+	// from beneath, not an opaque one lit from the front. `subSurface`
+	// (`PBRSubSurfaceConfiguration`) deep-copies on `clone()` -- a distinct
+	// plugin object with distinct `Color3` instances, every relevant field
+	// `@serialize()`-decorated (measured, not assumed:
+	// `pbrMaterial.pure.js:1192-1206` -> `materialPluginBase.pure.js:249-251`)
+	// -- so this stays genuinely per-insert, the same fit trap 1 above needs.
+	clone.subSurface.isTranslucencyEnabled = true;
+	// `transmittanceBRDF_Burley(tintColor, diffusionDistance, thickness)`
+	// returns `tintColor` EXACTLY at `thickness = 0`
+	// (`pbrBRDFFunctions.js:173`: `tintColor * 0.25 * (temp^3 + 3*temp)` with
+	// `temp = exp(0) = 1` collapses to `tintColor * 1.0`). `tintColor`'s own
+	// default is white, so the transmitted term carries the light's colour
+	// undiluted. `0` also removes a silent world-scale dependence (thickness
+	// is world-scaled, `pbrSubSurfaceConfiguration.js:588-590`) that would
+	// otherwise bite the moment anyone re-scales `playfield_root`.
+	clone.subSurface.maximumThickness = 0;
+	clone.subSurface.translucencyIntensity = INSERT_TRANSLUCENCY_INTENSITY;
+
 	const localCenter = node.getBoundingInfo().boundingBox.center;
 	const lightSceneY = toScene({ x: 0, y: 0, z: INSERT_LIGHT_TABLE_Z_MM }).y;
 	const light = new PointLight(`light_${lampName}`, new Vector3(localCenter.x, lightSceneY, localCenter.z), scene);
 	light.parent = playfieldRoot;
 	light.includedOnlyMeshes = [node];
+	// HIGH 2: see `INSERT_LIGHT_RANGE_M`'s own doc comment above -- a
+	// per-light falloff override, never touching `mat_insert`'s own
+	// `usePhysicalLightFalloff`, so no other light or material in the scene
+	// is affected.
+	light.falloffType = PointLight.FALLOFF_STANDARD;
+	light.range = INSERT_LIGHT_RANGE_M;
 	light.setEnabled(false);
 
 	const entry: LampDriverEntry = { material: clone, light };

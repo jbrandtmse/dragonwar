@@ -22,12 +22,13 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { PointLight } from '@babylonjs/core/Lights/pointLight';
+import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engine';
 import { getRequiredNode } from '../src/presentation/scene/playfield';
-import { syncLamps } from '../src/presentation/lighting/lamp-driver';
+import { syncLamps, INSERT_LIGHT_TABLE_Z_MM, INSERT_LIGHT_RANGE_M, INSERT_TRANSLUCENCY_INTENSITY } from '../src/presentation/lighting/lamp-driver';
 import { LAMP_GRAMMAR, lookupGrammar } from '../src/presentation/lighting/grammar';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { LampName } from '../src/sim/table/names';
@@ -364,6 +365,122 @@ describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exerc
 				enabledPointLights += mesh.lightSources.filter((l) => l.isEnabled() && l instanceof PointLight).length;
 			}
 			expect(enabledPointLights, 'the default budget (20) must comfortably exceed fourteen real lamps -- every lit insert gets its own enabled light with no override at all').toBe(Object.keys(TABLE.lamps).length);
+		});
+	});
+});
+
+// Code review, HIGH 2b: "pin the transmission where a test can still fail --
+// and do NOT try to pin the pixel inside `pnpm test`." `NullEngine`
+// rasterises nothing (`readPixels()` returns null -- this file's own
+// `withScene` never asserts a pixel), so neither block below claims a
+// rendered PIXEL changed. Each pins one HALF of the composition that makes
+// the pixel possible, independently falsifiable:
+//   1. The material half -- the lit insert's own clone carries translucency,
+//      and an unlit neighbour's clone is the control proving it is set
+//      UNCONDITIONALLY at clone time, never gated on the lamp's own on/off
+//      state (unlike emissiveColor/light.setEnabled, which ARE gated) --
+//      plus the falloff/range fix from the same checklist item's WARNING
+//      (review, rework iteration 3 follow-up: this had NO coverage at all;
+//      deleting both `light.falloffType`/`light.range` lines left every
+//      test in this file green, silently reintroducing the ~73,000x
+//      clip-to-white attenuation the WARNING exists to close).
+//   2. The geometric half -- the light sits strictly beneath the lens/cup
+//      seam, which sits strictly beneath the (recessed) lens top, for every
+//      insert, read from the real loaded glb's own vertex data. This is the
+//      fact that makes transmission NECESSARY rather than decorative.
+// The lead's own browser A/B (HIGH 2a's `setLightBudget()` hatch) is the
+// pixel proof; this file is not.
+describe('syncLamps -- HIGH 2 rework: the material half of the pixel proof (a translucent lens, not an opaque one)', () => {
+	it("a lit insert's own cloned material carries translucency enabled with the authored intensity, and an UNLIT neighbour's clone carries it too -- the control proving it is set at CLONE time, never gated on the lamp's own on/off state", async () => {
+		await withScene(async (scene, playfieldRoot) => {
+			// l_top_2 is never named in this view -- entryFor() still resolves
+			// and configures its clone, since syncLamps() iterates every
+			// TABLE.lamps key every call.
+			const view: LampView = { l_top_1: { role: 'lit', step: 1 } };
+			syncLamps(scene, playfieldRoot, view, 0);
+
+			const lit = getRequiredNode(scene, 'l_top_1') as AbstractMesh;
+			const litMaterial = lit.material as PBRMaterial;
+			expect(litMaterial.subSurface.isTranslucencyEnabled, 'l_top_1 (lit): translucency must be enabled on its own clone').toBe(true);
+			// Exact match against the named constant, not `toBeGreaterThan(0)`:
+			// catches a wrong non-zero value (a future retune landing here as a
+			// typo) and the spec's own named "force to 0" mutation. Stated
+			// plainly, not overclaimed (`lamp-driver.ts`'s own doc comment on
+			// `INSERT_TRANSLUCENCY_INTENSITY` has the full account, Rule-19
+			// verified): Babylon's own `PBRSubSurfaceConfiguration` already
+			// defaults `translucencyIntensity` to `1`, so this exact-match
+			// assertion still cannot distinguish "this line runs" from "this
+			// line is absent" -- that ONE specific mutation is a behavioural
+			// no-op at the current authored value, not a blind spot in the
+			// assertion.
+			expect(litMaterial.subSurface.translucencyIntensity, 'l_top_1 (lit): translucency intensity must equal the authored constant').toBe(INSERT_TRANSLUCENCY_INTENSITY);
+
+			const unlit = getRequiredNode(scene, 'l_top_2') as AbstractMesh;
+			const unlitMaterial = unlit.material as PBRMaterial;
+			expect(
+				unlitMaterial.subSurface.isTranslucencyEnabled,
+				"l_top_2 (never lit in this view) is the control: translucency must already be set on its own clone, proving this is unconditional clone-time setup, not something tied to the lamp's own on/off state",
+			).toBe(true);
+			expect(unlitMaterial.subSurface.translucencyIntensity, 'l_top_2 (unlit): translucency intensity must equal the authored constant too').toBe(INSERT_TRANSLUCENCY_INTENSITY);
+
+			// The WARNING's own fix (review, rework iteration 3 follow-up): the
+			// per-light falloff override that keeps the transmitted term from
+			// clipping every channel to white. Read off the insert's own
+			// PointLight, the same `lightSources.find(...)` idiom this file
+			// already uses everywhere else (e.g. the pitch/position test above).
+			const litLight = lit.lightSources.find((l) => l instanceof PointLight) as PointLight;
+			expect(litLight, 'l_top_1 must have its own PointLight in lightSources').toBeDefined();
+			expect(litLight.falloffType, 'l_top_1: the light must use the bounded standard falloff, never the unbounded physical default').toBe(PointLight.FALLOFF_STANDARD);
+			expect(litLight.range, "l_top_1: the light's range must equal the authored constant").toBe(INSERT_LIGHT_RANGE_M);
+		});
+	});
+});
+
+describe('syncLamps -- HIGH 2 rework: the geometric half of the pixel proof (a light strictly beneath a translucent surface, not decorative)', () => {
+	/**
+	 * Every insert mesh is TWO stacked boxes -- a lens box and a cup box
+	 * (`tools/make-placeholder-blend.py`'s `new_insert_mesh()`) -- sharing
+	 * exactly one table-z plane (the cup's own top face IS the lens's own
+	 * bottom face) with no shared vertex ring (each box is built and merged
+	 * independently). So exactly THREE distinct local Y levels exist on the
+	 * combined mesh: the cup floor, the lens/cup seam, and the (HIGH-1
+	 * recessed) lens top. Local Y is read straight off the loaded mesh's own
+	 * POSITION vertex buffer -- AD-11's identity object transform (the same
+	 * precondition `test/asset-contract.test.ts`'s `meshTableBoxMm` helper
+	 * relies on) makes local space equal authored/table space here -- and
+	 * `frames.ts`'s own documented fact ("the scene frame and the glb frame
+	 * are numerically identical"; `toScene(v).y = v.z / 1000`, no sign flip)
+	 * means local Y (metres) * 1000 IS table z (millimetres) directly, with
+	 * no permutation to get wrong.
+	 */
+	function localTableZLevelsMm(mesh: AbstractMesh): number[] {
+		const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+		expect(positions, `${mesh.name}: mesh carries no POSITION vertex data`).toBeTruthy();
+		const levels = new Set<number>();
+		for (let i = 1; i < positions!.length; i += 3) {
+			// Round to 0.01 mm -- bins exporter float noise onto the (at most)
+			// three true authored planes without merging two genuinely distinct
+			// ones (the smallest real gap here is HIGH 1's own 0.7 mm recess).
+			levels.add(Math.round(positions![i]! * 1000 * 100) / 100);
+		}
+		return [...levels].sort((a, b) => a - b);
+	}
+
+	it("for every insert, the light's own table z sits strictly beneath the lens/cup seam, which sits strictly beneath the (recessed) lens top -- the fact that makes transmission necessary rather than decorative", async () => {
+		await withScene(async (scene) => {
+			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
+				const mesh = getRequiredNode(scene, name) as AbstractMesh;
+				const levels = localTableZLevelsMm(mesh);
+				expect(levels.length, `${name}: expected exactly 3 distinct table-z planes (cup floor, lens/cup seam, lens top); found ${levels.length}: ${levels.join(', ')}`).toBe(3);
+				const [cupFloorMm, seamMm, lensTopMm] = levels as [number, number, number];
+
+				expect(INSERT_LIGHT_TABLE_Z_MM, `${name}: the light must sit above the cup's own floor (inside the cup, not below it)`).toBeGreaterThan(cupFloorMm);
+				expect(
+					INSERT_LIGHT_TABLE_Z_MM,
+					`${name}: the light (table z = ${INSERT_LIGHT_TABLE_Z_MM}) must sit STRICTLY BELOW the lens/cup seam (table z = ${seamMm}) -- beneath the translucent surface, not merely near it`,
+				).toBeLessThan(seamMm);
+				expect(seamMm, `${name}: the lens/cup seam must sit strictly below the lens top (table z = ${lensTopMm})`).toBeLessThan(lensTopMm);
+			}
 		});
 	});
 });

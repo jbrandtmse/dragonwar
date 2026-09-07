@@ -111,6 +111,29 @@ declare global {
 			 * as a side effect). Dev-only/console-only, same terms as above.
 			 */
 			reset: () => void;
+			/**
+			 * Story 2.8 (code review, HIGH 2a): the lead's own lever for the
+			 * HIGH-2 rework's browser A/B, same dev-only/console-only terms as
+			 * every hatch above. Overrides the `{ budget }` option
+			 * `syncLamps()` is called with on every subsequent render frame --
+			 * `null` restores the production default
+			 * (`TUNING.liveLightBudget.value`). `setLightBudget(0)` is exactly
+			 * "every lit insert still shows its own emissive colour, no
+			 * dynamic light is enabled" (already pinned by
+			 * `test/lighting-scene.test.ts`'s `{ budget: 2 }` trap-4 case at a
+			 * non-zero budget), which turns the insert LIGHTS off while
+			 * leaving their emissive material untouched -- the isolation this
+			 * hatch exists to give the transmissive-lens pixel proof, since
+			 * nothing else under `src/host/**` can turn only one of the two
+			 * halves off. e.g.
+			 * `window.__dragonwarBoot.setLightBudget(0)` /
+			 * `window.__dragonwarBoot.setLightBudget(null)`.
+			 * A non-`null` value that is not a finite number >= 0 is rejected
+			 * with a console error and otherwise ignored (the override is left
+			 * unchanged); the override is also cleared back to `null` by
+			 * `reset()`, so a stale A/B setting never survives a reset.
+			 */
+			setLightBudget: (budget: number | null) => void;
 		};
 	}
 }
@@ -208,6 +231,13 @@ async function onBegin(): Promise<void> {
 		// render frame, for the same reason: the two rAF chains are
 		// independent). `syncLamps()` below reads this on every render frame.
 		let lampView: LampView = INITIAL_LAMP_VIEW;
+		// Story 2.8 (code review, HIGH 2a): the lead's console-only override
+		// for `syncLamps()`'s own `{ budget }` option, driven by
+		// `window.__dragonwarBoot.setLightBudget()` below. `null` (the
+		// default) means "no override" -- `syncLamps()` resolves its own
+		// production default (`TUNING.liveLightBudget.value`) exactly as it
+		// did before this hatch existed.
+		let lightBudgetOverride: number | null = null;
 		// Story 1.8 (AC 3): the recorder is constructed once per boot and
 		// tapped via createHostLoop()'s third argument -- never wired into
 		// sim/ itself (AD-1). start()/save()/invalidate() are exposed on
@@ -295,7 +325,16 @@ async function onBegin(): Promise<void> {
 			// own dynamic light from the latest folded lamp view -- the render
 			// chain's own wall clock (`performance.now()`) is what times the
 			// blink cadence `presentation/lighting/grammar.ts` declares.
-			syncLamps(scene, nodes.playfieldRoot, lampView, performance.now());
+			// HIGH 2a: null means no override -- syncLamps() resolves its own
+			// production default (TUNING.liveLightBudget.value) exactly as before
+			// this hatch existed.
+			syncLamps(
+				scene,
+				nodes.playfieldRoot,
+				lampView,
+				performance.now(),
+				lightBudgetOverride === null ? undefined : { budget: lightBudgetOverride },
+			);
 		});
 
 		const hostLoopRef = hostLoop;
@@ -381,6 +420,26 @@ async function onBegin(): Promise<void> {
 				// nothing, so the held view must be cleared with it or every
 				// lamp lit before the reset stays lit forever.
 				lampView = INITIAL_LAMP_VIEW;
+				// Story 2.8 (code review, rework iteration 3 follow-up): a
+				// light-budget override left over from a prior setLightBudget()
+				// call would otherwise survive reset() and silently skew the
+				// NEXT browser A/B, since this override is never re-derived from
+				// anything reset() already rebuilds.
+				lightBudgetOverride = null;
+			},
+			setLightBudget: (budget: number | null) => {
+				// Story 2.8 (code review, rework iteration 3 follow-up): reject
+				// NaN/Infinity/negative rather than passing them straight into
+				// syncLamps()'s own `{ budget }` option, where a NaN or negative
+				// budget silently disables every dynamic light with no console
+				// signal at all -- console-hatch input is exactly where a typo
+				// (a stray minus sign, a divide-by-zero) reaches this unchecked.
+				if (budget !== null && !(Number.isFinite(budget) && budget >= 0)) {
+					// eslint-disable-next-line no-console
+					console.error(`[dragonwar] setLightBudget(${String(budget)}): budget must be a finite number >= 0, or null to restore the default -- ignored.`);
+					return;
+				}
+				lightBudgetOverride = budget;
 			},
 			openTuningPanel: () => {
 				if (tuningPanel) {
