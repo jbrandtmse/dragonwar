@@ -370,3 +370,6 @@ deferred:
 - Matrix Test Audit: all 14 I/O & Edge-Case Matrix rows cross-checked against a covering, passing test; two rows ("No state change across a step", "Two changes to one lamp in one frame") are covered by the general diff mechanism's own attract-case proof and the driver-side `advanceLamps` last-wins test respectively, per the spec's own Verification section naming the latter as AC 4's second pinning mutation.
 
 **Residual risks.** The four deferred findings (frontmatter `deferred:`) are all low-severity coverage/robustness gaps with no current reproducing scenario. `src/host/boot.ts`'s two wiring lines remain uncovered by automated test (spec's own disclosed gap, "One honest verification gap" in Design Notes) — closed only by the lead's manual browser smoke, not by this run.
+
+Status: done
+Blocking condition: none
