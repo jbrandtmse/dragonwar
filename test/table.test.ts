@@ -401,9 +401,47 @@ describe('TABLE.laneWiring / dragonBodyWiring / lockLaneWiring / flipperButtonWi
 	});
 });
 
-describe('TABLE.lamps -- Story 1.4 adds exactly one lamp', () => {
-	it('has exactly l_insert_left', () => {
-		expect(Object.keys(TABLE.lamps)).toEqual(['l_insert_left']);
+describe('TABLE.lamps -- Story 2.8 replaces l_insert_left with the fourteen real insert lamps', () => {
+	it('has exactly the fourteen Story 2.8 lamp names', () => {
+		expect(Object.keys(TABLE.lamps).sort()).toEqual(
+			[
+				'l_top_1', 'l_top_2', 'l_top_3',
+				'l_inlane_l', 'l_inlane_r', 'l_outlane_l', 'l_outlane_r',
+				'l_dragon_d', 'l_dragon_r', 'l_dragon_a', 'l_dragon_g', 'l_dragon_o', 'l_dragon_n',
+				'l_lock',
+			].sort(),
+		);
+	});
+
+	it('every lane-subject lamp names a real TABLE.laneWiring key, and every laneWiring key has a lane-subject lamp (both directions)', () => {
+		const laneSubjectLanes = Object.values(TABLE.lamps)
+			.map((def) => def.subject)
+			.filter((subject) => subject.kind === 'lane')
+			.map((subject) => subject.lane);
+		expect(laneSubjectLanes.sort()).toEqual(Object.keys(TABLE.laneWiring).sort());
+		for (const lane of laneSubjectLanes) {
+			expect(Object.keys(TABLE.laneWiring)).toContain(lane);
+		}
+	});
+
+	it('every letter-subject lamp names a real TABLE.dropBankWiring key, and every dropBankWiring key has a letter-subject lamp (both directions)', () => {
+		const letterSubjectLetters = Object.values(TABLE.lamps)
+			.map((def) => def.subject)
+			.filter((subject) => subject.kind === 'letter')
+			.map((subject) => subject.letter);
+		expect(letterSubjectLetters.sort()).toEqual(Object.keys(TABLE.dropBankWiring).sort());
+		for (const letter of letterSubjectLetters) {
+			expect(Object.keys(TABLE.dropBankWiring)).toContain(letter);
+		}
+	});
+
+	it('l_lock is the one lock-subject lamp, and every lamp carries channel "insert" and group "lg_inserts"', () => {
+		const lockSubjects = Object.entries(TABLE.lamps).filter(([, def]) => def.subject.kind === 'lock');
+		expect(lockSubjects.map(([name]) => name)).toEqual(['l_lock']);
+		for (const def of Object.values(TABLE.lamps)) {
+			expect(def.channel).toBe('insert');
+			expect(def.group).toBe('lg_inserts');
+		}
 	});
 });
 

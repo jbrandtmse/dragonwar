@@ -55,7 +55,7 @@
 // against.
 
 import { createMachine } from '../physics/machine';
-import { createRules, bootDeviceSlots } from '../rules';
+import { createRules, bootDeviceSlots, lampsOf } from '../rules';
 import { msToTicksExact, ticksToMs, MAX_OWED_TICKS } from '../contracts/time';
 import { resolveTuning, type ResolvedTuning } from '../table/tuning';
 import { TABLE } from '../table/dragonwar';
@@ -67,6 +67,8 @@ import type {
 	FrameOutput,
 	GameStart,
 	GameState,
+	LampName,
+	LampState,
 	MachineState,
 	SemanticEvent,
 	Snapshot,
@@ -287,6 +289,17 @@ export function createLoop(options: CreateLoopOptions): Loop {
 		rng: options.gameStart?.seed ?? 0,
 	};
 
+	// Story 2.8 (AD-9): seeded from the BOOT state above, so the first tick's
+	// projection diffs to nothing -- `lampsOf(bootState)` is all-off (`modes`
+	// is empty), and this is what keeps `test/flipper-mover.test.ts:73,127`
+	// (real attract frames, `commands` asserted `[]`) green: an
+	// implementation that pushed the whole projection every step instead of
+	// the diff would redden them immediately (Design Notes, "Why the attract
+	// case is load-bearing"). Never reassigned via a binding spelled
+	// `state` (lower-case) -- `test/ad7-device-slots.test.ts`'s source-text
+	// ratchet counts exactly two `state =` assignments under `src/sim/loop/`.
+	let previousLamps: LampState = lampsOf(state);
+
 	function buildSnapshot(): Snapshot {
 		const balls: BallSnapshot[] = machine.balls.map((ball) => {
 			const posMm = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
@@ -417,6 +430,21 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			events.push(...machineResult.semanticEvents, ...rulesResult.events);
 			contactEvents.push(...machineResult.contactEvents);
 			commands.push(...rulesResult.commands);
+			// Story 2.8 (AD-9, AC 1): the lamp DIFF, computed here -- never in
+			// rules (`RulesStepResult.commands` stays `readonly never[]`).
+			// `lampsOf(state)` is a pure, whole-projection recompute every tick;
+			// only a lamp whose `role` OR `step` changed since the previous
+			// tick's projection gets a `LampCommand` this tick (the
+			// `previousFrame`/`currentFrame` diff idiom above, mirrored).
+			const currentLamps = lampsOf(state);
+			for (const lampName of Object.keys(TABLE.lamps) as LampName[]) {
+				const previous = previousLamps[lampName];
+				const current = currentLamps[lampName];
+				if (previous.role !== current.role || previous.step !== current.step) {
+					commands.push({ type: 'lamp', lamp: lampName, role: current.role, step: current.step, tick });
+				}
+			}
+			previousLamps = currentLamps;
 			// Story 2.4: the rules -> physics coil channel. Queued into
 			// pendingCommands exactly like a dev pulseCoil()/setCoilEnabled()
 			// call, so a command rules issues at tick N is consumed by physics

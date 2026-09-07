@@ -68,6 +68,70 @@ function readCollisionDoc(): CollisionDocForTest {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
 }
 
+/** A table-frame axis-aligned box (millimetres): `{ min, max }`, each `{ x, y, z }`. */
+interface TableBoxMm {
+	readonly min: { readonly x: number; readonly y: number; readonly z: number };
+	readonly max: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/** The one field this file's bounding-box helper needs from a glTF accessor -- a local extension of `GltfDocument`, the same pattern the Story 2.6 block below (`GltfDocumentWithAccessors`) already establishes, rather than widening the shared base interface (which every OTHER describe block in this file also uses). */
+interface GltfPositionAccessor {
+	readonly min?: number[];
+	readonly max?: number[];
+}
+interface GltfDocumentWithPositionAccessors extends GltfDocument {
+	readonly accessors: readonly GltfPositionAccessor[];
+}
+
+/**
+ * Story 2.8 -- there is no glb bounding-box helper before this story
+ * (Code Map). Reads a mesh node's POSITION accessor `min`/`max` STRAIGHT
+ * from the glb's own JSON chunk (Blender's glTF exporter writes these
+ * per-accessor, verified against the committed glb -- no binary-buffer
+ * parsing needed) and converts glb metres -> table millimetres by AD-10's
+ * own documented permutation (`sim/table/frames.ts`'s `glbToTable()`):
+ * table x = glb.x * 1000, table y = -glb.z * 1000, table z = glb.y * 1000.
+ * The y-axis negation FLIPS which glb bound becomes the table MIN vs MAX --
+ * table.y's min comes from glb.z's MAX, and vice versa -- so this function,
+ * not a naive per-field multiply, is what a correct min/max box requires.
+ */
+function glbAccessorBoxToTableBoxMm(glbMin: readonly number[], glbMax: readonly number[]): TableBoxMm {
+	return {
+		min: { x: glbMin[0]! * 1000, y: -glbMax[2]! * 1000, z: glbMin[1]! * 1000 },
+		max: { x: glbMax[0]! * 1000, y: -glbMin[2]! * 1000, z: glbMax[1]! * 1000 },
+	};
+}
+
+/** `meshName`'s own POSITION accessor bounding box, converted to a table-frame `TableBoxMm`. Throws (via the non-null assertions below) naming nothing -- callers assert presence first, matching this file's own established idiom of a `.find()` immediately followed by a `toBeDefined()`. */
+function meshTableBoxMm(doc: GltfDocument, meshName: string): TableBoxMm {
+	const withAccessors = doc as GltfDocumentWithPositionAccessors;
+	const meshNode = withAccessors.nodes.find((n) => n.name === meshName);
+	expect(meshNode, `glb node "${meshName}" not found`).toBeDefined();
+	const mesh = withAccessors.meshes[meshNode!.mesh!];
+	expect(mesh, `glb node "${meshName}" carries no mesh`).toBeDefined();
+	const accessorIndex = mesh.primitives[0]?.attributes.POSITION;
+	expect(accessorIndex, `"${meshName}": primitive has no POSITION attribute`).toBeDefined();
+	const accessor = withAccessors.accessors[accessorIndex!];
+	expect(accessor?.min, `"${meshName}": POSITION accessor carries no min`).toBeDefined();
+	expect(accessor?.max, `"${meshName}": POSITION accessor carries no max`).toBeDefined();
+	return glbAccessorBoxToTableBoxMm(accessor!.min!, accessor!.max!);
+}
+
+/** The centre of a `TableBoxMm`'s x/y footprint (never z -- z has its own dedicated assertion). */
+function boxCenterXy(box: TableBoxMm): { readonly x: number; readonly y: number } {
+	return { x: (box.min.x + box.max.x) / 2, y: (box.min.y + box.max.y) / 2 };
+}
+
+/** `true` iff `point` lies within `box`'s own x/y footprint (inclusive). */
+function pointInBoxXy(point: { readonly x: number; readonly y: number }, box: TableBoxMm): boolean {
+	return point.x >= box.min.x && point.x <= box.max.x && point.y >= box.min.y && point.y <= box.max.y;
+}
+
+/** `true` iff two `TableBoxMm`s' x/y footprints overlap (a shared edge, `a.max === b.min`, does not count as overlap). */
+function boxesOverlapXy(a: TableBoxMm, b: TableBoxMm): boolean {
+	return !(a.max.x <= b.min.x || b.max.x <= a.min.x || a.max.y <= b.min.y || b.max.y <= a.min.y);
+}
+
 /** The shoelace formula's signed area, over a closed polygon (no repeated closing point). */
 function polygonArea(points: Array<{ x: number; y: number }>): number {
 	let area = 0;
@@ -2511,5 +2575,102 @@ describe('asset contract -- Story 2.6: vis_backbox\'s glb contract (AD-11, the D
 		// mask the other collapsing.
 		expect(Math.max(...us) - Math.min(...us), 'u must have real spread on the DMD face, not a collapsed constant').toBeGreaterThan(0.5);
 		expect(Math.max(...vs) - Math.min(...vs), 'v must have real spread on the DMD face, not a collapsed constant').toBeGreaterThan(0.5);
+	});
+});
+
+describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely placed over their own subject (AC 7)', () => {
+	/** The `TABLE.switches` name a lamp's `subject` resolves to -- the same switch its own `sw_` collision zone is keyed by. */
+	function subjectSwitchName(subject: (typeof TABLE.lamps)[keyof typeof TABLE.lamps]['subject']): string {
+		if (subject.kind === 'lane') {
+			return TABLE.laneWiring[subject.lane].switch;
+		}
+		if (subject.kind === 'letter') {
+			return TABLE.dropBankWiring[subject.letter].switch;
+		}
+		return TABLE.lockLaneWiring.switch;
+	}
+
+	// Calibration FIRST (Design Notes / this story's own Rationale, task 20):
+	// vis_playfield is authored as EXACTLY the reference rectangle
+	// (make-placeholder-blend.py:3250-3252), so a wrong glb->table conversion
+	// reddens HERE, before any insert is measured -- the assertion that stops
+	// the whole suite below being vacuous under a broken conversion.
+	it('CALIBRATION: vis_playfield\'s derived table-frame footprint is (0,0)..(playfieldMm.w, .h) within 0.5 mm', () => {
+		const doc = readGlbJson();
+		const box = meshTableBoxMm(doc, 'vis_playfield');
+		expect(box.min.x, 'vis_playfield min x').toBeCloseTo(0, 0);
+		expect(box.min.y, 'vis_playfield min y').toBeCloseTo(0, 0);
+		expect(box.max.x, 'vis_playfield max x').toBeCloseTo(TABLE.reference.playfieldMm.w, 0);
+		expect(box.max.y, 'vis_playfield max y').toBeCloseTo(TABLE.reference.playfieldMm.h, 0);
+		// toBeCloseTo(..., 0) is "within 0.5" by Vitest's own rounding rule
+		// (Math.abs(actual - expected) < 0.5 * 10**-0); spelled out explicitly
+		// too, so a reader never has to trust the digit-count convention alone.
+		expect(Math.abs(box.min.x - 0)).toBeLessThan(0.5);
+		expect(Math.abs(box.min.y - 0)).toBeLessThan(0.5);
+		expect(Math.abs(box.max.x - TABLE.reference.playfieldMm.w)).toBeLessThan(0.5);
+		expect(Math.abs(box.max.y - TABLE.reference.playfieldMm.h)).toBeLessThan(0.5);
+	});
+
+	it('every TABLE.lamps key has a glb mesh node of that name', () => {
+		const doc = readGlbJson();
+		const names = new Set(doc.nodes.map((n) => n.name));
+		for (const lampName of Object.keys(TABLE.lamps)) {
+			expect(names.has(lampName), `glb is missing insert node "${lampName}"`).toBe(true);
+		}
+	});
+
+	it('every insert\'s lens/cup centre lies inside its own subject\'s sw_ switch zone footprint', () => {
+		const glbDoc = readGlbJson();
+		const collisionDoc = readCollisionDoc();
+		for (const [lampName, def] of Object.entries(TABLE.lamps)) {
+			const switchName = subjectSwitchName(def.subject);
+			const zone = collisionDoc.switchZones.find((z) => z.switch === switchName);
+			expect(zone, `${lampName}: no sw_ zone found for its subject's switch "${switchName}"`).toBeDefined();
+
+			const box = meshTableBoxMm(glbDoc, lampName);
+			const center = boxCenterXy(box);
+			const zoneBox: TableBoxMm = { min: zone!.minMm, max: zone!.maxMm };
+			expect(
+				pointInBoxXy(center, zoneBox),
+				`${lampName}: centre (${center.x.toFixed(2)}, ${center.y.toFixed(2)}) is outside "${zone!.name}"'s own footprint ` +
+					`x[${zone!.minMm.x}, ${zone!.maxMm.x}] y[${zone!.minMm.y}, ${zone!.maxMm.y}]`,
+			).toBe(true);
+		}
+	});
+
+	it('no two inserts\' cup footprints overlap', () => {
+		const doc = readGlbJson();
+		const lampNames = Object.keys(TABLE.lamps);
+		const boxes = lampNames.map((name) => ({ name, box: meshTableBoxMm(doc, name) }));
+		for (let i = 0; i < boxes.length; i++) {
+			for (let j = i + 1; j < boxes.length; j++) {
+				expect(
+					boxesOverlapXy(boxes[i]!.box, boxes[j]!.box),
+					`${boxes[i]!.name} and ${boxes[j]!.name} cup footprints overlap`,
+				).toBe(false);
+			}
+		}
+	});
+
+	// The binding correction this story's own Design Notes record (DW-47 re-
+	// owned to this story): every insert's lens sits at or below z = 0 in the
+	// table frame -- l_insert_left's own original +0.5 mm protrusion above
+	// the playfield surface is exactly the defect this pins against the
+	// EXPORTED geometry, not against make-placeholder-blend.py's own source
+	// text (Design Notes: "An assertion that reads the authoring script's
+	// intent instead of the exported geometry ... is the vacuity shape this
+	// epic has caught 36 times").
+	it('DW-47: every insert\'s geometry (lens top face included) sits at or below the playfield surface (table z <= 0)', () => {
+		const doc = readGlbJson();
+		for (const lampName of Object.keys(TABLE.lamps)) {
+			const box = meshTableBoxMm(doc, lampName);
+			expect(box.max.z, `${lampName}: lens top face (table z = ${box.max.z.toFixed(3)}) must not protrude above the playfield surface (z = 0)`).toBeLessThanOrEqual(0.001);
+		}
+	});
+
+	it('no l_ node appears in dragonwar.collision.json (the vis_ pin\'s own l_ equivalent)', () => {
+		const doc = readCollisionDoc();
+		const leaked = doc.nodes.filter((n) => n.name.startsWith('l_'));
+		expect(leaked.map((n) => n.name), 'an l_ node must never reach the collision document -- it matches none of export.py\'s three collision-builder prefixes').toEqual([]);
 	});
 });

@@ -9,7 +9,7 @@
 // anyway (TypeScript types have no runtime representation).
 
 import { describe, expect, it } from 'vitest';
-import { CONTACT_SURFACES } from '../src/sim/contracts';
+import { CONTACT_SURFACES, LAMP_ROLES } from '../src/sim/contracts';
 import type {
 	ContactEvent,
 	ContactSurface,
@@ -22,6 +22,9 @@ import type {
 	InputFrame,
 	InputTransition,
 	LampCommand,
+	LampProjectionEntry,
+	LampRole,
+	LampState,
 	ModeView,
 	RecoverCommand,
 	ReplayHeader,
@@ -112,6 +115,30 @@ describe('sim/contracts -- commands are discriminated on type and carry tick', (
 		const cmd: LampCommand<'l_dummy'> = { type: 'lamp', lamp: 'l_dummy', role: 'lit', step: 1, tick: 3 };
 		expect(cmd.type).toBe('lamp');
 		expect(cmd.tick).toBe(3);
+	});
+
+	// Story 2.8 (AC 2): `LAMP_ROLES` pins the seven AD-9 role members AND
+	// their order at runtime -- the `CONTACT_SURFACES` shape above, copied.
+	// `LampRole` had no runtime representation before this story (Code Map:
+	// "LampRole currently has no runtime representation, which is why AC 2's
+	// closure test is not satisfiable today").
+	it('LAMP_ROLES pins the seven AD-9 role members AND their order at runtime, not just at the type level', () => {
+		const roles: LampRole[] = ['off', 'lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special'];
+		expect(roles).toHaveLength(7);
+		expect(LAMP_ROLES).toEqual(['off', 'lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special']);
+	});
+
+	it('rejects an eighth role value at compile time (LampRole is closed to the seven AD-9 members)', () => {
+		// @ts-expect-error -- 'nonexistent_role' is not one of AD-9's seven roles.
+		const role: LampRole = 'nonexistent_role';
+		void role;
+	});
+
+	it('LampState<TLamp>: one entry per lamp, each a LampProjectionEntry', () => {
+		const entry: LampProjectionEntry = { role: 'dragon', step: 2 };
+		const state: LampState<'l_dummy'> = { l_dummy: entry };
+		expect(state.l_dummy.role).toBe('dragon');
+		expect(state.l_dummy.step).toBe(2);
 	});
 
 	it('GiCommand', () => {

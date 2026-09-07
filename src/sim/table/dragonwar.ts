@@ -118,13 +118,109 @@ export function deepFreeze<T>(value: T, visited: WeakSet<object> = new WeakSet()
  * `TABLE as const`, deep-frozen. AD-10's reference dimensions
  * (`TABLE.reference`), the eleven switches Epic 1 needs (each with a
  * `settleClass`), the four coils, the two ball devices (AD-6), the three GI
- * channels (AD-9); Story 1.4 adds the one Epic 1 lamp (`l_insert_left`), the
- * populated `lightGroups`, the glb/collision `nodes` names and the
- * `physMaterials` name list. `flashers` and `shows` stay empty, so their
- * derived name unions are still `never` until a later story populates them
- * (Design Notes, "Scope decisions on the closed unions"). `shots` (Story
- * 2.4, AD-19) is populated with the three declared shots.
+ * channels (AD-9); the populated `lightGroups`, the glb/collision `nodes`
+ * names and the `physMaterials` name list. Story 2.8 replaces Story 1.4's
+ * one placeholder lamp (`l_insert_left`) with the fourteen real insert
+ * lamps `lampsOf()` (`sim/rules/lamps.ts`) projects onto: three Top lanes,
+ * four inlane/outlane, six DRAGON letters and the Lock, each carrying the
+ * `subject` wiring that lets both the projection and the placement test
+ * derive from this one declaration (DW-149) rather than a second hand-typed
+ * list. `flashers` and `shows` stay empty, so their derived name unions are
+ * still `never` until a later story populates them (Design Notes, "Scope
+ * decisions on the closed unions"). `shots` (Story 2.4, AD-19) is populated
+ * with the three declared shots.
  */
+/**
+ * Story 2.3 (AD-6, AD-11 "TABLE owns ... wiring", task 1): each DRAGON-bank
+ * target letter paired with the switch it closes AND the `col_` collision
+ * node whose hit objects the bank must retain a handle to (task 5) so it
+ * can `setEnabled(false)` them on a genuine strike and `setEnabled(true)`
+ * them on a bank reset. `sim/physics/drop-targets.ts` derives its
+ * six-entry subject set from `Object.keys()` here (DW-149: never a second
+ * hand-typed letter list) and `sim/physics/switches.ts` derives its own
+ * widened tracker-exclusion set from the same `Object.values()` --
+ * neither file needs an `s_dragon_*` / `col_dragon_*` string literal of
+ * its own. Letters are D-R-A-G-O-N order, matching `switches` above.
+ *
+ * Story 2.8: hoisted out of the `TABLE` object literal into its own named
+ * `const` (still authored exactly once here, DW-149) so `lamps`' six
+ * letter-lamp `subject.letter` values, also authored inside the `TABLE`
+ * literal below, can be constrained against `keyof typeof DROP_BANK_WIRING`
+ * with a `satisfies` clause: naming `TABLE.dropBankWiring` from within
+ * `TABLE`'s own still-being-constructed initializer is a genuine
+ * TypeScript circularity ("'TABLE' is referenced directly or indirectly in
+ * its own initializer"), so this hoisted const is the seam the compile-time
+ * check is expressed through instead. `TABLE.dropBankWiring` below is a
+ * direct reference to this SAME object, never a duplicate.
+ */
+const DROP_BANK_WIRING = {
+	d: { switch: 's_dragon_d', node: 'col_dragon_d' },
+	r: { switch: 's_dragon_r', node: 'col_dragon_r' },
+	a: { switch: 's_dragon_a', node: 'col_dragon_a' },
+	g: { switch: 's_dragon_g', node: 'col_dragon_g' },
+	o: { switch: 's_dragon_o', node: 'col_dragon_o' },
+	n: { switch: 's_dragon_n', node: 'col_dragon_n' },
+} as const;
+
+/**
+ * Story 2.4 (AD-19, task 2): every lane the devices layer reports a bare
+ * `lane_entered { lane }` for -- the three Top lanes plus the full
+ * inlane/outlane set, each keyed by the lane id the event payload
+ * carries. Lane STATE (lit flags, completed sets, `lane_lit`) stays the
+ * base mode's (AD-7); this wiring only lets the layer resolve a switch
+ * edge to a lane id from `TABLE`, never a literal, mirroring
+ * `popWiring`/`spinnerWiring`'s own `Object.entries()` idiom.
+ *
+ * Story 2.7 (AD-7, AD-11, DW-149, task 1): each entry widened from a bare
+ * `{ switch }` to `{ switch, set, order }` so the base mode (AD-7: "lanes
+ * ... owned by the base mode") can resolve set membership and rotation
+ * direction from TABLE alone, never by prefix-matching a lane id. `set`
+ * is `'top'` for the three Top lanes and `'inout'` for the inlane/outlane
+ * four; `order` is the 0-based PHYSICAL left-to-right index within that
+ * set, measured from each lane's own `sw_` collision-zone x-centre in
+ * `public/assets/dragonwar.collision.json` (test/table.test.ts pins this
+ * against the live geometry): sw_top_1 145.0, sw_top_2 245.0, sw_top_3
+ * 335.5 (already ascending in declaration order); sw_outlane_l 17.45,
+ * sw_inlane_l 67.9, sw_inlane_r 400.5, sw_outlane_r 450.95. The `inout`
+ * set's DECLARATION order below (inlane_l, inlane_r, outlane_l,
+ * outlane_r) is deliberately NOT its physical order -- `order` alone
+ * carries the physical left-to-right sequence (outlane_l=0, inlane_l=1,
+ * inlane_r=2, outlane_r=3). Do not "tidy" the declaration order to match
+ * `order`, and do not derive rotation direction from declaration order --
+ * only `order` is physical.
+ *
+ * Story 2.8: hoisted out of the `TABLE` object literal for the same reason
+ * `DROP_BANK_WIRING` above is -- `lamps`' seven lane-lamp `subject.lane`
+ * values are constrained against `keyof typeof LANE_WIRING` with a
+ * `satisfies` clause, which `TABLE.laneWiring`'s own still-mid-construction
+ * self-reference cannot express. `TABLE.laneWiring` below is this SAME
+ * object, referenced, never duplicated.
+ */
+const LANE_WIRING = {
+	top_1: { switch: 's_top_1', set: 'top', order: 0 },
+	top_2: { switch: 's_top_2', set: 'top', order: 1 },
+	top_3: { switch: 's_top_3', set: 'top', order: 2 },
+	inlane_l: { switch: 's_inlane_l', set: 'inout', order: 1 },
+	inlane_r: { switch: 's_inlane_r', set: 'inout', order: 2 },
+	outlane_l: { switch: 's_outlane_l', set: 'inout', order: 0 },
+	outlane_r: { switch: 's_outlane_r', set: 'inout', order: 3 },
+} as const;
+
+/**
+ * Story 2.8 (AD-9, AD-11, DW-149): the discriminated shape every
+ * `TABLE.lamps` insert entry's `subject` carries -- the wiring that lets
+ * both `lampsOf()` (`sim/rules/lamps.ts`) and the placement test
+ * (`test/asset-contract.test.ts`) derive "which lane/letter/device this
+ * insert reports for" from `TABLE` alone, never a second hand-typed lamp
+ * list. `lane`/`letter` are constrained against the two hoisted wiring
+ * consts above, so a typo (`'top_9'`, `'x'`) is a `pnpm typecheck` failure
+ * rather than a silent runtime miss.
+ */
+type LampSubject =
+	| { readonly kind: 'lane'; readonly lane: keyof typeof LANE_WIRING }
+	| { readonly kind: 'letter'; readonly letter: keyof typeof DROP_BANK_WIRING }
+	| { readonly kind: 'lock' };
+
 export const TABLE = deepFreeze({
 	/** AD-10, AR-16: the canonical reference dimensions, asserted by Story 1.4's loader. */
 	reference: {
@@ -402,23 +498,12 @@ export const TABLE = deepFreeze({
 	/**
 	 * Story 2.3 (AD-6, AD-11 "TABLE owns ... wiring", task 1): each DRAGON-bank
 	 * target letter paired with the switch it closes AND the `col_` collision
-	 * node whose hit objects the bank must retain a handle to (task 5) so it
-	 * can `setEnabled(false)` them on a genuine strike and `setEnabled(true)`
-	 * them on a bank reset. `sim/physics/drop-targets.ts` derives its
-	 * six-entry subject set from `Object.keys()` here (DW-149: never a second
-	 * hand-typed letter list) and `sim/physics/switches.ts` derives its own
-	 * widened tracker-exclusion set from the same `Object.values()` --
-	 * neither file needs an `s_dragon_*` / `col_dragon_*` string literal of
-	 * its own. Letters are D-R-A-G-O-N order, matching `switches` above.
+	 * node whose hit objects the bank must retain a handle to (task 5). See
+	 * `DROP_BANK_WIRING` above (Story 2.8 hoisted the literal out of this
+	 * object so `lamps`' own `subject.letter` values can be typo-checked
+	 * against its keys) -- this is that SAME object, never a duplicate.
 	 */
-	dropBankWiring: {
-		d: { switch: 's_dragon_d', node: 'col_dragon_d' },
-		r: { switch: 's_dragon_r', node: 'col_dragon_r' },
-		a: { switch: 's_dragon_a', node: 'col_dragon_a' },
-		g: { switch: 's_dragon_g', node: 'col_dragon_g' },
-		o: { switch: 's_dragon_o', node: 'col_dragon_o' },
-		n: { switch: 's_dragon_n', node: 'col_dragon_n' },
-	},
+	dropBankWiring: DROP_BANK_WIRING,
 
 	/**
 	 * Story 2.3 (AD-5): the coil that raises the whole bank. A plain string
@@ -447,39 +532,12 @@ export const TABLE = deepFreeze({
 	/**
 	 * Story 2.4 (AD-19, task 2): every lane the devices layer reports a bare
 	 * `lane_entered { lane }` for -- the three Top lanes plus the full
-	 * inlane/outlane set, each keyed by the lane id the event payload
-	 * carries. Lane STATE (lit flags, completed sets, `lane_lit`) stays the
-	 * base mode's (AD-7); this wiring only lets the layer resolve a switch
-	 * edge to a lane id from `TABLE`, never a literal, mirroring
-	 * `popWiring`/`spinnerWiring`'s own `Object.entries()` idiom.
+	 * inlane/outlane set. See `LANE_WIRING` above (Story 2.8 hoisted the
+	 * literal out of this object so `lamps`' own `subject.lane` values can
+	 * be typo-checked against its keys) -- this is that SAME object, never
+	 * a duplicate.
 	 */
-	//
-	// Story 2.7 (AD-7, AD-11, DW-149, task 1): each entry widened from a bare
-	// `{ switch }` to `{ switch, set, order }` so the base mode (AD-7: "lanes
-	// ... owned by the base mode") can resolve set membership and rotation
-	// direction from TABLE alone, never by prefix-matching a lane id. `set`
-	// is `'top'` for the three Top lanes and `'inout'` for the inlane/outlane
-	// four; `order` is the 0-based PHYSICAL left-to-right index within that
-	// set, measured from each lane's own `sw_` collision-zone x-centre in
-	// `public/assets/dragonwar.collision.json` (test/table.test.ts pins this
-	// against the live geometry): sw_top_1 145.0, sw_top_2 245.0, sw_top_3
-	// 335.5 (already ascending in declaration order); sw_outlane_l 17.45,
-	// sw_inlane_l 67.9, sw_inlane_r 400.5, sw_outlane_r 450.95. The `inout`
-	// set's DECLARATION order below (inlane_l, inlane_r, outlane_l,
-	// outlane_r) is deliberately NOT its physical order -- `order` alone
-	// carries the physical left-to-right sequence (outlane_l=0, inlane_l=1,
-	// inlane_r=2, outlane_r=3). Do not "tidy" the declaration order to match
-	// `order`, and do not derive rotation direction from declaration order --
-	// only `order` is physical.
-	laneWiring: {
-		top_1: { switch: 's_top_1', set: 'top', order: 0 },
-		top_2: { switch: 's_top_2', set: 'top', order: 1 },
-		top_3: { switch: 's_top_3', set: 'top', order: 2 },
-		inlane_l: { switch: 's_inlane_l', set: 'inout', order: 1 },
-		inlane_r: { switch: 's_inlane_r', set: 'inout', order: 2 },
-		outlane_l: { switch: 's_outlane_l', set: 'inout', order: 0 },
-		outlane_r: { switch: 's_outlane_r', set: 'inout', order: 3 },
-	},
+	laneWiring: LANE_WIRING,
 
 	/** Story 2.4 (AD-19, task 2): the Dragon body's own standup face -- a bare `dragon_hit` report, no letter or bank bookkeeping (that is `dropBankWiring` above). */
 	dragonBodyWiring: {
@@ -562,15 +620,36 @@ export const TABLE = deepFreeze({
 		gi_arch: {} as Record<string, never>,
 	},
 
-	// Story 1.4's own AC: exactly one lamp, the `l_insert_left` insert the
-	// placeholder `.blend` carries. `flashers` and `shows` stay empty on
-	// purpose (Design Notes, "Scope decisions on the closed unions"):
-	// `keyof typeof TABLE.flashers` (etc.) is `never` until a later story
-	// adds entries, so an early flasher/show name is a type error rather
-	// than a runtime string. `shots` (Story 2.4) is declared above,
-	// alongside the other wiring blocks it is authored beside.
+	// Story 2.8 (AD-9, AD-11, DW-149): the fourteen insert lamps replacing
+	// Story 1.4's placeholder `l_insert_left` -- three Top lanes, four
+	// inlane/outlane, six DRAGON letters and the Lock. Every entry is
+	// `{ channel: 'insert', group: 'lg_inserts', subject }`, `subject` typed
+	// (and typo-checked, `satisfies LampSubject` below) against the SAME
+	// `LANE_WIRING`/`DROP_BANK_WIRING` consts `laneWiring`/`dropBankWiring`
+	// above reference, so `lampsOf()` (`sim/rules/lamps.ts`) and the
+	// placement test (`test/asset-contract.test.ts`) both derive "which
+	// lane/letter/device this insert reports for" from `TABLE` alone.
+	// `flashers` and `shows` stay empty on purpose (Design Notes, "Scope
+	// decisions on the closed unions"): `keyof typeof TABLE.flashers` (etc.)
+	// is `never` until a later story adds entries, so an early flasher/show
+	// name is a type error rather than a runtime string. `shots` (Story 2.4)
+	// is declared above, alongside the other wiring blocks it is authored
+	// beside.
 	lamps: {
-		l_insert_left: {} as Record<string, never>,
+		l_top_1: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'top_1' } satisfies LampSubject },
+		l_top_2: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'top_2' } satisfies LampSubject },
+		l_top_3: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'top_3' } satisfies LampSubject },
+		l_inlane_l: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'inlane_l' } satisfies LampSubject },
+		l_inlane_r: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'inlane_r' } satisfies LampSubject },
+		l_outlane_l: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'outlane_l' } satisfies LampSubject },
+		l_outlane_r: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lane', lane: 'outlane_r' } satisfies LampSubject },
+		l_dragon_d: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'd' } satisfies LampSubject },
+		l_dragon_r: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'r' } satisfies LampSubject },
+		l_dragon_a: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'a' } satisfies LampSubject },
+		l_dragon_g: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'g' } satisfies LampSubject },
+		l_dragon_o: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'o' } satisfies LampSubject },
+		l_dragon_n: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'n' } satisfies LampSubject },
+		l_lock: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lock' } satisfies LampSubject },
 	},
 	flashers: {},
 	shows: {},

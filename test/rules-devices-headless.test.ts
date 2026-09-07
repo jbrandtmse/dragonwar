@@ -196,6 +196,7 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-derive-device-slots-fold.test.ts'),
 	path.join(__dirname, 'rules-device-slots-agreement.test.ts'),
 	path.join(__dirname, 'rules-modes.test.ts'),
+	path.join(__dirname, 'rules-lamps.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

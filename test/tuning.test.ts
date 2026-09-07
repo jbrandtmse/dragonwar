@@ -56,6 +56,8 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'lockCaptureWindowMs',
 			// Story 2.7 (AD-15): the first scoring value in the file.
 			'skillShotAward',
+			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.
+			'liveLightBudget',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];

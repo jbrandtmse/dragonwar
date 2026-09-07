@@ -21,6 +21,8 @@ import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presen
 import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
 import { syncBackglass } from '../presentation/backglass/backglass';
 import { FONT_5X7 } from '../presentation/backglass/font';
+import { advanceLamps, INITIAL_LAMP_VIEW, type LampView } from '../presentation/lighting/lamp-view';
+import { syncLamps } from '../presentation/lighting/lamp-driver';
 import { createHostLoop } from './loop';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
 import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
@@ -201,6 +203,11 @@ async function onBegin(): Promise<void> {
 		// `backglassView` or `advanceBackglass()` itself.
 		let backglassView = INITIAL_BACKGLASS_VIEW;
 		let latestRaster: DmdRaster | undefined;
+		// Story 2.8 -- the lamp channel's own view state, folded forward every
+		// SIM frame exactly like `backglassView` above (never the Babylon
+		// render frame, for the same reason: the two rAF chains are
+		// independent). `syncLamps()` below reads this on every render frame.
+		let lampView: LampView = INITIAL_LAMP_VIEW;
 		// Story 1.8 (AC 3): the recorder is constructed once per boot and
 		// tapped via createHostLoop()'s third argument -- never wired into
 		// sim/ itself (AD-1). start()/save()/invalidate() are exposed on
@@ -253,6 +260,10 @@ async function onBegin(): Promise<void> {
 				// snapshot -- state from the sim chain, blit from the render chain.
 				backglassView = advanceBackglass(backglassView, output);
 				latestRaster = rasterise(renderFrame(backglassView, output.snapshot), FONT_5X7);
+				// Story 2.8 (AD-9): fold this frame's LampCommands (if any) into the
+				// held view -- the render hook below is what actually drives the
+				// Babylon driver from it.
+				lampView = advanceLamps(lampView, output);
 			},
 			(_elapsedMs, transitions, tick) => {
 				replayRecorder.recordTransitions(transitions, tick);
@@ -280,6 +291,11 @@ async function onBegin(): Promise<void> {
 			if (latestRaster) {
 				syncBackglass(scene, latestRaster);
 			}
+			// Story 2.8 (AD-12): drives every insert's emissive material and its
+			// own dynamic light from the latest folded lamp view -- the render
+			// chain's own wall clock (`performance.now()`) is what times the
+			// blink cadence `presentation/lighting/grammar.ts` declares.
+			syncLamps(scene, nodes.playfieldRoot, lampView, performance.now());
 		});
 
 		const hostLoopRef = hostLoop;

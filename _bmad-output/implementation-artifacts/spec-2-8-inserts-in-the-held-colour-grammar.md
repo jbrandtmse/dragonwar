@@ -2,12 +2,84 @@
 title: 'Story 2.8: Inserts in the held colour grammar'
 type: 'feature'
 created: '2026-09-06'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '70453b9fdf69db10315be32acd004d771b7b16c0'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: []
 warnings: [oversized]
-deferred: []
+deferred:
+  - summary: >-
+      The sim-no-colour boundary-lint rule's identifier-level matchers use
+      \b word-boundary regexes, which JS regex only recognises at real
+      word/non-word transitions -- a camelCase or snake_case-internal
+      colour-shaped identifier under src/sim/** (e.g. laneColour,
+      dragon_red, myRgbValue) would pass the lint untouched.
+    evidence: |-
+      Blind-hunter review (code review pass, 2026-09-07): confirmed by
+      reading tools/boundary-lint.mjs's SIM_NO_COLOUR_WORD_PATTERN_SOURCE
+      and SIM_NO_COLOUR_NAME_PATTERN_SOURCE -- both rely on \b, which does
+      not fire between a lowercase and an immediately-following uppercase
+      letter (no word/non-word transition there). This mirrors the same
+      \b-based idiom checkBannedGlobals() already uses elsewhere in the
+      same file, so it is a pre-existing convention this story's new rule
+      inherits rather than introduces; no current identifier under
+      src/sim/** trips it (pnpm lint:boundaries exits 0 on the real tree).
+    location: >-
+      tools/boundary-lint.mjs (SIM_NO_COLOUR_WORD_PATTERN_SOURCE /
+      SIM_NO_COLOUR_NAME_PATTERN_SOURCE)
+    severity: low
+  - summary: >-
+      No test in test/lighting-scene.test.ts drives syncLamps() with two
+      DIFFERENT LampViews for the SAME lamp (lit then off) to confirm a
+      genuine role transition resets the rendered emissive colour to black
+      and disables the light -- only a never-lit neighbour (trap 1) and a
+      held-view blink toggle are exercised.
+    evidence: |-
+      Blind-hunter review: verified by reading every it() in
+      test/lighting-scene.test.ts -- none calls syncLamps twice with a
+      changed view for one lamp. The driver code itself
+      (entry.material.emissiveColor = isOn ? ... : Color3.Black(), every
+      call) is unconditional and mechanically simple, so the practical risk
+      is low, but the specific "a lamp that WAS lit turns off" case has no
+      dedicated pinning test.
+    location: 'test/lighting-scene.test.ts'
+    severity: low
+  - summary: >-
+      test/lighting-scene.test.ts's { budget: 2 } trap-4 test asserts only
+      the total enabled-light COUNT under the injected budget, never WHICH
+      specific lamps win -- lamp-driver.ts's own doc comment claims the cap
+      is applied "iterating TABLE.lamps in its declared order", but nothing
+      pins that order-dependent selection.
+    evidence: |-
+      Blind-hunter review: confirmed by reading the { budget: 2 } test
+      (test/lighting-scene.test.ts) -- it sums enabledPointLights across all
+      fourteen lamps and asserts the total is exactly 2, never checking
+      which two. A regression that changed the iteration order or the
+      selection policy would pass this test unnoticed.
+    location: 'test/lighting-scene.test.ts (trap 4 describe block)'
+    severity: low
+  - summary: >-
+      No test drives the REAL sim/loop through a lamp transition where role
+      stays the same but step changes (e.g. the skill shot resolving,
+      lit/2 -> lit/1) and asserts a LampCommand was actually pushed for it
+      -- test/rules-lamps.test.ts never touches sim/loop (it calls
+      lampsOf() directly or via runRulesScript, which calls rules.step()
+      headlessly), and test/lighting-integration.test.ts only asserts the
+      accumulated command stream is non-empty and contains a "lit" command
+      for the drawn lane, not that a step-only change was independently
+      emitted.
+    evidence: |-
+      Verification-gap review (code review pass, 2026-09-07), personally
+      corroborated by tracing sim/loop/index.ts's own diff condition
+      (previous.role !== current.role || previous.step !== current.step)
+      and confirming neither test/rules-lamps.test.ts nor
+      test/lighting-integration.test.ts pins the step-only half of that OR
+      through a real loop.advance() call. Narrower than the spec's own AC1
+      Rule-19 mutation (deleting the WHOLE previousLamps comparison, which
+      IS caught by test/flipper-mover.test.ts's real attract frames).
+    location: 'src/sim/loop/index.ts (the previousLamps diff, lines ~439-447); test/lighting-integration.test.ts'
+    severity: low
 ---
 
 <intent-contract>
@@ -171,6 +243,28 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-07 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 1, medium 2, low 3)
+- defer: 4: (high 0, medium 0, low 4)
+- reject: 5: (high 0, medium 0, low 5)
+- addressed_findings:
+  - `high` `patch` Verification-gap review's claimed mechanism (playfieldRoot never pitched in `test/lighting-scene.test.ts`) was checked and REFUTED by the lead (`src/presentation/scene/create-engine.ts:283` calls `applyPitch()` unconditionally inside `loadAndRenderOnce`, independent of the test's own `onFrame`), but the lead then independently reproduced the reviewer's underlying claim by directly applying the spec's own AC 5 Rule-19 mutation (deleting `light.parent = playfieldRoot` in `lamp-driver.ts`) and observing the pitch/world-position test stay GREEN — the light's authored local Y offset (table z -4mm) already sits below the mesh's local-space vertical centre (~-3.5mm) by construction, so the ordering assertion survives the mutation regardless of whether the light is genuinely parented. Fixed by adding a direct `expect(light.parent).toBe(playfieldRoot)` assertion to `test/lighting-scene.test.ts`'s pitch test; re-applied the same mutation and confirmed it now reddens (`light.parent` reads `null`), then reverted and confirmed green again.
+  - `medium` `patch` Blind-hunter: the four inlane/outlane insert centres in `tools/make-placeholder-blend.py` used a re-typed `(150 + 200) / 2` literal instead of deriving from the same values their matching `add_switch_zone(...)` calls use (DW-149) — every other insert group already did this correctly. Fixed by hoisting `INOUT_LANE_Y0_MM`/`INOUT_LANE_Y1_MM` and reusing them in both the switch-zone calls and the insert centres; regenerated and re-exported via Blender, confirmed `dragonwar.glb` and `dragonwar.collision.json` are byte-identical to before the refactor (pure source-level derivation, zero numeric change).
+  - `medium` `patch` Intent-alignment: `syncLamps`'s production default-budget path (`options?.budget ?? TUNING.liveLightBudget.value`, the exact call shape `src/host/boot.ts` uses) was never exercised by any test — every test in `test/lighting-scene.test.ts` either injects an explicit `{ budget: N }` or, when omitting options, only asserts a per-mesh cap that zero enabled lights would trivially satisfy. Fixed by adding a new test that calls `syncLamps` with no options object over all fourteen real lamps and asserts every one gets an enabled light (proving the default resolves to a value >= 14, not an accidental 0/undefined).
+  - `low` `patch` Blind-hunter: `presentation/lighting/grammar.ts`'s own doc comment miscounted `hurryup`/`quickmb`/`joust`/`special` (four roles, four story numbers cited) as "the latter three". Fixed the comment text.
+  - `low` `patch` Edge-case-hunter: `tools/boundary-lint.mjs`'s `sim-no-colour` hex-literal matcher covered 3/6/8-digit hex colours but not the 4-digit hex-with-alpha (`#rgba`) shorthand. Added the missing pattern to `SIM_NO_COLOUR_HEX_PATTERN_SOURCES`.
+  - `low` `patch` Edge-case-hunter: `isLampOnAt(blinkPeriodMs, nowMs)` would compute `nowMs % 0` (`NaN`) if ever called with `blinkPeriodMs === 0`, silently reading as permanently off rather than steady-on; unreachable today (no `STEP_LOOKUP` entry produces 0) but cheap to guard against future roles/steps. Added a defensive `blinkPeriodMs === 0` branch alongside the existing `null` check.
+  - `low` `defer` Blind-hunter: `sim-no-colour`'s `\b`-based identifier matchers cannot see a colour-shaped word at a camelCase/snake_case-internal boundary (`laneColour`, `dragon_red`) — inherits the same idiom `checkBannedGlobals()` already uses elsewhere in the file; no current occurrence. Recorded in spec frontmatter `deferred:`.
+  - `low` `defer` Blind-hunter: no test exercises a genuine lit-to-off render transition in `test/lighting-scene.test.ts` (only a never-lit neighbour and a held-view blink toggle are covered); the driver code itself is mechanically simple and unconditional. Recorded in spec frontmatter `deferred:`.
+  - `low` `defer` Blind-hunter: the `{ budget: 2 }` trap-4 test asserts only the total enabled-light count, never which specific lamps win the budget. Recorded in spec frontmatter `deferred:`.
+  - `low` `defer` Verification-gap: no test drives the real `sim/loop` through a step-only lamp transition (role unchanged, step changed) and asserts a `LampCommand` was emitted for it — narrower than the spec's own AC 1 Rule-19 mutation, which IS caught by `test/flipper-mover.test.ts`. Recorded in spec frontmatter `deferred:`.
+  - `low` `reject` Blind-hunter: the `sim-no-colour` colour-name blocklist includes "gold"/"amber", plausible non-colour vocabulary for a dragon/treasure theme — theoretical, no current occurrence anywhere under `src/sim/**` (the real tree lints clean), and neither word is one of PRD FR-44's own six colour terms.
+  - `low` `reject` Blind-hunter: `lampsOf()`'s `skillShotActive` check (`state.modes.some(mode => mode.mode === 'skill_shot')`) does not verify the skill-shot mode's own `player` matches the base mode's `player`. Investigated and confirmed structurally unreachable: `src/sim/rules/modes/index.ts`'s `createModeStack().step()` always starts `base` and `skill_shot` together from the SAME `pendingStartPlayer`, one pair active at a time, `skill_shot` removed from `modes[]` on resolution before the next `ball_starting` — no code path can produce a `skill_shot` entry for a different player than the concurrent base mode.
+  - `low` `reject` Edge-case-hunter: a template-literal chunk exactly equal to a colour name could false-positive `sim-no-colour`'s string-literal matcher. `extractStringLiterals` (pre-existing, not touched by this story's diff) already carries a documented, deliberate lead/tail delimiter-stripping fix for exactly this class of bug (`tools/boundary-lint.mjs`'s own inline comment records the prior "became `_star`"/"became `s_star`" defect and its fix); any residual concern is an inherent limitation of chunk-based template scanning shared by any regex approach, not something this story's new rule introduces. Out of this story's footprint (the touched function is `checkSimNoColour`, never `extractStringLiterals`).
+  - `low` `reject` Edge-case-hunter: `test/asset-contract.test.ts`'s new glb bounding-box helper does not check a POSITION accessor's `min`/`max` array length before indexing. A malformed accessor would produce `NaN` bounds, which the surrounding assertions would report as a loud, obviously-wrong test failure (never a silent false pass) — no realistic false-positive-pass path.
+
 ## Design Notes
 
 **[LEAD, 2026-09-06 spec gate] DW-47 was re-owned to this story and the plan did not know it existed.** `DW-47` records that `l_insert_left`'s lens protrudes **0.5 mm above** the playfield surface, against AD-11's "lens and cup geometry below the surface" (`tools/make-placeholder-blend.py` builds the lens box from z -1.0 to **+0.5** while `vis_playfield` spans z -1.0 to 0.0; the cup at z -7 to -1 is correct). It was `routed` to Story 4.2. This spec removes `l_insert_left` — which is defensible — but it authors **fourteen** real `l_` inserts in the same `.blend` with the same tooling, so the live risk is no longer one lip: it is **the same authoring mistake reproduced fourteen times, shipped, and inherited by 4.2 as fourteen entries instead of one**. Rule 17's test is whose gate genuinely fails while the item stands, and that is now this story's.
@@ -238,5 +332,41 @@ deferred: []
 
 ## Auto Run Result
 
-Status: ready-for-dev
-Blocking condition: none
+**Summary of implemented change.** Authored the fourteen insert lamps the game already tracks state for (three Top lanes, four inlane/outlane, six DRAGON letters, the Lock) as `TABLE.lamps` entries and as `l_` lens-and-cup meshes in the Blender source, replacing Story 1.4's single `l_insert_left` placeholder. Added `lampsOf(state): LampState` as a pure projection in `src/sim/rules/lamps.ts`; `sim/loop` now diffs consecutive projections into `LampCommand`s (never in rules). Added `presentation/lighting/grammar.ts` (the one `(role, step)` -> RGB/intensity/cadence table, authored from PRD FR-44's six colour words) and `presentation/lighting/lamp-driver.ts` (`syncLamps`, the one `LampDriver` touchpoint driving each insert's emissive material and a dynamic light beneath its lens) plus `presentation/lighting/lamp-view.ts` (`advanceLamps`, the presentation-side fold). Added the `sim-no-colour` boundary-lint rule so no colour ever appears under `src/sim/**`. Wired both into `src/host/boot.ts`'s real render loop. Regenerated and re-exported the Blender assets; refreshed all five golden headers (`tableHash`, `gameStart.tuning`) with every trajectory/state hash verified byte-identical.
+
+**Files changed:**
+- `src/sim/contracts/commands.ts` — `LAMP_ROLES` runtime closure, `LampProjectionEntry`, `LampState`.
+- `src/sim/table/names.ts` — binds `LampState`.
+- `src/sim/table/dragonwar.ts` — removes `l_insert_left`; authors the fourteen insert lamps; hoists `DROP_BANK_WIRING`/`LANE_WIRING` so `lamps`' `subject` fields are `satisfies`-typo-checked.
+- `src/sim/table/tuning.ts` — adds `liveLightBudget` (AD-12).
+- `src/sim/rules/lamps.ts` (new) — `lampsOf(state)`, the pure projection.
+- `src/sim/rules/index.ts` — re-exports `lampsOf`/`LampState`.
+- `src/sim/loop/index.ts` — seeds and diffs `previousLamps` into `LampCommand`s.
+- `src/presentation/lighting/grammar.ts` (new) — the one colour table.
+- `src/presentation/lighting/lamp-view.ts` (new) — `advanceLamps`, the presentation fold.
+- `src/presentation/lighting/lamp-driver.ts` (new) — `syncLamps`, the Babylon touchpoint.
+- `src/presentation/lighting/.gitkeep` (deleted) — directory now has real files.
+- `src/host/boot.ts` — wires `advanceLamps`/`syncLamps` into the sim/render folds.
+- `tools/boundary-lint.mjs` — new `sim-no-colour` rule (four matchers after review, including the 4-digit hex pattern).
+- `tools/make-placeholder-blend.py` — `new_insert_mesh()` helper; fourteen inserts authored from the same locals their `add_switch_zone` calls use, including the review-hoisted `INOUT_LANE_Y0_MM`/`Y1_MM`.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` — regenerated (`public/assets/dragonwar.collision.json` byte-identical, confirmed twice: once at initial implementation, once after the review-pass Blender re-run).
+- `test/rules-lamps.test.ts`, `test/lighting-grammar.test.ts`, `test/lighting-scene.test.ts`, `test/lighting-integration.test.ts` (new) — headless projection tests, pure grammar/fold tests, NullEngine rendered-artefact tests, real-loop integration test.
+- `test/contracts.test.ts`, `test/table.test.ts`, `test/asset-contract.test.ts`, `test/boundary-lint.test.ts` (+ `test/fixtures/boundary/colour/**`), `test/rules-devices-headless.test.ts`, `test/tuning.test.ts` — extended for the new contracts, TABLE.lamps shape, glb placement (AC 7/DW-47), sim-no-colour lint, ENTRY_FILES completeness, and the `liveLightBudget` scalar-key allowlist.
+- `test/replays/*.golden.json` (all five) — header-only refresh (`tableHash` `b6c5ce92` -> `672573c`, `gameStart.tuning` gains `liveLightBudget`); `assetHash`/`transitions`/`coilPrologue`/`durationTicks`/`expectedHash`/`expectedGameStateHash`/`expectedCheckpointHashes` byte-identical, verified independently by the lead via `git diff | grep` restricted to those fields returning nothing outside each `notes` append.
+- `ATTRIBUTIONS.md` — Story 2.8 paragraphs appended to the `.blend`/`.glb` rows.
+- `_bmad-output/implementation-artifacts/spec-2-8-inserts-in-the-held-colour-grammar.md` — this file (frontmatter, Review Triage Log, Design Notes were already present at plan time; this pass adds `baseline_revision`, the Review Triage Log entry, the `deferred:` list, and this section).
+
+**Review findings breakdown.** Four review layers (blind-hunter, edge-case-hunter, verification-gap, intent-alignment) ran in parallel against the full diff since `baseline_revision`. 15 distinct findings triaged: 6 `patch` (1 high, 2 medium, 3 low — all fixed and re-verified, see Review Triage Log for detail), 4 `defer` (all low, recorded in frontmatter `deferred:`), 5 `reject` (all low/theoretical, reasoning recorded in the Review Triage Log), 0 `intent_gap`, 0 `bad_spec`. The one HIGH finding (verification-gap, independently corroborated by the lead applying the actual AC 5 Rule-19 mutation) was that `test/lighting-scene.test.ts`'s pitch/world-position test stayed green even with `light.parent = playfieldRoot` deleted — fixed with a direct structural assertion, re-verified red-then-green.
+
+**Follow-up review recommendation:** `true` (patched-findings score: 1 high triggers `true` on its own; also `3*2 + 1*3 = 9 >= 5`). Patched counts by severity: high 1, medium 2, low 3.
+
+**Verification performed.**
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` — all exit 0 (re-run by the lead after the review-pass patches).
+- `pnpm test` with `BLENDER` exported — **112 files, 1809 tests, 0 failed, 0 skipped** (re-run by the lead after the review-pass patches; 1809 = the implementation subagent's own 1808 plus the one new default-budget test added during review).
+- `pnpm check:ad7`, `check:corridor`, `check:reachability` — all pass (re-run by the lead after the review-pass patches).
+- Blender regeneration + `pnpm export:assets` re-run by the lead after the BH1 patch (a source-level refactor with no numeric change): `dragonwar.glb` and `dragonwar.collision.json` confirmed byte-identical (same SHA-256) before and after.
+- Golden discipline personally verified by the lead: `git diff test/replays/ | grep -E 'expected(Hash|GameStateHash|CheckpointHashes)|assetHash|"transitions"|coilPrologue|durationTicks'` restricted to `+`/`-` lines outside each file's `notes` field returns nothing; `tableHash` moves `b6c5ce92` -> `672573c` and `liveLightBudget` is added in all five files, confirmed by direct grep count (5/5).
+- Eight Rule-19 mutations personally applied, observed red, and reverted by the lead from saved byte-identical backups (confirmed via `sha256sum`/`diff` after each revert, and `git status --short`/`git diff --stat` unchanged throughout): AC 7/DW-47 (lens raised to +0.5 table-frame equivalent -> reddened naming `l_top_1`), AC I1 (unconditional all-off `lampsOf` -> reddened the rendered-artefact assertion), AC 8 (stale `tableHash` -> reddened with `StaleReplayHeaderError`), and AC 5 (deleted `light.parent = playfieldRoot`, applied twice: once before the review fix, confirmed the pre-existing test did NOT redden — the verification-gap finding that drove the patch — and once after, confirming the strengthened assertion now does). The remaining implementation-subagent-reported mutations (AC 1, AC 2a/b, AC 3, AC 4 both, AC 6 both, AC 5's other two) rest on that subagent's own report, not re-run by the lead.
+- Matrix Test Audit: all 14 I/O & Edge-Case Matrix rows cross-checked against a covering, passing test; two rows ("No state change across a step", "Two changes to one lamp in one frame") are covered by the general diff mechanism's own attract-case proof and the driver-side `advanceLamps` last-wins test respectively, per the spec's own Verification section naming the latter as AC 4's second pinning mutation.
+
+**Residual risks.** The four deferred findings (frontmatter `deferred:`) are all low-severity coverage/robustness gaps with no current reproducing scenario. `src/host/boot.ts`'s two wiring lines remain uncovered by automated test (spec's own disclosed gap, "One honest verification gap" in Design Notes) — closed only by the lead's manual browser smoke, not by this run.

@@ -22,6 +22,7 @@ const SUPPRESSION_ROOT = path.join(FIXTURES_ROOT, 'suppression');
 const EXEMPTION_EXACT_ROOT = path.join(FIXTURES_ROOT, 'exemption-exact');
 const EXEMPTION_NEAR_MISS_ROOT = path.join(FIXTURES_ROOT, 'exemption-near-miss');
 const SWITCH_EVENT_LEAK_ROOT = path.join(FIXTURES_ROOT, 'switch-event-leak');
+const COLOUR_ROOT = path.join(FIXTURES_ROOT, 'colour');
 const RUN_TIMEOUT_MS = 30_000;
 
 interface RunResult {
@@ -353,6 +354,65 @@ describe('tools/boundary-lint.mjs -- real tree, rules-no-switch-event-outside-de
 	it('pnpm lint:boundaries over the real repository names no rules-no-switch-event-outside-devices violation', () => {
 		const { stderr } = run([]);
 		expect(stderr).not.toContain('rules-no-switch-event-outside-devices');
+	});
+});
+
+// Story 2.8 (AC 2, AD-9): sim-no-colour -- the Story 2.4 four-part
+// non-vacuity contract copied exactly: positive fixtures flagged, negative
+// fixtures explicitly not.toContain, the exact violating-file SET asserted
+// (so the not.toContain assertions cannot be satisfied by a rule that fires
+// on nothing), and the real tree stays green.
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/colour (Story 2.8, AC 2: sim-no-colour)', () => {
+	const { status, stderr } = run([COLOUR_ROOT]);
+
+	it('exits 1 (a textual violation, not an import-graph one)', () => {
+		expect(status).toBe(1);
+	});
+
+	it.each([
+		['src/sim/identifier-red.ts', '"RED"'],
+		['src/sim/identifier-colour.ts', '"colour"'],
+		['src/sim/literal-white.ts', '"white"'],
+		['src/sim/literal-hex.ts', '"#ff8800"'],
+		['src/sim/literal-rgba.ts', 'rgba('],
+	])('fires on the positive fixture %s, naming %s', (file, needle) => {
+		const lines = stderr.split('\n').filter((line) => line.includes(file));
+		expect(lines.join('\n'), `expected a [sim-no-colour] violation naming ${file}, got:\n${stderr}`).toContain('[sim-no-colour]');
+		expect(lines.join('\n')).toContain(needle);
+	});
+
+	it.each([
+		'src/sim/negative-comment-colour-words.ts',
+		'src/sim/negative-prose-literal-red.ts',
+		'src/sim/negative-hex-like-constant.ts',
+		'src/sim/negative-identifier-redistribute.ts',
+	])('does NOT fire on the negative fixture %s', (file) => {
+		expect(stderr).not.toContain(file);
+	});
+
+	// The file SET, not a raw count (Story 2.4's own non-vacuity idiom): this
+	// is what makes the four `not.toContain` assertions above non-vacuous.
+	it('reports exactly the five deliberate violating files and no others', () => {
+		const violatingFiles = new Set(
+			stderr
+				.split('\n')
+				.filter((line) => line.includes('[sim-no-colour]'))
+				.map((line) => line.trim().split(' ')[1].split(':')[0]),
+		);
+		expect([...violatingFiles].sort()).toEqual([
+			'src/sim/identifier-colour.ts',
+			'src/sim/identifier-red.ts',
+			'src/sim/literal-hex.ts',
+			'src/sim/literal-rgba.ts',
+			'src/sim/literal-white.ts',
+		]);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- real tree, sim-no-colour exits 0', () => {
+	it('pnpm lint:boundaries over the real repository names no sim-no-colour violation', () => {
+		const { stderr } = run([]);
+		expect(stderr).not.toContain('sim-no-colour');
 	});
 });
 

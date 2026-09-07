@@ -621,6 +621,20 @@ export const TUNING = deepFreeze({
 		'authored: PRD FR-18 states the mechanism (the Skill shot "awards a fixed value plus lighting a letter") and marks the figure itself "[ASSUMPTION: award]"; the PRD review rubric records that no planning artifact states any scoring value, and the spine defers every scoring value to the post-playtest freeze (Story 3.11). No artifact states this figure. It is the first scoring value in the game, so it sets the scale rather than fitting one -- change it by playtest, not by argument',
 		'unverified',
 	),
+
+	/**
+	 * Story 2.8 (AD-12): the live cap on simultaneously-enabled dynamic
+	 * insert lights `presentation/lighting/lamp-driver.ts`'s `syncLamps()`
+	 * enforces, counting ENABLED lights only. A dimensionless count, never a
+	 * duration -- must not end in `Ms` (`assertNoNestedMsKeys`/
+	 * `sim-no-literal-ms`), so it and the derived-`Ticks` machinery never
+	 * apply to it.
+	 */
+	liveLightBudget: entry(
+		20,
+		'<AD-12: "the live dynamic-light budget on the floor is 20 per frame [ASSUMPTION]", verified 2026-08-26 at ~23 Babylon clustered-forward lights per WebGL2 batch, re-verify 2026-09-26. No artifact states a measured figure>',
+		'unverified',
+	),
 } as const);
 
 type TuningMsKey<T> = {

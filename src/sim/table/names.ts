@@ -19,6 +19,7 @@ import type {
 	GameState as ContractsGameState,
 	GiCommand as ContractsGiCommand,
 	LampCommand as ContractsLampCommand,
+	LampState as ContractsLampState,
 	MachineState as ContractsMachineState,
 	MechanismsSnapshot as ContractsMechanismsSnapshot,
 	ReplayHeader as ContractsReplayHeader,
@@ -56,6 +57,7 @@ export type ContactEvent = ContractsContactEvent<DeviceName>;
 export type SemanticEvent = ContractsSemanticEvent<BallDeviceName, DeviceName>;
 export type CoilCommand = ContractsCoilCommand<CoilName>;
 export type LampCommand = ContractsLampCommand<LampName>;
+export type LampState = ContractsLampState<LampName>;
 export type GiCommand = ContractsGiCommand<GiChannel>;
 export type FlasherCommand = ContractsFlasherCommand<FlasherName>;
 export type ShowCommand = ContractsShowCommand<ShowName>;

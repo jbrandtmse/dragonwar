@@ -23,11 +23,21 @@ export interface RecoverCommand {
 }
 
 /**
+ * The closed role set AD-9 names, as a RUNTIME value (Story 2.8, the
+ * `CONTACT_SURFACES` idiom -- `contracts/events.ts:30-46`): a lamp role is
+ * never a colour, so this list is the seven values `lampsOf(state)` may ever
+ * emit, no more and no fewer. `LampRole` below is re-derived from it so the
+ * type and the runtime closure test (`test/contracts.test.ts`) can never
+ * silently drift apart.
+ */
+export const LAMP_ROLES = ['off', 'lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special'] as const;
+
+/**
  * `role` is never a colour (AD-9): `presentation/lighting/grammar.ts` is the
  * one `(role, step)` -> RGB/intensity/cadence table. The closed role set
  * named by AD-9's own rule text.
  */
-export type LampRole = 'off' | 'lit' | 'hurryup' | 'quickmb' | 'joust' | 'dragon' | 'special';
+export type LampRole = (typeof LAMP_ROLES)[number];
 
 /** The only progression rules may express for a lamp: off, lit, emphasised, urgent (AD-9). */
 export type LampStep = 0 | 1 | 2 | 3;
@@ -40,6 +50,15 @@ export interface LampCommand<TLamp extends string = string> {
 	readonly step: LampStep;
 	readonly tick: number;
 }
+
+/** One lamp's current projected state (Story 2.8, AD-9): `lampsOf(state)`'s own per-lamp value, computed fresh every rules step -- `sim/loop` diffs consecutive values of this into the `LampCommand`s above; it is never itself sent anywhere. */
+export interface LampProjectionEntry {
+	readonly role: LampRole;
+	readonly step: LampStep;
+}
+
+/** `lampsOf(state): LampState` (Story 2.8, AD-9): every `TABLE.lamps` key's current `{ role, step }`, a pure function of `GameState` alone -- recomputed whole every step, never mutated in place. */
+export type LampState<TLamp extends string = string> = Readonly<Record<TLamp, LampProjectionEntry>>;
 
 /** Rules -> presentation: the only continuous light level; latest wins per channel (AD-9). */
 export interface GiCommand<TGiChannel extends string = string> {

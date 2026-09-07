@@ -63,8 +63,9 @@
 import { applyDeviceEvents, createBallController, deriveDeviceSlots } from './ball-controller';
 import { bootDeviceSlots, createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
 import { createModeStack, type ModeEvent } from './modes';
+import { lampsOf } from './lamps';
 import { TABLE } from '../table/dragonwar';
-import type { GameState, MachineState, SemanticEvent, CoilCommand } from '../table/names';
+import type { GameState, MachineState, SemanticEvent, CoilCommand, LampState } from '../table/names';
 import type { BallLaunchedEvent, BallWillStartEvent } from '../contracts/events';
 import type { GameAdjustments } from '../contracts/replay';
 import type { ResolvedTuning } from '../table/tuning';
@@ -80,6 +81,17 @@ type SwitchEventsParam = Parameters<DevicesLayer['step']>[0];
  * `GameState.machine.deviceSlots` -- TABLE-derived, never a physics read.
  */
 export { bootDeviceSlots };
+
+/**
+ * Story 2.8 (AD-9): re-exported so `sim/loop/index.ts` reaches the lamp
+ * projection through the SAME `../rules` barrel it already uses for
+ * `createRules()`/`bootDeviceSlots`, mirroring the re-export above.
+ * `RulesStepResult.commands` deliberately stays `readonly never[]` --
+ * AD-9 and this story's AC 1 both place the diff (`lampsOf(state)` called
+ * twice, compared) in `sim/loop`, never here.
+ */
+export { lampsOf };
+export type { LampState };
 
 /**
  * Story 2.7: re-exported so `test/util/switch-script.ts`'s `runRulesScript()`

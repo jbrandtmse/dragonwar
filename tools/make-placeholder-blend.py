@@ -1500,6 +1500,38 @@ def new_box_mesh(name, min_mm, max_mm, parent=None, material=None, second_uv=Fal
 	return obj
 
 
+def new_insert_mesh(name, lens_min_mm, lens_max_mm, cup_min_mm, cup_max_mm, material, parent=None):
+	"""Story 2.8: one insert, lens + cup geometry joined into ONE object with
+	ONE material slot (AD-11: "l_ is lens AND cup geometry below the surface,
+	never a decal"). Factored from l_insert_left's own original authoring
+	block (Story 1.4), which built exactly this shape inline for its one
+	lamp -- every insert this story adds shares the identical join. The cup's
+	geometry is merged into the lens bmesh via an explicit BMVert-identity
+	vertex map, never by index: BMesh vertex `.index` is stale (0 for every
+	fresh vert) until an explicit `index_update()`, so an index-based join
+	here raises "found the same (BMVert) used multiple times" -- measured,
+	Story 1.4."""
+	lens_bm = _box_bmesh(lens_min_mm, lens_max_mm)
+	cup_bm = _box_bmesh(cup_min_mm, cup_max_mm)
+	vert_map = {v: lens_bm.verts.new(v.co) for v in cup_bm.verts}
+	for f in cup_bm.faces:
+		lens_bm.faces.new([vert_map[v] for v in f.verts])
+	cup_bm.free()
+	lens_bm.normal_update()
+	mesh = bpy.data.meshes.new(name)
+	lens_bm.to_mesh(mesh)
+	lens_bm.free()
+	mesh.uv_layers.new(name='uv_base')
+	mesh.uv_layers.new(name='uv_lightmap')
+	mesh.materials.append(material)
+	obj = bpy.data.objects.new(name, mesh)
+	obj.data.name = name
+	bpy.context.scene.collection.objects.link(obj)
+	if parent is not None:
+		obj.parent = parent
+	return obj
+
+
 def set_props(obj, **props):
 	for key, value in props.items():
 		obj[key] = value
@@ -3155,10 +3187,15 @@ def main():
 	# Inlanes / outlanes -- 2.1a's own drain-triangle geometry, this story's
 	# own switches (Epic 1 never named them; the geometry has always been
 	# there since 2.1a).
-	add_switch_zone('sw_inlane_l', 's_inlane_l', (left_divider_x1 + 2, 150, 0), (left_divider_x1 + 40, 200, 30))
-	add_switch_zone('sw_inlane_r', 's_inlane_r', (right_divider_x0 - 40, 150, 0), (right_divider_x0 - 2, 200, 30))
-	add_switch_zone('sw_outlane_l', 's_outlane_l', (2, 150, 0), (left_divider_x0 - 2, 200, 30))
-	add_switch_zone('sw_outlane_r', 's_outlane_r', (right_divider_x1 + 2, 150, 0), (LANE_X0_MM - 2, 200, 30))
+	# Story 2.8 (code review, DW-149): named so the inlane/outlane insert
+	# centres below derive from the SAME values these zones use, rather than
+	# re-typing 150/200 a second time with no code-level link back to them.
+	INOUT_LANE_Y0_MM = 150
+	INOUT_LANE_Y1_MM = 200
+	add_switch_zone('sw_inlane_l', 's_inlane_l', (left_divider_x1 + 2, INOUT_LANE_Y0_MM, 0), (left_divider_x1 + 40, INOUT_LANE_Y1_MM, 30))
+	add_switch_zone('sw_inlane_r', 's_inlane_r', (right_divider_x0 - 40, INOUT_LANE_Y0_MM, 0), (right_divider_x0 - 2, INOUT_LANE_Y1_MM, 30))
+	add_switch_zone('sw_outlane_l', 's_outlane_l', (2, INOUT_LANE_Y0_MM, 0), (left_divider_x0 - 2, INOUT_LANE_Y1_MM, 30))
+	add_switch_zone('sw_outlane_r', 's_outlane_r', (right_divider_x1 + 2, INOUT_LANE_Y0_MM, 0), (LANE_X0_MM - 2, INOUT_LANE_Y1_MM, 30))
 
 	# Slingshots and pop bumpers
 	# Same reachability fix as sw_dragon_body_l/_r and the pop zones above:
@@ -3253,32 +3290,60 @@ def main():
 	)
 	set_props(vis_playfield, lightgroup='lg_playfield')
 
-	# ---- l_insert_left: ONE object, lens + cup geometry joined, ONE material
-	# slot (AD-11: "one material each") ----
-	lens_bm = _box_bmesh((249.0, 492.0, -1.0), (265.0, 508.0, 0.5))
-	cup_bm = _box_bmesh((247.0, 490.0, -7.0), (267.0, 510.0, -1.0))
-	# Merge cup_bm's geometry into lens_bm via an explicit vertex map -- BMesh
-	# vertex `.index` is stale (0 for every fresh vert) until an explicit
-	# `index_update()`, so mapping by BMVert object identity is the robust way
-	# to carry cup_bm's faces over onto the new verts (measured: an
-	# index-based join here raised "found the same (BMVert) used multiple
-	# times", every new vert's stale index reading 0).
-	vert_map = {v: lens_bm.verts.new(v.co) for v in cup_bm.verts}
-	for f in cup_bm.faces:
-		lens_bm.faces.new([vert_map[v] for v in f.verts])
-	cup_bm.free()
-	lens_bm.normal_update()
-	insert_mesh = bpy.data.meshes.new('l_insert_left')
-	lens_bm.to_mesh(insert_mesh)
-	lens_bm.free()
-	insert_mesh.uv_layers.new(name='uv_base')
-	insert_mesh.uv_layers.new(name='uv_lightmap')
-	insert_mesh.materials.append(mat_insert)
-	l_insert_left = bpy.data.objects.new('l_insert_left', insert_mesh)
-	l_insert_left.data.name = 'l_insert_left'
-	bpy.context.scene.collection.objects.link(l_insert_left)
-	l_insert_left.parent = playfield_root
-	set_props(l_insert_left, lightgroup='lg_inserts')
+	# ---- Story 2.8: the fourteen insert lamps (AD-9, AD-11), replacing
+	# Story 1.4's one placeholder `l_insert_left`. Every centre below is
+	# derived from the SAME local variables its own matching
+	# add_switch_zone(...) call above uses (DW-149: never a re-typed
+	# literal), so "the insert sits over its own lane" is true by
+	# construction. DW-47 / this story's own Design Notes: the lens's TOP
+	# face sits at z = 0.0 (flush with the playfield surface, `vis_playfield`
+	# itself spans z -1.0..0.0), never above it -- `l_insert_left`'s own
+	# +0.5 mm protrusion (still visible above, in the git history of this
+	# block) was DW-47's own measured defect, reproduced fourteen times had
+	# this simply copied it forward. ----
+	INSERT_LENS_Z0_MM, INSERT_LENS_Z1_MM = -1.0, 0.0
+	INSERT_CUP_Z0_MM, INSERT_CUP_Z1_MM = -7.0, -1.0
+	LANE_INSERT_HALF_MM = 8.0    # 16 x 16 mm lens -- l_insert_left's own authored footprint
+	LANE_CUP_HALF_MM = 10.0      # 20 x 20 mm cup
+	LETTER_INSERT_HALF_MM = 4.5  # 9 x 9 mm lens
+	LETTER_CUP_HALF_MM = 5.0     # 10 x 10 mm cup -- DRAGON_BANK_PITCH_MM (11.0) leaves exactly 1 mm between neighbouring cups
+
+	def add_insert(name, cx, cy, half_lens, half_cup):
+		lens_min = (cx - half_lens, cy - half_lens, INSERT_LENS_Z0_MM)
+		lens_max = (cx + half_lens, cy + half_lens, INSERT_LENS_Z1_MM)
+		cup_min = (cx - half_cup, cy - half_cup, INSERT_CUP_Z0_MM)
+		cup_max = (cx + half_cup, cy + half_cup, INSERT_CUP_Z1_MM)
+		obj = new_insert_mesh(name, lens_min, lens_max, cup_min, cup_max, mat_insert, parent=playfield_root)
+		set_props(obj, lightgroup='lg_inserts')
+		return obj
+
+	# Top lanes -- same divider math as the sw_top_* zones above.
+	top_lane_inserts = []
+	for i in range(3):
+		lane_x0 = TOP_LANE_DIVIDER_XS_MM[i] + TOP_LANE_DIVIDER_T_MM / 2
+		lane_x1 = TOP_LANE_DIVIDER_XS_MM[i + 1] - TOP_LANE_DIVIDER_T_MM / 2
+		cx = (lane_x0 + lane_x1) / 2
+		cy = (TOP_LANE_Y0_MM + 5 + TOP_LANE_Y1_MM - 5) / 2
+		top_lane_inserts.append(add_insert(f'l_top_{i + 1}', cx, cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM))
+
+	# Inlanes / outlanes -- same zone corners as sw_inlane_*/sw_outlane_* above
+	# (code review: the y-centre now derives from the SAME INOUT_LANE_Y0_MM/
+	# Y1_MM those zones use, never a re-typed 150/200 pair).
+	inout_lane_cy = (INOUT_LANE_Y0_MM + INOUT_LANE_Y1_MM) / 2
+	l_inlane_l = add_insert('l_inlane_l', (left_divider_x1 + 2 + left_divider_x1 + 40) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+	l_inlane_r = add_insert('l_inlane_r', (right_divider_x0 - 40 + right_divider_x0 - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+	l_outlane_l = add_insert('l_outlane_l', (2 + left_divider_x0 - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+	l_outlane_r = add_insert('l_outlane_r', (right_divider_x1 + 2 + LANE_X0_MM - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+
+	# DRAGON bank -- same cx formula and zone y band as the sw_dragon_* zones above.
+	dragon_letter_inserts = {}
+	for i, letter in enumerate(DRAGON_LETTERS):
+		cx = DRAGON_BANK_X0_MM + i * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM / 2
+		cy = (dragon_bank_zone_y0 + dragon_bank_zone_y1) / 2
+		dragon_letter_inserts[letter] = add_insert(f'l_dragon_{letter}', cx, cy, LETTER_INSERT_HALF_MM, LETTER_CUP_HALF_MM)
+
+	# Lock -- same zone corners as sw_lock_lane above.
+	l_lock = add_insert('l_lock', (lock_lane_x0 + 2 + lock_lane_x1 - 2) / 2, (SW_LOCK_LANE_Y0_MM + SW_LOCK_LANE_Y1_MM) / 2, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
 
 	# ---- vis_backbox: Story 2.6's DMD Backglass mounting quad, the first
 	# child of cabinet_root (AD-11: Blender is the sole owner of every
@@ -3306,14 +3371,17 @@ def main():
 	set_props(vis_backbox, lightgroup='lg_cabinet')
 
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):
-	# the three roots, vis_playfield, vis_spinner_l, vis_backbox,
-	# l_insert_left, bd_trough, bd_shooter, bd_lock. col_/sw_ nodes are
-	# excluded -- collision scaffolding, never rendered. ----
+	# the three roots, vis_playfield, vis_spinner_l, vis_backbox, the
+	# fourteen Story 2.8 insert lamps, bd_trough, bd_shooter, bd_lock.
+	# col_/sw_ nodes are excluded -- collision scaffolding, never rendered. ----
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	presentation_objects = [
 		playfield_root, cabinet_root, pivot_pitch,
-		vis_playfield, vis_spinner_l, vis_backbox, l_insert_left, bd_trough, bd_shooter, bd_lock,
+		vis_playfield, vis_spinner_l, vis_backbox,
+		*top_lane_inserts, l_inlane_l, l_inlane_r, l_outlane_l, l_outlane_r,
+		*dragon_letter_inserts.values(), l_lock,
+		bd_trough, bd_shooter, bd_lock,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

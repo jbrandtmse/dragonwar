@@ -5,494 +5,499 @@
     "gameStart": {
       "seed": 12345,
       "tuning": {
-        "autolaunchSpeedMmPerS": {
-          "confidence": "unverified",
-          "source": "authored: AD-6 requires an eject speed, no artifact states one -- measured during Story 1.5 planning against col_lane_deflector, whose clearance threshold sits between 1600 and 1800 mm/s; this carries margin above it",
-          "value": 2500
-        },
-        "cabinet": {
-          "freqXHz": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)",
-            "value": 9.3
-          },
-          "freqYHz": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)",
-            "value": 5.8
-          },
-          "massKg": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.h:24, CabinetPhysics(float mass = 113.f) default ctor argument",
-            "value": 113
-          },
-          "nudgePeakAccelG": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:162-164, comment \"0.5g max peak accel on strong nudge\" (baseScale = 0.5f * g / coreScriptStrength, with coreScriptStrength = 2.f the reference \"full strength\" nudge)",
-            "value": 0.5
-          },
-          "zetaX": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)",
-            "value": 0.052
-          },
-          "zetaY": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)",
-            "value": 0.055
-          }
-        },
-        "defaultPitchDeg": {
-          "confidence": "high",
-          "source": "FR-10 consequence text; AD-10 TABLE.reference.pitchDeg; addendum §2 reference geometry (\"pitch 6.5°... high confidence\")",
-          "value": 6.5
-        },
-        "flipper": {
-          "endRadiusRatio": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults endRadius 13.0 / baseRadius 21.5 -- the ported dimensionless taper ratio; the committed collision geometry supplies the absolute base radius (half the bat's own width)",
-            "value": 0.6046511627906976
-          },
-          "mass": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData.updatePhysicsSettings()'s registry.getRegStringAsFloat('Player', 'FlipperPhysicsMass${idx}', 1) fallback default -- the vpx-js 'modern era' override value, transcribed since DragonWar has no per-table override-physics system of its own (AD-1) and this IS the modern band physics-tuning.md's 'Flipper strength' note says to inherit",
-            "value": 1
-          },
-          "rampUp": {
-            "confidence": "medium",
-            "source": "physics-tuning.md:28 \"Coil ramp-up 2.5 -- Solenoid acceleration time -- enables the light tap. Source: VPE default via the brief addendum §4\" (supersedes flipper-data.ts's own FlipperPhysicsCoilRampUp fallback of 3.0 for this table)",
-            "value": 2.5
-          },
-          "returnRatio": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsReturnStrength${idx} fallback default",
-            "value": 0.058
-          },
-          "strength": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsStrength${idx} fallback default 2200 (VPX internal solenoid-strength unit, dimensionless) -- the modern-era band",
-            "value": 2200
-          },
-          "sweepDeg": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults startAngle 121.0 / endAngle 70.0 -> the ported ROTATION MAGNITUDE |121-70| = 51; the committed collision geometry supplies the flipper's absolute table-frame pose (see loader/index.ts and this story's Design Notes, \"How the bat is derived from the committed box\")",
-            "value": 51
-          },
-          "torqueDamping": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorque${idx} fallback default",
-            "value": 0.75
-          },
-          "torqueDampingAngleDeg": {
-            "confidence": "medium",
-            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorqueAngle${idx} fallback default, degrees",
-            "value": 6
-          }
-        },
-        "flipperTipGapMm": {
-          "confidence": "unverified",
-          "source": "authored: derived arithmetic, not a second invented figure -- the gap between the right bat's tip (col_flipper_r.bboxMm.min.x = 277.525 mm) and the left bat's tip (col_flipper_l.bboxMm.max.x = 236.875 mm) at end-of-stroke, both a direct consequence of DW-78's reconciliation (each box moved outward by baseRadius = 12.5 mm around its own unchanged pivot). No planning artifact states a tip gap; the sourced 9.5-12.7 mm figure (digests/geometry-r1-1.md:91,204, low confidence) is narrower than the 26.99 mm reference ball and therefore unusable as authored truth (Code Map, \"Read-only evidence\")",
-          "value": 40.65
-        },
-        "hardware": {
-          "popKickMmPerS": {
-            "confidence": "unverified",
-            "source": "authored: no planning artifact states a pop-bumper kick strength. [CORRECTED, Story 2.3, DW-160: the three claims this string previously made -- a ~180 mm/s floor, a ~220 mm/s ceiling from Top-lane cross-pop bouncing, and 126.8 mm of trailing progress at 200 as the representative escape -- were re-swept directly against the DW-148 column ((130, 850), test/pop-bumper.test.ts's own dw148TrailingProgressMm(v)) and only the last one reproduces.] There is NO floor beyond \"nonzero\": every positive kick tried down to 0.5 mm/s clears the strand (progress ~309 mm); only 0 mm/s (no kick) reproduces the original permanent rest. The landscape above that is NOT a clean one-sided window -- it is chaotic (this is a ball descending onto a near-symmetric octagon apex, POP_KICK_TIE_BREAK_MM only resolves the exact on-axis tie): a fine sweep at 1 mm/s resolution through 155-221 mm/s finds narrow re-strand dips interleaved with clearing bands (e.g. 164-169, 175, 178, 185-195, 197-198 mm/s each re-strand at a NEW equilibrium near (93, 840) -- just outside sw_pop_1's own north edge -- while 196, 199-202 and 205-220 clear, some robustly (~309 mm, e.g. 215-220) and some marginally (~50-130 mm, e.g. 200's own 126.8 mm)); a clean re-strand band then holds from 221 mm/s (measured 1.3 mm progress) through at least 230, with one anomalous escape at 245 before re-stranding again by 260. The ORIGINAL ceiling reasoning (Top-lane cross-pop-bouncing tick-budget exhaustion) is real but starts far higher (~425-600 mm/s per lane) than previously claimed and is not what bounds the safe range from above -- the 221 mm/s re-strand is. 200 sits inside a locally-clearing pocket (199-202 all clear) but its nearest re-strand neighbour is only 2 mm/s away at 198, not the 21 mm/s the far (221 mm/s) cliff alone would suggest -- the true margin is narrower than a single-sided reading implies, a property of the chaos itself rather than of this particular value: no nearby integer value sits in a wider uniformly-clearing pocket without moving toward the robust-but-still-cliff-bounded 215-220 band, which trades a marginal-but-real escape for a razor-thin (1 mm/s) upper margin instead. 200 is kept: it reproduces the same 126.8 mm escape this constant has always shipped with, that escape is measured, not merely inferred from the far cliff, and Story 2.3's own re-record already carries this correction.",
-            "value": 200
-          },
-          "slingshotForce": {
-            "confidence": "unverified",
-            "source": "authored: sim/physics/line-seg-slingshot.ts's own commented-out `//-80` hint (vpx-js @ e8a6d6f, lib/physics/line-seg-slingshot.ts) is the only reference figure anywhere in this tree for the ported model's own force scale -- no planning artifact states a slingshot kick strength; taken as the starting point and measured against this story's own AC 1 (outgoing speed exceeds incoming) rather than invented from nothing",
-            "value": -80
-          },
-          "slingshotThresholdMmPerS": {
-            "confidence": "unverified",
-            "source": "authored: no planning artifact states a slingshot contact-speed threshold below which the band should NOT fire -- measured during this story's implementation so a flipper-band-speed strike clears it and a slow graze does not (AC 1 vs the I/O matrix's \"Sling graze, below threshold\" row)",
-            "value": 500
-          },
-          "spinnerDecayPerTick": {
-            "confidence": "unverified",
-            "source": "authored: AD-6 states the spinner \"closes once per revolution until it decays\" but no rate -- a multiplicative per-tick ratio (never a millisecond duration, DW-34) chosen so the Left Loop's own measured entry speed produces a strictly-increasing inter-closure interval and a finite return to rest within this story's own test tick budgets, measured against AC 3",
-            "value": 0.9995
-          },
-          "spinnerGainDegPerSPerMmPerS": {
-            "confidence": "unverified",
-            "source": "authored: AD-6 states the mechanism (rotation proportional to entry speed) but no gain -- chosen so the Left Loop's own measured 1789.8 mm/s entry speed (this story's Design Notes) produces several revolutions before the decay below returns the spinner to rest, measured against this story's own AC 3/AC 3b tests",
-            "value": 0.5
-          }
-        },
-        "hopControl": {
-          "confidence": "unverified",
-          "source": "authored: FR-9 states the two-endpoint behaviour (0 = no hops, default = occasional hops on hard hits) but no unit or magnitude; hop.ts (this story) supplies both -- measured this pass against the paired hopControl=0-vs-default stress replay (test/hop-control.test.ts) to produce a clear, glass-safe margin without every hard hit turning into a launch",
-          "value": 0.35
-        },
-        "lockCaptureWindowMs": {
-          "confidence": "unverified",
-          "source": "authored: DW-166 -- no artifact names this figure. Measured 2026-09-05 at this tree by driving the Lock lane on-axis from (170, 440, 13.5) (the sw_lock_lane / sw_lock_1..3 corridor's own centreline, x = (150+190)/2): at ~800 mm/s (a capturing shot) s_lock_lane closes at tick 378 and the first bd_lock slot (s_lock_1) closes at tick 512 -- a 134-tick capture latency. At the measured non-capturing band's own ~575 mm/s (epic-2-context.md: \"measured threshold 550-600 mm/s\"), s_lock_lane closes at tick 415 and s_lock_1 does not close until tick 696 -- a 281-tick gap, the ball having rattled back down the corridor and only settling into the slot much later than any real capture would read as resolved. 180 ms sits 46 ticks (34%) above the fast, genuine capture (134 ticks) and 101 ticks (56% of the gap) below the slow shot's own late, non-credited settle (281 ticks) -- inside that gap, DW-166's discriminating condition (this story's Design Notes) correctly reads the fast shot as captured and the slow one as an unresolved closure, emitting nothing for it, exactly as AC 6 requires.",
-          "value": 180
-        },
-        "lockCaptureWindowTicks": {
-          "confidence": "unverified",
-          "source": "authored: DW-166 -- no artifact names this figure. Measured 2026-09-05 at this tree by driving the Lock lane on-axis from (170, 440, 13.5) (the sw_lock_lane / sw_lock_1..3 corridor's own centreline, x = (150+190)/2): at ~800 mm/s (a capturing shot) s_lock_lane closes at tick 378 and the first bd_lock slot (s_lock_1) closes at tick 512 -- a 134-tick capture latency. At the measured non-capturing band's own ~575 mm/s (epic-2-context.md: \"measured threshold 550-600 mm/s\"), s_lock_lane closes at tick 415 and s_lock_1 does not close until tick 696 -- a 281-tick gap, the ball having rattled back down the corridor and only settling into the slot much later than any real capture would read as resolved. 180 ms sits 46 ticks (34%) above the fast, genuine capture (134 ticks) and 101 ticks (56% of the gap) below the slow shot's own late, non-credited settle (281 ticks) -- inside that gap, DW-166's discriminating condition (this story's Design Notes) correctly reads the fast shot as captured and the slow one as an unresolved closure, emitting nothing for it, exactly as AC 6 requires.",
-          "value": 180
-        },
-        "lockEjectExemptionTimeoutMs": {
-          "confidence": "unverified",
-          "source": "authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
-          "value": 600
-        },
-        "lockEjectExemptionTimeoutTicks": {
-          "confidence": "unverified",
-          "source": "authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
-          "value": 600
-        },
-        "loopWindowMs": {
-          "confidence": "unverified",
-          "source": "authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch); below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball no longer completes a single clean pass and instead rattles between the two switches over several thousand ticks, which is not \"a made Loop\" by any reading. 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks); TABLE.shots[*].entryExclusive being false for both Loops (task 2) means this window governs only whether a genuine orbit reads as shot_<side>_loop_made, never a spurious _broken (DW-133).",
-          "value": 600
-        },
-        "loopWindowTicks": {
-          "confidence": "unverified",
-          "source": "authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch); below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball no longer completes a single clean pass and instead rattles between the two switches over several thousand ticks, which is not \"a made Loop\" by any reading. 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks); TABLE.shots[*].entryExclusive being false for both Loops (task 2) means this window governs only whether a genuine orbit reads as shot_<side>_loop_made, never a spurious _broken (DW-133).",
-          "value": 600
-        },
         "materials": {
-          "bumper": {
-            "elasticity": {
-              "confidence": "unverified",
-              "source": "authored: matches materials.default -- an earlier, livelier figure (0.5) measurably rerouted multiple reachability witnesses near the pop cluster (this story's Spec Change Log); the pop's real energy source is the authored kick impulse (TUNING.hardware.popKickMmPerS), not the passive collision response, so this material is named for AC 4 without changing established trajectories",
-              "value": 0.3
-            },
-            "elasticityFalloff": {
-              "confidence": "unverified",
-              "source": "authored: matches materials.default -- see this entry's own elasticity note",
-              "value": 0
-            },
-            "friction": {
-              "confidence": "unverified",
-              "source": "authored: matches materials.default -- no artifact names a bumper-specific friction",
-              "value": 0.3
-            },
-            "scatter": {
-              "confidence": "unverified",
-              "source": "authored: AD-3 requires scatter 0 on every material by default",
-              "value": 0
-            }
-          },
           "default": {
             "elasticity": {
-              "confidence": "high",
+              "value": 0.3,
               "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
-              "value": 0.3
+              "confidence": "high"
             },
             "elasticityFalloff": {
-              "confidence": "high",
+              "value": 0,
               "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
-              "value": 0
+              "confidence": "high"
             },
             "friction": {
-              "confidence": "high",
+              "value": 0.3,
               "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
-              "value": 0.3
+              "confidence": "high"
             },
             "scatter": {
-              "confidence": "high",
+              "value": 0,
               "source": "addendum §2 physics tuning table, 'Per-object tunables': VPX per-object default",
-              "value": 0
+              "confidence": "high"
             }
           },
           "flipper_rubber": {
             "elasticity": {
-              "confidence": "medium",
+              "value": 0.88,
               "source": "addendum §2 physics tuning table, 'Flipper elasticity' (AR-17)",
-              "value": 0.88
+              "confidence": "medium"
             },
             "elasticityFalloff": {
-              "confidence": "medium",
+              "value": 0.15,
               "source": "addendum §2 physics tuning table, 'Elasticity falloff' (AR-17) -- \"the primary feel knob\"",
-              "value": 0.15
+              "confidence": "medium"
             },
             "friction": {
-              "confidence": "unverified",
+              "value": 0.85,
               "source": "authored: midpoint of addendum §2's 'Flipper friction' range 0.8-0.9 (AR-17) -- \"what makes centre shots and backhands possible\"; no artifact states a single value",
-              "value": 0.85
+              "confidence": "unverified"
             },
             "scatter": {
-              "confidence": "high",
+              "value": 0,
               "source": "addendum §2 physics tuning table, 'Scatter angle': \"0, for every era; randomness is tuned down\"",
-              "value": 0
+              "confidence": "high"
             }
           },
           "rubber_band": {
             "elasticity": {
-              "confidence": "unverified",
+              "value": 0.3,
               "source": "authored: matches materials.default -- an earlier, livelier figure (0.85) measurably rerouted multiple DRAGON-bank reachability witnesses and both Top-lane routing cases (this story's Spec Change Log); the sling's real energy source is the authored kick impulse (TUNING.hardware.slingshotForce), not the passive collision response, so this material is named for AC 4 without changing established trajectories",
-              "value": 0.3
+              "confidence": "unverified"
             },
             "elasticityFalloff": {
-              "confidence": "unverified",
+              "value": 0,
               "source": "authored: matches materials.default -- see this entry's own elasticity note",
-              "value": 0
+              "confidence": "unverified"
             },
             "friction": {
-              "confidence": "unverified",
+              "value": 0.3,
               "source": "authored: matches materials.default -- no artifact names a slingshot-band-specific friction",
-              "value": 0.3
+              "confidence": "unverified"
             },
             "scatter": {
-              "confidence": "unverified",
+              "value": 0,
               "source": "authored: AD-3 requires scatter 0 on every material by default",
-              "value": 0
+              "confidence": "unverified"
             }
           },
           "rubber_post": {
             "elasticity": {
-              "confidence": "unverified",
+              "value": 0.3,
               "source": "authored: no artifact names a rubber-post elasticity -- kept at the VPX per-object default (materials.default), the same figure every col_post_* node already carried under 'default' before this story named the material",
-              "value": 0.3
+              "confidence": "unverified"
             },
             "elasticityFalloff": {
-              "confidence": "unverified",
+              "value": 0,
               "source": "authored: matches materials.default -- no artifact names a rubber-post-specific falloff",
-              "value": 0
+              "confidence": "unverified"
             },
             "friction": {
-              "confidence": "unverified",
+              "value": 0.3,
               "source": "authored: matches materials.default -- no artifact names a rubber-post-specific friction",
-              "value": 0.3
+              "confidence": "unverified"
             },
             "scatter": {
-              "confidence": "unverified",
+              "value": 0,
               "source": "authored: AD-3 requires scatter 0 on every material by default",
-              "value": 0
+              "confidence": "unverified"
+            }
+          },
+          "bumper": {
+            "elasticity": {
+              "value": 0.3,
+              "source": "authored: matches materials.default -- an earlier, livelier figure (0.5) measurably rerouted multiple reachability witnesses near the pop cluster (this story's Spec Change Log); the pop's real energy source is the authored kick impulse (TUNING.hardware.popKickMmPerS), not the passive collision response, so this material is named for AC 4 without changing established trajectories",
+              "confidence": "unverified"
+            },
+            "elasticityFalloff": {
+              "value": 0,
+              "source": "authored: matches materials.default -- see this entry's own elasticity note",
+              "confidence": "unverified"
+            },
+            "friction": {
+              "value": 0.3,
+              "source": "authored: matches materials.default -- no artifact names a bumper-specific friction",
+              "confidence": "unverified"
+            },
+            "scatter": {
+              "value": 0,
+              "source": "authored: AD-3 requires scatter 0 on every material by default",
+              "confidence": "unverified"
             }
           }
         },
-        "nudgeImpulseMs": {
-          "confidence": "medium",
-          "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
-          "value": 25
-        },
-        "nudgeImpulseTicks": {
-          "confidence": "medium",
-          "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
-          "value": 25
-        },
-        "outlaneWidthLeftMm": {
-          "confidence": "unverified",
-          "source": "authored: no sourced figure carries a left/right split -- the closest artifact is geometry-r2-1.md:16,78's 1-3/8 in = 34.9 mm inlane/outlane width (low confidence, no side named), adopted here as the LEFT outlane's clear width, measured from col_wall_left's interior face (table x = 0) to col_guide_divider_l's outlane-facing face (tools/make-placeholder-blend.py)",
-          "value": 34.9
-        },
-        "outlaneWidthRightMm": {
-          "confidence": "unverified",
-          "source": "authored: the same geometry-r2-1.md low-confidence 1-3/8 in = 34.9 mm figure as outlaneWidthLeftMm, adopted symmetrically for the RIGHT outlane -- but measured from col_wall_lane's main-field face (table x = LANE_X0_MM = 468.4 mm), not the true right perimeter wall, because the plunger lane already claims the space between col_wall_lane and that wall (tools/make-placeholder-blend.py, add_drain_triangle_side())",
-          "value": 34.9
-        },
-        "pitchMaxDeg": {
-          "confidence": "medium",
-          "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"; corroborated by addendum §2 \"competition range 6.5-8.5°\"",
-          "value": 8.5
-        },
-        "pitchMinDeg": {
-          "confidence": "medium",
-          "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"",
-          "value": 6
-        },
-        "plungerMaxHoldMs": {
-          "confidence": "unverified",
-          "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
-          "value": 500
-        },
-        "plungerMaxHoldTicks": {
-          "confidence": "unverified",
-          "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
-          "value": 500
-        },
-        "plungerMaxSpeedScale": {
-          "confidence": "unverified",
-          "source": "authored: fraction of full plunger power at plungerMaxHoldMs and beyond",
-          "value": 1
-        },
-        "plungerMinHoldMs": {
-          "confidence": "unverified",
-          "source": "authored: AD-5 states the mapping exists (\"plungerSpeedByHoldMs\"), not its curve; a bare tap is the ramp's lower bound",
-          "value": 0
-        },
-        "plungerMinHoldTicks": {
-          "confidence": "unverified",
-          "source": "authored: AD-5 states the mapping exists (\"plungerSpeedByHoldMs\"), not its curve; a bare tap is the ramp's lower bound",
-          "value": 0
-        },
-        "plungerMinSpeedScale": {
-          "confidence": "unverified",
-          "source": "authored: fraction of full plunger power at plungerMinHoldMs",
-          "value": 0.3
-        },
-        "rampWindowMs": {
-          "confidence": "unverified",
-          "source": "authored: no artifact names this figure at all (not even the two-endpoint form FR-16 gives slamNudgeWindowMs above) -- measured 2026-09-05 at this tree by driving the Ramp (served ball repositioned to (315, 470, 13.5), the re-solved DW-137 mouth, straight-line launch at dirDeg 0) across a speed sweep: s_ramp_enter-close to s_ramp_made-close intervals of 142 ticks at 2400 mm/s down to 656 ticks at 1000 mm/s -- the SLOWEST speed that still closed s_ramp_made at all; at 900 mm/s and below (900, 800, 700, 600, 500 mm/s all measured) the ball never reaches s_ramp_made and instead falls back and re-closes s_ramp_enter later, a rejected shot (shot_ramp_broken territory, not a make). 800 ms sits 144 ticks (22%) above the slowest genuine completion measured (656 ticks).",
-          "value": 800
-        },
-        "rampWindowTicks": {
-          "confidence": "unverified",
-          "source": "authored: no artifact names this figure at all (not even the two-endpoint form FR-16 gives slamNudgeWindowMs above) -- measured 2026-09-05 at this tree by driving the Ramp (served ball repositioned to (315, 470, 13.5), the re-solved DW-137 mouth, straight-line launch at dirDeg 0) across a speed sweep: s_ramp_enter-close to s_ramp_made-close intervals of 142 ticks at 2400 mm/s down to 656 ticks at 1000 mm/s -- the SLOWEST speed that still closed s_ramp_made at all; at 900 mm/s and below (900, 800, 700, 600, 500 mm/s all measured) the ball never reaches s_ramp_made and instead falls back and re-closes s_ramp_enter later, a rejected shot (shot_ramp_broken territory, not a make). 800 ms sits 144 ticks (22%) above the slowest genuine completion measured (656 ticks).",
-          "value": 800
-        },
-        "skillShotAward": {
-          "confidence": "unverified",
-          "source": "authored: PRD FR-18 states the mechanism (the Skill shot \"awards a fixed value plus lighting a letter\") and marks the figure itself \"[ASSUMPTION: award]\"; the PRD review rubric records that no planning artifact states any scoring value, and the spine defers every scoring value to the post-playtest freeze (Story 3.11). No artifact states this figure. It is the first scoring value in the game, so it sets the scale rather than fitting one -- change it by playtest, not by argument",
-          "value": 25000
-        },
-        "slamNudgeWindowMs": {
-          "confidence": "unverified",
-          "source": "authored: FR-16 states the mechanism but no window duration",
-          "value": 500
-        },
-        "slamNudgeWindowTicks": {
-          "confidence": "unverified",
-          "source": "authored: FR-16 states the mechanism but no window duration",
-          "value": 500
-        },
-        "slamNudgesPerWindow": {
-          "confidence": "unverified",
-          "source": "authored: FR-16 states the mechanism (a repeated-nudge threshold distinct from the tilt bob) but no count",
-          "value": 3
+        "flipper": {
+          "mass": {
+            "value": 1,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData.updatePhysicsSettings()'s registry.getRegStringAsFloat('Player', 'FlipperPhysicsMass${idx}', 1) fallback default -- the vpx-js 'modern era' override value, transcribed since DragonWar has no per-table override-physics system of its own (AD-1) and this IS the modern band physics-tuning.md's 'Flipper strength' note says to inherit",
+            "confidence": "medium"
+          },
+          "strength": {
+            "value": 2200,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsStrength${idx} fallback default 2200 (VPX internal solenoid-strength unit, dimensionless) -- the modern-era band",
+            "confidence": "medium"
+          },
+          "rampUp": {
+            "value": 2.5,
+            "source": "physics-tuning.md:28 \"Coil ramp-up 2.5 -- Solenoid acceleration time -- enables the light tap. Source: VPE default via the brief addendum §4\" (supersedes flipper-data.ts's own FlipperPhysicsCoilRampUp fallback of 3.0 for this table)",
+            "confidence": "medium"
+          },
+          "returnRatio": {
+            "value": 0.058,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsReturnStrength${idx} fallback default",
+            "confidence": "medium"
+          },
+          "torqueDamping": {
+            "value": 0.75,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorque${idx} fallback default",
+            "confidence": "medium"
+          },
+          "torqueDampingAngleDeg": {
+            "value": 6,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperPhysicsEOSTorqueAngle${idx} fallback default, degrees",
+            "confidence": "medium"
+          },
+          "sweepDeg": {
+            "value": 51,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults startAngle 121.0 / endAngle 70.0 -> the ported ROTATION MAGNITUDE |121-70| = 51; the committed collision geometry supplies the flipper's absolute table-frame pose (see loader/index.ts and this story's Design Notes, \"How the bat is derived from the committed box\")",
+            "confidence": "medium"
+          },
+          "endRadiusRatio": {
+            "value": 0.6046511627906976,
+            "source": "lib/vpt/flipper/flipper-data.ts @ e8a6d6f: FlipperData field defaults endRadius 13.0 / baseRadius 21.5 -- the ported dimensionless taper ratio; the committed collision geometry supplies the absolute base radius (half the bat's own width)",
+            "confidence": "medium"
+          }
         },
         "switchSettleMsByClass": {
-          "bumper_skirt": {
-            "confidence": "high",
-            "source": "AD-2 rule text (as above)",
-            "value": 2
-          },
-          "button": {
-            "confidence": "unverified",
-            "source": "authored: AD-2 states button switches (s_start, s_flipper_l, s_flipper_r, s_plunger) are emitted by sim/loop from InputFrame transitions, never through physics debounce, so there is no bounce to settle",
-            "value": 0
-          },
-          "drop_target": {
-            "confidence": "high",
-            "source": "AD-2 rule text (as above)",
-            "value": 20
-          },
           "rollover": {
-            "confidence": "high",
+            "value": 0,
             "source": "AD-2 rule text: \"defaults by class: rollover 0, standup target 8, drop target 20, bumper skirt 2, tilt bob 0\"",
-            "value": 0
-          },
-          "slam": {
-            "confidence": "unverified",
-            "source": "authored: AD-5 states the slam detector's closure is a tick-windowed nudge-count threshold computed in physics, not a debounced analog switch",
-            "value": 0
+            "confidence": "high"
           },
           "standup": {
-            "confidence": "high",
+            "value": 8,
             "source": "AD-2 rule text (as above)",
-            "value": 8
-          },
-          "tilt_bob": {
-            "confidence": "high",
-            "source": "AD-2 rule text (as above)",
-            "value": 0
-          }
-        },
-        "switchSettleTicksByClass": {
-          "bumper_skirt": {
-            "confidence": "high",
-            "source": "AD-2 rule text (as above)",
-            "value": 2
-          },
-          "button": {
-            "confidence": "unverified",
-            "source": "authored: AD-2 states button switches (s_start, s_flipper_l, s_flipper_r, s_plunger) are emitted by sim/loop from InputFrame transitions, never through physics debounce, so there is no bounce to settle",
-            "value": 0
+            "confidence": "high"
           },
           "drop_target": {
-            "confidence": "high",
+            "value": 20,
             "source": "AD-2 rule text (as above)",
-            "value": 20
+            "confidence": "high"
           },
-          "rollover": {
-            "confidence": "high",
-            "source": "AD-2 rule text: \"defaults by class: rollover 0, standup target 8, drop target 20, bumper skirt 2, tilt bob 0\"",
-            "value": 0
-          },
-          "slam": {
-            "confidence": "unverified",
-            "source": "authored: AD-5 states the slam detector's closure is a tick-windowed nudge-count threshold computed in physics, not a debounced analog switch",
-            "value": 0
-          },
-          "standup": {
-            "confidence": "high",
+          "bumper_skirt": {
+            "value": 2,
             "source": "AD-2 rule text (as above)",
-            "value": 8
+            "confidence": "high"
           },
           "tilt_bob": {
-            "confidence": "high",
+            "value": 0,
             "source": "AD-2 rule text (as above)",
-            "value": 0
+            "confidence": "high"
+          },
+          "button": {
+            "value": 0,
+            "source": "authored: AD-2 states button switches (s_start, s_flipper_l, s_flipper_r, s_plunger) are emitted by sim/loop from InputFrame transitions, never through physics debounce, so there is no bounce to settle",
+            "confidence": "unverified"
+          },
+          "slam": {
+            "value": 0,
+            "source": "authored: AD-5 states the slam detector's closure is a tick-windowed nudge-count threshold computed in physics, not a debounced analog switch",
+            "confidence": "unverified"
           }
         },
-        "tiltBob": {
-          "cabAccelScale": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:33, m_plumbCabAccelScale = 1.0f",
-            "value": 1
-          },
-          "dampingCoef0": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:45, m_dampingCoef0 = 1.25f",
-            "value": 1.25
-          },
-          "dampingCoef1": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:46, m_dampingCoef1 = 0.75f",
-            "value": 0.75
-          },
-          "dampingScale": {
-            "confidence": "unverified",
-            "source": "authored: upstream reads this from Settings::GetPlayer_PlumbDamping(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- 1.0 (identity) is the most defensible 'no adjustment' choice against the transcribed dampingCoef0/dampingCoef1 ratio coefficients; measured during this story's implementation (see spec Verification section) to leave a single ordinary nudge's peak swing (~1.05 deg) well clear of thresholdDeg while still permitting a rapid nudge burst to cross it and decay away within a few seconds. Story 1.9's feel ritual ratifies it",
-            "value": 1
-          },
-          "ringBounceDamping": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.cpp:118, m_plumbOmega *= 0.8f; // magic damping factor",
-            "value": 0.8
-          },
-          "rodLengthM": {
-            "confidence": "medium",
-            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:30, m_plumbPoleLength = 0.10f",
-            "value": 0.1
-          },
-          "thresholdDeg": {
-            "confidence": "unverified",
-            "source": "authored: upstream reads this from Settings::GetPlayer_PlumbThresholdAngle(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- measured during this story's implementation (see spec Verification section) so that ONE ordinary nudge_* rising edge (peak swing ~1.05 deg, measured) never crosses it, while a rapid burst of nudges (a deliberate, violent 'slam'-style burst) does. Story 1.9's feel ritual ratifies it against the Reference machine",
-            "value": 1.3
-          }
+        "defaultPitchDeg": {
+          "value": 6.5,
+          "source": "FR-10 consequence text; AD-10 TABLE.reference.pitchDeg; addendum §2 reference geometry (\"pitch 6.5°... high confidence\")",
+          "confidence": "high"
         },
-        "tiltSettleMs": {
-          "confidence": "unverified",
-          "source": "authored: AD-3/AD-7 name \"tilt... settle\" as a rules timer keyed to the bob's physical decay; no duration stated",
-          "value": 3000
+        "pitchMinDeg": {
+          "value": 6,
+          "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"",
+          "confidence": "medium"
         },
-        "tiltSettleTicks": {
-          "confidence": "unverified",
-          "source": "authored: AD-3/AD-7 name \"tilt... settle\" as a rules timer keyed to the bob's physical decay; no duration stated",
-          "value": 3000
+        "pitchMaxDeg": {
+          "value": 8.5,
+          "source": "FR-10 consequence text: \"range 6.0-8.5° [ASSUMPTION: bounds]\"; corroborated by addendum §2 \"competition range 6.5-8.5°\"",
+          "confidence": "medium"
+        },
+        "hopControl": {
+          "value": 0.35,
+          "source": "authored: FR-9 states the two-endpoint behaviour (0 = no hops, default = occasional hops on hard hits) but no unit or magnitude; hop.ts (this story) supplies both -- measured this pass against the paired hopControl=0-vs-default stress replay (test/hop-control.test.ts) to produce a clear, glass-safe margin without every hard hit turning into a launch",
+          "confidence": "unverified"
+        },
+        "slamNudgesPerWindow": {
+          "value": 3,
+          "source": "authored: FR-16 states the mechanism (a repeated-nudge threshold distinct from the tilt bob) but no count",
+          "confidence": "unverified"
+        },
+        "slamNudgeWindowMs": {
+          "value": 500,
+          "source": "authored: FR-16 states the mechanism but no window duration",
+          "confidence": "unverified"
+        },
+        "loopWindowMs": {
+          "value": 600,
+          "source": "authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch); below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball no longer completes a single clean pass and instead rattles between the two switches over several thousand ticks, which is not \"a made Loop\" by any reading. 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks); TABLE.shots[*].entryExclusive being false for both Loops (task 2) means this window governs only whether a genuine orbit reads as shot_<side>_loop_made, never a spurious _broken (DW-133).",
+          "confidence": "unverified"
+        },
+        "rampWindowMs": {
+          "value": 800,
+          "source": "authored: no artifact names this figure at all (not even the two-endpoint form FR-16 gives slamNudgeWindowMs above) -- measured 2026-09-05 at this tree by driving the Ramp (served ball repositioned to (315, 470, 13.5), the re-solved DW-137 mouth, straight-line launch at dirDeg 0) across a speed sweep: s_ramp_enter-close to s_ramp_made-close intervals of 142 ticks at 2400 mm/s down to 656 ticks at 1000 mm/s -- the SLOWEST speed that still closed s_ramp_made at all; at 900 mm/s and below (900, 800, 700, 600, 500 mm/s all measured) the ball never reaches s_ramp_made and instead falls back and re-closes s_ramp_enter later, a rejected shot (shot_ramp_broken territory, not a make). 800 ms sits 144 ticks (22%) above the slowest genuine completion measured (656 ticks).",
+          "confidence": "unverified"
+        },
+        "lockCaptureWindowMs": {
+          "value": 180,
+          "source": "authored: DW-166 -- no artifact names this figure. Measured 2026-09-05 at this tree by driving the Lock lane on-axis from (170, 440, 13.5) (the sw_lock_lane / sw_lock_1..3 corridor's own centreline, x = (150+190)/2): at ~800 mm/s (a capturing shot) s_lock_lane closes at tick 378 and the first bd_lock slot (s_lock_1) closes at tick 512 -- a 134-tick capture latency. At the measured non-capturing band's own ~575 mm/s (epic-2-context.md: \"measured threshold 550-600 mm/s\"), s_lock_lane closes at tick 415 and s_lock_1 does not close until tick 696 -- a 281-tick gap, the ball having rattled back down the corridor and only settling into the slot much later than any real capture would read as resolved. 180 ms sits 46 ticks (34%) above the fast, genuine capture (134 ticks) and 101 ticks (56% of the gap) below the slow shot's own late, non-credited settle (281 ticks) -- inside that gap, DW-166's discriminating condition (this story's Design Notes) correctly reads the fast shot as captured and the slow one as an unresolved closure, emitting nothing for it, exactly as AC 6 requires.",
+          "confidence": "unverified"
         },
         "tiltWarningSpacingMs": {
-          "confidence": "unverified",
+          "value": 500,
           "source": "authored: AD-3 names \"tilt spacing\" as a rules timer; FR-14 states the debounce requirement, no duration",
-          "value": 500
+          "confidence": "unverified"
         },
-        "tiltWarningSpacingTicks": {
-          "confidence": "unverified",
-          "source": "authored: AD-3 names \"tilt spacing\" as a rules timer; FR-14 states the debounce requirement, no duration",
-          "value": 500
+        "tiltSettleMs": {
+          "value": 3000,
+          "source": "authored: AD-3/AD-7 name \"tilt... settle\" as a rules timer keyed to the bob's physical decay; no duration stated",
+          "confidence": "unverified"
+        },
+        "plungerMinHoldMs": {
+          "value": 0,
+          "source": "authored: AD-5 states the mapping exists (\"plungerSpeedByHoldMs\"), not its curve; a bare tap is the ramp's lower bound",
+          "confidence": "unverified"
+        },
+        "plungerMaxHoldMs": {
+          "value": 500,
+          "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
+          "confidence": "unverified"
+        },
+        "plungerMinSpeedScale": {
+          "value": 0.3,
+          "source": "authored: fraction of full plunger power at plungerMinHoldMs",
+          "confidence": "unverified"
+        },
+        "plungerMaxSpeedScale": {
+          "value": 1,
+          "source": "authored: fraction of full plunger power at plungerMaxHoldMs and beyond",
+          "confidence": "unverified"
         },
         "troughEjectSpeedMmPerS": {
-          "confidence": "unverified",
+          "value": 300,
           "source": "authored: AD-6 requires an eject speed, no artifact states one -- measured against the real loop (not just a standalone physics probe) to stay inside sw_shooter_lane's own y <= 60 mm zone ceiling for its whole arc (peak y ~50.6 mm), avoiding the spurious ball_launched a higher speed (500 mm/s, peak y ~105.6 mm) produces by overshooting the zone before settling",
-          "value": 300
+          "confidence": "unverified"
+        },
+        "autolaunchSpeedMmPerS": {
+          "value": 2500,
+          "source": "authored: AD-6 requires an eject speed, no artifact states one -- measured during Story 1.5 planning against col_lane_deflector, whose clearance threshold sits between 1600 and 1800 mm/s; this carries margin above it",
+          "confidence": "unverified"
+        },
+        "lockEjectExemptionTimeoutMs": {
+          "value": 600,
+          "source": "authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
+          "confidence": "unverified"
+        },
+        "cabinet": {
+          "massKg": {
+            "value": 113,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.h:24, CabinetPhysics(float mass = 113.f) default ctor argument",
+            "confidence": "medium"
+          },
+          "freqXHz": {
+            "value": 9.3,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)",
+            "confidence": "medium"
+          },
+          "zetaX": {
+            "value": 0.052,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:12, m_cabinetOscillatorX(mass, 9.3f, 0.052f)",
+            "confidence": "medium"
+          },
+          "freqYHz": {
+            "value": 5.8,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)",
+            "confidence": "medium"
+          },
+          "zetaY": {
+            "value": 0.055,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/CabinetPhysics.cpp:13, m_cabinetOscillatorY(mass, 5.8f, 0.055f)",
+            "confidence": "medium"
+          },
+          "nudgePeakAccelG": {
+            "value": 0.5,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:162-164, comment \"0.5g max peak accel on strong nudge\" (baseScale = 0.5f * g / coreScriptStrength, with coreScriptStrength = 2.f the reference \"full strength\" nudge)",
+            "confidence": "medium"
+          }
+        },
+        "nudgeImpulseMs": {
+          "value": 25,
+          "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
+          "confidence": "medium"
+        },
+        "flipperTipGapMm": {
+          "value": 40.65,
+          "source": "authored: derived arithmetic, not a second invented figure -- the gap between the right bat's tip (col_flipper_r.bboxMm.min.x = 277.525 mm) and the left bat's tip (col_flipper_l.bboxMm.max.x = 236.875 mm) at end-of-stroke, both a direct consequence of DW-78's reconciliation (each box moved outward by baseRadius = 12.5 mm around its own unchanged pivot). No planning artifact states a tip gap; the sourced 9.5-12.7 mm figure (digests/geometry-r1-1.md:91,204, low confidence) is narrower than the 26.99 mm reference ball and therefore unusable as authored truth (Code Map, \"Read-only evidence\")",
+          "confidence": "unverified"
+        },
+        "outlaneWidthLeftMm": {
+          "value": 34.9,
+          "source": "authored: no sourced figure carries a left/right split -- the closest artifact is geometry-r2-1.md:16,78's 1-3/8 in = 34.9 mm inlane/outlane width (low confidence, no side named), adopted here as the LEFT outlane's clear width, measured from col_wall_left's interior face (table x = 0) to col_guide_divider_l's outlane-facing face (tools/make-placeholder-blend.py)",
+          "confidence": "unverified"
+        },
+        "outlaneWidthRightMm": {
+          "value": 34.9,
+          "source": "authored: the same geometry-r2-1.md low-confidence 1-3/8 in = 34.9 mm figure as outlaneWidthLeftMm, adopted symmetrically for the RIGHT outlane -- but measured from col_wall_lane's main-field face (table x = LANE_X0_MM = 468.4 mm), not the true right perimeter wall, because the plunger lane already claims the space between col_wall_lane and that wall (tools/make-placeholder-blend.py, add_drain_triangle_side())",
+          "confidence": "unverified"
+        },
+        "tiltBob": {
+          "rodLengthM": {
+            "value": 0.1,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:30, m_plumbPoleLength = 0.10f",
+            "confidence": "medium"
+          },
+          "cabAccelScale": {
+            "value": 1,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:33, m_plumbCabAccelScale = 1.0f",
+            "confidence": "medium"
+          },
+          "dampingCoef0": {
+            "value": 1.25,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:45, m_dampingCoef0 = 1.25f",
+            "confidence": "medium"
+          },
+          "dampingCoef1": {
+            "value": 0.75,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.h:46, m_dampingCoef1 = 0.75f",
+            "confidence": "medium"
+          },
+          "ringBounceDamping": {
+            "value": 0.8,
+            "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/PlumbHandler.cpp:118, m_plumbOmega *= 0.8f; // magic damping factor",
+            "confidence": "medium"
+          },
+          "dampingScale": {
+            "value": 1,
+            "source": "authored: upstream reads this from Settings::GetPlayer_PlumbDamping(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- 1.0 (identity) is the most defensible 'no adjustment' choice against the transcribed dampingCoef0/dampingCoef1 ratio coefficients; measured during this story's implementation (see spec Verification section) to leave a single ordinary nudge's peak swing (~1.05 deg) well clear of thresholdDeg while still permitting a rapid nudge burst to cross it and decay away within a few seconds. Story 1.9's feel ritual ratifies it",
+            "confidence": "unverified"
+          },
+          "thresholdDeg": {
+            "value": 1.3,
+            "source": "authored: upstream reads this from Settings::GetPlayer_PlumbThresholdAngle(), a user setting with no value in any of the seven authorized vpinball/vpinball files -- measured during this story's implementation (see spec Verification section) so that ONE ordinary nudge_* rising edge (peak swing ~1.05 deg, measured) never crosses it, while a rapid burst of nudges (a deliberate, violent 'slam'-style burst) does. Story 1.9's feel ritual ratifies it against the Reference machine",
+            "confidence": "unverified"
+          }
+        },
+        "hardware": {
+          "slingshotForce": {
+            "value": -80,
+            "source": "authored: sim/physics/line-seg-slingshot.ts's own commented-out `//-80` hint (vpx-js @ e8a6d6f, lib/physics/line-seg-slingshot.ts) is the only reference figure anywhere in this tree for the ported model's own force scale -- no planning artifact states a slingshot kick strength; taken as the starting point and measured against this story's own AC 1 (outgoing speed exceeds incoming) rather than invented from nothing",
+            "confidence": "unverified"
+          },
+          "slingshotThresholdMmPerS": {
+            "value": 500,
+            "source": "authored: no planning artifact states a slingshot contact-speed threshold below which the band should NOT fire -- measured during this story's implementation so a flipper-band-speed strike clears it and a slow graze does not (AC 1 vs the I/O matrix's \"Sling graze, below threshold\" row)",
+            "confidence": "unverified"
+          },
+          "popKickMmPerS": {
+            "value": 200,
+            "source": "authored: no planning artifact states a pop-bumper kick strength. [CORRECTED, Story 2.3, DW-160: the three claims this string previously made -- a ~180 mm/s floor, a ~220 mm/s ceiling from Top-lane cross-pop bouncing, and 126.8 mm of trailing progress at 200 as the representative escape -- were re-swept directly against the DW-148 column ((130, 850), test/pop-bumper.test.ts's own dw148TrailingProgressMm(v)) and only the last one reproduces.] There is NO floor beyond \"nonzero\": every positive kick tried down to 0.5 mm/s clears the strand (progress ~309 mm); only 0 mm/s (no kick) reproduces the original permanent rest. The landscape above that is NOT a clean one-sided window -- it is chaotic (this is a ball descending onto a near-symmetric octagon apex, POP_KICK_TIE_BREAK_MM only resolves the exact on-axis tie): a fine sweep at 1 mm/s resolution through 155-221 mm/s finds narrow re-strand dips interleaved with clearing bands (e.g. 164-169, 175, 178, 185-195, 197-198 mm/s each re-strand at a NEW equilibrium near (93, 840) -- just outside sw_pop_1's own north edge -- while 196, 199-202 and 205-220 clear, some robustly (~309 mm, e.g. 215-220) and some marginally (~50-130 mm, e.g. 200's own 126.8 mm)); a clean re-strand band then holds from 221 mm/s (measured 1.3 mm progress) through at least 230, with one anomalous escape at 245 before re-stranding again by 260. The ORIGINAL ceiling reasoning (Top-lane cross-pop-bouncing tick-budget exhaustion) is real but starts far higher (~425-600 mm/s per lane) than previously claimed and is not what bounds the safe range from above -- the 221 mm/s re-strand is. 200 sits inside a locally-clearing pocket (199-202 all clear) but its nearest re-strand neighbour is only 2 mm/s away at 198, not the 21 mm/s the far (221 mm/s) cliff alone would suggest -- the true margin is narrower than a single-sided reading implies, a property of the chaos itself rather than of this particular value: no nearby integer value sits in a wider uniformly-clearing pocket without moving toward the robust-but-still-cliff-bounded 215-220 band, which trades a marginal-but-real escape for a razor-thin (1 mm/s) upper margin instead. 200 is kept: it reproduces the same 126.8 mm escape this constant has always shipped with, that escape is measured, not merely inferred from the far cliff, and Story 2.3's own re-record already carries this correction.",
+            "confidence": "unverified"
+          },
+          "spinnerGainDegPerSPerMmPerS": {
+            "value": 0.5,
+            "source": "authored: AD-6 states the mechanism (rotation proportional to entry speed) but no gain -- chosen so the Left Loop's own measured 1789.8 mm/s entry speed (this story's Design Notes) produces several revolutions before the decay below returns the spinner to rest, measured against this story's own AC 3/AC 3b tests",
+            "confidence": "unverified"
+          },
+          "spinnerDecayPerTick": {
+            "value": 0.9995,
+            "source": "authored: AD-6 states the spinner \"closes once per revolution until it decays\" but no rate -- a multiplicative per-tick ratio (never a millisecond duration, DW-34) chosen so the Left Loop's own measured entry speed produces a strictly-increasing inter-closure interval and a finite return to rest within this story's own test tick budgets, measured against AC 3",
+            "confidence": "unverified"
+          }
+        },
+        "skillShotAward": {
+          "value": 25000,
+          "source": "authored: PRD FR-18 states the mechanism (the Skill shot \"awards a fixed value plus lighting a letter\") and marks the figure itself \"[ASSUMPTION: award]\"; the PRD review rubric records that no planning artifact states any scoring value, and the spine defers every scoring value to the post-playtest freeze (Story 3.11). No artifact states this figure. It is the first scoring value in the game, so it sets the scale rather than fitting one -- change it by playtest, not by argument",
+          "confidence": "unverified"
+        },
+        "liveLightBudget": {
+          "value": 20,
+          "source": "<AD-12: \"the live dynamic-light budget on the floor is 20 per frame [ASSUMPTION]\", verified 2026-08-26 at ~23 Babylon clustered-forward lights per WebGL2 batch, re-verify 2026-09-26. No artifact states a measured figure>",
+          "confidence": "unverified"
+        },
+        "slamNudgeWindowTicks": {
+          "value": 500,
+          "source": "authored: FR-16 states the mechanism but no window duration",
+          "confidence": "unverified"
+        },
+        "loopWindowTicks": {
+          "value": 600,
+          "source": "authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch); below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball no longer completes a single clean pass and instead rattles between the two switches over several thousand ticks, which is not \"a made Loop\" by any reading. 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks); TABLE.shots[*].entryExclusive being false for both Loops (task 2) means this window governs only whether a genuine orbit reads as shot_<side>_loop_made, never a spurious _broken (DW-133).",
+          "confidence": "unverified"
+        },
+        "rampWindowTicks": {
+          "value": 800,
+          "source": "authored: no artifact names this figure at all (not even the two-endpoint form FR-16 gives slamNudgeWindowMs above) -- measured 2026-09-05 at this tree by driving the Ramp (served ball repositioned to (315, 470, 13.5), the re-solved DW-137 mouth, straight-line launch at dirDeg 0) across a speed sweep: s_ramp_enter-close to s_ramp_made-close intervals of 142 ticks at 2400 mm/s down to 656 ticks at 1000 mm/s -- the SLOWEST speed that still closed s_ramp_made at all; at 900 mm/s and below (900, 800, 700, 600, 500 mm/s all measured) the ball never reaches s_ramp_made and instead falls back and re-closes s_ramp_enter later, a rejected shot (shot_ramp_broken territory, not a make). 800 ms sits 144 ticks (22%) above the slowest genuine completion measured (656 ticks).",
+          "confidence": "unverified"
+        },
+        "lockCaptureWindowTicks": {
+          "value": 180,
+          "source": "authored: DW-166 -- no artifact names this figure. Measured 2026-09-05 at this tree by driving the Lock lane on-axis from (170, 440, 13.5) (the sw_lock_lane / sw_lock_1..3 corridor's own centreline, x = (150+190)/2): at ~800 mm/s (a capturing shot) s_lock_lane closes at tick 378 and the first bd_lock slot (s_lock_1) closes at tick 512 -- a 134-tick capture latency. At the measured non-capturing band's own ~575 mm/s (epic-2-context.md: \"measured threshold 550-600 mm/s\"), s_lock_lane closes at tick 415 and s_lock_1 does not close until tick 696 -- a 281-tick gap, the ball having rattled back down the corridor and only settling into the slot much later than any real capture would read as resolved. 180 ms sits 46 ticks (34%) above the fast, genuine capture (134 ticks) and 101 ticks (56% of the gap) below the slow shot's own late, non-credited settle (281 ticks) -- inside that gap, DW-166's discriminating condition (this story's Design Notes) correctly reads the fast shot as captured and the slow one as an unresolved closure, emitting nothing for it, exactly as AC 6 requires.",
+          "confidence": "unverified"
+        },
+        "tiltWarningSpacingTicks": {
+          "value": 500,
+          "source": "authored: AD-3 names \"tilt spacing\" as a rules timer; FR-14 states the debounce requirement, no duration",
+          "confidence": "unverified"
+        },
+        "tiltSettleTicks": {
+          "value": 3000,
+          "source": "authored: AD-3/AD-7 name \"tilt... settle\" as a rules timer keyed to the bob's physical decay; no duration stated",
+          "confidence": "unverified"
+        },
+        "plungerMinHoldTicks": {
+          "value": 0,
+          "source": "authored: AD-5 states the mapping exists (\"plungerSpeedByHoldMs\"), not its curve; a bare tap is the ramp's lower bound",
+          "confidence": "unverified"
+        },
+        "plungerMaxHoldTicks": {
+          "value": 500,
+          "source": "authored: AD-5 states the mapping exists, not its curve; the ramp's upper bound before the plunge is full power",
+          "confidence": "unverified"
+        },
+        "lockEjectExemptionTimeoutTicks": {
+          "value": 600,
+          "source": "authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
+          "confidence": "unverified"
+        },
+        "nudgeImpulseTicks": {
+          "value": 25,
+          "source": "vpinball/vpinball @ 3f838c14b: src/physics/cabinet/KeyboardNudge.cpp:169, m_impulses.emplace_back(25, ...)",
+          "confidence": "medium"
+        },
+        "switchSettleTicksByClass": {
+          "rollover": {
+            "value": 0,
+            "source": "AD-2 rule text: \"defaults by class: rollover 0, standup target 8, drop target 20, bumper skirt 2, tilt bob 0\"",
+            "confidence": "high"
+          },
+          "standup": {
+            "value": 8,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "drop_target": {
+            "value": 20,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "bumper_skirt": {
+            "value": 2,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "tilt_bob": {
+            "value": 0,
+            "source": "AD-2 rule text (as above)",
+            "confidence": "high"
+          },
+          "button": {
+            "value": 0,
+            "source": "authored: AD-2 states button switches (s_start, s_flipper_l, s_flipper_r, s_plunger) are emitted by sim/loop from InputFrame transitions, never through physics debounce, so there is no bounce to settle",
+            "confidence": "unverified"
+          },
+          "slam": {
+            "value": 0,
+            "source": "authored: AD-5 states the slam detector's closure is a tick-windowed nudge-count threshold computed in physics, not a debounced analog switch",
+            "confidence": "unverified"
+          }
         }
       },
       "adjustments": {
@@ -505,7 +510,7 @@
     },
     "physicsSeed": 999,
     "tickHz": 1000,
-    "tableHash": "b6c5ce92",
+    "tableHash": "672573c",
     "assetHash": "ab163ff",
     "physicsVersion": "v1-ce6772ef"
   },
@@ -555,5 +560,5 @@
     "5000": "9561e345",
     "9280": "796ae0e9"
   },
-  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:341-344, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed. Story 2.1b (2026-09-01): header.tableHash/assetHash refreshed -- bd_lock's new deviceSlots entry, booted [true, true, true] under the then-unconditional fill(true) default (see the sibling goldens' own notes; corrected to [false, false, false] by Story 2.1d, this golden's own note below). Rework iteration 2 (2026-09-01), correcting this note: the sentence that used to stand here -- blaming \"Blender's alphabetical bpy.data.objects ordering\" reshuffling existing nodes' own array positions, with an \"order-sensitive broadphase\" -- was investigated and found FALSE, twice: the collision document is alphabetically sorted throughout, so the ~28 new names interleave among the existing ones rather than reshuffling their relative order, and a document rebuilt with the rework's own wall-height and deflector changes reverted reproduces the two affected goldens bit-identically, ruling out node reordering as the mechanism. The TRUE cause of the two affected goldens' own trajectory divergence was not identified by either the implement pass or this rework; DW-53's wall-height change (col_wall_left/_top/_right/_lane now reaching the glass) and DW-58's col_lane_deflector removal were both tested and ruled out individually (each reproduces the divergence bit-identically when reverted alone). State plainly rather than guess further: the trajectory changed because the shot map's own regeneration changed the collision document in some way this investigation did not isolate -- not because of the specific mechanism previously claimed here. expectedHash/expectedGameStateHash were refreshed to the current, correctly-computed values for the UNCHANGED (byte-identical) recorded transitions/coilPrologue/durationTicks. FLAGGED, NOT RESOLVED: re-verifying this golden's own scenario claim against the refreshed run found the claim no longer holds within the recorded durationTicks -- this story's own Boundaries & Constraints treats a durationTicks (or scenario-assertion) change as a Block If, so this implementation pass halted short of that change and left the affected test(s) red rather than silently widening the window or the threshold. See this implementation pass's own final report for the measured detail. Rework iteration 2 (2026-09-01): re-verified against the geometry this pass actually shipped (the flat-topped-body bevels and the DRAGON-bank backstop wall, task list items 1-3 -- none of which lie anywhere near this golden's own trajectory, confirmed by inspection: the ball never leaves y < 450 the whole run). The scenario claim still does not hold within the recorded durationTicks (8200): the served ball is still in play at the tick bound (measured this pass: x = 447.37, y = 191.04, still descending at ~975 mm/s). Measured directly this pass (extending the SAME recorded transitions/coilPrologue past durationTicks, nothing else changed): the ball keeps descending and drifting slowly leftward along the sloped bottom-wall face (DW-119's own mechanism, working as designed) until it crosses into the drain aperture's own x-range (DRAIN_X0_MM..DRAIN_X1_MM) and drains for real, between tick 8640 (x = 314.9, y = -57.0, not yet drained) and tick 8650 (drained) -- 440-450 ticks past the recorded window, roughly 5% longer than recorded. This is unrelated to the shot map (confirmed above) and remains a genuine Block If per this story's own Boundaries & Constraints: the fix is real (the ball does drain) but landed outside a duration this story is not authorised to widen. Left red for the lead, with this measurement in hand rather than a re-investigation from zero. Rework iteration 3 (2026-09-02, DW-121 / answer A/C): re-recorded under the narrow exception (this story's Spec Change Log) after the plunge-routing fix -- col_loop_r_deflector re-sited steeper (theta ~55.8 deg) so a plunged ball clears the Right Loop's own entrance instead of rattling in its pocket, and col_loop_top shortened at its own LEFT end (to x = 220, clear of both loops' own rails and inside the x-range test/shot-routing.test.ts's own descending-release sweep already proves handles a falling ball) so a crossing ball detaches into the open interior field -- the Dragon's legs, the DRAGON bank and the Ramp -- rather than sliding into the Left Loop's own lane, which returns to the OUTLANE, not the inlane (the defect Story 2.1c owns, not this story). Traced against the real runReplay() harness with this golden's own unchanged coilPrologue (serve + full autolaunch at tick 5021): the ball crosses the top by tick ~5700 (max y = 1053.3), descends through the shot-map bodies, reaches the flipper-reachable band (y in (40,145), x in (140,375)) repeatedly between roughly tick 8800 and 10200 (closest approach to the left bat's own tip, 20.4 mm, at tick 10173), and drains for real -- WITH NO FLIPPER INPUT AT ALL -- between tick 10343 and 10344, confirmed by a full bd_trough (4/4 slots) and ballsInPlay = 0. The OLD transitions (a left-flipper press at tick 5041, held for the rest of the run) matched the OLD table's much shorter, obstruction-free crossing time and are no longer meaningful against this table's shot map, so transitions are now empty (this is within the granted exception's own \"re-record\", not a header-only refresh) and durationTicks widened to 10400 (comfortably past the measured drain at 10344) to let the new, longer journey actually finish. DW-121 (the drain the drain switch never saw) is independently pinned by test/drain-switch-coverage.test.ts, which drives a ball down each outlane's own below-deck return channel through the real createMachine() pipeline and asserts s_drain makes before the ball parks in bd_trough -- verified red against the OLD (pre-fix) zone bounds and green against the live, widened one, reproducing this rework's own measured DW-121 evidence directly. Rework iteration 4 (2026-09-02, Story 2.1b narrow re-record exception): the press this golden is named for was RETIMED FOR THE NEW PLUNGE ROUTING -- the scenario did not change shape. Iteration 3 had deleted the press outright (transitions 1 -> 0) and declared the golden PARITY_INERT; that switched the AC 5 parity check off instead of satisfying it, and it is reverted here. The original press sat at tick 5041, timed for the pre-shot-map table's much shorter plunge-to-flipper travel; on the re-sited deflector the ball does not reach the left bat until tick ~8985, so the press moved 5041 -> 8956 with its release at 9556 (a 600-tick, 0.6 s hold, the same shape hold-and-release now uses), and durationTicks moved 8200 -> 10310. TRACE EVIDENCE that the press genuinely reaches the ball, measured against a paired control run of this identical golden with transitions removed (the idiom the covering test itself uses): (1) the ball's position is BIT-IDENTICAL to the control's for every tick up to and including t8985 (|delta pos| = 0), so nothing before the contact is doing the work; (2) the ball contacts the left flipper at t8986, its closest approach of the whole run -- 0.39 mm of clear air between ball surface and bat surface, centre 26.42 mm from the pivot at (170, 70) mm against a 13.495 mm ball radius plus a 12.5 mm base radius; (3) at that contact tick the bat is at 90.79 -> 92.08 deg (driven, at end of stroke) because of this press, where the control's bat sits still at 141.00 deg; (4) the ball leaves the contact at v = (217.4, 651.5, 512.6) mm/s against the control's (191.0, 682.0, 249.4) -- the lift more than doubled; (5) the ball then drains for real at t10282 against the control's t10344, and finalGameStateHash at the recorded durationTicks 10310 differs (30579b46 with the body, 11d6c2c0 without), which is the AC 5 parity check passing on its own terms rather than by exemption. The mechanism was isolated rather than assumed: control presses timed so the bat is back at its 141.00 deg rest pose and stationary by the contact tick (press@8500, @8540, @8600, each released after 200 ticks) leave the post-contact velocity unchanged at (190.9, 681.3, 249.4) and move the drain by only -6 ticks -- ordinary float drift -- while every press that changes the bat's pose AT the contact tick moves it by -62 to +1742. durationTicks 10310 is chosen inside [10282, 10343]: after this golden's own drain, and before the no-press control's, so the parity check is falsifiable by the body and the scenario claim (zero balls, ballsInPlay 0, full bd_trough) is satisfied by it. Story 2.1c (2026-09-03), the ORBIT -- RE-RECORDED, and this paragraph added at code review because the re-record's own reasoning went into `description` (which no test reads) while these `notes` still argued the RETIRED window. Superseding every tick above: durationTicks 10310 -> 9289, the press/release transitions 8500 -> 8500 / 8700 (the release moved; the press did not), and the measured drain 10282 -> 9285. The paragraph above that reads \"durationTicks 10310 is chosen inside [10282, 10343]\" describes an interval this geometry no longer has; the live equivalent is durationTicks 9289 chosen inside [9285, 9293] -- after this golden's own drain at 9285 and before the no-press control's at 9293, so the AC 5 parity check is still falsifiable by the body rather than exempted. Recorded plainly: that margin is FOUR ticks on each side, against 28/33 in the pre-2.1c recording, because the orbit's longer route brings the pressed and unpressed drains closer together. It is correct as recorded and it is tight; a later story that perturbs this trajectory should expect to retime rather than assume the window survives. Traced before recording (the figures `description` carries): the autolaunched ball crosses the top, descends the LEFT lane, closes s_inlane_l, rides col_guide_inlane_feed_l onto the left bat, and is in the left bat band from tick 8639 to 8964. One correction to `description`'s own wording, measured per tick at code review: the descending ball does NOT touch col_loop_l_return -- it leaves col_loop_top at the connector's end (x = 50) and falls at x = 52.0..52.3, some 38 mm east of that rail's tip (x 14) -- it falls straight into the left inlane channel. The rail bounds the ASCENDING shot's column; it does not hand over this descent. Code review pass 2 rework (2026-09-03), RETIMED again -- superseding the '[9285, 9293], four ticks each side' paragraph above. This rework pass shipped two geometry fixes elsewhere on the table (a DRAGON-bank/leg-width re-solve on the right side, below y=708, and a col_loop_top north-face ridge fixing a genuine DW-119-class stranding on that connector's own flat top, x 50..418.4). Neither sits on this golden's own path by inspection, but re-measured after both landed: this golden's own drain tick (with the recorded press) moved to 9281 and the no-press control's own drain tick moved to 9284 -- both four ticks earlier than the prior paragraph's own 9285/9293, narrowing the discriminating window from eight ticks to three ([9281, 9283]). Which of the two fixes (or their combination) caused the shift was not isolated -- both were verified together, and the earlier full-plunge/hold-and-release/two-ball-collision goldens' own re-records (this same pass) show the same kind of small, ripple-through-the-shared-plunge-prologue effect, so a shared-upstream-perturbation explanation is the most likely one, not a defect in either fix on its own terms (each was independently verified correct against its own, unrelated behavioural gates). Swept release ticks 8550-8900 (press fixed at 8500, this golden's own recorded value): the 3-tick gap (with drains before without) holds for release in [8650, 8850], the same neighbourhood the recorded 8700 already sits in, so the press/release ticks were left unchanged and only durationTicks was retimed, to 9282 -- one tick of margin past this golden's own drain (9281), two ticks before the no-press control's (9284). expectedHash/expectedGameStateHash recomputed at the new durationTicks and confirmed AC 5's own parity check (test/replay-goldens.test.ts's own PARITY_INERT sweep) is green again: withBody and withoutBody finalGameStateHash genuinely diverge, and the golden's own scenario (zero balls, ballsInPlay 0, full bd_trough) still holds at the new duration. This margin is TIGHTER than the eight ticks it replaces -- three ticks total, one of which is spent -- and it is the second time this same golden has needed a retime for a change that does not touch its own path; a future story that perturbs anything upstream of tick ~8600 should expect to retime this golden again rather than assume the window survives. Story 2.1d (2026-09-03): header.tableHash/assetHash refreshed again, the same geometry and boot-occupancy changes as the sibling goldens' own notes describe. Traced: this golden's own descent is recorded at x 52.0..52.3 throughout, nowhere near the Lock lane's own x [150, 190] span, so none of this pass's geometry changes touch its path -- confirmed by this story's own Phase 1 measurement (zero device_overflow naming bd_lock, zero sw_lock_* zone entries, Spec Change Log). expectedHash/expectedGameStateHash moved for the SAME single reason as every sibling golden -- machine.deviceSlots.bd_lock's own boot value in every snapshot. Re-verified, given this golden's own fragility (drain at 9281, the no-press control's 9284, durationTicks 9282 -- a 3-tick window with 1 tick spent): the drain still happens at the same tick, the PARITY_INERT sweep (own_drain <= durationTicks < control_drain) still holds, and this golden's own scenario assertion (zero balls, ballsInPlay 0, a full trough) still passes. Rework iteration 4 (2026-09-04, HIGH finding): header.assetHash refreshed again (a587a44e -> dbd72bf0) -- col_post_dragon_leg_r (a NEW FR-31 terminator this story's own task 9 added) stranded a ball against col_dragon_leg_r's own sloped cap; fixed with a 3.0 mm SOUTH offset on that post alone (DRAGON_LEG_R_POST_OFFSET_MM, tools/make-placeholder-blend.py). Traced this golden's own ball path directly against the fixed geometry (every tick, onTick, over the full recorded run): it never enters x [185, 240] / y [590, 630], the region the post sits in, so header.tableHash and expectedHash/expectedGameStateHash are UNCHANGED -- this is a header-only (assetHash) freshness refresh, not a re-record. Re-verified: runReplay() against the live, fixed collision document reproduces this golden's own recorded finalHash and finalGameStateHash exactly. Story 2.1f (2026-09-04): header.assetHash refreshed again (dbd72bf0 -> dd732853) -- this story re-solved the whole bottom-right quadrant as one budget (DW-137/DW-136: col_sling_r 314.000 -> 332.400, the Ramp channel 338.0..372.0 -> 298.4..354.4 with col_ramp_turn and col_ramp_return_1 following it, the DRAGON bank 240..321 -> 217.4..282.4 at pitch 11.0, col_dragon_leg_r 45.0 -> 23.4 mm wide), removed three union-buried rubber posts (DW-153), and bevelled two flat north faces its own derived strand generator found (col_wall_lane's 12 mm cap at y = 950 and col_loop_r_deflector's 34 mm ledge at y = 1016.8). NOT a re-record: this golden's own ball path was traced tick by tick against BOTH the pre-2.1f document and the re-exported one, sampled every 25 ticks across the entire recorded run, and the two traces are BIT-IDENTICAL -- no position differs at any sample, so the trajectory does not enter any region this story moved. header.tableHash, expectedHash, expectedGameStateHash and durationTicks are all UNCHANGED, and runReplay() against the live re-exported document reproduces this golden's own recorded finalHash and finalGameStateHash exactly. Only the assetHash freshness field moved. Story 2.2 (2026-09-05): header.tableHash/assetHash/gameStart.tuning refreshed -- TABLE.physMaterials gained rubber_band/rubber_post/bumper (AC 4) and TUNING gained the same three materials plus a new TUNING.hardware group (slingshotForce, slingshotThresholdMmPerS, popKickMmPerS). NOT a re-record: this golden's own recorded transitions/coilPrologue/durationTicks are BYTE-IDENTICAL, and runReplay() against the live TABLE/TUNING/collision document reproduces this golden's own recorded finalHash and finalGameStateHash EXACTLY -- traced and confirmed before writing, per this story's own Verification section, not assumed. rubber_band/rubber_post/bumper were deliberately authored with the SAME four elasticity/elasticityFalloff/friction/scatter figures as materials.default (see tuning.ts's own comment on that decision -- an earlier, livelier pair of figures measurably rerouted several reachability witnesses and two Top-lane routing cases elsewhere in the suite), so no col_ body's PASSIVE collision response changed for any of the five recorded trajectories, none of which pass near col_sling_l/r or col_pop_1..3 in the first place (confirmed: identical hashes both before and after).\n\n[HEADER-ONLY REFRESH, Story 2.3] Traced bit-identical against the pre-change tree (git stash comparison; onTick sampling every 25 ticks, all ball positions, plus finalHash/finalGameStateHash) before this refresh -- s_spinner and s_dragon_* both reach rules.step() but are ignored by sim/rules/devices.ts (this story's spec Code Map), so neither can move expectedGameStateHash, and the pass-through spinner applies no impulse, so it cannot move expectedHash either; no ball in this golden strikes a DRAGON target. Only header.tableHash (TABLE gained dropBankWiring/dropBankResetCoil/spinnerWiring) and header.gameStart.tuning (TUNING gained hardware.spinnerGainDegPerSPerMmPerS/spinnerDecayPerTick and hardware.popKickMmPerS's corrected DW-160 source string) moved; header.assetHash, transitions, coilPrologue, durationTicks, expectedHash and expectedGameStateHash are byte-identical. Old tableHash: c45a5cb9; new: ba1541bd. DW-70 / deviceSlots: this golden's expectedHash still bakes in the loop-written machine.deviceSlots value tracked as DW-70 (src/sim/loop/index.ts) -- unaffected by this change.\n\n[HEADER-ONLY REFRESH, Story 2.3, final pass] header.gameStart.tuning refreshed again after the earlier refresh above: TUNING.hardware.spinnerDecayPerTick moved 0.9985 -> 0.9995 during this story's own AC 3 tuning pass (a fine-sweep re-record of the spinner's own revolution count/decay-time budget, this story's completion report). Re-traced bit-identical against the ORIGINAL pre-story baseline (commit 7685d9e38ed569911ace79b8713ae6c73b3cc0e6) once more before this refresh -- onTick sampling every 25 ticks, all ball positions, plus finalHash/finalGameStateHash, all identical. header.tableHash is UNCHANGED (TABLE itself did not move again); header.assetHash, transitions, coilPrologue, durationTicks, expectedHash and expectedGameStateHash remain byte-identical throughout. [Story 2.4, header-only re-record 2026-09-05: TABLE gains `shots` + `laneWiring`/`dragonBodyWiring`/`lockLaneWiring`/`flipperButtonWiring` (tableHash moves); TUNING gains three top-level `…Ms` tunables (`loopWindowMs`, `rampWindowMs`, `lockCaptureWindowMs`) plus their derived `…Ticks` (gameStart.tuning moves). Traced before recording: every golden's body (transitions + coilPrologue + durationTicks) replayed against the LIVE tableHash/tuning with ball positions sampled every 25 ticks, and finalHash/finalGameStateHash both matched the PRE-EXISTING expectedHash/expectedGameStateHash exactly -- a real trajectory change would have moved the final hash after thousands of chaotic ticks, so an exact match is conclusive: no ball position differs before/after this change. header.assetHash, transitions, coilPrologue, durationTicks, expectedHash and expectedGameStateHash are byte-identical to before. DW-70/deviceSlots provenance above unaffected.] [Story 2.5, 2026-09-06: three changes landed together in the same pass -- two genuinely header-only ((a),(b) below), one a deliberate GameState change (c), NOT the trajectory re-record the spec Block If polices (Design Notes, 'a third category the wording did not anticipate') -- traced at 25-tick sampling before/after all three -- every ball position is byte-identical; only the fields named below moved. (a) header.gameStart.tuning.flipperTipGapMm.source corrected in place (DW-113, one connector inserted): 'a tip gap' -> 'a tip gap; the' -- no hash moved by this alone. (b) header.physicsVersion widened (DW-87) to also cover GRAVITYCONST, DEFAULT_TABLE_GRAVITY, STATICCNTS, C_EMBEDVELLIMIT, C_TOL_RADIUS and C_EMBEDSHOT -- a pure identity-string change, no hash moved by this alone either. (c) machine.hardwareEnabled now boots false instead of true (sim/loop/index.ts, AD-7: 'ball_starting enables hardware' was vacuous against an already-true boot value) -- this DOES move expectedHash and expectedGameStateHash, since this replay never presses s_start so the field sits at its boot value for the whole run. New physicsVersion v1-ce6772ef, expectedHash 5bd3a8dc, expectedGameStateHash 23599d0. header.tableHash and header.assetHash are unchanged.] [Story 2.5, task 18, DW-85: checkpointTicks [5000, 9280] and expectedCheckpointHashes added -- an intermediate ball position now enters the hashed evidence (the ledger noted this golden had none: two trajectories that both drain inside the window hashed identically). 5000 sits mid-flight (resting in the shooter lane before the tick-5021 autolaunch); 9280 sits one tick before this golden's own drain (9281), with the ball still on the playfield at both (balls.length === 1, confirmed non-vacuous). Computed against the SAME live run this golden already reproduces exactly.] [Story 2.5 code review, 2026-09-06: DW-70 is now FIXED. The opening sentence above is retained verbatim per the append-only rule but is HISTORICAL -- machine.deviceSlots is no longer loop-written. sim/loop/index.ts assigns rules.step()'s returned GameState WHOLE, and deviceSlots is derived inside rules.step() by sim/rules/ball-controller.ts's deriveDeviceSlots(); the cited anchor sim/loop/index.ts:341-344 no longer exists. This golden now freezes the RULES-DERIVED value, and pnpm check:ad7 exits 0 guarding it. If it ever breaks on deviceSlots alone, that is a derivation bug, not a physics change.] [Story 2.7, header-only refresh, 2026-09-06] tableHash moved a2f90b52 -> b6c5ce92 (TABLE.laneWiring gained { set, order } on each entry) and header.gameStart.tuning gained the new top-level scalar skillShotAward -- both re-derived live from the post-change tree; identity confirmed by a 25-tick-sampled ball-position trace (every 25 ticks plus durationTicks, all five goldens) run against the tree before and after this story's src/sim/table/dragonwar.ts and src/sim/table/tuning.ts edits and found byte-identical, and independently by expectedHash/expectedGameStateHash/expectedCheckpointHashes below being unchanged. No mode is ever pushed and rng is never advanced during this replay (phase stays attract throughout, DW-70's own deviceSlots provenance is unaffected)."
+  "notes": "stateHash() hashes the whole game tree, which includes machine.deviceSlots -- this golden therefore freezes the LOOP-WRITTEN value of deviceSlots (sim/loop/index.ts:341-344, the live AD-7 violation tracked as DW-70) as part of its reference hash. If Story 2.5's fix is faithful the values will be identical and nothing breaks; if this golden ever breaks on deviceSlots alone, check DW-70 before assuming the physics changed. Story 2.1b (2026-09-01): header.tableHash/assetHash refreshed -- bd_lock's new deviceSlots entry, booted [true, true, true] under the then-unconditional fill(true) default (see the sibling goldens' own notes; corrected to [false, false, false] by Story 2.1d, this golden's own note below). Rework iteration 2 (2026-09-01), correcting this note: the sentence that used to stand here -- blaming \"Blender's alphabetical bpy.data.objects ordering\" reshuffling existing nodes' own array positions, with an \"order-sensitive broadphase\" -- was investigated and found FALSE, twice: the collision document is alphabetically sorted throughout, so the ~28 new names interleave among the existing ones rather than reshuffling their relative order, and a document rebuilt with the rework's own wall-height and deflector changes reverted reproduces the two affected goldens bit-identically, ruling out node reordering as the mechanism. The TRUE cause of the two affected goldens' own trajectory divergence was not identified by either the implement pass or this rework; DW-53's wall-height change (col_wall_left/_top/_right/_lane now reaching the glass) and DW-58's col_lane_deflector removal were both tested and ruled out individually (each reproduces the divergence bit-identically when reverted alone). State plainly rather than guess further: the trajectory changed because the shot map's own regeneration changed the collision document in some way this investigation did not isolate -- not because of the specific mechanism previously claimed here. expectedHash/expectedGameStateHash were refreshed to the current, correctly-computed values for the UNCHANGED (byte-identical) recorded transitions/coilPrologue/durationTicks. FLAGGED, NOT RESOLVED: re-verifying this golden's own scenario claim against the refreshed run found the claim no longer holds within the recorded durationTicks -- this story's own Boundaries & Constraints treats a durationTicks (or scenario-assertion) change as a Block If, so this implementation pass halted short of that change and left the affected test(s) red rather than silently widening the window or the threshold. See this implementation pass's own final report for the measured detail. Rework iteration 2 (2026-09-01): re-verified against the geometry this pass actually shipped (the flat-topped-body bevels and the DRAGON-bank backstop wall, task list items 1-3 -- none of which lie anywhere near this golden's own trajectory, confirmed by inspection: the ball never leaves y < 450 the whole run). The scenario claim still does not hold within the recorded durationTicks (8200): the served ball is still in play at the tick bound (measured this pass: x = 447.37, y = 191.04, still descending at ~975 mm/s). Measured directly this pass (extending the SAME recorded transitions/coilPrologue past durationTicks, nothing else changed): the ball keeps descending and drifting slowly leftward along the sloped bottom-wall face (DW-119's own mechanism, working as designed) until it crosses into the drain aperture's own x-range (DRAIN_X0_MM..DRAIN_X1_MM) and drains for real, between tick 8640 (x = 314.9, y = -57.0, not yet drained) and tick 8650 (drained) -- 440-450 ticks past the recorded window, roughly 5% longer than recorded. This is unrelated to the shot map (confirmed above) and remains a genuine Block If per this story's own Boundaries & Constraints: the fix is real (the ball does drain) but landed outside a duration this story is not authorised to widen. Left red for the lead, with this measurement in hand rather than a re-investigation from zero. Rework iteration 3 (2026-09-02, DW-121 / answer A/C): re-recorded under the narrow exception (this story's Spec Change Log) after the plunge-routing fix -- col_loop_r_deflector re-sited steeper (theta ~55.8 deg) so a plunged ball clears the Right Loop's own entrance instead of rattling in its pocket, and col_loop_top shortened at its own LEFT end (to x = 220, clear of both loops' own rails and inside the x-range test/shot-routing.test.ts's own descending-release sweep already proves handles a falling ball) so a crossing ball detaches into the open interior field -- the Dragon's legs, the DRAGON bank and the Ramp -- rather than sliding into the Left Loop's own lane, which returns to the OUTLANE, not the inlane (the defect Story 2.1c owns, not this story). Traced against the real runReplay() harness with this golden's own unchanged coilPrologue (serve + full autolaunch at tick 5021): the ball crosses the top by tick ~5700 (max y = 1053.3), descends through the shot-map bodies, reaches the flipper-reachable band (y in (40,145), x in (140,375)) repeatedly between roughly tick 8800 and 10200 (closest approach to the left bat's own tip, 20.4 mm, at tick 10173), and drains for real -- WITH NO FLIPPER INPUT AT ALL -- between tick 10343 and 10344, confirmed by a full bd_trough (4/4 slots) and ballsInPlay = 0. The OLD transitions (a left-flipper press at tick 5041, held for the rest of the run) matched the OLD table's much shorter, obstruction-free crossing time and are no longer meaningful against this table's shot map, so transitions are now empty (this is within the granted exception's own \"re-record\", not a header-only refresh) and durationTicks widened to 10400 (comfortably past the measured drain at 10344) to let the new, longer journey actually finish. DW-121 (the drain the drain switch never saw) is independently pinned by test/drain-switch-coverage.test.ts, which drives a ball down each outlane's own below-deck return channel through the real createMachine() pipeline and asserts s_drain makes before the ball parks in bd_trough -- verified red against the OLD (pre-fix) zone bounds and green against the live, widened one, reproducing this rework's own measured DW-121 evidence directly. Rework iteration 4 (2026-09-02, Story 2.1b narrow re-record exception): the press this golden is named for was RETIMED FOR THE NEW PLUNGE ROUTING -- the scenario did not change shape. Iteration 3 had deleted the press outright (transitions 1 -> 0) and declared the golden PARITY_INERT; that switched the AC 5 parity check off instead of satisfying it, and it is reverted here. The original press sat at tick 5041, timed for the pre-shot-map table's much shorter plunge-to-flipper travel; on the re-sited deflector the ball does not reach the left bat until tick ~8985, so the press moved 5041 -> 8956 with its release at 9556 (a 600-tick, 0.6 s hold, the same shape hold-and-release now uses), and durationTicks moved 8200 -> 10310. TRACE EVIDENCE that the press genuinely reaches the ball, measured against a paired control run of this identical golden with transitions removed (the idiom the covering test itself uses): (1) the ball's position is BIT-IDENTICAL to the control's for every tick up to and including t8985 (|delta pos| = 0), so nothing before the contact is doing the work; (2) the ball contacts the left flipper at t8986, its closest approach of the whole run -- 0.39 mm of clear air between ball surface and bat surface, centre 26.42 mm from the pivot at (170, 70) mm against a 13.495 mm ball radius plus a 12.5 mm base radius; (3) at that contact tick the bat is at 90.79 -> 92.08 deg (driven, at end of stroke) because of this press, where the control's bat sits still at 141.00 deg; (4) the ball leaves the contact at v = (217.4, 651.5, 512.6) mm/s against the control's (191.0, 682.0, 249.4) -- the lift more than doubled; (5) the ball then drains for real at t10282 against the control's t10344, and finalGameStateHash at the recorded durationTicks 10310 differs (30579b46 with the body, 11d6c2c0 without), which is the AC 5 parity check passing on its own terms rather than by exemption. The mechanism was isolated rather than assumed: control presses timed so the bat is back at its 141.00 deg rest pose and stationary by the contact tick (press@8500, @8540, @8600, each released after 200 ticks) leave the post-contact velocity unchanged at (190.9, 681.3, 249.4) and move the drain by only -6 ticks -- ordinary float drift -- while every press that changes the bat's pose AT the contact tick moves it by -62 to +1742. durationTicks 10310 is chosen inside [10282, 10343]: after this golden's own drain, and before the no-press control's, so the parity check is falsifiable by the body and the scenario claim (zero balls, ballsInPlay 0, full bd_trough) is satisfied by it. Story 2.1c (2026-09-03), the ORBIT -- RE-RECORDED, and this paragraph added at code review because the re-record's own reasoning went into `description` (which no test reads) while these `notes` still argued the RETIRED window. Superseding every tick above: durationTicks 10310 -> 9289, the press/release transitions 8500 -> 8500 / 8700 (the release moved; the press did not), and the measured drain 10282 -> 9285. The paragraph above that reads \"durationTicks 10310 is chosen inside [10282, 10343]\" describes an interval this geometry no longer has; the live equivalent is durationTicks 9289 chosen inside [9285, 9293] -- after this golden's own drain at 9285 and before the no-press control's at 9293, so the AC 5 parity check is still falsifiable by the body rather than exempted. Recorded plainly: that margin is FOUR ticks on each side, against 28/33 in the pre-2.1c recording, because the orbit's longer route brings the pressed and unpressed drains closer together. It is correct as recorded and it is tight; a later story that perturbs this trajectory should expect to retime rather than assume the window survives. Traced before recording (the figures `description` carries): the autolaunched ball crosses the top, descends the LEFT lane, closes s_inlane_l, rides col_guide_inlane_feed_l onto the left bat, and is in the left bat band from tick 8639 to 8964. One correction to `description`'s own wording, measured per tick at code review: the descending ball does NOT touch col_loop_l_return -- it leaves col_loop_top at the connector's end (x = 50) and falls at x = 52.0..52.3, some 38 mm east of that rail's tip (x 14) -- it falls straight into the left inlane channel. The rail bounds the ASCENDING shot's column; it does not hand over this descent. Code review pass 2 rework (2026-09-03), RETIMED again -- superseding the '[9285, 9293], four ticks each side' paragraph above. This rework pass shipped two geometry fixes elsewhere on the table (a DRAGON-bank/leg-width re-solve on the right side, below y=708, and a col_loop_top north-face ridge fixing a genuine DW-119-class stranding on that connector's own flat top, x 50..418.4). Neither sits on this golden's own path by inspection, but re-measured after both landed: this golden's own drain tick (with the recorded press) moved to 9281 and the no-press control's own drain tick moved to 9284 -- both four ticks earlier than the prior paragraph's own 9285/9293, narrowing the discriminating window from eight ticks to three ([9281, 9283]). Which of the two fixes (or their combination) caused the shift was not isolated -- both were verified together, and the earlier full-plunge/hold-and-release/two-ball-collision goldens' own re-records (this same pass) show the same kind of small, ripple-through-the-shared-plunge-prologue effect, so a shared-upstream-perturbation explanation is the most likely one, not a defect in either fix on its own terms (each was independently verified correct against its own, unrelated behavioural gates). Swept release ticks 8550-8900 (press fixed at 8500, this golden's own recorded value): the 3-tick gap (with drains before without) holds for release in [8650, 8850], the same neighbourhood the recorded 8700 already sits in, so the press/release ticks were left unchanged and only durationTicks was retimed, to 9282 -- one tick of margin past this golden's own drain (9281), two ticks before the no-press control's (9284). expectedHash/expectedGameStateHash recomputed at the new durationTicks and confirmed AC 5's own parity check (test/replay-goldens.test.ts's own PARITY_INERT sweep) is green again: withBody and withoutBody finalGameStateHash genuinely diverge, and the golden's own scenario (zero balls, ballsInPlay 0, full bd_trough) still holds at the new duration. This margin is TIGHTER than the eight ticks it replaces -- three ticks total, one of which is spent -- and it is the second time this same golden has needed a retime for a change that does not touch its own path; a future story that perturbs anything upstream of tick ~8600 should expect to retime this golden again rather than assume the window survives. Story 2.1d (2026-09-03): header.tableHash/assetHash refreshed again, the same geometry and boot-occupancy changes as the sibling goldens' own notes describe. Traced: this golden's own descent is recorded at x 52.0..52.3 throughout, nowhere near the Lock lane's own x [150, 190] span, so none of this pass's geometry changes touch its path -- confirmed by this story's own Phase 1 measurement (zero device_overflow naming bd_lock, zero sw_lock_* zone entries, Spec Change Log). expectedHash/expectedGameStateHash moved for the SAME single reason as every sibling golden -- machine.deviceSlots.bd_lock's own boot value in every snapshot. Re-verified, given this golden's own fragility (drain at 9281, the no-press control's 9284, durationTicks 9282 -- a 3-tick window with 1 tick spent): the drain still happens at the same tick, the PARITY_INERT sweep (own_drain <= durationTicks < control_drain) still holds, and this golden's own scenario assertion (zero balls, ballsInPlay 0, a full trough) still passes. Rework iteration 4 (2026-09-04, HIGH finding): header.assetHash refreshed again (a587a44e -> dbd72bf0) -- col_post_dragon_leg_r (a NEW FR-31 terminator this story's own task 9 added) stranded a ball against col_dragon_leg_r's own sloped cap; fixed with a 3.0 mm SOUTH offset on that post alone (DRAGON_LEG_R_POST_OFFSET_MM, tools/make-placeholder-blend.py). Traced this golden's own ball path directly against the fixed geometry (every tick, onTick, over the full recorded run): it never enters x [185, 240] / y [590, 630], the region the post sits in, so header.tableHash and expectedHash/expectedGameStateHash are UNCHANGED -- this is a header-only (assetHash) freshness refresh, not a re-record. Re-verified: runReplay() against the live, fixed collision document reproduces this golden's own recorded finalHash and finalGameStateHash exactly. Story 2.1f (2026-09-04): header.assetHash refreshed again (dbd72bf0 -> dd732853) -- this story re-solved the whole bottom-right quadrant as one budget (DW-137/DW-136: col_sling_r 314.000 -> 332.400, the Ramp channel 338.0..372.0 -> 298.4..354.4 with col_ramp_turn and col_ramp_return_1 following it, the DRAGON bank 240..321 -> 217.4..282.4 at pitch 11.0, col_dragon_leg_r 45.0 -> 23.4 mm wide), removed three union-buried rubber posts (DW-153), and bevelled two flat north faces its own derived strand generator found (col_wall_lane's 12 mm cap at y = 950 and col_loop_r_deflector's 34 mm ledge at y = 1016.8). NOT a re-record: this golden's own ball path was traced tick by tick against BOTH the pre-2.1f document and the re-exported one, sampled every 25 ticks across the entire recorded run, and the two traces are BIT-IDENTICAL -- no position differs at any sample, so the trajectory does not enter any region this story moved. header.tableHash, expectedHash, expectedGameStateHash and durationTicks are all UNCHANGED, and runReplay() against the live re-exported document reproduces this golden's own recorded finalHash and finalGameStateHash exactly. Only the assetHash freshness field moved. Story 2.2 (2026-09-05): header.tableHash/assetHash/gameStart.tuning refreshed -- TABLE.physMaterials gained rubber_band/rubber_post/bumper (AC 4) and TUNING gained the same three materials plus a new TUNING.hardware group (slingshotForce, slingshotThresholdMmPerS, popKickMmPerS). NOT a re-record: this golden's own recorded transitions/coilPrologue/durationTicks are BYTE-IDENTICAL, and runReplay() against the live TABLE/TUNING/collision document reproduces this golden's own recorded finalHash and finalGameStateHash EXACTLY -- traced and confirmed before writing, per this story's own Verification section, not assumed. rubber_band/rubber_post/bumper were deliberately authored with the SAME four elasticity/elasticityFalloff/friction/scatter figures as materials.default (see tuning.ts's own comment on that decision -- an earlier, livelier pair of figures measurably rerouted several reachability witnesses and two Top-lane routing cases elsewhere in the suite), so no col_ body's PASSIVE collision response changed for any of the five recorded trajectories, none of which pass near col_sling_l/r or col_pop_1..3 in the first place (confirmed: identical hashes both before and after).\n\n[HEADER-ONLY REFRESH, Story 2.3] Traced bit-identical against the pre-change tree (git stash comparison; onTick sampling every 25 ticks, all ball positions, plus finalHash/finalGameStateHash) before this refresh -- s_spinner and s_dragon_* both reach rules.step() but are ignored by sim/rules/devices.ts (this story's spec Code Map), so neither can move expectedGameStateHash, and the pass-through spinner applies no impulse, so it cannot move expectedHash either; no ball in this golden strikes a DRAGON target. Only header.tableHash (TABLE gained dropBankWiring/dropBankResetCoil/spinnerWiring) and header.gameStart.tuning (TUNING gained hardware.spinnerGainDegPerSPerMmPerS/spinnerDecayPerTick and hardware.popKickMmPerS's corrected DW-160 source string) moved; header.assetHash, transitions, coilPrologue, durationTicks, expectedHash and expectedGameStateHash are byte-identical. Old tableHash: c45a5cb9; new: ba1541bd. DW-70 / deviceSlots: this golden's expectedHash still bakes in the loop-written machine.deviceSlots value tracked as DW-70 (src/sim/loop/index.ts) -- unaffected by this change.\n\n[HEADER-ONLY REFRESH, Story 2.3, final pass] header.gameStart.tuning refreshed again after the earlier refresh above: TUNING.hardware.spinnerDecayPerTick moved 0.9985 -> 0.9995 during this story's own AC 3 tuning pass (a fine-sweep re-record of the spinner's own revolution count/decay-time budget, this story's completion report). Re-traced bit-identical against the ORIGINAL pre-story baseline (commit 7685d9e38ed569911ace79b8713ae6c73b3cc0e6) once more before this refresh -- onTick sampling every 25 ticks, all ball positions, plus finalHash/finalGameStateHash, all identical. header.tableHash is UNCHANGED (TABLE itself did not move again); header.assetHash, transitions, coilPrologue, durationTicks, expectedHash and expectedGameStateHash remain byte-identical throughout. [Story 2.4, header-only re-record 2026-09-05: TABLE gains `shots` + `laneWiring`/`dragonBodyWiring`/`lockLaneWiring`/`flipperButtonWiring` (tableHash moves); TUNING gains three top-level `…Ms` tunables (`loopWindowMs`, `rampWindowMs`, `lockCaptureWindowMs`) plus their derived `…Ticks` (gameStart.tuning moves). Traced before recording: every golden's body (transitions + coilPrologue + durationTicks) replayed against the LIVE tableHash/tuning with ball positions sampled every 25 ticks, and finalHash/finalGameStateHash both matched the PRE-EXISTING expectedHash/expectedGameStateHash exactly -- a real trajectory change would have moved the final hash after thousands of chaotic ticks, so an exact match is conclusive: no ball position differs before/after this change. header.assetHash, transitions, coilPrologue, durationTicks, expectedHash and expectedGameStateHash are byte-identical to before. DW-70/deviceSlots provenance above unaffected.] [Story 2.5, 2026-09-06: three changes landed together in the same pass -- two genuinely header-only ((a),(b) below), one a deliberate GameState change (c), NOT the trajectory re-record the spec Block If polices (Design Notes, 'a third category the wording did not anticipate') -- traced at 25-tick sampling before/after all three -- every ball position is byte-identical; only the fields named below moved. (a) header.gameStart.tuning.flipperTipGapMm.source corrected in place (DW-113, one connector inserted): 'a tip gap' -> 'a tip gap; the' -- no hash moved by this alone. (b) header.physicsVersion widened (DW-87) to also cover GRAVITYCONST, DEFAULT_TABLE_GRAVITY, STATICCNTS, C_EMBEDVELLIMIT, C_TOL_RADIUS and C_EMBEDSHOT -- a pure identity-string change, no hash moved by this alone either. (c) machine.hardwareEnabled now boots false instead of true (sim/loop/index.ts, AD-7: 'ball_starting enables hardware' was vacuous against an already-true boot value) -- this DOES move expectedHash and expectedGameStateHash, since this replay never presses s_start so the field sits at its boot value for the whole run. New physicsVersion v1-ce6772ef, expectedHash 5bd3a8dc, expectedGameStateHash 23599d0. header.tableHash and header.assetHash are unchanged.] [Story 2.5, task 18, DW-85: checkpointTicks [5000, 9280] and expectedCheckpointHashes added -- an intermediate ball position now enters the hashed evidence (the ledger noted this golden had none: two trajectories that both drain inside the window hashed identically). 5000 sits mid-flight (resting in the shooter lane before the tick-5021 autolaunch); 9280 sits one tick before this golden's own drain (9281), with the ball still on the playfield at both (balls.length === 1, confirmed non-vacuous). Computed against the SAME live run this golden already reproduces exactly.] [Story 2.5 code review, 2026-09-06: DW-70 is now FIXED. The opening sentence above is retained verbatim per the append-only rule but is HISTORICAL -- machine.deviceSlots is no longer loop-written. sim/loop/index.ts assigns rules.step()'s returned GameState WHOLE, and deviceSlots is derived inside rules.step() by sim/rules/ball-controller.ts's deriveDeviceSlots(); the cited anchor sim/loop/index.ts:341-344 no longer exists. This golden now freezes the RULES-DERIVED value, and pnpm check:ad7 exits 0 guarding it. If it ever breaks on deviceSlots alone, that is a derivation bug, not a physics change.] [Story 2.7, header-only refresh, 2026-09-06] tableHash moved a2f90b52 -> b6c5ce92 (TABLE.laneWiring gained { set, order } on each entry) and header.gameStart.tuning gained the new top-level scalar skillShotAward -- both re-derived live from the post-change tree; identity confirmed by a 25-tick-sampled ball-position trace (every 25 ticks plus durationTicks, all five goldens) run against the tree before and after this story's src/sim/table/dragonwar.ts and src/sim/table/tuning.ts edits and found byte-identical, and independently by expectedHash/expectedGameStateHash/expectedCheckpointHashes below being unchanged. No mode is ever pushed and rng is never advanced during this replay (phase stays attract throughout, DW-70's own deviceSlots provenance is unaffected).\n\n[Story 2.8, header-only refresh, 2026-09-06] tableHash moved b6c5ce92 -> 672573c (TABLE.lamps replaced Story 1.4's one placeholder, l_insert_left, with the fourteen real insert lamps -- three Top lanes, four inlane/outlane, six DRAGON letters, the Lock) and header.gameStart.tuning gained the new top-level scalar liveLightBudget -- both re-derived live from the post-change tree. Identity confirmed two ways: (1) runReplay() against the live TABLE/TUNING/collision document, with this golden's own unchanged transitions/coilPrologue/durationTicks, reproduces finalHash/finalGameStateHash and every expectedCheckpointHashes entry (where present) EXACTLY -- no ball position differs before/after this change; (2) structurally, by inspection: TABLE.lamps is read only from src/sim/loop/index.ts's own new lamp-diff code (which runs strictly AFTER `state = rulesResult.state` and never writes back into it) and from src/sim/rules/lamps.ts's lampsOf() (never called from the physics/rules stepping path); TUNING.liveLightBudget is read only from presentation/lighting/lamp-driver.ts. No mode is ever pushed and rng is never advanced during this replay (phase stays attract throughout, DW-70's own deviceSlots provenance is unaffected). header.assetHash, transitions, coilPrologue, durationTicks, expectedHash, expectedGameStateHash and expectedCheckpointHashes are all byte-identical."
 }

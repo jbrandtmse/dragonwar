@@ -95,6 +95,43 @@ export const TEXTUAL_SCAN_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/
 const GRAPH_COVERAGE_EXTENSION_PATTERN = /\.(?:ts|tsx|mts|cts)$/;
 
 const DEVICE_NAME_PATTERN = /^(?:s|c|l|f|gi|bd|shot|show)_[a-z0-9_]+$/;
+
+// Story 2.8 (AD-9, check (h)): `sim-no-colour` -- a lamp role is never a
+// colour, so no RGB, hex, `rgb(`/`hsl(` form or bare colour name may appear
+// under `src/sim/**` at all; `presentation/lighting/grammar.ts` is the one
+// `(role, step)` -> colour table. Three matchers:
+//   (h1) identifier-level, over `maskForCodeOnly` (comments/strings blanked)
+//        -- a colour-shaped WORD (`colour`, `rgba`, `hsl`, `tint`, `hue`,
+//        with any suffix -- `colours`, `rgbaValue`) or an exact colour NAME
+//        (`red`, `white`, ...), case-insensitive. The colour-name
+//        alternation has NO trailing `\w*` -- unlike (h1)'s first pattern,
+//        so `\bred\b` never matches inside `redistribute` (`\b` requires an
+//        actual word/non-word transition, and "red" is immediately followed
+//        by "i", both word characters -- no boundary there at all). Matching
+//        `checkBannedGlobals()`'s own idiom above.
+//   (h2) string-literal-level, over `extractStringLiterals`, FULLY ANCHORED
+//        `^…$` against the same colour-name list -- the device-name idiom
+//        (`DEVICE_NAME_PATTERN` above): a bare `'white'` literal fires, a
+//        prose provenance string that happens to CONTAIN "red" never does.
+//   (h3) string-literal-level, unanchored: a 3/4/6/8-digit hex colour or a
+//        `rgb(`/`rgba(`/`hsl(`/`hsla(` function-call opener anywhere inside
+//        the literal's own text.
+// Deliberately no `0x` numeric matcher and no substring matching anywhere
+// (Design Notes, "Measured false-positive surface": every `0x` numeric under
+// `src/sim/**` is an 8-hex-digit non-colour constant -- mulberry32 seeds, a
+// kd-tree mask, an FNV-1a constant -- and substring matching on "red" alone
+// would fire on 41 GPL "redistribute" lines).
+const SIM_NO_COLOUR_MESSAGE = 'a lamp role is never a colour (AD-9): presentation/lighting/grammar.ts is the one (role, step) -> colour table';
+const SIM_NO_COLOUR_WORD_PATTERN_SOURCE = String.raw`\b(colou?r|rgba?|hsla?|tint|hue)\w*\b`;
+const SIM_NO_COLOUR_NAME_PATTERN_SOURCE = String.raw`\b(red|green|blue|white|black|yellow|orange|purple|amber|cyan|magenta|violet|pink|gold|grey|gray)\b`;
+const SIM_NO_COLOUR_ANCHORED_NAME_PATTERN = /^(?:red|green|blue|white|black|yellow|orange|purple|amber|cyan|magenta|violet|pink|gold|grey|gray)$/;
+const SIM_NO_COLOUR_HEX_PATTERN_SOURCES = [
+	String.raw`#[0-9a-fA-F]{3}\b`,
+	String.raw`#[0-9a-fA-F]{4}\b`, // code review: 4-digit hex-with-alpha (#rgba shorthand) was missing
+	String.raw`#[0-9a-fA-F]{6}\b`,
+	String.raw`#[0-9a-fA-F]{8}\b`,
+	String.raw`\b(?:rgba?|hsla?)\s*\(`,
+];
 // Any codepoint outside the printable-ASCII + control-character range. Rule
 // 14: author non-ASCII bytes as `\uXXXX` escapes so the source stays plain
 // ASCII everywhere except prose (comments/JSDoc, which this check never
@@ -720,6 +757,52 @@ function checkRulesNoSwitchEventOutsideDevices(rulesRoot, relRoot) {
 	return violations;
 }
 
+/** Check (h): `sim-no-colour` (AD-9) -- over `src/sim/**`, all three matchers described at this file's own constants above. */
+function checkSimNoColour(simRoot, relRoot) {
+	const violations = [];
+	const files = listFilesRecursive(simRoot).filter((f) => TEXTUAL_SCAN_EXTENSION_PATTERN.test(f));
+	for (const file of files) {
+		const source = readFileSync(file, 'utf8');
+		const relative = toPosix(path.relative(relRoot, file));
+		const tokens = tokenize(source, relative);
+		const suppressions = collectLineSuppressions(source, tokens);
+
+		const report = (line, message) => {
+			if (suppressions.get(line) === 'sim-no-colour') {
+				return;
+			}
+			violations.push({ rule: 'sim-no-colour', file: relative, line, message: `${message} (${SIM_NO_COLOUR_MESSAGE})` });
+		};
+
+		// (h1) identifier-level, comments and strings blanked.
+		const codeOnly = maskForCodeOnly(source, tokens);
+		for (const patternSource of [SIM_NO_COLOUR_WORD_PATTERN_SOURCE, SIM_NO_COLOUR_NAME_PATTERN_SOURCE]) {
+			const pattern = new RegExp(patternSource, 'gi'); // fresh RegExp per file (a shared /g regex carries lastIndex across files)
+			let match;
+			while ((match = pattern.exec(codeOnly)) !== null) {
+				report(lineOf(source, match.index), `references colour-shaped identifier "${match[0]}"`);
+			}
+		}
+
+		// (h2)/(h3) string-literal-level.
+		const literals = extractStringLiterals(source, tokens);
+		for (const literal of literals) {
+			if (SIM_NO_COLOUR_ANCHORED_NAME_PATTERN.test(literal.text)) {
+				report(literal.line, `string literal "${literal.text}" is a bare colour name`);
+				continue;
+			}
+			for (const patternSource of SIM_NO_COLOUR_HEX_PATTERN_SOURCES) {
+				const pattern = new RegExp(patternSource); // fresh RegExp per file; no 'g' flag -- .test() alone, never exec()-iterated
+				if (pattern.test(literal.text)) {
+					report(literal.line, `string literal "${literal.text}" contains a colour value`);
+					break;
+				}
+			}
+		}
+	}
+	return violations;
+}
+
 /** Checks (a) and (b): the real import graph, via dependency-cruiser + @swc/core. */
 function runImportGraphChecks(root) {
 	const srcArg = 'src';
@@ -826,6 +909,7 @@ export function runBoundaryLint(root) {
 		...checkDeviceNameLiterals(srcRoot, root),
 		...checkNonAsciiLiterals(srcRoot, root),
 		...checkRulesNoSwitchEventOutsideDevices(rulesRoot, root),
+		...checkSimNoColour(simRoot, root),
 	];
 
 	return { importViolations, textualViolations, coverage };
