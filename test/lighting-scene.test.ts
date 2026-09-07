@@ -28,7 +28,7 @@ import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engine';
 import { getRequiredNode } from '../src/presentation/scene/playfield';
-import { syncLamps, INSERT_LIGHT_TABLE_Z_MM, INSERT_LIGHT_RANGE_M, INSERT_TRANSLUCENCY_INTENSITY } from '../src/presentation/lighting/lamp-driver';
+import { syncLamps, INSERT_LIGHT_TABLE_Z_MM, INSERT_LIGHT_RANGE_M, INSERT_TRANSLUCENCY_INTENSITY, INSERT_EMISSIVE_LEVEL } from '../src/presentation/lighting/lamp-driver';
 import { LAMP_GRAMMAR, lookupGrammar } from '../src/presentation/lighting/grammar';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { LampName } from '../src/sim/table/names';
@@ -64,6 +64,17 @@ function emissiveColorOf(scene: import('@babylonjs/core/scene').Scene, lampName:
 	return { r: c.r, g: c.g, b: c.b };
 }
 
+// HIGH 2d: `syncLamps()` dims a LIT insert's own `emissiveColor` by
+// `INSERT_EMISSIVE_LEVEL` (never `LAMP_GRAMMAR`'s own r/g/b, which stay PRD
+// FR-44's authored colour of record -- pinned exactly, unscaled, by
+// `test/lighting-grammar.test.ts`). Every rendered-emissive assertion below
+// computes its expectation through this SAME helper rather than re-typing
+// `0.6` or a pre-scaled triple -- a re-typed literal would silently drift
+// the next time `INSERT_EMISSIVE_LEVEL` is retuned.
+function scaledEmissive(color: { r: number; g: number; b: number }): { r: number; g: number; b: number } {
+	return { r: color.r * INSERT_EMISSIVE_LEVEL, g: color.g * INSERT_EMISSIVE_LEVEL, b: color.b * INSERT_EMISSIVE_LEVEL };
+}
+
 describe('syncLamps -- trap 1: shared material (material.clone() per insert)', () => {
 	it('lighting one insert leaves a DIFFERENT insert genuinely black -- proving the material is cloned, not shared', async () => {
 		await withScene(async (scene, playfieldRoot) => {
@@ -71,7 +82,7 @@ describe('syncLamps -- trap 1: shared material (material.clone() per insert)', (
 			syncLamps(scene, playfieldRoot, view, 0);
 
 			const lit = emissiveColorOf(scene, 'l_top_1');
-			expect(lit).toEqual({ r: 1, g: 1, b: 1 }); // grammar's own 'lit' colour, white
+			expect(lit).toEqual(scaledEmissive(LAMP_GRAMMAR.lit)); // grammar's own 'lit' colour (white), dimmed by INSERT_EMISSIVE_LEVEL (HIGH 2d)
 
 			const stillBlack = emissiveColorOf(scene, 'l_top_2');
 			expect(stillBlack).toEqual({ r: 0, g: 0, b: 0 });
@@ -118,13 +129,16 @@ describe('syncLamps -- the grammar\'s (role, step) reaches the RENDERED artefact
 				const expected = LAMP_GRAMMAR[role];
 				const expectedIntensity = lookupGrammar(role, step).intensity;
 
-				expect(emissiveColorOf(scene, 'l_dragon_d'), `${role}/${step}: the rendered emissive must BE the grammar's colour`).toEqual({ r: expected.r, g: expected.g, b: expected.b });
+				expect(emissiveColorOf(scene, 'l_dragon_d'), `${role}/${step}: the rendered emissive must BE the grammar's colour, dimmed by INSERT_EMISSIVE_LEVEL (HIGH 2d)`).toEqual(scaledEmissive(expected));
 
 				const mesh = getRequiredNode(scene, 'l_dragon_d') as AbstractMesh;
 				const light = mesh.lightSources.find((l) => l instanceof PointLight) as PointLight;
 				expect(light, 'l_dragon_d must carry its own PointLight').toBeDefined();
 				expect(light.isEnabled(), 'and it must be enabled at this step').toBe(true);
-				expect({ r: light.diffuse.r, g: light.diffuse.g, b: light.diffuse.b }, `${role}/${step}: the light must CAST the grammar's colour, not Babylon's default white`).toEqual({ r: expected.r, g: expected.g, b: expected.b });
+				// HIGH 2d: light.diffuse keeps the FULL role colour, never scaled
+				// by INSERT_EMISSIVE_LEVEL -- the transmitted term is what
+				// restores the headroom the dimmed emissive above gave up.
+				expect({ r: light.diffuse.r, g: light.diffuse.g, b: light.diffuse.b }, `${role}/${step}: the light must CAST the grammar's FULL colour, not Babylon's default white and not the dimmed emissive level`).toEqual({ r: expected.r, g: expected.g, b: expected.b });
 				expect(light.intensity, `${role}/${step}: the light must carry the grammar's own intensity, not Babylon's default of 1`).toBe(expectedIntensity);
 
 				// The colour landed on THIS lamp alone (the trap-1 control,
@@ -302,13 +316,13 @@ describe('syncLamps -- blinking (timed by presentation, via isLampOnAt)', () => 
 			expect(grammar.blinkPeriodMs).toBe(500);
 
 			syncLamps(scene, playfieldRoot, view, 0);
-			expect(emissiveColorOf(scene, 'l_top_1')).toEqual({ r: 1, g: 1, b: 1 });
+			expect(emissiveColorOf(scene, 'l_top_1')).toEqual(scaledEmissive(LAMP_GRAMMAR.lit)); // HIGH 2d: dimmed by INSERT_EMISSIVE_LEVEL
 
 			syncLamps(scene, playfieldRoot, view, 250); // half the 500 ms period -- the OFF half
 			expect(emissiveColorOf(scene, 'l_top_1')).toEqual({ r: 0, g: 0, b: 0 });
 
 			syncLamps(scene, playfieldRoot, view, 500); // one full period later -- back ON
-			expect(emissiveColorOf(scene, 'l_top_1')).toEqual({ r: 1, g: 1, b: 1 });
+			expect(emissiveColorOf(scene, 'l_top_1')).toEqual(scaledEmissive(LAMP_GRAMMAR.lit));
 
 			// The light itself is disabled for the same "off" instant.
 			const insertMesh = getRequiredNode(scene, 'l_top_1') as AbstractMesh;
@@ -332,8 +346,9 @@ describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exerc
 				const mesh = getRequiredNode(scene, name) as AbstractMesh;
 				enabledPointLights += mesh.lightSources.filter((l) => l.isEnabled() && l instanceof PointLight).length;
 
-				// Every lit insert keeps showing its emissive colour regardless of budget.
-				expect(emissiveColorOf(scene, name)).toEqual({ r: 1, g: 1, b: 1 });
+				// Every lit insert keeps showing its emissive colour regardless of
+				// budget (dimmed by INSERT_EMISSIVE_LEVEL, HIGH 2d).
+				expect(emissiveColorOf(scene, name)).toEqual(scaledEmissive(LAMP_GRAMMAR.lit));
 			}
 			expect(enabledPointLights, 'at most the injected budget of 2 lights may be enabled, out of fourteen lit inserts').toBeLessThanOrEqual(2);
 			expect(enabledPointLights, 'the budget must actually be exercised, not vacuously satisfied by zero').toBe(2);

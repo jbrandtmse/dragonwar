@@ -37,6 +37,24 @@
 // concrete traps this addition closes (unbounded inverse-square attenuation
 // at millimetre range, and how much of the -- already zero -- ordinary term
 // to trade away).
+//
+// HIGH 2c (rework iteration 4, `## Spec Change Log`): with the transmissive
+// configuration above genuinely applied and genuinely computing a non-zero
+// contribution, a real-browser A/B (`setLightBudget(0)` vs the default
+// budget) still measured a BIT-IDENTICAL pixel. Root cause, measured rather
+// than assumed: every one of `grammar.ts`'s six authored role colours has
+// at least one channel pinned to exactly `0` or `1`, and this scene runs
+// with no exposure/tonemap pipeline anywhere (`create-engine.ts` configures
+// none). With no headroom above the LDR ceiling of `1.0`, the RAW emissive
+// alone already saturates any 1-valued channel before the transmitted
+// term is ever added on top -- and a value added above a hard ceiling
+// clips losslessly to nothing observable, at any magnitude (measured: an
+// 80x/57x intensity sweep, and a 50x emissive sweep, both moved the
+// composited pixel by exactly zero).
+//
+// HIGH 2d (author decision, "option A"): retune the EMISSIVE alone to
+// leave real per-channel headroom, so the transmitted term has somewhere
+// to land. See `INSERT_EMISSIVE_LEVEL` below.
 
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
@@ -153,6 +171,52 @@ export const INSERT_LIGHT_RANGE_M = 0.05;
  * happens to equal the library default.
  */
 export const INSERT_TRANSLUCENCY_INTENSITY = 1.0;
+
+/**
+ * HIGH 2d (`## Spec Change Log`, author decision, "option A" -- retune the
+ * emissive to leave headroom, so the lamp beneath supplies the rest).
+ *
+ * The measured cause of HIGH 2c: every one of `grammar.ts`'s six authored
+ * role colours -- PRD FR-44's own colour words, left COMPLETELY untouched
+ * by this constant -- has at least one channel at exactly `0` or `1`
+ * (`lit=(1,1,1)`, `hurryup=(1,0,0)`, `quickmb=(0,1,0)`, `joust=(0,0,1)`,
+ * `dragon=(1,0.5,0)`, `special=(0.6,0,1)`), and this scene configures no
+ * `ImageProcessingConfiguration`/exposure/tonemap anywhere
+ * (`create-engine.ts`, grepped directly). With zero headroom above the LDR
+ * ceiling of `1.0`, `entry.material.emissiveColor` ALONE already saturates
+ * any 1-valued channel before the transmissive light's own genuinely
+ * non-zero contribution (HIGH 2's own doc block above) is ever added on
+ * top -- and a value added above a hard render-target ceiling clips
+ * losslessly, at any magnitude (measured directly: an 80x/57x light-
+ * intensity sweep and a 50x emissive sweep both moved the composited pixel
+ * by exactly zero).
+ *
+ * The fix leaves real per-channel headroom by scaling the material's own
+ * `emissiveColor` by this factor -- never `grammar.r/g/b` themselves (PRD
+ * FR-44's colour words stay the authored colour of record, pinned exactly
+ * by `test/lighting-grammar.test.ts`) and never `light.diffuse` (which
+ * keeps the FULL role colour below, so the transmitted term restores what
+ * the dimmed emissive gave up, rather than compounding the dimming).
+ *
+ * `0.6` is inside the author's own authorised band (roughly `0.5..0.7`):
+ * a lit surface at `0.6` leaves `0.4` of representable range for the
+ * transmitted term to land in instead of being thrown away by the clip,
+ * while sitting clear of both ends of that band -- nearer `0.5` would dim
+ * the table's default "lit" reading more than the fix requires, and nearer
+ * `0.7` would leave under half the headroom this constant is chosen for.
+ *
+ * Not a `tuning.ts` key -- same reasoning as `INSERT_LIGHT_RANGE_M` and
+ * `INSERT_TRANSLUCENCY_INTENSITY` above: `resolveTuning()`'s whole
+ * serialized output is hashed into every golden's `gameStart.tuning`
+ * header, so a new tunable would re-record all five for a presentation-
+ * only constant with no consumer outside this one Babylon touchpoint.
+ *
+ * Exported so `test/lighting-scene.test.ts` computes its expected emissive
+ * colour from this SAME constant rather than re-typing `0.6` -- a
+ * re-typed literal would drift silently the next time this value is
+ * retuned.
+ */
+export const INSERT_EMISSIVE_LEVEL = 0.6;
 
 interface LampDriverEntry {
 	readonly material: PBRMaterial;
@@ -281,9 +345,18 @@ export function syncLamps(scene: Scene, playfieldRoot: TransformNode, view: Lamp
 		// insert of its light once the lamp count passes the budget.
 		const isOn = projection.role !== 'off' && projection.step !== 0 && isLampOnAt(grammar.blinkPeriodMs, nowMs);
 
-		entry.material.emissiveColor = isOn ? new Color3(grammar.r, grammar.g, grammar.b) : Color3.Black();
+		// HIGH 2d: the EMISSIVE alone is dimmed by INSERT_EMISSIVE_LEVEL to
+		// leave headroom for the transmitted term (see that constant's own
+		// doc comment above) -- `grammar.r/g/b` themselves are never
+		// touched, and `light.diffuse` below keeps the FULL role colour.
+		entry.material.emissiveColor = isOn
+			? new Color3(grammar.r * INSERT_EMISSIVE_LEVEL, grammar.g * INSERT_EMISSIVE_LEVEL, grammar.b * INSERT_EMISSIVE_LEVEL)
+			: Color3.Black();
 
 		if (isOn && enabledCount < budget) {
+			// HIGH 2d: full role colour, NOT scaled by INSERT_EMISSIVE_LEVEL --
+			// the transmitted light is what restores the headroom the dimmed
+			// emissive above gave up.
 			entry.light.diffuse = new Color3(grammar.r, grammar.g, grammar.b);
 			entry.light.intensity = grammar.intensity;
 			entry.light.setEnabled(true);

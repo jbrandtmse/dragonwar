@@ -38,7 +38,7 @@ import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engine';
 import { getRequiredNode } from '../src/presentation/scene/playfield';
-import { syncLamps } from '../src/presentation/lighting/lamp-driver';
+import { syncLamps, INSERT_EMISSIVE_LEVEL } from '../src/presentation/lighting/lamp-driver';
 import { advanceLamps, INITIAL_LAMP_VIEW } from '../src/presentation/lighting/lamp-view';
 import { LAMP_GRAMMAR } from '../src/presentation/lighting/grammar';
 import { resolveTuning } from '../src/sim/table/tuning';
@@ -151,11 +151,14 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 				// drawn Top lane orange instead of white passed. The lane
 				// reads role `lit` at this point (asserted below), and
 				// LAMP_GRAMMAR.lit is the colour that role means -- read from
-				// the module, never re-typed here.
+				// the module, never re-typed here. HIGH 2d: the rendered
+				// emissive is the grammar colour dimmed by INSERT_EMISSIVE_LEVEL
+				// (never the grammar colour itself, which stays PRD FR-44's
+				// unscaled colour of record).
 				expect(
 					{ r: emissive.r, g: emissive.g, b: emissive.b },
-					`${drawnLane}'s own emissiveColor on the rendered artefact must be the grammar's "lit" colour`,
-				).toEqual({ r: LAMP_GRAMMAR.lit.r, g: LAMP_GRAMMAR.lit.g, b: LAMP_GRAMMAR.lit.b });
+					`${drawnLane}'s own emissiveColor on the rendered artefact must be the grammar's "lit" colour, dimmed by INSERT_EMISSIVE_LEVEL`,
+				).toEqual({ r: LAMP_GRAMMAR.lit.r * INSERT_EMISSIVE_LEVEL, g: LAMP_GRAMMAR.lit.g * INSERT_EMISSIVE_LEVEL, b: LAMP_GRAMMAR.lit.b * INSERT_EMISSIVE_LEVEL });
 
 				const enabledLight = mesh.lightSources.find((l) => l.isEnabled() && l instanceof PointLight);
 				expect(enabledLight, `${drawnLane}'s own mesh must carry an ENABLED PointLight in its lightSources`).toBeDefined();
