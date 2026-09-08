@@ -825,16 +825,25 @@ export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = T
 export type ShotWindowMsKey = TuningMsKey<typeof TUNING>;
 
 /**
- * Story 2.4 (task 1, AD-3's tuning.ts exemption): resolves a shot's declared
- * `windowMs` key (e.g. `'loopWindowMs'`) to its `resolveTuning()`-derived
- * tick count. The ONE function a caller under `sim/rules/devices/**` may use
- * to reach a tick count from a `TABLE.shots[*].windowMs` key -- AD-3 confines
+ * Story 2.4 (task 1, AD-3's tuning.ts exemption): resolves any top-level
+ * `…Ms` tunable key (e.g. `'loopWindowMs'`) to its `resolveTuning()`-derived
+ * tick count. The ONE function a caller under `sim/rules/**` may use to
+ * reach a tick count from an `…Ms` key -- AD-3 confines
  * ms->tick arithmetic and the `…Ms` -> `…Ticks` naming convention to this
  * file; without this helper, a shot-window comparison in `sim/rules/**`
  * would have to either name `TICK_HZ` itself (banned everywhere but here and
  * `contracts/time.ts`) or hand-derive the `…Ticks` sibling name, both of
  * which `pnpm lint:boundaries`'s tick/ms rule already forbids outside this
  * file.
+ *
+ * [Story 2.9 code review: the IDENTIFIER is historical and now narrower than
+ * the helper. It was introduced for `TABLE.shots[*].windowMs` keys read from
+ * `sim/rules/devices/**`, but Story 2.4 itself already used it for the
+ * non-shot `lockCaptureWindowMs`, and Story 2.9 added three more non-shot
+ * call sites -- `ball-controller.ts` (`ballSaveMs`, `ballSaveGraceMs`) and
+ * `sim/loop/index.ts` (`ballSaveHurryUpMs`). It is and always was generic
+ * over any top-level `…Ms` key (`ShotWindowMsKey` = `TuningMsKey<typeof
+ * TUNING>`, not a shots-only union); only the name still says "shot".]
  */
 export function shotWindowTicks(windowMsKey: ShotWindowMsKey, tuning: ResolvedTuning): number {
 	const ticksKey = `${windowMsKey.slice(0, -2)}Ticks`;

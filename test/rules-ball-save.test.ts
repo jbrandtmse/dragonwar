@@ -32,7 +32,21 @@ import type { GameState } from '../src/sim/table/names';
 import type { DeviceEvent } from '../src/sim/rules/devices';
 
 const TROUGH_EJECT_COIL = TABLE.ballDevices.bd_trough.ejectCoil;
-const SHOOTER_LAUNCH_COIL = TABLE.ballDevices.bd_shooter.ballSearchOrder[0]!.coil;
+// Code review (iteration 2): derived the SAME way production derives it
+// (`shooterLaunchCoil()` in `ball-controller.ts` -- the first `pulse` step,
+// not blindly step 0). With `[0]!.coil`, a `ballSearchOrder` whose first step
+// stopped being the pulse would make this constant `undefined`, and the
+// NEGATIVE assertion below ("the autolaunch coil must be ABSENT from the
+// drain tick's own batch") would then pass trivially against a coil name that
+// does not exist -- green for the wrong reason. Throwing here instead makes
+// that a loud failure.
+const SHOOTER_LAUNCH_COIL = (() => {
+	const step = TABLE.ballDevices.bd_shooter.ballSearchOrder.find((candidate) => candidate.action === 'pulse');
+	if (!step) {
+		throw new Error('test setup: bd_shooter.ballSearchOrder has no "pulse" step -- mirrors ball-controller.ts\'s own shooterLaunchCoil() guard');
+	}
+	return step.coil;
+})();
 
 /** A fresh empty player, mirroring `ball-controller.ts`'s own `emptyPlayer()` -- test-local, same idiom `test/rules-lifecycle.test.ts` already established. */
 function emptyPlayer(ballNumber: number) {
@@ -99,15 +113,25 @@ describe('AC 2 -- the timer starts at the plunge, and the lamp step ladder follo
 	// already applies to AC 11, applied here too.
 	const BALL_SAVE_TICKS = 100;
 	const HURRY_UP_TICKS = 20;
+	// Code review (iteration 2): `BALL_SAVE_TICKS` was declared here and then
+	// never used -- the expectation below spelled `103` as a bare literal while
+	// the comment above claimed the expectations are "spelled out from the
+	// AUTHORED literals". Derived now, exactly as the AC 11 block already does
+	// it (`UNTIL_TICK = PLUNGE_TICK + BALL_SAVE_TICKS`), so the two blocks state
+	// the discipline the same way and a change to the authored window length
+	// cannot leave a stale hard-coded expectation behind. Still never read back
+	// through `shotWindowTicks()` -- both operands are authored literals.
+	const PLUNGE_TICK = 3;
+	const UNTIL_TICK = PLUNGE_TICK + BALL_SAVE_TICKS; // 103
 
 	it('ball_launched at tick L emits ball_save_timer_started with untilTick === L + ballSaveTicks', () => {
-		const script = close('s_start').at(1).open('s_shooter_lane').at(3).build();
-		const result = runRulesScript(script, { durationTicks: 3, tuning: OVERRIDE_TUNING });
+		const script = close('s_start').at(1).open('s_shooter_lane').at(PLUNGE_TICK).build();
+		const result = runRulesScript(script, { durationTicks: PLUNGE_TICK, tuning: OVERRIDE_TUNING });
 
 		const started = result.events.find((e) => e.type === 'ball_save_timer_started');
 		expect(started, 'ball_save_timer_started must be emitted on the plunge').toBeDefined();
-		expect(started).toMatchObject({ type: 'ball_save_timer_started', untilTick: 103, tick: 3 });
-		expect(result.statesByTick.get(3)!.machine.ballSave.untilTick).toBe(103);
+		expect(started).toMatchObject({ type: 'ball_save_timer_started', untilTick: UNTIL_TICK, tick: PLUNGE_TICK });
+		expect(result.statesByTick.get(PLUNGE_TICK)!.machine.ballSave.untilTick).toBe(UNTIL_TICK);
 	});
 
 	it('sampling lampsOf() across the whole window: a non-empty step-1 span, a non-empty step-3 span, every step-3 tick later than every step-1 tick, and off from the displayed expiry onward', () => {

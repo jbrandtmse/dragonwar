@@ -9,7 +9,7 @@
 //
 // Four measured traps this file exists to close (Design Notes, "The four
 // measured traps"), each with its own fix inline below:
-//  1. The glb's fourteen inserts all share ONE `mat_insert` datablock --
+//  1. The glb's fifteen inserts all share ONE `mat_insert` datablock --
 //     `material.clone()` PER INSERT on first use, so lighting one insert
 //     never lights another.
 //  2. `ShadowLight.getAbsolutePosition()` lies under `NullEngine` (reads
@@ -266,7 +266,7 @@ function entriesFor(scene: Scene): Map<LampName, LampDriverEntry> {
  * its `WeakMap` BEFORE resolving. Both orders give the same failure
  * behaviour (a failed call caches nothing, so the next call throws again);
  * they differ only on the success path, where this order re-resolves all
- * fourteen nodes on every render frame and `backglass.ts` resolves once.
+ * fifteen nodes on every render frame and `backglass.ts` resolves once.
  * That cost is deliberate here and is what the I/O matrix row asks for --
  * but it is a divergence from the cited precedent, not a copy of it.]
  */

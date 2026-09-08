@@ -3363,11 +3363,18 @@ def main():
 	# PLAYFIELD_W_MM / 2 (dead centre, trivially inside the spec's own
 	# +/-40 mm bound); cy reuses inout_lane_cy -- the SAME inlane/outlane
 	# band authored just above (175 mm), well below PLAYFIELD_H_MM * 0.2
-	# (213.36 mm) and clear of every other insert's own cup footprint (the
-	# nearest x-neighbours in this band are l_inlane_r at cx=400.5 and
-	# l_outlane_r at cx=450.95; the DRAGON letters and the Lock both sit far
-	# higher up the table, y >= 480) -- DW-149: both derived from existing
-	# locals, never a fresh literal.
+	# (213.36 mm) and clear of every other insert's own cup footprint. The
+	# four inserts sharing this band are placed symmetrically about the
+	# centre line, so the nearest x-neighbours to a dead-centre insert are
+	# the two INLANES (l_inlane_l and l_inlane_r), with the two outlanes
+	# further out still; the DRAGON letters and the Lock both sit far higher
+	# up the table, y >= 480. [Corrected at Story 2.9 code review: this list
+	# previously named l_inlane_r and l_outlane_r -- both RIGHT-side, which
+	# cannot be the nearest pair to a centred insert. Harmless either way:
+	# every gap here is far larger than the 10 mm LANE_CUP_HALF_MM, and the
+	# `no two inserts' cup footprints overlap` assertion covers it
+	# independently of this comment.]
+	# DW-149: both cx and cy derived from existing locals, never a fresh literal.
 	l_ball_save = add_insert('l_ball_save', PLAYFIELD_W_MM / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
 
 	# ---- vis_backbox: Story 2.6's DMD Backglass mounting quad, the first

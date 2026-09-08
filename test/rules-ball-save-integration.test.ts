@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
-import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
+import { resolveTuning, shotWindowTicks, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { GameStart } from '../src/sim/table/names';
 import type { LampCommand } from '../src/sim/contracts/commands';
@@ -218,6 +218,8 @@ describe('Story 2.9, AC 8 -- Integration: a real createLoop, the ball-save inser
 
 		const saved: number[] = [];
 		const ended: number[] = [];
+		const timerStarted: number[] = [];
+		const armedUntil: number[] = [];
 		let finalPhase: string = 'game';
 		let plungeInNTicks = -1; // -1 = none pending
 
@@ -231,6 +233,12 @@ describe('Story 2.9, AC 8 -- Integration: a real createLoop, the ball-save inser
 			for (const event of out.events) {
 				if (event.type === 'ball_saved') saved.push(out.snapshot.tick);
 				if (event.type === 'ball_ended') ended.push(out.snapshot.tick);
+				// The DW-218 mechanism itself: one arming per ball. Pre-fix EVERY
+				// save re-armed, so this stream carried one entry per save.
+				if (event.type === 'ball_save_timer_started') {
+					timerStarted.push(out.snapshot.tick);
+					armedUntil.push(event.untilTick);
+				}
 				if (event.type === 'ball_started') {
 					// A NEW ball (rotation, via startBall()): the DW-218 fix means it
 					// must be independently plunged -- there is no more self-
@@ -254,20 +262,54 @@ describe('Story 2.9, AC 8 -- Integration: a real createLoop, the ball-save inser
 			finalPhase,
 			'the game must reach game_over within the tick budget -- pre-fix this looped on a single ball forever and never left phase "game"',
 		).toBe('game_over');
-		// Review pass (rework iteration 1, blind-hunter + verification-gap,
-		// independently): `saved.length` alone bounded only loosely (< 10)
-		// while the exact value (6 -- two saves per ball, three balls) was
-		// already known and measured identically twice (implementer's own
-		// scratchpad and the build-auto stage's independent 120,000-tick
-		// re-run). A partial regression reintroducing a few extra re-arms
-		// (e.g. 7-9 saves) would have slipped past the old bound undetected.
-		// Pinned to the exact tick sequences now -- deterministic under seed 0
-		// with no player input, so this is a precise, non-flaky pin, not a
-		// magic number.
-		expect(saved, 'the exact save-tick sequence, matching two independent measurements at this tree').toEqual([
-			4276, 8575, 17120, 21419, 29964, 34263,
-		]);
-		expect(ended, 'all three balls must genuinely end, at the exact measured ticks').toEqual([12849, 25693, 38537]);
+		// Code review, iteration 2 -- STRUCTURAL, deliberately not tick-exact.
+		//
+		// Rework iteration 1 tightened this from a loose `saved.length < 10`
+		// to the exact measured `saved`/`ended` tick arrays. That over-
+		// corrected: those tick values are a property of THIS harness's own
+		// re-plunge cadence (the `plungeInNTicks = 1` choreography below), not
+		// of the DW-218 fix. The proof is that the same fix, exercised through
+		// a slightly different but equally legitimate stimulus sequence,
+		// produced a DIFFERENT array -- the code-review stage's own harness
+		// measured saves at 4273/8547/17217/21516/30262/34561 and ends at
+		// 12846/25790/38835, against this file's 4276/8575/17120/21419/
+		// 29964/34263 and 12849/25693/38537. Only ball 1's first two saves
+		// agreed. An assertion two correct runs disagree on is pinning setup,
+		// not behaviour.
+		//
+		// The operational danger is the repair path: any unrelated geometry or
+		// physics change shifts every drain tick, this test reddens, and the
+		// obvious fix a future story reaches for is to re-record the array --
+		// which would silently absorb a REAL re-arm regression along with the
+		// legitimate drift. A test that cannot survive a legitimate change
+		// gets repaired by pasting in whatever the run produced.
+		//
+		// So assert the property instead, in terms that survive physics drift
+		// and still redden hard on the actual defect. `timerStarted` is the
+		// sharpest of these and is the DW-218 mechanism stated directly: the
+		// window is armed once per ball by that ball's own player plunge, and
+		// a save's re-serve never re-arms. Pre-fix this ran to ~28 entries
+		// with `ended` empty and the phase stuck at 'game'.
+		expect(
+			timerStarted.length,
+			'the ball-save window must arm EXACTLY once per ball (three balls, three player plunges) -- a save\'s own re-serve must never re-arm, which is the whole of DW-218',
+		).toBe(3);
+		expect(ended.length, 'all three balls must genuinely end -- pre-fix this was zero, forever').toBe(3);
+		expect(
+			saved.length,
+			'non-vacuity: the run must genuinely exercise the save path, or this test would pass just as well with ball save switched off entirely',
+		).toBeGreaterThan(0);
+		// Every save must fall inside the window its OWN ball's plunge armed --
+		// the "a window never extends" property stated directly, and the one
+		// assertion here that would still redden if a re-arm ever managed to
+		// happen without emitting `ball_save_timer_started`.
+		const graceTicks = shotWindowTicks('ballSaveGraceMs', PRODUCTION_TUNING);
+		expect(
+			saved.every((savedTick) =>
+				armedUntil.some((untilTick) => savedTick <= untilTick + graceTicks),
+			),
+			'every ball_saved must fall within some armed window plus its grace -- a save landing past every armed deadline means the window was extended',
+		).toBe(true);
 	});
 
 	// Rework iteration 1 (DW-218), verification bar: "Without the control, a
