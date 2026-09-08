@@ -206,6 +206,13 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(event.type).toBe('ball_ended');
 	});
 
+	it('ball_save_enabled / ball_save_timer_started / ball_saved (Story 2.9, AD-18)', () => {
+		const enabled: SemanticEvent = { type: 'ball_save_enabled', tick: 40 };
+		const timerStarted: SemanticEvent = { type: 'ball_save_timer_started', untilTick: 8040, tick: 40 };
+		const saved: SemanticEvent = { type: 'ball_saved', player: 0, tick: 8020 };
+		expect([enabled.type, timerStarted.type, saved.type]).toEqual(['ball_save_enabled', 'ball_save_timer_started', 'ball_saved']);
+	});
+
 	it('the device-failure vocabulary exists even though Epic 1 never emits it', () => {
 		const failed: SemanticEvent = { type: 'eject_failed', device: 'bd_trough', tick: 30 };
 		const broken: SemanticEvent = { type: 'broken', device: 'c_flipper_l', tick: 31 };
@@ -226,6 +233,12 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return 'ball started';
 				case 'ball_launched':
 					return 'ball launched';
+				case 'ball_save_enabled':
+					return 'ball save enabled';
+				case 'ball_save_timer_started':
+					return `ball save timer started until ${event.untilTick}`;
+				case 'ball_saved':
+					return `ball saved ${event.player}`;
 				case 'ball_missing':
 					return `missing ${event.count}`;
 				case 'ball_ended':

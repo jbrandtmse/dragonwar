@@ -2,12 +2,31 @@
 title: 'Story 2.9: Ball save'
 type: 'feature'
 created: '2026-09-07'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '411da335f5fa0ed9ac753c5efa0985447b116c8f'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: []
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      `test/contracts.test.ts`'s exhaustive-switch test gained three new `case` arms
+      for the ball-save events, but their string bodies are never exercised by the
+      one `expect(describeEvent(...))` call in that test.
+    evidence: |-
+      Found by the verification-gap reviewer during Story 2.9's review pass: the
+      `describeEvent()` helper's new `ball_save_enabled` / `ball_save_timer_started`
+      / `ball_saved` arms exist only to satisfy the `const neverEvent: never`
+      exhaustiveness gate at compile time. A wrong field reference inside one of
+      those arms (e.g. templating `event.tick` where `event.player` was intended)
+      would still type-check and would not be caught by any assertion. The reviewer
+      confirmed this mirrors an existing, unchanged pattern already present for
+      other event variants in the same switch (`ball_missing`, `eject_failed`,
+      etc.) -- Story 2.9 extended an existing gap rather than introducing a new one,
+      so it is recorded here rather than patched in this story's own pass.
+    location: >-
+      test/contracts.test.ts:209-244
+    severity: low
 ---
 
 <intent-contract>
@@ -161,6 +180,17 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-07 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3 (medium 1, low 2)
+- defer: 1 (low 1)
+- reject: 5
+- addressed_findings:
+  - `[medium]` `[patch]` `awaitingSaveLaunch` (the deferred-autolaunch flag, `ball-controller.ts`) had no reset point tied to the ball lifecycle -- unlike `machine.ballSave` itself (reset at `ball_will_start`, AD-7) and unlike this file's own cited precedent `pendingLockLaneClosure` (self-clears on a tick timeout). Found independently by blind-hunter and edge-case-hunter. If a save's re-serve never reached `bd_shooter` (a real, reachable `eject_failed`, or any future ball-search/multiball interaction intervening first), the stale `true` would silently auto-launch the NEXT ball's own first, unrelated arrival at the shooter lane. Fixed: `startBall()` now resets the flag at `ball_will_start`, the same boundary AD-7 already resets `ballSave`/`tilt`/`multiball` at. Two new tests added to `test/rules-ball-save.test.ts` drive `createBallController()` directly (the flag has no `GameState` analogue `runRulesScript()`'s initial-state surface can seed) and were confirmed red against a saved-copy revert of the fix before being restored green.
+  - `[low]` `[patch]` The deferred autolaunch's coil pulse (`ball-controller.ts`, the `awaitingSaveLaunch` arrival branch) had no Tilt guard, unlike the drain branch a few lines below it (`!nextState.machine.tilt.tilted`). Found by edge-case-hunter. A Tilt engaging between a save's trough-eject and the re-served ball's own arrival at `bd_shooter` would still fire the launch coil, in tension with AC 6's "the device is inert while tilted." Fixed: the arrival branch now checks `!nextState.machine.tilt.tilted` before pushing the coil pulse (still consuming the flag either way, so a later non-tilted arrival cannot also fire it) -- this stays inside the read-side guard this story is scoped to (no tilt event is emitted or consumed). Covered by the same two new tests above.
+  - `[low]` `[patch]` `test/lighting-scene.test.ts` (6 spots) and `test/lighting-integration.test.ts` (3 spots) still described "fourteen" lit lamps/inserts in comments and assertion messages, made stale by this story's fifteenth lamp (`l_ball_save`). Found by blind-hunter. The underlying assertions are all derived from `Object.keys(TABLE.lamps)` and were never actually wrong, so this was cosmetic only. Fixed: updated the prose to "fifteen" in both files; no assertion logic changed.
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).** **AD-18** is the primary — it names `machine.ballSave` as one machine device owned by the ball controller, with `arm({ ticks, source })` / `disarm(source)`, stacking sources, the longest live window winning, Tilt disarming all, and the ball controller alone pulsing `c_trough_eject` / `c_autolaunch` and mutating `ballsInPlay`. **AD-6** supplies the plunge semantics: the *opening* of `s_shooter_lane` is the one event meaning "plunged", "on which the ball controller increments `ballsInPlay`, **starts the ball-save timer** and arms the skill shot" — this story is the one that makes the middle clause true. **AD-19** is the boundary the device sits inside: the controller consumes device events, never a raw `SwitchEvent`. **AD-3** and **AD-15** govern the three tunables (ms in `tuning.ts`, converted once, `source` + `confidence`, and the whole serialized output hashed into every golden header). **AD-9** governs the new lamp (`step ∈ {0,1,2,3}` is the only progression rules may express, and it names "ball-save hurry-up" explicitly) and the payload-completeness of the three new events. **AD-7** keeps `ballSave` machine-scoped and reset at `ball_will_start`. **AD-12** is read-only here: clause 3 records that a lit insert's dynamic light contributes 0.00 luma in the current scene, so the new insert inherits a grammar carried by the emissive material alone — Epic 2 must not touch the levers Story 4.1/4.2 own. **No AC contradicts any AD Rule.**
@@ -217,5 +247,54 @@ deferred: []
 
 ## Auto Run Result
 
-Status: ready-for-dev
+**Summary of implemented change.** `machine.ballSave` is now a live, machine-scoped device owned by `src/sim/rules/ball-controller.ts` (AD-18): enabled with the timer stopped at `ball_starting`, armed on `ball_launched` via a new `src/sim/rules/ball-save.ts` (`armBallSave`/`disarmBallSave`/`enableBallSave`/`isRunning`/`isWithinHurryUp`/`isWithinGrace`/`hasGraceLapsed`, inclusive `<=` throughout), projected to a new `l_ball_save` insert through the existing `lampsOf()`/`sim/loop` lamp-diff seam, and consulted at the drain so a live window or its grace re-serves the ball (`ball_saved`, a `c_trough_eject` pulse, the autolaunch coil deferred to the re-served ball's own arrival at `bd_shooter`) instead of ending it. Three new `…Ms` tunables (`ballSaveMs`, `ballSaveHurryUpMs`, `ballSaveGraceMs`) were added to `src/sim/table/tuning.ts`, each reached through `shotWindowTicks()`. All five replay goldens received the header-only refresh this story owed (`header.tableHash`, `header.gameStart.tuning`'s six new entries, `notes` appended) with no state-hash, trajectory, or `assetHash` movement. All 15 execution tasks and all 11 acceptance criteria are implemented and verified; no `Block If` condition was hit.
+
+**Files changed:**
+- `src/sim/table/tuning.ts` — three new top-level `…Ms` tunables (`ballSaveMs`, `ballSaveHurryUpMs`, `ballSaveGraceMs`), each with `source`/`confidence`.
+- `src/sim/contracts/events.ts` — three new `SemanticEvent` members: `ball_save_enabled`, `ball_save_timer_started`, `ball_saved`.
+- `src/sim/rules/ball-save.ts` (new) — pure `BallSaveState` helpers (arm/disarm/enable + running/hurry-up/grace predicates).
+- `src/sim/rules/ball-controller.ts` — wires the device: enable at `ball_starting`, arm at `ball_launched`, drain-branch interception into a save, the deferred autolaunch on the re-served ball's arrival; two review-pass fixes (see below).
+- `src/sim/rules/index.ts` — threads resolved `tuning` into `createBallController`.
+- `src/sim/table/dragonwar.ts` — new `LampSubject` arm `{ kind: 'ball_save' }` and the fifteenth lamp, `l_ball_save`.
+- `src/sim/rules/lamps.ts` — `projectBallSave()` (off/lit-1/lit-3 per Tilt/running/hurry-up), wired above the `!player` guard beside `lock`; explicit `never` exhaustiveness tail.
+- `src/sim/loop/index.ts` — resolves `ballSaveHurryUpTicks` once and threads it to both `lampsOf()` call sites.
+- `tools/make-placeholder-blend.py`, `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` — the `l_ball_save` insert (bottom-centre), rebuilt and re-exported; `dragonwar.collision.json` unaffected (confirmed empty diff).
+- `test/rules-ball-save.test.ts` (new) — headless rules coverage for AC 1–7, 9–11, plus two review-pass regression tests (see below).
+- `test/rules-ball-save-integration.test.ts` (new) — AC 8's real-`createLoop` `LampCommand`-stream integration test.
+- `test/rules-devices-headless.test.ts` — registers the new headless test file in `ENTRY_FILES`.
+- `test/table.test.ts` — fifteen-lamp inventory.
+- `test/asset-contract.test.ts` — `subjectSwitchName()` widened to `string | null` with a non-vacuity count assertion; `l_ball_save` placement pin.
+- `test/contracts.test.ts` — three new exhaustive-switch `case` arms.
+- `test/rules-lifecycle.test.ts`, `test/rules-modes.test.ts`, `test/backglass-frame.test.ts`, `test/backglass-integration.test.ts` — collateral drains moved past the (overridden, near-zero) ball-save window so pre-existing scripts keep pinning what they always pinned.
+- `test/replays/*.golden.json` (all five) — header-only refresh (`tableHash`, `gameStart.tuning`, `notes` appended); verified byte-identical elsewhere.
+- `test/lighting-scene.test.ts`, `test/lighting-integration.test.ts` — review-pass cosmetic fix: stale "fourteen"-lamp prose updated to "fifteen" (assertions were already lamp-count-derived and unaffected).
+
+**Review findings breakdown.** Four reviewers ran in parallel (blind-hunter, edge-case-hunter, verification-gap, intent-alignment). Two independently converged on the same root cause.
+- **Patches applied (3, medium 1 / low 2):**
+  - `[medium]` `awaitingSaveLaunch` (the deferred-autolaunch flag) had no ball-lifecycle reset point, unlike `machine.ballSave` itself and unlike the file's own cited `pendingLockLaneClosure` precedent (which self-clears on a timeout). A save whose re-serve never reached `bd_shooter` could leave the flag stuck `true` and silently auto-launch a later, unrelated ball. Fixed in `startBall()` (resets at `ball_will_start`, the same AD-7 boundary `ballSave`/`tilt`/`multiball` already reset at). Two new tests drive `createBallController()` directly and were confirmed red against a saved-copy revert before being restored green.
+  - `[low]` The deferred autolaunch's coil pulse had no Tilt guard, unlike the drain branch a few lines below it. Fixed by mirroring the drain branch's `!tilt.tilted` check (still consuming the flag either way). Currently unreachable in production (no tilt event exists before Story 2.11), fixed defensively for consistency with AC 6's "inert while tilted" and covered by the same two new tests.
+  - `[low]` Stale "fourteen"-lamp prose in two pre-existing lighting test files, made inaccurate by this story's fifteenth lamp. Cosmetic only; the underlying assertions were already correct (`Object.keys(TABLE.lamps)`-derived). Updated to "fifteen".
+- **Deferred (1, low 1):** `test/contracts.test.ts`'s three new exhaustive-switch case-arm bodies are never exercised by that test's one assertion — an existing, unchanged pattern this story extended rather than introduced. Recorded in frontmatter `deferred:`.
+- **Rejected (5):** (1) "the ball-save timer re-arms on every subsequent plunge" — verified against AD-18/AD-6's own text in the architecture spine, which unconditionally starts the ball-save timer on every opening of `s_shooter_lane`, including a save's own auto-relaunch; this is the architecture's specified behaviour, not a defect. (2) "Tilt 'disarms all' per AD-18/a pre-existing doc comment, vs. this story's read-only guard" — already explicitly scoped and accepted in the spec's own AC 6 and Design Notes ("Story 2.11 will additionally call disarm(source)... this story ships the read-side guard"). (3) "the 'Between balls' matrix row's isolated reset is never independently observable because `ball_starting`'s enable fuses into the same `startBall()` call" — pre-existing Story 2.5 architecture, correctly implemented and asserted exactly as AC 1 specifies. (4) "`disarm()` of the max-setting source doesn't shrink `untilTick` to the next-longest survivor's" — explicitly documented in the spec's own Design Notes as a decided, accepted limitation of the frozen `{untilTick, sources}` shape. (5) A stale `Status: ready-for-dev` line in this file's own (pre-finalize) Auto Run Result footer, flagged mid-review before this Finalize step had run — an artifact of review timing, not a diff defect.
+
+**Follow-up review recommendation: `true`.** Only this pass's `patch`-triaged findings count (medium 1, low 2): `3 × 1 + 1 × 2 = 5`, which meets the "5 or more" threshold (no patched finding was itself `high`).
+
+**Verification performed.**
+- `pnpm typecheck` — clean across all three tsconfigs, both before and after the review-pass patches.
+- `pnpm test` — **114 files / 1854 tests, 0 failed, 0 skipped** (2 more than the implementer's own 1852, from the two new review-pass regression tests; the story's cited 112/1824 baseline reflects the epic tree, not this multi-story-agent worktree at hand-off — the delta is fully explained by this story's own new/changed test files).
+- `pnpm lint:boundaries` — `OK -- 105 .ts file(s)`, no violations.
+- `pnpm check:headers`, `pnpm check:attributions` — both clean.
+- `pnpm export:assets` — clean; `l_ball_save` accepted; `dragonwar.collision.json` diff confirmed empty.
+- `pnpm check:ad7` — exactly 3 passing. `pnpm check:corridor` — 1 passing. `pnpm check:reachability` — 1 passing (52 cases, ~112 s).
+- Golden hash-identity gate — re-verified structurally (per-field JSON comparison against `baseline_revision`, not raw substring grep, since golden `notes` prose itself contains the forbidden field names historically): only `tableHash` and `gameStart.tuning` moved on any of the five goldens; `expectedHash`/`expectedGameStateHash`/`expectedCheckpointHashes`/`assetHash`/`transitions`/`coilPrologue`/`durationTicks` are byte-identical to `baseline_revision` on all five.
+- `git diff --stat -- public/assets/dragonwar.collision.json` — empty. `git ls-files --others --exclude-standard test/` — only the two intended new test files.
+- Matrix Test Audit — all 17 I/O & Edge-Case Matrix rows confirmed covered by a passing, registered test (16 in `test/rules-ball-save.test.ts`/`-integration.test.ts`, "Between balls" by the pre-existing, story-updated `test/rules-lifecycle.test.ts:174-215`).
+- Rule 19 mutations — the implementer's 11 AC mutations (one per AC) were each observed red then reverted (per their own report); this review pass additionally ran and confirmed red both of its own two new regression tests against saved-copy reverts of the tilt-guard and ball-boundary-reset fixes before restoring them green. No `git checkout --`/`git stash` used at any point; `git status --short`/`git diff --stat` confirmed unchanged after every revert-and-restore cycle.
+
+**Residual risks.**
+- The deferred-autolaunch Tilt guard is defensively fixed but currently untestable through any real game-triggered tilt event (Story 2.11 hasn't landed); it is exercised only via direct `GameState` seeding, the same technique the existing AC 6 test already uses for the same reason.
+- `disarm()`'s "never shrinks `untilTick` below the max-setter's own deadline" behaviour (a spec-documented, accepted limitation) means a future multiball-arming story (3.7) inherits a slightly coarser arbitration semantics than a per-source deadline list would give; this is priced into the spec's own Design Notes, not new information from this pass.
+- No automated test in this story observes a rendered pixel (`NullEngine` rasterises nothing, per AD-12 clause 3) — the lamp assertions prove projection and command-stream correctness only, exactly as the spec's own Verification section discloses.
+
+Status: done
 Blocking condition: none

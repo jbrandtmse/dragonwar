@@ -2602,16 +2602,23 @@ describe('asset contract -- Story 2.6: vis_backbox\'s glb contract (AD-11, the D
 	});
 });
 
-describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely placed over their own subject (AC 7)', () => {
-	/** The `TABLE.switches` name a lamp's `subject` resolves to -- the same switch its own `sw_` collision zone is keyed by. */
-	function subjectSwitchName(subject: (typeof TABLE.lamps)[keyof typeof TABLE.lamps]['subject']): string {
+describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely placed over their own subject (AC 7); Story 2.9 adds a fifteenth with no switch of its own', () => {
+	/** The `TABLE.switches` name a lamp's `subject` resolves to -- the same switch its own `sw_` collision zone is keyed by. `null` for a subject with no `sw_` zone at all (Story 2.9: Ball Save has no switch). Exhaustive over every `LampSubject` kind -- a fifth kind fails `pnpm typecheck` at the `neverSubject` tail rather than silently falling through to `sw_lock_lane` (this story's own structural fix, replacing the Story 2.8 fall-through). */
+	function subjectSwitchName(subject: (typeof TABLE.lamps)[keyof typeof TABLE.lamps]['subject']): string | null {
 		if (subject.kind === 'lane') {
 			return TABLE.laneWiring[subject.lane].switch;
 		}
 		if (subject.kind === 'letter') {
 			return TABLE.dropBankWiring[subject.letter].switch;
 		}
-		return TABLE.lockLaneWiring.switch;
+		if (subject.kind === 'lock') {
+			return TABLE.lockLaneWiring.switch;
+		}
+		if (subject.kind === 'ball_save') {
+			return null;
+		}
+		const neverSubject: never = subject;
+		return neverSubject;
 	}
 
 	// Calibration FIRST (Design Notes / this story's own Rationale, task 20):
@@ -2643,11 +2650,15 @@ describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely p
 		}
 	});
 
-	it('every insert\'s lens/cup centre lies inside its own subject\'s sw_ switch zone footprint', () => {
+	it('every ZONE-BEARING insert\'s lens/cup centre lies inside its own subject\'s sw_ switch zone footprint', () => {
 		const glbDoc = readGlbJson();
 		const collisionDoc = readCollisionDoc();
+		let checked = 0;
 		for (const [lampName, def] of Object.entries(TABLE.lamps)) {
 			const switchName = subjectSwitchName(def.subject);
+			if (switchName === null) {
+				continue; // Story 2.9: l_ball_save -- no sw_ zone to contain it at all.
+			}
 			const zone = collisionDoc.switchZones.find((z) => z.switch === switchName);
 			expect(zone, `${lampName}: no sw_ zone found for its subject's switch "${switchName}"`).toBeDefined();
 
@@ -2659,7 +2670,29 @@ describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely p
 				`${lampName}: centre (${center.x.toFixed(2)}, ${center.y.toFixed(2)}) is outside "${zone!.name}"'s own footprint ` +
 					`x[${zone!.minMm.x}, ${zone!.maxMm.x}] y[${zone!.minMm.y}, ${zone!.maxMm.y}]`,
 			).toBe(true);
+			checked++;
 		}
+		// Non-vacuity (Story 2.9): the `continue` above must not make this loop
+		// silently check nothing -- assert the DERIVED count of zone-bearing
+		// subjects (never a hand-typed number) were actually checked.
+		const zoneBearingCount = Object.values(TABLE.lamps).filter((def) => subjectSwitchName(def.subject) !== null).length;
+		expect(checked, 'every zone-bearing lamp must have been checked above, not silently skipped').toBe(zoneBearingCount);
+		expect(checked, 'the loop must not have gone vacuous').toBeGreaterThan(0);
+	});
+
+	it('l_ball_save has no sw_ zone, and sits at the bottom centre of the playfield (Story 2.9)', () => {
+		const doc = readGlbJson();
+		const box = meshTableBoxMm(doc, 'l_ball_save');
+		const center = boxCenterXy(box);
+		expect(subjectSwitchName(TABLE.lamps.l_ball_save.subject), 'l_ball_save\'s subject must resolve to no switch at all').toBeNull();
+		expect(
+			Math.abs(center.x - TABLE.reference.playfieldMm.w / 2),
+			`l_ball_save centre x (${center.x.toFixed(2)}) must be within 40 mm of the playfield's own horizontal centre (${(TABLE.reference.playfieldMm.w / 2).toFixed(2)})`,
+		).toBeLessThanOrEqual(40);
+		expect(
+			center.y,
+			`l_ball_save centre y (${center.y.toFixed(2)}) must sit in the bottom 20% of the playfield (below ${(TABLE.reference.playfieldMm.h * 0.2).toFixed(2)})`,
+		).toBeLessThan(TABLE.reference.playfieldMm.h * 0.2);
 	});
 
 	it('no two inserts\' cup footprints overlap', () => {

@@ -206,7 +206,7 @@ export const DEFAULT_ADJUSTMENTS: GameAdjustments = {
  */
 export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments = DEFAULT_ADJUSTMENTS): Rules {
 	const devicesLayer = createDevicesLayer(tuning);
-	const ballController = createBallController(adjustments);
+	const ballController = createBallController(adjustments, tuning);
 	const modeStack = createModeStack(tuning);
 
 	// See this file's header, "Sequencing note": ball_will_start events the

@@ -129,6 +129,42 @@ export interface BallLaunchedEvent {
 	readonly tick: number;
 }
 
+/**
+ * Story 2.9, AD-18: `machine.ballSave` records the ball controller's own
+ * source at `ball_starting`, with `untilTick` left `null` -- enabling is not
+ * starting the timer (that is `ball_launched`, below). PRD FR-19: "Ball save
+ * is enabled at launch".
+ */
+export interface BallSaveEnabledEvent {
+	readonly type: 'ball_save_enabled';
+	readonly tick: number;
+}
+
+/**
+ * Story 2.9, AD-18: the ball-save timer actually starts, on `ball_launched`
+ * -- PRD FR-19: "starts its timer when the ball is plunged (not when
+ * enabled)". `untilTick` is the arbiter's resulting effective deadline
+ * (the longest live window across every armed source), not merely this
+ * one arming's own `tick + ticks`.
+ */
+export interface BallSaveTimerStartedEvent {
+	readonly type: 'ball_save_timer_started';
+	readonly untilTick: number;
+	readonly tick: number;
+}
+
+/**
+ * Story 2.9, AD-18: a drain inside the live window (or its grace) re-served
+ * the ball instead of ending it -- PRD FR-19: "a saved ball is auto-launched".
+ * `player` is the index into `GameState.players` whose ball was saved,
+ * mirroring `BallEndedEvent`'s own `player` field.
+ */
+export interface BallSavedEvent {
+	readonly type: 'ball_saved';
+	readonly player: number;
+	readonly tick: number;
+}
+
 /** AD-6: ball search's final stage returned this many balls it could not find. */
 export interface BallMissingEvent {
 	readonly type: 'ball_missing';
@@ -185,6 +221,9 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| BallLaunchedEvent
 	| BallMissingEvent
 	| BallEndedEvent
+	| BallSaveEnabledEvent
+	| BallSaveTimerStartedEvent
+	| BallSavedEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

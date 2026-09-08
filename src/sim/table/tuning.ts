@@ -334,6 +334,30 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 2.9 (AD-18): the three ball-save durations `machine.ballSave`
+	 * resolves through `shotWindowTicks('<key>Ms', tuning)`. PRD FR-19 names
+	 * the mechanism (enable / timer-start / hurry-up / grace) but states a
+	 * duration for only one of the three -- see each entry's own `source`.
+	 * Top-level scalars, never nested under `hardware` (DW-34,
+	 * `assertNoNestedMsKeys()` throws on a nested `...Ms` key).
+	 */
+	ballSaveMs: entry(
+		8000,
+		'authored: PRD FR-19 names the ball-save window as a mechanism (enable at ball start, timer starts at the plunge) but states no duration for it -- 8 s is a common early-ball-save figure on real machines and is authored here pending Epic 3\'s playtest freeze, never transcribed from any artifact',
+		'unverified',
+	),
+	ballSaveHurryUpMs: entry(
+		2000,
+		'authored: PRD FR-19 names a hurry-up (fast-blink) phase before the window closes but states no duration for it -- authored, adjustable until Epic 3\'s playtest freeze',
+		'unverified',
+	),
+	ballSaveGraceMs: entry(
+		2000,
+		'PRD FR-19 [ASSUMPTION]: "a drain inside the Grace period (default 2 s [ASSUMPTION]) is still saved" -- transcribed directly from that named default, not authored here',
+		'unverified',
+	),
+
+	/**
 	 * AD-3/AD-7: "tilt spacing and settle" is named as a rules timer concept
 	 * (AD-3) and the bob's decay plus this settle is how Tilt clears (AD-7);
 	 * FR-14 states the debounce need ("the bob's continued swing cannot

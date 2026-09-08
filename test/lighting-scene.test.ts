@@ -14,7 +14,7 @@
 //   3. `maxSimultaneousLights` truncation -- `lightSources.length <=
 //      material.maxSimultaneousLights`, and `vis_playfield` isolation.
 //   4. `scene.lights` counts disabled lights -- the budget cap is exercised
-//      with an injected `{ budget: 2 }` over fourteen lit lamps (14 < the
+//      with an injected `{ budget: 2 }` over fifteen lit lamps (15 < the
 //      real 20-light budget, so the REAL budget alone would be vacuous).
 
 import { readFileSync } from 'node:fs';
@@ -313,7 +313,7 @@ describe('syncLamps -- trap 2/3: dynamic light placement and per-mesh light budg
 	// proves no insert was wired to another insert's footprint.
 	// `Object.keys(TABLE.lamps)`-derived (DW-149), so a fifteenth lamp is
 	// covered the day it is authored.
-	it('EVERY insert\'s light sits beneath its OWN lens footprint, not another insert\'s (AC 5, all fourteen)', async () => {
+	it('EVERY insert\'s light sits beneath its OWN lens footprint, not another insert\'s (AC 5, all fifteen)', async () => {
 		await withScene(async (scene, playfieldRoot) => {
 			const view: LampView = {};
 			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
@@ -364,7 +364,7 @@ describe('syncLamps -- blinking (timed by presentation, via isLampOnAt)', () => 
 });
 
 describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exercised below the real 20-light default', () => {
-	it('with { budget: 2 } over fourteen lit lamps, at most two lights are enabled while every lit insert still shows its own emissive colour', async () => {
+	it('with { budget: 2 } over fifteen lit lamps, at most two lights are enabled while every lit insert still shows its own emissive colour', async () => {
 		await withScene(async (scene, playfieldRoot) => {
 			const view: LampView = {};
 			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
@@ -381,7 +381,7 @@ describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exerc
 				// budget (dimmed by INSERT_EMISSIVE_LEVEL, HIGH 2d).
 				expect(emissiveColorOf(scene, name)).toEqual(scaledEmissive(LAMP_GRAMMAR.lit));
 			}
-			expect(enabledPointLights, 'at most the injected budget of 2 lights may be enabled, out of fourteen lit inserts').toBeLessThanOrEqual(2);
+			expect(enabledPointLights, 'at most the injected budget of 2 lights may be enabled, out of fifteen lit inserts').toBeLessThanOrEqual(2);
 			expect(enabledPointLights, 'the budget must actually be exercised, not vacuously satisfied by zero').toBe(2);
 		});
 	});
@@ -397,7 +397,7 @@ describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exerc
 	// dark and still pass every OTHER assertion in this file, since each of
 	// those either injects its own budget or checks only a PER-MESH cap that
 	// zero enabled lights trivially satisfies.
-	it('with NO options object (the real production call shape), the default budget (TUNING.liveLightBudget.value, 20) is not exceeded by fourteen lit lamps -- every one gets an enabled light', async () => {
+	it('with NO options object (the real production call shape), the default budget (TUNING.liveLightBudget.value, 20) is not exceeded by fifteen lit lamps -- every one gets an enabled light', async () => {
 		await withScene(async (scene, playfieldRoot) => {
 			const view: LampView = {};
 			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
@@ -410,7 +410,7 @@ describe('syncLamps -- trap 4: the live budget counts ENABLED lights only, exerc
 				const mesh = getRequiredNode(scene, name) as AbstractMesh;
 				enabledPointLights += mesh.lightSources.filter((l) => l.isEnabled() && l instanceof PointLight).length;
 			}
-			expect(enabledPointLights, 'the default budget (20) must comfortably exceed fourteen real lamps -- every lit insert gets its own enabled light with no override at all').toBe(Object.keys(TABLE.lamps).length);
+			expect(enabledPointLights, 'the default budget (20) must comfortably exceed fifteen real lamps -- every lit insert gets its own enabled light with no override at all').toBe(Object.keys(TABLE.lamps).length);
 		});
 	});
 

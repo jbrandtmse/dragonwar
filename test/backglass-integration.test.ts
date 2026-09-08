@@ -26,13 +26,34 @@ import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW, type DmdScreen } from '../src/presentation/backglass/frame';
 import { rasterise } from '../src/presentation/backglass/raster';
 import { FONT_5X7 } from '../src/presentation/backglass/font';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { CoilName, GameStart } from '../src/sim/table/names';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const DISABLED_HAZARD_COILS: readonly CoilName[] = ['c_pop_1', 'c_pop_2', 'c_pop_3', 'c_sling_l', 'c_sling_r'];
 const MAX_TICKS = 15000;
+
+/**
+ * Story 2.9: this file's own served ball drains after ~4,278 real-physics
+ * ticks (this file's own header) -- comfortably inside the production
+ * ball-save window (8 s default), which this story's own drain
+ * interception would otherwise turn into a SAVE (re-serving the ball, never
+ * emitting ball_ended) rather than the real drain this whole describe block
+ * exists to exercise. An override tuning with the window and grace both
+ * shrunk to near-zero keeps this file's own drain mechanism (gravity and
+ * passive collision losses alone, per this file's own header) and every
+ * assertion EXACTLY as Story 2.6 authored them -- only the ball-save
+ * timing (incidental to what this file actually covers) changes. Passed as
+ * `createLoop()`'s own `tuning` option -- the loop's ACTUAL physics/rules
+ * tuning, never `GameStart.tuning` alone, which `createLoop()` embeds in
+ * `GameState` but does not itself resolve from.
+ */
+const NO_BALL_SAVE_TUNING = resolveTuning({
+	...RAW_TUNING,
+	ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+});
 
 function loadDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
@@ -41,7 +62,7 @@ function loadDoc(): unknown {
 function gameStart(): GameStart {
 	return {
 		seed: 0,
-		tuning: resolveTuning(),
+		tuning: NO_BALL_SAVE_TUNING,
 		adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0 },
 		highscores: [],
 	};
@@ -49,7 +70,7 @@ function gameStart(): GameStart {
 
 describe('Integration AC -- a real createLoop, Hot seat with two players, a genuine drain, piped through advanceBackglass()/renderFrame()', () => {
 	it('the screen sequence passes through an in-game score screen and reaches ball_ended at the frame carrying that event, naming the PAYLOAD player', () => {
-		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: gameStart() });
+		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: gameStart(), tuning: NO_BALL_SAVE_TUNING });
 
 		loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
 		loop.advance(1, [{ tick: 3, frame: { ...NO_FRAME, start: false } }]);
@@ -131,7 +152,7 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 	});
 
 	it('control (Rule 19): the identical composition, with this frame\'s events emptied, never shows ball_ended -- proving the assertion above reads events, not only the snapshot', () => {
-		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: gameStart() });
+		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: gameStart(), tuning: NO_BALL_SAVE_TUNING });
 		loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
 		loop.advance(1, [{ tick: 3, frame: { ...NO_FRAME, start: false } }]);
 		for (const coil of DISABLED_HAZARD_COILS) {

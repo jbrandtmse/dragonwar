@@ -25,11 +25,30 @@
 
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, runRulesScript } from './util/switch-script';
 import type { GameState, SwitchName } from '../src/sim/table/names';
 
 const TUNING = resolveTuning();
+
+/**
+ * Story 2.9: `threeBallDrawSequence()` below drains each of its three balls
+ * only 3-8 ticks after its own plunge -- comfortably inside the PRODUCTION
+ * ball-save window (8 s default), which this story's own drain interception
+ * would otherwise turn into a SAVE (re-serving the SAME ball, never rotating
+ * to the next one, never drawing a new Top lane) rather than the real
+ * drain/rotate/redraw this test's whole point is to exercise. An override
+ * tuning with the window and grace both shrunk to near-zero keeps every
+ * scripted tick number, and every assertion, EXACTLY as this story found
+ * them (task 13: "preserving exactly what each test pins") -- only the
+ * ball-save timing, which is incidental to what this test actually covers,
+ * changes.
+ */
+const NO_BALL_SAVE_TUNING = resolveTuning({
+	...RAW_TUNING,
+	ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+});
 
 type LaneName = keyof typeof TABLE.laneWiring;
 const LANE_NAMES = Object.keys(TABLE.laneWiring) as LaneName[];
@@ -484,7 +503,7 @@ describe('AC 6 -- deterministic under a fixed seed; a different seed diverges', 
 			.open('s_shooter_lane').at(22)
 			.close('s_trough_3').at(30)
 			.build();
-		const result = runRulesScript(script, { durationTicks: 35, initialState: attractState(seed) });
+		const result = runRulesScript(script, { durationTicks: 35, initialState: attractState(seed), tuning: NO_BALL_SAVE_TUNING });
 		const drawTicks = [6, 11, 21];
 		return drawTicks.map((tick) => {
 			const lit = result.statesByTick.get(tick)!.players[0]!.lanes.lit;

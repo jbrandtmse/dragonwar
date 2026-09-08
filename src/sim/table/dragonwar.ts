@@ -215,11 +215,17 @@ const LANE_WIRING = {
  * list. `lane`/`letter` are constrained against the two hoisted wiring
  * consts above, so a typo (`'top_9'`, `'x'`) is a `pnpm typecheck` failure
  * rather than a silent runtime miss.
+ *
+ * Story 2.9 adds a fourth arm, `{ kind: 'ball_save' }` -- machine-scoped,
+ * like `'lock'`, but carries no further payload: there is exactly one
+ * ball-save insert (`l_ball_save`), never a per-lane/per-letter set, so
+ * unlike `lane`/`letter` it names no `keyof` at all.
  */
 type LampSubject =
 	| { readonly kind: 'lane'; readonly lane: keyof typeof LANE_WIRING }
 	| { readonly kind: 'letter'; readonly letter: keyof typeof DROP_BANK_WIRING }
-	| { readonly kind: 'lock' };
+	| { readonly kind: 'lock' }
+	| { readonly kind: 'ball_save' };
 
 export const TABLE = deepFreeze({
 	/** AD-10, AR-16: the canonical reference dimensions, asserted by Story 1.4's loader. */
@@ -650,6 +656,10 @@ export const TABLE = deepFreeze({
 		l_dragon_o: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'o' } satisfies LampSubject },
 		l_dragon_n: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'letter', letter: 'n' } satisfies LampSubject },
 		l_lock: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'lock' } satisfies LampSubject },
+		// Story 2.9: the fifteenth insert lamp, machine-scoped like l_lock --
+		// see LampSubject's own doc comment above for why 'ball_save' carries
+		// no further payload.
+		l_ball_save: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'ball_save' } satisfies LampSubject },
 	},
 	flashers: {},
 	shows: {},

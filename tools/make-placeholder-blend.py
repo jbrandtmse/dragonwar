@@ -3358,6 +3358,18 @@ def main():
 	# Lock -- same zone corners as sw_lock_lane above.
 	l_lock = add_insert('l_lock', (lock_lane_x0 + 2 + lock_lane_x1 - 2) / 2, (SW_LOCK_LANE_Y0_MM + SW_LOCK_LANE_Y1_MM) / 2, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
 
+	# Ball Save (Story 2.9) -- bottom centre of the playfield, no sw_ zone of
+	# its own to sit over (Ball Save has no switch). cx is exactly
+	# PLAYFIELD_W_MM / 2 (dead centre, trivially inside the spec's own
+	# +/-40 mm bound); cy reuses inout_lane_cy -- the SAME inlane/outlane
+	# band authored just above (175 mm), well below PLAYFIELD_H_MM * 0.2
+	# (213.36 mm) and clear of every other insert's own cup footprint (the
+	# nearest x-neighbours in this band are l_inlane_r at cx=400.5 and
+	# l_outlane_r at cx=450.95; the DRAGON letters and the Lock both sit far
+	# higher up the table, y >= 480) -- DW-149: both derived from existing
+	# locals, never a fresh literal.
+	l_ball_save = add_insert('l_ball_save', PLAYFIELD_W_MM / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+
 	# ---- vis_backbox: Story 2.6's DMD Backglass mounting quad, the first
 	# child of cabinet_root (AD-11: Blender is the sole owner of every
 	# position and mesh; a vis_ mesh is built procedurally in presentation
@@ -3385,15 +3397,16 @@ def main():
 
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):
 	# the three roots, vis_playfield, vis_spinner_l, vis_backbox, the
-	# fourteen Story 2.8 insert lamps, bd_trough, bd_shooter, bd_lock.
-	# col_/sw_ nodes are excluded -- collision scaffolding, never rendered. ----
+	# fourteen Story 2.8 insert lamps plus Story 2.9's l_ball_save,
+	# bd_trough, bd_shooter, bd_lock. col_/sw_ nodes are excluded --
+	# collision scaffolding, never rendered. ----
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	presentation_objects = [
 		playfield_root, cabinet_root, pivot_pitch,
 		vis_playfield, vis_spinner_l, vis_backbox,
 		*top_lane_inserts, l_inlane_l, l_inlane_r, l_outlane_l, l_outlane_r,
-		*dragon_letter_inserts.values(), l_lock,
+		*dragon_letter_inserts.values(), l_lock, l_ball_save,
 		bd_trough, bd_shooter, bd_lock,
 	]
 	for obj in presentation_objects:

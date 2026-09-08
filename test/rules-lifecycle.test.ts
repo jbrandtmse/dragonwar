@@ -13,11 +13,29 @@
 
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { HARDWARE_COILS } from '../src/sim/rules/ball-controller';
+import { BALL_SAVE_SOURCE, HARDWARE_COILS } from '../src/sim/rules/ball-controller';
+import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, open, runRulesScript } from './util/switch-script';
 import type { GameState } from '../src/sim/table/names';
 
 const TROUGH_EJECT_COIL = TABLE.ballDevices.bd_trough.ejectCoil;
+
+/**
+ * Story 2.9: several scripts below launch and drain the SAME ball only a
+ * few ticks apart -- comfortably inside the production ball-save window,
+ * which this story's own drain interception would otherwise turn into a
+ * SAVE (re-serving the same ball, never rotating/ending it) rather than the
+ * real drain/rotate/game-over this file's whole point is to exercise. An
+ * override tuning with the window and grace both shrunk to near-zero keeps
+ * every scripted tick number, and every assertion, EXACTLY as Story 2.5
+ * authored them -- only the ball-save timing (incidental to what these
+ * tests actually cover) changes.
+ */
+const NO_BALL_SAVE_TUNING = resolveTuning({
+	...RAW_TUNING,
+	ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+});
 
 /** A fresh empty player, mirroring `ball-controller.ts`'s own `emptyPlayer()` -- duplicated here (test-local) rather than exported from production code purely for test convenience. */
 function emptyPlayer(ballNumber: number) {
@@ -46,7 +64,9 @@ describe('Story 2.5 -- AC 2: Start from Attract', () => {
 		expect(after.machine.hardwareEnabled, 'hardwareEnabled must be true from ball_starting (it boots false)').toBe(true);
 
 		const tick5Events = result.events.filter((e) => e.tick === 5).map((e) => e.type);
-		expect(tick5Events).toEqual(['ball_will_start', 'ball_starting', 'ball_started']);
+		// Story 2.9, AC 1: ball_starting also enables ball save -- ball_save_enabled
+		// now lands between ball_starting and ball_started, every time.
+		expect(tick5Events).toEqual(['ball_will_start', 'ball_starting', 'ball_save_enabled', 'ball_started']);
 
 		const troughPulses = result.coilCommands.filter((c) => c.coil === TROUGH_EJECT_COIL && c.action === 'pulse');
 		expect(troughPulses, 'exactly one c_trough_eject pulse').toHaveLength(1);
@@ -91,7 +111,7 @@ describe('Story 2.5 -- AC 4: Start after ball 1 has ended does nothing, with its
 			.close('s_trough_1').at(20)
 			.close('s_start').at(30)
 			.build();
-		const result = runRulesScript(script, { durationTicks: 35 });
+		const result = runRulesScript(script, { durationTicks: 35, tuning: NO_BALL_SAVE_TUNING });
 
 		expect(result.statesByTick.get(5)!.players).toHaveLength(1);
 		expect(result.statesByTick.get(8)!.players, 'before the drain, an identical Start press grows players (positive control)').toHaveLength(2);
@@ -119,7 +139,7 @@ describe('Story 2.5 -- AC 4: Start after ball 1 has ended does nothing, with its
 			.close('s_trough_1').at(20)
 			.close('s_start').at(30)
 			.build();
-		const result = runRulesScript(script, { durationTicks: 35 });
+		const result = runRulesScript(script, { durationTicks: 35, tuning: NO_BALL_SAVE_TUNING });
 
 		expect(result.statesByTick.get(20)!.currentPlayer, 'wraps back to the SAME player for ball 2 (single-player game)').toBe(0);
 		expect(result.statesByTick.get(20)!.players[0]!.ballNumber, 'ball 2 begins for the only player').toBe(2);
@@ -134,15 +154,17 @@ describe('Story 2.5 -- Player rotation', () => {
 			.open('s_shooter_lane').at(10)
 			.close('s_trough_1').at(20)
 			.build();
-		const result = runRulesScript(script, { durationTicks: 25 });
+		const result = runRulesScript(script, { durationTicks: 25, tuning: NO_BALL_SAVE_TUNING });
 
 		const after = result.statesByTick.get(20)!;
 		expect(after.currentPlayer).toBe(1);
 		expect(after.players[1]!.ballNumber).toBe(1);
+		// Story 2.9, AC 1: ball_save_enabled now lands between ball_starting and ball_started, every time.
 		expect(result.events.filter((e) => e.tick === 20).map((e) => e.type)).toEqual([
 			'ball_ended',
 			'ball_will_start',
 			'ball_starting',
+			'ball_save_enabled',
 			'ball_started',
 		]);
 	});
@@ -181,7 +203,14 @@ describe('Story 2.5 -- AC 5: drain, mode teardown, ball end and rotation', () =>
 		expect(ballEnded[0]).toMatchObject({ type: 'ball_ended', player: 0 });
 
 		expect(after.currentPlayer, 'rotates to player 1').toBe(1);
-		expect(after.machine.ballSave, 'ball_will_start resets ballSave').toEqual({ untilTick: null, sources: [] });
+		// Story 2.9: `ball_will_start` resets ballSave, but the SAME rotation's
+		// own `ball_starting` (for player 1's new ball) immediately re-enables
+		// it (AC 1) -- both happen inside the same drain tick, so the NET
+		// result carries the controller's own source, not an empty list.
+		expect(after.machine.ballSave, 'ball_will_start resets ballSave, then ball_starting re-enables it for the new ball').toEqual({
+			untilTick: null,
+			sources: [BALL_SAVE_SOURCE],
+		});
 		expect(after.machine.tilt, 'ball_will_start resets tilt').toEqual({ tilted: false, slamTilted: false });
 		expect(after.machine.multiball, 'ball_will_start resets multiball').toBeNull();
 	});
@@ -315,7 +344,7 @@ describe('Story 2.5 -- AC 7: Hot seat isolation, two-sided', () => {
 			.open('s_shooter_lane').at(20)
 			.close('s_trough_1').at(30)
 			.build();
-		const result = runRulesScript(script, { durationTicks: 35 });
+		const result = runRulesScript(script, { durationTicks: 35, tuning: NO_BALL_SAVE_TUNING });
 
 		expect(result.finalState.players[0]!.letters, 'player 1 keeps their letters').toBe('DRA');
 		expect(result.finalState.players[1]!.letters, 'player 2 starts with none').toBe('');
@@ -348,7 +377,7 @@ describe('Story 2.5 -- AC 7: Hot seat isolation, two-sided', () => {
 			.close('s_trough_1').at(30)
 			.close(TABLE.dropBankWiring.d.switch).at(32)
 			.build();
-		const result = runRulesScript(script, { durationTicks: 35 });
+		const result = runRulesScript(script, { durationTicks: 35, tuning: NO_BALL_SAVE_TUNING });
 
 		expect(result.finalState.currentPlayer, 'sanity: rotation happened, player 2 is now current').toBe(1);
 		expect(result.finalState.players[1]!.letters, 'player 2 (now current) is credited').toBe('D');

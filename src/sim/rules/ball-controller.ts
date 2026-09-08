@@ -31,6 +31,8 @@
 // check that must keep passing unmodified.
 
 import { TABLE } from '../table/dragonwar';
+import { armBallSave, EMPTY_BALL_SAVE, enableBallSave, hasGraceLapsed, isRunning, isWithinGrace } from './ball-save';
+import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { DeviceEvent } from './devices';
 import type { BallWillStartEvent } from '../contracts/events';
 import type { GameAdjustments } from '../contracts/replay';
@@ -168,6 +170,35 @@ function hardwareCoils(): readonly CoilName[] {
 /** Test-only export (review finding 2026-09-06): lets a test assert the exact enable/disable set without hand-duplicating this derivation (DW-149). */
 export const HARDWARE_COILS: readonly CoilName[] = hardwareCoils();
 
+/**
+ * Story 2.9 (AD-18): the ball controller's own `machine.ballSave` source
+ * name -- a plain identifying string, never a `TABLE` device/switch/coil
+ * name, so it names no lint-tracked vocabulary at all. The only source this
+ * story arms; Story 3.7 (Quick multiball) is the first second one.
+ * Exported test-only (mirrors `HARDWARE_COILS` above): lets a test assert
+ * against the real source name without hand-duplicating the literal.
+ */
+export const BALL_SAVE_SOURCE = 'ball-controller';
+
+/**
+ * Story 2.9, task 4/5 (AD-16, DW-149): `bd_shooter` is the table's ONE
+ * `kind: 'non-parking'` ball device (`sim/table/dragonwar.ts`) -- a
+ * `device_ball_entered` for it is unambiguously "a served ball arrived in
+ * the shooter lane", the deferred-autolaunch hook, reached below via
+ * `TABLE.ballDevices[event.device].kind`, never a `'bd_shooter'` literal
+ * (AD-16's `no-device-name-literal`).
+ */
+function shooterLaunchCoil(): CoilName {
+	const step = TABLE.ballDevices.bd_shooter.ballSearchOrder.find((candidate) => candidate.action === 'pulse');
+	if (!step) {
+		throw new Error('shooterLaunchCoil(): TABLE.ballDevices.bd_shooter.ballSearchOrder has no "pulse" step to launch with');
+	}
+	return step.coil as CoilName;
+}
+
+/** `c_autolaunch` (Code Map: "bd_shooter's launch coil is the first pulse in ballSearchOrder"), resolved once, never a literal. */
+const SHOOTER_LAUNCH_COIL: CoilName = shooterLaunchCoil();
+
 function emptyPlayer(): PlayerState {
 	return {
 		score: 0,
@@ -211,15 +242,59 @@ interface StartBallResult {
 }
 
 /**
- * `createBallController(adjustments)` mirrors `createDevicesLayer(tuning)`:
+ * `createBallController(adjustments, tuning)` mirrors `createDevicesLayer(tuning)`:
  * `adjustments` (AD-14, `GameStart.adjustments`) is resolved once at
  * construction -- `ballsPerGame`'s threshold, used every drain, is not
- * re-derived per tick.
+ * re-derived per tick. Story 2.9 widens this with `tuning` (AD-3/AD-15):
+ * the ball controller now owns `machine.ballSave`, whose three durations
+ * (`ballSaveMs`/`ballSaveHurryUpMs`/`ballSaveGraceMs`) are resolved to
+ * ticks here, ONCE, exactly like `createShotTracker(tuning)`'s own
+ * construction-time resolution of `TABLE.shots[*].windowMs`.
  */
-export function createBallController(adjustments: GameAdjustments): BallController {
+export function createBallController(adjustments: GameAdjustments, tuning: ResolvedTuning): BallController {
+	// `ballSaveHurryUpMs` is resolved and consumed by `sim/rules/lamps.ts`'s
+	// own projection instead -- the controller itself never needs to know
+	// the hurry-up window, only when the timer starts (`ballSaveTicks`) and
+	// how long a drain still saves past the displayed expiry
+	// (`ballSaveGraceTicks`).
+	const ballSaveTicks = shotWindowTicks('ballSaveMs', tuning);
+	const ballSaveGraceTicks = shotWindowTicks('ballSaveGraceMs', tuning);
+
+	// Story 2.9, task 5: set true by a save's own re-serve (the drain branch
+	// below), consumed the NEXT time the re-served ball's own arrival closes
+	// bd_shooter's entry switch (`device_ball_entered`) -- cross-tick,
+	// controller-local state, deliberately NOT a `GameState` field (AD-7:
+	// `machine.ballSave` itself carries no such flag, and widening it would
+	// move a state hash -- see `ball-save.ts`'s own header). Mirrors the
+	// devices-and-shots layer's own cross-tick, instance-local state
+	// (`createDevicesLayer()`'s `pendingLockLaneClosure`, etc.) -- this is
+	// why `createBallController()` must be INSTANTIATED, never module-global
+	// (this file's own header, Story 2.5's precedent).
+	//
+	// Code review pass 1 (blind-hunter + edge-case-hunter, independently):
+	// unlike `pendingLockLaneClosure`, which self-clears on a tick timeout,
+	// this flag had no boundary at which it was guaranteed to return to
+	// `false`. If the re-served ball never reached `bd_shooter` (a real,
+	// reachable `eject_failed` from a re-serve pulsed into an already-full
+	// or malfunctioning trough, or any future ball-search/multiball
+	// interaction that intervenes first), the stale `true` would silently
+	// auto-launch the NEXT ball's own first, ordinary arrival at the
+	// shooter lane -- short-circuiting that ball's manual plunge with no
+	// recovery path. `startBall()` below now resets it at `ball_will_start`,
+	// the same boundary AD-7 already resets `ballSave`/`tilt`/`multiball`
+	// at, closing that window.
+	let awaitingSaveLaunch = false;
+
 	/** Start-of-ball lifecycle (AC 2/AC 5): `ball_will_start` -> reset -> `ball_starting` -> enable hardware -> `ball_started` -> queue the one serve pulse -- shared by the very first Start press and every later rotation. */
 	function startBall(state: GameState, playerIndex: number, tick: number): StartBallResult {
 		const willStart: BallWillStartEvent = { type: 'ball_will_start', tick };
+
+		// Code review pass 1: `ball_will_start` is this controller's own
+		// ball-boundary reset point (AD-7) -- clearing `awaitingSaveLaunch`
+		// here as well guarantees a stale flag from a save whose re-serve
+		// never reached bd_shooter cannot leak into a LATER ball's own,
+		// unrelated arrival at the shooter lane.
+		awaitingSaveLaunch = false;
 
 		const players = state.players.map((player, index) =>
 			index === playerIndex ? { ...player, ballNumber: player.ballNumber + 1 } : player,
@@ -229,9 +304,13 @@ export function createBallController(adjustments: GameAdjustments): BallControll
 		// "ball_starting enables hardware". Both performed here, explicitly,
 		// rather than relying on their already-default values -- the mutation
 		// that skips a reset must have something concrete to redden (AC 5(b)).
+		// Story 2.9, AC 1: `ball_starting` also ENABLES ball save -- the
+		// controller's own source is recorded with the timer left STOPPED
+		// (`enableBallSave()`, `untilTick` stays `null` until `ball_launched`
+		// arms it below in `step()`).
 		const machine: MachineState = {
 			...state.machine,
-			ballSave: { untilTick: null, sources: [] },
+			ballSave: enableBallSave(EMPTY_BALL_SAVE, BALL_SAVE_SOURCE),
 			tilt: { tilted: false, slamTilted: false },
 			multiball: null,
 			hardwareEnabled: true,
@@ -251,7 +330,12 @@ export function createBallController(adjustments: GameAdjustments): BallControll
 
 		return {
 			state: { ...state, players, currentPlayer: playerIndex, machine },
-			events: [willStart, { type: 'ball_starting', tick }, { type: 'ball_started', tick }],
+			events: [
+				willStart,
+				{ type: 'ball_starting', tick },
+				{ type: 'ball_save_enabled', tick },
+				{ type: 'ball_started', tick },
+			],
 			coilCommands,
 			ballWillStartEvents: [willStart],
 		};
@@ -262,6 +346,17 @@ export function createBallController(adjustments: GameAdjustments): BallControll
 		const events: SemanticEvent[] = [];
 		const coilCommands: CoilCommand[] = [];
 		const ballWillStartEvents: BallWillStartEvent[] = [];
+
+		// Story 2.9 (AD-18): ball-save grace expiry, evaluated BEFORE this
+		// tick's own device events are read below -- the same ordering
+		// `sim/rules/devices/shots.ts` and `sim/rules/devices/index.ts` already
+		// use for their own in-flight window expiry (Boundaries: "expiry is
+		// evaluated before this tick's own device events are read"). A time-
+		// based expiry of the WHOLE device (every source at once), distinct
+		// from Story 2.11's later per-source Tilt `disarm()`.
+		if (hasGraceLapsed(nextState.machine.ballSave, tick, ballSaveGraceTicks)) {
+			nextState = { ...nextState, machine: { ...nextState.machine, ballSave: EMPTY_BALL_SAVE } };
+		}
 
 		// DRAGON-letter accumulation (AD-7: "player-scoped ... DRAGON letters"),
 		// credited to whoever is currently playing. Not a mode, not scoring --
@@ -311,6 +406,41 @@ export function createBallController(adjustments: GameAdjustments): BallControll
 			// closed) changes nothing.
 		}
 
+		// Ball save (AD-18, AC 2/AC 4): the timer starts on the PLUNGE, never on
+		// enable (AD-6/PRD FR-19) -- gated on `phase === 'game'` so nothing arms
+		// during any golden's own attract-phase plunge (AC 10). The deferred
+		// autolaunch fires on the RE-SERVED ball's own arrival at the shooter
+		// lane, one or more ticks after the drain branch below sets
+		// `awaitingSaveLaunch` -- never in the same tick's batch
+		// (`sim/physics/devices.ts`'s `launch()` resolves a ball resting in the
+		// entry zone; a same-tick pulse fires into an empty lane and launches
+		// nothing).
+		for (const event of deviceEvents) {
+			if (event.type === 'ball_launched') {
+				if (nextState.phase === 'game') {
+					const ballSave = armBallSave(nextState.machine.ballSave, { ticks: ballSaveTicks, source: BALL_SAVE_SOURCE }, tick);
+					nextState = { ...nextState, machine: { ...nextState.machine, ballSave } };
+					events.push({ type: 'ball_save_timer_started', untilTick: ballSave.untilTick!, tick });
+				}
+			} else if (
+				awaitingSaveLaunch &&
+				event.type === 'device_ball_entered' &&
+				TABLE.ballDevices[event.device].kind === 'non-parking'
+			) {
+				// Code review pass 1 (edge-case-hunter): mirror the drain branch's
+				// own `!tilt.tilted` guard below -- AC 6 makes the device inert
+				// while tilted, and a Tilt occurring between the save's trough-
+				// eject and the re-served ball's own arrival here must not still
+				// auto-launch it. The flag is consumed either way (the ball DID
+				// arrive; leaving it `true` would only wait for an arrival that
+				// has already happened), just without the coil pulse while tilted.
+				awaitingSaveLaunch = false;
+				if (!nextState.machine.tilt.tilted) {
+					coilCommands.push({ type: 'coil', coil: SHOOTER_LAUNCH_COIL, action: 'pulse', tick });
+				}
+			}
+		}
+
 		// Drain (AD-6/AD-18): the ball controller alone mutates `ballsInPlay`,
 		// and a PARKING device's entry bringing it to zero is what ends a ball
 		// (AD-6's device-agnostic "closed slot switches and nothing else" --
@@ -321,6 +451,26 @@ export function createBallController(adjustments: GameAdjustments): BallControll
 		);
 		if (nextState.phase === 'game' && parkingEntryThisTick && nextState.machine.ballsInPlay === 0) {
 			const endingPlayer = nextState.currentPlayer;
+
+			// Story 2.9 (AD-18, AC 3/AC 6/AC 11): a live ball-save window --
+			// running OR within its (invisible) grace -- re-serves the ball
+			// INSTEAD OF the teardown/ball_ended/rotation path below, unless
+			// Tilt has made the device inert (Story 2.11 owns the tilt EVENT
+			// that would `disarm()` every source; this story ships only the
+			// read-side guard). `currentPlayer`, `players[i].ballNumber` and
+			// `modes[]` are all left untouched -- this is a re-serve of the
+			// SAME ball, not a new one.
+			const ballSaveLive =
+				!nextState.machine.tilt.tilted &&
+				(isRunning(nextState.machine.ballSave, tick) || isWithinGrace(nextState.machine.ballSave, tick, ballSaveGraceTicks));
+
+			if (ballSaveLive) {
+				events.push({ type: 'ball_saved', player: endingPlayer, tick });
+				coilCommands.push({ type: 'coil', coil: TABLE.ballDevices.bd_trough.ejectCoil as CoilName, action: 'pulse', tick });
+				awaitingSaveLaunch = true;
+				return { state: nextState, events, coilCommands, ballWillStartEvents };
+			}
+
 			const player = nextState.players[endingPlayer]!;
 
 			// Mode teardown, STRICTLY before ball_ended (AC 5; epics.md:1383-1392's

@@ -57,7 +57,7 @@
 import { createMachine } from '../physics/machine';
 import { createRules, bootDeviceSlots, lampsOf } from '../rules';
 import { msToTicksExact, ticksToMs, MAX_OWED_TICKS } from '../contracts/time';
-import { resolveTuning, type ResolvedTuning } from '../table/tuning';
+import { resolveTuning, shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import { TABLE } from '../table/dragonwar';
 import { fromPhysics, type Vec3 } from '../table/frames';
 import type {
@@ -264,6 +264,11 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	// Story 2.5, task 5: `options.gameStart?.adjustments` rides this SECOND
 	// constructor argument (AD-4: never step()'s call signature).
 	const rules = createRules(tuning, options.gameStart?.adjustments);
+	// Story 2.9: `l_ball_save`'s own hurry-up window, resolved ONCE here
+	// (mirrors `tuning` itself) and threaded into every `lampsOf()` call
+	// below -- `sim/rules/lamps.ts` never reaches for `TUNING`/`TICK_HZ`
+	// itself (AD-3/AD-15).
+	const ballSaveHurryUpTicks = shotWindowTicks('ballSaveHurryUpMs', tuning);
 
 	let tick = 0;
 	let owedRemainderTicks = 0;
@@ -298,7 +303,7 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	// case is load-bearing"). Never reassigned via a binding spelled
 	// `state` (lower-case) -- `test/ad7-device-slots.test.ts`'s source-text
 	// ratchet counts exactly two `state =` assignments under `src/sim/loop/`.
-	let previousLamps: LampState = lampsOf(state);
+	let previousLamps: LampState = lampsOf(state, ballSaveHurryUpTicks);
 
 	function buildSnapshot(): Snapshot {
 		const balls: BallSnapshot[] = machine.balls.map((ball) => {
@@ -436,7 +441,7 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			// only a lamp whose `role` OR `step` changed since the previous
 			// tick's projection gets a `LampCommand` this tick (the
 			// `previousFrame`/`currentFrame` diff idiom above, mirrored).
-			const currentLamps = lampsOf(state);
+			const currentLamps = lampsOf(state, ballSaveHurryUpTicks);
 			for (const lampName of Object.keys(TABLE.lamps) as LampName[]) {
 				const previous = previousLamps[lampName];
 				const current = currentLamps[lampName];

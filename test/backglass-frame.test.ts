@@ -21,7 +21,25 @@ import { rasterise } from '../src/presentation/backglass/raster';
 import { FONT_5X7 } from '../src/presentation/backglass/font';
 import { close, open, runRulesScript } from './util/switch-script';
 import { BASE_GAME_STATE, buildPlayer, buildSnapshot } from './util/snapshot-factory';
+import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import type { FrameOutput, GameState } from '../src/sim/table/names';
+
+/**
+ * Story 2.9: this file's own AC 3 scripts drain only 10 ticks after their
+ * own plunge -- comfortably inside the production ball-save window, which
+ * this story's own drain interception would otherwise turn into a SAVE
+ * (re-serving the same ball, never rotating, never emitting ball_ended)
+ * rather than the real drain/rotation this describe block's whole point is
+ * to exercise. An override tuning with the window and grace both shrunk to
+ * near-zero keeps every scripted tick number, and every assertion, EXACTLY
+ * as Story 2.6 authored them -- only the ball-save timing (incidental to
+ * what this file actually covers) changes.
+ */
+const NO_BALL_SAVE_TUNING = resolveTuning({
+	...RAW_TUNING,
+	ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+});
 
 function frameOutput(overrides: Partial<FrameOutput> = {}): FrameOutput {
 	return {
@@ -169,7 +187,7 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 		// that -- with ballsInPlay driven to 0 by the drain -- ends player 0's
 		// ball and rotates currentPlayer to 1, all inside rules.step(tick=20).
 		const script = close('s_start').at(5).at(8).open('s_shooter_lane').at(10).close('s_trough_1').at(20);
-		const result = runRulesScript(script.build(), { durationTicks: 20 });
+		const result = runRulesScript(script.build(), { durationTicks: 20, tuning: NO_BALL_SAVE_TUNING });
 
 		const eventsAtTick20 = result.events.filter((e) => e.tick === 20);
 		const ballEnded = eventsAtTick20.find((e) => e.type === 'ball_ended');
@@ -204,7 +222,7 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 	/** The same REAL 20-tick disagreeing end-of-ball frame the case above builds, reusable by the hold cases below. */
 	function realBallEndedFrame(): { output: FrameOutput; game: GameState } {
 		const script = close('s_start').at(5).at(8).open('s_shooter_lane').at(10).close('s_trough_1').at(20);
-		const result = runRulesScript(script.build(), { durationTicks: 20 });
+		const result = runRulesScript(script.build(), { durationTicks: 20, tuning: NO_BALL_SAVE_TUNING });
 		const eventsAtTick20 = result.events.filter((e) => e.tick === 20);
 		expect(eventsAtTick20.some((e) => e.type === 'ball_ended'), 'sanity: the script must still produce ball_ended at tick 20').toBe(true);
 		const game: GameState = {

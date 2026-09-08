@@ -401,14 +401,15 @@ describe('TABLE.laneWiring / dragonBodyWiring / lockLaneWiring / flipperButtonWi
 	});
 });
 
-describe('TABLE.lamps -- Story 2.8 replaces l_insert_left with the fourteen real insert lamps', () => {
-	it('has exactly the fourteen Story 2.8 lamp names', () => {
+describe('TABLE.lamps -- Story 2.8 replaces l_insert_left with the fourteen real insert lamps, Story 2.9 adds a fifteenth', () => {
+	it('has exactly the fifteen lamp names (the Story 2.8 fourteen plus Story 2.9\'s l_ball_save)', () => {
 		expect(Object.keys(TABLE.lamps).sort()).toEqual(
 			[
 				'l_top_1', 'l_top_2', 'l_top_3',
 				'l_inlane_l', 'l_inlane_r', 'l_outlane_l', 'l_outlane_r',
 				'l_dragon_d', 'l_dragon_r', 'l_dragon_a', 'l_dragon_g', 'l_dragon_o', 'l_dragon_n',
 				'l_lock',
+				'l_ball_save',
 			].sort(),
 		);
 	});

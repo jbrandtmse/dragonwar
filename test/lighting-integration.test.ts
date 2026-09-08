@@ -186,12 +186,12 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 		// all-off projection, `commands` asserted `[]` -- and the two
 		// assertions immediately above prove only that the stream is
 		// non-empty and mentions the drawn lane. So a loop that pushed the
-		// WHOLE fourteen-lamp projection on any tick where ANY lamp changed
+		// WHOLE fifteen-lamp projection on any tick where ANY lamp changed
 		// (rather than pushing only the changed lamps) left the entire
 		// 1824-test suite green. `mutation: in `src/sim/loop/index.ts`, drop
 		// the per-lamp `previous.role !== current.role || previous.step !==
 		// current.step` guard and instead push every lamp whenever the
-		// projections differ at all -> red here, fourteen commands on the
+		// projections differ at all -> red here, fifteen commands on the
 		// arming tick.`
 		const lampCommandsPerTick = new Map<number, number>();
 		for (const command of lampCommands) {
@@ -200,7 +200,7 @@ describe('Story 2.8, AC I1 -- Integration: real loop, real Start + plunge, real 
 		const busiestTick = [...lampCommandsPerTick.entries()].sort((a, b) => b[1] - a[1])[0];
 		expect(
 			busiestTick?.[1] ?? 0,
-			`no single tick of this run may carry more than two LampCommands -- a lane rotation (one lamp off, one lamp on) is the widest legitimate simultaneous change here, and fourteen would mean the loop pushed the whole projection instead of the diff. Busiest tick was ${JSON.stringify(busiestTick)}`,
+			`no single tick of this run may carry more than two LampCommands -- a lane rotation (one lamp off, one lamp on) is the widest legitimate simultaneous change here, and fifteen would mean the loop pushed the whole projection instead of the diff. Busiest tick was ${JSON.stringify(busiestTick)}`,
 		).toBeLessThanOrEqual(2);
 		// ...and no lamp is named twice on one tick, which the diff makes
 		// structurally impossible (one comparison per TABLE.lamps key).
