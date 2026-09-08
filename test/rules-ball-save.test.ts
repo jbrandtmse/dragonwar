@@ -388,6 +388,44 @@ describe('AC 9 -- the tunables are pinned by consequence, not by re-import', () 
 		expect(PRODUCTION_TUNING.ballSaveHurryUpMs.value).toBeLessThan(PRODUCTION_TUNING.ballSaveMs.value);
 		expect(PRODUCTION_TUNING.ballSaveGraceMs.value).toBeGreaterThan(0);
 	});
+
+	it('production tuning: lampsOf() projects lit/3 (hurry-up) 500 ticks before the displayed expiry, and lit/1 (not yet hurry-up) 5,000 ticks before it', () => {
+		// Code review (Story 2.9, iteration 2): `ballSaveHurryUpMs` had no
+		// consequence pin at its production magnitude at all -- epic vacuity
+		// #43's exact shape, one tunable over from the identical gap the
+		// previous pass closed for `ballSaveGraceMs` immediately above.
+		// Measured: setting `ballSaveHurryUpMs` to 1 left every OTHER
+		// hurry-up assertion in this file green, because every one of them
+		// runs under an override tuning (20 or 40 ticks) that replaces the
+		// production value -- the production magnitude was never on the path
+		// anywhere. `ballSaveHurryUpMs` (unlike `ballSaveMs`/`ballSaveGraceMs`)
+		// is never consumed by `sim/rules` at all -- only `sim/loop/index.ts`
+		// resolves it, before its own `lampsOf()` call -- so a HEADLESS test
+		// has no `runRulesScript()`-internal call site to lean on the way AC 9's
+		// grace probes above do; `hurryUpTicks` is read here through
+		// `shotWindowTicks()` directly, mirroring that exact real production
+		// wiring, so a genuine change to `ballSaveHurryUpMs`'s VALUE in
+		// tuning.ts flows through to this test exactly as it would in
+		// production. The 500/5,000-tick OFFSETS below are what stay authored
+		// HERE, independent of that resolved value (the same discipline AC 9's
+		// own grace probes apply one level up) -- so this reddens on either a
+		// too-small (a bug shrinking the window) or too-large (a bug widening
+		// it) mutation to the resolved magnitude, not merely on a `shotWindowTicks()`
+		// defect the two sides would otherwise share.
+		const hurryUpTicks = shotWindowTicks('ballSaveHurryUpMs', PRODUCTION_TUNING);
+		const untilTick = 500_000; // an arbitrary large anchor, far from any tick-0 edge case
+		const insideHurryUp: GameState = { ...midGameState({ ballSave: { untilTick, sources: [BALL_SAVE_SOURCE] } }), tick: untilTick - 500 };
+		expect(
+			lampsOf(insideHurryUp, hurryUpTicks).l_ball_save,
+			'500 ticks before the displayed expiry must be inside the production hurry-up window',
+		).toEqual({ role: 'lit', step: 3 });
+
+		const outsideHurryUp: GameState = { ...midGameState({ ballSave: { untilTick, sources: [BALL_SAVE_SOURCE] } }), tick: untilTick - 5000 };
+		expect(
+			lampsOf(outsideHurryUp, hurryUpTicks).l_ball_save,
+			'5,000 ticks before the displayed expiry must be outside the production hurry-up window -- still running, but not yet the hurry-up',
+		).toEqual({ role: 'lit', step: 1 });
+	});
 });
 
 describe('AC 10 -- nothing arms outside a game', () => {
@@ -398,6 +436,35 @@ describe('AC 10 -- nothing arms outside a game', () => {
 		expect(result.finalState.phase, 'sanity: still in attract -- no s_start was pressed').toBe('attract');
 		expect(result.events.some((e) => e.type === 'ball_launched'), 'sanity: the plunge event genuinely fired').toBe(true);
 		expect(result.finalState.machine.ballSave).toEqual({ untilTick: null, sources: [] });
+	});
+
+	it('phase: game_over, with sources ALREADY holding the controller\'s own source: a ball_launched still does not arm -- isolates the phase gate from the sources gate, which the attract-phase test above cannot', () => {
+		// Code review (Story 2.9, iteration 2): the attract-phase test above
+		// starts from DEFAULT_INITIAL_STATE, where `sources` is already `[]`,
+		// so `nextState.machine.ballSave.sources.includes(BALL_SAVE_SOURCE)`
+		// (the OTHER conjunct rework iteration 1 added, closing the
+		// enableBallSave gap) blocks arming on its own -- deleting
+		// `nextState.phase === 'game' && ` off the real arming branch left
+		// 77/77 green (all five goldens plus every ball-save test), because
+		// none of them ever reaches this state. This test seeds the state
+		// that DOES: `phase: 'game_over'` with `sources` still holding the
+		// controller's own source -- genuinely reachable in-product, since
+		// the drain branch's own `gameOver` path (ball-controller.ts's
+		// `step()`) sets `phase: 'game_over'` WITHOUT calling `startBall()`
+		// again, so whatever `sources` held at that instant (the controller's
+		// own source, enabled every ball since ball 1) survives unchanged.
+		const initialState: GameState = { ...midGameState({ ballSave: { untilTick: null, sources: [BALL_SAVE_SOURCE] } }), phase: 'game_over' };
+		const result = runRulesScript(open('s_shooter_lane').at(1).build(), { durationTicks: 1, initialState });
+
+		expect(result.events.some((e) => e.type === 'ball_launched'), 'sanity: the plunge event genuinely fired').toBe(true);
+		expect(
+			result.events.some((e) => e.type === 'ball_save_timer_started'),
+			'phase !== "game" must block arming even with sources already holding the controller\'s own source',
+		).toBe(false);
+		expect(
+			result.finalState.machine.ballSave.untilTick,
+			'untilTick must stay null -- this isolates the PHASE gate, not merely the already-covered sources gate, from blocking arming',
+		).toBeNull();
 	});
 });
 
@@ -668,6 +735,149 @@ describe('Rework iteration 1 (DW-218) -- awaitingSaveRelaunch resets at ball_wil
 		expect(
 			nextPlungeResult.events.some((e) => e.type === 'ball_save_timer_started'),
 			"the next player's own genuine plunge must arm -- a stale awaitingSaveRelaunch must not have swallowed it",
+		).toBe(true);
+	});
+});
+
+describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bounded lifetime, so a stuck latch eventually releases', () => {
+	const ADJUSTMENTS = { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0.08 };
+
+	function twoPlayerState(ballSave: BallSaveState, tilted: boolean): GameState {
+		return {
+			tick: 0,
+			phase: 'game',
+			machine: {
+				ballsInPlay: 0,
+				hardwareEnabled: true,
+				ballSave,
+				tilt: { tilted, slamTilted: false },
+				multiball: null,
+				highscores: [],
+				deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false], bd_lock: [false, false, false] },
+			},
+			players: [emptyPlayer(1), emptyPlayer(0)],
+			currentPlayer: 0,
+			modes: [],
+			rng: 0,
+		};
+	}
+
+	it("if the deferred autolaunch pulse never resolves to a ball_launched (a same-ball eject_failed -- DW-225's named scenario), awaitingSaveRelaunch does not stay stuck for the rest of the ball: once its own bounded lifetime (ballSaveGraceTicks past the pulse) elapses, a LATER, genuinely unrelated ball_launched arms normally instead of being silently swallowed", () => {
+		// Code review (Story 2.9, iteration 2, Rule 15 "fix now" -- DW-224 +
+		// DW-225, one root cause): a plain boolean had neither a causal
+		// binding (it consumed blindly whichever ball_launched arrived next,
+		// however late) nor a bounded lifetime (a same-ball eject_failed left
+		// it stuck true for the rest of the ball, and its only OTHER reset --
+		// ball_will_start -- cannot run in exactly the scenario that would
+		// need it, since a ball stranded in the shooter lane never produces
+		// the parking entry a rotation depends on). Widened to the SAME
+		// `{ startTick }` shape `pendingLockLaneClosure` already uses one file
+		// over, self-clearing off `ballSaveGraceTicks` -- no new tunable.
+		const tuning = resolveTuning();
+		const graceTicks = shotWindowTicks('ballSaveGraceMs', tuning);
+		const controller = createBallController(ADJUSTMENTS, tuning);
+
+		const drainEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }];
+		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false), drainEvents, 1);
+		expect(drainResult.events.some((e) => e.type === 'ball_saved'), 'sanity: the drain must be saved so the deferred-autolaunch flag is armed').toBe(true);
+
+		const pulseTick = 5;
+		const arrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: pulseTick }];
+		const arrivalResult = controller.step({ ...drainResult.state, tick: pulseTick }, arrivalEvents, pulseTick);
+		expect(
+			arrivalResult.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
+			'sanity: the arrival must fire the deferred autolaunch pulse, arming awaitingSaveRelaunch with startTick === pulseTick',
+		).toBe(true);
+
+		// The deferred pulse's own resulting ball_launched never arrives (no
+		// such event is fed anywhere in this test). Chosen well inside the
+		// STILL-LIVE ballSave window (untilTick 500 + graceTicks, i.e. tick
+		// 2500) so the WHOLE-DEVICE hasGraceLapsed() reset at the top of
+		// step() stays out of this test's way -- this test isolates
+		// awaitingSaveRelaunch's OWN bounded lifetime (pulseTick + graceTicks
+		// = 2005), not the unrelated device-wide grace expiry.
+		const laterPlungeTick = pulseTick + graceTicks + 5;
+		expect(laterPlungeTick, 'sanity: still well inside untilTick + graceTicks, so hasGraceLapsed() must not also have fired').toBeLessThan(500 + graceTicks);
+
+		const laterPlungeEvents: DeviceEvent[] = [{ type: 'ball_launched', tick: laterPlungeTick }];
+		const laterPlungeResult = controller.step({ ...arrivalResult.state, tick: laterPlungeTick }, laterPlungeEvents, laterPlungeTick);
+		expect(
+			laterPlungeResult.events.some((e) => e.type === 'ball_save_timer_started'),
+			'past its own bounded lifetime, a stuck awaitingSaveRelaunch must have released -- this later, genuine ball_launched must arm, not be silently swallowed as a stale relaunch',
+		).toBe(true);
+	});
+
+	// Build-auto review pass (2026-09-08): the test above sits five ticks past
+	// its own boundary (`pulseTick + graceTicks + 5`) and the mutation that
+	// verified it (a full short-circuit of the expiry check) proves the check
+	// fires AT ALL, not that it fires at the RIGHT tick -- a several-tick drift
+	// in the comparison (an off-by-N, or `>=` in place of `>`) would leave that
+	// mutation's own assertion passing regardless. This spec's own AC 11 block
+	// treats exactly this shape of gap as needing a dedicated exact-boundary
+	// probe (Story 2.4's precedent), so the same discipline applies here: two
+	// fresh controller instances, one probing the boundary tick itself, one
+	// probing the tick immediately after, so a change to `startTick +
+	// ballSaveGraceTicks` -> `startTick + ballSaveGraceTicks - 1` (or `>` ->
+	// `>=`) reddens one of the two.
+	it("startTick + ballSaveGraceTicks EXACTLY: the record is still live, so a ball_launched at that tick is still consumed as the deferred pulse's own relaunch and does NOT arm -- the probe that distinguishes > from >=, mirroring AC 11's identical-shaped boundary one function over", () => {
+		const tuning = resolveTuning();
+		const graceTicks = shotWindowTicks('ballSaveGraceMs', tuning);
+		const controller = createBallController(ADJUSTMENTS, tuning);
+
+		const drainResult = controller.step(
+			twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false),
+			[{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }],
+			1,
+		);
+		const pulseTick = 5;
+		const arrivalResult = controller.step(
+			{ ...drainResult.state, tick: pulseTick },
+			[{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: pulseTick }],
+			pulseTick,
+		);
+
+		const boundaryTick = pulseTick + graceTicks;
+		expect(boundaryTick, 'sanity: still short of the unrelated whole-device hasGraceLapsed() boundary at 500 + graceTicks').toBeLessThan(500 + graceTicks);
+
+		const boundaryResult = controller.step(
+			{ ...arrivalResult.state, tick: boundaryTick },
+			[{ type: 'ball_launched', tick: boundaryTick }],
+			boundaryTick,
+		);
+		expect(
+			boundaryResult.events.some((e) => e.type === 'ball_save_timer_started'),
+			'AT the exact boundary tick (startTick + ballSaveGraceTicks), awaitingSaveRelaunch is still live (inclusive, matching this story\'s established <= convention) -- this ball_launched must still be swallowed as the relaunch, not armed',
+		).toBe(false);
+	});
+
+	it("startTick + ballSaveGraceTicks + 1: the record has JUST expired, so this ball_launched is a genuinely new plunge and DOES arm -- the other half of the boundary straddle", () => {
+		const tuning = resolveTuning();
+		const graceTicks = shotWindowTicks('ballSaveGraceMs', tuning);
+		const controller = createBallController(ADJUSTMENTS, tuning);
+
+		const drainResult = controller.step(
+			twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false),
+			[{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }],
+			1,
+		);
+		const pulseTick = 5;
+		const arrivalResult = controller.step(
+			{ ...drainResult.state, tick: pulseTick },
+			[{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: pulseTick }],
+			pulseTick,
+		);
+
+		const justAfterBoundaryTick = pulseTick + graceTicks + 1;
+		expect(justAfterBoundaryTick, 'sanity: still short of the unrelated whole-device hasGraceLapsed() boundary at 500 + graceTicks').toBeLessThan(500 + graceTicks);
+
+		const justAfterResult = controller.step(
+			{ ...arrivalResult.state, tick: justAfterBoundaryTick },
+			[{ type: 'ball_launched', tick: justAfterBoundaryTick }],
+			justAfterBoundaryTick,
+		);
+		expect(
+			justAfterResult.events.some((e) => e.type === 'ball_save_timer_started'),
+			'ONE TICK past the boundary, awaitingSaveRelaunch has expired -- this ball_launched is a genuinely new plunge and must arm',
 		).toBe(true);
 	});
 });

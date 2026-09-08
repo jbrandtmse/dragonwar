@@ -287,25 +287,73 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 
 	// Rework iteration 1 (DW-218, 2026-09-07): the author's chosen fix for the
 	// re-arm defect code review measured -- a PLAYER plunge arms the ball-save
-	// window; a save's own re-serve does not. Set `true` the moment the
-	// deferred autolaunch above actually fires the coil (never when it is
-	// skipped for Tilt -- no pulse, no resulting `ball_launched`, nothing to
-	// discriminate), and consumed by the very next `ball_launched` in `step()`
-	// below, which is that same pulse's own `s_shooter_lane` opening one or
-	// more ticks later (AD-6). A second, SEPARATE closure flag from
-	// `awaitingSaveLaunch` on purpose: that one tracks "waiting for the
-	// re-served ball to physically arrive at bd_shooter" and is consumed at
-	// arrival; this one tracks "waiting for arrival's own autolaunch pulse to
-	// turn into a ball_launched" and is consumed one step later, at that
-	// event. Costs zero state hashes (Rework note: "a closure-held
-	// discriminator costs zero state hashes, whereas a new `GameState` field
-	// would move `expectedHash`/`expectedGameStateHash` on all five goldens").
-	// Reset at `ball_will_start` below for the identical reason
-	// `awaitingSaveLaunch` is: a save whose re-serve never reaches
-	// `s_shooter_lane` (an `eject_failed`, or a future multiball interaction)
-	// must not leave a stale `true` to misclassify a LATER, unrelated ball's
-	// own genuine plunge as a non-arming relaunch.
-	let awaitingSaveRelaunch = false;
+	// window; a save's own re-serve does not. Set the moment the deferred
+	// autolaunch above actually fires the coil (never when it is skipped for
+	// Tilt -- no pulse, no resulting `ball_launched`, nothing to discriminate),
+	// and consumed by the very next `ball_launched` in `step()` below, which is
+	// that same pulse's own `s_shooter_lane` opening one or more ticks later
+	// (AD-6). A second, SEPARATE closure flag from `awaitingSaveLaunch` on
+	// purpose: that one tracks "waiting for the re-served ball to physically
+	// arrive at bd_shooter" and is consumed at arrival; this one tracks
+	// "waiting for arrival's own autolaunch pulse to turn into a
+	// ball_launched" and is consumed one step later, at that event. Costs zero
+	// state hashes (Rework note: "a closure-held discriminator costs zero
+	// state hashes, whereas a new `GameState` field would move
+	// `expectedHash`/`expectedGameStateHash` on all five goldens"). Reset at
+	// `ball_will_start` below for the identical reason `awaitingSaveLaunch`
+	// is: a save whose re-serve never reaches `s_shooter_lane` (an
+	// `eject_failed`, or a future multiball interaction) must not leave a
+	// stale record to misclassify a LATER, unrelated ball's own genuine
+	// plunge as a non-arming relaunch.
+	//
+	// Rework iteration 2 (DW-224 + DW-225, 2026-09-08, one root cause, Rule 15
+	// "fix now"): a plain boolean had no causal binding (it consumed blindly
+	// whichever `ball_launched` arrived next, however late) and no bounded
+	// lifetime (if the deferred pulse resolved to `eject_failed` instead of a
+	// `ball_launched`, the flag stayed stuck `true` for the rest of the ball --
+	// and in the one scenario its own reset comment above cites as recovery,
+	// that reset cannot run either, since no parking entry -> no ball_ended ->
+	// no ball_will_start can follow a ball stranded in the shooter lane).
+	// Widened to the SAME `{ startTick }` shape `pendingLockLaneClosure`
+	// already uses one file over (`sim/rules/devices/index.ts`), self-clearing
+	// off an already-resolved tick count -- `ballSaveGraceTicks`, resolved
+	// above, so this needs no new tunable. Expired in `step()` BEFORE this
+	// tick's own device events are read, the same ordering `hasGraceLapsed()`
+	// below and `pendingLockLaneClosure` itself both already use. This bounds
+	// how long a `ball_launched` may be trusted as "caused by MY pulse"
+	// (DW-224's causal-binding language) and guarantees a stuck record
+	// eventually releases so a later, genuinely unrelated `ball_launched` --
+	// however it might arise -- arms normally instead of being silently
+	// swallowed for the rest of the ball (DW-225's same-ball recovery). It
+	// does not, and cannot from `sim/rules` alone, un-strand a ball physically
+	// resting in an empty shooter lane after a real `eject_failed` -- that
+	// recovery is Story 2.12's ball search, named explicitly by both findings
+	// as the eventual fix for the physical hang; this closes the RULES-side
+	// latch defect only.
+	//
+	// Review pass (2026-09-08): this is a TIMEOUT, not a true causal binding
+	// -- there is still no per-pulse identity check, so ANY `ball_launched`
+	// arriving inside the bounded window is consumed as the relaunch, exactly
+	// as before. That is sufficient today only because, per the spec's own
+	// Rule 15 disposition, `s_shooter_lane` is a single physical switch and
+	// `bd_shooter` holds one ball: between the pulse firing and its own
+	// resulting launch there is exactly ONE possible open edge, so a manual
+	// plunge in that gap would produce the SAME `ball_launched` the pulse
+	// would have -- not a second, distinct event for a true correlation check
+	// to disambiguate. A genuine multi-ball path through `bd_shooter` (Story
+	// 3.7) would need real correlation, not just a bound.
+	//
+	// The reused `ballSaveGraceTicks` also couples this record's timeout to a
+	// DIFFERENT concern -- how long a drain stays saved past the displayed
+	// expiry -- not to the physical trough-to-shooter-lane travel time this
+	// record actually needs to outlive. Safe today only because production
+	// `ballSaveGraceMs` (2000ms) vastly exceeds any realistic coil-pulse
+	// travel time; a future tuning pass that shrinks it well below that travel
+	// time would need a fresh look here.
+	interface AwaitingSaveRelaunch {
+		readonly startTick: number;
+	}
+	let awaitingSaveRelaunch: AwaitingSaveRelaunch | null = null;
 
 	/** Start-of-ball lifecycle (AC 2/AC 5): `ball_will_start` -> reset -> `ball_starting` -> enable hardware -> `ball_started` -> queue the one serve pulse -- shared by the very first Start press and every later rotation. */
 	function startBall(state: GameState, playerIndex: number, tick: number): StartBallResult {
@@ -318,10 +366,14 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// unrelated arrival at the shooter lane.
 		awaitingSaveLaunch = false;
 		// Rework iteration 1 (DW-218): same reasoning, for the OTHER
-		// cross-tick discriminator -- a stale `true` here would misclassify
+		// cross-tick discriminator -- a stale record here would misclassify
 		// the NEXT ball's own genuine first plunge as a non-arming relaunch,
-		// permanently disabling that ball's ball-save window.
-		awaitingSaveRelaunch = false;
+		// permanently disabling that ball's ball-save window. (Rework
+		// iteration 2: this reset is now a second, EARLIER line of defence --
+		// the record's own bounded lifetime, below, already guarantees it
+		// cannot outlive `ballSaveGraceTicks`, but a ball rotation typically
+		// arrives well before that timeout, so this stays the common path.)
+		awaitingSaveRelaunch = null;
 
 		const players = state.players.map((player, index) =>
 			index === playerIndex ? { ...player, ballNumber: player.ballNumber + 1 } : player,
@@ -383,6 +435,17 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// from Story 2.11's later per-source Tilt `disarm()`.
 		if (hasGraceLapsed(nextState.machine.ballSave, tick, ballSaveGraceTicks)) {
 			nextState = { ...nextState, machine: { ...nextState.machine, ballSave: EMPTY_BALL_SAVE } };
+		}
+
+		// Rework iteration 2 (DW-224 + DW-225): `awaitingSaveRelaunch`'s own
+		// bounded lifetime, expired here for the identical reason and in the
+		// identical position as `hasGraceLapsed()` immediately above and
+		// `pendingLockLaneClosure` one file over (`sim/rules/devices/index.ts`)
+		// -- BEFORE this tick's own device events are read, so a `ball_launched`
+		// arriving on the very tick the record expires is correctly treated as
+		// NOT this save's own relaunch.
+		if (awaitingSaveRelaunch && tick > awaitingSaveRelaunch.startTick + ballSaveGraceTicks) {
+			awaitingSaveRelaunch = null;
 		}
 
 		// DRAGON-letter accumulation (AD-7: "player-scoped ... DRAGON letters"),
@@ -462,11 +525,11 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			if (event.type === 'ball_launched') {
 				if (awaitingSaveRelaunch) {
 					// DW-218: this `ball_launched` is the save's own re-serve reaching
-					// the shooter lane, not a player plunge -- consume the flag and
+					// the shooter lane, not a player plunge -- consume the record and
 					// do NOT re-arm. `ballsInPlay` is still incremented as usual, by
 					// `applyDeviceEvents()` (a separate function, this story's own
 					// arming decision does not touch ball-in-play accounting).
-					awaitingSaveRelaunch = false;
+					awaitingSaveRelaunch = null;
 				} else if (nextState.phase === 'game' && nextState.machine.ballSave.sources.includes(BALL_SAVE_SOURCE)) {
 					const ballSave = armBallSave(nextState.machine.ballSave, { ticks: ballSaveTicks, source: BALL_SAVE_SOURCE }, tick);
 					nextState = { ...nextState, machine: { ...nextState.machine, ballSave } };
@@ -492,8 +555,10 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 					// save's own re-serve, not a player plunge -- set ONLY when the
 					// pulse genuinely fires; while tilted, nothing is pulsed and no
 					// `ball_launched` will follow from this cause, so there is
-					// nothing to discriminate.
-					awaitingSaveRelaunch = true;
+					// nothing to discriminate. Rework iteration 2 (DW-224/DW-225):
+					// `startTick` is this pulse's OWN tick -- the record's bounded
+					// lifetime (top of `step()`, above) is measured from here.
+					awaitingSaveRelaunch = { startTick: tick };
 				}
 			}
 		}
