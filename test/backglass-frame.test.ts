@@ -21,6 +21,7 @@ import { rasterise } from '../src/presentation/backglass/raster';
 import { FONT_5X7 } from '../src/presentation/backglass/font';
 import { close, open, runRulesScript } from './util/switch-script';
 import { BASE_GAME_STATE, buildPlayer, buildSnapshot } from './util/snapshot-factory';
+import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import type { FrameOutput, GameState } from '../src/sim/table/names';
 
@@ -271,7 +272,7 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 			screen: 'ball_ended',
 			holdUntilTick: 500_000,
 			attractCycleOriginTick: 0,
-			heldBallEnded: { player: 0, score: 1111 },
+			heldBallEnded: { player: 0, score: 1111, bonusRunning: null },
 		};
 		const game: GameState = {
 			...BASE_GAME_STATE,
@@ -282,6 +283,108 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 		// hostLoop.reset() -> createLoop() -> tick restarts near 0.
 		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game }), events: [] }));
 		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
+	});
+});
+
+describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bonus_count_step stream, built from a REAL runRulesScript run', () => {
+	const PRODUCTION_TUNING = resolveTuning();
+	const LOOP_WINDOW_TICKS = PRODUCTION_TUNING.loopWindowTicks.value;
+	const BONUS_COUNT_TICKS = PRODUCTION_TUNING.bonusCountTicks.value;
+
+	/**
+	 * Two nonzero categories (letters, loops) credited BEFORE a real drain --
+	 * two DRAGON-bank targets (`bank_target_down` x2 -> letters) and one
+	 * completed Left Loop (`shot_left_loop_made` -> loops) -- so the ending
+	 * player's real bonus is genuinely nonzero and the count-up schedule
+	 * genuinely arms three `bonus_count_step`s (two categories + the final
+	 * multiplier step), exactly this story's own "Count-up stream" I/O row.
+	 */
+	function realBonusBallEndRun() {
+		const loopOutTick = 20 + LOOP_WINDOW_TICKS - 1;
+		const drainTick = loopOutTick + 20;
+		// Hot seat (two Start presses, ticks 5/8): player 1's ball has not been
+		// served when player 0 drains, so rotation lands on player 1, NOT back
+		// on player 0 -- unlike a single-player game, where the SAME-tick
+		// rotation would immediately reset player 0's own `bonus` to
+		// BONUS_EMPTY (AC 6) before this test ever gets to look at it. This is
+		// what keeps player 0's credited bonus genuinely observable in the
+		// snapshot through the whole count-up window, which the control test
+		// below depends on.
+		const script = close('s_start').at(5).at(8)
+			.open('s_shooter_lane').at(10)
+			.close(TABLE.dropBankWiring.d.switch).at(15)
+			.close(TABLE.dropBankWiring.r.switch).at(16)
+			.close('s_loop_l_in').at(20)
+			.close('s_loop_l_out').at(loopOutTick)
+			.close('s_trough_1').at(drainTick);
+		const durationTicks = drainTick + BONUS_COUNT_TICKS * 3 + 20;
+		const result = runRulesScript(script.build(), { durationTicks, tuning: NO_BALL_SAVE_TUNING });
+
+		const found = result.events.find((e) => e.type === 'ball_ended');
+		expect(found, 'sanity: the script must genuinely drain and end the ball').toBeDefined();
+		const ballEndedEvent = found!;
+		if (ballEndedEvent.type !== 'ball_ended') {
+			throw new Error('unreachable: filtered on type ball_ended above');
+		}
+		expect(ballEndedEvent.tick).toBe(drainTick);
+		expect(ballEndedEvent.player, 'sanity: player 0 is the one that drained').toBe(0);
+		const total = ballEndedEvent.total;
+		expect(total, 'sanity: the credited letters + loop must genuinely produce a nonzero bonus, or this whole test is vacuous').toBeGreaterThan(0);
+
+		const stepTicks = [1, 2, 3].map((n) => drainTick + BONUS_COUNT_TICKS * n);
+		const stepEvents = stepTicks.map((t) => result.events.filter((e) => e.tick === t));
+		expect(stepEvents.every((events) => events.some((e) => e.type === 'bonus_count_step')), 'sanity: all three scheduled steps must actually fire').toBe(true);
+
+		return { result, drainTick, stepTicks, total };
+	}
+
+	function outputAt(result: ReturnType<typeof runRulesScript>, tick: number, events: FrameOutput['events']): FrameOutput {
+		return frameOutput({ snapshot: buildSnapshot({ tick, game: result.statesByTick.get(tick)! }), events });
+	}
+
+	it('the BONUS row is absent while armed, changes at each step, and ends at the real total -- with litDots genuinely lit on the final frame', () => {
+		const { result, drainTick, stepTicks, total } = realBonusBallEndRun();
+
+		let view = advanceBackglass(INITIAL_BACKGLASS_VIEW, outputAt(result, drainTick, result.events.filter((e) => e.tick === drainTick)));
+		expect(view.screen).toBe('ball_ended');
+		expect(renderFrame(view, buildSnapshot()).rows.some((r) => r.text.startsWith('BONUS ')), 'no BONUS row before the first step').toBe(false);
+
+		const rowTextAtEachStep: string[] = [];
+		for (const tick of stepTicks) {
+			view = advanceBackglass(view, outputAt(result, tick, result.events.filter((e) => e.tick === tick)));
+			const row = renderFrame(view, buildSnapshot()).rows.find((r) => r.text.startsWith('BONUS '));
+			expect(row, `a BONUS row must be present at step tick ${tick}`).toBeDefined();
+			rowTextAtEachStep.push(row!.text);
+		}
+
+		expect(new Set(rowTextAtEachStep).size, 'the row text must genuinely change across the three steps, not repeat the same value').toBeGreaterThan(1);
+		const formattedTotal = total.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		expect(rowTextAtEachStep[rowTextAtEachStep.length - 1]).toBe(`BONUS ${formattedTotal}`);
+
+		const finalFrame = renderFrame(view, buildSnapshot());
+		const raster = rasterise(finalFrame, FONT_5X7);
+		expect(raster.dots.some((d) => d === 1), 'the final BONUS-row frame must actually light dots once rasterised').toBe(true);
+	});
+
+	it('control (Rule 19): re-folding the SAME real ticks with events stripped never shows a BONUS row, even though the real (unreset) player bonus in the snapshot is genuinely nonzero -- proving the row reads bonus_count_step, not snapshot.game.players[...].bonus', () => {
+		const { result, drainTick, stepTicks, total } = realBonusBallEndRun();
+		void total;
+
+		// Sanity: the snapshot's own raw bonus data at the final step tick is
+		// genuinely nonzero -- a fake fed from the snapshot would have
+		// something real to show, so this control is not vacuously trivial.
+		const finalGame = result.statesByTick.get(stepTicks[stepTicks.length - 1]!)!;
+		const endingPlayerBonus = finalGame.players[0]!.bonus;
+		expect(endingPlayerBonus.byCategory.letters + endingPlayerBonus.byCategory.loops, 'sanity: the raw snapshot bonus is genuinely nonzero').toBeGreaterThan(0);
+
+		let view = advanceBackglass(INITIAL_BACKGLASS_VIEW, outputAt(result, drainTick, result.events.filter((e) => e.tick === drainTick)));
+		expect(view.screen).toBe('ball_ended');
+
+		for (const tick of stepTicks) {
+			view = advanceBackglass(view, outputAt(result, tick, []));
+			const hasBonusRow = renderFrame(view, buildSnapshot()).rows.some((r) => r.text.startsWith('BONUS '));
+			expect(hasBonusRow, `no BONUS row at tick ${tick} once bonus_count_step is stripped`).toBe(false);
+		}
 	});
 });
 
@@ -494,7 +597,7 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 			.map((entry) => path.join(dir, entry));
 	}
 
-	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL ', 'ARM YOURSELF'];
+	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL ', 'ARM YOURSELF', 'BONUS '];
 
 	/**
 	 * Comments freely discuss balls and players in English prose -- this scan

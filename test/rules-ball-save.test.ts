@@ -76,7 +76,7 @@ function emptyPlayer(ballNumber: number) {
 		letters: '',
 		lockCredits: 0,
 		tiltWarnings: 0,
-		bonus: { byCategory: {}, multiplier: 1 },
+		bonus: { byCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1 },
 		lanes: { lit: {}, completedSets: [] },
 		extraBalls: 0,
 		jackpotSeed: 0,

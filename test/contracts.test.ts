@@ -194,16 +194,32 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 	});
 
 	it('ball_ended carries the AD-9-named payload', () => {
+		// Story 2.10: bonusByCategory is now a TOTAL record over BonusCategory
+		// (letters/loops/strikes all present) -- {} or a partial record no
+		// longer typechecks.
 		const event: SemanticEvent = {
 			type: 'ball_ended',
 			player: 0,
-			bonusByCategory: { loops: 3 },
+			bonusByCategory: { letters: 0, loops: 3, strikes: 0 },
 			multiplier: 2,
 			total: 6,
 			tilted: false,
 			tick: 20,
 		};
 		expect(event.type).toBe('ball_ended');
+	});
+
+	it('bonus_count_step (Story 2.10, AD-3/AD-9): the end-of-ball count-up\'s own step event', () => {
+		const event: SemanticEvent = {
+			type: 'bonus_count_step',
+			player: 1,
+			step: 2,
+			steps: 3,
+			running: 40000,
+			total: 60000,
+			tick: 820,
+		};
+		expect(event.type).toBe('bonus_count_step');
 	});
 
 	it('ball_save_enabled / ball_save_timer_started / ball_saved (Story 2.9, AD-18)', () => {
@@ -242,7 +258,9 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 				case 'ball_missing':
 					return `missing ${event.count}`;
 				case 'ball_ended':
-					return `ended ${event.total}`;
+					return `ended ${event.player} ${event.total}`;
+				case 'bonus_count_step':
+					return `bonus step ${event.step}/${event.steps} running ${event.running}`;
 				case 'eject_failed':
 					return `eject failed ${event.device}`;
 				case 'broken':
@@ -269,6 +287,25 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(describeEvent({ type: 'ball_save_enabled', tick: 40 })).toBe('ball save enabled');
 		expect(describeEvent({ type: 'ball_save_timer_started', untilTick: 8040, tick: 40 })).toBe('ball save timer started until 8040');
 		expect(describeEvent({ type: 'ball_saved', player: 3, tick: 8020 })).toBe('ball saved 3');
+		// Story 2.10 / DW-223: the ball_ended arm above was compiled (for the
+		// neverEvent exhaustiveness gate) but never executed by any assertion --
+		// player/total are each authored as distinct values so a field swap
+		// (e.g. templating event.tick where event.player was intended) reddens
+		// this, not merely typechecks.
+		expect(
+			describeEvent({
+				type: 'ball_ended',
+				player: 2,
+				bonusByCategory: { letters: 1, loops: 0, strikes: 0 },
+				multiplier: 1,
+				total: 777,
+				tilted: false,
+				tick: 50,
+			}),
+		).toBe('ended 2 777');
+		expect(
+			describeEvent({ type: 'bonus_count_step', player: 1, step: 2, steps: 3, running: 40000, total: 60000, tick: 820 }),
+		).toBe('bonus step 2/3 running 40000');
 	});
 });
 

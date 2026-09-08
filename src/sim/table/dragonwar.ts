@@ -545,6 +545,23 @@ export const TABLE = deepFreeze({
 	 */
 	laneWiring: LANE_WIRING,
 
+	/**
+	 * Story 2.10 (AD-11, AD-19, task 1): the shot->bonus-category mapping --
+	 * declared data, beside `laneWiring`/`dropBankWiring` above, because
+	 * `DEVICE_NAME_PATTERN` (`tools/boundary-lint.mjs`) makes a `shot_*`
+	 * literal a lint error anywhere but this file, so the mapping cannot
+	 * live in `sim/rules/bonus.ts` (the consumer). Only the two Loops credit
+	 * the `loops` category; `shot_ramp` is deliberately ABSENT (Rule 8's own
+	 * "Ramp credits nothing" row) -- `sim/rules/bonus.ts` recovers a shot
+	 * name from a `ShotMadeEvent` by stripping its `_made` suffix and
+	 * indexing this object, so an absent key means "credits nothing", never
+	 * a runtime error.
+	 */
+	bonusWiring: {
+		shot_left_loop: 'loops',
+		shot_right_loop: 'loops',
+	},
+
 	/** Story 2.4 (AD-19, task 2): the Dragon body's own standup face -- a bare `dragon_hit` report, no letter or bank bookkeeping (that is `dropBankWiring` above). */
 	dragonBodyWiring: {
 		switch: 's_dragon_body',

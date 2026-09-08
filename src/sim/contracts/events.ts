@@ -4,6 +4,14 @@
 // actuations go to presentation only; semantic events are payload-complete.
 // This file is table-free (AD-1): every type that names a device is generic
 // over the relevant name union, bound to TABLE only in sim/table/names.ts.
+//
+// Story 2.10: imports `BonusCategory` from `./state` -- `PlayerBonusState`'s
+// own closed category vocabulary, reused here (never re-declared) so
+// `BallEndedEvent.bonusByCategory` stays the same TOTAL record shape as the
+// `GameState` field it reports on. `./state` names no seam type back, so
+// this is a one-way import, not a cycle.
+
+import type { BonusCategory } from './state';
 
 /**
  * One edge of one named switch. Physics emits playfield and cabinet-mechanism
@@ -172,14 +180,36 @@ export interface BallMissingEvent {
 	readonly tick: number;
 }
 
-/** AD-7/AD-9's own payload-complete example: a ball has ended for a player. */
+/** AD-7/AD-9's own payload-complete example: a ball has ended for a player. Story 2.10: `bonusByCategory` is the same TOTAL record `PlayerBonusState.byCategory` is (`sim/contracts/state.ts`'s own `BonusCategory`) -- every category always present. */
 export interface BallEndedEvent {
 	readonly type: 'ball_ended';
 	readonly player: number;
-	readonly bonusByCategory: Readonly<Record<string, number>>;
+	readonly bonusByCategory: Readonly<Record<BonusCategory, number>>;
 	readonly multiplier: number;
 	readonly total: number;
 	readonly tilted: boolean;
+	readonly tick: number;
+}
+
+/**
+ * Story 2.10 (AD-3, AD-9): one tick of the end-of-ball bonus count-up,
+ * paced by `bonusCountMs` (`sim/table/tuning.ts`) -- the first
+ * implementation of AD-3's "every display-paced sequence ... emits step
+ * events; presentation animates to them and never reports completion".
+ * Payload-complete (AD-9): `step`/`steps` let a consumer know it is on the
+ * LAST step without joining to a later snapshot, and `running` is the
+ * un-multiplied subtotal through this step -- the final step's `running`
+ * always equals `total`. Emitted only for an UNTILTED ball whose `total` is
+ * greater than 0 (`ball-controller.ts`'s own drain branch); a tilted or
+ * zero-bonus ball end emits none.
+ */
+export interface BonusCountStepEvent {
+	readonly type: 'bonus_count_step';
+	readonly player: number;
+	readonly step: number;
+	readonly steps: number;
+	readonly running: number;
+	readonly total: number;
 	readonly tick: number;
 }
 
@@ -224,6 +254,7 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| BallSaveEnabledEvent
 	| BallSaveTimerStartedEvent
 	| BallSavedEvent
+	| BonusCountStepEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

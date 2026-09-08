@@ -198,6 +198,10 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-modes.test.ts'),
 	path.join(__dirname, 'rules-lamps.test.ts'),
 	path.join(__dirname, 'rules-ball-save.test.ts'),
+	// Story 2.10, task 9: a new headless rules test file -- ungated otherwise
+	// (this file's own completeness ratchet below, "AC 9 (headless),
+	// completeness").
+	path.join(__dirname, 'rules-bonus.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

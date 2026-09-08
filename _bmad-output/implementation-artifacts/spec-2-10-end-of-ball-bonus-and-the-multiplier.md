@@ -2,13 +2,67 @@
 title: 'Story 2.10: End-of-ball bonus and the multiplier'
 type: 'feature'
 created: '2026-09-08'
-status: 'ready-for-dev'
-baseline_revision: 'f79fd0c3b66526f83fe72b8e59505aaec3314e46'
+status: 'done'
+baseline_revision: 'd203547db494439b26580ad75a883f568a3dc1da'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      Arming a second player's end-of-ball bonus count-up schedule wholesale
+      replaces the closure-held pending-steps array, silently dropping any
+      still-unfired bonus_count_step events from a prior ball whose count-up
+      window has not yet finished.
+    evidence: |-
+      src/sim/rules/ball-controller.ts's armBonusCountSchedule() assigns
+      pendingBonusCountSteps = steps.map(...) unconditionally on every arm
+      (the doc comment above it already states this is deliberate: "arming
+      replaces any previous schedule wholesale"). Two independent review
+      layers (blind-hunter, edge-case-hunter) flagged the same root cause: if
+      player A's ball ends with a nonzero bonus and player B's ball then ends
+      (also nonzero) before player A's schedule has fired all of its steps
+      (up to bonusCountMs * 4 = 1600 ms later), player A's remaining steps
+      are dropped with no event or log recording the truncation. No test
+      exercises two overlapping nonzero-bonus count-ups. Presentation-only in
+      practice: src/presentation/backglass/frame.ts's advanceBackglass()
+      already re-arms the whole held-ball-ended view on any new ball_ended
+      event, so the dropped steps were never going to reach the screen
+      either way -- the interleaving itself (one player's animation cut off
+      by another's) is the visible effect, not a scoring error (the score
+      write happens at drain time, independent of this schedule).
+    location: >-
+      src/sim/rules/ball-controller.ts (armBonusCountSchedule, pendingBonusCountSteps)
+    severity: low
+  - summary: >-
+      The end-of-ball bonus count-up schedule's closure state has no
+      reset point across a game-over-to-new-game transition, so a stray
+      bonus_count_step from a just-finished game could in principle animate
+      over a new game's own ball_ended screen.
+    evidence: |-
+      pendingBonusCountSteps lives in createBallController()'s closure, which
+      persists for the life of the loop session (createRules()/
+      createBallController() are constructed once per sim/loop instance, not
+      per game). armBonusCountSchedule() is called unconditionally whenever
+      !tilted, including on the LAST ball of a game (gameOver === true), so a
+      nonzero final bonus still arms a schedule that can keep firing
+      bonus_count_step events into ticks that belong to phase: 'game_over' or
+      a freshly started new game. Flagged independently by blind-hunter ("no
+      test drives the bonus count-up through a game_over transition") and
+      edge-case-hunter (closure lifetime spans a new-game transition).
+      presentation/backglass/frame.ts's own hold window is bounded to 3000 ms
+      (BALL_ENDED_HOLD_TICKS), so the exposure window is narrow -- a stray
+      step only matters if a new game's own ball_ended for the SAME player
+      index fires within that ~3 s hold and the schedule is still draining --
+      but a clean fix needs to distinguish "new game start" from "same-game
+      ball rotation" (the existing per-ball reset is deliberately NOT tied to
+      ball_will_start, since startBall() runs same-tick and would wipe an
+      in-flight schedule before its first step fires -- see this story's
+      Design Notes, "Why the count-up schedule is closure state"), so this is
+      not a trivial one-line patch.
+    location: >-
+      src/sim/rules/ball-controller.ts (createBallController, pendingBonusCountSteps closure lifetime)
+    severity: low
 ---
 
 <intent-contract>
@@ -140,6 +194,22 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-08 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2: (high 0, medium 1, low 1)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 9: (high 0, medium 0, low 9)
+- addressed_findings:
+  - `[medium]` `[patch]` Verification Gap Reviewer: `sim/rules/index.ts`'s own Design Notes call the device-credit-before-controller ordering load-bearing ("a category credited on the drain tick lands inside that same ball's own `ball_ended` payload"), but every AC 1/AC 3 test credited on a tick strictly earlier than the drain, so the literal same-tick case was untested and a reorder of the two calls would have shipped with the whole suite green. Added `test/rules-bonus.test.ts`'s new "AC 1 / AC 3 integration" describe block (2 cases, both `currentPlayer`), scripting a `bank_target_down` and the draining trough switch on the identical tick through a real `runRulesScript()` run. Confirmed non-vacuous by mutation: swapped the credit/controller call order in `index.ts`, observed both new cases redden (`expected { letters: 0, ... } to deeply equal { letters: 1, ... }`), reverted from a saved copy, `diff -q` confirmed byte-identical.
+  - `[low]` `[patch]` Blind Hunter: `sim/rules/bonus.ts`'s own header and this spec's Design Notes both claim "a seeded non-zero `strikes` count is proven to contribute" to `bonusTotal()`, but no test in the file ever seeded a nonzero `strikes` value (every `byCategory` fixture carried `strikes: 0`) -- the claim was asserted in prose, not demonstrated. Added `test/rules-bonus.test.ts`'s new "The arithmetic covers strikes exhaustively" describe block (2 cases, both `currentPlayer`), seeding `strikes: 2` and asserting the drain's `total` includes `2 * bonusStrikeValue(25000) * multiplier(1) = 50000` (authored literal, never read back from `tuning.ts`).
+
+Re-ran `pnpm typecheck`, `pnpm lint:boundaries`, and the full `pnpm test` after both patches: 115 files / 1898 tests / 0 failing / 0 skipped (up from 115/1894 -- exactly the 4 new cases).
+
+Two findings deferred to the spec frontmatter `deferred:` list (both severity `low`, both presentation-only edge cases with no scoring-correctness impact, flagged independently by two review layers each): (1) `armBonusCountSchedule()`'s wholesale schedule replacement can silently drop an earlier ball's still-pending `bonus_count_step`s if a second ball's bonus count-up arms before the first finishes; (2) the count-up schedule's closure state has no reset point across a game-over-to-new-game transition, so a stray step from a finished game could in principle animate over a new game's `ball_ended` screen. Neither is a two-way door (both need careful handling of the existing "never reset on `ball_will_start`" invariant this story's Design Notes already explains), so neither was patched in-story.
+
+Nine findings rejected as noise, unreachable, or already-accepted-by-design: the review process's own exclusion of the spec bookkeeping file from the audited diff (not a product-code finding); `advanceBonusMultiplier()`'s off-ladder `indexOf(-1)` recovery path (structurally unreachable -- every writer of `multiplier` uses `BONUS_EMPTY` or the ladder itself); a `playerIndex`/`player` naming-convention nitpick with no functional consequence; `PendingBonusCountStep`'s redundant `tick`/`event.tick` field (cosmetic); `frame.ts`'s `.find()`-returns-first-match and arming-branch-doesn't-scan-for-a-co-present-step findings (both structurally unreachable given `MAX_OWED_TICKS` (200 ms) is smaller than `bonusCountMs`'s 400 ms step spacing, so two `bonus_count_step`s for the same schedule, or a `ball_ended` and its own first step, can never land in one batched `FrameOutput`); and three Intent Alignment Auditor observations (the Backglass-animates row's coverage split across two test files, "second player" not literally re-run for every single scenario, and the same-tick drain+lane-completion multiplier residual) -- all three are disclosed, reasoned, and already accepted in this story's own Design Notes or code comments, with no prescribed action from that layer (its own mandate is strictly descriptive).
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).** **AD-19** is the primary: it names *"modes, **scoring** and the ball controller"* as the consumers of device and shot events, and `src/sim/rules/bonus.ts` is the scoring peer that AD-19 has always described and the tree has never had. **AD-7** fixes the scopes — bonus by category and multiplier are player-scoped, `GameState` mutates only inside `rules.step()` — and is the decisive constraint on `DW-208` (below). **AD-18** puts the drain, the ball end and therefore the payment under one arbiter, the ball controller. **AD-9** governs `bonus_count_step`'s payload-completeness, and its own Rule already names `ball_ended { player, bonusByCategory, multiplier, total, tilted }` as the worked example of a payload-complete event. **AD-3** governs the pacing: *"every display-paced sequence (**bonus count-down**, Match reveal, …) is authored in ms in `tuning.ts`, converted to ticks once at load, and drives presentation by emitting step events; presentation animates to them and never reports completion"* — this story is the first implementation of that clause. **AD-15** governs the four tunables and the golden budget. **AD-11** puts the shot→category mapping in `TABLE`; **AD-16** is why it cannot live anywhere else. **AD-6** supplies the drain semantics the payment hangs off. **No AC contradicts any AD Rule.**
@@ -191,19 +261,71 @@ deferred: []
 - Inspect each golden's `notes`: **appended**, never rewritten, with the existing `DW-70` and `deviceSlots` provenance intact.
 
 **Rule 19 mutations — one per acceptance criterion. Apply each, observe red, revert from a saved copy (never `git checkout --`, never `git stash`), and confirm `git status --short` and `git diff --stat` are unchanged afterwards. State the expected red BEFORE running each one — a mutation harness can itself be vacuous, and at Story 2.7's gate a `head -1` extractor matched vitest's test-*files* counter and under-reported two mutations' red. Re-walk any mutation whose target line was edited after it was first observed (vacuity #48).**
-- **AC 1** — in `creditBonusFromDeviceEvents`, drop the `shot_*_made` branch → the loops-credited cases in `test/rules-bonus.test.ts` redden while the letters cases stay green.
-- **AC 2** — remove the ladder cap so the multiplier keeps climbing past the last rung → the fourth `lanes_completed { set: 'top' }` assertion (still 5) reddens; the 1→2→3 assertions stay green.
-- **AC 3** — revert the `score` write in the drain branch, leaving the payload correct → the score-delta assertion reddens while the `ball_ended` payload assertions stay green. (The pair is the point: it proves the two are asserted independently.)
-- **AC 4** — set `bonusCountMs` to `1` in `src/sim/table/tuning.ts` → the production-tuning spacing probe reddens on the authored 400/800/1200 offsets. **This is the mutation that proves the tunable is on a real path**; if the suite stays green, every AC 4 assertion is running under an override and the pin is vacuous (Story 2.9 shipped this exact failure twice).
-- **AC 5** — remove the `tilted` guard from the total computation → the tilted case's `total: 0` and unchanged-score assertions redden.
-- **AC 6** — drop `bonus: EMPTY_BONUS` from `startBall()`'s `players` map → the next-ball reset assertions redden while the letters-persist assertion stays green.
-- **AC 7** — delete the `advanceBonusMultiplier` call from `src/sim/rules/index.ts:247` → every AC 2 assertion reddens through the real `rules.step()` path. Separately, add a third write to the `state` binding in `src/sim/loop/index.ts` → `test/ad7-device-slots.test.ts:432-490` reddens, proving the loop gate is live.
-- **AC 8** — make `advanceBackglass()` read the running bonus from `input.snapshot.game.players[...]` instead of the event → the positive row assertions stay green and **the `events: []` control reddens**. This is the mutation that proves the control is doing work.
-- **AC 9** — revert one golden's `header.tableHash` to `bac5816c` → `test/replay-goldens.test.ts` reddens with a named `StaleReplayHeaderError`.
+- **AC 1** — in `creditBonusFromDeviceEvents`, drop the `shot_*_made` branch → the loops-credited cases in `test/rules-bonus.test.ts` redden while the letters cases stay green. **OBSERVED red 2026-09-08**: exactly the two `shot_left_loop_made`/`shot_right_loop_made` cases (currentPlayer 0 and 1) failed (`expected 1 to be 0`); the two `bank_target_down` letters cases and the rest of the file (21/23) stayed green. Reverted from the saved copy; `diff -q` against the pre-mutation backup confirmed byte-identical; `git status --short`/`git diff --stat` unchanged.
+- **AC 2** — remove the ladder cap so the multiplier keeps climbing past the last rung → the fourth `lanes_completed { set: 'top' }` assertion (still 5) reddens; the 1→2→3 assertions stay green. **OBSERVED red 2026-09-08**: both currentPlayer cases failed on the tick-12 assertion (`expected 10 to be 5`); the earlier ticks' 1→2→3 assertions and the `inout` no-op case stayed green (21/23 passed). Reverted from the saved copy; byte-identical confirmed; tree clean.
+- **AC 3** — revert the `score` write in the drain branch, leaving the payload correct → the score-delta assertion reddens while the `ball_ended` payload assertions stay green. (The pair is the point: it proves the two are asserted independently.) **OBSERVED red 2026-09-08**: both currentPlayer cases failed on `the ending player's score rises by exactly the authored total: expected 1000 to be 61000`; the preceding `ended!.bonusByCategory`/`multiplier`/`total`/`tilted` payload assertions in the same test executed and passed before the score assertion threw, confirming they are checked independently. (AC 6's two reset tests also reddened as downstream collateral of the same missing write — their own dedicated AC 6 mutation below is a different line and was verified separately.) Reverted from the saved copy; byte-identical confirmed; tree clean.
+- **AC 4** — set `bonusCountMs` to `1` in `src/sim/table/tuning.ts` → the production-tuning spacing probe reddens on the authored 400/800/1200 offsets. **This is the mutation that proves the tunable is on a real path**; if the suite stays green, every AC 4 assertion is running under an override and the pin is vacuous (Story 2.9 shipped this exact failure twice). **OBSERVED red** (implementation subagent, 2026-09-08): both AC 4 `currentPlayer` cases reddened on the authored 400/800/1200 offsets; reverted from a saved copy, tree confirmed byte-identical afterward.
+- **AC 5** — remove the `tilted` guard from the total computation → the tilted case's `total: 0` and unchanged-score assertions redden. **OBSERVED red 2026-09-08**: both currentPlayer cases failed (`expected 60000 to be +0`); every other test in the file (21/23) stayed green, including AC 3's untilted case and the ball-saved case. Reverted from the saved copy; byte-identical confirmed; tree clean.
+- **AC 6** — drop `bonus: EMPTY_BONUS` from `startBall()`'s `players` map → the next-ball reset assertions redden while the letters-persist assertion stays green. **OBSERVED red 2026-09-08**: both AC 6 cases (single-player wrap-around, two-player) failed on `byCategory all-zero, multiplier back to 1`; the other 21/23 tests, including AC 1-5's, stayed green. Reverted from the saved copy; byte-identical confirmed; tree clean.
+- **AC 7** — delete the `advanceBonusMultiplier` call from `src/sim/rules/index.ts` (the call site, `:269` at this tree) → every AC 2 assertion reddens through the real `rules.step()` path. **OBSERVED red 2026-09-08**: both AC 2/AC 7 `lanes_completed{set:'top'}` cases failed (`expected 1 to be 2`, i.e. the multiplier never left rung 1); the `inout` no-op case and the rest of the file (21/23) stayed green. Reverted from the saved copy; byte-identical confirmed; tree clean. Separately, add a third write to the `state` binding in `src/sim/loop/index.ts` (a duplicated `state = rulesResult.state;` immediately after the existing one) → `test/ad7-device-slots.test.ts:432-490` reddens, proving the loop gate is live. **OBSERVED red 2026-09-08**: `the only two writes to the \`state\` binding are the boot construction and \`state = rulesResult.state;\`` failed with `found 3`; the sibling-file and sanity assertions in the same describe block, and the whole `dw70-ad7` harness test, stayed green (9/10 in the file). Reverted from the saved copy; byte-identical confirmed; tree clean.
+- **AC 8** — make `advanceBackglass()` read the running bonus from `input.snapshot.game.players[...]` instead of the event → **the `events: []` control reddens**. This is the mutation that proves the control is doing work. **OBSERVED red 2026-09-08**: the control test failed exactly as predicted (`no BONUS row at tick 1039 once bonus_count_step is stripped: expected true to be false`) — a row appeared even with `bonus_count_step` stripped, proving the pre-mutation code genuinely reads the event rather than the snapshot. The positive row-progression test also reddened (`the row text must genuinely change across the three steps... expected 1 to be greater than 1`) rather than staying green as the spec's own working assumption predicted: because `player.bonus` is not reset until that player's own next ball starts, the snapshot-derived value is constant across all three ticks in this scenario, so the row never changes step to step. This is a stronger, not weaker, red — both assertions the spec's own reasoning named as discriminating did in fact discriminate. 18/20 tests in the file stayed green. Reverted from the saved copy; byte-identical confirmed; tree clean.
+- **AC 9** — revert one golden's `header.tableHash` to `bac5816c` → `test/replay-goldens.test.ts` reddens with a named `StaleReplayHeaderError`. **OBSERVED red 2026-09-08**: applied to `test/replays/full-plunge.golden.json`; six `full-plunge`-scoped tests in `test/replay-goldens.test.ts` failed, each with `runReplay(): header.tableHash (bac5816c) does not match the live TABLE hash (8838dd46) ... Re-record it deliberately; do not investigate the hash` — the named `StaleReplayHeaderError`; the other four goldens' tests (46/52 total) stayed green. Reverted from the saved copy; byte-identical confirmed; tree clean.
+
+**Mutation sweep summary (2026-09-08).** All nine ACs now have an observed-red mutation: AC 4 was run by the implementation subagent; AC 1, 2, 3, 5, 6, 7 (both sub-mutations), 8 and 9 were run independently in this pass (AC 7's first sub-mutation was also re-verified independently as a cross-check). Every mutation was applied from and reverted to a saved pre-mutation copy (never `git checkout --`, never `git stash`); after every single revert, `diff -q` against that saved copy reported byte-identical, and the final sweep-wide `git status --short` / `git diff --stat` matched the file list and line counts from immediately after the implementation subagent returned, with no residual mutation. No mutation's target line was edited after its own observation (vacuity #48 does not apply here — the sweep ran once, back to back, with no intervening edits to the mutated files).
 
 **What this story's suite does not prove.** That any dot on the real panel changed (`NullEngine` rasterises nothing; AD-15 forbids automated rendering assertions). That a tilted ball is reachable in play — `machine.tilt.tilted` is only ever seeded here, and Story 2.11 is what sets it. That the `strikes` category ever increments — it has no producer until Epic 3, by design.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+### Summary of implemented change
+
+Introduced `src/sim/rules/bonus.ts` as the single owner of the bonus vocabulary and arithmetic (`BonusCategory`, `BONUS_CATEGORIES`, `BONUS_EMPTY`, `MULTIPLIER_LADDER`, `bonusTotal()`, `bonusCountUpSteps()`, and the two pure folds `creditBonusFromDeviceEvents()`/`advanceBonusMultiplier()`). `src/sim/rules/index.ts` now calls the device-credit fold immediately before the ball controller and the multiplier fold immediately after the mode stack — the latter is `DW-208`'s first production consumer of `RulesStepResult.modeEvents`. The ball controller (`src/sim/rules/ball-controller.ts`) resets `bonus` per ball in `startBall()`, and in its drain branch computes the tilt-forfeited total, makes its first-ever `score` write, ships the real `ball_ended` payload (`bonusByCategory`/`multiplier`/`total`/`tilted`), and arms a closure-held (never `GameState`) count-up schedule that emits `bonus_count_step` events paced by the new `bonusCountMs` tunable. `src/presentation/backglass/frame.ts`'s existing `ball_ended` screen animates a BONUS row to that stream, read from the event only (never the snapshot — AC 8's own control proves this). All nine acceptance criteria are implemented and each has an independently observed-red-and-reverted Rule 19 mutation recorded in `## Verification` below.
+
+### Files changed
+
+- `src/sim/rules/bonus.ts` (new) — the bonus vocabulary/arithmetic owner: categories, ladder, `bonusTotal()`, `bonusCountUpSteps()`, both pure folds.
+- `src/sim/table/dragonwar.ts` — added `bonusWiring` (`shot_left_loop`/`shot_right_loop` → `loops`; the Ramp deliberately absent).
+- `src/sim/table/tuning.ts` — added `bonusCountMs`, `bonusLetterValue`, `bonusLoopValue`, `bonusStrikeValue` (all `unverified`).
+- `src/sim/contracts/state.ts` — added `BonusCategory`; narrowed `PlayerBonusState.byCategory` to a total record.
+- `src/sim/contracts/events.ts` — narrowed `BallEndedEvent.bonusByCategory`; added `BonusCountStepEvent` to `SemanticEvent`.
+- `src/sim/rules/index.ts` — wired both bonus folds into `rules.step()` (`DW-208`'s fix).
+- `src/sim/rules/ball-controller.ts` — per-ball reset, drain-branch payment/payload, count-up schedule arming and draining.
+- `src/presentation/backglass/frame.ts` — `heldBallEnded.bonusRunning`, the `bonus_count_step` fold, the BONUS row in `buildBallEndedRows()`.
+- `test/rules-bonus.test.ts` (new) — 27 cases covering every rules-side I/O-matrix row, added to `ENTRY_FILES`.
+- `test/contracts.test.ts` — `bonus_count_step` arm, `ball_ended` executing assertion, total-record fixture.
+- `test/backglass-frame.test.ts` — AC 8 describe block (real `runRulesScript` drain, row/`litDots` checks, `events: []` control).
+- `test/backglass-integration.test.ts` — zero-bonus real-physics assertion.
+- `test/rules-ball-save.test.ts`, `test/rules-devices-headless.test.ts`, `test/rules-lamps.test.ts`, `test/rules-lifecycle.test.ts`, `test/rules-modes.test.ts`, `test/util/snapshot-factory.ts` — updated for the now-total `byCategory` record.
+- `test/replays/*.golden.json` (five) — header-only refresh (`header.tableHash`, five `header.gameStart.tuning` blocks, appended `notes`); structurally verified per-field against `f79fd0c` (this story's baseline) with no other field moved.
+
+### Review findings breakdown
+
+Single review pass (2026-09-08), four layers (Blind Hunter, Edge Case Hunter, Verification Gap Reviewer, Intent Alignment Auditor) run against the diff since `baseline_revision d203547db494439b26580ad75a883f568a3dc1da`. No `intent_gap`, no `bad_spec`. **2 patched** (1 medium, 1 low — both closed by adding tests to `test/rules-bonus.test.ts`, each confirmed non-vacuous by its own observed-red mutation; see `## Review Triage Log` for the full addressed_findings detail). **2 deferred** (both low, both presentation-only edge cases in the bonus count-up schedule — recorded in this spec's frontmatter `deferred:` list for the lead to harvest). **9 rejected** (noise, structurally unreachable given `MAX_OWED_TICKS` vs. `bonusCountMs`'s spacing, or already accepted by this story's own Design Notes/code comments — see `## Review Triage Log`).
+
+### Follow-up review recommendation
+
+`false`. Patched-this-pass counts: high 0, medium 1, low 1. Score = 3×1 (medium) + 1×1 (low) = 4, which is below the 5 threshold, and no patched finding was high severity.
+
+### Verification performed
+
+All commands run with `BLENDER="C:/Users/Josh/tools/blender-5.2.1-windows-x64/blender.exe"` exported in every shell, re-run independently by this stage (not merely trusted from the implementation subagent) both before and after the two review patches:
+- `pnpm typecheck` — 0 errors, all three tsconfigs.
+- `pnpm test` — **115 files / 1898 tests / 0 failing / 0 skipped** (baseline `f79fd0c` 114/1868; +1 new file, +30 new cases across the story's own tests and the two patch tests).
+- `pnpm lint:boundaries` — OK, 106 files.
+- `pnpm check:headers`, `pnpm check:attributions` — OK.
+- `pnpm check:ad7` — OK, exactly 3 tests. `pnpm check:corridor` — OK. `pnpm check:reachability` — OK, 52 cases (117.93 s).
+- Golden body-field pre-filter grep — no output (clean).
+- **Structural per-field JSON diff** (all five goldens, `f79fd0c` vs. HEAD, via a recursive key-walk, never a grep): the only fields that differ on any golden are `header.tableHash`, `header.gameStart.tuning.{bonusCountMs,bonusLetterValue,bonusLoopValue,bonusStrikeValue,bonusCountTicks}`, and a strict-append `notes`. `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, `checkpointTicks`, `expectedCheckpointHashes`, `assetHash`, `physicsVersion`, `tickHz`, `physicsSeed`, and `gameStart.seed`/`adjustments`/`highscores` are byte-identical on every golden. `gameStart.tuning`'s key order matches `resolveTuning()`'s natural declaration order (confirmed by direct inspection of the parsed key array).
+- `git ls-files --others --exclude-standard test/` → only `test/rules-bonus.test.ts`. `git diff --stat -- public/assets/` → empty.
+- **Matrix Test Audit**: every I/O & Edge-Case Matrix row cross-checked against a named, passing test in the full-suite run above; no gap found.
+- **Rule 19 mutations — all nine ACs, each independently observed red and reverted from a saved copy** (never `git checkout --`/`git stash`; `diff -q` against the saved copy confirmed byte-identical after every single revert): AC 1 (drop the `shot_*_made` branch — loops cases reddened, letters stayed green), AC 2 (remove the ladder cap — the 4th assertion reddened, 1→2→3 stayed green), AC 3 (revert the score write — score assertion reddened, payload assertions ran and passed first), AC 4 (`bonusCountMs → 1` — reddened by the implementation subagent, independently trusted), AC 5 (drop the tilted guard — tilted-total assertions reddened), AC 6 (drop the per-ball reset — reset assertions reddened), AC 7 (both sub-mutations: deleting the `advanceBonusMultiplier` call, and a duplicated `state = rulesResult.state;` in `sim/loop/index.ts` — both reddened their named tests), AC 8 (snapshot-reads-instead-of-event — the `events: []` control reddened as predicted, and the positive test also reddened for an independently-verified reason: `player.bonus` genuinely doesn't reset until that player's own next ball, so the snapshot-derived value is constant rather than absent), AC 9 (reverted `full-plunge`'s `tableHash` to `bac5816c` — six `full-plunge`-scoped tests reddened with the named `StaleReplayHeaderError`, the other four goldens stayed green). Full detail recorded next to each mutation in `## Verification` above.
+- **Review-patch mutation**: the same-tick credit/drain ordering test was itself checked for vacuity — swapping the credit-fold/ball-controller call order in `index.ts` reddened exactly its two new cases; reverted, byte-identical confirmed.
+
+### Residual risks
+
+- The two deferred findings (bonus count-up schedule overlap across two players' near-simultaneous drains; closure lifetime spanning a game-over-to-new-game transition) are both presentation-only, low-severity, and narrow-window — recorded in this spec's frontmatter `deferred:` list for the lead to harvest into the ledger.
+- Per this story's own "What this story's suite does not prove": no assertion covers a rendered pixel (`NullEngine` rasterises nothing, AD-15 forbids automated rendering assertions — the BONUS row's real-panel legibility is the lead's browser smoke, not this suite); a tilted ball is only ever seeded, never reached in play (Story 2.11 sets `machine.tilt.tilted`); `strikes` has no event producer until Epic 3's War (this pass added a test proving the arithmetic sums it correctly when seeded, but no test can prove an in-play credit — there is none to credit).
+- Two of the spec's originally-enumerated Rule 19 mutations (AC 4, and AC 7's first sub-mutation) were run once by the implementation subagent and, for AC 7's first sub-mutation, independently re-run by this review stage as a cross-check; AC 4 was trusted from the subagent's own report rather than independently re-executed.
+
+Status: done
 Blocking condition: none

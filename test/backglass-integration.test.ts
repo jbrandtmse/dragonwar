@@ -149,6 +149,20 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 			realRaster.dots.some((d) => d === 1),
 			'the real end-of-ball frame must actually light dots once rasterised -- a blank panel is the failure this pins',
 		).toBe(true);
+
+		// Story 2.10 (AC 8, this story's own "Zero bonus" I/O row): this
+		// file's own drain is gravity-only with every scoring hazard (pops,
+		// slingshots) disabled and never touches a DRAGON-bank target or a
+		// Loop, so the ending player's real bonus is genuinely zero -- no
+		// BONUS row, DW-200's own "no entry means no row" precedent. The
+		// GENUINELY nonzero, discriminating case (the row present, changing
+		// across steps, and a control that strips only the bonus_count_step
+		// events) is test/backglass-frame.test.ts's own headless "AC 8" describe
+		// block, built from a real runRulesScript run driven deliberately
+		// through a bank target and a Loop -- forcing a real PHYSICS ball
+		// through either one reliably, on top of this file's own from-rest
+		// gravity drain, is not a tractable addition here.
+		expect(ballEndedScreen!.rows.some((r) => r.text.startsWith('BONUS ')), 'this drain never credits a bonus category, so no BONUS row is expected').toBe(false);
 	});
 
 	it('control (Rule 19): the identical composition, with this frame\'s events emptied, never shows ball_ended -- proving the assertion above reads events, not only the snapshot', () => {

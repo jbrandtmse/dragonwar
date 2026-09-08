@@ -32,11 +32,12 @@
 
 import { TABLE } from '../table/dragonwar';
 import { armBallSave, EMPTY_BALL_SAVE, enableBallSave, hasGraceLapsed, isRunning, isWithinGrace } from './ball-save';
+import { bonusCountUpSteps, bonusTotal, BONUS_EMPTY } from './bonus';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { DeviceEvent } from './devices';
-import type { BallWillStartEvent } from '../contracts/events';
+import type { BallWillStartEvent, BonusCountStepEvent } from '../contracts/events';
 import type { GameAdjustments } from '../contracts/replay';
-import type { PlayerState } from '../contracts/state';
+import type { PlayerBonusState, PlayerState } from '../contracts/state';
 import type { BallDeviceName, CoilCommand, CoilName, GameState, MachineState, SemanticEvent, SwitchName } from '../table/names';
 
 /** Applies this tick's device events to `machine`, returning the next `MachineState`. Pure: no I/O, no physics access. */
@@ -205,7 +206,7 @@ function emptyPlayer(): PlayerState {
 		letters: '',
 		lockCredits: 0,
 		tiltWarnings: 0,
-		bonus: { byCategory: {}, multiplier: 1 },
+		bonus: BONUS_EMPTY,
 		lanes: { lit: {}, completedSets: [] },
 		extraBalls: 0,
 		jackpotSeed: 0,
@@ -259,6 +260,10 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	// (`ballSaveGraceTicks`).
 	const ballSaveTicks = shotWindowTicks('ballSaveMs', tuning);
 	const ballSaveGraceTicks = shotWindowTicks('ballSaveGraceMs', tuning);
+	// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count-up's own pace,
+	// resolved once here exactly like the two ball-save windows above --
+	// `armBonusCountSchedule()` below is the one reader.
+	const bonusCountTicks = shotWindowTicks('bonusCountMs', tuning);
 
 	// Story 2.9, task 5: set true by a save's own re-serve (the drain branch
 	// below), consumed the NEXT time the re-served ball's own arrival closes
@@ -355,6 +360,50 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	}
 	let awaitingSaveRelaunch: AwaitingSaveRelaunch | null = null;
 
+	/**
+	 * Story 2.10, task 7(e): the end-of-ball bonus count-up's own schedule --
+	 * closure state, deliberately NOT a `GameState` field (Design Notes, "Why
+	 * the count-up schedule is closure state": a `machine`-scoped field would
+	 * move `expectedGameStateHash` on all five goldens, a Block-If; a
+	 * player-scoped one is the wrong scope, since this is a display pacer, not
+	 * a fact about the player). Mirrors `awaitingSaveLaunch`/`awaitingSaveRelaunch`
+	 * above: instance-local, so `createBallController()` must be instantiated,
+	 * never module-global. Holds at most `steps` entries (`armBonusCountSchedule()`
+	 * below), each emitted once, at its own tick, and dropped; arming replaces
+	 * any previous schedule wholesale -- no `ball_will_start` reset needed
+	 * (Design Notes: `startBall()` runs on the SAME tick as `ball_ended` when a
+	 * rotation follows immediately, which is exactly why this is armed AFTER
+	 * that rotation, below, rather than before it).
+	 */
+	interface PendingBonusCountStep {
+		readonly tick: number;
+		readonly event: BonusCountStepEvent;
+	}
+	let pendingBonusCountSteps: readonly PendingBonusCountStep[] = [];
+
+	/** Turns `bonusCountUpSteps()`'s arithmetic (`sim/rules/bonus.ts`) into a timed schedule for `player`, the first step landing `bonusCountTicks` after `endedTick` (the `ball_ended` tick) and each later one `bonusCountTicks` after the previous -- a no-op (schedule stays empty) when `bonus`'s own total is 0. */
+	function armBonusCountSchedule(player: number, bonus: PlayerBonusState, endedTick: number): void {
+		const steps = bonusCountUpSteps(bonus, tuning);
+		const total = steps[steps.length - 1]!.running;
+		if (total <= 0) {
+			return;
+		}
+		pendingBonusCountSteps = steps.map((step, index) => {
+			const stepNumber = index + 1;
+			const dueTick = endedTick + bonusCountTicks * stepNumber;
+			const event: BonusCountStepEvent = {
+				type: 'bonus_count_step',
+				player,
+				step: stepNumber,
+				steps: steps.length,
+				running: step.running,
+				total,
+				tick: dueTick,
+			};
+			return { tick: dueTick, event };
+		});
+	}
+
 	/** Start-of-ball lifecycle (AC 2/AC 5): `ball_will_start` -> reset -> `ball_starting` -> enable hardware -> `ball_started` -> queue the one serve pulse -- shared by the very first Start press and every later rotation. */
 	function startBall(state: GameState, playerIndex: number, tick: number): StartBallResult {
 		const willStart: BallWillStartEvent = { type: 'ball_will_start', tick };
@@ -375,8 +424,15 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// arrives well before that timeout, so this stays the common path.)
 		awaitingSaveRelaunch = null;
 
+		// AC 6: the per-ball reset. `bonus` resets whole to `BONUS_EMPTY` --
+		// `byCategory` all-zero, `multiplier` back to the ladder's first rung
+		// -- alongside the `ballNumber` increment this map already made;
+		// `letters`, `score`, `lockCredits` and `extraBalls` are untouched
+		// (`sim/rules/bonus.ts`'s own header: the bonus reset is the ball
+		// controller's, not `bonus.ts`'s own two folds, which never run at a
+		// ball boundary).
 		const players = state.players.map((player, index) =>
-			index === playerIndex ? { ...player, ballNumber: player.ballNumber + 1 } : player,
+			index === playerIndex ? { ...player, ballNumber: player.ballNumber + 1, bonus: BONUS_EMPTY } : player,
 		);
 
 		// AD-7: "ball_will_start resets ballSave, tilt and multiball";
@@ -425,6 +481,19 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		const events: SemanticEvent[] = [];
 		const coilCommands: CoilCommand[] = [];
 		const ballWillStartEvents: BallWillStartEvent[] = [];
+
+		// Story 2.10, task 7(e): drain any bonus_count_step(s) due THIS tick --
+		// independent of every other concern below (it reports a PAST
+		// ball_ended's own payment, never this tick's own drain), so its
+		// position relative to the ball-save expiries just below is arbitrary;
+		// kept first for visibility, mirroring the schedule's own doc comment.
+		if (pendingBonusCountSteps.length > 0) {
+			const due = pendingBonusCountSteps.filter((scheduled) => scheduled.tick === tick);
+			if (due.length > 0) {
+				events.push(...due.map((scheduled) => scheduled.event));
+				pendingBonusCountSteps = pendingBonusCountSteps.filter((scheduled) => scheduled.tick !== tick);
+			}
+		}
 
 		// Story 2.9 (AD-18): ball-save grace expiry, evaluated BEFORE this
 		// tick's own device events are read below -- the same ordering
@@ -595,14 +664,28 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 
 			const player = nextState.players[endingPlayer]!;
 
+			// Story 2.10, task 7(d) (AC 3/AC 5): a tilted ball forfeits the whole
+			// bonus -- `total` is forced to 0 rather than merely left unpaid, so
+			// the `ball_ended` payload and the score write below agree with each
+			// other by construction. `bonusTotal()` is `sim/rules/bonus.ts`'s own
+			// arithmetic, read here and nowhere re-derived.
+			const tilted = nextState.machine.tilt.tilted;
+			const total = tilted ? 0 : bonusTotal(player.bonus, tuning);
+
 			// Mode teardown, STRICTLY before ball_ended (AC 5; epics.md:1383-1392's
 			// narrowed _will_stop clause): every active mode's name is credited to
 			// the ENDING player's modesPlayed -- captured from `endingPlayer` here,
 			// before any rotation below could move `currentPlayer` -- and modes[]
-			// is cleared. AD-7: "modes[] is empty between balls".
+			// is cleared. AD-7: "modes[] is empty between balls". Story 2.10, task
+			// 7(d): the SAME map now also pays `total` onto the ending player's own
+			// `score` -- the ball controller's first score write (Design Notes,
+			// "The score-ownership decision, made deliberately") -- so the two can
+			// never diverge into separate passes over `players`.
 			const modeNames = nextState.modes.map((mode) => mode.mode);
 			const playersAfterTeardown = nextState.players.map((existing, index) =>
-				index === endingPlayer ? { ...existing, modesPlayed: [...existing.modesPlayed, ...modeNames] } : existing,
+				index === endingPlayer
+					? { ...existing, modesPlayed: [...existing.modesPlayed, ...modeNames], score: existing.score + total }
+					: existing,
 			);
 			nextState = { ...nextState, players: playersAfterTeardown, modes: [] };
 
@@ -611,8 +694,8 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				player: endingPlayer,
 				bonusByCategory: player.bonus.byCategory,
 				multiplier: player.bonus.multiplier,
-				total: 0,
-				tilted: nextState.machine.tilt.tilted,
+				total,
+				tilted,
 				tick,
 			});
 
@@ -631,6 +714,21 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				events.push(...started.events);
 				coilCommands.push(...started.coilCommands);
 				ballWillStartEvents.push(...started.ballWillStartEvents);
+			}
+
+			// Story 2.10, task 7(e): armed AFTER the game-over/rotation block
+			// above, deliberately -- `startBall()` (called inside that block, on
+			// this SAME tick, for a non-game-over drain) resets the NEW ball's
+			// `bonus` but has no reason to touch this closure-held schedule; the
+			// ordering here is about reading `player.bonus` (the ENDING player's
+			// pre-teardown snapshot, captured above and untouched by teardown)
+			// AFTER the branch that could rotate `currentPlayer`, not about
+			// protecting the schedule from being wiped. Never armed for a tilted
+			// ball (`total` is already forced 0 above, but `player.bonus` itself
+			// is NOT -- passing it through unconditionally would compute a
+			// nonzero count-up from the forfeited categories).
+			if (!tilted) {
+				armBonusCountSchedule(endingPlayer, player.bonus, tick);
 			}
 		}
 

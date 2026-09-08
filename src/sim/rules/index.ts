@@ -61,6 +61,7 @@
 // via `lifecycleEvents`, independent of this module's own wiring.
 
 import { applyDeviceEvents, createBallController, deriveDeviceSlots } from './ball-controller';
+import { advanceBonusMultiplier, creditBonusFromDeviceEvents } from './bonus';
 import { bootDeviceSlots, createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
 import { createModeStack, type ModeEvent } from './modes';
 import { lampsOf } from './lamps';
@@ -132,10 +133,14 @@ export interface RulesStepResult {
 	 * Story 2.7: the mode stack's own event channel (`sim/rules/modes/events.ts`),
 	 * deliberately SEPARATE from `events` above -- `lanes_completed` is
 	 * neither a `DeviceEvent` (AD-19: lane state is the base mode's, not the
-	 * devices layer's) nor a `SemanticEvent` (its only consumer, Story 2.10's
-	 * bonus multiplier, is rules-side, so joining the closed
-	 * presentation-facing union would oblige a `never`-guard arm for no
-	 * reader). Always `[]` before any mode has ever run (Attract, AC 7).
+	 * devices layer's) nor a `SemanticEvent` (its consumer is rules-side, so
+	 * joining the closed presentation-facing union would oblige a
+	 * `never`-guard arm for no reader). Story 2.10 (`DW-208`): consumed
+	 * INSIDE this same `step()`, immediately below, by `advanceBonusMultiplier`
+	 * -- this is no longer a channel awaiting a consumer, it is the one
+	 * `RulesStepResult.modeEvents` has always had, still surfaced here
+	 * afterward for `test/util/switch-script.ts`'s headless observability
+	 * (AC 2/AC 7). Always `[]` before any mode has ever run (Attract, AC 7).
 	 */
 	readonly modeEvents: readonly ModeEvent[];
 }
@@ -234,7 +239,16 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		}
 		const stateAfterAccounting: GameState = machine === state.machine ? state : { ...state, machine };
 
-		const controllerResult = ballController.step(stateAfterAccounting, deviceResult.events, tick);
+		// Story 2.10 (AD-19, DW-208's fix, part 1): a pure fold over THIS
+		// tick's device events, run BEFORE the ball controller so a category
+		// credited on the drain tick lands inside that same ball's own
+		// `ball_ended` payload -- the ball controller reads `player.bonus`
+		// further down its own drain branch, after this fold has already run.
+		// `applyDeviceEvents` immediately above is the in-tree precedent for a
+		// pure event-fold invoked straight from this file.
+		const stateAfterBonusCredit = creditBonusFromDeviceEvents(stateAfterAccounting, deviceResult.events);
+
+		const controllerResult = ballController.step(stateAfterBonusCredit, deviceResult.events, tick);
 		pendingLifecycleEvents = controllerResult.ballWillStartEvents;
 
 		// Story 2.7: runs AFTER the ball controller (so `ball_starting` and any
@@ -245,7 +259,16 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// own SemanticEvent output (the channel `ball_starting` arrives on).
 		const modeStackResult = modeStack.step(controllerResult.state, deviceResult.events, controllerResult.events, tick);
 
-		const nextState: GameState = { ...modeStackResult.state, tick };
+		// Story 2.10 (AD-19, DW-208's fix, part 2): `RulesStepResult.modeEvents`
+		// gains its first production consumer here -- `lanes_completed` does not
+		// exist before the mode stack has run, so this fold cannot sit any
+		// earlier. See this file's own header, "Sequencing note", and
+		// `sim/rules/bonus.ts`'s header for the one documented residual this
+		// ordering leaves (a same-tick drain-and-complete race, unreachable in
+		// Epic 2).
+		const stateAfterBonusMultiplier = advanceBonusMultiplier(modeStackResult.state, modeStackResult.events);
+
+		const nextState: GameState = { ...stateAfterBonusMultiplier, tick };
 
 		const events: SemanticEvent[] = [...deviceResult.events.filter(isBallLaunched), ...controllerResult.events];
 

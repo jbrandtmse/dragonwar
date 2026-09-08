@@ -22,12 +22,17 @@
 // event to a later snapshot" is not in tension with it.
 
 import { ticksToMs, TICK_HZ } from '../../sim/contracts/time';
-import type { BallEndedEvent } from '../../sim/contracts/events';
+import type { BallEndedEvent, BonusCountStepEvent } from '../../sim/contracts/events';
 import type { ModeView } from '../../sim/contracts/mode-view';
 import type { FrameOutput, GameState, Snapshot } from '../../sim/table/names';
 
 function isBallEndedEvent(event: { readonly type: string }): event is BallEndedEvent {
 	return event.type === 'ball_ended';
+}
+
+/** Story 2.10 (AD-9): the end-of-ball count-up's own step event -- `advanceBackglass()`'s hold branch folds these into `heldBallEnded.bonusRunning`, never joining to a later snapshot. */
+function isBonusCountStepEvent(event: { readonly type: string }): event is BonusCountStepEvent {
+	return event.type === 'bonus_count_step';
 }
 
 /** The DMD's physical dot grid -- 128 columns by 32 rows, the shape `raster.ts` rasterises into. */
@@ -72,12 +77,22 @@ export interface DmdFrame {
  * the end-of-ball payload frozen at the moment its event fired (read for as
  * long as that screen is held, since by the NEXT frame `snapshot.game` has
  * already moved on to the next player's ball -- AD-9).
+ *
+ * Story 2.10: `heldBallEnded.bonusRunning` is `null` until the first
+ * `bonus_count_step` for this hold arrives (so a zero-bonus or tilted ball
+ * end -- neither of which ever emits one -- renders no BONUS row at all,
+ * DW-200's own "no entry means no row" precedent), then the running
+ * un-multiplied subtotal through the most recent step, ending at that
+ * step's own `total` on the LAST one -- read from the event alone, per
+ * AD-9, never derived from `snapshot.game.players[...].score` (which
+ * already includes the bonus by the time this same-tick snapshot arrives,
+ * and would still be wrong for every frame before the count-up finishes).
  */
 export interface BackglassView {
 	readonly screen: DmdScreen;
 	readonly holdUntilTick: number | null;
 	readonly attractCycleOriginTick: number;
-	readonly heldBallEnded: { readonly player: number; readonly score: number } | null;
+	readonly heldBallEnded: { readonly player: number; readonly score: number; readonly bonusRunning: number | null } | null;
 }
 
 /** The view a fresh boot (or a fresh test) starts from: the Attract prompt, nothing held, cycle counting from tick 0. */
@@ -125,8 +140,13 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  * Order of decisions, each one a discriminator Rule 19's mutations target:
  * 1. A `ball_ended` event this frame always (re-)arms the hold, overriding
  *    whatever screen was showing -- reading the payload, never the snapshot
- *    (AD-9; AC 3's own sharpest case).
- * 2. Still inside a live hold: keep showing it, unchanged.
+ *    (AD-9; AC 3's own sharpest case). `bonusRunning` starts `null` (Story
+ *    2.10): the arming frame never carries a `bonus_count_step` itself
+ *    (`ball-controller.ts`'s own schedule fires no earlier than
+ *    `bonusCountTicks` ticks later), so nothing to show yet.
+ * 2. Still inside a live hold: a `bonus_count_step` this frame updates
+ *    `heldBallEnded.bonusRunning`; otherwise the view is unchanged (Story
+ *    2.10 widens this branch -- it used to return `view` unconditionally).
  * 3. Attract phase: cycle (or pin to the prompt with no scores).
  * 4. Anything else (`game`, `game_over`, `highscore_entry`): the score
  *    screen -- the only non-Attract, non-held screen this story's union
@@ -144,7 +164,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 			screen: 'ball_ended',
 			holdUntilTick: tick + BALL_ENDED_HOLD_TICKS,
 			attractCycleOriginTick: view.attractCycleOriginTick,
-			heldBallEnded: { player, score },
+			heldBallEnded: { player, score, bonusRunning: null },
 		};
 	}
 
@@ -167,6 +187,19 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		tick < view.holdUntilTick &&
 		tick >= view.holdUntilTick - BALL_ENDED_HOLD_TICKS
 	) {
+		// Story 2.10 (AD-9): fold this frame's OWN `bonus_count_step` (if any)
+		// into the frozen payload -- reading the event, never re-deriving the
+		// running subtotal from the snapshot (AC 8's own control: a fake built
+		// off `snapshot.game.players[...].bonus` would look identical on every
+		// POSITIVE frame and only be caught by that control). Matched on
+		// `player` against the held payload's own ending player -- defensive,
+		// since only one ball's schedule is ever live at a time, but payload
+		// completeness (AD-9) means never trusting "the only one running" by
+		// convention alone.
+		const stepEvent = input.events.find(isBonusCountStepEvent);
+		if (stepEvent && view.heldBallEnded && stepEvent.player === view.heldBallEnded.player) {
+			return { ...view, heldBallEnded: { ...view.heldBallEnded, bonusRunning: stepEvent.running } };
+		}
 		return view;
 	}
 
@@ -313,12 +346,24 @@ function buildAttractScoresRows(players: GameState['players']): DmdRow[] {
 	}));
 }
 
-/** The frozen end-of-ball payload: `PLAYER <n+1>` (1-indexed for display, AC 3) then the ending player's own score, read off the SAME snapshot the event arrived with (captured by `advanceBackglass()`, never re-derived here). */
-function buildBallEndedRows(held: { readonly player: number; readonly score: number }): DmdRow[] {
-	return [
+/**
+ * The frozen end-of-ball payload: `PLAYER <n+1>` (1-indexed for display, AC
+ * 3) then the ending player's own score, read off the SAME snapshot the
+ * event arrived with (captured by `advanceBackglass()`, never re-derived
+ * here). Story 2.10 (AD-9, AC 8): a BONUS row is the third line, present
+ * only once `bonusRunning` is non-`null` -- DW-200's "no entry means no
+ * row" precedent -- so a zero-bonus or tilted ball end, which never
+ * receives a `bonus_count_step`, renders no BONUS row at all.
+ */
+function buildBallEndedRows(held: { readonly player: number; readonly score: number; readonly bonusRunning: number | null }): DmdRow[] {
+	const rows: DmdRow[] = [
 		{ text: `PLAYER ${held.player + 1}`, col: LEFT_MARGIN_COL, row: 0, emphasis: false },
 		{ text: formatScore(held.score), col: LEFT_MARGIN_COL, row: LINE_PITCH_ROWS, emphasis: false },
 	];
+	if (held.bonusRunning !== null) {
+		rows.push({ text: `BONUS ${formatScore(held.bonusRunning)}`, col: LEFT_MARGIN_COL, row: 2 * LINE_PITCH_ROWS, emphasis: false });
+	}
+	return rows;
 }
 
 /**

@@ -647,6 +647,47 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 2.10 (AD-3, AD-15): how often the end-of-ball bonus count-up
+	 * emits its next `bonus_count_step` -- a top-level scalar (never nested,
+	 * `assertNoNestedMsKeys()`/DW-34), converted once by `resolveTuning()`
+	 * to `bonusCountTicks` (`shotWindowTicks('bonusCountMs', tuning)`, the
+	 * `ballSaveMs` precedent).
+	 */
+	bonusCountMs: entry(
+		400,
+		'authored: PRD FR-20 states the count-up mechanism ("categories count up, then the multiplier is applied") but no pace for it. Constrained, not guessed: at most BONUS_CATEGORIES.length (3) nonzero-category steps plus one final step means at most 4 steps x 400 ms = 1600 ms, comfortably inside the Backglass\'s existing 3000 ms ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts) with room for the screen to settle before the hold releases -- adjustable until Epic 3\'s playtest freeze (Story 3.11)',
+		'unverified',
+	),
+
+	/**
+	 * Story 2.10 (AD-3, AD-15, PRD FR-20): the three per-category bonus
+	 * scoring values `sim/rules/bonus.ts`'s `bonusTotal()` sums and scales
+	 * by `multiplier`. No unit suffix (raw score points, never durations --
+	 * must not end in `Ms`, `assertNoNestedMsKeys`/`sim-no-literal-ms`),
+	 * following `skillShotAward` above -- the only other scoring value in
+	 * the file. No planning artifact states any of the three figures; all
+	 * three are authored on the SAME scale `skillShotAward` already set
+	 * (25000, the game's first scoring value), rather than fitting one of
+	 * their own, and are adjustable until Epic 3's playtest freeze (Story
+	 * 3.11) exactly as `skillShotAward` is.
+	 */
+	bonusLetterValue: entry(
+		5000,
+		'authored: PRD FR-20 names DRAGON letters as a bonus category but states no per-letter value. Set to 1/5 of skillShotAward\'s own 25000 -- a bonus letter is a lesser, cumulative credit toward the same "collect DRAGON" goal the skill shot\'s own letter-lighting effect serves, not a standalone award on that scale',
+		'unverified',
+	),
+	bonusLoopValue: entry(
+		10000,
+		'authored: PRD FR-20 names the Loops as a bonus category but states no per-loop value. Set to 2x bonusLetterValue -- a completed Loop shot is a harder, more deliberate shot than an incidental DRAGON-bank hit, so it is weighted above a single letter without approaching skillShotAward\'s own 25000',
+		'unverified',
+	),
+	bonusStrikeValue: entry(
+		25000,
+		'authored: PRD FR-20 names Strikes as a bonus category but states no per-strike value; the War mode that produces one does not exist until Epic 3 (Story 3.7), so this figure has no producer to measure against yet. Set equal to skillShotAward\'s own 25000 as the highest-value category, pending Epic 3\'s own War design and this story\'s shared Story 3.11 playtest freeze',
+		'unverified',
+	),
+
+	/**
 	 * Story 2.8 (AD-12): the live cap on simultaneously-enabled dynamic
 	 * insert lights `presentation/lighting/lamp-driver.ts`'s `syncLamps()`
 	 * enforces, counting ENABLED lights only. A dimensionless count, never a
