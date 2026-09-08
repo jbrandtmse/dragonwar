@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TABLE, deepFreeze } from '../src/sim/table/dragonwar';
+import { BONUS_CATEGORIES } from '../src/sim/rules/bonus';
 import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import type {
 	BallDeviceName,
@@ -379,6 +380,30 @@ describe('TABLE.laneWiring / dragonBodyWiring / lockLaneWiring / flipperButtonWi
 			}
 			expect(byOrder.map(([lane]) => lane)).toEqual(['outlane_l', 'inlane_l', 'inlane_r', 'outlane_r']);
 		});
+	});
+
+	// Code review 2026-09-08 (Story 2.10, blind-hunter and edge-case-hunter):
+	// every sibling wiring block in this describe is validated against the real
+	// switches and shots, and `bonusWiring` -- added by Story 2.10 -- was not.
+	// It is also the one wiring block written INLINE in the TABLE literal with
+	// no `satisfies` clause (the circularity the hoisted DROP_BANK_WIRING /
+	// LANE_WIRING consts exist to work around: `ShotName` is derived from
+	// `typeof TABLE`), and `sim/rules/bonus.ts` reads it through an `as` cast.
+	// So neither a mistyped KEY (`shot_left_lop`) nor a mistyped VALUE
+	// (`'loop'`) is a typecheck error, and neither is a runtime error either --
+	// `creditBonusFromDeviceEvents()` would just silently credit nothing for
+	// ever. This is the check that catches both.
+	it('bonusWiring maps only real shots to real bonus categories, and the Ramp is deliberately absent', () => {
+		const shotNames = Object.keys(TABLE.shots);
+		const entries = Object.entries(TABLE.bonusWiring);
+		expect(entries.length, 'sanity: bonusWiring must not be empty, or the checks below assert nothing').toBeGreaterThan(0);
+		for (const [shot, category] of entries) {
+			expect(shotNames, `bonusWiring names an unknown shot "${shot}"`).toContain(shot);
+			expect(BONUS_CATEGORIES as readonly string[], `bonusWiring.${shot} names an unknown bonus category "${category}"`).toContain(category);
+		}
+		// The story's own "Ramp credits nothing" I/O row, stated as data.
+		expect(Object.keys(TABLE.bonusWiring), 'shot_ramp must have NO entry -- an absent key is what makes it credit nothing').not.toContain('shot_ramp');
+		expect(Object.keys(TABLE.bonusWiring).sort(), 'exactly the two Loops credit the loops category').toEqual(['shot_left_loop', 'shot_right_loop']);
 	});
 
 	it('dragonBodyWiring names the real s_dragon_body switch', () => {

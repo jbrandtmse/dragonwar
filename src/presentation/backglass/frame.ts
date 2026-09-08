@@ -105,8 +105,17 @@ export const INITIAL_BACKGLASS_VIEW: BackglassView = {
 
 const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
 
-/** How long the end-of-ball screen holds before the next frame may move on. */
-const BALL_ENDED_HOLD_TICKS = msToTicks(3000);
+/**
+ * How long the end-of-ball screen holds before the next frame may move on.
+ *
+ * Exported since Story 2.10's code review: `bonusCountMs`'s own `source`
+ * prose argues the whole count-up (at most `BONUS_CATEGORIES.length + 1` = 4
+ * steps) fits inside this hold, and that argument lived only in a string.
+ * `test/backglass-frame.test.ts` now pins the inequality, so retuning
+ * `bonusCountMs` past the point where the count-up outlives the hold is a red
+ * test rather than a silently truncated animation.
+ */
+export const BALL_ENDED_HOLD_TICKS = msToTicks(3000);
 /** Attract's own two-screen cycle: PRESS START, then both players' scores, then back. */
 const ATTRACT_PROMPT_HOLD_TICKS = msToTicks(3000);
 const ATTRACT_SCORES_HOLD_TICKS = msToTicks(3000);

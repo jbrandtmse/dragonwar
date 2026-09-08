@@ -262,10 +262,12 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// Story 2.10 (AD-19, DW-208's fix, part 2): `RulesStepResult.modeEvents`
 		// gains its first production consumer here -- `lanes_completed` does not
 		// exist before the mode stack has run, so this fold cannot sit any
-		// earlier. See this file's own header, "Sequencing note", and
-		// `sim/rules/bonus.ts`'s header for the one documented residual this
-		// ordering leaves (a same-tick drain-and-complete race, unreachable in
-		// Epic 2).
+		// earlier. `sim/rules/bonus.ts`'s own header is where the one residual
+		// this ordering leaves is documented in full (a same-tick
+		// drain-and-complete race, unreachable in Epic 2). Code review
+		// 2026-09-08: this comment used to cite "this file's own header,
+		// 'Sequencing note'" as well -- that note is about the drop bank's
+		// `ball_will_start` reset and says nothing about the bonus.
 		const stateAfterBonusMultiplier = advanceBonusMultiplier(modeStackResult.state, modeStackResult.events);
 
 		const nextState: GameState = { ...stateAfterBonusMultiplier, tick };

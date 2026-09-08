@@ -163,6 +163,32 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 		// through either one reliably, on top of this file's own from-rest
 		// gravity drain, is not a tractable addition here.
 		expect(ballEndedScreen!.rows.some((r) => r.text.startsWith('BONUS ')), 'this drain never credits a bonus category, so no BONUS row is expected').toBe(false);
+
+		// Code review 2026-09-08 (verification-gap, Rule 19): the assertion just
+		// above is evaluated on the ARMING frame, and `advanceBackglass()` sets
+		// `bonusRunning: null` unconditionally on that frame for EVERY ball --
+		// so on its own it returns `false` whether the bonus was 0 or 60,000 and
+		// cannot fail for the property its own message names. The first
+		// `bonus_count_step` is `bonusCountTicks` ticks later. Keep folding
+		// through the whole window in which one could arrive, so the "Zero
+		// bonus" I/O row is asserted where a step COULD have landed. The window
+		// (4 steps) is well inside the 3000-tick end-of-ball hold, so the screen
+		// is still `ball_ended` throughout.
+		const bonusWindowTicks = resolveTuning().bonusCountTicks.value * 4 + 10;
+		let bonusRowTick = -1;
+		for (let i = 0; i < bonusWindowTicks; i++) {
+			const output = loop.advance(1, []);
+			view = advanceBackglass(view, output);
+			if (renderFrame(view, output.snapshot).rows.some((r) => r.text.startsWith('BONUS '))) {
+				bonusRowTick = output.snapshot.tick;
+				break;
+			}
+		}
+		expect(view.screen, 'sanity: the end-of-ball hold must still be up across the whole count-up window, or this scan looked at the wrong screen').toBe('ball_ended');
+		expect(
+			bonusRowTick,
+			'a genuinely zero-bonus ball emits no bonus_count_step, so no BONUS row may appear anywhere in the window one could have arrived in',
+		).toBe(-1);
 	});
 
 	it('control (Rule 19): the identical composition, with this frame\'s events emptied, never shows ball_ended -- proving the assertion above reads events, not only the snapshot', () => {

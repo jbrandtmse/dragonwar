@@ -19,12 +19,22 @@
 //   `lanes_completed` does not exist before the mode stack runs, so this
 //   fold cannot run any earlier. `LanesCompletedEvent` carries no player
 //   field (it is a bare "this set completed" report), so -- like the credit
-//   fold -- it keys off `state.currentPlayer`. See `sim/rules/index.ts`'s own
-//   Design Notes for the one documented residual this ordering leaves: a
-//   `lanes_completed` produced on the EXACT tick a drain also rotates
+//   fold -- it keys off `state.currentPlayer`. This header is the one place
+//   the ordering's residual is documented (code review 2026-09-08: the
+//   previous text pointed at "`sim/rules/index.ts`'s own Design Notes",
+//   which that file does not have -- its header's "Sequencing note" is about
+//   the drop bank's `ball_will_start` reset). The residual, stated exactly:
+//   a `lanes_completed` produced on the EXACT tick a drain also rotates
 //   `currentPlayer` advances the NEW player's multiplier, never the ending
-//   player's -- unreachable in Epic 2, and a defensible answer even once
-//   Epic 3 makes it reachable.
+//   player's -- and because this fold runs on `modeStackResult.state`, which
+//   is already past `startBall()`'s own per-ball reset, that means handing
+//   the incoming player a 2x on their FIRST ball. On a game-over drain the
+//   fold instead no-ops entirely (`phase` is `game_over` by then) and the
+//   completion is discarded rather than deferred. Both are unreachable in
+//   Epic 2 -- a Top-lane rollover and a trough entry are two switches one
+//   ball cannot close on one tick, and Epic 2 has no multiball -- and "a
+//   multiplier earned in the same millisecond the ball drained does not pay
+//   on that ball" stays a defensible answer once Epic 3 makes it reachable.
 //
 // `strikes` is a declared category with no producer this epic (Epic 3's War
 // is the first) -- `bonusTotal()` still sums it, so a seeded non-zero

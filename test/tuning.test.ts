@@ -58,6 +58,27 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'skillShotAward',
 			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.
 			'liveLightBudget',
+			// Code review 2026-09-08 (Story 2.10, blind-hunter): TEN top-level
+			// entries were missing from this list when Story 2.10 was reviewed --
+			// its own four bonus tunables, Story 2.9's three ball-save timers, and
+			// three geometry figures that had never been listed. Every one of them
+			// was escaping the AD-15 source/confidence check above entirely. The
+			// Story 2.1d note higher up records this exact miss happening once
+			// before; enumerating them again would only fix the instance, so the
+			// completeness ratchet at the end of this test now fixes the class.
+			'flipperTipGapMm',
+			'outlaneWidthLeftMm',
+			'outlaneWidthRightMm',
+			// Story 2.9 (AD-18): the ball-save window, its hurry-up and its grace.
+			'ballSaveMs',
+			'ballSaveHurryUpMs',
+			'ballSaveGraceMs',
+			// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count-up's pace and
+			// the three per-category scoring values.
+			'bonusCountMs',
+			'bonusLetterValue',
+			'bonusLoopValue',
+			'bonusStrikeValue',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
@@ -67,6 +88,24 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
 			expect(validConfidences).toContain(entry.confidence);
 		}
+
+		// Completeness ratchet (code review 2026-09-08): the list above is
+		// hand-maintained, so it can only stay honest if something fails when it
+		// falls behind. Derived from TUNING itself -- every top-level key whose
+		// value IS a TuningEntry must be listed, so the next tunable added
+		// without a line here reddens instead of silently skipping the checks.
+		const declared = Object.entries(TUNING)
+			.filter(([, value]) => isTuningEntry(value))
+			.map(([key]) => key)
+			.sort();
+		expect(
+			declared.length,
+			'sanity: TUNING must genuinely carry top-level scalar entries, or this ratchet passes on an empty set',
+		).toBeGreaterThan(20);
+		expect(
+			declared,
+			'every top-level TuningEntry must be listed in scalarKeys above -- an unlisted tunable escapes the source/confidence check entirely',
+		).toEqual([...scalarKeys].sort());
 	});
 
 	it('every switchSettleMsByClass entry is a TuningEntry, one per SettleClass', () => {

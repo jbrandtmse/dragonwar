@@ -14,14 +14,17 @@ import { describe, expect, it } from 'vitest';
 import {
 	advanceBackglass,
 	renderFrame,
+	BALL_ENDED_HOLD_TICKS,
 	INITIAL_BACKGLASS_VIEW,
 	type BackglassView,
 } from '../src/presentation/backglass/frame';
 import { rasterise } from '../src/presentation/backglass/raster';
-import { FONT_5X7 } from '../src/presentation/backglass/font';
+import { FONT_5X7, GLYPH_H } from '../src/presentation/backglass/font';
+import { MAX_OWED_TICKS } from '../src/sim/contracts/time';
 import { close, open, runRulesScript } from './util/switch-script';
 import { BASE_GAME_STATE, buildPlayer, buildSnapshot } from './util/snapshot-factory';
 import { TABLE } from '../src/sim/table/dragonwar';
+import { BONUS_CATEGORIES } from '../src/sim/rules/bonus';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import type { FrameOutput, GameState } from '../src/sim/table/names';
 
@@ -298,6 +301,16 @@ describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bo
 	 * player's real bonus is genuinely nonzero and the count-up schedule
 	 * genuinely arms three `bonus_count_step`s (two categories + the final
 	 * multiplier step), exactly this story's own "Count-up stream" I/O row.
+	 *
+	 * Code review 2026-09-08 (acceptance auditor, blind-hunter): the script
+	 * also completes the Top lane set ONCE, taking the multiplier off rung 1.
+	 * Without it the multiplier stayed 1, so the final (multiplier-applied)
+	 * step carried the SAME running total as the loops step before it and the
+	 * three rendered rows read 10,000 / 20,000 / 20,000 -- the row did NOT
+	 * change at each step, which is precisely what AC 8 and this describe
+	 * block's own title claim it does. At 2x the three values are genuinely
+	 * distinct, so the claim is true and testable rather than merely survived
+	 * by a `size > 1` assertion.
 	 */
 	function realBonusBallEndRun() {
 		const loopOutTick = 20 + LOOP_WINDOW_TICKS - 1;
@@ -316,6 +329,9 @@ describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bo
 			.close(TABLE.dropBankWiring.r.switch).at(16)
 			.close('s_loop_l_in').at(20)
 			.close('s_loop_l_out').at(loopOutTick)
+			.close('s_top_1').at(loopOutTick + 1)
+			.close('s_top_2').at(loopOutTick + 2)
+			.close('s_top_3').at(loopOutTick + 3)
 			.close('s_trough_1').at(drainTick);
 		const durationTicks = drainTick + BONUS_COUNT_TICKS * 3 + 20;
 		const result = runRulesScript(script.build(), { durationTicks, tuning: NO_BALL_SAVE_TUNING });
@@ -330,6 +346,10 @@ describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bo
 		expect(ballEndedEvent.player, 'sanity: player 0 is the one that drained').toBe(0);
 		const total = ballEndedEvent.total;
 		expect(total, 'sanity: the credited letters + loop must genuinely produce a nonzero bonus, or this whole test is vacuous').toBeGreaterThan(0);
+		expect(
+			ballEndedEvent.multiplier,
+			'sanity: the Top-lane completion must genuinely have moved the multiplier off rung 1, or the final count-up step repeats the previous row and the "changes at each step" claim below is untestable',
+		).toBe(2);
 
 		const stepTicks = [1, 2, 3].map((n) => drainTick + BONUS_COUNT_TICKS * n);
 		const stepEvents = stepTicks.map((t) => result.events.filter((e) => e.tick === t));
@@ -342,12 +362,14 @@ describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bo
 		return frameOutput({ snapshot: buildSnapshot({ tick, game: result.statesByTick.get(tick)! }), events });
 	}
 
-	it('the BONUS row is absent while armed, changes at each step, and ends at the real total -- with litDots genuinely lit on the final frame', () => {
+	it('the BONUS row is absent while armed, changes at each step, and ends at the real total -- with the ROW\'S OWN dot band genuinely lit on the final frame', () => {
 		const { result, drainTick, stepTicks, total } = realBonusBallEndRun();
 
 		let view = advanceBackglass(INITIAL_BACKGLASS_VIEW, outputAt(result, drainTick, result.events.filter((e) => e.tick === drainTick)));
 		expect(view.screen).toBe('ball_ended');
-		expect(renderFrame(view, buildSnapshot()).rows.some((r) => r.text.startsWith('BONUS ')), 'no BONUS row before the first step').toBe(false);
+		const armedFrame = renderFrame(view, buildSnapshot());
+		expect(armedFrame.rows.some((r) => r.text.startsWith('BONUS ')), 'no BONUS row before the first step').toBe(false);
+		const armedLitRows = litDotRows(rasterise(armedFrame, FONT_5X7));
 
 		const rowTextAtEachStep: string[] = [];
 		for (const tick of stepTicks) {
@@ -357,13 +379,40 @@ describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bo
 			rowTextAtEachStep.push(row!.text);
 		}
 
-		expect(new Set(rowTextAtEachStep).size, 'the row text must genuinely change across the three steps, not repeat the same value').toBeGreaterThan(1);
+		// Code review 2026-09-08: `size > 1` passed on 2 of 3 distinct values
+		// while the message claimed all three changed. With the multiplier at 2x
+		// (see `realBonusBallEndRun()`) all three genuinely differ, so this is
+		// now the exact claim AC 8 makes.
+		expect(new Set(rowTextAtEachStep).size, 'the row text must genuinely change at EACH of the three steps, not repeat a value').toBe(3);
 		const formattedTotal = total.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 		expect(rowTextAtEachStep[rowTextAtEachStep.length - 1]).toBe(`BONUS ${formattedTotal}`);
 
+		// Code review 2026-09-08 (verification-gap, acceptance auditor; epic
+		// vacuity #42 and Story 2.6's own standing precedent): this used to read
+		// `raster.dots.some((d) => d === 1)`, a predicate over the WHOLE 128x32
+		// buffer -- satisfied by the PLAYER and score rows alone, so it passed
+		// with the BONUS row rasterising to nothing. MEASURED at the time: giving
+		// the row a `row` of 4 * LINE_PITCH_ROWS (32) or a `col` past DMD_COLS
+		// makes `raster.ts` silently drop every one of its glyph pixels, and the
+		// old assertion stayed green -- which is exactly the blank-panel failure
+		// the neighbouring "a REAL renderFrame() output actually LIGHTS DOTS"
+		// block above exists to kill for the score screen. The band is taken from
+		// the row's OWN declared coordinate, so this tests the frame -> raster
+		// leg (the leg that drops out-of-range glyphs) rather than restating
+		// frame.ts's arithmetic back at it.
 		const finalFrame = renderFrame(view, buildSnapshot());
-		const raster = rasterise(finalFrame, FONT_5X7);
-		expect(raster.dots.some((d) => d === 1), 'the final BONUS-row frame must actually light dots once rasterised').toBe(true);
+		const bonusRowSpec = finalFrame.rows.find((r) => r.text.startsWith('BONUS '));
+		expect(bonusRowSpec, 'sanity: the final frame must carry a BONUS row at all').toBeDefined();
+		const litRows = litDotRows(rasterise(finalFrame, FONT_5X7));
+		const inBonusBand = (r: number): boolean => r >= bonusRowSpec!.row && r < bonusRowSpec!.row + GLYPH_H;
+		expect(
+			litRows.filter(inBonusBand),
+			'the BONUS row must light dots in ITS OWN dot band once rasterised -- a whole-buffer "something is lit" check passes on the PLAYER row alone',
+		).not.toEqual([]);
+		expect(
+			armedLitRows.filter(inBonusBand),
+			'and that band must have been DARK on the arming frame, before any step arrived -- otherwise the band assertion above is not observing the BONUS row',
+		).toEqual([]);
 	});
 
 	it('control (Rule 19): re-folding the SAME real ticks with events stripped never shows a BONUS row, even though the real (unreset) player bonus in the snapshot is genuinely nonzero -- proving the row reads bonus_count_step, not snapshot.game.players[...].bonus', () => {
@@ -385,6 +434,64 @@ describe('AC 8 (Story 2.10) -- the end-of-ball BONUS row animates to the real bo
 			const hasBonusRow = renderFrame(view, buildSnapshot()).rows.some((r) => r.text.startsWith('BONUS '));
 			expect(hasBonusRow, `no BONUS row at tick ${tick} once bonus_count_step is stripped`).toBe(false);
 		}
+	});
+
+	// Code review 2026-09-08 (verification-gap): `advanceBackglass()`'s step
+	// fold matches `stepEvent.player === view.heldBallEnded.player`, and its own
+	// comment calls that deliberate ("payload completeness (AD-9) means never
+	// trusting 'the only one running' by convention alone"). Every
+	// `bonus_count_step` anywhere in the suite carried the SAME player as the
+	// held payload, so deleting the comparison entirely left the whole suite
+	// green -- a guard the code documents as load-bearing with nothing that
+	// falsifies its removal.
+	it('control (Rule 19): a bonus_count_step for a DIFFERENT player never writes into this player\'s held payload', () => {
+		const { result, drainTick, stepTicks } = realBonusBallEndRun();
+
+		let view = advanceBackglass(INITIAL_BACKGLASS_VIEW, outputAt(result, drainTick, result.events.filter((e) => e.tick === drainTick)));
+		expect(view.heldBallEnded?.player, 'sanity: the hold must be player 0\'s, or there is no cross-player case to test').toBe(0);
+
+		const stepTick = stepTicks[0]!;
+		// Well-formed and otherwise indistinguishable from the real first step --
+		// only `player` differs.
+		const foreignStep = frameOutput({
+			snapshot: buildSnapshot({ tick: stepTick, game: result.statesByTick.get(stepTick)! }),
+			events: [{ type: 'bonus_count_step', player: 1, step: 1, steps: 3, running: 12_345, total: 67_890, tick: stepTick }],
+		});
+		view = advanceBackglass(view, foreignStep);
+
+		expect(view.heldBallEnded?.bonusRunning, 'another player\'s count-up must never reach this player\'s held payload').toBeNull();
+		expect(
+			renderFrame(view, buildSnapshot()).rows.some((r) => r.text.startsWith('BONUS ')),
+			'and no BONUS row may appear from it',
+		).toBe(false);
+	});
+});
+
+// Code review 2026-09-08 (blind-hunter, edge-case-hunter and the acceptance
+// auditor, independently): two constraints the count-up genuinely depends on
+// lived only in `bonusCountMs`'s own `source` prose and in a review-triage
+// rejection paragraph. `bonusCountMs` ships `unverified` and its own source
+// says it is "adjustable until Epic 3's playtest freeze (Story 3.11)", so both
+// were one retune away from breaking silently with the whole suite green.
+describe('Story 2.10 -- the count-up\'s pacing is coupled to two constants nothing else pinned', () => {
+	const PRODUCTION_TUNING = resolveTuning();
+
+	it('bonusCountTicks exceeds the loop\'s own frame cap, so no FrameOutput can batch two bonus_count_steps into one frame', () => {
+		// `advanceBackglass()` folds `input.events.find(isBonusCountStepEvent)` --
+		// the FIRST step in the frame. A frame spans at most `MAX_OWED_TICKS`
+		// (`sim/loop/index.ts`'s cap), so two steps can share a frame only once
+		// the spacing falls to that cap, at which point the row would show a
+		// stale step and could never reach the total. This inequality is exactly
+		// what the review triage rejected that finding on; now it is a gate.
+		expect(PRODUCTION_TUNING.bonusCountTicks.value).toBeGreaterThan(MAX_OWED_TICKS);
+	});
+
+	it('a whole count-up fits inside the ball_ended hold, so the row always reaches the total before the screen releases', () => {
+		// `bonusCountMs`'s own `source` argues "at most 4 steps x 400 ms = 1600
+		// ms, comfortably inside the Backglass's existing 3000 ms ball_ended
+		// hold". Worst case is one step per category plus the multiplier step.
+		const worstCaseSteps = BONUS_CATEGORIES.length + 1;
+		expect(PRODUCTION_TUNING.bonusCountTicks.value * worstCaseSteps).toBeLessThan(BALL_ENDED_HOLD_TICKS);
 	});
 });
 

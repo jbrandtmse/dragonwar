@@ -381,8 +381,30 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	}
 	let pendingBonusCountSteps: readonly PendingBonusCountStep[] = [];
 
-	/** Turns `bonusCountUpSteps()`'s arithmetic (`sim/rules/bonus.ts`) into a timed schedule for `player`, the first step landing `bonusCountTicks` after `endedTick` (the `ball_ended` tick) and each later one `bonusCountTicks` after the previous -- a no-op (schedule stays empty) when `bonus`'s own total is 0. */
+	/**
+	 * Turns `bonusCountUpSteps()`'s arithmetic (`sim/rules/bonus.ts`) into a
+	 * timed schedule for `player`, the first step landing `bonusCountTicks`
+	 * after `endedTick` (the `ball_ended` tick) and each later one
+	 * `bonusCountTicks` after the previous -- leaving the schedule EMPTY when
+	 * `bonus`'s own total is 0.
+	 *
+	 * Code review 2026-09-08 (blind-hunter, edge-case-hunter, acceptance
+	 * auditor, independently): the clear happens FIRST, before the zero-total
+	 * early return, so "arming replaces any previous schedule wholesale" is
+	 * true on every path rather than only when the next ball also has a
+	 * nonzero bonus. Previously a zero-total end returned before assigning,
+	 * and the tilted end skipped this function entirely, so the PREVIOUS
+	 * ball's still-pending steps survived and kept draining -- and since
+	 * `advanceBackglass()` matches a step against the held payload's own
+	 * player, a single-player game (where both ends carry the same index)
+	 * rendered the previous ball's `BONUS` row over the new ball's own
+	 * `ball_ended` screen. That contradicts this story's "Zero bonus" and
+	 * "Tilted ball end" I/O rows, whose "no `bonus_count_step` is emitted"
+	 * otherwise held only by the accident of nothing having been armed
+	 * earlier in the run.
+	 */
 	function armBonusCountSchedule(player: number, bonus: PlayerBonusState, endedTick: number): void {
+		pendingBonusCountSteps = [];
 		const steps = bonusCountUpSteps(bonus, tuning);
 		const total = steps[steps.length - 1]!.running;
 		if (total <= 0) {
@@ -727,7 +749,13 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			// ball (`total` is already forced 0 above, but `player.bonus` itself
 			// is NOT -- passing it through unconditionally would compute a
 			// nonzero count-up from the forfeited categories).
-			if (!tilted) {
+			if (tilted) {
+				// Code review 2026-09-08: a tilted end arms nothing, but it must
+				// still CANCEL whatever the previous ball armed -- see
+				// `armBonusCountSchedule()`'s own note. A ball end always ends the
+				// previous ball's count-up, armed or not.
+				pendingBonusCountSteps = [];
+			} else {
 				armBonusCountSchedule(endingPlayer, player.bonus, tick);
 			}
 		}

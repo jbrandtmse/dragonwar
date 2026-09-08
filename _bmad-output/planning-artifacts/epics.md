@@ -1575,7 +1575,11 @@ So that every ball has a payoff beyond its live scoring.
 **When** `ball_will_start` fires
 **Then** the bonus categories and multiplier reset while the letters persist
 
-- DW-208: `RulesStepResult.modeEvents` has no production consumer -- `sim/loop` never reads it, so the `lanes_completed { set: 'top' }` event this story's multiplier advances on cannot leave `rules.step()` in the shipped product. Story 2.7 produced the event and declared this story its first consumer; wiring it through the loop is therefore part of this story, not an assumption it may make (ledger; routed by cr 2026-09-06)
+- DW-208: `RulesStepResult.modeEvents` has no production consumer -- `sim/loop` never reads it, so the `lanes_completed { set: 'top' }` event this story's multiplier advances on cannot leave `rules.step()` in the shipped product. Story 2.7 produced the event and declared this story its first consumer; giving it a production consumer is therefore part of this story, not an assumption it may make (ledger; routed by cr 2026-09-06) `[AMENDED 2026-09-08 — see the story change log below]`
+
+**Story change log**
+
+- **2026-09-08 — the DW-208 bullet's *mechanism* corrected to match what shipped (adjudication gate, tier-1, intent-preserving).** This bullet originally said the fix was to wire `modeEvents` *through the loop*. It is not, and the reason is a gate that would have failed it: `test/ad7-device-slots.test.ts` asserts **exactly two** writes to `sim/loop`'s `state` binding — the boot construction and `state = rulesResult.state` — so the loop cannot advance a `GameState` field, and the multiplier is `GameState`. A loop that merely *forwarded* `modeEvents` into `FrameOutput` would have been a fifth channel with no reader — precisely the vacuity the entry exists to prevent. What shipped instead is `modeEvents`' first production consumer **inside `rules.step()`** (`advanceBonusMultiplier`), which closes the entry's canonical summary (*no production consumer*) exactly. Verified two ways before this amendment: the AD-7 constraint read at source by the lead, and a mutation — severing the consumer reddens both multiplier-ladder tests, each named *through the REAL `rules.step()` path*. The promise is unchanged; only the prescribed mechanism was wrong.
 
 ### Story 2.11: Tilt warnings, Tilt and Slam tilt
 

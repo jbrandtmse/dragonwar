@@ -25,7 +25,12 @@
 // early return is kept off the path.
 
 import { describe, expect, it } from 'vitest';
-import { advanceBonusMultiplier, creditBonusFromDeviceEvents } from '../src/sim/rules/bonus';
+import {
+	advanceBonusMultiplier,
+	creditBonusFromDeviceEvents,
+	BONUS_CATEGORIES,
+	BONUS_EMPTY as PRODUCTION_BONUS_EMPTY,
+} from '../src/sim/rules/bonus';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, runRulesScript } from './util/switch-script';
@@ -257,6 +262,16 @@ describe('AC 1 / AC 3 integration -- a category credited on the IDENTICAL tick t
 		expect(ended!.total).toBe(5000);
 		expect(result.finalState.players[currentPlayer]!.score, 'the same-tick credit is paid onto the ending player\'s score').toBe(1000 + 5000);
 		expect(result.finalState.players[other]!.score, 'the other player is untouched').toBe(500);
+		// Code review 2026-09-08 (acceptance auditor): the "Letter credited" I/O
+		// row has TWO clauses -- the bonus category increments AND
+		// `players[i].letters` still advances via the pre-existing accumulator
+		// (`ball-controller.ts`'s own DRAGON-letter fold). Nothing in this file
+		// read the second clause back, so a regression that routed the letter
+		// into the bonus INSTEAD of the accumulator would have passed here.
+		expect(
+			result.finalState.players[currentPlayer]!.letters,
+			'the same bank_target_down still advances the letters accumulator -- the bonus category is an addition, not a replacement',
+		).toBe('D');
 	});
 });
 
@@ -425,5 +440,91 @@ describe('AC 6 -- the per-ball reset, and what survives it', () => {
 		expect(after.lockCredits, 'lockCredits survives').toBe(2);
 		expect(after.extraBalls, 'extraBalls survives').toBe(1);
 		expect(after.ballNumber, 'sanity: this genuinely is player 1\'s NEXT ball').toBe(2);
+	});
+});
+
+// Code review 2026-09-08 (blind-hunter, edge-case-hunter and the acceptance
+// auditor, independently): `armBonusCountSchedule()` returned BEFORE assigning
+// on a zero total, and was not called at all for a tilted end -- so the
+// documented invariant "arming replaces any previous schedule wholesale" held
+// only when the NEXT ball also had a nonzero, untilted bonus. A single-player
+// game is the reachable shape: both ball ends carry player index 0, which is
+// exactly what `advanceBackglass()`'s own `stepEvent.player ===
+// heldBallEnded.player` guard cannot filter, so ball 1's leftover steps
+// rendered a BONUS row over ball 2's own `ball_ended` screen. This also means
+// AC 5's and the "Zero bonus" row's "no `bonus_count_step` is emitted" held
+// only by the accident that nothing had been armed earlier in those runs.
+describe('A ball end always ends the PREVIOUS ball\'s count-up, armed or not', () => {
+	it('a zero-bonus ball ending inside the previous ball\'s count-up window cancels it: no bonus_count_step survives the second ball_ended', () => {
+		const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+		// Ball 1 drains at tick 1 and arms three steps (401 / 801 / 1201). Ball 2
+		// -- whose bonus `startBall()` reset to empty on that same tick -- drains
+		// at tick 2, well inside that window, and arms nothing.
+		const script = close('s_trough_1').at(1).close('s_trough_2').at(2);
+		const result = runRulesScript(script.build(), { durationTicks: 1 + 1300, initialState: initial, tuning: NO_BALL_SAVE_TUNING });
+
+		const ends = result.events.filter((e) => e.type === 'ball_ended');
+		expect(ends, 'sanity: both drains must genuinely end a ball, or this scenario never happened').toHaveLength(2);
+		expect(ends[1]!.tick, 'sanity: the second end must land INSIDE ball 1\'s own count-up window').toBeLessThan(1 + 400);
+
+		const leaked = result.events.filter((e) => e.type === 'bonus_count_step' && e.tick > ends[1]!.tick);
+		expect(leaked, 'ball 1\'s schedule must be cancelled by ball 2\'s own end, never keep draining over it').toEqual([]);
+	});
+});
+
+// Code review 2026-09-08 (blind-hunter): AC 2's ladder test never drains and
+// AC 3's payment test SEEDS `multiplier: 3` directly, so `advanceBonusMultiplier()`'s
+// write and `bonusTotal()`'s read were each covered but never in the same run --
+// the seam this whole story exists for was untested end to end.
+describe('AC 2 x AC 3 -- the multiplier a player EARNS is the multiplier that pays', () => {
+	it.each([0, 1] as const)('three Top-lane completions take the ladder to 5x through the real rules.step() path, and the drain pays the letter at 5x (currentPlayer %i)', (currentPlayer) => {
+		const initial = gameState({
+			currentPlayer,
+			players: twoPlayers(currentPlayer),
+			modes: [{ mode: 'base', priority: 100, player: currentPlayer }],
+			ballsInPlay: 1,
+		});
+		const script = close('s_top_1').at(1).close('s_top_2').at(2).close('s_top_3').at(3)
+			.close('s_top_1').at(4).close('s_top_2').at(5).close('s_top_3').at(6)
+			.close('s_top_1').at(7).close('s_top_2').at(8).close('s_top_3').at(9)
+			.close(TABLE.dropBankWiring.d.switch).at(10)
+			.close('s_trough_1').at(11);
+		const result = runRulesScript(script.build(), { durationTicks: 11, initialState: initial, tuning: NO_BALL_SAVE_TUNING });
+
+		expect(
+			result.statesByTick.get(9)!.players[currentPlayer]!.bonus.multiplier,
+			'sanity: the ladder must genuinely have been climbed by real lane completions, not seeded',
+		).toBe(5);
+
+		const ended = result.events.find((e) => e.type === 'ball_ended');
+		expect(ended, 'sanity: the drain must genuinely end the ball').toBeDefined();
+		if (ended!.type !== 'ball_ended') {
+			throw new Error('unreachable: filtered on type ball_ended above');
+		}
+		expect(ended!.multiplier, 'the payload carries the EARNED multiplier').toBe(5);
+		// Authored literal: 1 letter * bonusLetterValue(5000) * the EARNED
+		// multiplier(5) = 25000 -- never read back from tuning.ts (vacuity #43).
+		expect(ended!.total).toBe(25000);
+		expect(result.finalState.players[currentPlayer]!.score, 'the earned multiplier is what reaches the score').toBe(25000);
+	});
+});
+
+// Code review 2026-09-08 (blind-hunter): `BONUS_CATEGORIES` is typed
+// `readonly BonusCategory[]`, not a tuple over the union, so adding a fourth
+// category to `BonusCategory` would be caught at `BONUS_EMPTY` (a TOTAL
+// record) and at `valueOf()`'s switch, but omitting it HERE would make
+// `bonusTotal()`'s Sigma and the count-up silently skip it, with no compile
+// error and no test failure.
+describe('The bonus vocabulary is complete, and its iteration order is pinned', () => {
+	it('BONUS_CATEGORIES carries every category BONUS_EMPTY declares, in the documented order', () => {
+		// The literal is authored here as an INDEPENDENT anchor on the order the
+		// count-up's running subtotals depend on (AC 4), not read back from the
+		// module under test.
+		expect([...BONUS_CATEGORIES]).toEqual(['letters', 'loops', 'strikes']);
+		// ... and this half is what a fourth union member would trip:
+		// `BONUS_EMPTY.byCategory` is a total `Record<BonusCategory, number>`, so
+		// the type system forces the new key to appear there.
+		expect([...BONUS_CATEGORIES].sort()).toEqual(Object.keys(PRODUCTION_BONUS_EMPTY.byCategory).sort());
 	});
 });
