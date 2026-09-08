@@ -1612,6 +1612,7 @@ So that nudge danger is real and the machine punishes abuse the way a real one d
 **Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
 
 - DW-36: FR-14's tilt-warning default of 1 is never transcribed, so `GameAdjustments.tiltWarnings` has no table default even though AD-15 lists `tiltWarnings` among the table tunables (ledger; routed by decision_sheet 2026-08-30)
+- DW-222: a Tilt landing between a ball save's re-serve and the re-served ball's own arrival at `bd_shooter` suppresses the autolaunch **and** consumes the flag, leaving that ball resting in the shooter lane with no `ball_ended` and no automatic recovery until ball search arrives in Story 2.12. Measured at this story's plan gate: the stall is **player-recoverable**, because `plungerMechanics.applyFrame()` gates the manual plunge on `coilEnabled.c_autolaunch` and `HARDWARE_COILS` structurally excludes that coil, so a Tilt's disable batch never disables the plunger. This story pins the whole path end to end — including that the ball save does not re-arm after the Tilt's disarm — and leaves *automatic* recovery to 2.12 (ledger; routed by cr 2026-09-08)
 
 ### Story 2.12: Ball search
 
