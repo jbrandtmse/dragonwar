@@ -29,7 +29,7 @@ import { createReplayPlayer, type PlayableRecording } from './dev/replay-player'
 import { createTuningPanel, buildOverriddenTuning, type TuningPanel } from './dev/tuning-panel';
 import { BUILD_SHA } from './build-info';
 import { deriveGameSeed } from './game-seed';
-import { resolveTuning } from '../sim/table/tuning';
+import { resolveTuning, TUNING } from '../sim/table/tuning';
 import { TABLE } from '../sim/table/dragonwar';
 import type { CoilName, GameStart, Snapshot } from '../sim/table/names';
 
@@ -276,7 +276,13 @@ async function onBegin(): Promise<void> {
 		const gameStart: GameStart = {
 			seed: deriveGameSeed(),
 			tuning: resolveTuning(),
-			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0.08 },
+			// Story 2.11 (DW-36): tiltWarnings reads TUNING.tiltWarnings.value --
+			// the same table-tunable entry sim/rules/index.ts's own
+			// DEFAULT_ADJUSTMENTS reads -- rather than a second, hand-typed
+			// literal. host/** may not import sim/rules/** directly (AD-1/AD-16),
+			// but sim/table/** is fine (TABLE.reference.pitchDeg on this same
+			// line is the existing precedent for reading the table layer here).
+			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: TUNING.tiltWarnings.value, ballsPerGame: 3, matchProbability: 0.08 },
 			highscores: [],
 		};
 		hostLoop = createHostLoop(

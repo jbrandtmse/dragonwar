@@ -2,11 +2,11 @@
 title: 'Story 2.11: Tilt warnings, Tilt and Slam tilt'
 type: 'feature'
 created: '2026-09-08'
-status: 'ready-for-dev'
-baseline_revision: '4b4388c5d8a4798ba399c44b54411bcc9e2821ab'
-baseline_commit: '4b4388c5d8a4798ba399c44b54411bcc9e2821ab'
+status: 'done'
+baseline_revision: 'f2fd48f250c45bf8d828f585fcffe4f5eeb01913'
+baseline_commit: 'f2fd48f250c45bf8d828f585fcffe4f5eeb01913'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: []
 warnings: ['oversized']
 deferred:
@@ -290,6 +290,23 @@ deferred:
 
 ## Review Triage Log
 
+### 2026-09-08 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 1, medium 3, low 2)
+- defer: 0
+- reject: 3
+- addressed_findings:
+  - `medium` `patch` A nudge violent enough to cross BOTH the plumb bob's and the slam detector's thresholds in the SAME tick (physically plausible, and deterministic per `sim/physics/cabinet/index.ts`'s own fixed bob-before-slam push order) let a bob-triggered `tilt_warning`/`tilt` land on a tick the slam had already ended, and separately let a live warning hold outlive a LATER slam tilt for up to `TILT_WARNING_HOLD_TICKS` (2000 ticks) -- the Backglass could show WARNING after the game had already returned to Attract. Found independently by Blind Hunter and Edge Case Hunter (four convergent findings, deduplicated to one root cause). Fixed in `src/sim/rules/tilt.ts` (slam_tilt_closed now processed to completion in its own pass, before any tilt_bob_closed in the same tick, regardless of array order) and `src/presentation/backglass/frame.ts` (both the tilt_warning arming branch and its hold-continuation branch now gated on `game.phase === 'game'`, mirroring the TILT branch's own existing gate) -- defense in depth at both layers. Three new tests in `test/rules-tilt.test.ts` and two in `test/backglass-frame.test.ts`; all five confirmed to redden against the pre-fix code and pass against the fix.
+  - `high` `patch` AC 4's "no bonus_count_step" pinning test ran for only 40 ticks (`tiltAndDrainTick + 30`) while `bonusCountTicks` is 400 at production magnitude -- the earliest possible `bonus_count_step` could not have appeared inside that window regardless of whether the tilted branch correctly skipped `armBonusCountSchedule()`, an unfalsifiable assertion (Rule 19). The test was also missing the untilted control the spec's own AC 4 text explicitly requires ("with the run establishing that an untilted control ball at the same tuning DOES emit them"). Found by the Verification Gap Reviewer, with exact tick math traced and confirmed independently against `sim/rules/ball-controller.ts`'s `armBonusCountSchedule()`. Fixed: `test/rules-tilt.test.ts`'s AC 4 test now runs `tiltAndDrainTick + 1300` (matching `test/rules-bonus.test.ts`'s own precedent for the identical claim) and a new companion `it()` runs the identical script and duration minus the tilt closure, asserting `bonus_count_step` DOES fire for the same earned bonus. Confirmed the strengthened test reddens under the reviewer's own suggested mutation (removing the `if (tilted)` gate on `armBonusCountSchedule()`) and the original 40-tick version does not.
+  - `medium` `patch` The same AC 4 test's "tiltWarnings is UNCHANGED by the rotation" assertion seeded `tiltWarnings: 0` and checked it was still 0 after `ball_will_start` -- indistinguishable from a broken reset that zeroes `tiltWarnings` on every rotation (vacuity #51's shape). Found by the Intent Alignment Auditor. Fixed: seeded `tiltWarnings: 3` instead (harmless to the tilt outcome, since `adjustments.tiltWarnings: 0` tilts regardless of the seed's exact value), now genuinely discriminating.
+  - `medium` `patch` The "Bob closure in Attract" test (I/O matrix row) proved only that no EVENT fires during Attract, which holds regardless of whether `lastBobClosureTick` is genuinely updated there, since the phase gate short-circuits before the spacing check either way -- the matrix row's own specific claim ("the closure DOES update the spacing mark ... because the bob's history is physical") was unobserved. Found by the Intent Alignment Auditor. Fixed: a new test drives `createTiltController()` directly across two `.step()` calls -- an Attract-time closure, then a later closure in phase 'game' inside the spacing window -- and asserts the later closure is still gated ineligible, which is only true if the Attract-time mark was genuinely recorded.
+  - `low` `patch` The two tilt windows' `>=` boundary comparisons (`tiltWarningSpacingMs`/`tiltSettleMs`) were never tested AT the exact tick (`T+500`, `T+3000`) -- every existing offset sat comfortably past the boundary, so an off-by-one regression (`>` swapped for `>=`) could slip past the suite. Found by Blind Hunter. Fixed: two new boundary tests added (one per window, each isolated from the other window's own effect), both confirmed to redden under a `>=`-to-`>` mutation of their respective comparison and pass against the shipped `>=`.
+  - `low` `patch` A test title in `test/backglass-frame.test.ts` claimed "the SAME band is dark on the arming input with no event," but the test body never rendered an event-stripped frame -- it compared against the score screen's differing dot pattern instead (the event-stripped control it described is a separate test just below). Found by the Verification Gap Reviewer. Fixed: retitled to describe what the test actually checks.
+  - `reject` Blind Hunter and the Intent Alignment Auditor both independently claimed `l_ball_save`'s tilted-inertness lamp branch (`lampsOf()`, `projectBallSave()`) has zero test coverage, before or after this story. Verified false: `test/rules-ball-save.test.ts:346` ("AC 6 -- Tilt makes the device inert") already seeds a live window plus `tilted: true` and asserts `lampsOf(...).l_ball_save` projects `{ role: 'off', step: 0 }` -- a pre-existing Story 2.9 test, part of the passing suite, confirmed directly by re-running it and by observing it redden under an unrelated mutation earlier in this same review pass. Both reviewers likely searched only the diff text, and this file is untouched by this story's diff.
+  - `reject` Blind Hunter flagged that `machine.tilt` is not reset when a Tilt (not Slam) ends the LAST ball of the LAST player, staying stale through `phase: 'game_over'` and the following Attract until the next `startBall()`. Verified: this is NOT a new asymmetry -- `machine.ballSave` and `machine.multiball` already follow the identical convention (reset only at the NEXT `startBall()`, never at game over itself, per that function's own "AD-7: ball_will_start resets ballSave, tilt and multiball" comment). `machine.tilt` merely joins a pre-existing, deliberate reset-boundary convention its two siblings already use. No current consumer of `machine.tilt.tilted` lacks its own `phase === 'game'` gate, so no observable consequence.
+  - `reject` Edge Case Hunter flagged that a Slam tilt does not disarm `machine.ballSave`, leaving it armed with a stale `untilTick` through Attract. Verified harmless: `startBall()` unconditionally resets `machine.ballSave` to `enableBallSave(EMPTY_BALL_SAVE, BALL_SAVE_SOURCE)` on every Start (first game or rotation), and Attract phase never processes a drain (the ball-save guard only runs inside the `phase === 'game'` drain branch), so the stale value is never read before being overwritten. Pinned as a regression guard in the new same-tick collision test (`test/rules-tilt.test.ts`) rather than "fixed," since it is the CORRECT, intentional behavior -- AC 6 and the I/O matrix's "Slam tilt in a game" row never mention `ballSave`, and the Design Notes' own "four things deliberately not done" list for Slam tilt is complete as written.
+
 ## Design Notes
 
 **Governing architecture decisions (Rule 6).** **AD-5** is the primary: it puts the tilt bob and the slam detector in physics as switch-closing sensors, gives the hardware set one gate (`CoilCommand enable | disable`), and states that *"Tilt, game over and Attract disable all of them together"*. **AD-19** governs the seam — `src/sim/rules/devices/` is the only consumer of `SwitchEvent`, and its event enumeration became binding at the 2026-09-06 amendment, so the two new device events extend it (see the amendment note below). **AD-7** fixes the scopes: `tiltWarnings` is player-scoped, `tilt`/`hardwareEnabled`/`ballSave` are machine-scoped, all mutated only inside `rules.step`; its Rule also carries *"The bob is never reset by command — its physical decay plus `tiltSettleMs` is the settle"*, which is why nothing here resets the bob and why the window marks are not cleared at a ball boundary. **AD-18** supplies *"Tilt disarms all"* and names the `arm`/`disarm` interface this story is the first production caller of. **AD-2** sanctions the two rules-side semantic windows by name and forbids rules from debouncing a switch — the spacing window is a *semantic* window over device events, not a switch debounce, and `settleClass` for both classes is 0 ms in `TABLE`. **AD-3** requires both windows be authored in ms and converted once at load, and forbids wall-clock. **AD-9** governs the three new payload-complete events and the closed `DmdScreen` union. **AD-15** governs `TUNING.tiltWarnings` and the golden budget; **AD-14** makes it the table-default layer of a sim adjustment that applies at the next game. **AD-6** supplies the drain semantics and the `s_shooter_lane`-opening-means-plunged rule AC 7 leans on. **AD-8**'s phasing means a Slam tilt that clears `modes[]` directly is conforming in Epic 2, not violating. **No AC contradicts any AD's Rule.** One AC's *stated mechanism* is met by an equivalent, and it is recorded below.
@@ -372,11 +389,65 @@ Two further facts, measured here and worth stating because they are not obvious.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
-Planning only — the run halted after the spec was written and verified against the READY-FOR-DEVELOPMENT standard, as dispatched. No source file was modified and nothing was implemented.
+### Summary of implemented change
 
-**One precondition the lead owns before implementation starts.** Task 1 extends AD-19's event enumeration, which became binding at its 2026-09-06 amendment, so it owes a spine amendment that only the lead may write (Rule 20). The AD, the exact clause and suggested wording are in `## Design Notes`, "The AD-19 amendment this story owes". `AD-20` remains the next claimable id; this story claims no new AD.
+Story 2.11 is implemented in full: 17 tasks and 12 acceptance criteria. `src/sim/rules/devices/index.ts` derives `s_tilt_bob`/`s_slam_tilt`'s switch names structurally from their unique `SettleClass` and emits two new `DeviceEvent`s (`tilt_bob_closed`, `slam_tilt_closed`) on the closed edge only, leaving `PLAYFIELD_SWITCHES` at 28. A new `src/sim/rules/tilt.ts` module (`createTiltController`) owns `machine.tilt`, the current player's `tiltWarnings`, and the Tilt-side of `machine.hardwareEnabled`/`machine.ballSave`, stepped before the ball controller on every tick so a same-tick Tilt is already visible to its already-shipped guards (the ball-save disarm conjunct, the deferred-autolaunch guard, the bonus forfeit). `TUNING.tiltWarnings` closes `DW-36`'s duplicate-default gap; `DEFAULT_ADJUSTMENTS` and the real `GameStart` in `src/host/boot.ts` both now read the one entry. The Backglass (`src/presentation/backglass/frame.ts`) gains `tilt_warning`/`tilt` `DmdScreen` members, the former read from the event, the latter from the snapshot condition. Three new `SemanticEvent` members (`tilt_warning`, `tilt`, `slam_tilt`) and their `describeEvent()` arms are added, alongside the 8 previously-unexercised arms this story's own pass closed opportunistically (`DW-223`). All five golden replays received a header-only refresh (exactly one new `tiltWarnings` tuning block plus an appended `notes` entry; `tableHash`/`assetHash`/every body field unchanged), verified structurally per field.
 
-**Two things the lead should note before dispatching implement.** (1) `DW-222` is in this story's ledger slice but was never transcribed into `epics.md`'s Story 2.11 acceptance bullets (Rule 17 (1b)); only `DW-36` is there at `epics.md:1614`. (2) `epics.md:1598`'s "and autolaunch are disabled together via `CoilCommand disable`" is met by an equivalent mechanism rather than the stated one, for reasons measured at source and recorded under `## Design Notes`, "Why AC 3's autolaunch clause is met by the guard, not the batch" — the promise is unchanged, so this is recorded rather than halted on, but it is the kind of wording an epics.md amendment could usefully correct.
+Code review (four parallel layers: Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment) found and this pass fixed a real same-tick/cross-tick race between a bob-triggered warning/tilt and a slam tilt (defense-in-depth fix in both `tilt.ts` and `frame.ts`) and a structurally unfalsifiable pinning test on AC 4 (window too short to observe the claim, and missing the untilted control the AC's own text requires) — see `## Review Triage Log` for the full breakdown.
+
+### Files changed
+
+- `src/sim/rules/tilt.ts` — new: the tilt controller (`createTiltController`), including the code-review fix that processes every `slam_tilt_closed` to completion before any `tilt_bob_closed` in the same tick.
+- `src/sim/rules/devices/index.ts` — structural switch-name derivation, Stage 3 emits `tilt_bob_closed`/`slam_tilt_closed`.
+- `src/sim/rules/devices/events.ts` — `TiltBobClosedEvent`/`SlamTiltClosedEvent` added to `DeviceEvent`.
+- `src/sim/rules/index.ts` — tilt controller wired into `createRules()`/`step()`; `DEFAULT_ADJUSTMENTS.tiltWarnings` reads `TUNING.tiltWarnings.value`.
+- `src/sim/rules/ball-controller.ts` — `HARDWARE_COILS`'s doc comment updated (second, production reader); no behavioural change.
+- `src/sim/contracts/events.ts` — `TiltWarningEvent`/`TiltEvent`/`SlamTiltEvent` added to `SemanticEvent`.
+- `src/sim/table/tuning.ts` — `tiltWarnings` table tunable added (`DW-36`).
+- `src/host/boot.ts` — real `GameStart.adjustments.tiltWarnings` reads the one `TUNING` entry.
+- `src/presentation/backglass/frame.ts` — `tilt_warning`/`tilt` `DmdScreen` members, `advanceBackglass()`/`renderFrame()` wiring, including the code-review phase-gate fix.
+- `test/rules-tilt.test.ts` — new: headless coverage of ACs 1–7 and the I/O matrix's rules-side rows, including all code-review-triggered additions (the same-tick collision describe block, the AC 4 untilted control and extended window, the two window-boundary tests, the Attract-mark test).
+- `test/rules-tilt-integration.test.ts` — new: AC 10, real nudge input through a real `createLoop`.
+- `test/backglass-frame.test.ts` — AC 9's WARNING/TILT differential-band tests, `DISPLAY_LITERALS`, the two code-review phase-gate regression tests, one corrected test title.
+- `test/backglass-integration.test.ts` — task 12's real-`createLoop` WARNING/TILT integration case.
+- `test/contracts.test.ts` — the three new `describeEvent()` arms plus the eight previously-unexercised ones (`DW-223`).
+- `test/rules-devices.test.ts` — task 15's `tilt_bob_closed`/`slam_tilt_closed` coverage, plus a new standing regression test for `switchNameForSettleClass()`'s load-time throw on a non-unique `SettleClass` (closes a Matrix Test Audit gap: the "Derivation is structural" row had no executing test, only the Rule 19 mutation exercise).
+- `test/rules-devices-headless.test.ts` — `rules-tilt.test.ts` added to `ENTRY_FILES`.
+- `test/rules-modes.test.ts` — the `s_slam_tilt` "inert" case removed (no longer inert once this story ships).
+- `test/tuning.test.ts` — `tiltWarnings` added to `scalarKeys`.
+- `test/host-game-seed.test.ts` — regex updated for the new `TUNING.tiltWarnings.value` read.
+- `test/replays/*.golden.json` (five files) — header-only refresh (`tiltWarnings` tuning block, appended `notes`).
+
+### Review findings breakdown
+
+Four parallel review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment) produced 13 raw findings, deduplicated to 9 (see `## Review Triage Log` for full detail and evidence):
+- **Patches applied: 6** (1 high, 3 medium, 2 low) — all fixed in this pass, each with a new or strengthened regression test confirmed to redden against the pre-fix code and pass against the fix.
+- **Deferred: 0.**
+- **Rejected: 3** — two verified false on inspection (pre-existing test coverage the reviewers missed since it lives outside the diff; a "stale ballSave" observation that is harmless because `startBall()` unconditionally resets it and Attract never reads it), one verified to be a pre-existing, deliberate convention this story merely joins (machine.tilt's reset-at-next-Start timing, matching its `ballSave`/`multiball` siblings exactly) rather than a new defect.
+
+### Follow-up review recommendation
+
+`followup_review_recommended: true` — this pass's patched findings were 1 high, 3 medium, 2 low. Any high-severity patch alone triggers `true` (the threshold `3×medium + 1×low >= 5` is also independently met: 3×3 + 1×2 = 11).
+
+### Verification performed
+
+- `pnpm typecheck` — clean across all three tsconfigs (re-run after every patch round).
+- `pnpm test` (BLENDER exported) — final: **117 files / 1943 tests / 0 failing / 0 skipped**, ~100 s.
+- `pnpm lint:boundaries` — `OK -- 107 .ts file(s)`.
+- `pnpm check:headers` / `pnpm check:attributions` — OK.
+- `pnpm check:ad7` — 3 passing (exact). `pnpm check:corridor` — 1 passing.
+- `pnpm check:reachability` — 1 passing over 52 cases, run once before the review-triggered patches; the patched files (`tilt.ts`, `frame.ts`, `ball-controller.ts` comment-only) are outside this gate's surface (geometry/shot reachability), so it was not re-run after patching.
+- Golden pre-filter grep (body-field keys) — no output (clean). `git ls-files --others` under `test/` — only the two intended new test files. `git diff --stat` on `public/assets/` and `src/sim/table/dragonwar.ts` — both empty.
+- **Structural golden comparison (authoritative)** — all five goldens parsed per field at baseline `4b4388c` and at HEAD: `header.gameStart.tuning` gained exactly one `tiltWarnings` block each (in `resolveTuning()`'s natural declaration order, `value`/`source`/`confidence`), `notes` strictly appended, every other field (`tableHash` `8838dd46`, `assetHash` `ab163ff`, `physicsVersion`, `tickHz`, `physicsSeed`, `gameStart.{seed,adjustments,highscores}`, `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, and `roll-and-drain`'s `checkpointTicks`/`expectedCheckpointHashes`) byte-identical.
+- **Matrix Test Audit** — every I/O & Edge-Case Matrix row covered by an executing, passing test; one genuine gap found and closed ("Derivation is structural" — the load-time throw on a non-unique `SettleClass` had no standing test, only the Rule 19 mutation exercise) with a new regression test using the established `vi.resetModules()` + `vi.doMock('../src/sim/table/dragonwar', ...)` pattern (`test/lock-device-behaviour.test.ts`'s own precedent), confirmed to redden under the corresponding mutation.
+- **Rule 19 mutations spot-checked directly by this stage** (beyond the implementation subagent's own 2): AC 1's `tiltWarningSpacingMs=1`, AC 12's exclusion-clause deletion, the `switchNameForSettleClass()` throw removal, the ball-save `!tilt.tilted` guard removal (confirmed the pre-existing `l_ball_save` lamp test catches it), the always-arm `armBonusCountSchedule()` mutation (confirmed the strengthened AC 4 test catches it), and the `>=`-to-`>` mutation on both tilt windows plus the Attract-mark update removal (confirmed the three new tests each catch their own regression). Every mutation reverted from a saved copy (`cp`, never `git checkout --` or `git stash`); tree confirmed byte-identical after each revert via `git diff --numstat` against the pre-mutation state.
+
+### Residual risks
+
+- **AD-5's manual-plunger gap** (deferred in this spec's own frontmatter `deferred:` list, severity medium): `machine.ts:306` gates the manual plunge on `coilEnabled.c_autolaunch`, which `HARDWARE_COILS` structurally excludes, so neither Tilt nor game-over disable it — pre-existing, not created by this story, and not fixed here (closing it risks converting `DW-222`'s recoverable stall into an unrecoverable hang until Story 2.12's ball search lands).
+- **Automatic recovery from `DW-222`'s stranded-ball scenario** is explicitly Story 2.12's (ball search), not this story's — AC 7 pins that the ball stays manually plungeable end to end, but nothing here recovers it automatically.
+- **No browser smoke test** of the rendered TILT/WARNING dots on the real panel — `NullEngine` cannot rasterise, and AD-15 forbids automated rendering assertions in v1; this is explicitly the lead's manual smoke per the spec's own "What this story's suite cannot prove."
+- **Coil double-disable on a same-tick collision** (the code-review fix's own residual): when a bob-triggered tilt and a same-tick slam both attempt to disable `HARDWARE_COILS`, the slam's disable batch lands first (by design) and the bob branch's own disable is now correctly suppressed (never reached, since `nextState.phase !== 'game'` short-circuits it) — verified by the new collision tests' exact-count assertion (`disabledAt50.length === HARDWARE_COILS.length`, not doubled).

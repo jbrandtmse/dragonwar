@@ -261,6 +261,12 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return `ended ${event.player} ${event.total}`;
 				case 'bonus_count_step':
 					return `bonus step ${event.step}/${event.steps} running ${event.running}`;
+				case 'tilt_warning':
+					return `tilt warning ${event.player} remaining ${event.remaining}`;
+				case 'tilt':
+					return `tilted ${event.player}`;
+				case 'slam_tilt':
+					return 'slam tilted';
 				case 'eject_failed':
 					return `eject failed ${event.device}`;
 				case 'broken':
@@ -306,6 +312,30 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(
 			describeEvent({ type: 'bonus_count_step', player: 1, step: 2, steps: 3, running: 40000, total: 60000, tick: 820 }),
 		).toBe('bonus step 2/3 running 40000');
+
+		// Story 2.11: this story's own three new arms, each with an
+		// executing assertion from the moment it ships (never joining the
+		// residual DW-223 pattern below) -- distinct player/remaining values
+		// so a field swap (e.g. templating event.remaining where event.player
+		// was intended) reddens rather than typechecks.
+		expect(describeEvent({ type: 'tilt_warning', player: 1, remaining: 2, tick: 90 })).toBe('tilt warning 1 remaining 2');
+		expect(describeEvent({ type: 'tilt', player: 3, tick: 91 })).toBe('tilted 3');
+		expect(describeEvent({ type: 'slam_tilt', tick: 92 })).toBe('slam tilted');
+
+		// DW-223 (task 16, this story's own reopen_if: "a story touches that
+		// switch for another reason and can close the pattern cheaply while
+		// it is already there"): the eight arms that were compiled for the
+		// exhaustiveness gate but never executed by any assertion, closed in
+		// the same pass as this story's own three new arms above. Distinct
+		// field values throughout, same reasoning as every arm above.
+		expect(describeEvent({ type: 'sim_time_discarded', ms: 55, tick: 9 })).toBe('discarded 55ms');
+		expect(describeEvent({ type: 'ball_starting', tick: 12 })).toBe('ball starting');
+		expect(describeEvent({ type: 'ball_started', tick: 13 })).toBe('ball started');
+		expect(describeEvent({ type: 'ball_launched', tick: 14 })).toBe('ball launched');
+		expect(describeEvent({ type: 'ball_missing', count: 4, tick: 15 })).toBe('missing 4');
+		expect(describeEvent({ type: 'eject_failed', device: 'bd_lock', tick: 16 })).toBe('eject failed bd_lock');
+		expect(describeEvent({ type: 'broken', device: 'c_pop_1', tick: 17 })).toBe('broken c_pop_1');
+		expect(describeEvent({ type: 'device_overflow', device: 'bd_lock', tick: 18 })).toBe('overflow bd_lock');
 	});
 });
 

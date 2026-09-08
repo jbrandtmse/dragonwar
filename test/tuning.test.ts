@@ -33,6 +33,8 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'slamNudgeWindowMs',
 			'tiltWarningSpacingMs',
 			'tiltSettleMs',
+			// Story 2.11 (DW-36, AD-15): the tilt-warning count's table default.
+			'tiltWarnings',
 			'plungerMinHoldMs',
 			'plungerMaxHoldMs',
 			'plungerMinSpeedScale',

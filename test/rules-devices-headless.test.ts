@@ -202,6 +202,8 @@ const ENTRY_FILES = [
 	// (this file's own completeness ratchet below, "AC 9 (headless),
 	// completeness").
 	path.join(__dirname, 'rules-bonus.test.ts'),
+	// Story 2.11, task 13: same reasoning -- ungated otherwise.
+	path.join(__dirname, 'rules-tilt.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

@@ -16,6 +16,7 @@ import {
 	renderFrame,
 	BALL_ENDED_HOLD_TICKS,
 	INITIAL_BACKGLASS_VIEW,
+	TILT_WARNING_HOLD_TICKS,
 	type BackglassView,
 } from '../src/presentation/backglass/frame';
 import { rasterise } from '../src/presentation/backglass/raster';
@@ -286,6 +287,207 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 		// hostLoop.reset() -> createLoop() -> tick restarts near 0.
 		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game }), events: [] }));
 		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
+	});
+});
+
+describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TILT from the state', () => {
+	const gameInPlay: GameState = {
+		...BASE_GAME_STATE,
+		phase: 'game',
+		currentPlayer: 0,
+		players: [buildPlayer({ score: 0, ballNumber: 1 })],
+	};
+
+	/** The band's own dot content, row-major, full column width -- an exact slice of `raster.dots`, so two calls' results can be compared for a "demonstrably different dot set" (Rule 19; both TILT and WARNING share row 0 with the score screen's own player-0 row, so an EMPTY control band is not always available -- a different PATTERN in the same band is the discriminating check task 11 names as the alternative). */
+	function dotsInBand(raster: { cols: number; rows: number; dots: Uint8Array }, rowStart: number, rowEnd: number): number[] {
+		const slice: number[] = [];
+		for (let r = rowStart; r < rowEnd; r++) {
+			for (let c = 0; c < raster.cols; c++) {
+				slice.push(raster.dots[r * raster.cols + c]!);
+			}
+		}
+		return slice;
+	}
+
+	// Code review finding (Verification Gap Reviewer): the title used to
+	// claim "the SAME band is dark on the arming input with no event" -- this
+	// test never renders an event-stripped frame at all; it compares against
+	// the SCORE screen's differing row-0 content (task 11's documented
+	// alternative to an empty control band, since WARNING/TILT share row 0
+	// with the score screen's own player-0 row). The event-stripped control
+	// this title used to describe is the SEPARATE 'control (Rule 19)' test
+	// immediately below, which checks `.screen`, not rasterised dots.
+	it('a tilt_warning event arms the tilt_warning screen; the WARNING row lights dots in its OWN declared band, genuinely different from the score screen\'s own row-0 content', () => {
+		const output = frameOutput({
+			snapshot: buildSnapshot({ tick: 10, game: gameInPlay }),
+			events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 10 }],
+		});
+		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, output);
+		expect(view.screen).toBe('tilt_warning');
+		expect(view.holdUntilTick, 'arming must set a hold deadline').toBe(10 + TILT_WARNING_HOLD_TICKS);
+
+		const frame = renderFrame(view, output.snapshot);
+		const warningRow = frame.rows.find((r) => r.text === 'WARNING');
+		expect(warningRow, 'sanity: the frame must carry a WARNING row at all').toBeDefined();
+		const raster = rasterise(frame, FONT_5X7);
+		const litRows = litDotRows(raster);
+		const inBand = (r: number): boolean => r >= warningRow!.row && r < warningRow!.row + GLYPH_H;
+		expect(litRows.filter(inBand), 'the WARNING row must light dots in ITS OWN dot band once rasterised').not.toEqual([]);
+
+		// The control frame: the score screen's own player-0 row occupies the
+		// SAME row-0 band (so it is not dark), but it renders "0", a
+		// demonstrably different dot pattern from "WARNING" (task 11's own
+		// alternative to an empty band).
+		const scoreFrame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game: gameInPlay }));
+		const scoreRaster = rasterise(scoreFrame, FONT_5X7);
+		expect(
+			dotsInBand(scoreRaster, warningRow!.row, warningRow!.row + GLYPH_H),
+			'the WARNING band\'s dot pattern must genuinely differ from the score screen\'s own row-0 content',
+		).not.toEqual(dotsInBand(raster, warningRow!.row, warningRow!.row + GLYPH_H));
+	});
+
+	it('holds across a later event-free frame within the window, and releases back to live play at the deadline', () => {
+		const armed = advanceBackglass(
+			INITIAL_BACKGLASS_VIEW,
+			frameOutput({ snapshot: buildSnapshot({ tick: 10, game: gameInPlay }), events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 10 }] }),
+		);
+		const held = advanceBackglass(armed, frameOutput({ snapshot: buildSnapshot({ tick: 11, game: gameInPlay }), events: [] }));
+		expect(held.screen, 'the frame after arming must STILL show the warning screen').toBe('tilt_warning');
+
+		const released = advanceBackglass(
+			held,
+			frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameInPlay }), events: [] }),
+		);
+		expect(released.screen, 'at holdUntilTick the hold must expire').toBe('score');
+	});
+
+	it('control (Rule 19): re-folding the SAME frame with events stripped never shows tilt_warning -- proving the screen reads the event, not player state', () => {
+		const output = frameOutput({
+			snapshot: buildSnapshot({ tick: 10, game: gameInPlay }),
+			events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 10 }],
+		});
+		const real = advanceBackglass(INITIAL_BACKGLASS_VIEW, output);
+		expect(real.screen, 'sanity: the real fold must arm the warning screen').toBe('tilt_warning');
+
+		const stripped = advanceBackglass(INITIAL_BACKGLASS_VIEW, { ...output, events: [] });
+		expect(stripped.screen, 'with events emptied, the warning screen must never be selected').not.toBe('tilt_warning');
+	});
+
+	it('code review: a warning hold armed on a PREVIOUS timeline does not survive a reset', () => {
+		const staleFromLongGame: BackglassView = {
+			screen: 'tilt_warning',
+			holdUntilTick: 500_000,
+			attractCycleOriginTick: 0,
+			heldBallEnded: null,
+		};
+		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
+		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
+	});
+
+	it('machine.tilt.tilted in phase "game" shows the TILT screen; the TILT row lights dots in its OWN band; the same fold with tilted:false shows a DIFFERENT dot set with no TILT row', () => {
+		const tiltedGame: GameState = {
+			...gameInPlay,
+			machine: { ...gameInPlay.machine, tilt: { tilted: true, slamTilted: false } },
+		};
+		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 20, game: tiltedGame }), events: [] }));
+		expect(view.screen).toBe('tilt');
+
+		const tiltFrame = renderFrame(view, buildSnapshot({ game: tiltedGame }));
+		const tiltRow = tiltFrame.rows.find((r) => r.text === 'TILT');
+		expect(tiltRow, 'sanity: the frame must carry a TILT row at all').toBeDefined();
+		const tiltRaster = rasterise(tiltFrame, FONT_5X7);
+		const tiltLitRows = litDotRows(tiltRaster);
+		const inBand = (r: number): boolean => r >= tiltRow!.row && r < tiltRow!.row + GLYPH_H;
+		expect(tiltLitRows.filter(inBand), 'the TILT row must light dots in ITS OWN dot band once rasterised').not.toEqual([]);
+
+		// The untilted control: the IDENTICAL machine.tilt.tilted: false state
+		// shows the score screen instead -- its own player-0 row occupies the
+		// SAME row-0 band, but "0" is a demonstrably different dot pattern from
+		// "TILT" (task 11's own alternative to an empty band).
+		const untiltedView = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 20, game: gameInPlay }), events: [] }));
+		expect(untiltedView.screen).toBe('score');
+		const scoreFrame = renderFrame(untiltedView, buildSnapshot({ game: gameInPlay }));
+		expect(scoreFrame.rows.some((r) => r.text === 'TILT'), 'the untilted control must carry no TILT row').toBe(false);
+		const scoreRaster = rasterise(scoreFrame, FONT_5X7);
+		expect(
+			dotsInBand(scoreRaster, tiltRow!.row, tiltRow!.row + GLYPH_H),
+			'the TILT band\'s dot pattern must genuinely differ from the untilted score screen\'s own row-0 content',
+		).not.toEqual(dotsInBand(tiltRaster, tiltRow!.row, tiltRow!.row + GLYPH_H));
+	});
+
+	it('a tilt condition supersedes a live tilt_warning hold', () => {
+		const warned = advanceBackglass(
+			INITIAL_BACKGLASS_VIEW,
+			frameOutput({ snapshot: buildSnapshot({ tick: 10, game: gameInPlay }), events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 10 }] }),
+		);
+		expect(warned.screen).toBe('tilt_warning');
+
+		const tiltedGame: GameState = {
+			...gameInPlay,
+			machine: { ...gameInPlay.machine, tilt: { tilted: true, slamTilted: false } },
+		};
+		const afterTilt = advanceBackglass(warned, frameOutput({ snapshot: buildSnapshot({ tick: 11, game: tiltedGame }), events: [] }));
+		expect(afterTilt.screen, 'the TILT condition must win over a still-live WARNING hold').toBe('tilt');
+	});
+
+	it('an ended ball still wins the panel over a same-tick TILT condition', () => {
+		const tiltedGame: GameState = {
+			...gameInPlay,
+			machine: { ...gameInPlay.machine, tilt: { tilted: true, slamTilted: false } },
+		};
+		const output = frameOutput({
+			snapshot: buildSnapshot({ tick: 30, game: tiltedGame }),
+			events: [
+				{
+					type: 'ball_ended',
+					player: 0,
+					bonusByCategory: { letters: 0, loops: 0, strikes: 0 },
+					multiplier: 1,
+					total: 0,
+					tilted: true,
+					tick: 30,
+				},
+			],
+		});
+		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, output);
+		expect(view.screen, 'a ball_ended event this frame must still win, even though the same snapshot is already tilted').toBe('ball_ended');
+	});
+
+	// Code review finding (Blind Hunter / Edge Case Hunter, converged
+	// independently): `sim/rules/tilt.ts` now processes a same-tick
+	// slam_tilt_closed before any tilt_bob_closed (Code review fix,
+	// test/rules-tilt.test.ts), so the rules layer itself can no longer
+	// produce a `tilt_warning` event on a tick whose final snapshot phase is
+	// already 'attract'. This describe block's own two tests below are the
+	// PRESENTATION layer's independent, defense-in-depth guard against the
+	// same class of bug -- both the arming branch and the hold-continuation
+	// branch are gated on `game.phase === 'game'`, exactly mirroring the
+	// TILT branch's own gate above -- so the panel is correct even if a
+	// future producer of `tilt_warning` ever again disagreed with `phase`.
+	it('a tilt_warning event arriving on a frame whose snapshot phase is already "attract" never arms the WARNING screen', () => {
+		const attractGame: GameState = { ...gameInPlay, phase: 'attract' };
+		const output = frameOutput({
+			snapshot: buildSnapshot({ tick: 50, game: attractGame }),
+			events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 50 }],
+		});
+		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, output);
+		expect(view.screen, 'phase is already attract this frame -- the WARNING screen must never arm').not.toBe('tilt_warning');
+	});
+
+	it('a live tilt_warning hold is abandoned the moment phase leaves "game" -- a slam tilt landing mid-hold does not keep showing WARNING', () => {
+		const warned = advanceBackglass(
+			INITIAL_BACKGLASS_VIEW,
+			frameOutput({ snapshot: buildSnapshot({ tick: 10, game: gameInPlay }), events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 10 }] }),
+		);
+		expect(warned.screen).toBe('tilt_warning');
+		expect(warned.holdUntilTick, 'sanity: the hold has not yet expired at the very next tick').toBeGreaterThan(11);
+
+		const attractGame: GameState = { ...gameInPlay, phase: 'attract', players: [] };
+		const afterSlam = advanceBackglass(warned, frameOutput({ snapshot: buildSnapshot({ tick: 11, game: attractGame }), events: [] }));
+		expect(
+			afterSlam.screen,
+			'the hold must be abandoned the instant phase is no longer "game" -- a slam tilt mid-hold must not keep the WARNING screen alive',
+		).not.toBe('tilt_warning');
 	});
 });
 
@@ -704,7 +906,7 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 			.map((entry) => path.join(dir, entry));
 	}
 
-	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL ', 'ARM YOURSELF', 'BONUS '];
+	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL ', 'ARM YOURSELF', 'BONUS ', 'TILT', 'WARNING'];
 
 	/**
 	 * Comments freely discuss balls and players in English prose -- this scan

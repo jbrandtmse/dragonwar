@@ -214,6 +214,33 @@ export interface BonusCountStepEvent {
 }
 
 /**
+ * Story 2.11 (AD-7, AD-9): a debounced `s_tilt_bob` closure that counted --
+ * the current player's `tiltWarnings` moved. `remaining` is the payload-
+ * complete count of warnings still available before the NEXT eligible
+ * closure tilts (`max(0, adjustments.tiltWarnings - tiltWarnings)`), so
+ * presentation never needs to join this event to a later snapshot (AD-9).
+ */
+export interface TiltWarningEvent {
+	readonly type: 'tilt_warning';
+	readonly player: number;
+	readonly remaining: number;
+	readonly tick: number;
+}
+
+/** Story 2.11 (AD-5, AD-7): the machine tilted -- `machine.tilt.tilted` moved true, hardware disabled, every ball-save source disarmed. `player` is the player whose closure tilted the machine (AD-7: `tiltWarnings` is player-scoped; the tilt CONDITION is machine-scoped, but the triggering player is worth carrying on the payload). */
+export interface TiltEvent {
+	readonly type: 'tilt';
+	readonly player: number;
+	readonly tick: number;
+}
+
+/** Story 2.11 (AD-5, PRD FR-16): `s_slam_tilt` closed during a live game -- every player's game ends and the machine returns to Attract. No payload beyond `tick`: unlike `TiltEvent`, a slam tilt is not attributed to one player's closure count (there is no per-player slam-tilt state at all). */
+export interface SlamTiltEvent {
+	readonly type: 'slam_tilt';
+	readonly tick: number;
+}
+
+/**
  * Device-failure vocabulary (AD-9 Conventions): named so the vocabulary
  * exists, even though nothing in Epic 1 emits them. No artifact states a
  * payload beyond the device that failed, so none is invented here.
@@ -255,6 +282,9 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| BallSaveTimerStartedEvent
 	| BallSavedEvent
 	| BonusCountStepEvent
+	| TiltWarningEvent
+	| TiltEvent
+	| SlamTiltEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

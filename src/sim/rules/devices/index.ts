@@ -25,7 +25,7 @@
 // `device_ball_entered`/`_left`'s effect on `machine.ballsInPlay` reach
 // `GameState` at all, exactly as before this story.
 
-import { TABLE } from '../../table/dragonwar';
+import { TABLE, type SettleClass } from '../../table/dragonwar';
 import { shotWindowTicks, type ResolvedTuning } from '../../table/tuning';
 import type { BallDeviceName, CoilCommand, SwitchEvent, SwitchName } from '../../table/names';
 import type { BallWillStartEvent } from '../../contracts/events';
@@ -41,7 +41,9 @@ import type {
 	LaneName,
 	LockLaneEnteredEvent,
 	PlayfieldSwitchClosedEvent,
+	SlamTiltClosedEvent,
 	SpinnerSpinEvent,
+	TiltBobClosedEvent,
 } from './events';
 
 export type {
@@ -61,7 +63,9 @@ export type {
 	PlayfieldSwitchClosedEvent,
 	ShotBrokenEvent,
 	ShotMadeEvent,
+	SlamTiltClosedEvent,
 	SpinnerSpinEvent,
+	TiltBobClosedEvent,
 } from './events';
 
 export interface DevicesLayerStepResult {
@@ -218,6 +222,40 @@ function buildPlayfieldSwitches(): ReadonlySet<SwitchName> {
  */
 export const PLAYFIELD_SWITCHES: ReadonlySet<SwitchName> = buildPlayfieldSwitches();
 
+/**
+ * Story 2.11 (AD-1, AD-16, AD-19's 2026-09-08 amendment): derives `s_tilt_bob`
+ * / `s_slam_tilt` STRUCTURALLY from their unique `SettleClass`, mirroring
+ * `sim/physics/cabinet/index.ts`'s own file-private helper of the same name
+ * and purpose -- re-authored here rather than imported, because `sim/rules`
+ * never imports `sim/physics` (AD-1) and that one is file-private in any
+ * case. `pnpm lint:boundaries`'s `no-device-name-literal` rule bans an
+ * `s_`-prefixed literal anywhere under `src/` outside `sim/table/dragonwar.ts`,
+ * so the two switch names below are NEVER spelled directly. Exactly one
+ * `TABLE.switches` entry carries each of these two classes -- anything else
+ * is a `TABLE` authoring defect, not a runtime condition to degrade
+ * gracefully from (Boundaries: "throws as a TABLE authoring defect rather
+ * than degrading").
+ */
+function switchNameForSettleClass(settleClass: SettleClass): SwitchName {
+	const matches = (Object.entries(TABLE.switches) as Array<[SwitchName, { readonly settleClass: SettleClass }]>).filter(
+		([, sw]) => sw.settleClass === settleClass,
+	);
+	if (matches.length !== 1) {
+		throw new Error(`createDevicesLayer(): expected exactly one TABLE.switches entry with settleClass "${settleClass}", found ${matches.length}`);
+	}
+	return matches[0]![0];
+}
+
+/**
+ * Resolved once, module-level -- purely a function of the frozen `TABLE`, so
+ * every `createDevicesLayer()` instance shares the identical two names,
+ * exactly as `PLAYFIELD_SWITCHES` above is shared. Named exactly as
+ * `sim/physics/cabinet/index.ts:204-205` names its own pair (camelCase, no
+ * uppercase `TILT`/`WARNING` -- Boundaries, Never).
+ */
+const tiltBobSwitchName: SwitchName = switchNameForSettleClass('tilt_bob');
+const slamTiltSwitchName: SwitchName = switchNameForSettleClass('slam');
+
 interface PendingLockLaneClosure {
 	readonly startTick: number;
 }
@@ -332,6 +370,17 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 			}
 			if (event.switch === (TABLE.dragonBodyWiring.switch as SwitchName)) {
 				events.push({ type: 'dragon_hit', tick: event.tick } satisfies DragonHitEvent);
+			}
+			// Story 2.11: the two cabinet-mechanism switches -- closed-edge only
+			// (this loop already filters `!event.closed`), never joining
+			// `playfield_switch_closed` below (they are excluded from
+			// `PLAYFIELD_SWITCHES` by construction, `buildPlayfieldSwitches()`
+			// above, untouched by this story).
+			if (event.switch === tiltBobSwitchName) {
+				events.push({ type: 'tilt_bob_closed', tick: event.tick } satisfies TiltBobClosedEvent);
+			}
+			if (event.switch === slamTiltSwitchName) {
+				events.push({ type: 'slam_tilt_closed', tick: event.tick } satisfies SlamTiltClosedEvent);
 			}
 			// Story 2.7: emitted BEFORE lane_entered for the same switch --
 			// every Top/inlane/outlane switch is also a playfield switch, so a

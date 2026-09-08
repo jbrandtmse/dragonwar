@@ -17,6 +17,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { deriveGameSeed } from '../src/host/game-seed';
 import { DEFAULT_ADJUSTMENTS } from '../src/sim/rules';
+import { TUNING } from '../src/sim/table/tuning';
 
 const BOOT_PATH = path.resolve(__dirname, '..', 'src', 'host', 'boot.ts');
 
@@ -92,7 +93,7 @@ describe('DW-201 -- src/host/boot.ts (source scan): the real gameplay GameStart 
 });
 
 // Code review, blind-hunter layer, 2026-09-06: `boot.ts`'s new `gameStart`
-// hand-types `{ tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0.08 }`
+// hand-types `{ tiltWarnings: ..., ballsPerGame: 3, matchProbability: 0.08 }`
 // rather than importing `sim/rules/index.ts`'s own `DEFAULT_ADJUSTMENTS` --
 // it MUST hand-type it, since `host/**` may never import `sim/rules/**`
 // directly (AD-1/AD-16, `dependency-cruiser.config.mjs`'s own
@@ -104,19 +105,34 @@ describe('DW-201 -- src/host/boot.ts (source scan): the real gameplay GameStart 
 // that enforcement: it reads `DEFAULT_ADJUSTMENTS` (a test-only named
 // export, the `HARDWARE_COILS`/`PLAYFIELD_SWITCHES` precedent) and the
 // boot.ts source text side by side.
+//
+// Story 2.11 (`DW-36`): `tiltWarnings` stopped being a bare numeric literal
+// here -- it now reads `TUNING.tiltWarnings.value` (the one table-tunable
+// entry AD-15's Rule names, `sim/table/tuning.ts`), the SAME entry
+// `DEFAULT_ADJUSTMENTS.tiltWarnings` reads. The regex below asserts that
+// EXACT expression appears, textually, rather than a second hand-typed
+// number -- AC 8's own "no second literal 1 for this figure anywhere
+// outside the tuning entry". `ballsPerGame`/`matchProbability` are
+// unaffected (Story 2.13's own figures) and stay bare numeric literals.
 describe('DW-201 code review -- boot.ts\'s real gameplay adjustments literal must not silently drift from sim/rules/index.ts\'s own DEFAULT_ADJUSTMENTS', () => {
-	it('tiltWarnings, ballsPerGame and matchProbability in the real createHostLoop(...) call equal DEFAULT_ADJUSTMENTS\'s own values', () => {
+	it('tiltWarnings reads TUNING.tiltWarnings.value (never a second hand-typed literal); ballsPerGame and matchProbability equal DEFAULT_ADJUSTMENTS\'s own values', () => {
 		const source = readFileSync(BOOT_PATH, 'utf8');
 		const match = source.match(
-			/adjustments:\s*\{\s*pitchDeg:\s*TABLE\.reference\.pitchDeg,\s*tiltWarnings:\s*(-?\d+(?:\.\d+)?),\s*ballsPerGame:\s*(-?\d+(?:\.\d+)?),\s*matchProbability:\s*(-?\d+(?:\.\d+)?)\s*\}/,
+			/adjustments:\s*\{\s*pitchDeg:\s*TABLE\.reference\.pitchDeg,\s*tiltWarnings:\s*TUNING\.tiltWarnings\.value,\s*ballsPerGame:\s*(-?\d+(?:\.\d+)?),\s*matchProbability:\s*(-?\d+(?:\.\d+)?)\s*\}/,
 		);
-		expect(match, 'the real gameplay adjustments literal must be found in this exact shape in boot.ts').not.toBeNull();
-		const [, tiltWarnings, ballsPerGame, matchProbability] = match!;
+		expect(match, 'the real gameplay adjustments literal must be found in this exact shape in boot.ts, with tiltWarnings reading TUNING.tiltWarnings.value').not.toBeNull();
+		const [, ballsPerGame, matchProbability] = match!;
 
-		expect(Number(tiltWarnings), 'boot.ts\'s tiltWarnings must equal DEFAULT_ADJUSTMENTS.tiltWarnings').toBe(DEFAULT_ADJUSTMENTS.tiltWarnings);
 		expect(Number(ballsPerGame), 'boot.ts\'s ballsPerGame must equal DEFAULT_ADJUSTMENTS.ballsPerGame').toBe(DEFAULT_ADJUSTMENTS.ballsPerGame);
 		expect(Number(matchProbability), 'boot.ts\'s matchProbability must equal DEFAULT_ADJUSTMENTS.matchProbability').toBe(
 			DEFAULT_ADJUSTMENTS.matchProbability,
+		);
+		// Sanity: the one entry both readers point at must actually be the
+		// figure DEFAULT_ADJUSTMENTS resolves to -- otherwise this test's own
+		// regex match proves only that the TEXT "TUNING.tiltWarnings.value"
+		// appears, not that it names the entry DEFAULT_ADJUSTMENTS itself reads.
+		expect(TUNING.tiltWarnings.value, 'TUNING.tiltWarnings.value must equal DEFAULT_ADJUSTMENTS.tiltWarnings -- the whole point of AC 8\'s "one definition"').toBe(
+			DEFAULT_ADJUSTMENTS.tiltWarnings,
 		);
 	});
 });

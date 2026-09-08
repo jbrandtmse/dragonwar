@@ -65,11 +65,12 @@ import { advanceBonusMultiplier, creditBonusFromDeviceEvents } from './bonus';
 import { bootDeviceSlots, createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
 import { createModeStack, type ModeEvent } from './modes';
 import { lampsOf } from './lamps';
+import { createTiltController } from './tilt';
 import { TABLE } from '../table/dragonwar';
 import type { GameState, MachineState, SemanticEvent, CoilCommand, LampState } from '../table/names';
 import type { BallLaunchedEvent, BallWillStartEvent } from '../contracts/events';
 import type { GameAdjustments } from '../contracts/replay';
-import type { ResolvedTuning } from '../table/tuning';
+import { TUNING, type ResolvedTuning } from '../table/tuning';
 
 /** The devices layer's own declared switch-events input -- see this file's header on why it is reached this way rather than by naming `SwitchEvent` directly. */
 type SwitchEventsParam = Parameters<DevicesLayer['step']>[0];
@@ -179,12 +180,18 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * the "mirrors" claim above is true of `ballsPerGame` ONLY. `tiltWarnings`
  * and `matchProbability` deliberately do NOT match `src/host/boot.ts:281` or
  * the golden headers, which both carry `tiltWarnings: 3` / `matchProbability: 0`;
- * this default carries `1` / `0.08`. Neither field has a reader yet (tilt is
- * Story 2.11, Match is Story 2.13) so nothing observes the divergence today,
- * and reconciling it is a product call those stories own -- `DW-36` already
- * tracks the tilt-warning default's missing transcription and is routed to
- * Story 2.11. Recorded here so the next reader challenges the numbers rather
- * than trusting a comment that overstated them.
+ * this default carries `1` / `0.08`. `matchProbability` still has no reader
+ * (Match is Story 2.13) so that divergence is unchanged and still that
+ * story's product call to reconcile.
+ *
+ * Story 2.11 (`DW-36`, closed): `tiltWarnings` no longer diverges by
+ * construction -- it now reads `TUNING.tiltWarnings.value` (`sim/table/tuning.ts`,
+ * the one place AD-15's Rule names it), and `src/host/boot.ts`'s real
+ * `GameStart` reads the SAME entry (it must hand-type the read, never import
+ * this file -- AD-1/AD-16). The dev replay recorder's own separate
+ * `GameStart` (`boot.ts:407`) is untouched and keeps its deliberate literal
+ * `3` -- `DW-185`'s divergence, routed to Story 3.7, not this story's to
+ * touch.
  */
 // Test-only named export (the `HARDWARE_COILS` / `PLAYFIELD_SWITCHES`
 // precedent, `ball-controller.ts` / `devices/index.ts`) -- Story 2.7, DW-201
@@ -198,7 +205,7 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
 // `host/**`.
 export const DEFAULT_ADJUSTMENTS: GameAdjustments = {
 	pitchDeg: TABLE.reference.pitchDeg,
-	tiltWarnings: 1,
+	tiltWarnings: TUNING.tiltWarnings.value,
 	ballsPerGame: 3,
 	matchProbability: 0.08,
 };
@@ -213,6 +220,7 @@ export const DEFAULT_ADJUSTMENTS: GameAdjustments = {
 export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments = DEFAULT_ADJUSTMENTS): Rules {
 	const devicesLayer = createDevicesLayer(tuning);
 	const ballController = createBallController(adjustments, tuning);
+	const tiltController = createTiltController(adjustments, tuning);
 	const modeStack = createModeStack(tuning);
 
 	// See this file's header, "Sequencing note": ball_will_start events the
@@ -239,6 +247,15 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		}
 		const stateAfterAccounting: GameState = machine === state.machine ? state : { ...state, machine };
 
+		// Story 2.11 (AD-5, AD-7): the tilt controller runs BEFORE the ball
+		// controller so a Tilt that engaged THIS tick is already true for
+		// every guard `ballController.step()` runs on this same tick (the
+		// ball-save conjunct, the deferred-autolaunch guard, the bonus
+		// forfeit -- all three read `machine.tilt.tilted`). Positioned at the
+		// same composition point `applyDeviceEvents` above already occupies:
+		// purely a function of this tick's device events, run once per tick.
+		const tiltResult = tiltController.step(stateAfterAccounting, deviceResult.events, tick);
+
 		// Story 2.10 (AD-19, DW-208's fix, part 1): a pure fold over THIS
 		// tick's device events, run BEFORE the ball controller so a category
 		// credited on the drain tick lands inside that same ball's own
@@ -246,7 +263,7 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// further down its own drain branch, after this fold has already run.
 		// `applyDeviceEvents` immediately above is the in-tree precedent for a
 		// pure event-fold invoked straight from this file.
-		const stateAfterBonusCredit = creditBonusFromDeviceEvents(stateAfterAccounting, deviceResult.events);
+		const stateAfterBonusCredit = creditBonusFromDeviceEvents(tiltResult.state, deviceResult.events);
 
 		const controllerResult = ballController.step(stateAfterBonusCredit, deviceResult.events, tick);
 		pendingLifecycleEvents = controllerResult.ballWillStartEvents;
@@ -272,13 +289,13 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 
 		const nextState: GameState = { ...stateAfterBonusMultiplier, tick };
 
-		const events: SemanticEvent[] = [...deviceResult.events.filter(isBallLaunched), ...controllerResult.events];
+		const events: SemanticEvent[] = [...deviceResult.events.filter(isBallLaunched), ...tiltResult.events, ...controllerResult.events];
 
 		return {
 			state: nextState,
 			events,
 			commands: [],
-			coilCommands: [...deviceResult.coilCommands, ...controllerResult.coilCommands],
+			coilCommands: [...deviceResult.coilCommands, ...tiltResult.coilCommands, ...controllerResult.coilCommands],
 			modeEvents: modeStackResult.events,
 		};
 	}

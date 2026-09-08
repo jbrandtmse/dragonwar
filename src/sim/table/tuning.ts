@@ -368,6 +368,15 @@ export const TUNING = deepFreeze({
 	tiltSettleMs: entry(3000, 'authored: AD-3/AD-7 name "tilt... settle" as a rules timer keyed to the bob\'s physical decay; no duration stated', 'unverified'),
 
 	/**
+	 * Story 2.11 (`DW-36`, AD-15): the tilt-warning count `GameAdjustments.tiltWarnings`
+	 * layers a table default for (AD-14) -- the one place AD-15's own Rule
+	 * names it, "sim/table/tuning.ts". No unit suffix: a count, never a
+	 * duration, following `skillShotAward`'s own shape above, so it derives
+	 * no `…Ticks` sibling.
+	 */
+	tiltWarnings: entry(1, "PRD FR-14: 'up to the Settings count (default 1 [ASSUMPTION: default; the research gives only the Competition preset value of 2])'", 'unverified'),
+
+	/**
 	 * AD-5: "the manual plunge maps s_plunger hold ticks through
 	 * plungerSpeedByHoldMs in tuning.ts." No artifact states a curve, so this
 	 * is authored as the two boundary points of a linear hold-time ->

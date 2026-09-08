@@ -168,7 +168,13 @@ function hardwareCoils(): readonly CoilName[] {
 	);
 }
 
-/** Test-only export (review finding 2026-09-06): lets a test assert the exact enable/disable set without hand-duplicating this derivation (DW-149). */
+/**
+ * Exported (review finding 2026-09-06): lets a test assert the exact
+ * enable/disable set without hand-duplicating this derivation (DW-149).
+ * Story 2.11 gives this a SECOND, production reader: `sim/rules/tilt.ts`
+ * imports it directly rather than re-deriving the same set a second time --
+ * no longer test-only.
+ */
 export const HARDWARE_COILS: readonly CoilName[] = hardwareCoils();
 
 /**

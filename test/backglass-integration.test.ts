@@ -29,6 +29,7 @@ import { FONT_5X7 } from '../src/presentation/backglass/font';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { CoilName, GameStart } from '../src/sim/table/names';
+import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const DISABLED_HAZARD_COILS: readonly CoilName[] = ['c_pop_1', 'c_pop_2', 'c_pop_3', 'c_sling_l', 'c_sling_r'];
@@ -218,4 +219,77 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 		expect(sawBallEndedEvent, 'sanity: the real run must still have produced the event this control strips').toBe(true);
 		expect(view.screen, 'with events emptied, the ball_ended screen must never be selected').not.toBe('ball_ended');
 	});
+});
+
+describe('Story 2.11, task 12 (AC 9) -- a real createLoop folds a tilted ball\'s frames into the WARNING and TILT screens, exactly as src/host/boot.ts:291-292 does', () => {
+	/**
+	 * TWO `nudge_up` rising edges at the fastest achievable spacing -- the
+	 * same cadence `test/cabinet-bob.test.ts`'s own `burstFrames()` uses, but
+	 * only two edges (measured for this story, `test/rules-tilt-integration.test.ts`'s
+	 * own header): the full ten-edge burst also trips the slam detector
+	 * (`slamNudgesPerWindow: 3` within `slamNudgeWindowMs: 500`), which ends
+	 * the game before the bob's own warning/tilt path can ever be observed.
+	 * Two edges cross the bob's own `thresholdDeg` (measured directly:
+	 * tick 36 of a two-edge burst) while staying under the slam count.
+	 */
+	function burstTransitions(startTick: number): InputTransition[] {
+		const transitions: InputTransition[] = [];
+		for (let i = 0; i < 2; i++) {
+			const onTick = startTick + i * 2;
+			transitions.push({ tick: onTick, frame: { ...NO_FRAME, nudge_up: true } });
+			transitions.push({ tick: onTick + 1, frame: NO_FRAME });
+		}
+		return transitions;
+	}
+
+	it('the WARNING row appears at the warning tick, the TILT row appears after the tilt, and the events:[] control never shows WARNING', () => {
+		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: gameStart() });
+
+		loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
+		loop.advance(1, [{ tick: 3, frame: { ...NO_FRAME, start: false } }]);
+		loop.advance(1, []);
+		loop.pulseCoil('c_autolaunch');
+
+		let out = loop.advance(1, []);
+		for (let i = 0; i < 320 && out.snapshot.game.machine.ballsInPlay < 1; i++) {
+			out = loop.advance(1, []);
+		}
+		expect(out.snapshot.game.machine.ballsInPlay, 'sanity: the served ball must genuinely plunge, or this test is vacuous').toBe(1);
+
+		let view = INITIAL_BACKGLASS_VIEW;
+		let strippedView = INITIAL_BACKGLASS_VIEW;
+		let sawWarningRow = false;
+		let sawTiltRow = false;
+		let sawStrippedWarningRow = false;
+
+		const firstBurstStart = out.snapshot.tick + 1;
+		const firstBurst = burstTransitions(firstBurstStart);
+		for (let tick = firstBurstStart; tick < firstBurstStart + 1600 && !sawWarningRow; tick++) {
+			const pending = firstBurst.filter((t) => t.tick === tick);
+			out = loop.advance(1, pending);
+			view = advanceBackglass(view, out);
+			strippedView = advanceBackglass(strippedView, { ...out, events: [] });
+			if (renderFrame(view, out.snapshot).rows.some((r) => r.text === 'WARNING')) {
+				sawWarningRow = true;
+			}
+			if (renderFrame(strippedView, out.snapshot).rows.some((r) => r.text === 'WARNING')) {
+				sawStrippedWarningRow = true;
+			}
+		}
+		expect(sawWarningRow, 'a real nudge burst crossing the bob\'s threshold must produce a WARNING row').toBe(true);
+		expect(sawStrippedWarningRow, 'the SAME frames, re-folded with events stripped, must never show WARNING').toBe(false);
+
+		const secondBurstStart = out.snapshot.tick + 3000;
+		const secondBurst = burstTransitions(secondBurstStart);
+		for (let tick = out.snapshot.tick + 1; tick < secondBurstStart + 1600 && !sawTiltRow; tick++) {
+			const pending = secondBurst.filter((t) => t.tick === tick);
+			out = loop.advance(1, pending);
+			view = advanceBackglass(view, out);
+			if (renderFrame(view, out.snapshot).rows.some((r) => r.text === 'TILT')) {
+				sawTiltRow = true;
+			}
+		}
+		expect(sawTiltRow, 'a second real burst past the spacing window must tilt the machine and show the TILT row').toBe(true);
+		expect(out.snapshot.game.machine.tilt.tilted, 'sanity: the machine must genuinely be tilted').toBe(true);
+	}, 30000);
 });

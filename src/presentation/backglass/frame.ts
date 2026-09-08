@@ -22,7 +22,7 @@
 // event to a later snapshot" is not in tension with it.
 
 import { ticksToMs, TICK_HZ } from '../../sim/contracts/time';
-import type { BallEndedEvent, BonusCountStepEvent } from '../../sim/contracts/events';
+import type { BallEndedEvent, BonusCountStepEvent, TiltWarningEvent } from '../../sim/contracts/events';
 import type { ModeView } from '../../sim/contracts/mode-view';
 import type { FrameOutput, GameState, Snapshot } from '../../sim/table/names';
 
@@ -33,6 +33,11 @@ function isBallEndedEvent(event: { readonly type: string }): event is BallEndedE
 /** Story 2.10 (AD-9): the end-of-ball count-up's own step event -- `advanceBackglass()`'s hold branch folds these into `heldBallEnded.bonusRunning`, never joining to a later snapshot. */
 function isBonusCountStepEvent(event: { readonly type: string }): event is BonusCountStepEvent {
 	return event.type === 'bonus_count_step';
+}
+
+/** Story 2.11 (AD-9): the transient tilt-warning event -- `advanceBackglass()` arms the `tilt_warning` screen from this alone, never from `players[i].tiltWarnings` (AC 9's own control). */
+function isTiltWarningEvent(event: { readonly type: string }): event is TiltWarningEvent {
+	return event.type === 'tilt_warning';
 }
 
 /** The DMD's physical dot grid -- 128 columns by 32 rows, the shape `raster.ts` rasterises into. */
@@ -58,8 +63,8 @@ export interface DmdRow {
 	readonly emphasis: boolean;
 }
 
-/** The closed set of screens this story's Backglass can show. Later stories ADD members (Story 2.7's ARM YOURSELF, 2.11's TILT, 2.13's final scores/Match) -- this union is a contract, not an implementation detail (Consumed-by, Rule 2). */
-export type DmdScreen = 'attract_prompt' | 'attract_scores' | 'score' | 'ball_ended';
+/** The closed set of screens this story's Backglass can show. Later stories ADD members (Story 2.7's ARM YOURSELF, 2.13's final scores/Match) -- this union is a contract, not an implementation detail (Consumed-by, Rule 2). */
+export type DmdScreen = 'attract_prompt' | 'attract_scores' | 'score' | 'ball_ended' | 'tilt_warning' | 'tilt';
 
 /** One rendered frame: which screen, and the rows to rasterise. */
 export interface DmdFrame {
@@ -116,6 +121,13 @@ const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
  * test rather than a silently truncated animation.
  */
 export const BALL_ENDED_HOLD_TICKS = msToTicks(3000);
+/**
+ * Story 2.11: how long the transient tilt-warning screen holds before the
+ * live view (score, or a later warning/tilt) may show again -- a
+ * PRESENTATION constant, exactly like its neighbour above, never a tunable
+ * (moves no golden).
+ */
+export const TILT_WARNING_HOLD_TICKS = msToTicks(2000);
 /** Attract's own two-screen cycle: PRESS START, then both players' scores, then back. */
 const ATTRACT_PROMPT_HOLD_TICKS = msToTicks(3000);
 const ATTRACT_SCORES_HOLD_TICKS = msToTicks(3000);
@@ -156,10 +168,22 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  * 2. Still inside a live hold: a `bonus_count_step` this frame updates
  *    `heldBallEnded.bonusRunning`; otherwise the view is unchanged (Story
  *    2.10 widens this branch -- it used to return `view` unconditionally).
- * 3. Attract phase: cycle (or pin to the prompt with no scores).
- * 4. Anything else (`game`, `game_over`, `highscore_entry`): the score
- *    screen -- the only non-Attract, non-held screen this story's union
- *    names.
+ * 3. Story 2.11: `machine.tilt.tilted` in `phase: 'game'` shows the TILT
+ *    screen -- a CONTINUOUS condition read off the snapshot (AD-9: that is
+ *    what the snapshot is for), superseding even a live warning hold (a
+ *    tilt always follows warnings) but never an armed/held `ball_ended`
+ *    (the more specific event, decided above this).
+ * 4. Story 2.11: a `tilt_warning` event this frame arms the transient
+ *    warning hold -- reading the event alone, never `players[i].tiltWarnings`
+ *    (AD-9; AC 9's own control).
+ * 5. Story 2.11: still inside a live warning hold, the SAME reset-safe
+ *    half-open window `ball_ended`'s own hold uses -- the view is
+ *    unchanged (there is no incremental payload to fold, unlike the BONUS
+ *    count-up).
+ * 6. Attract phase: cycle (or pin to the prompt with no scores).
+ * 7. Anything else (`game`, `game_over`, `highscore_entry`): the score
+ *    screen -- the only non-Attract, non-held, non-tilt screen this story's
+ *    union names.
  */
 export function advanceBackglass(view: BackglassView, input: FrameOutput): BackglassView {
 	const tick = input.snapshot.tick;
@@ -209,6 +233,55 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		if (stepEvent && view.heldBallEnded && stepEvent.player === view.heldBallEnded.player) {
 			return { ...view, heldBallEnded: { ...view.heldBallEnded, bonusRunning: stepEvent.running } };
 		}
+		return view;
+	}
+
+	// Story 2.11: the TILT condition, read off the SNAPSHOT (a continuous
+	// machine condition, not a one-tick event) -- supersedes a live warning
+	// hold (checked below) because a tilt always follows warnings, but stays
+	// BELOW the ball_ended arming/hold branches above: a ball ending on the
+	// tilting tick still wins the panel for its own hold (AC 9).
+	if (game.phase === 'game' && game.machine.tilt.tilted) {
+		return { screen: 'tilt', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null };
+	}
+
+	// Code review finding (Blind Hunter / Edge Case Hunter, converged
+	// independently): both this arming check and the hold-continuation check
+	// below are gated on `game.phase === 'game'`, mirroring the TILT branch's
+	// own gate immediately above -- otherwise a `tilt_warning` racing a
+	// same-tick `slam_tilt` (the bob and slam detector can both cross
+	// threshold on one violent nudge; `sim/rules/tilt.ts` now processes slam
+	// first specifically so it always wins the GameState, but the WARNING
+	// event itself can still land in this frame's `events` from before that
+	// reordering existed at the presentation layer) -- or a warning hold
+	// still counting down when a LATER tick's slam tilt ends the game
+	// (`phase` moves to 'attract' well inside `TILT_WARNING_HOLD_TICKS`,
+	// which is 2000 ms, far longer than one tick) -- would otherwise keep
+	// showing WARNING instead of the Attract screen the game already
+	// reached.
+	const tiltWarningEvent = input.events.find(isTiltWarningEvent);
+	if (game.phase === 'game' && tiltWarningEvent) {
+		return {
+			screen: 'tilt_warning',
+			holdUntilTick: tick + TILT_WARNING_HOLD_TICKS,
+			attractCycleOriginTick: view.attractCycleOriginTick,
+			heldBallEnded: null,
+		};
+	}
+
+	// The SAME reset-safe half-open window the ball_ended hold branch above
+	// uses (this file's own header, `src/host/loop.ts`'s `reset()`): a tick
+	// below the lower bound is a tick from a different timeline, not "still
+	// holding". Nothing to fold here (unlike the BONUS count-up) -- the
+	// warning screen carries no incremental payload -- so the view is simply
+	// unchanged while the hold is live.
+	if (
+		game.phase === 'game' &&
+		view.screen === 'tilt_warning' &&
+		view.holdUntilTick !== null &&
+		tick < view.holdUntilTick &&
+		tick >= view.holdUntilTick - TILT_WARNING_HOLD_TICKS
+	) {
 		return view;
 	}
 
@@ -375,6 +448,16 @@ function buildBallEndedRows(held: { readonly player: number; readonly score: num
 	return rows;
 }
 
+/** Story 2.11: the TILT screen -- one row, no dynamic content (the CONDITION is the whole message; `machine.tilt.tilted` is what selected this screen). */
+function buildTiltRows(): DmdRow[] {
+	return [{ text: 'TILT', col: LEFT_MARGIN_COL, row: 0, emphasis: false }];
+}
+
+/** Story 2.11: the transient tilt-warning screen -- one row, no dynamic content (the EVENT'S arrival is the whole message; `remaining` is payload-complete for a future consumer but this story's own panel does not render it, per the I/O matrix's own "rendering a WARNING row" wording). */
+function buildTiltWarningRows(): DmdRow[] {
+	return [{ text: 'WARNING', col: LEFT_MARGIN_COL, row: 0, emphasis: false }];
+}
+
 /**
  * Turns `view` plus the CURRENT `snapshot` into a `DmdFrame`. Pure, and
  * never throws (I/O Matrix: every row here is "no error expected") --
@@ -388,6 +471,10 @@ export function renderFrame(view: BackglassView, snapshot: Snapshot): DmdFrame {
 			return { screen: 'attract_scores', rows: buildAttractScoresRows(snapshot.game.players) };
 		case 'ball_ended':
 			return { screen: 'ball_ended', rows: view.heldBallEnded ? buildBallEndedRows(view.heldBallEnded) : [] };
+		case 'tilt':
+			return { screen: 'tilt', rows: buildTiltRows() };
+		case 'tilt_warning':
+			return { screen: 'tilt_warning', rows: buildTiltWarningRows() };
 		case 'score':
 			return { screen: 'score', rows: buildScoreRows(snapshot.game) };
 		default: {

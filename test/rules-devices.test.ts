@@ -13,7 +13,7 @@
 // event that means 'plunged'"; "device counts in GameState are the number of
 // closed slot switches and nothing else".
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDevicesLayer, PLAYFIELD_SWITCHES } from '../src/sim/rules/devices';
 import { applyDeviceEvents } from '../src/sim/rules/ball-controller';
 import { createRules } from '../src/sim/rules';
@@ -588,19 +588,84 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 // Story 2.7 (task 6): `s_sling_l`/`s_sling_r`/`s_pop_1..3`/`s_drain` moved OUT
 // of this negative set -- they are genuine PLAYFIELD switches (none of the
 // button/tilt/slam/parking-slot/non-parking-entry exclusions apply to them),
-// so they now correctly produce exactly one `playfield_switch_closed`. Only
-// `s_tilt_bob`/`s_slam_tilt` (cabinet-mechanism switches, explicitly excluded
-// from `PLAYFIELD_SWITCHES`) remain genuinely unmapped.
-describe('sim/rules/devices/ -- switches the layer deliberately maps to nothing (the restored pre-2.4 negative)', () => {
-	const unmapped: readonly SwitchName[] = ['s_tilt_bob', 's_slam_tilt'];
+// so they now correctly produce exactly one `playfield_switch_closed`.
+//
+// Story 2.11: `s_tilt_bob`/`s_slam_tilt` also moved OUT -- Stage 3 now emits
+// their own `tilt_bob_closed`/`slam_tilt_closed` (task 15, AD-19's
+// 2026-09-08 amendment). Their own dedicated describe block, immediately
+// below, replaces this one's old "maps to nothing" claim for the two of
+// them. That was the last member of this negative set: nothing under this
+// file remains genuinely unmapped, so the describe block itself is retired
+// here rather than left standing empty (vitest errors on a suite with zero
+// `it()`s) -- a future genuinely-unmapped switch should re-introduce it in
+// the same shape (`const unmapped: readonly SwitchName[] = [...]`, one `it()`
+// per entry via a `for` loop) rather than reaching for something new.
 
-	for (const name of unmapped) {
-		it(`${name} closing and re-opening produces no device event and no coil command`, () => {
-			const result = runSwitchScript(close(name).at(5).open().at(9).build(), { durationTicks: 15 });
-			expect(result.events, `${name} must map to nothing`).toEqual([]);
-			expect(result.coilCommands, `${name} must issue no coil command`).toEqual([]);
+// Story 2.11 (task 15, AC 12): the two cabinet-mechanism switches now emit
+// their OWN dedicated device event on the closed edge only -- never on the
+// open edge, and never `playfield_switch_closed` either (they stay excluded
+// from `PLAYFIELD_SWITCHES` by construction, unchanged by this story -- the
+// AC 8 block above must stay green at 28, and does).
+describe('sim/rules/devices/ -- Story 2.11: the two cabinet-mechanism switches report their own dedicated event, never playfield_switch_closed', () => {
+	it('s_tilt_bob closing produces exactly one tilt_bob_closed; re-opening produces nothing more; no playfield_switch_closed, no coil command either way', () => {
+		const result = runSwitchScript(close('s_tilt_bob').at(5).open().at(9).build(), { durationTicks: 15 });
+		expect(result.events, 's_tilt_bob must report exactly one tilt_bob_closed, on the close edge, and nothing on the open').toEqual([
+			{ type: 'tilt_bob_closed', tick: 5 },
+		]);
+		expect(result.coilCommands, 's_tilt_bob must issue no coil command').toEqual([]);
+	});
+
+	it('s_slam_tilt closing produces exactly one slam_tilt_closed; re-opening produces nothing more; no playfield_switch_closed, no coil command either way', () => {
+		const result = runSwitchScript(close('s_slam_tilt').at(5).open().at(9).build(), { durationTicks: 15 });
+		expect(result.events, 's_slam_tilt must report exactly one slam_tilt_closed, on the close edge, and nothing on the open').toEqual([
+			{ type: 'slam_tilt_closed', tick: 5 },
+		]);
+		expect(result.coilCommands, 's_slam_tilt must issue no coil command').toEqual([]);
+	});
+});
+
+// Story 2.11 (task 2, spec I/O matrix "Derivation is structural"): the two
+// switch names are resolved ONCE, at module construction, by filtering
+// TABLE.switches for each SettleClass and throwing unless exactly one entry
+// matches (devices/index.ts's own switchNameForSettleClass(), file-private,
+// mirroring cabinet/index.ts's physics-side sibling that sim/rules may not
+// import, AD-1). The real, shipped TABLE is single-source -- exactly one
+// 'tilt_bob' entry and one 'slam' entry -- so this throw can only be
+// observed against a mocked TABLE with a manufactured duplicate. Same
+// isolated-module-graph pattern as test/lock-device-behaviour.test.ts's own
+// AD-6 boot-invariant throw tests (vi.resetModules() + vi.doMock(
+// '../src/sim/table/dragonwar', ...)), never touching the statically
+// imported TABLE the rest of this file/suite uses.
+describe('sim/rules/devices/ -- Story 2.11: switchNameForSettleClass() throws a named TABLE-authoring error on a non-unique count, at module construction (never degrades silently)', () => {
+	it('a TABLE with two settleClass: "tilt_bob" entries throws naming the class and the count, on import -- not on first use', async () => {
+		vi.resetModules();
+		vi.doMock('../src/sim/table/dragonwar', async (importOriginal) => {
+			const actual = await importOriginal<typeof import('../src/sim/table/dragonwar')>();
+			return {
+				...actual,
+				TABLE: {
+					...actual.TABLE,
+					switches: {
+						...actual.TABLE.switches,
+						// s_start normally carries settleClass 'button'; mutating it to
+						// 'tilt_bob' manufactures a second match beside the real
+						// s_tilt_bob, without touching s_tilt_bob itself or the
+						// (still-unique) 'slam' class.
+						s_start: { ...actual.TABLE.switches.s_start, settleClass: 'tilt_bob' },
+					},
+				},
+			};
 		});
-	}
+
+		try {
+			await expect(import('../src/sim/rules/devices')).rejects.toThrow(
+				'createDevicesLayer(): expected exactly one TABLE.switches entry with settleClass "tilt_bob", found 2',
+			);
+		} finally {
+			vi.doUnmock('../src/sim/table/dragonwar');
+			vi.resetModules();
+		}
+	});
 });
 
 // Story 2.7 (task 6, AD-6, AD-19): the switches above that DID map to nothing

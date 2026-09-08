@@ -305,7 +305,18 @@ describe('Matrix row -- non-playfield closures are inert: the skill shot stays a
 	// decrements without reaching 0 -- isolating "does this switch resolve
 	// the skill shot" from the UNRELATED drain mechanism, which also clears
 	// modes[] but for a completely different reason.
-	const inert: readonly SwitchName[] = ['s_shooter_lane', 's_trough_2', 's_lock_1', 's_flipper_l', 's_start', 's_tilt_bob', 's_slam_tilt'];
+	//
+	// Story 2.11: `s_slam_tilt` moved OUT of this set -- it is still true that
+	// closing it produces no `playfield_switch_closed` (unchanged, AC 12), but
+	// it is no longer INERT for `modes[]`: the tilt controller now consumes
+	// its own `slam_tilt_closed` device event and, in `phase: 'game'`, clears
+	// `modes: []` as part of ending every player's game (FR-16, this story's
+	// own AC 6) -- a real, intentional side effect, not the drain mechanism
+	// this describe block's own header carves out. `s_tilt_bob` stays: a
+	// single closure here only WARNS (this player's `tiltWarnings` starts at
+	// 0, below the default `adjustments.tiltWarnings` of 1), which touches
+	// only `players[0].tiltWarnings`, never `modes[]`.
+	const inert: readonly SwitchName[] = ['s_shooter_lane', 's_trough_2', 's_lock_1', 's_flipper_l', 's_start', 's_tilt_bob'];
 
 	for (const switchName of inert) {
 		it(`${switchName} closing: no playfield_switch_closed is produced, so the skill shot stays armed`, () => {

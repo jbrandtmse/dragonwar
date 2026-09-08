@@ -58,6 +58,26 @@ export interface DragonHitEvent {
 }
 
 /**
+ * Story 2.11 (AD-19's 2026-09-08 amendment): the tilt-bob cabinet switch
+ * closed. No payload beyond `tick` -- the subject IS the discriminant, so no
+ * `SwitchName` escapes this layer (AD-19) and no `s_`-prefixed literal is
+ * spelled anywhere it is consumed. Deliberately NOT a member of the derived
+ * `PLAYFIELD_SWITCHES` set and never joins `playfield_switch_closed`: a bob
+ * closure is a cabinet-sensor event, not "the ball reached the playfield"
+ * (Story 2.9) or "has anything closed?" (Story 2.12).
+ */
+export interface TiltBobClosedEvent {
+	readonly type: 'tilt_bob_closed';
+	readonly tick: number;
+}
+
+/** Story 2.11 (AD-19's 2026-09-08 amendment): the slam-tilt cabinet switch closed. Same shape and same exclusions as `TiltBobClosedEvent` above. */
+export interface SlamTiltClosedEvent {
+	readonly type: 'slam_tilt_closed';
+	readonly tick: number;
+}
+
+/**
  * DW-166: a Lock-lane closure that RESOLVED -- either a real capture (a
  * `bd_lock` slot switch closed within `lockCaptureWindowTicks`) or the
  * device was already full at the moment of closure (physics parks nothing;
@@ -163,6 +183,8 @@ export type DeviceEvent =
 	| BankTargetDownEvent
 	| BankCompletedEvent
 	| DragonHitEvent
+	| TiltBobClosedEvent
+	| SlamTiltClosedEvent
 	| LockLaneEnteredEvent
 	| SpinnerSpinEvent
 	| LaneEnteredEvent
