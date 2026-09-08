@@ -7,7 +7,7 @@ paradigm: 'Ports-and-adapters around a virtual pinball machine — Physics is th
 scope: 'DragonWar v1 whole system: physics core, rules layer, presentation, host loop, assets, persistence, build and deployment'
 status: final
 created: '2026-08-26'
-updated: '2026-09-07'
+updated: '2026-09-08'
 binds: [FR-1..FR-55, NFR-1..NFR-9, UJ-1..UJ-4]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-dragonwar-2026-08-26/prd.md
