@@ -57,7 +57,7 @@ export interface LampProjectionEntry {
 	readonly step: LampStep;
 }
 
-/** `lampsOf(state): LampState` (Story 2.8, AD-9): every `TABLE.lamps` key's current `{ role, step }`, a pure function of `GameState` alone -- recomputed whole every step, never mutated in place. */
+/** `lampsOf(state, ballSaveHurryUpTicks): LampState` (Story 2.8, AD-9): every `TABLE.lamps` key's current `{ role, step }` -- recomputed whole every step, never mutated in place. Pure, but NOT of `GameState` alone since Story 2.9: `l_ball_save`'s hurry-up span needs a tuning-derived tick count, which the loop resolves once and threads in rather than adding a field to the hashed `GameState`. A caller that omits it gets no hurry-up span at all. */
 export type LampState<TLamp extends string = string> = Readonly<Record<TLamp, LampProjectionEntry>>;
 
 /** Rules -> presentation: the only continuous light level; latest wins per channel (AD-9). */

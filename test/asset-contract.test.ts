@@ -2672,11 +2672,20 @@ describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely p
 			).toBe(true);
 			checked++;
 		}
-		// Non-vacuity (Story 2.9): the `continue` above must not make this loop
-		// silently check nothing -- assert the DERIVED count of zone-bearing
-		// subjects (never a hand-typed number) were actually checked.
-		const zoneBearingCount = Object.values(TABLE.lamps).filter((def) => subjectSwitchName(def.subject) !== null).length;
-		expect(checked, 'every zone-bearing lamp must have been checked above, not silently skipped').toBe(zoneBearingCount);
+		// Non-vacuity (Story 2.9; corrected at code review): the `continue` above
+		// must not make this loop silently check nothing. The expected count is
+		// derived from `TABLE.lamps` ALONE -- every lamp except the single
+		// zone-less `l_ball_save` -- and deliberately NOT from
+		// `subjectSwitchName()`, the very helper the `continue` consults. The
+		// original form compared `checked` against a second call of that same
+		// helper, so a regression returning `null` for a genuinely zone-bearing
+		// subject lowered BOTH sides together and still passed: the guard could
+		// not fail for the reason it was added (epic vacuity #43's shape -- an
+		// expectation computed from the value under test).
+		const ZONE_LESS_LAMPS = 1; // l_ball_save, the only insert with no sw_ zone
+		expect(checked, 'every zone-bearing lamp must have been checked above, not silently skipped').toBe(
+			Object.keys(TABLE.lamps).length - ZONE_LESS_LAMPS,
+		);
 		expect(checked, 'the loop must not have gone vacuous').toBeGreaterThan(0);
 	});
 

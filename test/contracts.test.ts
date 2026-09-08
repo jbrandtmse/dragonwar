@@ -258,6 +258,17 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 			}
 		}
 		expect(describeEvent({ type: 'ball_will_start', tick: 1 })).toBe('ball will start');
+		// QA (Story 2.9 / DW-217, narrowed to this story's own three new arms):
+		// these three case bodies were previously compiled (for the `neverEvent`
+		// exhaustiveness gate) but never executed by any assertion, so a wrong
+		// field reference inside one (e.g. templating `event.tick` where
+		// `event.player` was intended) would type-check and ship silently.
+		// `untilTick`/`tick` and `player`/`tick` are each authored as distinct
+		// values below specifically so such a field swap reddens the assertion
+		// instead of passing by coincidence.
+		expect(describeEvent({ type: 'ball_save_enabled', tick: 40 })).toBe('ball save enabled');
+		expect(describeEvent({ type: 'ball_save_timer_started', untilTick: 8040, tick: 40 })).toBe('ball save timer started until 8040');
+		expect(describeEvent({ type: 'ball_saved', player: 3, tick: 8020 })).toBe('ball saved 3');
 	});
 });
 
