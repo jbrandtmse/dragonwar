@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-08-2026 10:30
+last_updated: 09-08-2026 12:00
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -64,7 +64,7 @@ development_status:
   2-7-plunge-skill-shot-and-lane-change: done
   2-8-inserts-in-the-held-colour-grammar: done
   2-9-ball-save: done
-  2-10-end-of-ball-bonus-and-the-multiplier: backlog
+  2-10-end-of-ball-bonus-and-the-multiplier: ready-for-dev
   2-11-tilt-warnings-tilt-and-slam-tilt: backlog
   2-12-ball-search: backlog
   2-13-match-game-over-and-return-to-attract: backlog
