@@ -87,7 +87,8 @@ export { bootDeviceSlots };
  * projection through the SAME `../rules` barrel it already uses for
  * `createRules()`/`bootDeviceSlots`, mirroring the re-export above.
  * `RulesStepResult.commands` deliberately stays `readonly never[]` --
- * AD-9 and this story's AC 1 both place the diff (`lampsOf(state)` called
+ * AD-9 and this story's AC 1 both place the diff (`lampsOf(state,
+ * ballSaveHurryUpTicks)` called
  * twice, compared) in `sim/loop`, never here.
  */
 export { lampsOf };

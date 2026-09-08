@@ -1,6 +1,7 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 2.8 (AD-9): `lampsOf(state)` is a PURE projection -- every
+// Story 2.8 (AD-9): `lampsOf(state, ballSaveHurryUpTicks)` is a PURE
+// projection -- every
 // `TABLE.lamps` key's current `{ role, step }`, recomputed WHOLE from
 // `GameState` alone every rules step. It never mutates `state`, never
 // produces a `LampCommand` itself, and is never called from a mode: AD-9's

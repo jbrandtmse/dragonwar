@@ -303,13 +303,44 @@ describe('Story 2.9, AC 8 -- Integration: a real createLoop, the ball-save inser
 		// the "a window never extends" property stated directly, and the one
 		// assertion here that would still redden if a re-arm ever managed to
 		// happen without emitting `ball_save_timer_started`.
+		//
+		// [Code review, Story 2.9 iteration 3 -- found independently by
+		// blind-hunter, verification-gap and the reviewer.] As written this was
+		// `saved.every(t => armedUntil.some(u => t <= u + graceTicks))`, and
+		// `armedUntil` accumulates across ALL THREE balls before the assertion
+		// runs. `some` therefore let ball 1's saves be "justified" by ball 3's
+		// window, and since the last arming carries the largest `untilTick` and
+		// every save precedes it, the whole `every`/`some` pair collapsed to
+		// `max(saved) <= max(armedUntil) + graceTicks` -- a global upper bound,
+		// not the per-ball binding the comment above sells. It could still fail
+		// (so not vacuous), but a silent extension of ball 1's window anywhere
+		// inside the run's own span passed. Each save is now paired with the
+		// window armed most recently AT OR BEFORE it -- the only window that
+		// could legitimately have covered it -- which is what makes the stated
+		// property true of the assertion.
 		const graceTicks = shotWindowTicks('ballSaveGraceMs', PRODUCTION_TUNING);
+		const ownWindowFor = (savedTick: number): number | undefined => {
+			let own: number | undefined;
+			for (let i = 0; i < timerStarted.length; i++) {
+				if (timerStarted[i]! <= savedTick) own = armedUntil[i];
+			}
+			return own;
+		};
 		expect(
-			saved.every((savedTick) =>
-				armedUntil.some((untilTick) => savedTick <= untilTick + graceTicks),
-			),
-			'every ball_saved must fall within some armed window plus its grace -- a save landing past every armed deadline means the window was extended',
+			saved.every((savedTick) => {
+				const own = ownWindowFor(savedTick);
+				return own !== undefined && savedTick <= own + graceTicks;
+			}),
+			`every ball_saved must fall within the window armed most recently BEFORE it, plus its grace -- a save outside its OWN window means that window was extended. saved=${JSON.stringify(saved)} timerStarted=${JSON.stringify(timerStarted)} armedUntil=${JSON.stringify(armedUntil)}`,
 		).toBe(true);
+		// Non-vacuity for the pairing itself: every save must actually HAVE a
+		// preceding arming, or the `every` above would be satisfied by an
+		// `own === undefined` that short-circuits to false rather than by a
+		// real match. Stated positively so the two cannot be confused.
+		expect(
+			saved.map((savedTick) => ownWindowFor(savedTick)).filter((own) => own !== undefined).length,
+			'every save must be paired with a real preceding arming -- the pairing above must not be matching nothing',
+		).toBe(saved.length);
 	});
 
 	// Rework iteration 1 (DW-218), verification bar: "Without the control, a

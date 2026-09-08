@@ -437,7 +437,8 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			commands.push(...rulesResult.commands);
 			// Story 2.8 (AD-9, AC 1): the lamp DIFF, computed here -- never in
 			// rules (`RulesStepResult.commands` stays `readonly never[]`).
-			// `lampsOf(state)` is a pure, whole-projection recompute every tick;
+			// `lampsOf(state, ballSaveHurryUpTicks)` is a pure, whole-projection
+			// recompute every tick;
 			// only a lamp whose `role` OR `step` changed since the previous
 			// tick's projection gets a `LampCommand` this tick (the
 			// `previousFrame`/`currentFrame` diff idiom above, mirrored).

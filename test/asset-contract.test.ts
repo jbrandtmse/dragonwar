@@ -2694,6 +2694,27 @@ describe('asset contract -- Story 2.8: the fourteen insert lamps are genuinely p
 		const box = meshTableBoxMm(doc, 'l_ball_save');
 		const center = boxCenterXy(box);
 		expect(subjectSwitchName(TABLE.lamps.l_ball_save.subject), 'l_ball_save\'s subject must resolve to no switch at all').toBeNull();
+		// Code review (Story 2.9, iteration 3): task 10 asks for a replacement
+		// pin that is BOTH "inside the playfield rectangle" AND "within the
+		// bottom-centre bounds of task 8". Only the second half shipped. The
+		// two bounds below were one-sided -- `|x - w/2| <= 40` and
+		// `y < h * 0.2` -- so a node at y = -100 (off the bottom edge of the
+		// playfield entirely) passed. `l_ball_save` is the ONE insert this
+		// story removed from the `sw_` zone containment loop above, so nothing
+		// else bounds it: `no two inserts' cup footprints overlap` compares it
+		// only against the other fourteen (all at y >= 175, so an off-playfield
+		// node overlaps nothing), and `tools/export.py:194` validates the NAME,
+		// never the position. The rectangle containment is restored here, and
+		// it is checked against `vis_playfield`'s OWN measured footprint --
+		// the same node the CALIBRATION test above pins to the reference
+		// rectangle -- rather than against `TABLE.reference` a second time, so
+		// this assertion and the calibration cannot drift together.
+		const playfieldBox = meshTableBoxMm(doc, 'vis_playfield');
+		expect(
+			pointInBoxXy(center, playfieldBox),
+			`l_ball_save centre (${center.x.toFixed(2)}, ${center.y.toFixed(2)}) must lie INSIDE the playfield rectangle ` +
+				`x[${playfieldBox.min.x.toFixed(2)}, ${playfieldBox.max.x.toFixed(2)}] y[${playfieldBox.min.y.toFixed(2)}, ${playfieldBox.max.y.toFixed(2)}] (task 10)`,
+		).toBe(true);
 		expect(
 			Math.abs(center.x - TABLE.reference.playfieldMm.w / 2),
 			`l_ball_save centre x (${center.x.toFixed(2)}) must be within 40 mm of the playfield's own horizontal centre (${(TABLE.reference.playfieldMm.w / 2).toFixed(2)})`,

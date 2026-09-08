@@ -48,6 +48,27 @@ const SHOOTER_LAUNCH_COIL = (() => {
 	return step.coil;
 })();
 
+// Code review (Story 2.9, iteration 3) -- epic vacuity #44, one file over.
+// The block above closed a REAL vacuity (`[0]!.coil` could go `undefined` and
+// make AC 4's negative assertion pass trivially) but traded it for another:
+// it now re-implements `ball-controller.ts`'s own `shooterLaunchCoil()`
+// derivation VERBATIM, so the production derivation sits on BOTH sides of
+// every AC 4 assertion. A wrong derivation -- or a `ballSearchOrder` reorder
+// that changes which step is the first `pulse` -- moves the expectation and
+// the subject together and every AC 4 probe stays green. Device-name literals
+// are unrestricted under `test/**` (AD-16's `no-device-name-literal` exempts
+// it, and the sibling integration test writes `loop.pulseCoil('c_autolaunch')`
+// directly), so the derivation is anchored to the literal here, ONCE. Both
+// halves now hold: the throw above still catches a missing pulse step, and
+// this catches a derivation that resolves to the wrong coil.
+// `mutation: TABLE.ballDevices.bd_shooter.ballSearchOrder's `pulse` step
+// coil -> any other c_ name (or ball-controller.ts's `.find(action ===
+// 'pulse')` -> `[0]`) reddens here.`
+it('the coil AC 4 asserts on is genuinely c_autolaunch -- anchoring the derivation this file shares with production', () => {
+	expect(SHOOTER_LAUNCH_COIL, 'bd_shooter\'s deferred-autolaunch coil').toBe('c_autolaunch');
+	expect(TROUGH_EJECT_COIL, 'bd_trough\'s eject coil, pulsed by a save\'s re-serve').toBe('c_trough_eject');
+});
+
 /** A fresh empty player, mirroring `ball-controller.ts`'s own `emptyPlayer()` -- test-local, same idiom `test/rules-lifecycle.test.ts` already established. */
 function emptyPlayer(ballNumber: number) {
 	return {

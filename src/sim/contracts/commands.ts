@@ -25,7 +25,8 @@ export interface RecoverCommand {
 /**
  * The closed role set AD-9 names, as a RUNTIME value (Story 2.8, the
  * `CONTACT_SURFACES` idiom -- `contracts/events.ts:30-46`): a lamp role is
- * never a colour, so this list is the seven values `lampsOf(state)` may ever
+ * never a colour, so this list is the seven values `lampsOf(state,
+ * ballSaveHurryUpTicks)` may ever
  * emit, no more and no fewer. `LampRole` below is re-derived from it so the
  * type and the runtime closure test (`test/contracts.test.ts`) can never
  * silently drift apart.
@@ -42,7 +43,7 @@ export type LampRole = (typeof LAMP_ROLES)[number];
 /** The only progression rules may express for a lamp: off, lit, emphasised, urgent (AD-9). */
 export type LampStep = 0 | 1 | 2 | 3;
 
-/** Rules -> presentation: the diff of `lampsOf(state)` (AD-9). */
+/** Rules -> presentation: the diff of `lampsOf(state, ballSaveHurryUpTicks)` (AD-9). */
 export interface LampCommand<TLamp extends string = string> {
 	readonly type: 'lamp';
 	readonly lamp: TLamp;
@@ -51,7 +52,7 @@ export interface LampCommand<TLamp extends string = string> {
 	readonly tick: number;
 }
 
-/** One lamp's current projected state (Story 2.8, AD-9): `lampsOf(state)`'s own per-lamp value, computed fresh every rules step -- `sim/loop` diffs consecutive values of this into the `LampCommand`s above; it is never itself sent anywhere. */
+/** One lamp's current projected state (Story 2.8, AD-9): `lampsOf(state, ballSaveHurryUpTicks)`'s own per-lamp value, computed fresh every rules step -- `sim/loop` diffs consecutive values of this into the `LampCommand`s above; it is never itself sent anywhere. */
 export interface LampProjectionEntry {
 	readonly role: LampRole;
 	readonly step: LampStep;
