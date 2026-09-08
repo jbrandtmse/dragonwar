@@ -528,3 +528,122 @@ describe('Code review pass 1 -- the deferred autolaunch respects Tilt, and await
 		).toBe(false);
 	});
 });
+
+describe("Rework iteration 1 (DW-218) -- a save's own re-serve does not re-arm the window", () => {
+	it("a full save-and-relaunch cycle (drain, arrival at bd_shooter, the resulting ball_launched) leaves untilTick and sources EXACTLY as the original plunge set them -- no ball_save_timer_started is emitted a second time", () => {
+		const initialState = midGameState({ ballSave: { untilTick: 500, sources: [BALL_SAVE_SOURCE] } });
+
+		// Code review (Story 2.9, rework iteration 1): before this fix, EVERY
+		// `ball_launched` armed unconditionally in phase 'game', including the
+		// one this save's own deferred autolaunch causes -- measured at
+		// production tuning, real physics, seed 0, no player input: 28
+		// `ball_saved` and ZERO `ball_ended` in 120,000 ticks, because every
+		// re-serve re-armed a fresh full window. The fix is the discriminator
+		// `awaitingSaveRelaunch` in `ball-controller.ts`: set only when the
+		// deferred-autolaunch pulse below actually fires, consumed by the very
+		// `ball_launched` it causes.
+		const script = close('s_trough_1').at(1) // the drain, well inside the window -- ball_saved, awaitingSaveLaunch = true
+			.close('s_shooter_lane').at(5) // the re-served ball arrives at bd_shooter -- autolaunch pulses, awaitingSaveRelaunch = true
+			.open('s_shooter_lane').at(8) // the resulting re-launch -- the SAME event a player's own plunge would produce
+			.build();
+		const result = runRulesScript(script, { durationTicks: 8, initialState });
+
+		const relaunches = result.events.filter((e) => e.type === 'ball_launched');
+		expect(relaunches, 'sanity: the deferred autolaunch must have genuinely produced a ball_launched').toHaveLength(1);
+		expect(relaunches[0]!.tick).toBe(8);
+
+		expect(
+			result.events.some((e) => e.type === 'ball_save_timer_started'),
+			"the save's own re-serve must NOT emit a second ball_save_timer_started",
+		).toBe(false);
+		expect(
+			result.finalState.machine.ballSave,
+			'untilTick and sources must be EXACTLY what the original plunge set -- unchanged by the relaunch',
+		).toEqual({ untilTick: 500, sources: [BALL_SAVE_SOURCE] });
+	});
+});
+
+describe('Rework iteration 1 (DW-218) -- the enableBallSave gate has a real behavioural consequence, not just an event-stream one', () => {
+	it('a ball_launched in phase "game" while the controller\'s own source was never enabled (sources: []) does not arm -- today, deleting the enable step entirely left the arming path silently working', () => {
+		// Code review (Story 2.9, rework iteration 1): `armBallSave` never
+		// checked whether the controller's OWN source was already present in
+		// `sources` -- so AC 1's enable-is-not-a-start distinction existed only
+		// in the event stream, never in behaviour. Simulates "enable never ran"
+		// directly through the initial-state seam (the same technique
+		// `midGameState()` already uses for every other drain-branch test),
+		// since there is no source-level way to skip ball_starting's own
+		// `enableBallSave()` call without editing `ball-controller.ts` itself.
+		const initialState = midGameState({ ballSave: { untilTick: null, sources: [] } });
+		const result = runRulesScript(open('s_shooter_lane').at(1).build(), { durationTicks: 1, initialState });
+
+		expect(result.events.some((e) => e.type === 'ball_launched'), 'sanity: the plunge event genuinely fired').toBe(true);
+		expect(
+			result.events.some((e) => e.type === 'ball_save_timer_started'),
+			'a source that was never enabled must not arm',
+		).toBe(false);
+		expect(result.finalState.machine.ballSave, 'ballSave must stay exactly as seeded -- nothing arms an un-enabled source').toEqual({
+			untilTick: null,
+			sources: [],
+		});
+	});
+});
+
+describe('Rework iteration 1 (DW-218) -- awaitingSaveRelaunch resets at ball_will_start, mirroring awaitingSaveLaunch\'s own reset', () => {
+	const ADJUSTMENTS = { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0.08 };
+
+	function twoPlayerState(ballSave: BallSaveState, tilted: boolean): GameState {
+		return {
+			tick: 0,
+			phase: 'game',
+			machine: {
+				ballsInPlay: 0,
+				hardwareEnabled: true,
+				ballSave,
+				tilt: { tilted, slamTilted: false },
+				multiball: null,
+				highscores: [],
+				deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false], bd_lock: [false, false, false] },
+			},
+			players: [emptyPlayer(1), emptyPlayer(0)],
+			currentPlayer: 0,
+			modes: [],
+			rng: 0,
+		};
+	}
+
+	it("a save's deferred-autolaunch pulse fires (arming awaitingSaveRelaunch), but the re-served ball never actually reaches ball_launched before an UNRELATED drain ends the ball and rotates -- the next player's own genuine first plunge must still arm normally, not be silently swallowed as a stale relaunch", () => {
+		const controller = createBallController(ADJUSTMENTS, resolveTuning());
+
+		const drainEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }];
+		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1);
+		expect(drainResult.events.some((e) => e.type === 'ball_saved'), 'sanity: the drain must be saved so the deferred-autolaunch flag is armed').toBe(true);
+
+		const arrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 5 }];
+		const arrivalResult = controller.step({ ...drainResult.state, tick: 5 }, arrivalEvents, 5);
+		expect(
+			arrivalResult.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
+			'sanity: the arrival must fire the deferred autolaunch pulse, arming awaitingSaveRelaunch',
+		).toBe(true);
+
+		// The re-served ball never reaches ball_launched (no such event is fed
+		// below). Instead an UNRELATED, ordinary drain (ball save not live) ends
+		// the ball and rotates to the next player, which -- via startBall() --
+		// must reset the stale awaitingSaveRelaunch flag exactly as it already
+		// resets awaitingSaveLaunch.
+		const rotationState: GameState = { ...twoPlayerState({ untilTick: null, sources: [] }, false), tick: 50 };
+		const rotationEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 50 }];
+		const rotationResult = controller.step(rotationState, rotationEvents, 50);
+		expect(rotationResult.events.some((e) => e.type === 'ball_ended'), 'sanity: this second drain must end the ball normally (not saved), triggering rotation').toBe(true);
+		expect(rotationResult.state.currentPlayer, 'sanity: rotation actually moved to the next player').toBe(1);
+
+		// The NEXT player's own, entirely genuine plunge must arm normally -- a
+		// stale awaitingSaveRelaunch from the FIRST player's earlier, abandoned
+		// save would otherwise swallow this as a non-arming "relaunch" it is not.
+		const nextPlungeEvents: DeviceEvent[] = [{ type: 'ball_launched', tick: 55 }];
+		const nextPlungeResult = controller.step({ ...rotationResult.state, tick: 55 }, nextPlungeEvents, 55);
+		expect(
+			nextPlungeResult.events.some((e) => e.type === 'ball_save_timer_started'),
+			"the next player's own genuine plunge must arm -- a stale awaitingSaveRelaunch must not have swallowed it",
+		).toBe(true);
+	});
+});

@@ -31,6 +31,7 @@ import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { GameStart } from '../src/sim/table/names';
 import type { LampCommand } from '../src/sim/contracts/commands';
+import type { ResolvedTuning } from '../src/sim/table/tuning';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 
@@ -191,5 +192,138 @@ describe('Story 2.9, AC 8 -- Integration: a real createLoop, the ball-save inser
 			ballsInPlayAfterSave,
 			'the save must put a ball BACK INTO PLAY through real physics -- a ball_saved that serves nothing hangs the game at ballsInPlay 0',
 		).toBe(1);
+	});
+
+	// Rework iteration 1 (DW-218), Rule 3 (real-runtime evidence): code review
+	// measured a real createLoop + real physics run at PRODUCTION tuning,
+	// seed 0, no player input beyond each ball's own mechanical plunge --
+	// 28 `ball_saved` and ZERO `ball_ended` in 120,000 ticks, because a
+	// save's own deferred-autolaunch re-serve ALSO opened `s_shooter_lane`
+	// and its resulting `ball_launched` re-armed a fresh full window, over
+	// and over, forever -- ball 2, the bonus, rotation, game over and Match
+	// were all unreachable. The fix is a closure-held discriminator
+	// (`awaitingSaveRelaunch`, `ball-controller.ts`) that only a genuine
+	// PLAYER plunge arms. This is the "passing form" of that measurement:
+	// the property survives as a real, committed test, not merely an
+	// observation made once during review.
+	it('DW-218 regression guard -- PRODUCTION tuning, real physics, seed 0, no player input beyond each ball\'s own plunge: the game reaches game_over instead of looping forever on a single ball\'s own re-serve', () => {
+		const PRODUCTION_TUNING = resolveTuning();
+		const start: GameStart = { ...gameStart(), tuning: PRODUCTION_TUNING };
+		const loop = createLoop({ collisionDoc: loadDoc(), gameStart: start, tuning: PRODUCTION_TUNING });
+
+		loop.advance(1, []); // boot
+		loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
+		loop.advance(1, []); // tick 3: the served ball is ejected from the trough
+		loop.pulseCoil('c_autolaunch'); // ball 1 plunge -- the only STANDING dev-hatch stimulus; every later ball gets its OWN, below
+
+		const saved: number[] = [];
+		const ended: number[] = [];
+		let finalPhase: string = 'game';
+		let plungeInNTicks = -1; // -1 = none pending
+
+		// Measured at this tree, seed 0, production tuning: ball_saved at ticks
+		// 4276/8575 (ball 1), 17120/21419 (ball 2), 29964/34263 (ball 3);
+		// ball_ended at 12849/25693/38537; game_over reached well inside the
+		// 60,000-tick budget below. Pre-fix (DW-218): 28 ball_saved and ZERO
+		// ball_ended in 120,000 ticks -- phase never left "game".
+		for (let i = 0; i < 60_000; i++) {
+			const out = loop.advance(1, []);
+			for (const event of out.events) {
+				if (event.type === 'ball_saved') saved.push(out.snapshot.tick);
+				if (event.type === 'ball_ended') ended.push(out.snapshot.tick);
+				if (event.type === 'ball_started') {
+					// A NEW ball (rotation, via startBall()): the DW-218 fix means it
+					// must be independently plunged -- there is no more self-
+					// sustaining re-serve loop to ride on. One settle tick after the
+					// trough-eject, mirroring the very first plunge's own tick-2 to
+					// tick-3 gap above.
+					plungeInNTicks = 1;
+				}
+			}
+			finalPhase = out.snapshot.game.phase;
+			if (plungeInNTicks > 0) {
+				plungeInNTicks -= 1;
+				if (plungeInNTicks === 0) {
+					loop.pulseCoil('c_autolaunch');
+				}
+			}
+			if (finalPhase === 'game_over') break;
+		}
+
+		expect(
+			finalPhase,
+			'the game must reach game_over within the tick budget -- pre-fix this looped on a single ball forever and never left phase "game"',
+		).toBe('game_over');
+		// Review pass (rework iteration 1, blind-hunter + verification-gap,
+		// independently): `saved.length` alone bounded only loosely (< 10)
+		// while the exact value (6 -- two saves per ball, three balls) was
+		// already known and measured identically twice (implementer's own
+		// scratchpad and the build-auto stage's independent 120,000-tick
+		// re-run). A partial regression reintroducing a few extra re-arms
+		// (e.g. 7-9 saves) would have slipped past the old bound undetected.
+		// Pinned to the exact tick sequences now -- deterministic under seed 0
+		// with no player input, so this is a precise, non-flaky pin, not a
+		// magic number.
+		expect(saved, 'the exact save-tick sequence, matching two independent measurements at this tree').toEqual([
+			4276, 8575, 17120, 21419, 29964, 34263,
+		]);
+		expect(ended, 'all three balls must genuinely end, at the exact measured ticks').toEqual([12849, 25693, 38537]);
+	});
+
+	// Rework iteration 1 (DW-218), verification bar: "Without the control, a
+	// 'no more infinite saves' result is indistinguishable from a harness that
+	// stopped seeing events at all -- which is precisely how this defect
+	// survived the first pass." The control is a SHORT window -- independently
+	// authored literals (500 ms / 100 ms grace), never read back from the
+	// production tunable -- run against the IDENTICAL seed-0 physics as the
+	// regression guard above. Both runs share the same setup, so they reach
+	// the same first real-physics drain at the same tick; only the window's
+	// length decides whether that drain is a save or an ending. Proves the
+	// passing production-tuning test above is measuring a real effect, not a
+	// harness that stopped delivering events.
+	it('DW-218 regression control -- a SHORT ball-save window (ballSaveMs 500 / grace 100) still ends the ball at the SAME real-physics drain tick the production window saves, with zero saves', () => {
+		const SHORT_SAVE_TUNING = resolveTuning({
+			...RAW_TUNING,
+			ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 500 },
+			ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 100 },
+		});
+		const PRODUCTION_TUNING = resolveTuning();
+
+		function firstDrain(tuning: ResolvedTuning): { savedTick: number; endedTick: number } {
+			const start: GameStart = { ...gameStart(), tuning };
+			const loop = createLoop({ collisionDoc: loadDoc(), gameStart: start, tuning });
+
+			loop.advance(1, []); // boot
+			loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
+			loop.advance(1, []); // tick 3: the served ball is ejected from the trough
+			loop.pulseCoil('c_autolaunch'); // the one, identical plunge stimulus both runs share
+
+			let savedTick = -1;
+			let endedTick = -1;
+			for (let i = 0; i < 20_000; i++) {
+				const out = loop.advance(1, []);
+				for (const event of out.events) {
+					if (event.type === 'ball_saved' && savedTick < 0) savedTick = out.snapshot.tick;
+					if (event.type === 'ball_ended' && endedTick < 0) endedTick = out.snapshot.tick;
+				}
+				if (savedTick > 0 || endedTick > 0) break;
+			}
+			return { savedTick, endedTick };
+		}
+
+		const production = firstDrain(PRODUCTION_TUNING);
+		const control = firstDrain(SHORT_SAVE_TUNING);
+
+		expect(
+			production.savedTick,
+			'sanity: the production window must genuinely save the first natural drain -- the regression guard above depends on this',
+		).toBeGreaterThan(0);
+		expect(production.endedTick, 'sanity: the production window must not end the ball on its first natural drain').toBe(-1);
+
+		expect(control.savedTick, 'a 500ms/100ms window is far shorter than the table\'s natural drain interval, so it must NOT save').toBe(-1);
+		expect(
+			control.endedTick,
+			'the short window must end the ball at the SAME real-physics drain tick the production window saved -- proving both runs saw the identical event, and only the window length changed the outcome',
+		).toBe(production.savedTick);
 	});
 });

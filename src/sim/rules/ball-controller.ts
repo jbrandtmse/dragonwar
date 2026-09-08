@@ -285,6 +285,28 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	// at, closing that window.
 	let awaitingSaveLaunch = false;
 
+	// Rework iteration 1 (DW-218, 2026-09-07): the author's chosen fix for the
+	// re-arm defect code review measured -- a PLAYER plunge arms the ball-save
+	// window; a save's own re-serve does not. Set `true` the moment the
+	// deferred autolaunch above actually fires the coil (never when it is
+	// skipped for Tilt -- no pulse, no resulting `ball_launched`, nothing to
+	// discriminate), and consumed by the very next `ball_launched` in `step()`
+	// below, which is that same pulse's own `s_shooter_lane` opening one or
+	// more ticks later (AD-6). A second, SEPARATE closure flag from
+	// `awaitingSaveLaunch` on purpose: that one tracks "waiting for the
+	// re-served ball to physically arrive at bd_shooter" and is consumed at
+	// arrival; this one tracks "waiting for arrival's own autolaunch pulse to
+	// turn into a ball_launched" and is consumed one step later, at that
+	// event. Costs zero state hashes (Rework note: "a closure-held
+	// discriminator costs zero state hashes, whereas a new `GameState` field
+	// would move `expectedHash`/`expectedGameStateHash` on all five goldens").
+	// Reset at `ball_will_start` below for the identical reason
+	// `awaitingSaveLaunch` is: a save whose re-serve never reaches
+	// `s_shooter_lane` (an `eject_failed`, or a future multiball interaction)
+	// must not leave a stale `true` to misclassify a LATER, unrelated ball's
+	// own genuine plunge as a non-arming relaunch.
+	let awaitingSaveRelaunch = false;
+
 	/** Start-of-ball lifecycle (AC 2/AC 5): `ball_will_start` -> reset -> `ball_starting` -> enable hardware -> `ball_started` -> queue the one serve pulse -- shared by the very first Start press and every later rotation. */
 	function startBall(state: GameState, playerIndex: number, tick: number): StartBallResult {
 		const willStart: BallWillStartEvent = { type: 'ball_will_start', tick };
@@ -295,6 +317,11 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// never reached bd_shooter cannot leak into a LATER ball's own,
 		// unrelated arrival at the shooter lane.
 		awaitingSaveLaunch = false;
+		// Rework iteration 1 (DW-218): same reasoning, for the OTHER
+		// cross-tick discriminator -- a stale `true` here would misclassify
+		// the NEXT ball's own genuine first plunge as a non-arming relaunch,
+		// permanently disabling that ball's ball-save window.
+		awaitingSaveRelaunch = false;
 
 		const players = state.players.map((player, index) =>
 			index === playerIndex ? { ...player, ballNumber: player.ballNumber + 1 } : player,
@@ -408,16 +435,39 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 
 		// Ball save (AD-18, AC 2/AC 4): the timer starts on the PLUNGE, never on
 		// enable (AD-6/PRD FR-19) -- gated on `phase === 'game'` so nothing arms
-		// during any golden's own attract-phase plunge (AC 10). The deferred
-		// autolaunch fires on the RE-SERVED ball's own arrival at the shooter
-		// lane, one or more ticks after the drain branch below sets
-		// `awaitingSaveLaunch` -- never in the same tick's batch
-		// (`sim/physics/devices.ts`'s `launch()` resolves a ball resting in the
-		// entry zone; a same-tick pulse fires into an empty lane and launches
-		// nothing).
+		// during any golden's own attract-phase plunge (AC 10). Rework iteration 1
+		// (DW-218): narrowed further to a PLAYER plunge ONLY -- a save's own
+		// deferred autolaunch (below) also opens `s_shooter_lane` and emits this
+		// SAME event, and arming unconditionally on every `ball_launched` re-armed
+		// a full fresh window on every re-serve; measured at production tuning
+		// over 120,000 ticks, seed 0, no player input: 28 `ball_saved`, zero
+		// `ball_ended`, ball 2/bonus/rotation/game over/Match all unreachable
+		// (control: a 500 ms/100 ms window gives zero saves and the SAME natural
+		// `ball_ended` tick, proving the loop was the re-arm, not the harness).
+		// `awaitingSaveRelaunch` (declared above) is the discriminator: set only
+		// when the deferred-autolaunch pulse below actually fires, consumed by
+		// the very `ball_launched` that pulse causes. Also gated on the
+		// controller's OWN source already being present in `sources` -- i.e.
+		// genuinely enabled by `ball_starting` -- so `armBallSave` cannot arm a
+		// launch that was never enabled first (code review: "today, deleting the
+		// enable step entirely leaves the arming path working"; AC 1's
+		// enable-is-not-a-start distinction now has a behavioural consequence,
+		// not just an event-stream one). The deferred autolaunch itself fires on
+		// the RE-SERVED ball's own arrival at the shooter lane, one or more ticks
+		// after the drain branch below sets `awaitingSaveLaunch` -- never in the
+		// same tick's batch (`sim/physics/devices.ts`'s `launch()` resolves a
+		// ball resting in the entry zone; a same-tick pulse fires into an empty
+		// lane and launches nothing).
 		for (const event of deviceEvents) {
 			if (event.type === 'ball_launched') {
-				if (nextState.phase === 'game') {
+				if (awaitingSaveRelaunch) {
+					// DW-218: this `ball_launched` is the save's own re-serve reaching
+					// the shooter lane, not a player plunge -- consume the flag and
+					// do NOT re-arm. `ballsInPlay` is still incremented as usual, by
+					// `applyDeviceEvents()` (a separate function, this story's own
+					// arming decision does not touch ball-in-play accounting).
+					awaitingSaveRelaunch = false;
+				} else if (nextState.phase === 'game' && nextState.machine.ballSave.sources.includes(BALL_SAVE_SOURCE)) {
 					const ballSave = armBallSave(nextState.machine.ballSave, { ticks: ballSaveTicks, source: BALL_SAVE_SOURCE }, tick);
 					nextState = { ...nextState, machine: { ...nextState.machine, ballSave } };
 					events.push({ type: 'ball_save_timer_started', untilTick: ballSave.untilTick!, tick });
@@ -437,6 +487,13 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				awaitingSaveLaunch = false;
 				if (!nextState.machine.tilt.tilted) {
 					coilCommands.push({ type: 'coil', coil: SHOOTER_LAUNCH_COIL, action: 'pulse', tick });
+					// Rework iteration 1 (DW-218): mark the upcoming `ball_launched`
+					// this same pulse will cause (one or more ticks from now) as the
+					// save's own re-serve, not a player plunge -- set ONLY when the
+					// pulse genuinely fires; while tilted, nothing is pulsed and no
+					// `ball_launched` will follow from this cause, so there is
+					// nothing to discriminate.
+					awaitingSaveRelaunch = true;
 				}
 			}
 		}
