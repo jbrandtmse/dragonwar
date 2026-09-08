@@ -2,7 +2,7 @@
 title: 'Story 2.9: Ball save'
 type: 'feature'
 created: '2026-09-07'
-status: 'done'
+status: 'in-progress'
 baseline_revision: '411da335f5fa0ed9ac753c5efa0985447b116c8f'
 baseline_commit: '411da335f5fa0ed9ac753c5efa0985447b116c8f'
 review_loop_iteration: 0
@@ -181,6 +181,13 @@ deferred:
 - **AC 10 — nothing arms outside a game.** Given `phase: 'attract'`, when `ball_launched` fires, then `machine.ballSave` remains `{ untilTick: null, sources: [] }` and all five goldens' `expectedGameStateHash` values are unchanged.
 - **AC 11 — the drain boundary is straddled on both sides.** Given a switch-script test under an override tuning of independently authored literals, when drains occur at `untilTick − 1`, `untilTick + graceTicks − 1`, `untilTick + graceTicks` and `untilTick + graceTicks + 1`, then the first three save and the fourth ends the ball. (The epic's stated three probes are the first, second and fourth; the third is added because none of the three can distinguish `<=` from `<` at the boundary — see the Rule 19 mutation below.)
 
+### Rework iteration 1 (2026-09-07) -- the author's ball-save re-arm decision
+
+- [ ] **[Review][DW-218] A save's own re-serve must NOT re-arm the ball-save window.** The author decided **option 2** of the four put to them: **a *player* plunge arms the window; a save's own re-serve does not.** Today `ball-controller.ts` arms on *every* `ball_launched`, and the save's `c_autolaunch` re-serve opens `s_shooter_lane` and emits exactly that event, so each save restarts a fresh full window. Distinguish the two launch causes at the arming site -- the story already carries a per-ball flag of exactly this kind (`awaitingSaveLaunch`) held in the controller closure, and that is the pattern to follow: **a closure-held discriminator costs zero state hashes, whereas a new `GameState` field would move `expectedHash`/`expectedGameStateHash` on all five goldens and is forbidden by this spec's own Block If.** Do not change `BallSaveState`'s serialized shape.
+- [ ] **[Review] Wire the `enableBallSave` gate -- a defect fix, not an open question.** `armBallSave` never checks whether the controller's source is present in `sources`, so AC 1's enable-versus-start distinction exists in the event stream and **nowhere in behaviour**. That is a bug under any re-arm semantics; the author's decision settles what the gate now guards. Give it a mutation that reddens: today, deleting the enable step entirely leaves the arming path working.
+- [ ] **[Review] Prove the fix with the real-physics harness that found the defect, not with unit tests alone.** Re-run 120,000 ticks at **production** tuning, seed 0, no input, over a real `createLoop` + real physics, and show `ball_ended` now occurs at a natural cadence with **at most one save window per ball**. **Keep the control**: the short-window run (`ballSaveMs` 500 / grace 100) must still give **zero saves and `ball_ended` at tick 4273** -- without it the new result is a null measurement from a possibly-blind harness, which is precisely how this defect survived the first pass. Add the passing form of this as a real test so the property is pinned, not merely observed once.
+- [ ] **[Review] Do not regress the golden budget.** All five goldens are mid-story at the header-only refresh (`tableHash` `bac5816c`). Any movement in `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, `expectedCheckpointHashes` or `assetHash` is a **HALT**, not a re-record.
+
 ### Review Findings
 
 **Code review, 2026-09-07 (iteration 1, `bmad-code-review`; review tier: full — `blind-hunter`, `edge-case-hunter`, `verification-gap`, `acceptance-auditor`, all four returned, no model override since `_bmad/custom/model-overrides.yaml` does not exist on this project).** Suite re-run by the reviewer with `BLENDER` exported: **114 files / 1854 tests / 0 failed / 0 skipped** before patching, **1857 passed** after. Golden discipline re-verified independently and **structurally** (parsed JSON at `411da33` vs HEAD, never substring grep): only `header.tableHash` (`672573c`→`bac5816c`), `header.gameStart.tuning` (exactly six added keys, zero removals, zero value changes, declaration order preserved so DW-213's `reopen_if` is not tripped) and `notes` (a strict append on all five) moved. `expectedHash`, `expectedGameStateHash`, `expectedCheckpointHashes`, `checkpointTicks`, `transitions`, `coilPrologue`, `durationTicks` and `assetHash` are byte-identical on all five. **No Block-If condition was hit; no HALT on the goldens.**
@@ -227,6 +234,8 @@ deferred:
 - **Rule 19 (falsifiability):** four previously-green mutations are now red (see Resolved above), each applied, observed, and reverted from a saved copy — never `git checkout --`, never `git stash` — with the tree verified byte-identical afterwards.
 
 ## Spec Change Log
+
+- **2026-09-07 -- reopened for rework iteration 1 on the author's decision (DW-218).** Code review found, and the lead independently reproduced with a from-scratch harness, that a ball save re-arms a fresh full window on its own re-serve: at production tuning over 120,000 ticks, **28 `ball_saved` and zero `ball_ended`** -- the ball never ends, putting ball 2, the bonus, lane rotation, game over and Match out of reach. The control (`ballSaveMs` 500 / grace 100 -> zero saves, `ball_ended` at the same tick 4273) is what makes that null result evidence rather than a blind harness. Four options were put to the author; **option 2 was chosen: a player plunge arms the window, a save's own re-serve does not.** Behaviourally identical to one-window-per-ball in single-ball play, while keeping AC 5's multi-source arbitration meaningful for Story 3.7's multiball arming. Option 4 (shorten `ballSaveMs`) was rejected as non-viable: the loop is structural, so a tuning-only fix re-breaks the moment the table's drain interval changes. **AD-6 amended** to record both this decision and the pre-existing `phase === 'game'` gate; **AD-9 amended** to correct the lamp projection signature to `lampsOf(state, hurryUpTicks)` (DW-220, closed). `lint_spine.py` clean, memlog entry 76, both amendments so no `spine-next-id` claim.
 
 ## Review Triage Log
 
