@@ -2,7 +2,7 @@
 title: 'Story 2.11: Tilt warnings, Tilt and Slam tilt'
 type: 'feature'
 created: '2026-09-08'
-status: 'done'
+status: 'in-progress'
 baseline_revision: 'f2fd48f250c45bf8d828f585fcffe4f5eeb01913'
 baseline_commit: 'f2fd48f250c45bf8d828f585fcffe4f5eeb01913'
 review_loop_iteration: 0
@@ -350,7 +350,24 @@ _Code review 2026-09-10 (`bmad-code-review`, full mode). Scope: `f2fd48f..HEAD` 
 - DW-242: already ledgered.
 - Test fixtures that author `tiltWarnings: 1`: literals at the probe are this story's own anti-vacuity rule.
 
+### Smoke rework (iteration 1, 2026-09-11)
+
+- [ ] [Smoke] **DW-247: a `tilt_warning` that lands while a `ball_ended` hold is live is swallowed for good. The player never sees WARNING, and the next eligible closure tilts them with no visible warning.** [`src/presentation/backglass/frame.ts` `advanceBackglass()`: both the `ball_ended` arming branch and the live-hold branch `return` above the warning arming, and the warning screen is armed only from the one frame that carries the event.] The browser smoke failed on this on 2026-09-11 (S1: a burst shortly after a drain shows no WARNING, and the next burst TILTs). A red-first fold test confirmed the mechanism. A real-browser run with in-page instrumentation showed it is the ONLY cause: on a clean ball with no hold live, WARNING arms at the event and holds its full 2 s.
+  **What the fix must do.** Keep task 10's ordering and its intent: an ended ball's screen still wins the panel for its hold, and TILT still supersedes a warning. But never drop the warning.
+  - A `tilt_warning` that arrives on the `ball_ended` arming frame, or while the hold is live, is carried in `BackglassView`. That is presentation state, never `GameState`, so no golden moves.
+  - It is shown when the hold ends, for the full `TILT_WARNING_HOLD_TICKS` measured from the hold's end.
+  - It is dropped if, when the hold ends, the machine is tilted (TILT shows instead) or `phase` is no longer `'game'`.
+  - Every existing ordering and phase-gate test stays green.
+  **Tests (Rule 19, each with a named mutation recorded in `## Verification`):**
+  1. A `tilt_warning` folded into a live `ball_ended` hold. WARNING appears on the first frame at or after the hold's end and holds for its full window. Control: the same fold without the event never shows WARNING.
+  2. The same case on the `ball_ended` ARMING frame itself: both events in one `FrameOutput`, because one frame carries every owed tick's events.
+  3. A pending warning is superseded by TILT when the machine is tilted at the hold's end, and dropped when `phase` has left `'game'`.
+  4. One case built from REAL frames: a `runRulesScript` or `createLoop` run in which a ball drains and `s_tilt_bob` closes within the following hold, folded through `advanceBackglass()`/`renderFrame()` exactly as `src/host/boot.ts` does. Assert the `WARNING` row lights dots in its own declared band.
+  The expected red for dropping the carry is tests 1, 2 and 4. Deliver this to close DW-247 (owned by this story again, reopened `by=smoke`), and do not re-file it.
+
 ## Spec Change Log
+
+- 2026-09-11, **smoke rework iteration 1** (lead). Browser smoke S1 failed: WARNING was never shown after a drain. The diagnosis is DW-247, reopened from `by-design`. It is the single cause: a red-first fold test confirms it, and an instrumented real-browser run shows that a clean ball 1 displays WARNING for its full hold. The orchestrator's unverified clean-run miss was capture latency. The `[Smoke]` task above was added. Task 10's ordering and intent are kept: this is a tier-1 amendment that adds the guarantee that the warning is shown and preserves the priority that the ended ball wins its hold. The frozen intent block is untouched. Status reset from `done` to `in-progress` for the implement re-spawn. The frontmatter `deferred:` list already carries three items the lead harvested at the first `dev_complete` (DW-241, DW-242, DW-243); append only NEW items.
 
 ## Review Triage Log
 

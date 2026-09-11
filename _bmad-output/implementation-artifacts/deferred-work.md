@@ -1540,6 +1540,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: med | fix-risk: high | footprint: in-epic
 - evidence: Scratch probe: slam@10, Start@20, old ball drains@300 -> ball_ended(p0) for the new game's ball 1 with bd_shooter still occupied, then a 2nd trough eject into that lane; ball-controller.ts Start branch checks only phase
 - 2026-09-11T00:25:55Z status=escalated owner=burndown by=cr note=fix sets Start semantics with balls not home (refuse vs reuse the resting ball); coupled to DW-241, 2.12 ball search, 2.13
+- 2026-09-11T01:03:06Z occurrence=2-11-tilt-warnings-tilt-and-slam-tilt note=Reproduced LIVE in 2.11's browser smoke (orchestrator backstop, 2026-09-11). After a slam, the voided game's ball stayed in the shooter lane. Start then served a SECOND ball on top of it (two meshes at 818,705 and 818,724), and the new game jumped to BALL 2 within seconds.
 
 ### DW-245: slamNudgesPerWindow 3 in 500 ms (unverified) makes three quick nudge taps slam-tilt every player's game; the story's own integration tests had to cut burstFrames() to two edges to avoid it
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: med | fix-risk: low | footprint: in-epic
@@ -1555,8 +1556,14 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: frame.ts advanceBackglass: the ball_ended hold returns before the tilt_warning arming branch, in exactly the order spec task 10 specifies
 - 2026-09-11T00:25:56Z status=by-design owner=2-11-tilt-warnings-tilt-and-slam-tilt by=cr note=spec task 10 fixes the order (ball_ended arming, its hold, TILT, then the warning); reopens only via spec amendment
+- 2026-09-11T01:05:10Z status=open owner=2-11-tilt-warnings-tilt-and-slam-tilt by=smoke note=REOPENED. The by-design closure rested on spec task 10's ordering, and that ordering drops warnings in real play. The 2.11 browser smoke FAILED on it: WARNING never shown, the next burst TILTs. A red-first fold test confirmed the mechanism: a tilt_warning in a live ball_ended hold is never shown, during or after the hold. A warning the player never sees is not a warning, and slapping the machine right after a drain is the common case. Fixing it in 2.11's smoke rework iteration; spec task 10 is amended tier-1, because the intent (the ended ball's screen wins its hold) is kept and the missing guarantee (the warning is still shown) is added.
 
 ### DW-248: createTiltController does not validate adjustments.tiltWarnings: NaN never tilts and emits remaining NaN, and a negative or fractional count shifts the threshold
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: tilt.ts compares player.tiltWarnings >= adjustments.tiltWarnings unvalidated; today its only sources are TUNING.tiltWarnings (1), boot.ts and test literals
 - 2026-09-11T00:25:56Z status=wontfix-theoretical owner=2-11-tilt-warnings-tilt-and-slam-tilt by=cr note=real once a Settings UI or persisted save (AD-14 player overrides) can supply tiltWarnings
+
+### DW-249: No flipper or plunger is rendered in the shipped game: src/presentation/mechanisms/ holds only Story 1.6's .gitkeep, so a player cannot see the flippers they are pressing
+- source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: high | fix-risk: med | footprint: out-of-epic
+- evidence: 2.11 browser smoke (orchestrator backstop, 2026-09-11): no flipper visible in any capture; mechanisms/.gitkeep reads 'Filled by Story 1.6 ... the flipper and plunger presentation', never delivered; playfield.ts:53-61 confirms the flipper col_ nodes never reach the glb; Story 5.4's AC says mechanism visuals 'replace the primitives', which do not exist
+- 2026-09-11T01:04:56Z status=routed owner=5-4-mechanisms-plastics-ramp-and-guides by=smoke note=Routed to 5.4 because its AC 1 already requires flipper angle and plunger travel to follow the snapshot. But 5.4 assumes primitives exist to replace, and they don't, so its plan must build them from nothing. Until then every browser smoke of flipper behaviour (Tilt's dead flippers, AD-5's hardware set) can only be proven by unit tests. Author may want this pulled earlier than Epic 5.
