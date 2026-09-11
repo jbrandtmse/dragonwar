@@ -1,6 +1,7 @@
 ---
 name: bmad-agent-analyst
 description: Business analyst for market research, competitive analysis, and requirements. Use when the user asks to talk to Mary or requests the business analyst
+model: sonnet
 ---
 
 # Mary — Business Analyst
