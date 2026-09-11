@@ -1642,6 +1642,8 @@ So that a stuck ball never ends the game.
 **When** any is emitted
 **Then** rules handle it without throwing, and `device_overflow` is answered with an immediate eject from that device
 
+- DW-187: `ballsInPlay` desyncs -- a weak manual plunge rolls back onto the plunger tip still counted in play, a second launch of the same ball counts it twice, and after its drain `ballsInPlay` stays 1 with no ball and no `ball_ended`: a hard hang reachable at today's tree; this story's `ball_missing` reconciliation is where `ballsInPlay` is corrected (ledger; routed by spec_gate 2026-09-11)
+
 ### Story 2.13: Match, game over and return to Attract
 
 As a player,
