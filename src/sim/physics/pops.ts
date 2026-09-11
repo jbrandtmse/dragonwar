@@ -22,11 +22,14 @@
 // `test/port-provenance.test.ts`'s `AUTHORED_PHYSICS_FILE_RELATIVE_PATHS`
 // and `tools/dependency-cruiser.config.mjs`'s `AUTHORED_PHYSICS_FILES`).
 
+import type { Ball } from './ball/ball';
+import type { Vertex3D } from './math/vertex3d';
 import { TABLE } from '../table/dragonwar';
+import { fromPhysics, type Vec3 } from '../table/frames';
 import type { ResolvedTuning } from '../table/tuning';
 import type { SwitchName } from '../table/names';
 import { segmentIntersectsBox } from './geometry';
-import { tableSpeedToPhysicsVelocity, type BallStepMovement, type ContactEventLike, type SwitchEdgeLike } from './devices';
+import { tableSpeedToPhysicsVelocity, type BallStepMovement, type ContactEventLike, type PulseCommandLike, type SwitchEdgeLike } from './devices';
 import type { LoadedSwitchZone } from './loader';
 
 /** The three pop coils, matching `TABLE.popWiring`'s own key set (DW-149: this file never hand-types a second copy of the set -- see `createPopMechanics()`'s own derivation). */
@@ -62,6 +65,22 @@ export interface PopMechanics {
 		movements: readonly BallStepMovement[],
 		coilEnabled: Readonly<Record<PopCoilName, boolean>>,
 	): PopMechanicsResult;
+	/**
+	 * Story 2.12 (AD-6, AD-5): ball search's commanded pop stage. Runs
+	 * PRE-step (`machine.ts`'s `PRE_STEP_HARDWARE_RULES`, never the
+	 * post-switch-edge manifest above -- this reacts to a coil PULSE, not a
+	 * skirt-edge make), after `enabledPulses` has already been filtered by
+	 * `coilEnabled` (DW-74: a disabled pop's pulse never reaches here at
+	 * all). For every pulsed `c_pop_N` in `pulses`, kicks the ball (if any)
+	 * whose CURRENT centre lies inside `sw_pop_N`'s own zone -- the same
+	 * radial impulse `applyPostSwitchEdges()` gives a genuine skirt-edge
+	 * make, factored into `radialKickVelocity()` below rather than
+	 * duplicated. Unlike that switch-edge trigger, a commanded pulse into an
+	 * empty skirt is an ordinary, foreseeable outcome (nothing to dislodge),
+	 * not an internal-consistency defect -- it silently kicks nothing, never
+	 * throws.
+	 */
+	applyPulses(tick: number, pulses: readonly PulseCommandLike[], balls: readonly Ball[]): PopMechanicsResult;
 }
 
 interface PopDevice {
@@ -87,6 +106,30 @@ interface PopDevice {
  * ever affected -- only a genuine near-apex descent is.
  */
 const POP_KICK_TIE_BREAK_MM = 5;
+
+/**
+ * The radial-kick velocity, shared by `applyPostSwitchEdges()` (a genuine
+ * skirt-edge make) and `applyPulses()` (a ball-search commanded pulse, Story
+ * 2.12, task 8: "the same radial impulse ... factored out rather than
+ * duplicated") -- see `POP_KICK_TIE_BREAK_MM`'s own doc comment above for why
+ * a near-apex approach is floored rather than left to a numerically-exact
+ * zero check.
+ */
+function radialKickVelocity(posMm: Vec3, centroidMm: { readonly x: number; readonly y: number }, popKickMmPerS: number): Vertex3D {
+	const rawDx = posMm.x - centroidMm.x;
+	const dy = posMm.y - centroidMm.y;
+	const dx = rawDx >= 0 ? Math.max(rawDx, POP_KICK_TIE_BREAK_MM) : Math.min(rawDx, -POP_KICK_TIE_BREAK_MM);
+	const len = Math.hypot(dx, dy);
+	// Guards a division by zero -- dead by construction (see this function's
+	// own tie-break floor above), retained as a total-function guard.
+	const dir = len > 1e-6 ? { x: dx / len, y: dy / len, z: 0 } : { x: 1, y: 0, z: 0 };
+	return tableSpeedToPhysicsVelocity(dir, popKickMmPerS);
+}
+
+/** A ball's own live table-frame position, straight from physics (never a swept movement) -- `applyPulses()`'s own point-in-time read, mirroring `sim/physics/devices.ts`'s `isBallInsideZoneNow()`. */
+function livePosMm(ball: Ball): Vec3 {
+	return fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
+}
 
 /**
  * Builds the pop-bumper hardware rule. `popCentroidsMm` comes from
@@ -155,8 +198,6 @@ export function createPopMechanics(options: {
 				);
 			}
 
-			const rawDx = resolved.afterMm.x - device.centroidMm.x;
-			const dy = resolved.afterMm.y - device.centroidMm.y;
 			// DW-148's own strand: a ball descending EXACTLY onto the
 			// octagon's apex vertex (x precisely equal to the centroid's
 			// own x) has a `rawDx` of (numerically) zero, so the "radially
@@ -168,41 +209,17 @@ export function createPopMechanics(options: {
 			// straight up off col_pop_1's apex at every popKickMmPerS value
 			// tried came straight back down onto the SAME x, landing in a
 			// new but equally permanent vertical equilibrium rather than
-			// genuinely escaping. `POP_KICK_TIE_BREAK_MM` resolves this
-			// EXACT tie with a fixed, deterministic lateral floor (never
-			// randomness, AD-3) -- physically honest, too: a real skirt is
-			// never perfectly radially symmetric in practice, so a ball
-			// entering dead-centre still leaves along some real edge, never
-			// straight back the way it came. Gravity in this table has no
-			// x-component (Code Map, "pure down-slope, no x-component"), so
-			// even this small a sideways speed is never fought and persists
-			// through the whole flight, carrying the ball genuinely clear.
-			// DELIBERATELY floors every approach within `POP_KICK_TIE_BREAK_MM`
-			// of dead-centre, not only the numerically-exact-zero case (code
-			// review finding, this pass -- an epsilon-gated version was tried
-			// and measurably reopens DW-148: with no x-component to gravity,
-			// a ball that kicks clear and later re-descends lands back within
-			// float64 noise of the SAME x, never exactly zero twice running,
-			// so an epsilon gate hands it a series of near-zero-but-nonzero
-			// `rawDx` values -- each one a nearly-straight-up kick, which is
-			// exactly the "equally permanent vertical equilibrium" this
-			// constant exists to prevent. `Math.max`/`Math.min` only ever
-			// widens a real offset SMALLER than this fixed floor -- ordinary
-			// approaches from well off-centre (this device's own switch zone
-			// is dozens of mm across) are never touched by it.
-			const dx = rawDx >= 0 ? Math.max(rawDx, POP_KICK_TIE_BREAK_MM) : Math.min(rawDx, -POP_KICK_TIE_BREAK_MM);
-			const len = Math.hypot(dx, dy);
-			// Guards a division by zero. Note (code review, this pass) that
-			// this else-branch is DEAD BY CONSTRUCTION, not merely
-			// unreachable from today's geometry as an earlier version of
-			// this comment claimed: the line above guarantees
-			// `|dx| >= POP_KICK_TIE_BREAK_MM` (5 mm), so `len` is never
-			// below 5 and `len > 1e-6` always holds. It is retained as a
-			// total-function guard -- the tie-break's own value is what
-			// makes it dead, and a future change to that constant (or to
-			// the floor's shape) is exactly when it would stop being.
-			const dir = len > 1e-6 ? { x: dx / len, y: dy / len, z: 0 } : { x: 1, y: 0, z: 0 };
-			const impulse = tableSpeedToPhysicsVelocity(dir, tuning.hardware.popKickMmPerS.value);
+			// genuinely escaping. `POP_KICK_TIE_BREAK_MM` (`radialKickVelocity()`
+			// above) resolves this EXACT tie with a fixed, deterministic
+			// lateral floor (never randomness, AD-3) -- physically honest,
+			// too: a real skirt is never perfectly radially symmetric in
+			// practice, so a ball entering dead-centre still leaves along
+			// some real edge, never straight back the way it came. Gravity
+			// in this table has no x-component (Code Map, "pure down-slope,
+			// no x-component"), so even this small a sideways speed is
+			// never fought and persists through the whole flight, carrying
+			// the ball genuinely clear.
+			const impulse = radialKickVelocity(resolved.afterMm, device.centroidMm, tuning.hardware.popKickMmPerS.value);
 			resolved.ball.hit.vel.add(impulse);
 
 			contactEvents.push({
@@ -219,5 +236,54 @@ export function createPopMechanics(options: {
 		return { contactEvents };
 	}
 
-	return { applyPostSwitchEdges };
+	function applyPulses(tick: number, pulses: readonly PulseCommandLike[], balls: readonly Ball[]): PopMechanicsResult {
+		const contactEvents: ContactEventLike[] = [];
+		const pulsedCoils = new Set<PopCoilName>();
+		for (const pulse of pulses) {
+			if ((pulse.coil as string) in TABLE.popWiring) {
+				pulsedCoils.add(pulse.coil as PopCoilName);
+			}
+		}
+		if (pulsedCoils.size === 0) {
+			return { contactEvents };
+		}
+
+		for (const device of devices) {
+			if (!pulsedCoils.has(device.coil)) {
+				continue;
+			}
+			// Unlike a genuine skirt-edge make (applyPostSwitchEdges above), a
+			// commanded pulse into an empty skirt is an ORDINARY outcome (ball
+			// search reaches this stage whether or not a ball happens to be
+			// wedged in the skirt) -- silently kicks nothing, never throws.
+			let resolved: Ball | undefined;
+			let posMm: Vec3 | undefined;
+			for (const ball of balls) {
+				const candidatePosMm = livePosMm(ball);
+				if (device.zones.some((zone) => segmentIntersectsBox(candidatePosMm, candidatePosMm, zone.minMm, zone.maxMm))) {
+					resolved = ball;
+					posMm = candidatePosMm;
+					break;
+				}
+			}
+			if (!resolved || !posMm) {
+				continue;
+			}
+			const impulse = radialKickVelocity(posMm, device.centroidMm, tuning.hardware.popKickMmPerS.value);
+			resolved.hit.vel.add(impulse);
+			contactEvents.push({
+				type: 'contact',
+				kind: 'coil_fire',
+				device: device.coil,
+				ballId: resolved.id,
+				surface: 'bumper',
+				pos: posMm,
+				tick,
+			});
+		}
+
+		return { contactEvents };
+	}
+
+	return { applyPostSwitchEdges, applyPulses };
 }

@@ -15,7 +15,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { createDevicesLayer, PLAYFIELD_SWITCHES } from '../src/sim/rules/devices';
-import { applyDeviceEvents } from '../src/sim/rules/ball-controller';
+import { applyDeviceEvents, applyRecovery } from '../src/sim/rules/ball-controller';
 import { createRules } from '../src/sim/rules';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning } from '../src/sim/table/tuning';
@@ -541,14 +541,20 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 	// the pre-2.4 test that asserted `s_plunger` produced NOTHING was deleted
 	// in this story without a replacement, so the changed behaviour went
 	// unpinned at exactly the moment it changed. Pinned here instead.
-	it('Plunger: s_plunger is a cabinet button, so its close emits button_pressed -- the behaviour this story changed', () => {
+	it('Plunger: s_plunger is a cabinet button, so its close emits button_pressed and its own open emits button_released (Story 2.12, AD-19 amended: AC 14)', () => {
 		const result = runSwitchScript(close('s_plunger').at(10).open().at(20).build(), { durationTicks: 25 });
-		expect(result.events).toEqual([{ type: 'button_pressed', button: 's_plunger', tick: 10 }]);
+		expect(result.events).toEqual([
+			{ type: 'button_pressed', button: 's_plunger', tick: 10 },
+			{ type: 'button_released', button: 's_plunger', tick: 20 },
+		]);
 	});
 
-	it('Button: s_start closes, then opens -> one button_pressed { button: s_start } on the close only', () => {
+	it('Button: s_start closes, then opens -> button_pressed { button: s_start } on the close, button_released { button: s_start } on the open (Story 2.12, AD-19 amended: AC 14)', () => {
 		const result = runSwitchScript(close('s_start').at(10).open().at(20).build(), { durationTicks: 25 });
-		expect(result.events).toEqual([{ type: 'button_pressed', button: 's_start', tick: 10 }]);
+		expect(result.events).toEqual([
+			{ type: 'button_pressed', button: 's_start', tick: 10 },
+			{ type: 'button_released', button: 's_start', tick: 20 },
+		]);
 	});
 
 	it('Lane change: s_flipper_r closes -> one lane_change_pressed { side: right } and one button_pressed { button: s_flipper_r }', () => {
@@ -571,6 +577,45 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 			]),
 		);
 		expect(result.events).toHaveLength(2);
+	});
+
+	// Story 2.12 (AD-19, amended 2026-09-11): AC 14 -- the devices layer
+	// reports each cabinet button's own RELEASE edge, and only a button's own
+	// opening edge does -- a non-button switch's opening edge (s_top_2) adds
+	// nothing at all, paired in the SAME test with its own closing edge's
+	// positive (playfield_switch_closed + lane_entered), per this story's own
+	// anti-vacuity rule (never assert a negative without its positive in the
+	// same test).
+	it('AC 14: all four buttons report button_released on their own opening edge; a flipper release adds no second lane_change_pressed; a non-button switch (s_top_2) opening edge adds nothing, while its own closing edge still yields playfield_switch_closed and lane_entered', () => {
+		const script = [
+			...close('s_start').at(10).open().at(20).build(),
+			...close('s_plunger').at(10).open().at(20).build(),
+			...close('s_flipper_l').at(10).open().at(20).build(),
+			...close('s_flipper_r').at(10).open().at(20).build(),
+			...close('s_top_2').at(10).open().at(20).build(),
+		];
+		const result = runSwitchScript(script, { durationTicks: 25 });
+
+		for (const button of ['s_start', 's_plunger', 's_flipper_l', 's_flipper_r'] as const) {
+			expect(result.events, `${button} must report button_pressed at 10`).toContainEqual({ type: 'button_pressed', button, tick: 10 });
+			expect(result.events, `${button} must report button_released at 20`).toContainEqual({ type: 'button_released', button, tick: 20 });
+		}
+
+		// A flipper's release adds no SECOND lane_change_pressed -- exactly one
+		// per flipper, from the close only.
+		const laneChangeEvents = result.events.filter((e) => e.type === 'lane_change_pressed');
+		expect(laneChangeEvents).toHaveLength(2);
+
+		// s_top_2's own CLOSE is the positive: playfield_switch_closed and
+		// lane_entered both fire from it.
+		expect(result.events).toContainEqual({ type: 'playfield_switch_closed', switch: 's_top_2', tick: 10 });
+		expect(result.events).toContainEqual({ type: 'lane_entered', lane: 'top_2', tick: 10 });
+
+		// s_top_2's own OPEN adds nothing at all -- no button_released (it is
+		// not a button), no playfield_switch_closed (an opening edge is never
+		// one), no lane_entered.
+		const atOpenTick = result.events.filter((e) => e.tick === 20 && !(e.type === 'button_released'));
+		expect(atOpenTick, 's_top_2 opening at tick 20 must add no event beyond the four buttons\' own button_released above').toEqual([]);
 	});
 });
 
@@ -808,6 +853,82 @@ describe('sim/rules/ball-controller.ts -- ballsInPlay accounting (AD-6, unchange
 		]);
 		expect(drained.ballsInPlay).toBe(0);
 		expect(applyDeviceEvents(drained, [{ type: 'ball_launched', tick: 2 }]).ballsInPlay).toBe(1);
+	});
+});
+
+// Story 2.12 (DW-187, AC 13): a served ball's own arrival at bd_shooter is
+// PAIRED, same batch, against a device_ball_left from the parking device
+// that serves into it -- never counted. An UNPAIRED bd_shooter arrival
+// (DW-187's own rolled-back-plunge shape) now correctly leaves play.
+describe('sim/rules/ball-controller.ts -- DW-187: a served arrival is never counted as a return (AC 13)', () => {
+	it('device_ball_left bd_trough + device_ball_entered bd_shooter, in EITHER order, is a served arrival -- same reference, ballsInPlay unchanged', () => {
+		const before = machine({ ballsInPlay: 1 });
+
+		const forward = applyDeviceEvents(before, [
+			{ type: 'device_ball_left', device: 'bd_trough', slot: 3, tick: 1 },
+			{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 1 },
+		]);
+		expect(forward.ballsInPlay).toBe(1);
+		expect(forward, 'a served arrival changes nothing -- same MachineState reference').toBe(before);
+
+		const reverse = applyDeviceEvents(before, [
+			{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 1 },
+			{ type: 'device_ball_left', device: 'bd_trough', slot: 3, tick: 1 },
+		]);
+		expect(reverse.ballsInPlay).toBe(1);
+		expect(reverse, 'order within the batch must not matter -- pairing is membership-only').toBe(before);
+	});
+
+	it('device_ball_entered bd_shooter ALONE (no device_ball_left in the batch) is an UNPAIRED arrival -- a ball genuinely returning to the lane, floored at 0 like a parking decrement', () => {
+		const before = machine({ ballsInPlay: 1 });
+		const lone = applyDeviceEvents(before, [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 1 }]);
+		expect(lone.ballsInPlay).toBe(0);
+		expect(lone, 'a genuine decrement must be a NEW reference').not.toBe(before);
+	});
+
+	it('at ballsInPlay 0, the lone (unpaired) arrival floors at 0 and returns the SAME reference', () => {
+		const before = machine({ ballsInPlay: 0 });
+		const lone = applyDeviceEvents(before, [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 1 }]);
+		expect(lone.ballsInPlay).toBe(0);
+		expect(lone, 'floored at 0 with no change -- same reference').toBe(before);
+	});
+});
+
+// Story 2.12 (AD-4, AD-18, AC 2): applyRecovery()'s own reference-sharing
+// contract, pinned directly (mirrors applyDeviceEvents' own pinning above,
+// build-auto step 4's own review-triage addition -- previously only
+// exercised indirectly through integration-level toEqual checks).
+describe('sim/rules/ball-controller.ts -- applyRecovery(): the recover-count correction (AC 2)', () => {
+	it('recovered: null -- the machine is untouched, and the SAME reference returns', () => {
+		const before = machine({ ballsInPlay: 1 });
+		const after = applyRecovery(before, null);
+		expect(after.ballsInPlay).toBe(1);
+		expect(after, 'a null recovered report changes nothing -- same MachineState reference').toBe(before);
+	});
+
+	it('recovered: 0 (or any number) with ballsInPlay ALREADY 0 -- still the SAME reference, never a needless copy', () => {
+		const before = machine({ ballsInPlay: 0 });
+		const after = applyRecovery(before, 0);
+		expect(after.ballsInPlay).toBe(0);
+		expect(after, 'nothing to correct at ballsInPlay 0 -- same reference').toBe(before);
+
+		const afterNonZeroCount = applyRecovery(before, 3);
+		expect(afterNonZeroCount.ballsInPlay).toBe(0);
+		expect(afterNonZeroCount, 'the recovered COUNT never matters once ballsInPlay is already 0 -- same reference').toBe(before);
+	});
+
+	it('recovered: 0 with ballsInPlay > 0 -- corrects to 0, a NEW reference (count 0 still means "a recover genuinely ran")', () => {
+		const before = machine({ ballsInPlay: 1 });
+		const after = applyRecovery(before, 0);
+		expect(after.ballsInPlay).toBe(0);
+		expect(after, 'a genuine correction must be a NEW reference').not.toBe(before);
+	});
+
+	it('recovered: 2 with ballsInPlay > 0 -- corrects to 0 regardless of the count\'s own value', () => {
+		const before = machine({ ballsInPlay: 1 });
+		const after = applyRecovery(before, 2);
+		expect(after.ballsInPlay).toBe(0);
+		expect(after, 'a genuine correction must be a NEW reference').not.toBe(before);
 	});
 });
 

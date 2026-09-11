@@ -2,7 +2,10 @@
 //
 // AD-19/AD-2 -- the DRAGON drop bank's own letters and its reset coil. This
 // module ALONE pulses `c_dragon_bank_reset` (AD-19's own rule text), on a
-// genuine six-of-six completion and on `ball_will_start` (task 4). Physics
+// genuine six-of-six completion, on `ball_will_start` (task 4) and (Story
+// 2.12, AD-19 amended) on ball search's own reset request (`onResetRequested()`
+// below) -- ball search itself never pulses this coil; it only asks.
+// Physics
 // (`sim/physics/drop-targets.ts`) owns the mechanical state end to end
 // (AD-2: the six `s_dragon_*` switches are excluded from the generic
 // tracker) and still emits their edges through the normal `switchEvents`
@@ -33,6 +36,14 @@ export interface DropBankTracker {
 	step(switchEvents: readonly SwitchEvent[], tick: number): DropBankStepResult;
 	/** `ball_will_start` reached the layer -- one unconditional `c_dragon_bank_reset` pulse, whatever the bank state (AC 4). */
 	onBallWillStart(tick: number): CoilCommand;
+	/**
+	 * Story 2.12 (AD-19, amended): ball search's own reset request reached the
+	 * layer -- the SAME unconditional pulse `onBallWillStart()` above issues,
+	 * on AD-19's third trigger. This component stays the only caller of
+	 * `c_dragon_bank_reset` (ball search itself never pulses it -- it only
+	 * asks).
+	 */
+	onResetRequested(tick: number): CoilCommand;
 }
 
 export function createDropBankTracker(): DropBankTracker {
@@ -93,5 +104,9 @@ export function createDropBankTracker(): DropBankTracker {
 		return pulseResetCoil(tick);
 	}
 
-	return { step, onBallWillStart };
+	function onResetRequested(tick: number): CoilCommand {
+		return pulseResetCoil(tick);
+	}
+
+	return { step, onBallWillStart, onResetRequested };
 }

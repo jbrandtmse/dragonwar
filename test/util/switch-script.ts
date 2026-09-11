@@ -21,7 +21,7 @@ import { createRules, type ModeEvent } from '../../src/sim/rules';
 import { resolveTuning, type ResolvedTuning } from '../../src/sim/table/tuning';
 import type { BallWillStartEvent } from '../../src/sim/contracts/events';
 import type { GameAdjustments } from '../../src/sim/contracts/replay';
-import type { CoilCommand, GameState, SemanticEvent, SwitchEvent, SwitchName } from '../../src/sim/table/names';
+import type { CoilCommand, GameState, MachineReport, RecoverCommand, SemanticEvent, SwitchEvent, SwitchName } from '../../src/sim/table/names';
 
 interface ScheduledStep {
 	readonly switch: SwitchName;
@@ -176,6 +176,14 @@ export interface RunRulesScriptOptions {
 	readonly durationTicks: number;
 	/** Defaults to a fresh Attract-phase `GameState` with no players -- see `DEFAULT_INITIAL_STATE` below. Pass one to start mid-game (e.g. AC 5/AC 6's drain/game-over scenarios, which need players and machine state already in place). */
 	readonly initialState?: GameState;
+	/**
+	 * Story 2.12, task 16: a per-tick `MachineReport` to inject as
+	 * `rules.step()`'s own OPTIONAL fourth argument -- lets a headless test
+	 * drive ball search's `recovered`/`failures` handling without a real
+	 * `createLoop()`/`createMachine()`. A tick with no entry gets the
+	 * default `undefined` (rules' own `EMPTY_MACHINE_REPORT`).
+	 */
+	readonly machineReports?: ReadonlyMap<number, MachineReport>;
 }
 
 export interface RunRulesScriptResult {
@@ -187,6 +195,8 @@ export interface RunRulesScriptResult {
 	readonly events: readonly SemanticEvent[];
 	/** Every `CoilCommand` `rules.step()` returned, across the whole run, in tick order. */
 	readonly coilCommands: readonly CoilCommand[];
+	/** Story 2.12, task 16: every `RecoverCommand` `rules.step()` returned, across the whole run, in tick order. */
+	readonly recoverCommands: readonly RecoverCommand[];
 	/** Story 2.7, task 12: every `ModeEvent` (`RulesStepResult.modeEvents`) across the whole run, in tick order -- surfaced so a headless test can observe `lanes_completed` (AC 5) without touching `sim/loop`. */
 	readonly modeEvents: readonly ModeEvent[];
 }
@@ -237,15 +247,18 @@ export function runRulesScript(script: readonly SwitchEvent[], options: RunRules
 	const statesByTick = new Map<number, GameState>();
 	const events: SemanticEvent[] = [];
 	const coilCommands: CoilCommand[] = [];
+	const recoverCommands: RecoverCommand[] = [];
 	const modeEvents: ModeEvent[] = [];
 	for (let tick = 1; tick <= options.durationTicks; tick++) {
-		const result = rules.step(state, switchEventsByTick.get(tick) ?? [], tick);
+		const machineReport = options.machineReports?.get(tick);
+		const result = machineReport === undefined ? rules.step(state, switchEventsByTick.get(tick) ?? [], tick) : rules.step(state, switchEventsByTick.get(tick) ?? [], tick, machineReport);
 		state = result.state;
 		statesByTick.set(tick, state);
 		events.push(...result.events);
 		coilCommands.push(...result.coilCommands);
+		recoverCommands.push(...result.recoverCommands);
 		modeEvents.push(...result.modeEvents);
 	}
 
-	return { finalState: state, statesByTick, events, coilCommands, modeEvents };
+	return { finalState: state, statesByTick, events, coilCommands, recoverCommands, modeEvents };
 }

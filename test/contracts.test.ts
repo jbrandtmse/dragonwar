@@ -257,6 +257,8 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return `ball saved ${event.player}`;
 				case 'ball_missing':
 					return `missing ${event.count}`;
+				case 'ball_search_started':
+					return `ball search started at ${event.tick}`;
 				case 'ball_ended':
 					return `ended ${event.player} ${event.total}`;
 				case 'bonus_count_step':
@@ -333,6 +335,9 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(describeEvent({ type: 'ball_started', tick: 13 })).toBe('ball started');
 		expect(describeEvent({ type: 'ball_launched', tick: 14 })).toBe('ball launched');
 		expect(describeEvent({ type: 'ball_missing', count: 4, tick: 15 })).toBe('missing 4');
+		// Story 2.12 (AC 11): a fresh arm ships with an executing assertion from
+		// the moment it lands, never joining the DW-223 residual pattern below.
+		expect(describeEvent({ type: 'ball_search_started', tick: 19 })).toBe('ball search started at 19');
 		expect(describeEvent({ type: 'eject_failed', device: 'bd_lock', tick: 16 })).toBe('eject failed bd_lock');
 		expect(describeEvent({ type: 'broken', device: 'c_pop_1', tick: 17 })).toBe('broken c_pop_1');
 		expect(describeEvent({ type: 'device_overflow', device: 'bd_lock', tick: 18 })).toBe('overflow bd_lock');

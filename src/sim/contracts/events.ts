@@ -180,6 +180,20 @@ export interface BallMissingEvent {
 	readonly tick: number;
 }
 
+/**
+ * Story 2.12 (AD-9): a ball-search pass began this tick -- a bare start
+ * marker, payload-complete as-is (AD-9: nothing downstream needs to join it
+ * to a later snapshot to know what happened). Emitted at most once per pass;
+ * the pass's own stage schedule (slings, pops, the bank-reset request, each
+ * ball device's `ballSearchOrder` pulses, the one recover) is never itself
+ * observable through `SemanticEvent` -- only through the `coilCommands`/
+ * `recoverCommands` channels a step also returns.
+ */
+export interface BallSearchStartedEvent {
+	readonly type: 'ball_search_started';
+	readonly tick: number;
+}
+
 /** AD-7/AD-9's own payload-complete example: a ball has ended for a player. Story 2.10: `bonusByCategory` is the same TOTAL record `PlayerBonusState.byCategory` is (`sim/contracts/state.ts`'s own `BonusCategory`) -- every category always present. */
 export interface BallEndedEvent {
 	readonly type: 'ball_ended';
@@ -266,6 +280,23 @@ export interface DeviceOverflowEvent<TBallDevice extends string = string> {
 }
 
 /**
+ * Story 2.12 (AD-4, amended 2026-09-11): physics' own per-step report,
+ * forwarded whole by `sim/loop` as `rules.step()`'s optional fourth argument
+ * -- never round-tripped through `FrameOutput.events` a second time (those
+ * keep reaching presentation exactly as before, straight from the loop).
+ * `recovered` is the count `Machine.step()` returned for a `RecoverCommand`
+ * consumed THIS step, or `null` on a step that consumed none. `failures` is
+ * physics' own `DeviceFailure` vocabulary (`eject_failed` / `device_overflow`)
+ * widened to also admit `broken` (AD-9's Conventions table names it; nothing
+ * under `sim/physics/**` emits it yet, so the widening only lets a test
+ * exercise the tolerate-and-ignore path this story's AC 5 requires).
+ */
+export interface MachineReport<TBallDevice extends string = string, TDevice extends string = string> {
+	readonly recovered: number | null;
+	readonly failures: readonly (EjectFailedEvent<TBallDevice> | BrokenEvent<TDevice> | DeviceOverflowEvent<TBallDevice>)[];
+}
+
+/**
  * The closed, discriminated semantic-event union. Generic over the ball
  * device / mechanism name unions used by the device-failure vocabulary;
  * `sim/table/names.ts` binds these to `TABLE`'s unions for consumers.
@@ -277,6 +308,7 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| BallStartedEvent
 	| BallLaunchedEvent
 	| BallMissingEvent
+	| BallSearchStartedEvent
 	| BallEndedEvent
 	| BallSaveEnabledEvent
 	| BallSaveTimerStartedEvent

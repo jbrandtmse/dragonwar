@@ -107,6 +107,19 @@ export interface DeviceMechanics {
 	 * `tuning.autolaunchSpeedMmPerS.value`.
 	 */
 	launch(tick: number, device: BallDeviceName, speedMmPerS: number): DeviceMechanicsResult;
+	/**
+	 * Story 2.12 (AD-6): ball search's final stage. Physics' one licence to
+	 * despawn a ball -- removes every ball whose centre lies outside every
+	 * non-parking device's own entry zone (this table has one, `bd_shooter`'s
+	 * `s_shooter_lane`), returning the count removed. A ball already parked
+	 * inside a PARKING device is never a candidate at all: parking already
+	 * removed it from `physics.balls` the moment it entered, so this never
+	 * sees it. Runs pre-step (`machine.ts`'s `PRE_STEP_HARDWARE_RULES`),
+	 * before `applyCommands()` and before that tick's `before` position map,
+	 * so a ball a same-tick serve spawns is never despawned by the very
+	 * recover that landed alongside it (AD-6, AC 8).
+	 */
+	recover(tick: number): number;
 }
 
 type BallDevice = (typeof TABLE.ballDevices)[BallDeviceName];
@@ -628,12 +641,58 @@ export function createDeviceMechanics(options: {
 		return { switchEvents, contactEvents, failures };
 	}
 
+	// Story 2.12 (AD-6): every non-parking device's own entry zone -- the
+	// "inside a device" test recover() below applies. `launch()`'s own
+	// `isBallInsideZoneNow()` (above) is the shared point-in-box test; this is
+	// just the subject SET it is applied over, derived from TABLE rather than
+	// hand-listed (DW-149) -- `bd_shooter`/`s_shooter_lane` at this tree, but a
+	// future second non-parking device is covered automatically.
+	const nonParkingEntryZones: LoadedSwitchZone[] = [];
+	for (const device of Object.values(TABLE.ballDevices) as BallDevice[]) {
+		if (device.kind !== 'non-parking') {
+			continue;
+		}
+		const zone = switchZones.find((z) => z.switch === device.entry);
+		if (zone) {
+			nonParkingEntryZones.push(zone);
+		}
+	}
+
+	function recover(tick: number): number {
+		let count = 0;
+		// A COPY: physics.removeBall() below mutates the live array this
+		// closure otherwise shares with detectEntries()'s own `physics.balls`
+		// reads elsewhere in the same tick.
+		for (const ball of [...physics.balls]) {
+			const insideADevice = nonParkingEntryZones.some((zone) => isBallInsideZoneNow(ball, zone));
+			if (insideADevice) {
+				continue;
+			}
+			physics.removeBall(ball);
+			count += 1;
+			// A recovered ball can never again appear in a later tick's
+			// `movements` -- prune it from both per-device latches (the same
+			// "removed by any path other than clearBeyond()" leak this file's
+			// own `justEjected` doc comment already names and accepts for a
+			// parked ball; recover() is a second such path, closed here rather
+			// than left to accumulate a second stale entry class).
+			for (const ejected of justEjected.values()) {
+				ejected.delete(ball);
+			}
+			for (const reported of overflowReported.values()) {
+				reported.delete(ball);
+			}
+		}
+		return count;
+	}
+
 	return {
 		get parkingSlots() {
 			return parkingSlots as Readonly<Record<BallDeviceName, readonly boolean[]>>;
 		},
 		applyCommands,
 		detectEntries,
+		recover,
 		launch,
 	};
 }

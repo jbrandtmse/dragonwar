@@ -9,10 +9,18 @@
 // as the frame's FIRST event, and per step: resolves the `InputFrame` in
 // force at that tick, emits button-switch edges from consecutive frames,
 // calls `machine.step(tick, frame, commandsFromPreviousTick)`, then
-// `rules.step(state, switchEvents, tick)` -- every step, even with no
-// events. Assembles the `Snapshot` and returns a `FrameOutput` carrying
-// every event, contact event and command of all N steps in tick order, with
-// empty arrays and the UNCHANGED previous snapshot when N = 0.
+// `rules.step(state, switchEvents, tick, machineReport)` -- every step, even
+// with no events. Story 2.12 (AD-4, amended): `machineReport` is the fourth,
+// OPTIONAL argument this file now always supplies -- `{ recovered,
+// failures }`, forwarded whole from `machine.step()`'s own return, and
+// physics' own failures keep reaching `FrameOutput.events` exactly as
+// before, never re-emitted by rules. A `RecoverCommand` rules issues (its
+// own `coilCommands`-sibling channel, `recoverCommands`) lands in the SAME
+// next-tick `pendingCommands` queue a coil command already does (AD-4: a
+// command issued at tick N is consumed at N+1). Assembles the `Snapshot` and
+// returns a `FrameOutput` carrying every event, contact event and command of
+// all N steps in tick order, with empty arrays and the UNCHANGED previous
+// snapshot when N = 0.
 //
 // This file never names `TICK_HZ` (AD-3): every tick-rate arithmetic site
 // lives in `sim/contracts/time.ts`, imported directly (not through the
@@ -62,13 +70,14 @@ import { TABLE } from '../table/dragonwar';
 import { fromPhysics, type Vec3 } from '../table/frames';
 import type {
 	BallDeviceName,
-	CoilCommand,
 	CoilName,
 	FrameOutput,
 	GameStart,
 	GameState,
 	LampName,
 	LampState,
+	MachineCommand,
+	MachineReport,
 	MachineState,
 	SemanticEvent,
 	Snapshot,
@@ -278,8 +287,13 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	// Generalised (Story 1.6) from `pendingPulses: CoilName[]` to carry
 	// `enable`/`disable` alongside `pulse` -- both `pulseCoil()` and
 	// `setCoilEnabled()` below queue into this ONE array, exactly the same
-	// "commands land next tick" semantics either action already had.
-	let pendingCommands: Array<{ readonly coil: CoilName; readonly action: CoilAction }> = [];
+	// "commands land next tick" semantics either action already had. Story
+	// 2.12 (AD-4, amended): widened again to also carry a bare recover marker
+	// (`{ kind: 'recover' }`) -- `rulesResult.recoverCommands` (below) queues
+	// into the SAME array, so a `RecoverCommand` rules issues at tick N is
+	// consumed by physics at tick N+1, exactly like a coil command.
+	type PendingCommand = { readonly kind: 'coil'; readonly coil: CoilName; readonly action: CoilAction } | { readonly kind: 'recover' };
+	let pendingCommands: PendingCommand[] = [];
 
 	let state: GameState = {
 		tick: 0,
@@ -414,18 +428,23 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			const edges = buttonSwitchEdges(previousFrame, currentFrame, tick);
 			previousFrame = currentFrame;
 
-			const commandsForThisTick: CoilCommand[] = pendingCommands.map((c) => ({
-				type: 'coil',
-				coil: c.coil,
-				action: c.action,
-				tick,
-			}));
+			// Story 2.12 (AD-4, amended): a recover marker becomes a bare
+			// `{ type: 'recover', tick }`, no `coil`/`action` -- distinct from
+			// every `PendingCommand` a coil pulse/enable/disable builds.
+			const commandsForThisTick: MachineCommand[] = pendingCommands.map((c): MachineCommand =>
+				c.kind === 'recover' ? { type: 'recover', tick } : { type: 'coil', coil: c.coil, action: c.action, tick },
+			);
 			pendingCommands = [];
 
 			const machineResult = machine.step(tick, currentFrame, commandsForThisTick);
 			const switchEvents: SwitchEvent[] = [...edges, ...machineResult.switchEvents];
 
-			const rulesResult = rules.step(state, switchEvents, tick);
+			// Story 2.12 (AD-4, amended): physics' own per-step report, forwarded
+			// whole as rules.step()'s optional fourth argument -- `failures` keeps
+			// reaching `events` below exactly as before (machineResult.semanticEvents),
+			// never re-emitted by rules.
+			const machineReport: MachineReport = { recovered: machineResult.recovered, failures: machineResult.semanticEvents };
+			const rulesResult = rules.step(state, switchEvents, tick, machineReport);
 			// DW-70 (AD-7): `machine.deviceSlots` is derived entirely INSIDE
 			// rules.step() now (sim/rules/index.ts, ball-controller.ts's
 			// deriveDeviceSlots()) -- no longer overwritten here from the
@@ -457,7 +476,16 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			// at tick N+1 (AD-4) -- the tick field is reassigned fresh at
 			// consumption time above, exactly as a dev-queued command's already is.
 			for (const coilCommand of rulesResult.coilCommands) {
-				pendingCommands.push({ coil: coilCommand.coil, action: coilCommand.action });
+				pendingCommands.push({ kind: 'coil', coil: coilCommand.coil, action: coilCommand.action });
+			}
+			// Story 2.12 (AD-4): ball search's own final-stage command, queued
+			// into the SAME next-tick channel, so a RecoverCommand rules issues
+			// at tick N is consumed by physics at tick N+1. AD-7's Boundaries
+			// clause bounds a pass to "exactly one RecoverCommand", so this is
+			// never more than a single push in practice -- the loop still
+			// forwards every entry, rather than assuming the count.
+			for (let i = 0; i < rulesResult.recoverCommands.length; i++) {
+				pendingCommands.push({ kind: 'recover' });
 			}
 		}
 
@@ -466,11 +494,11 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	}
 
 	function pulseCoil(coil: CoilName): void {
-		pendingCommands.push({ coil, action: 'pulse' });
+		pendingCommands.push({ kind: 'coil', coil, action: 'pulse' });
 	}
 
 	function setCoilEnabled(coil: CoilName, enabled: boolean): void {
-		pendingCommands.push({ coil, action: enabled ? 'enable' : 'disable' });
+		pendingCommands.push({ kind: 'coil', coil, action: enabled ? 'enable' : 'disable' });
 	}
 
 	return { advance, pulseCoil, setCoilEnabled };

@@ -2,9 +2,10 @@
 title: 'Story 2.12: Ball search'
 type: 'feature'
 created: '2026-09-11'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '7c25c4d1c5b6b866c7607831ee70819ede5025af'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: []
 warnings: ['oversized']
 deferred:
@@ -72,6 +73,91 @@ deferred:
     location: >-
       public/assets/dragonwar.collision.json, the Ramp entrance deck near x 370-385, y 500-570
     severity: medium
+  - summary: >-
+      A commanded pop pulse (PopMechanics.applyPulses()) kicks only the
+      FIRST ball its scan finds inside a pulsed pop's own skirt zone; a
+      second ball simultaneously in the same skirt zone is silently left
+      alone (the scan loop breaks on the first match).
+    evidence: |-
+      src/sim/physics/pops.ts's applyPulses(): `for (const ball of balls) {
+      ... break; }` -- the break exits after resolving one ball, so a
+      second genuinely co-located ball is never kicked and gets no
+      coil_fire contact either. This story is single-ball throughout (AC 9's
+      own Given is one ball); the only caller of applyPulses() is ball
+      search's own commanded pop stage, reached after 15 s of total
+      silence, so a second ball being simultaneously stuck in the SAME
+      skirt zone cannot arise before multiball exists. Story 3.7 ("Quick
+      multiball", this spec's own Consumed-by list) is the first story
+      where two loose balls coexist.
+    location: >-
+      src/sim/physics/pops.ts, applyPulses() (task 8)
+    severity: low
+  - summary: >-
+      applyDeviceEvents' DW-187 serve-pairing and applyRecovery()'s (a)-(d)
+      dispatch are both skipped on the ball-save re-serve's own early-return
+      path (ball-controller.ts's `return { ... }` inside the drain branch).
+      The path's own comment justifies skipping (a) recover-report handling
+      and (d) the search's own step() as harmless, but does not address (b):
+      a `device_overflow` arriving in the SAME machine report as a
+      ball-save re-serve's own drain tick would also go unanswered (no
+      immediate eject pulse for that overflow).
+    evidence: |-
+      src/sim/rules/ball-controller.ts's ball-save early-return branch
+      (task 14's own comment: "skipping (a)-(d) on this path is harmless --
+      it runs only at ballsInPlay 0 ... a recover report cannot arrive on a
+      save's drain tick"). That argument covers only the recover case;
+      (c) eject_failed/broken are no-ops either way, so they are genuinely
+      unaffected, but (b) device_overflow on a DIFFERENT ball device in the
+      SAME report is not a no-op (Task 14(b) issues an immediate eject
+      pulse for it) and is not addressed by the comment's own reasoning.
+      Reaching this requires two balls interacting with ball devices on the
+      exact same tick as a ball-save drain -- unreachable in this story's
+      single-ball scope; relevant again once Story 3.7 introduces
+      multiball.
+    location: >-
+      src/sim/rules/ball-controller.ts, the ball-save re-serve early return (task 14)
+    severity: low
+  - summary: >-
+      The ball-search quiet-tick clock accrues whenever a pass object
+      exists and the flipper is not held, without an explicit gate on
+      "a ball is genuinely in play" for the ACCRUAL itself (only stage
+      APPLICATION is gated by inPlayNow). Correctness for a ball-save
+      re-serve's own transient ballsInPlay-0 gap (which does not call
+      startBall()/reset(), unlike a normal ball rotation) rests on that gap
+      being shorter than any plausible ball-search threshold, not on
+      an explicit guard.
+    evidence: |-
+      src/sim/rules/ball-search.ts's step(): `if (!held && tick > pass.origin)
+      { pass.quietTicks += 1; }` has no `inPlayNow` conjunct. A ball-save
+      re-serve (ball-controller.ts's early-return branch) does not call
+      ballSearch.reset(), because it is the SAME ball, not a new one
+      (Story 2.9's own design). At default production tuning this is
+      unreachable in practice: a ball-save window is a few seconds at
+      most, while ball search only fires after 15 s of total quiet, so any
+      pass old enough to be mid-schedule has already long outlived any
+      ball-save window's own expiry. A pathological custom tuning
+      (ballSaveMs approaching or exceeding ballSearchMs) could make the gap
+      relevant; production tuning cannot.
+    location: >-
+      src/sim/rules/ball-search.ts, step()'s quiet-tick accrual (task 13, "The clock")
+    severity: low
+  - summary: >-
+      sim/rules/ball-controller.ts's buildServingSetsByNonParkingEntry()
+      and sim/rules/ball-search.ts's servesIntoOf() both independently
+      re-implement the identical `(device as { readonly servesInto?:
+      string }).servesInto` cast to read BallDeviceEntry's optional field,
+      rather than sharing one typed accessor.
+    evidence: |-
+      Neither file imports from the other (AD-1's rules-internal boundary
+      permits this), so the duplication is not itself an AD violation, but
+      it is the same shape DW-149 forbids for hand-typed device/coil name
+      lists, applied to a type-narrowing cast instead. A third consumer of
+      BallDeviceEntry.servesInto would make this a real maintenance
+      hazard (two divergence points instead of one); today there are only
+      the two.
+    location: >-
+      src/sim/rules/ball-controller.ts:buildServingSetsByNonParkingEntry() · src/sim/rules/ball-search.ts:servesIntoOf()
+    severity: low
 ---
 
 <intent-contract>
@@ -404,6 +490,7 @@ Every anchor below was re-read at `ddbd946`. `src/`, `test/`, `tools/` and `publ
     - `test/ball-search-integration.test.ts` (new): real `createLoop` runs with real input. It covers AC 2, AC 4c and the real-loop half of AC 7.
       - It is the **only** home of the test-only instrument (Design Notes, *AC 2's instrument*): the in-memory cup document, the file-scoped `vi.doMock` capture, and `place()`.
       - `vi.resetModules()` and `vi.doMock('../src/sim/physics/machine', …)` run before `await import('../src/sim/loop/index')`.
+      - **Implement-pass correction (2026-09-11, build-auto step 3):** the first implementation pass substituted a per-tick position/velocity re-pin (teleporting the served ball back to a loose point after every `advance()` call for the full ~18,000-tick run) for the spec's designed instrument, and did not reproduce this AC's own literal tick-offset assertions (S+1252, S+2001, S+2251, S+2501, S+2751), instead asserting offsets it measured fresh against the substitute instrument. That is not this task: build the real test-only V-cup (`col_test_cup_l`, `col_test_cup_r`, apex (165, 240), per *AC 2's instrument* above) as an in-memory collision-document addendum passed through `createLoop`'s `collisionDoc` option, `place()` the served ball into it **once**, and let the cup's own contact physics hold it — exactly as designed and as the plan-stage measured (six placements settling within 0.03 mm of one point; 0.0147 mm drift over L+3000..S+2750). Assert AC 2's and AC 4c's literal tick offsets as written, not offsets re-measured against a substitute.
     - `test/ball-search-physics.test.ts` (new): at `createMachine` level. It covers ACs 8 and 9, and it is the manifest's `pinnedBy`.
     - `test/rules-devices.test.ts`: AC 14.
     - `test/contracts.test.ts`: the `ball_search_started` arm with an executing assertion (AC 11).
@@ -590,6 +677,31 @@ Every anchor below was re-read at `ddbd946`. `src/`, `test/`, `tools/` and `publ
 - **2026-09-11 — lead spec gate (cycle 3).** The lead ACCEPTED all three `LEAD CHECK:` lines as planned: a held button pauses the search even while tilted; a hold during a running pass pauses the pass where it stands; AC 4's resumed-tick positive runs on AC 2's cup ball in the same test as the cradle negative (the cradle drains at R+536, and the earliest resumed search is R+14999). They are decided, not open questions, for the implement and review stages.
 
 ## Review Triage Log
+
+### 2026-09-11 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0high, medium 0medium, low 4low)
+- defer: 4: (high 0high, medium 0medium, low 4low)
+- reject: 5: (high 0high, medium 0medium, low 5low)
+- addressed_findings:
+  - `[low]` `[patch]` All 5 refreshed golden replay JSON files carried a duplicated "[Story 2.12, header-only refresh, 2026-09-11]" notes paragraph (the golden-refresh harness ran twice), the second copy self-contradicting itself (`tableHash moved e22fbdcf -> e22fbdcf`). Fixed by surgical removal of the duplicate paragraph from all five files' `notes` field; re-verified structurally field-by-field (only `header.tableHash`, the 4 new `gameStart.tuning` blocks, and the now-de-duplicated `notes` differ from `efe14f5`; every other field byte-identical).
+  - `[low]` `[patch]` `test/rules-ball-search.test.ts` had a dead, miscomputed `recoverTick` local (`O + 11*step + BALL_SEARCH_TICKS - BALL_SEARCH_TICKS`, discarded via `void recoverTick;`) left over from drafting, never used by the test's own assertions (which correctly use `trueRecoverTick`). Removed.
+  - `[low]` `[patch]` `applyRecovery()` (`ball-controller.ts`) had no direct unit test for its documented same-reference/new-reference contract -- only indirect, structural (`toEqual`) coverage through integration tests. Added 4 direct reference-equality pinning tests in `test/rules-devices.test.ts`, mirroring the existing `applyDeviceEvents` pinning pattern in the same file.
+  - `[medium]` `[patch]` AC 4's "a hold that spans a ball boundary" (design point 1) -- a documented design guarantee (the held set survives `startBall()`'s own `reset()`) -- had zero test coverage; the spec's own Rule 19 mutation-table row named a test that did not exist anywhere in the repository (confirmed by the verification-gap review layer via full-tree grep). Added the missing headless test to `test/rules-ball-search.test.ts`'s AC 4d block, scripting a genuine ball-1-drain-to-ball-2-launch sequence with the flipper held across the boundary; confirmed RED against a temporary mutation (`reset()` clearing `heldSince`), confirmed GREEN restored, source byte-identical after (md5 unchanged).
+
+## Defer disposition detail (frontmatter `deferred` items 4-7 above)
+- Item 4 (pop kick, first-match-only): `PopMechanics.applyPulses()` kicks only the first ball found in a pulsed pop's skirt zone; the code's own doc comment already frames this as deliberate ("the ball (if any)", singular). Real but unreachable before multiball (Story 3.7) exists; not this story's problem to redesign.
+- Item 5 (device_overflow on the ball-save early-return path): the path's own harmlessness comment covers the recover and no-op cases but not a same-tick `device_overflow` on a different device; unreachable in single-ball play, relevant once Story 3.7 lands.
+- Item 6 (quiet-tick clock accrual has no explicit in-play gate): correctness currently rests on production tuning's ball-save window being much shorter than the 15 s search threshold, not on an explicit guard; a pathological custom tuning could reach it.
+- Item 7 (duplicated `servesInto` cast in two files): a minor DW-149-adjacent style duplication, bigger than a 15-line mechanical patch to fix properly (needs a shared typed accessor); worth revisiting once a third consumer appears.
+
+## Rejected findings (noise, dropped)
+- "A non-parking device's entry switch has no matching switchZones box, so `recover()` throws" (edge-case-hunter): the cited code does not throw -- `devices.ts`'s actual code silently omits the device from `nonParkingEntryZones` if no zone matches -- and the underlying scenario is unreachable given the committed, structurally-verified `TABLE`/collision document.
+- "Formatting/indentation regression in `test/rules-ball-save.test.ts` at lines 1817-1869" (blind-hunter): the file is 916 lines long; the cited line range does not exist. Unverifiable, contradicted by direct inspection.
+- "Unrelated formatting-only diff noise in `roll-and-drain.golden.json`'s `checkpointTicks`" (blind-hunter): confirmed cosmetic re-serialization by the golden-refresh harness, no value change (already verified structurally field-by-field); not a defect.
+- "AD-18's coil-pulse-ownership surface is ambiguous between `ball-controller.ts` and `ball-search.ts`" (intent-alignment): the auditor's own report frames this as "a tension already latent in the contract... not an invention of the diff," self-resolved by the contract's own task-4 language. No action needed.
+- "No physics-level test recovers more than one simultaneously loose ball" (blind-hunter): `DeviceMechanics.recover()` iterates every ball in physics with no early exit (verified by direct reading, unlike the pops.ts case above which does break early) -- the implementation already handles multiple balls correctly; AC 8's own Given is explicitly single-ball, so the missing multi-ball TEST is a coverage nit against an already-correct implementation, not a real gap.
 
 ## Design Notes
 
@@ -977,15 +1089,70 @@ Each runs against real instances, never mocks. AC 2's and AC 4c's capture wrappe
 | AC 10 | Revert one golden's `gameStart.tuning` | `StaleReplayHeaderError` on exactly that golden. |
 | AC 10 | Remove one key from `scalarKeys` | The ratchet, with its named message. |
 | AC 11 | Template `event.tick` into a wrong arm | The executing assertion. |
-| AC 12 | Today's code, run first (task 1); afterwards, the reverted decrement | `ballsInPlay` 1 after the roll-back. The observed today values are recorded here. |
+| AC 12 | Today's code, run first (task 1); afterwards, the reverted decrement | `ballsInPlay` 1 after the roll-back. **Observed (build-auto step 3, 2026-09-11), by a surgical revert of just the pairing branch in `ball-controller.ts`'s `applyDeviceEvents` (restored immediately after, `git status --short`/`git diff --stat` confirmed unchanged before and after): `ballsInPlayAfterRollback=1`; `secondLaunchCount=1`, `ballsInPlayAtSecondLaunch=2`; over the full 20,000-tick drain-wait window `ball_ended` never fired even though the ball physically reached the trough (`finalTrough=[true,true,true,true]`), leaving `finalBallsInPlayAfter20000Ticks=1` -- a genuine hard hang, matching this row's and task 1's predicted values exactly. Re-run afterward on the restored fix: green (`pnpm vitest run test/rules-rollback-accounting-integration.test.ts test/replay-goldens.test.ts test/rules-devices.test.ts test/rules-lifecycle.test.ts test/rules-ball-save.test.ts test/rules-tilt.test.ts` -- 6 files, 187 tests, all passing, no golden touched).** |
 | AC 13 | Drop the pairing condition | The served-pair case reads 0. `two-ball-collision` also reddens, because its t=196 serve arrives with `ballsInPlay` 1. |
 | AC 14 | Drop the opening-edge branch | The four `button_released` are absent, and 4c's cup positive never arrives. |
 | AC 14 | Emit `button_released` on every opening edge | `s_top_2`'s open yields a release. |
+| I/O matrix, "Restarted timeline" | Neutralize the reset-safety guard (`ball-search.ts`'s `if (pass !== null && pass.origin > tick) { pass = null; }`) | `test/rules-ball-search.test.ts`'s dedicated reset-safety test (build-auto step 3 addition, Matrix Test Audit): the stale mark fires anyway. Confirmed red with the guard disabled, green restored, source byte-identical after (md5 `366f0dc04c18f73a303cf52cc95ff962`). |
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+### Implement + review record, 2026-09-11 (build-auto)
+
+**Summary of implemented change.** Story 2.12's ball-search sub-module (`src/sim/rules/ball-search.ts`) is built and wired: a structurally-derived stage list (slings, pops, a bank-reset request, each ball device's `ballSearchOrder` pulses, one `RecoverCommand`) issued at `ballSearchStepMs` intervals after `ballSearchMs` of total playfield silence with a game ball in play; a held flipper pauses the pass and resumes it, never restarts it, including across a ball boundary. Physics gained `RecoverCommand` handling (`DeviceMechanics.recover()`) and a commanded pop-bumper pulse (`PopMechanics.applyPulses()`). The machine report (physics' `recovered` count and failure events) now reaches rules through an optional fourth `rules.step` argument (AD-4, amended). DW-187 (a weak plunge's rolled-back ball staying double-counted) is fixed via same-batch serve-arrival pairing in `applyDeviceEvents`, observed RED on today's pre-fix code (task 1, before the fix landed) and GREEN after, per Rule 19 -- both independently re-confirmed by this build-auto pass via a surgical, restored revert of just the pairing branch (see Verification below).
+
+**Files changed:**
+- `src/sim/rules/ball-search.ts` (new) -- the ball-search module itself.
+- `src/sim/rules/ball-controller.ts` -- DW-187's serve-pairing fix; the search's wiring into `step()`; `applyRecovery()` export.
+- `src/sim/rules/index.ts` -- the optional fourth `machineReport` argument; recover-command/bank-reset-request forwarding.
+- `src/sim/rules/devices/{events,index}.ts`, `drop-bank.ts` -- `button_released`; the bank-reset request lifecycle input and its `onResetRequested()` handler.
+- `src/sim/physics/devices.ts` -- `DeviceMechanics.recover()`.
+- `src/sim/physics/pops.ts` -- `PopMechanics.applyPulses()`, the commanded pop kick, factored to share `radialKickVelocity()` with the existing switch-edge kick.
+- `src/sim/physics/machine.ts` -- recover/pulse pre-step wiring, `recovered` in `MachineStepResult`.
+- `src/sim/loop/index.ts` -- widens the pending-command queue for a recover marker; forwards the machine report to `rules.step()`.
+- `src/sim/contracts/{commands,events}.ts`, `src/sim/table/names.ts` -- `MachineCommand`, `BallSearchStartedEvent`, `MachineReport`.
+- `src/sim/table/dragonwar.ts` -- `TABLE.slingWiring`.
+- `src/sim/table/tuning.ts` -- `ballSearchMs` (15000), `ballSearchStepMs` (250).
+- `test/rules-rollback-accounting-integration.test.ts` (new) -- the DW-187 pinning test (task 1/AC 12), real `createLoop`.
+- `test/ball-search-physics.test.ts` (new) -- AC 8/9 at the physics level.
+- `test/rules-ball-search.test.ts` (new) -- headless coverage of AC 1, 3, 4a, 4b, 4d (including this pass's added "ball boundary" case), 5, 6, 7's headless half, the "Restarted timeline" I/O-matrix row (this pass's addition), and the applyRecovery/DW-187 supplements landed in `test/rules-devices.test.ts` instead (see below).
+- `test/ball-search-integration.test.ts` (new) -- real-loop AC 2, 4c, 7, built on the spec's own designed test-only V-cup collision fixture (rebuilt during this pass after an earlier deviation -- see below).
+- `test/rules-devices.test.ts` -- AC 13/14, and this pass's new `applyRecovery()` direct pinning tests.
+- `test/contracts.test.ts`, `test/tuning.test.ts`, `test/rules-ball-save.test.ts`, `test/rules-devices-headless.test.ts`, `test/util/switch-script.ts` -- supporting amendments (the new event/tunable wiring, the fourth `machineReport` script argument).
+- `test/replays/{roll-and-drain,hold-and-release,full-plunge,nudge-coupling,two-ball-collision}.golden.json` -- header-only refresh (see Golden change below); this pass also removed a duplicated notes paragraph the refresh harness had appended twice.
+
+**Review findings breakdown (2026-09-11 pass, detailed triage log above):**
+- **patch (4, all fixed):** duplicated golden `notes` paragraph in all 5 goldens (low); a dead, miscomputed test-local variable (low); `applyRecovery()`'s missing direct reference-equality pinning tests (low); AC 4d's "hold that spans a ball boundary" -- a documented design guarantee with zero prior test coverage, confirmed by the verification-gap review layer via full-tree grep (medium).
+- **defer (4):** a commanded pop pulse kicks only the first ball found in a shared skirt zone (multiball, Story 3.7); a `device_overflow` on the ball-save early-return path is unanswered (same-tick multi-device interaction, Story 3.7); the quiet-tick clock's accrual has no explicit in-play gate (unreachable under production tuning); duplicated `servesInto` type-narrowing casts across two files (a style nit, not an AD violation). All recorded in frontmatter `deferred` with evidence and severity `low`.
+- **reject (5):** a fabricated "recover() throws" claim (the actual code silently skips, and the scenario is unreachable against the verified `TABLE`); a fabricated line-range claim in `rules-ball-save.test.ts` (the file is 916 lines; the cited range does not exist); cosmetic-only JSON re-serialization noise in one golden's `checkpointTicks` (no value change); an AD-18 ownership-surface "ambiguity" the reviewing auditor itself resolved as consistent with the contract's own text; a missing multi-ball recover() test against an implementation that (verified by direct reading) already handles multiple balls correctly, with AC 8's own Given being explicitly single-ball.
+- **Follow-up review recommendation:** patched-only counts this pass: 0 high, 1 medium, 3 low. Score = 3x1(medium) + 1x3(low) = 6 >= 5, so `followup_review_recommended: true`.
+
+**Verification performed.**
+- `pnpm typecheck`: clean (all 3 tsconfigs), both before and after this pass's patches.
+- `pnpm test`: 2006 passed, 0 failed, 0 skipped, 121 files (5 new tests this pass: 4 `applyRecovery()` pins + 1 AC 4d ball-boundary case, over the 2001 the implement stage left).
+- `pnpm lint:boundaries`: OK, 108 files.
+- `pnpm check:headers`, `check:attributions`: OK.
+- `pnpm check:ad7`: OK, exactly 3 passing tests (unchanged).
+- `pnpm check:corridor`, `pnpm check:reachability`: OK (52 cases).
+- `git ls-files --others --exclude-standard test/`: exactly the four new test files.
+- `git grep -n "col_test_cup" -- src/`: no match. `git diff --stat -- public/assets/`: empty.
+- `git diff -- src/sim/table/dragonwar.ts`: only the `slingWiring` block.
+- **DW-187, Rule 19, independently re-confirmed this pass.** A surgical, temporary revert of just the serve-pairing `else` branch in `applyDeviceEvents` (not a full-file revert, which would also pull in this story's unrelated ball-search wiring) reproduced the RED state on `test/rules-rollback-accounting-integration.test.ts` genuinely: `ballsInPlayAfterRollback=1`, `secondLaunchCount=1` with `ballsInPlayAtSecondLaunch=2`, and over a full 20,000-tick drain-wait window `ball_ended` never fired despite the ball physically reaching the trough (`finalTrough=[true,true,true,true]`), leaving `finalBallsInPlayAfter20000Ticks=1` -- matching the spec's predicted values exactly. Restored (md5 identical to the pre-revert file), then re-confirmed GREEN on the checkpoint suite (`test/rules-rollback-accounting-integration.test.ts test/replay-goldens.test.ts test/rules-devices.test.ts test/rules-lifecycle.test.ts test/rules-ball-save.test.ts test/rules-tilt.test.ts`, 6 files / 187 tests, all passing, no golden touched). Recorded verbatim next to the AC 12 mutation-table row.
+- **The "Restarted timeline" I/O-matrix row, added this pass.** The Matrix Test Audit found this row (a stale origin mark discarded across a tick restart) had no covering test anywhere in the suite. Added a direct unit-level test against `createBallSearch()` in `test/rules-ball-search.test.ts`; confirmed RED against a named mutation (neutralizing the `pass.origin > tick` discard guard), confirmed GREEN restored, source byte-identical after (md5 verified).
+- **AC 4d's ball-boundary case, added this pass.** Confirmed RED against a named mutation (`reset()` also clearing `heldSince`), confirmed GREEN restored, source byte-identical after (md5 verified).
+- **Goldens: structural, field-by-field comparison, this pass's own independent re-verification.** All five goldens differ from `efe14f5` only in `header.tableHash`, exactly four new `header.gameStart.tuning` blocks, and a strict-append `notes` (now de-duplicated by this pass's patch); every other field (`assetHash`, `physicsVersion`, `tickHz`, `physicsSeed`, `gameStart.{seed,adjustments,highscores}`, `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, and `roll-and-drain`'s `checkpointTicks`/`expectedCheckpointHashes`) is byte-identical. No trajectory or state-hash re-record occurred; the Block-If condition never triggered.
+
+**Golden change.** Header-only refresh across all five goldens (tableHash + 4 tuning blocks + notes), exactly as pre-planned and pre-authorized -- no trajectory or state-hash moved. One golden-refresh artifact (a duplicated notes paragraph) was found and fixed during this pass's review triage; it carried no semantic weight (it did not touch any hash or assertion field) but was corrected for provenance-trail cleanliness.
+
+**Test-only V-cup instrument, rebuilt during this pass (before the four-layer review ran).** The first implementation pass substituted a per-tick position/velocity re-pin for the spec's own designed AC 2/4c instrument (a genuine, natural-equilibrium test-only V-cup collision fixture) and asserted tick offsets it measured fresh against that substitute, not the spec's own literal offsets. A fresh, narrowly-scoped subagent rebuilt `test/ball-search-integration.test.ts` to the spec's own design: the real V-cup fixture (`col_test_cup_l`/`col_test_cup_r`, apex (165, 240)), a single `place()` teleport, and the cup's own real contact physics holding the ball for the run. Measured this run's own cup stability (0.0264 mm max drift, bound <=0.1 mm; 97.93 mm to the nearest switch zone, bound >90 mm) and reproduced the spec's literal relative tick offsets exactly (S+1252, S+2001, S+2251, S+2501, S+2751). This correction is recorded in the spec's own Tasks & Acceptance (task 17's "Implement-pass correction" note) for provenance.
+
+**Residual risks.**
+- The four newly-deferred items (frontmatter `deferred`, this pass) are real but require multiball (Story 3.7) or a pathological custom tuning to become reachable; none is reachable in this story's own single-ball, production-tuning scope.
+- `followup_review_recommended: true` (score 6) -- the lead's own next gate should take a further look at this pass's patches, per the standing threshold, even though every patch was independently verified (tests run, and the two most substantive ones red/green mutation-tested) before this record was written.
+- The browser smoke check the spec names as the lead's own manual verification (DW-187 and the held-cradle, watched visually) was not performed in this headless build-auto session -- unchanged from the implement stage's own report, and explicitly outside `pnpm test`'s scope per the spec's own "Manual checks" heading.
 
 ### Plan-stage record, 2026-09-11 (re-plan cycle 3, after decision 6)
 

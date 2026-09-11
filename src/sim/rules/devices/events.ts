@@ -38,6 +38,21 @@ export interface DeviceBallLeftEvent {
 /** `TABLE.dropBankWiring`'s own key set (D-R-A-G-O-N order) -- never a second hand-typed letter list (DW-149). */
 export type DropBankLetter = keyof typeof TABLE.dropBankWiring;
 
+/**
+ * Story 2.12 (AD-19, amended): a rules-internal LIFECYCLE INPUT, never a
+ * `DeviceEvent` (this layer never emits it) and never a `SemanticEvent`
+ * (rules never re-emits it either) -- ball search's own request that the
+ * drop-bank component pulse its reset coil, the third trigger AD-19 names
+ * beside `ball_will_start` and a genuine six-of-six completion. Mirrors
+ * `BallWillStartEvent`'s own shape exactly, so `createDevicesLayer().step()`'s
+ * widened lifecycle parameter (`readonly (BallWillStartEvent |
+ * BankResetRequest)[]`) can dispatch either kind by `type` alone.
+ */
+export interface BankResetRequest {
+	readonly type: 'bank_reset_requested';
+	readonly tick: number;
+}
+
 /** One DRAGON-bank letter target has gone down (a genuine strike, not a reset echo). */
 export interface BankTargetDownEvent {
 	readonly type: 'bank_target_down';
@@ -145,6 +160,23 @@ export interface ButtonPressedEvent {
 }
 
 /**
+ * Story 2.12 (AD-19, amended 2026-09-11): the release (OPEN) edge of any
+ * cabinet button -- the pairing half of `ButtonPressedEvent` above, added so
+ * ball search can track a held flipper button (pause while held, resume on
+ * release) without ever reading a raw `SwitchEvent` itself (AD-19: this
+ * layer stays the only consumer of that). Emitted for every button switch's
+ * opening edge, not only the flipper buttons -- ball search's own held set
+ * is the one thing that reads it selectively (`TABLE.flipperButtonWiring`),
+ * so this event's own subject set is the full button class, mirroring
+ * `ButtonPressedEvent`'s.
+ */
+export interface ButtonReleasedEvent {
+	readonly type: 'button_released';
+	readonly button: SwitchName;
+	readonly tick: number;
+}
+
+/**
  * `TABLE.shots`'s own key set -- `shot_left_loop_made`,
  * `shot_right_loop_made`, `shot_ramp_made`, and any future shot's own
  * `_made` member with no edit to this file (DW-149: `ShotName` alone
@@ -191,5 +223,6 @@ export type DeviceEvent =
 	| LaneChangePressedEvent
 	| PlayfieldSwitchClosedEvent
 	| ButtonPressedEvent
+	| ButtonReleasedEvent
 	| ShotMadeEvent
 	| ShotBrokenEvent;

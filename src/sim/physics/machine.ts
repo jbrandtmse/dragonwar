@@ -48,7 +48,7 @@ import { createSwitchTracker } from './switches';
 import { TABLE } from '../table/dragonwar';
 import { fromPhysics } from '../table/frames';
 import type { ResolvedTuning } from '../table/tuning';
-import type { BallDeviceName, CoilCommand, CoilName } from '../table/names';
+import type { BallDeviceName, CoilName, MachineCommand } from '../table/names';
 import type { InputFrame } from '../contracts/input';
 import type { MechanismsSnapshot } from '../contracts/snapshot';
 
@@ -84,16 +84,24 @@ export interface MachineStepResult {
 	readonly contactEvents: readonly ContactEventLike[];
 	/**
 	 * `eject_failed` / `device_overflow` -- physics-native device failures
-	 * (AD-9's Conventions vocabulary). Surfaced directly rather than routed
-	 * through `sim/rules/index.ts`'s `step(state, switchEvents, tick)`, whose
-	 * signature carries no channel for them; `sim/loop/index.ts` folds these
-	 * straight into the frame's `events`, alongside whatever rules produces.
+	 * (AD-9's Conventions vocabulary). Surfaced directly AND (Story 2.12,
+	 * AD-4 amended) forwarded whole by `sim/loop/index.ts` into
+	 * `rules.step()`'s own fourth argument, alongside `recovered` below --
+	 * `sim/loop/index.ts` still folds these straight into the frame's
+	 * `events` exactly as before, so rules never re-emits them.
 	 */
 	readonly semanticEvents: readonly DeviceFailure[];
+	/**
+	 * Story 2.12 (AD-6): the count `deviceMechanics.recover()` returned for a
+	 * `RecoverCommand` consumed THIS step, or `null` on a step that consumed
+	 * none. `sim/loop/index.ts` forwards this into `rules.step()`'s own
+	 * `MachineReport.recovered`.
+	 */
+	readonly recovered: number | null;
 }
 
 export interface Machine {
-	step(tick: number, frame: InputFrame, commands: readonly CoilCommand[]): MachineStepResult;
+	step(tick: number, frame: InputFrame, commands: readonly MachineCommand[]): MachineStepResult;
 	/** Read-only view of every currently-simulated ball, for the snapshot publisher. */
 	readonly balls: readonly Ball[];
 	/** Every ball device's current slot occupancy: a parking device's real slots, or a non-parking device's single-element "ball present in its entry zone" array (AD-6: "device counts ... are the number of closed slot switches and nothing else"). */
@@ -143,6 +151,16 @@ export const PRE_STEP_HARDWARE_RULES = [
 	// applyCommands above, so a raised target is struck-able on the very
 	// tick it is raised.
 	{ receiver: 'dropTargetMechanics', method: 'applyPreStepReset', pinnedBy: 'test/drop-targets.test.ts' },
+	// Story 2.12 (AD-6): ball search's final stage -- physics' one licence to
+	// despawn a loose ball, consumed BEFORE deviceMechanics.applyCommands()
+	// (also PRE_STEP, above) so a same-tick serve is never despawned by the
+	// recover that landed alongside it.
+	{ receiver: 'deviceMechanics', method: 'recover', pinnedBy: 'test/ball-search-physics.test.ts' },
+	// Story 2.12 (AD-5, AD-6): ball search's commanded pop stage -- a coil
+	// PULSE trigger, unlike popMechanics' own SWITCH_EDGE_HARDWARE_RULES
+	// entry below (a skirt-edge MAKE), so it belongs in this manifest
+	// instead, right after enabledPulses is computed.
+	{ receiver: 'popMechanics', method: 'applyPulses', pinnedBy: 'test/ball-search-physics.test.ts' },
 ] as const;
 
 /**
@@ -263,9 +281,20 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		c_mouth: true,
 	};
 
-	function step(tick: number, frame: InputFrame, commands: readonly CoilCommand[]): MachineStepResult {
+	function step(tick: number, frame: InputFrame, commands: readonly MachineCommand[]): MachineStepResult {
+		// Story 2.12: `type === 'recover'` is partitioned out FIRST, before the
+		// pulse/enable/disable branch below -- a `RecoverCommand` carries no
+		// `action` field at all, so testing `.action` against one first (the
+		// old catch-all `else` branch) would read `undefined` and silently
+		// disable an undefined coil. `recoverRequested` is consumed once,
+		// pre-step, below (AD-6).
 		const pulses: Array<{ coil: CoilName }> = [];
+		let recoverRequested = false;
 		for (const command of commands) {
+			if (command.type === 'recover') {
+				recoverRequested = true;
+				continue;
+			}
 			if (command.action === 'pulse') {
 				pulses.push({ coil: command.coil });
 			} else if (command.action === 'enable') {
@@ -316,6 +345,24 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// order. A no-op at the shipped defaults (every coil starts, and stays,
 		// enabled unless something disables it).
 		const enabledPulses = pulses.filter((pulse) => coilEnabled[pulse.coil]);
+
+		// Story 2.12 (AD-6): ball search's final stage, consumed here -- BEFORE
+		// deviceMechanics.applyCommands() and BEFORE the `before` position map
+		// two blocks down, so a same-tick serve (a ball this same tick's own
+		// pulses spawn) is never despawned by the recover that landed alongside
+		// it (AC 8). `recovered` stays `null` on a step that consumed no
+		// RecoverCommand at all -- distinct from `0`, "a recover ran and found
+		// nothing outside a device".
+		const recovered = recoverRequested ? deviceMechanics.recover(tick) : null;
+
+		// Story 2.12 (AD-5, AD-6): ball search's commanded pop stage -- also
+		// pre-step, right after enabledPulses (task 9), reusing the SAME
+		// DW-74-filtered pulse list applyCommands below reads. Runs whether or
+		// not any pop coil was actually pulsed this tick (a no-op then);
+		// coilEnabled's own gate already excluded a disabled pop's pulse from
+		// enabledPulses.
+		const popPulseResult = popMechanics.applyPulses(tick, enabledPulses, physics.balls);
+
 		const commandResult = deviceMechanics.applyCommands(tick, enabledPulses);
 		// Story 2.3 (AD-2, AD-6): the DRAGON bank's own reset -- BEFORE
 		// physics.step() (PRE_STEP_HARDWARE_RULES above), so a target this
@@ -451,6 +498,11 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 			contactEvents: [
 				...flipperResult.contactEvents,
 				...commandResult.contactEvents,
+				// Story 2.12: popPulseResult is PRE-step, computed right after
+				// enabledPulses -- chronologically alongside commandResult/
+				// dropTargetResetResult, so it joins them here rather than down
+				// beside popResult (which stays the POST-step, switch-edge kick).
+				...popPulseResult.contactEvents,
 				...dropTargetResetResult.contactEvents,
 				...plungerResult.contactEvents,
 				...slingContactEvents,
@@ -460,6 +512,7 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 				...spinnerResult.contactEvents,
 			],
 			semanticEvents: [...commandResult.failures, ...plungerResult.failures, ...entryResult.failures],
+			recovered,
 		};
 	}
 

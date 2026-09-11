@@ -28,8 +28,14 @@ import { armBallSave, disarmBallSave, EMPTY_BALL_SAVE, enableBallSave, isRunning
 import { lampsOf } from '../src/sim/rules/lamps';
 import { close, open, runRulesScript } from './util/switch-script';
 import type { BallSaveState } from '../src/sim/contracts/state';
-import type { GameState } from '../src/sim/table/names';
+import type { GameState, MachineReport } from '../src/sim/table/names';
 import type { DeviceEvent } from '../src/sim/rules/devices';
+
+// Story 2.12: `BallController.step()` gained a required fourth argument
+// (`Rules.step()`'s own optional default, `EMPTY_MACHINE_REPORT`, is a
+// `sim/rules/index.ts`-only convenience -- this file calls the ball
+// controller directly, so it supplies the equivalent literal itself).
+const NO_MACHINE_REPORT: MachineReport = { recovered: null, failures: [] };
 
 const TROUGH_EJECT_COIL = TABLE.ballDevices.bd_trough.ejectCoil;
 // Code review (iteration 2): derived the SAME way production derives it
@@ -592,11 +598,11 @@ describe('Code review pass 1 -- the deferred autolaunch respects Tilt, and await
 		const controller = createBallController(ADJUSTMENTS, resolveTuning());
 
 		const drainEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }];
-		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1);
+		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1, NO_MACHINE_REPORT);
 		expect(drainResult.events.some((e) => e.type === 'ball_saved'), "sanity: the drain must be saved so the deferred-autolaunch flag is armed").toBe(true);
 
 		const arrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 5 }];
-		const tiltedArrival = controller.step({ ...drainResult.state, tick: 5, machine: { ...drainResult.state.machine, tilt: { tilted: true, slamTilted: false } } }, arrivalEvents, 5);
+		const tiltedArrival = controller.step({ ...drainResult.state, tick: 5, machine: { ...drainResult.state.machine, tilt: { tilted: true, slamTilted: false } } }, arrivalEvents, 5, NO_MACHINE_REPORT);
 		expect(
 			tiltedArrival.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
 			'a Tilt engaged before the re-served ball\'s own arrival must suppress the deferred autolaunch pulse',
@@ -606,7 +612,7 @@ describe('Code review pass 1 -- the deferred autolaunch respects Tilt, and await
 		// a later one -- a second, later, non-tilted arrival at bd_shooter must
 		// not ALSO fire the coil.
 		const laterArrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 9 }];
-		const laterArrival = controller.step({ ...tiltedArrival.state, tick: 9, machine: { ...tiltedArrival.state.machine, tilt: { tilted: false, slamTilted: false } } }, laterArrivalEvents, 9);
+		const laterArrival = controller.step({ ...tiltedArrival.state, tick: 9, machine: { ...tiltedArrival.state.machine, tilt: { tilted: false, slamTilted: false } } }, laterArrivalEvents, 9, NO_MACHINE_REPORT);
 		expect(
 			laterArrival.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
 			'the flag must be consumed by the first (tilted) arrival, not still pending for a later, unrelated one',
@@ -617,7 +623,7 @@ describe('Code review pass 1 -- the deferred autolaunch respects Tilt, and await
 		const controller = createBallController(ADJUSTMENTS, resolveTuning());
 
 		const drainEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }];
-		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1);
+		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1, NO_MACHINE_REPORT);
 		expect(drainResult.events.some((e) => e.type === 'ball_saved'), "sanity: the drain must be saved so the deferred-autolaunch flag is armed").toBe(true);
 
 		// The re-served ball never arrives. Instead an UNRELATED, ordinary drain
@@ -625,7 +631,7 @@ describe('Code review pass 1 -- the deferred autolaunch respects Tilt, and await
 		// which -- via startBall() -- must reset the stale flag.
 		const rotationState: GameState = { ...twoPlayerState({ untilTick: null, sources: [] }, false), tick: 50 };
 		const rotationEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 50 }];
-		const rotationResult = controller.step(rotationState, rotationEvents, 50);
+		const rotationResult = controller.step(rotationState, rotationEvents, 50, NO_MACHINE_REPORT);
 		expect(rotationResult.events.some((e) => e.type === 'ball_ended'), 'sanity: this second drain must end the ball normally (not saved), triggering rotation').toBe(true);
 		expect(rotationResult.state.currentPlayer, 'sanity: rotation actually moved to the next player').toBe(1);
 
@@ -633,7 +639,7 @@ describe('Code review pass 1 -- the deferred autolaunch respects Tilt, and await
 		// auto-launch -- the stale flag from the FIRST player's earlier save must
 		// have been cleared by the rotation's own startBall() call.
 		const nextArrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 55 }];
-		const nextArrivalResult = controller.step({ ...rotationResult.state, tick: 55 }, nextArrivalEvents, 55);
+		const nextArrivalResult = controller.step({ ...rotationResult.state, tick: 55 }, nextArrivalEvents, 55, NO_MACHINE_REPORT);
 		expect(
 			nextArrivalResult.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
 			"a stale awaitingSaveLaunch from an earlier, unrelated save must not auto-launch the NEXT ball's own first arrival",
@@ -727,11 +733,11 @@ describe('Rework iteration 1 (DW-218) -- awaitingSaveRelaunch resets at ball_wil
 		const controller = createBallController(ADJUSTMENTS, resolveTuning());
 
 		const drainEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }];
-		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1);
+		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: ['test'] }, false), drainEvents, 1, NO_MACHINE_REPORT);
 		expect(drainResult.events.some((e) => e.type === 'ball_saved'), 'sanity: the drain must be saved so the deferred-autolaunch flag is armed').toBe(true);
 
 		const arrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: 5 }];
-		const arrivalResult = controller.step({ ...drainResult.state, tick: 5 }, arrivalEvents, 5);
+		const arrivalResult = controller.step({ ...drainResult.state, tick: 5 }, arrivalEvents, 5, NO_MACHINE_REPORT);
 		expect(
 			arrivalResult.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
 			'sanity: the arrival must fire the deferred autolaunch pulse, arming awaitingSaveRelaunch',
@@ -744,7 +750,7 @@ describe('Rework iteration 1 (DW-218) -- awaitingSaveRelaunch resets at ball_wil
 		// resets awaitingSaveLaunch.
 		const rotationState: GameState = { ...twoPlayerState({ untilTick: null, sources: [] }, false), tick: 50 };
 		const rotationEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 50 }];
-		const rotationResult = controller.step(rotationState, rotationEvents, 50);
+		const rotationResult = controller.step(rotationState, rotationEvents, 50, NO_MACHINE_REPORT);
 		expect(rotationResult.events.some((e) => e.type === 'ball_ended'), 'sanity: this second drain must end the ball normally (not saved), triggering rotation').toBe(true);
 		expect(rotationResult.state.currentPlayer, 'sanity: rotation actually moved to the next player').toBe(1);
 
@@ -752,7 +758,7 @@ describe('Rework iteration 1 (DW-218) -- awaitingSaveRelaunch resets at ball_wil
 		// stale awaitingSaveRelaunch from the FIRST player's earlier, abandoned
 		// save would otherwise swallow this as a non-arming "relaunch" it is not.
 		const nextPlungeEvents: DeviceEvent[] = [{ type: 'ball_launched', tick: 55 }];
-		const nextPlungeResult = controller.step({ ...rotationResult.state, tick: 55 }, nextPlungeEvents, 55);
+		const nextPlungeResult = controller.step({ ...rotationResult.state, tick: 55 }, nextPlungeEvents, 55, NO_MACHINE_REPORT);
 		expect(
 			nextPlungeResult.events.some((e) => e.type === 'ball_save_timer_started'),
 			"the next player's own genuine plunge must arm -- a stale awaitingSaveRelaunch must not have swallowed it",
@@ -799,12 +805,12 @@ describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bou
 		const controller = createBallController(ADJUSTMENTS, tuning);
 
 		const drainEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }];
-		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false), drainEvents, 1);
+		const drainResult = controller.step(twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false), drainEvents, 1, NO_MACHINE_REPORT);
 		expect(drainResult.events.some((e) => e.type === 'ball_saved'), 'sanity: the drain must be saved so the deferred-autolaunch flag is armed').toBe(true);
 
 		const pulseTick = 5;
 		const arrivalEvents: DeviceEvent[] = [{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: pulseTick }];
-		const arrivalResult = controller.step({ ...drainResult.state, tick: pulseTick }, arrivalEvents, pulseTick);
+		const arrivalResult = controller.step({ ...drainResult.state, tick: pulseTick }, arrivalEvents, pulseTick, NO_MACHINE_REPORT);
 		expect(
 			arrivalResult.coilCommands.some((c) => c.coil === SHOOTER_LAUNCH_COIL),
 			'sanity: the arrival must fire the deferred autolaunch pulse, arming awaitingSaveRelaunch with startTick === pulseTick',
@@ -821,7 +827,7 @@ describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bou
 		expect(laterPlungeTick, 'sanity: still well inside untilTick + graceTicks, so hasGraceLapsed() must not also have fired').toBeLessThan(500 + graceTicks);
 
 		const laterPlungeEvents: DeviceEvent[] = [{ type: 'ball_launched', tick: laterPlungeTick }];
-		const laterPlungeResult = controller.step({ ...arrivalResult.state, tick: laterPlungeTick }, laterPlungeEvents, laterPlungeTick);
+		const laterPlungeResult = controller.step({ ...arrivalResult.state, tick: laterPlungeTick }, laterPlungeEvents, laterPlungeTick, NO_MACHINE_REPORT);
 		expect(
 			laterPlungeResult.events.some((e) => e.type === 'ball_save_timer_started'),
 			'past its own bounded lifetime, a stuck awaitingSaveRelaunch must have released -- this later, genuine ball_launched must arm, not be silently swallowed as a stale relaunch',
@@ -849,13 +855,15 @@ describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bou
 			twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false),
 			[{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }],
 			1,
-		);
+		NO_MACHINE_REPORT,
+	);
 		const pulseTick = 5;
 		const arrivalResult = controller.step(
 			{ ...drainResult.state, tick: pulseTick },
 			[{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: pulseTick }],
 			pulseTick,
-		);
+		NO_MACHINE_REPORT,
+	);
 
 		const boundaryTick = pulseTick + graceTicks;
 		expect(boundaryTick, 'sanity: still short of the unrelated whole-device hasGraceLapsed() boundary at 500 + graceTicks').toBeLessThan(500 + graceTicks);
@@ -864,7 +872,8 @@ describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bou
 			{ ...arrivalResult.state, tick: boundaryTick },
 			[{ type: 'ball_launched', tick: boundaryTick }],
 			boundaryTick,
-		);
+		NO_MACHINE_REPORT,
+	);
 		expect(
 			boundaryResult.events.some((e) => e.type === 'ball_save_timer_started'),
 			'AT the exact boundary tick (startTick + ballSaveGraceTicks), awaitingSaveRelaunch is still live (inclusive, matching this story\'s established <= convention) -- this ball_launched must still be swallowed as the relaunch, not armed',
@@ -880,13 +889,15 @@ describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bou
 			twoPlayerState({ untilTick: 500, sources: [BALL_SAVE_SOURCE] }, false),
 			[{ type: 'device_ball_entered', device: 'bd_trough', slot: 0, tick: 1 }],
 			1,
-		);
+		NO_MACHINE_REPORT,
+	);
 		const pulseTick = 5;
 		const arrivalResult = controller.step(
 			{ ...drainResult.state, tick: pulseTick },
 			[{ type: 'device_ball_entered', device: 'bd_shooter', slot: 0, tick: pulseTick }],
 			pulseTick,
-		);
+		NO_MACHINE_REPORT,
+	);
 
 		const justAfterBoundaryTick = pulseTick + graceTicks + 1;
 		expect(justAfterBoundaryTick, 'sanity: still short of the unrelated whole-device hasGraceLapsed() boundary at 500 + graceTicks').toBeLessThan(500 + graceTicks);
@@ -895,7 +906,8 @@ describe('Rework iteration 2 (DW-224 + DW-225) -- awaitingSaveRelaunch has a bou
 			{ ...arrivalResult.state, tick: justAfterBoundaryTick },
 			[{ type: 'ball_launched', tick: justAfterBoundaryTick }],
 			justAfterBoundaryTick,
-		);
+		NO_MACHINE_REPORT,
+	);
 		expect(
 			justAfterResult.events.some((e) => e.type === 'ball_save_timer_started'),
 			'ONE TICK past the boundary, awaitingSaveRelaunch has expired -- this ball_launched is a genuinely new plunge and must arm',

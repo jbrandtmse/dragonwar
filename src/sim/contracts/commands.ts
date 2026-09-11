@@ -23,6 +23,16 @@ export interface RecoverCommand {
 }
 
 /**
+ * Story 2.12 (AD-9): the closed rules -> physics command union `machine.ts:step()`
+ * accepts. A `CoilCommand` pulses/enables/disables a coil; the one
+ * `RecoverCommand` a ball-search pass may issue is physics's sole licence to
+ * despawn a loose ball (AD-6). `sim/loop/index.ts` is the one place that
+ * builds this union from `RulesStepResult.coilCommands` (next tick) and
+ * `RulesStepResult.recoverCommands` (also next tick, AD-4).
+ */
+export type MachineCommand<TCoil extends string = string> = CoilCommand<TCoil> | RecoverCommand;
+
+/**
  * The closed role set AD-9 names, as a RUNTIME value (Story 2.8, the
  * `CONTACT_SURFACES` idiom -- `contracts/events.ts:30-46`): a lamp role is
  * never a colour, so this list is the seven values `lampsOf(state,

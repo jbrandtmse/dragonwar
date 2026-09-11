@@ -204,6 +204,12 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-bonus.test.ts'),
 	// Story 2.11, task 13: same reasoning -- ungated otherwise.
 	path.join(__dirname, 'rules-tilt.test.ts'),
+	// Story 2.12: same reasoning -- ungated otherwise. (The DW-187 pinning
+	// test, `rules-rollback-accounting-integration.test.ts`, drives a real
+	// `createLoop()` on purpose -- its own `-integration` suffix is what
+	// exempts it from this list, the same convention `rules-lifecycle-integration.test.ts`
+	// and `rules-ball-save-integration.test.ts` already use.)
+	path.join(__dirname, 'rules-ball-search.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

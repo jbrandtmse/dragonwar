@@ -377,6 +377,22 @@ export const TUNING = deepFreeze({
 	tiltWarnings: entry(1, "PRD FR-14: 'up to the Settings count (default 1 [ASSUMPTION: default; the research gives only the Competition preset value of 2])'", 'unverified'),
 
 	/**
+	 * Story 2.12 (AD-3/AD-15): ball search's own two timers. `ballSearchMs` is
+	 * the quiet-window origin-to-start duration (PRD FR-23's own figure,
+	 * epics.md records it as an assumption); `ballSearchStepMs` is the
+	 * per-stage pulse interval, authored here since no artifact states one --
+	 * long enough that a ball one pulse dislodges has time to close a
+	 * playfield switch (and so cancel the pass) before the next stage's own
+	 * pulse fires, short enough that an eleven-stage pass (this table's own
+	 * slings/pops/bank-reset/device schedule) completes in a few seconds
+	 * rather than tens of them. Both top-level scalars (never nested under
+	 * `hardware`, DW-34) -- `resolveTuning()` derives `ballSearchTicks` and
+	 * `ballSearchStepTicks` from them.
+	 */
+	ballSearchMs: entry(15000, "PRD FR-23: 'If no switch closes for 15 s during play' (epics.md:64; the epic records it as an assumption)", 'unverified'),
+	ballSearchStepMs: entry(250, 'authored: no artifact states a per-step interval; long enough for a ball one pulse dislodges to close a playfield switch before the next pulse fires', 'unverified'),
+
+	/**
 	 * AD-5: "the manual plunge maps s_plunger hold ticks through
 	 * plungerSpeedByHoldMs in tuning.ts." No artifact states a curve, so this
 	 * is authored as the two boundary points of a linear hold-time ->

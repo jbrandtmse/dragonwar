@@ -35,6 +35,10 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'tiltSettleMs',
 			// Story 2.11 (DW-36, AD-15): the tilt-warning count's table default.
 			'tiltWarnings',
+			// Story 2.12 (AD-3/AD-15): ball search's own quiet-window and
+			// per-stage-pulse durations.
+			'ballSearchMs',
+			'ballSearchStepMs',
 			'plungerMinHoldMs',
 			'plungerMaxHoldMs',
 			'plungerMinSpeedScale',

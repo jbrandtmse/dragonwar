@@ -1,7 +1,10 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // AD-4's own rule text, quoted verbatim in Story 2.4's Design Notes: "then
-// rules.step(state, switchEvents, tick) runs -- every step, even with none."
+// rules.step(state, switchEvents, tick, machineReport) runs -- every step,
+// even with none." Story 2.12 (AD-4, amended): `machineReport` is a fourth,
+// OPTIONAL argument -- every pre-existing three-argument call site keeps
+// compiling unchanged, defaulting to `EMPTY_MACHINE_REPORT` below.
 // `sim/loop/index.ts` calls this after every physics step, whether or not
 // that step produced a switch event.
 //
@@ -60,17 +63,28 @@
 // `ball_will_start` -> bank-reset tests all drive the devices layer directly
 // via `lifecycleEvents`, independent of this module's own wiring.
 
-import { applyDeviceEvents, createBallController, deriveDeviceSlots } from './ball-controller';
+import { applyDeviceEvents, applyRecovery, createBallController, deriveDeviceSlots } from './ball-controller';
 import { advanceBonusMultiplier, creditBonusFromDeviceEvents } from './bonus';
-import { bootDeviceSlots, createDevicesLayer, type DeviceEvent, type DevicesLayer } from './devices';
+import { bootDeviceSlots, createDevicesLayer, type BankResetRequest, type DeviceEvent, type DevicesLayer } from './devices';
 import { createModeStack, type ModeEvent } from './modes';
 import { lampsOf } from './lamps';
 import { createTiltController } from './tilt';
 import { TABLE } from '../table/dragonwar';
-import type { GameState, MachineState, SemanticEvent, CoilCommand, LampState } from '../table/names';
+import type { GameState, MachineReport, MachineState, RecoverCommand, SemanticEvent, CoilCommand, LampState } from '../table/names';
 import type { BallLaunchedEvent, BallWillStartEvent } from '../contracts/events';
 import type { GameAdjustments } from '../contracts/replay';
 import { TUNING, type ResolvedTuning } from '../table/tuning';
+
+/**
+ * Story 2.12 (AD-4, amended): the default `MachineReport` for every
+ * pre-existing three-argument `rules.step()` call site (`test/rules-devices.test.ts`,
+ * `test/machine-serve-drain.test.ts`, `test/rules-tilt-integration.test.ts`,
+ * `test/util/switch-script.ts`) -- `recovered: null` (no recover was
+ * consumed), `failures: []` (nothing to tolerate). A module-level constant:
+ * `MachineReport` carries no mutable state, so one frozen instance is safe
+ * to share as every omitted call's default.
+ */
+const EMPTY_MACHINE_REPORT: MachineReport = { recovered: null, failures: [] };
 
 /** The devices layer's own declared switch-events input -- see this file's header on why it is reached this way rather than by naming `SwitchEvent` directly. */
 type SwitchEventsParam = Parameters<DevicesLayer['step']>[0];
@@ -131,6 +145,15 @@ export interface RulesStepResult {
 	 */
 	readonly coilCommands: readonly CoilCommand[];
 	/**
+	 * Story 2.12 (AD-9, AD-4): ball search's own final-stage command,
+	 * mirroring `coilCommands`' own next-tick channel -- `sim/loop/index.ts`
+	 * queues each entry into the SAME next-tick command queue a coil command
+	 * already uses (AD-4: a command issued at tick N is consumed at N+1).
+	 * At most one entry per tick in practice (AD-7's Boundaries: "at most one
+	 * pass, which ends ... in exactly one RecoverCommand").
+	 */
+	readonly recoverCommands: readonly RecoverCommand[];
+	/**
 	 * Story 2.7: the mode stack's own event channel (`sim/rules/modes/events.ts`),
 	 * deliberately SEPARATE from `events` above -- `lanes_completed` is
 	 * neither a `DeviceEvent` (AD-19: lane state is the base mode's, not the
@@ -150,9 +173,13 @@ export interface Rules {
 	/**
 	 * Runs after every physics step, even one that produced no switch events
 	 * (AD-4). `tick` is stamped onto the returned `GameState` and onto every
-	 * event this step produces.
+	 * event this step produces. `machineReport` (Story 2.12, AD-4 amended) is
+	 * OPTIONAL -- omitted, this step behaves exactly as before this story
+	 * (`EMPTY_MACHINE_REPORT`'s own `recovered: null` never touches
+	 * `ballsInPlay`, and its empty `failures` tolerates nothing because there
+	 * is nothing to tolerate).
 	 */
-	step(state: GameState, switchEvents: SwitchEventsParam, tick: number): RulesStepResult;
+	step(state: GameState, switchEvents: SwitchEventsParam, tick: number, machineReport?: MachineReport): RulesStepResult;
 }
 
 function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
@@ -227,14 +254,25 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 
 	// See this file's header, "Sequencing note": ball_will_start events the
 	// ball controller decided on THIS tick, delivered to the devices layer's
-	// lifecycle parameter on the NEXT tick's step() call.
-	let pendingLifecycleEvents: readonly BallWillStartEvent[] = [];
+	// lifecycle parameter on the NEXT tick's step() call. Story 2.12 (AD-19,
+	// amended): widened to also carry ball search's own bank-reset REQUEST,
+	// forwarded through the SAME next-tick channel.
+	let pendingLifecycleEvents: readonly (BallWillStartEvent | BankResetRequest)[] = [];
 
-	function step(state: GameState, switchEvents: SwitchEventsParam, tick: number): RulesStepResult {
+	function step(state: GameState, switchEvents: SwitchEventsParam, tick: number, machineReport: MachineReport = EMPTY_MACHINE_REPORT): RulesStepResult {
 		const lifecycleForDevices = pendingLifecycleEvents;
 		pendingLifecycleEvents = [];
 
 		const deviceResult = devicesLayer.step(switchEvents, lifecycleForDevices, tick);
+
+		// Story 2.12 (AD-18, AD-4 amended): the recover's own correction lands
+		// BEFORE applyDeviceEvents -- physics consumed the RecoverCommand a
+		// tick ago (AD-4), so by the time this report reaches rules, every
+		// simulated ball not inside a device is already gone; the correction
+		// just makes `ballsInPlay` agree with that fact before this tick's own
+		// device-event accounting composes on top of it.
+		const machineAfterRecovery = applyRecovery(state.machine, machineReport.recovered);
+		const stateAfterRecovery: GameState = machineAfterRecovery === state.machine ? state : { ...state, machine: machineAfterRecovery };
 
 		// AD-6/AD-7/DW-70: ballsInPlay accounting and deviceSlots derivation,
 		// BOTH purely a function of this tick's device events -- never a
@@ -242,12 +280,12 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// (or irrelevant) deviceResult.events leaves `machine` and
 		// `machine.deviceSlots` as the SAME references `state` already carried
 		// (the DW-70 identity gate's own premise).
-		let machine: MachineState = applyDeviceEvents(state.machine, deviceResult.events);
+		let machine: MachineState = applyDeviceEvents(stateAfterRecovery.machine, deviceResult.events);
 		const deviceSlots = deriveDeviceSlots(machine.deviceSlots, deviceResult.events);
 		if (deviceSlots !== machine.deviceSlots) {
 			machine = { ...machine, deviceSlots };
 		}
-		const stateAfterAccounting: GameState = machine === state.machine ? state : { ...state, machine };
+		const stateAfterAccounting: GameState = machine === stateAfterRecovery.machine ? stateAfterRecovery : { ...stateAfterRecovery, machine };
 
 		// Story 2.11 (AD-5, AD-7): the tilt controller runs BEFORE the ball
 		// controller so a Tilt that engaged THIS tick is already true for
@@ -267,8 +305,12 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// pure event-fold invoked straight from this file.
 		const stateAfterBonusCredit = creditBonusFromDeviceEvents(tiltResult.state, deviceResult.events);
 
-		const controllerResult = ballController.step(stateAfterBonusCredit, deviceResult.events, tick);
-		pendingLifecycleEvents = controllerResult.ballWillStartEvents;
+		const controllerResult = ballController.step(stateAfterBonusCredit, deviceResult.events, tick, machineReport);
+		// Story 2.12 (AD-19, amended): the bank-reset request joins
+		// `ball_will_start` in the SAME next-tick lifecycle channel -- the
+		// drop-bank component is the sole owner of the reset pulse either way
+		// (AD-19), so ball search never pulses `c_dragon_bank_reset` itself.
+		pendingLifecycleEvents = [...controllerResult.ballWillStartEvents, ...controllerResult.bankResetRequests];
 
 		// Story 2.7: runs AFTER the ball controller (so `ball_starting` and any
 		// same-tick rotation's `modes: []` teardown have already landed on
@@ -298,6 +340,7 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 			events,
 			commands: [],
 			coilCommands: [...deviceResult.coilCommands, ...tiltResult.coilCommands, ...controllerResult.coilCommands],
+			recoverCommands: controllerResult.recoverCommands,
 			modeEvents: modeStackResult.events,
 		};
 	}

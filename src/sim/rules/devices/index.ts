@@ -6,8 +6,12 @@
 // directory is exempt, everything else under `sim/rules/` is not). Owns the
 // shooter-lane launch, every ball-device's slot bookkeeping, the drop bank
 // (delegated to `./drop-bank.ts`), the spinner count, the Lock lane's
-// capture resolution (DW-166), lane entries, cabinet-button reports and the
-// three declared shots (delegated to `./shots.ts`).
+// capture resolution (DW-166), lane entries, cabinet-button reports (both
+// the press AND, since Story 2.12, the release edge) and the three declared
+// shots (delegated to `./shots.ts`). The layer's lifecycle INPUT (Story
+// 2.12, AD-19 amended) now admits a second kind beside `ball_will_start`:
+// ball search's own `bank_reset_requested`, dispatched to the same
+// `./drop-bank.ts` component's `onResetRequested()`.
 //
 // The layer holds cross-tick state -- in-flight shot sequences (`./shots.ts`),
 // the bank's own letters-down latch (`./drop-bank.ts`), `bd_lock`'s tracked
@@ -32,7 +36,9 @@ import type { BallWillStartEvent } from '../../contracts/events';
 import { createDropBankTracker } from './drop-bank';
 import { createShotTracker } from './shots';
 import type {
+	BankResetRequest,
 	ButtonPressedEvent,
+	ButtonReleasedEvent,
 	DeviceEvent,
 	DragonHitEvent,
 	FlipperSide,
@@ -47,7 +53,9 @@ import type {
 } from './events';
 
 export type {
+	BankResetRequest,
 	ButtonPressedEvent,
+	ButtonReleasedEvent,
 	DeviceBallEnteredEvent,
 	DeviceBallLeftEvent,
 	DeviceEvent,
@@ -76,13 +84,14 @@ export interface DevicesLayerStepResult {
 export interface DevicesLayer {
 	/**
 	 * Runs one tick's switch edges (and the rules-internal lifecycle events
-	 * this layer reacts to -- today, only `ball_will_start`) through every
-	 * device and shot component, returning the events and coil commands this
-	 * tick produced. Called every tick, even with no edges at all (AD-4: an
-	 * in-flight, `entryExclusive: true` shot can lapse with none, and its own
-	 * `_broken` still owes a tick).
+	 * this layer reacts to -- `ball_will_start`, and, since Story 2.12,
+	 * `bank_reset_requested`) through every device and shot component,
+	 * returning the events and coil commands this tick produced. Called every
+	 * tick, even with no edges at all (AD-4: an in-flight, `entryExclusive:
+	 * true` shot can lapse with none, and its own `_broken` still owes a
+	 * tick).
 	 */
-	step(switchEvents: readonly SwitchEvent[], lifecycleEvents: readonly BallWillStartEvent[], tick: number): DevicesLayerStepResult;
+	step(switchEvents: readonly SwitchEvent[], lifecycleEvents: readonly (BallWillStartEvent | BankResetRequest)[], tick: number): DevicesLayerStepResult;
 }
 
 type ParkingDeviceName = {
@@ -284,7 +293,7 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 		return occupancy[device].every(Boolean);
 	}
 
-	function step(switchEvents: readonly SwitchEvent[], lifecycleEvents: readonly BallWillStartEvent[], tick: number): DevicesLayerStepResult {
+	function step(switchEvents: readonly SwitchEvent[], lifecycleEvents: readonly (BallWillStartEvent | BankResetRequest)[], tick: number): DevicesLayerStepResult {
 		const events: DeviceEvent[] = [];
 		const coilCommands: CoilCommand[] = [];
 
@@ -363,9 +372,19 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 		}
 
 		// Stage 3: the Dragon body's own standup face, lane entries, cabinet
-		// buttons (and the flipper buttons' own lane-change report).
+		// buttons (and the flipper buttons' own lane-change report). Story
+		// 2.12 (AD-19, amended): an OPENING edge of any button switch now
+		// emits `button_released { button }` -- the one thing ball search's
+		// own held set needs (a flipper's release, so it can resume a paused
+		// timer) -- and nothing else at all: no `lane_change_pressed`, no
+		// playfield event, for a switch that never joins `PLAYFIELD_SWITCHES`
+		// in the first place (buildPlayfieldSwitches() above already excludes
+		// every button-class switch).
 		for (const event of switchEvents) {
 			if (!event.closed) {
+				if (buttonSwitches.has(event.switch)) {
+					events.push({ type: 'button_released', button: event.switch, tick: event.tick } satisfies ButtonReleasedEvent);
+				}
 				continue;
 			}
 			if (event.switch === (TABLE.dragonBodyWiring.switch as SwitchName)) {
@@ -424,9 +443,23 @@ export function createDevicesLayer(tuning: ResolvedTuning): DevicesLayer {
 
 		// Lifecycle: ball_will_start pulses the reset whatever the bank state
 		// (AC 4) -- the drop bank's own letters clear later, from the real
-		// closed:false edges physics emits when that pulse lands.
+		// closed:false edges physics emits when that pulse lands. Story 2.12
+		// (AD-19, amended): a ball-search reset request pulses the SAME coil
+		// through the SAME sole owner, dispatched by its own `type` rather
+		// than a second hand-typed loop.
 		for (const lifecycleEvent of lifecycleEvents) {
-			coilCommands.push(dropBank.onBallWillStart(lifecycleEvent.tick));
+			if (lifecycleEvent.type === 'ball_will_start') {
+				coilCommands.push(dropBank.onBallWillStart(lifecycleEvent.tick));
+			} else {
+				// Story 2.12 (AC 7): stamped with THIS step()'s own `tick` --
+				// unlike `ball_will_start` above (an existing, untouched
+				// pattern), a search's own request is forwarded from a PRIOR
+				// tick (`sim/rules/index.ts`'s one-tick lifecycle queue), so
+				// `lifecycleEvent.tick` is already stale by the time this runs;
+				// the resulting pulse is genuinely issued THIS tick (S+1 for a
+				// request made at S), never the request's own origin tick.
+				coilCommands.push(dropBank.onResetRequested(tick));
+			}
 		}
 
 		return { events, coilCommands };

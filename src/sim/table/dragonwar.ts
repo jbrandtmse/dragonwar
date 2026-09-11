@@ -502,6 +502,24 @@ export const TABLE = deepFreeze({
 	},
 
 	/**
+	 * Story 2.12 (AD-11 "TABLE owns ... wiring", task 5): each slingshot coil
+	 * paired with its own standup switch, the same `{ switch: SwitchName }`
+	 * shape `popWiring` above uses -- the sole structural source for "the
+	 * slings" ball search's stage list (`sim/rules/ball-search.ts`) derives
+	 * from `Object.keys()` here, never a hand-typed pair. Deferred (frontmatter):
+	 * a commanded sling pulse is physically inert at this tree (the switch
+	 * zone sits downhill of the kick face, away from where a resting ball
+	 * touches it, so no commanded-pulse response exists to build) -- the
+	 * pulse is still issued every search pass (AC 1), and physics simply
+	 * has no receiver for it, the same as any other coil with no ball inside
+	 * its own reach.
+	 */
+	slingWiring: {
+		c_sling_l: { switch: 's_sling_l' },
+		c_sling_r: { switch: 's_sling_r' },
+	},
+
+	/**
 	 * Story 2.3 (AD-6, AD-11 "TABLE owns ... wiring", task 1): each DRAGON-bank
 	 * target letter paired with the switch it closes AND the `col_` collision
 	 * node whose hit objects the bank must retain a handle to (task 5). See

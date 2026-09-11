@@ -20,8 +20,11 @@ import type {
 	GiCommand as ContractsGiCommand,
 	LampCommand as ContractsLampCommand,
 	LampState as ContractsLampState,
+	MachineCommand as ContractsMachineCommand,
+	MachineReport as ContractsMachineReport,
 	MachineState as ContractsMachineState,
 	MechanismsSnapshot as ContractsMechanismsSnapshot,
+	RecoverCommand as ContractsRecoverCommand,
 	ReplayHeader as ContractsReplayHeader,
 	Replay as ContractsReplay,
 	SemanticEvent as ContractsSemanticEvent,
@@ -56,6 +59,10 @@ export type SwitchEvent = ContractsSwitchEvent<SwitchName>;
 export type ContactEvent = ContractsContactEvent<DeviceName>;
 export type SemanticEvent = ContractsSemanticEvent<BallDeviceName, DeviceName>;
 export type CoilCommand = ContractsCoilCommand<CoilName>;
+/** Story 2.12 (AD-9): carries no device name of its own, so binding it here is purely for symmetry with `CoilCommand`/`MachineCommand` -- every consumer under `sim/**` may equally import it straight from `sim/contracts`. */
+export type RecoverCommand = ContractsRecoverCommand;
+export type MachineCommand = ContractsMachineCommand<CoilName>;
+export type MachineReport = ContractsMachineReport<BallDeviceName, DeviceName>;
 export type LampCommand = ContractsLampCommand<LampName>;
 export type LampState = ContractsLampState<LampName>;
 export type GiCommand = ContractsGiCommand<GiChannel>;
