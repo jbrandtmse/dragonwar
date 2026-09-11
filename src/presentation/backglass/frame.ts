@@ -110,6 +110,13 @@ export interface DmdFrame {
  * of the event, so a warning landing inside a hold was swallowed for good:
  * the player never saw WARNING, and the next eligible closure could tilt
  * them with no visible warning at all (found by browser smoke, 2026-09-11).
+ *
+ * Code review (cycle 2): the arming branch also carries a WARNING screen
+ * that is still SHOWING when a `ball_ended` arrives (DW-250 -- a drain one
+ * frame after the warning otherwise cut it to ~16 ms, while the same two
+ * events inside ONE `FrameOutput` were carried), and a TILTED ball end
+ * inherits nothing (TILT supersedes, and `ball_will_start` clears
+ * `machine.tilt` before the hold ends, so only the payload can say so).
  */
 export interface BackglassView {
 	readonly screen: DmdScreen;
@@ -179,7 +186,7 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  * `input.snapshot.tick` (AD-3: `sim/`'s own tick is the only time).
  *
  * Order of decisions, each one a discriminator Rule 19's mutations target:
- * 1. A `ball_ended` event this frame always (re-)arms the hold, overriding
+ * 1. A `ball_ended` event this frame (re-)arms the hold, overriding
  *    whatever screen was showing -- reading the payload, never the snapshot
  *    (AD-9; AC 3's own sharpest case). `bonusRunning` starts `null` (Story
  *    2.10): the arming frame never carries a `bonus_count_step` itself
@@ -187,7 +194,10 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  *    `bonusCountTicks` ticks later), so nothing to show yet. Smoke rework
  *    (DW-247): a `tilt_warning` landing on this SAME frame (one
  *    `FrameOutput` can carry both) is not dropped -- it sets
- *    `pendingTiltWarning`, carried forward through the whole hold.
+ *    `pendingTiltWarning`, carried forward through the whole hold. Code
+ *    review (cycle 2): it also inherits a pending warning or a WARNING
+ *    screen still showing (DW-250) unless the ball ended TILTED (TILT
+ *    supersedes), and it never arms in Attract.
  * 2. Still inside a live hold: a `bonus_count_step` this frame updates
  *    `heldBallEnded.bonusRunning`; a `tilt_warning` this frame (smoke
  *    rework, DW-247) sets `pendingTiltWarning` so it is not lost; otherwise
@@ -207,8 +217,8 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  *    own control). Both are gated on `phase === 'game'`: a carried warning
  *    whose game is no longer live (game over, or a slam already in
  *    Attract) is dropped here rather than shown late, by simply not
- *    reaching this branch (the phase gate on the branches below it clears
- *    the flag by omission, since every other branch returns a fresh view).
+ *    reaching this branch (every branch below it returns a fresh view that
+ *    sets `pendingTiltWarning: false` explicitly).
  * 5. Story 2.11: still inside a live warning hold, the SAME reset-safe
  *    half-open window `ball_ended`'s own hold uses -- the view is
  *    unchanged (there is no incremental payload to fold, unlike the BONUS
@@ -224,15 +234,40 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	const tiltWarningEvent = input.events.find(isTiltWarningEvent);
 
 	const ballEndedEvent = input.events.find(isBallEndedEvent);
-	if (ballEndedEvent) {
+	// Code review (Story 2.11, cycle 2): never in Attract. A `ball_ended` and a
+	// LATER `slam_tilt` can share one `FrameOutput` (~16 owed ticks), whose
+	// snapshot is then already 'attract'; arming here flashed the voided
+	// game's end-of-ball screen over Attract for a frame. Same gate as the
+	// hold branch below.
+	if (ballEndedEvent && game.phase !== 'attract') {
 		const player = ballEndedEvent.player;
 		const score = game.players[player]?.score ?? 0;
+		// What this arming inherits (code review, cycle 2):
+		// - a warning already pending from an earlier hold (DW-247);
+		// - a WARNING screen still SHOWING, inside its own reset-safe half-open
+		//   window (DW-250). Without this, a drain one frame after the warning
+		//   armed cut it to ~16 ms and lost it, while the same two events inside
+		//   ONE `FrameOutput` were carried -- the panel hinged on a frame
+		//   boundary. It is re-shown for a full `TILT_WARNING_HOLD_TICKS` after
+		//   this hold, exactly as a warning that never got shown is.
+		// Neither survives a TILTED ball end: that ball tilted after the warning,
+		// so TILT supersedes it, and the TILT branch below cannot see a tilt that
+		// `ball_will_start` has already cleared by the time this hold ends (the
+		// payload's `tilted` can -- AD-9). This frame's OWN `tilt_warning` is
+		// kept even then: a tilted ball earns no warning (`sim/rules/tilt.ts`),
+		// so a warning sharing a tilted ball's end frame is the NEXT ball's.
+		const warningShowing =
+			view.screen === 'tilt_warning' &&
+			view.holdUntilTick !== null &&
+			tick < view.holdUntilTick &&
+			tick >= view.holdUntilTick - TILT_WARNING_HOLD_TICKS;
+		const inherited = !ballEndedEvent.tilted && (view.pendingTiltWarning || warningShowing);
 		return {
 			screen: 'ball_ended',
 			holdUntilTick: tick + BALL_ENDED_HOLD_TICKS,
 			attractCycleOriginTick: view.attractCycleOriginTick,
 			heldBallEnded: { player, score, bonusRunning: null },
-			pendingTiltWarning: view.pendingTiltWarning || Boolean(tiltWarningEvent),
+			pendingTiltWarning: inherited || Boolean(tiltWarningEvent),
 		};
 	}
 
@@ -323,23 +358,23 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// arrived. The same `phase === 'game'` gate that protects a live event
 	// protects the carried flag too -- if phase is no longer 'game' by the
 	// time control would reach this branch, every branch between here and
-	// the final score/Attract fallback returns a FRESH view with no
-	// `pendingTiltWarning` field carried forward, so the flag is dropped by
-	// omission rather than requiring its own separate clearing step.
+	// the final score/Attract fallback returns a FRESH view that sets
+	// `pendingTiltWarning: false` explicitly, so the flag is dropped there.
 	//
 	// Code review (Blind Hunter, corroborated by Verification Gap): a bare
 	// carried boolean has none of this file's OWN reset-safety discipline
 	// (the half-open windows above and below both bound themselves against
 	// `holdUntilTick`; this flag had no bound at all). A reset restarts
 	// `tick` near 0 while the closure-held `BackglassView` survives
-	// (`host/loop.ts`'s `reset()`, this file's own header comment,
-	// `frame.ts:180-192`'s prior incident), so a stale `pendingTiltWarning:
+	// (`host/loop.ts`'s `reset()`, and the hold branch's own reset comment
+	// above), so a stale `pendingTiltWarning:
 	// true` paired with a stale, far-future `holdUntilTick` would otherwise
 	// reach this branch unfiltered -- the SAME shape of bug the hold
 	// branches above already guard against for `screen`/`holdUntilTick`.
 	// `view.holdUntilTick` is exactly the bound needed and is already
-	// carried alongside the flag (both branches that set `pendingTiltWarning
-	// = true` also carry `holdUntilTick` forward unchanged): the legitimate
+	// carried alongside the flag (the hold branch carries `holdUntilTick`
+	// forward unchanged; the arming branch sets the fresh deadline of the
+	// hold it arms): the legitimate
 	// release case reaches this line only once `tick` has caught up to or
 	// passed the hold's own recorded end (the hold branch's own upper bound,
 	// `tick < view.holdUntilTick`, just failed), so `tick >=
