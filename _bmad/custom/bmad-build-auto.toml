@@ -11,7 +11,7 @@ Launch a subagent with no prior conversation context, with this prompt:
 >
 > When done, report what you changed, how you verified it, and anything left incomplete or risky.
 >
-> Containment (/epic-cycle Rule 18): work only in the working directory you were given — verify `git rev-parse --show-toplevel` matches it before acting. You may edit files. You may NOT run `git commit`, `git push`, `git reset`, `git rebase`, or anything that mutates a remote or triggers CI or a deploy — the agent that spawned you commits. You may NOT `SendMessage` any agent, and you will not be messaged after you return: return exactly once, when your work is complete, with the full report above; a partial or interim return strands your work. If you cannot finish, say exactly what is missing in the report and stop.
+> Containment (/epic-cycle Rule 18): work only in the working directory you were given — verify `git rev-parse --show-toplevel` matches it before acting. You may edit files. You may NOT run `git commit`, `git push`, `git reset`, `git rebase`, or anything that mutates a remote or triggers CI or a deploy — the agent that spawned you commits. You may NOT `SendMessage` any agent, and you will not be messaged after you return: return exactly once, when your work is complete, with the full report above; a partial or interim return strands your work. Run stateful tests against a shared runtime (a live database, an instance, a dev server) one test class or suite per tool call and wait for each to complete — never several test-runner calls in one message, never a re-submit on a client-side timeout. If you cannot finish, say exactly what is missing in the report and stop.
 """
 
 [[workflow.review_layers]]
@@ -27,10 +27,9 @@ Output a Markdown list of findings only — no severity, priority, or ranking.
 If the content is empty, stop and say so.
 If you have zero findings, re-check once; an empty list after a second pass is a valid result — report it as such, do not manufacture findings.
 
-CONTENT:
-{diff_output}
+CONTENT: the unified diff at `{diff_file}`. Read that file — it is the content under review.
 
-Do not invoke any skill. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, run at most one test class or suite at a time (never several test-runner calls in one message), and return exactly once.
 
 """
 
@@ -42,11 +41,11 @@ Launch a context-free subagent with this prompt:
 
 Read `{skill-root}/review-prompts/edge-case-hunter.md` completely and follow it as your review instructions.
 
-Review content:
+claims_file (leave unread until your instructions call for it): {claims_file}
 
-{diff_output}
+Review content: the unified diff at `{diff_file}`. Read that file — it is the content under review.
 
-Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, run at most one test class or suite at a time (never several test-runner calls in one message), and return exactly once.
 
 """
 
@@ -58,11 +57,9 @@ Launch a context-free subagent with this prompt:
 
 Read `{skill-root}/review-prompts/verification-gap.md` completely and follow it as your review instructions. Additionally (/epic-cycle Rule 19, falsifiability): flag every assertion that cannot fail — an expected value the type system makes the only possible value (e.g. `toEqual([])` against a `never[]`), a subject that was never constructed, two runs compared that both produce nothing, a test whose green depends on the defect it guards against, a module with no executed test host — and every acceptance criterion whose pinning test has no `mutation:` line in the spec's `## Verification`.
 
-Review content:
+Review content: the unified diff at `{diff_file}`. Read that file — it is the content under review.
 
-{diff_output}
-
-Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. If the instruction file is unreadable, report that exact failure and stop. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, run at most one test class or suite at a time (never several test-runner calls in one message), and return exactly once.
 
 """
 
@@ -76,11 +73,10 @@ You are an intent-alignment auditor. You have no other context about how this ch
 
 {verbatim_intent}
 
-Here is the diff:
-
-{diff_output}
+The diff is the unified diff at `{diff_file}`. Read that file — it is the change under review.
 
 Your task is strictly descriptive — do not prescribe additional work. Report: (1) the defensible readings of the intent, enumerated; (2) which reading this diff implements; (3) where the readings and the diff diverge — specifically, which surface the intent's expectations live at versus which surface the diff's changes and its tests exercise.
 
-Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, and return exactly once.
+Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer. Containment (/epic-cycle Rule 18): you read and report only — do not edit files, do not run any git command that writes, do not SendMessage any agent, run at most one test class or suite at a time (never several test-runner calls in one message), and return exactly once.
+
 """
