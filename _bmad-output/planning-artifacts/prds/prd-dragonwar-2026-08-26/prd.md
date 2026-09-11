@@ -180,7 +180,9 @@ Extra balls are awarded from a menu of long-horizon achievements, not a single l
 At game end, a Match draw compares a multiple-of-ten number against each player's last two score digits and awards a free game. **Consequences:** number is always a multiple of ten; probability is a Setting defaulting to 8% (chosen deliberately 2026-08-27 — a conventional figure, not a sourced one; it stays adjustable).
 
 #### FR-23: Ball search
-If no switch closes for 15 s `[ASSUMPTION: period]` during play, the Table runs an escalating Ball search and, on failure, serves a new ball. **Consequences:** Ball search does not release locked balls while a Mode timer is running.
+If no switch closes for 15 s `[ASSUMPTION: period]` during play, the Table runs an escalating Ball search and, on failure, serves a new ball. **Consequences:** Ball search does not release locked balls while a Mode timer is running. A held flipper suspends the ball-search timer: while either flipper button is held the 15 s count pauses, and it resumes from where it paused on release, so a ball held on a flipper is never searched `[AMENDED 2026-09-11 — author decision at Story 2.12's spec gate; see the change note below]`.
+
+*Change note (2026-09-11):* the held-flipper consequence was added on the author's decision at Story 2.12's spec gate, chosen from three options (only playfield switches count; any switch press restarts the timer; a held flipper suspends it). The requirement's own text is unchanged.
 
 #### FR-24: Game over and Attract
 After the last ball, the Table shows scores, offers High-score entry where earned, runs Match, and returns to Attract with the Walk-up. **Consequences:** Attract cycles Backglass animations and shows the flipper keys once.
