@@ -1605,3 +1605,38 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Unnamed: pendingLifecycleEvents (rules/index.ts:231), pendingStartPlayer (modes/index.ts:89, see DW-209), pendingLockLaneClosure (devices/index.ts:281), the devices occupancy map (devices/index.ts:265), the shot tracker inFlight map (devices/shots.ts:54). A mid-ball restore loses these too (acceptance-auditor, verified by cr).
 - 2026-09-11T02:46:23Z status=escalated owner=burndown by=cr note=spine text only, a lead write under Rule 20's light path: name all ten or restate the clause as a class. No code change
 - 2026-09-11T03:01:42Z note=Runner corrected the spine text 2026-09-11 (Rule 20 light path, lint clean): AD-7's clause is now a CLASS with the ten-field inventory, re-derivable, and the named-in-this-clause requirement removed. Status deliberately left escalated for the decision sheet; the recommended disposition is resolved-by:2-11-tilt-warnings-tilt-and-slam-tilt.
+
+### DW-256: Ball search's two sling pulses are physically inert: physics has no commanded-pulse response for a slingshot, whose switch zone sits downhill of its kick face
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: sw_sling_l/r span y 380-405 while col_sling bodies span y 420-455; slings.ts keeps no kick segment; a commanded kick needs a loader normal, a proximity band and a new tunable
+- 2026-09-11T14:48:57Z status=wontfix-accepted owner=2-12-ball-search by=harvest note=reopen_if=a ball is observed at rest against a sling kick face (within 5 mm of col_sling_l or col_sling_r) for longer than ballSearchMs in play or a playtest
+
+### DW-257: Recovered balls are never replenished: each RecoverCommand despawn permanently shrinks the session's ball count, and once the trough is empty the serve answers eject_failed
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: devices.ts spawnBall() is reached only from a parking eject; four recoveries in one session exhaust the machine, as a real machine's lost ball stays lost
+- 2026-09-11T14:48:57Z status=wontfix-accepted owner=2-12-ball-search by=harvest note=reopen_if=a session reaches a serve that answers eject_failed with bd_trough empty after recoveries (playtest or replay)
+
+### DW-258: A ball at rest at the Ramp entrance (near x 377-380, y 508) rattles without settling or sinks through the playfield deck and falls below the table, closing no switch and never draining
+- source: spec-2-12-ball-search.md | severity: med | fix-risk: high | footprint: in-epic
+- evidence: Plan-stage grid probe at ddbd946: 11 of 2346 placements rest there, 24.5 mm from s_ramp_enter; placed at (370.9, 508.5) z fell below -200 mm by tick 3515-5756; real-play reachability not measured; 2.12's recover now frees either outcome
+- 2026-09-11T14:48:57Z status=escalated owner=burndown by=harvest note=For the author at the decision sheet: a deck-gap geometry fix moves the collision asset hash every golden pins, and whether a failed Ramp shot actually reaches the spot is unmeasured
+
+### DW-259: A commanded pop pulse kicks only the first ball its scan finds in the pulsed pop's skirt zone; a second co-located ball is silently left alone
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: pops.ts applyPulses() breaks after the first match; its only caller is ball search's pop stage; two balls in one skirt needs multiball (3.7)
+- 2026-09-11T14:48:57Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review: kick every ball in the zone, or close with a probe
+
+### DW-260: The ball-save re-serve's early return skips applyRecovery's device_overflow answer, so an overflow on another device in the same machine report as a save's drain tick goes unanswered
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: ball-controller.ts's ball-save early-return comment justifies skipping recover handling and the search step only; a device_overflow answer is not a no-op; needs two balls on one tick (3.7)
+- 2026-09-11T14:48:58Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review
+
+### DW-261: Ball search's quiet-tick clock accrues without an in-play gate, so a ball-save re-serve's transient ballsInPlay-0 gap relies on being shorter than ballSearchMs rather than on a guard
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: ball-search.ts step(): quietTicks += 1 has no inPlayNow conjunct; unreachable at production tuning (a save window is seconds, the search 15 s); a ballSaveMs at or above ballSearchMs could reach it
+- 2026-09-11T14:48:58Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review
+
+### DW-262: ball-controller.ts buildServingSetsByNonParkingEntry() and ball-search.ts servesIntoOf() duplicate the same servesInto cast instead of sharing one typed accessor
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: The DW-149 derive-not-duplicate shape applied to a type-narrowing cast; two consumers today, a third would add a divergence point
+- 2026-09-11T14:48:58Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review: one shared accessor
