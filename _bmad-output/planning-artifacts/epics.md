@@ -1595,7 +1595,7 @@ So that nudge danger is real and the machine punishes abuse the way a real one d
 
 **Given** the warning count equals the adjustment (default 1)
 **When** `s_tilt_bob` closes again
-**Then** `tilt { player }` fires, `machine.tilt` is set, flippers, slings, pops and autolaunch are disabled together via `CoilCommand disable`, ball save is disarmed, the Backglass shows TILT, and the ball ends when the last ball in play drains
+**Then** `tilt { player }` fires, `machine.tilt` is set, flippers, slings and pops are disabled together via `CoilCommand disable` while the autolaunch is suppressed by rules (the manual plunger, which shares `c_autolaunch`, stays live — AD-5), ball save is disarmed, the Backglass shows TILT, and the ball ends when the last ball in play drains `[AMENDED 2026-09-11 — see the story change log below]`
 
 **Given** a tilt ended the ball
 **When** the next ball starts
@@ -1614,6 +1614,11 @@ So that nudge danger is real and the machine punishes abuse the way a real one d
 - DW-36: FR-14's tilt-warning default of 1 is never transcribed, so `GameAdjustments.tiltWarnings` has no table default even though AD-15 lists `tiltWarnings` among the table tunables (ledger; routed by decision_sheet 2026-08-30)
 - DW-222: a Tilt landing between a ball save's re-serve and the re-served ball's own arrival at `bd_shooter` suppresses the autolaunch **and** consumes the flag, leaving that ball resting in the shooter lane with no `ball_ended` and no automatic recovery until ball search arrives in Story 2.12. Measured at this story's plan gate: the stall is **player-recoverable**, because `plungerMechanics.applyFrame()` gates the manual plunge on `coilEnabled.c_autolaunch` and `HARDWARE_COILS` structurally excludes that coil, so a Tilt's disable batch never disables the plunger. This story pins the whole path end to end — including that the ball save does not re-arm after the Tilt's disarm — and leaves *automatic* recovery to 2.12 (ledger; routed by cr 2026-09-08)
 
+**Change log**
+
+- **2026-09-11 — AC 2's disable set corrected to match AD-5 as amended (DW-241 decided by-design).**
+  AC 2 said the autolaunch is disabled together with the flippers, slings and pops via `CoilCommand disable`. What shipped, and what the author has now ratified, is narrower: the Tilt disable batch covers the flippers, slings and pops (`HARDWARE_COILS`), and the autolaunch is suppressed by rules while tilted rather than coil-disabled, because the manual plunger shares `c_autolaunch` and stays live so a tilted player can always free their own ball. Disabling `c_autolaunch` would swallow ball search's shooter pulse and strand a ball on the plunger tip (measured at Story 2.12's spec gate). Recorded by the Epic 2 runner at Story 2.12's spec gate, after the author's decision; no code changes.
+
 ### Story 2.12: Ball search
 
 As a player,
@@ -1624,11 +1629,9 @@ So that a stuck ball never ends the game.
 
 **Given** a ball is in play
 **When** no switch closes for `ballSearchMs`
-**Then** `ball_search_started` fires and the ball controller pulses coils in each device's `ballSearchOrder` on a tick schedule (slings, pops, bank reset, then the Lock and trough ejects)
+**Then** `ball_search_started` fires and the ball controller pulses coils in each device's `ballSearchOrder` on a tick schedule (slings, pops, bank reset, then the shooter and trough ejects); the Lock's own steps wait for Story 3.2's Lock arbiter `[AMENDED 2026-09-11 — see the story change log below]`
 
-**Given** any active mode publishes a `timerTicks`
-**When** ball search runs
-**Then** `c_mouth` is skipped so locked balls are not released
+*(The `c_mouth`-skip criterion for an active mode's `timerTicks` moved to Story 3.2 on 2026-09-11 — see the story change log below.)*
 
 **Given** the search completes with no switch closure
 **When** the final stage runs
@@ -1640,9 +1643,14 @@ So that a stuck ball never ends the game.
 
 **Given** the device failure vocabulary (`eject_failed`, `ball_missing`, `broken`, `device_overflow`)
 **When** any is emitted
-**Then** rules handle it without throwing, and `device_overflow` is answered with an immediate eject from that device
+**Then** rules handle it without throwing, and `device_overflow` is answered with an immediate eject from that device — except `bd_lock`, whose overflow is tolerated without an eject until Story 3.2's Lock arbiter owns the Mouth `[AMENDED 2026-09-11 — see the story change log below]`
 
 - DW-187: `ballsInPlay` desyncs -- a weak manual plunge rolls back onto the plunger tip still counted in play, a second launch of the same ball counts it twice, and after its drain `ballsInPlay` stays 1 with no ball and no `ball_ended`: a hard hang reachable at today's tree; this story's `ball_missing` reconciliation is where `ballsInPlay` is corrected (ledger; routed by spec_gate 2026-09-11)
+
+**Change log**
+
+- **2026-09-11 — the Lock's ball-search steps, the `c_mouth` skip and the Lock-overflow eject moved to Story 3.2 (AD-18 phasing).**
+  AD-18 lets only the Lock arbiter pulse `c_mouth`, and only after `ShowCommand show_dragon_mouth_open` and `mouthOpenLeadMs`; none of the three exists before Story 3.2. A ball parked in the Lock is out of the simulation and counted by its closed slot switch (AD-6), so it is never missing and a search Mouth pulse could never find one. Until 3.2, ball search issues nothing at the Lock and a `bd_lock` overflow is tolerated without an eject. Author decision at this story's spec gate, relayed by the orchestrator; AD-18 amended the same day on AD-8's phasing precedent. The same sitting put DW-187's fix in this story's scope and kept the manual plunger live under Tilt (DW-241 by-design, AD-5 amended).
 
 ### Story 2.13: Match, game over and return to Attract
 
@@ -1794,6 +1802,23 @@ So that I can feed the Dragon the balls it will spit back at me.
 **Given** UJ-3's edge case
 **When** player 1 drains with two balls locked and player 2 shoots the Lock lane
 **Then** player 2's credits go 0 → 1, one ball is spat, and player 1's credits remain two — verified by a switch-script test
+
+**Given** ball search (Story 2.12) is running and its schedule reaches the Lock — after the bank reset, before the trough eject
+**When** the `bd_lock` `ballSearchOrder` steps come due
+**Then** each Lock eject goes through the Lock arbiter — `ShowCommand show_dragon_mouth_open`, then `c_mouth` `mouthOpenLeadMs` (in ticks) later — never as a bare pulse `[AMENDED 2026-09-11 — moved from Story 2.12's AC 1; see the story change log below]`
+
+**Given** any active mode publishes a `timerTicks`
+**When** ball search runs
+**Then** `c_mouth` is skipped so locked balls are not released `[AMENDED 2026-09-11 — moved verbatim from Story 2.12's AC 2; see the story change log below]`
+
+**Given** `bd_lock` emits `device_overflow`
+**When** rules process it
+**Then** it is answered with an eject from the Lock through the arbiter, after the Mouth-open lead `[AMENDED 2026-09-11 — moved from Story 2.12's AC 5; see the story change log below]`
+
+**Change log**
+
+- **2026-09-11 — three ball-search clauses received from Story 2.12 (AD-18 phasing).**
+  AD-18 lets only this story's Lock arbiter pulse `c_mouth`, and only after `ShowCommand show_dragon_mouth_open` and `mouthOpenLeadMs`, so the three Story 2.12 clauses that would pulse the Mouth wait here: ball search's Lock steps (from 2.12's AC 1), the `c_mouth` skip while a mode publishes `timerTicks` (2.12's AC 2, verbatim), and the answer to a `bd_lock` `device_overflow` (from 2.12's AC 5). Two wording changes, both forced by AD-18: the Lock steps and the overflow answer go through the arbiter rather than as bare pulses, and the overflow eject drops 2.12's "immediate", because every Mouth eject waits `mouthOpenLeadMs`. Until this story, ball search issues nothing at the Lock and a `bd_lock` overflow is tolerated without an eject. Author decision at Story 2.12's spec gate, relayed by the orchestrator under a one-time grant to amend this block for exactly these clauses; AD-18 amended the same day.
 
 ### Story 3.3: The Dragon's mouth and hit reaction
 

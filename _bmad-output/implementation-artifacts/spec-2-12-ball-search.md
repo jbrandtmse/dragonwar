@@ -2,36 +2,12 @@
 title: 'Story 2.12: Ball search'
 type: 'feature'
 created: '2026-09-10'
-status: 'blocked'
+status: 'draft'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
 warnings: ['oversized']
 deferred:
-  - summary: >-
-      A weak manual plunge rolls back onto the plunger tip with ballsInPlay
-      still 1, and any later launch of that same ball (a player re-plunge,
-      or this story's own search autolaunch step) counts it a second time.
-      After its drain ballsInPlay stays 1 with no ball anywhere: a hard hang
-      at today's tree, and after this story a ball search that reconciles
-      the count but never ends the drained ball (the player gets a free
-      replacement). DW-187's "unreachable today" basis is false.
-    evidence: |-
-      Plan-stage scratch probe through createLoop() at production pitch,
-      NO_BALL_SAVE tuning, Start then a manual plunge held 1, 5, 20, 50 and
-      100 ticks: every run emits exactly one ball_launched, the ball climbs
-      to y 208 / 216 / 244 / 307 / 430 mm, falls back, and re-occupies
-      bd_shooter (deviceSlots.bd_shooter [true] from tick 2821 / 2854 /
-      2972 / 3211 / 3603) with machine.ballsInPlay 1 for the remaining
-      ~3000 ticks. applyDeviceEvents() (ball-controller.ts:44-73)
-      increments on every ball_launched and never decrements on a
-      non-parking arrival (:50-58), so a second launch reads 2. Root cause
-      is ballsInPlay accounting, not ball search; a fix changes when a
-      rolled-back ball stops counting as in play and may move a golden
-      state hash (hold-and-release, full-plunge), so it is not taken here.
-    location: >-
-      src/sim/rules/ball-controller.ts:44-73 · src/sim/rules/devices/index.ts:303-323
-    severity: medium
   - summary: >-
       The search's two sling pulses are physically inert: physics has no
       commanded-pulse response for a slingshot, and none can be built from
@@ -86,7 +62,12 @@ deferred:
 
 Physics honours `RecoverCommand` by despawning every ball outside a device. A ball resting in `bd_shooter`'s entry zone counts as inside its device. Physics returns the count. A new, optional fourth `rules.step` argument, the machine report, carries that count and physics' failure events into rules. The ball controller then emits `ball_missing { count }`, corrects `ballsInPlay` to 0, and serves a ball only when the shooter lane is empty, so it never stacks a second ball on the plunger tip.
 
-**Blocked on AD-18:** every clause that needs a `c_mouth` pulse — AC 1's Lock step, AC 2, and AC 5's `bd_lock` overflow answer — waits on one author decision (`## Auto Run Result`). The rest is planned in full.
+**Author decisions, 2026-09-11 (Story 2.12 spec gate, relayed by the orchestrator) — binding on this re-plan:**
+1. **AD-18 is phased, on AD-8's precedent.** Until Story 3.2 builds the Lock arbiter, ball search issues NOTHING at `bd_lock`'s `ballSearchOrder` steps, and a `bd_lock` `device_overflow` is tolerated without an eject. AC 1's Lock eject, all of AC 2 (the `c_mouth` skip for an active mode's `timerTicks`) and AC 5's Lock-overflow eject moved to Story 3.2 (`epics.md`, both blocks amended; AD-18 amended). Deciding fact: a ball parked in the Lock is out of the simulation and counted by its closed slot switch (AD-6), so it is never missing and a search Mouth pulse could never find one.
+2. **DW-241 is by-design; AD-5 amended.** The manual plunger shares the autolauncher's serving coil `c_autolaunch`, outside `HARDWARE_COILS` by design (DW-74), so Tilt, game over and Attract leave it live. This story adds NONE of the three tilt additions the coupling trace listed (no tilted-recovery ball end, no end-on-shooter-arrival while tilted, no `c_autolaunch` re-enable in `startBall()`).
+3. **DW-187 is IN this story's scope.** Fix the rolled-back-ball double count: a weak manual plunge rolls back onto the plunger tip still counted in play, a second launch of the same ball counts it twice, and after its drain `ballsInPlay` stays 1 with no ball and no `ball_ended` — a hard hang at today's tree. Rule 19: the pinning test IS the lead's two-weak-plunge probe (`createLoop()`, `NO_BALL_SAVE` tuning, production pitch: Start; a 20-tick plunge emits one `ball_launched`, the ball leaves the lane and rolls back to `deviceSlots.bd_shooter [true]`; a full plunge of the same ball; drain) — it must be observed RED on today's code before the fix (today: `ballsInPlay` 1 after the roll-back, 2 after the second launch, 1 after the drain, no `ball_ended`) and green after. If the fix moves any golden's trajectory, the re-record is PRE-AUTHORISED for this story on the standing condition: traced correct, and each golden must still assert its own subject, verified structurally field by field. A header-only golden refresh needs no grant.
+4. **Spine writes approved and made at this gate:** AD-19 (ball search REQUESTS the bank reset; the drop-bank component stays the only caller of `c_dragon_bank_reset`), AD-4 (an optional fourth `rules.step` argument carrying physics' `recovered` count and device failure events), and the two tunables `ballSearchMs` 15000 (PRD FR-23) and `ballSearchStepMs` 250 (authored).
+5. **DW-244 is NOT decided** — Start's meaning with balls not home belongs to the decision sheet or Story 2.13. The search is phase-gated to `game`; do not design Start semantics here.
 
 ## Boundaries & Constraints
 
@@ -347,9 +328,15 @@ Physics honours `RecoverCommand` by despawning every ball outside a device. A ba
 
 ## Spec Change Log
 
+- **2026-09-11 — re-dispatch after the plan-stage AD-18 halt (lead).** The author's five decisions are written into the intent contract (`Author decisions, 2026-09-11`), replacing the "Blocked on AD-18" paragraph. Frontmatter `status` reset `blocked` → `draft` for a re-plan on this spec path. Frontmatter `deferred` item 1 (DW-187's rolled-back-ball double count) removed because it is now in scope. Same-day planning writes: `epics.md` Story 2.12 (AC 1, AC 2, AC 5 amended, change log) and Story 3.2 (three clauses received, change log); spine AD-4, AD-5, AD-18 and AD-19 amended; ledger DW-241 `by-design`, DW-222 coupling-settled note, DW-187 corrected-severity and in-scope notes.
+
 ## Review Triage Log
 
 ## Design Notes
+
+### Author decisions at the spec gate (2026-09-11)
+
+The five decisions in the intent contract supersede this section's earlier text wherever the two disagree. In particular, the `### Coupling to DW-241 / DW-244 / DW-222` section below was written before the decisions: its DW-241 `DECISION DEPENDENCY` lines are settled (the plunger stays live, so the assumption became the design); its DW-244 line stands (still undecided; the design stays neutral); and every `bd_lock` / `c_mouth` / `[AD-18]` mention now means "nothing is issued at the Lock until Story 3.2". The `PROPOSED SPINE WRITE` items for AD-4 and AD-19 are no longer proposals — the lead wrote them into the spine at this gate, alongside AD-5 and AD-18; conform to the spine's text.
 
 **Governing architecture decisions (Rule 6).**
 - **AD-4:** the loop contract. `recovered` returned from physics, commands landing the next tick. Proposed write 1 below.
