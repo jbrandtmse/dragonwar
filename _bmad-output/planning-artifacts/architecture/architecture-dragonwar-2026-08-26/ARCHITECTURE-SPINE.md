@@ -250,7 +250,7 @@ The closed unions in `sim/contracts/`; every field named here is binding, everyt
 | `ContactSurface` | `wood · rubber_post · rubber_band · metal · plastic · ramp · flipper · target · bumper · glass · ball · dragon` |
 | `ContactEvent` | `{ type: 'contact', kind: 'hit' \| 'coil_fire' \| 'flipper_eos' \| 'drop_target_down' \| 'bank_reset' \| 'eject' \| 'spinner_tick', ballId?, speed?, surface?, pos?, device?, tick }` — ball roll is driven from the snapshot, not an event |
 | `CoilCommand` | `{ type: 'coil', coil: CoilName, action: 'pulse' \| 'enable' \| 'disable', tick }` |
-| `RecoverCommand` | `{ type: 'recover', tick }` — ball search final stage only |
+| `RecoverCommand` | `{ type: 'recover', tick }` — ball search's final stage, and the ball controller's stray-ball clearing before a serve (AD-6, AD-9; amended 2026-09-11) |
 | `LampCommand` | `{ type: 'lamp', lamp: LampName, role: LampRole, step: 0 \| 1 \| 2 \| 3, tick }` |
 | `GiCommand` | `{ type: 'gi', channel: GiChannel, level: number, tick }` |
 | `FlasherCommand` | `{ type: 'flasher', flasher: FlasherName, ms, tick }` |
