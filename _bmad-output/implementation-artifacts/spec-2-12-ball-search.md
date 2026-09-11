@@ -2,7 +2,7 @@
 title: 'Story 2.12: Ball search'
 type: 'feature'
 created: '2026-09-11'
-status: 'draft'
+status: 'ready-for-dev'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -45,6 +45,33 @@ deferred:
     location: >-
       src/sim/physics/devices.ts:409-487
     severity: low
+  - summary: >-
+      A ball at rest at the Ramp entrance, near x 377-380, y 508, either
+      rattles there without settling or sinks through the playfield deck and
+      falls below the table. Either way it closes no switch and never drains.
+      This is the only resting spot outside every switch zone that a
+      whole-table grid search found.
+    evidence: |-
+      Measured 2026-09-11 at ddbd946, with src/ and public/ unchanged since
+      efe14f5: machine level, production tuning, ball placed at rest.
+      - The grid had 2346 placements at 15 mm spacing, and 11 of them came to
+        rest outside every zone, all in this one cluster, 24.5 mm from
+        s_ramp_enter. It was reached from starts along x 385, y 515-650, and
+        from (400, 500).
+      - Placed at (376.9, 508.5), the ball rattled between x 376.9 and 379.6 at
+        up to 7 mm/s for all 45,000 ticks.
+      - Placed at (370.9, 508.5), (382.9, 508.5) or (376.9, 502.5), z fell from
+        13.5 to about -6.5 mm over 3,200-5,400 ticks, then fell below -200 mm
+        (the probe's cutoff) by tick 3,515-5,756, with no switch closure. From
+        (384.9, 568.5), z was already at -6.1 mm by 6,000 ticks.
+      Not measured: whether real play reaches the spot (a failed Ramp shot
+      rolling back is the likely path). After this story, ball search recovers
+      either outcome, because RecoverCommand despawns every simulated ball
+      outside a device. The gap in the deck itself is geometry, and no
+      collision node was identified.
+    location: >-
+      public/assets/dragonwar.collision.json, the Ramp entrance deck near x 370-385, y 500-570
+    severity: medium
 ---
 
 <intent-contract>
@@ -153,224 +180,345 @@ Physics honours `RecoverCommand` by despawning every ball outside a device. A ba
 
 ## I/O & Edge-Case Matrix — re-plan supplement (2026-09-11)
 
-Folded into the intent contract's matrix by the lead at the spec gate, 2026-09-11 (decision-6 re-dispatch). Its "A stuck ball in the real loop" row is superseded: under decision 6 a held-flipper cradle pauses the timer, so AC 2 needs the test-only stuck ball that decision 6 specifies.
+This section is only a pointer now. The lead folded the supplement's rows into the intent contract's matrix at the decision-6 re-dispatch. This plan adds no rows outside the contract. It pins the held-flipper cases the contract leaves to the planner in AC 4 (4c and 4d) and AC 14, and designs them under Design Notes, *The held flipper (decision 6)*.
 
 ## Code Map
 
+Every anchor below was re-read at `ddbd946`. `src/`, `test/`, `tools/` and `public/` are unchanged since `efe14f5`.
+
 **Rules: ball accounting, the search's home, and its consumers**
 - `src/sim/rules/ball-controller.ts`: the owner of ball accounting and serving.
-  - `applyDeviceEvents` `:44-73` is **where DW-187 is fixed**. It increments on every `ball_launched` `:47-48` and decrements only on a parking entry `:58-66`. Its `bd_shooter` branch is a no-op, justified by the comment `:50-55` ("a ball merely resting in the shooter lane is still IN PLAY"), which the fix makes false. The file header `:16-31` repeats the claim. Callers: `rules/index.ts:245` and `test/rules-devices.test.ts:782-812`, which pins the same-reference return and the parking floor. Both stay green.
-  - `ballServingCoils`/`hardwareCoils`/`HARDWARE_COILS` `:148-178`: must not change.
-  - `shooterLaunchCoil()` `:198-207` is the structural-derivation pattern to copy.
-  - `createBallController` `:261`; closure state `:297`, `:367`, `:388`.
-  - `startBall()` `:436-505`: resets at `:444-453`; the serve pulse at `:490` is the recovery serve's model.
-  - `step()` `:507`. The `ball_launched` arming loop is `:621-666`, and its save-arrival tilt guard at `:653` is the precedent for the search's autolaunch guard. The drain branch is `:673-772`, and the game-over disable is `:738-742`.
+  - `applyDeviceEvents` `:44-73` is **where DW-187 is fixed**.
+    - Today it increments on every `ball_launched` (`:47-48`) and decrements only on a parking entry (`:58-66`).
+    - Its `bd_shooter` branch is a no-op, justified by the comment at `:50-55` ("a ball merely resting in the shooter lane is still IN PLAY"). The fix makes that comment false, and the file header at `:16-31` repeats the claim.
+    - Callers: `rules/index.ts:245`, and `test/rules-devices.test.ts:782-812`, which pins the same-reference return and the parking floor. Both stay green.
+  - `ballServingCoils`, `hardwareCoils` and `HARDWARE_COILS` (`:148-178`) must not change.
+  - `shooterLaunchCoil()` (`:198-207`) is the structural-derivation pattern to copy.
+  - `createBallController` is at `:261`, with closure state at `:297`, `:367` and `:388`.
+  - `startBall()` (`:436-505`): the resets are at `:444-453`, and the serve pulse at `:490` is the recovery serve's model.
+  - `step()` begins at `:507`.
+    - Its first work, the bonus-step drain, is at `:518`, and the Start check is at `:567`.
+    - The `ball_launched` arming loop is at `:621-666`. Its save-arrival tilt guard at `:653` is the precedent for the search's autolaunch guard.
+    - The drain branch is at `:673-772`, and the game-over disable is at `:738-742`.
+    - **The ball-save re-serve returns early at `:691-696`**, before the final return at `:774`. Anything placed after the drain handling is skipped on that tick. That is why the search's edge fold goes at the top of `step()` (task 14).
 - `src/sim/rules/index.ts`: the composition root.
-  - `RulesStepResult` `:107-147` (`commands: readonly never[]` `:124`, `coilCommands` `:132`); `Rules.step` `:149-156`.
-  - `createRules` `:222-306`, with `pendingLifecycleEvents` `:231`, the next-tick forwarding precedent for bank-reset requests.
-  - Stage order: `devicesLayer.step` `:237`, `applyDeviceEvents`/`deriveDeviceSlots` `:245-250`, tilt `:259`, bonus credit `:268`, ball controller `:270-271`, modes `:279`. Then `events` `:294` and `coilCommands` `:300`.
+  - `RulesStepResult` is at `:107-147`: `commands: readonly never[]` at `:124`, `coilCommands` at `:132`. `Rules.step` is at `:149-156`.
+  - `createRules` spans `:222-306`. `pendingLifecycleEvents` at `:231` is the next-tick forwarding precedent for bank-reset requests.
+  - The stages run in this order:
+    - `devicesLayer.step` (`:237`);
+    - `applyDeviceEvents` and `deriveDeviceSlots` (`:245-250`);
+    - tilt (`:259`);
+    - bonus credit (`:268`);
+    - the ball controller, which receives this tick's `DeviceEvent`s (`:270-271`);
+    - modes (`:279`).
+  - Then `events` (`:294`) keeps only `ball_launched` of the device events, and `coilCommands` is at `:300`.
 - `src/sim/rules/devices/index.ts`:
-  - `buildPlayfieldSwitches` `:190-213` (28) and `PLAYFIELD_SWITCHES` `:223`.
-  - `step(switchEvents, lifecycleEvents, tick)` `:287`.
-  - The shooter lane: close → `device_ball_entered` `:315-317`; open → `device_ball_left` + `ball_launched` `:318-322`. Parking slots `:329-345`.
-  - `playfield_switch_closed` `:390-392`.
-  - The drop bank `:421-423` and the lifecycle loop `:428-430`, which is where the reset request joins.
-- `src/sim/rules/devices/drop-bank.ts`: `DropBankTracker` `:31-36`, `pulseResetCoil` `:55-57`, `onBallWillStart` `:92-94`. It is the sole owner of the reset pulse, and the ball-search request entry point goes beside `onBallWillStart` (AD-19, amended).
-- `src/sim/rules/tilt.ts`: the stateful-controller precedent. It is a factory closure, with reset-safety at `:88-97` and ms→ticks resolved once at `:81-82`.
+  - `buildFlipperSideBySwitch()` (`:157-164`) reads `TABLE.flipperButtonWiring`, the structural source for "the flipper buttons".
+  - `buildButtonSwitches()` (`:166-175`) is the `settleClass: 'button'` set, bound at `:268`.
+  - `buildPlayfieldSwitches` (`:190-213`) derives the 28 switches, exported as `PLAYFIELD_SWITCHES` (`:223`).
+  - `step(switchEvents, lifecycleEvents, tick)` is at `:287`.
+  - The shooter lane (Stage 1): a close emits `device_ball_entered` (`:315-317`); an open emits `device_ball_left` plus `ball_launched` (`:318-322`). Parking slots are at `:329-345`.
+  - **Stage 3** spans `:365-404`. `if (!event.closed) continue;` at `:368-370` drops every opening edge. `playfield_switch_closed` is at `:390-392`, `lane_change_pressed` at `:397-400`, and `button_pressed` at `:401-403`, closed edges only. **`button_released` goes here (task 12).**
+  - The drop bank is at `:421-423`, and the lifecycle loop at `:428-430` is where the reset request joins.
+- `src/sim/rules/devices/events.ts`:
+  - `FlipperSide` is at `:111-112`, and `ButtonPressedEvent` at `:141-145`.
+  - The `DeviceEvent` union spans `:179-195`.
+  - No exhaustive `never` switch over `DeviceEvent` exists under `src/`: the only `never` tail is `lamps.ts:128`, over a different type. A new member therefore breaks no typecheck arm.
+- `src/sim/rules/devices/drop-bank.ts`: `DropBankTracker` (`:31-36`), `pulseResetCoil` (`:55-57`), `onBallWillStart` (`:92-94`). It is the sole owner of the reset pulse, and the ball-search request entry point goes beside `onBallWillStart` (AD-19, amended).
+- `src/sim/rules/tilt.ts`: the precedent for a stateful controller. It is a factory closure, with reset-safety at `:88-97` and ms→ticks resolved once at `:81-82`.
 
 **Physics**
 - `src/sim/physics/machine.ts`:
-  - `MachineStepResult` `:82-93`, whose comment `:85-91` must be rewritten; `semanticEvents` is `DeviceFailure[]`.
-  - `Machine.step` `:96`.
-  - `PRE_STEP_HARDWARE_RULES` `:135-146` gains two rows. `test/hardware-rule-seam.test.ts:138-213` requires `receiver.method(` to appear before `physics.step();` and never after.
-  - `coilEnabled` `:247-264`.
-  - The partition `:267-276`, whose `else` is a catch-all.
-  - The plunger gate `:306`, `enabledPulses` `:318-319`, the drop reset `:323`, the `before` map `:325`, `physics.step()` `:338`, and the return `:415-463`.
+  - `MachineStepResult` is at `:82-93`; its comment at `:85-91` must be rewritten. `semanticEvents` is `DeviceFailure[]`.
+  - `Machine.step` is at `:96`.
+  - `PRE_STEP_HARDWARE_RULES` (`:135-146`) gains two rows. `test/hardware-rule-seam.test.ts:138-213` requires each `receiver.method(` to appear before `physics.step();` and never after it.
+  - `coilEnabled` is at `:247-264`. The command partition is at `:267-276`, and its `else` is a catch-all.
+  - Also in `step`: the plunger gate (`:306`), `enabledPulses` (`:318-319`), the drop reset (`:323`), the `before` map (`:325`), `physics.step()` (`:338`) and the return (`:415-463`).
+  - `get balls()` (`:468`) returns `physics.balls`, the live array. The AC 2 test seam writes one ball's state through it (Design Notes).
 - `src/sim/physics/devices.ts`:
-  - `DeviceFailure = EjectFailedLike | DeviceOverflowLike` `:67-79`, so physics never emits `broken`.
-  - `justEjected` `:258` and `overflowReported` `:272`: prune removed balls from both.
-  - `spawnBall` `:409-421`.
-  - `applyCommands` `:423-487`: an empty parking device answers `eject_failed` at `:437-440`; the parking eject opens its slot switch at `:448`.
-  - `launch()` `:490-510` answers `eject_failed` into an empty lane at `:497-499`. `isBallInsideZoneNow()` `:512-519` is the "inside the shooter" test `recover()` must reuse.
-  - `detectEntries`: overflow `:607-618`; the only existing removal `:624`.
-- `src/sim/physics/switches.ts:169-175`: a MAKE latches on the tick it is first observed (DW-67). Only the break is debounced (`:177-188`). Together with the eject pose lying inside `servesInto`'s zone (`TABLE.ballDevices.bd_trough.servesInto` `dragonwar.ts:364`, gated by `test/device-eject-pose.test.ts`), this is why a serve's slot opening and its lane closing arrive in **one** rules batch. That is the DW-187 fix's premise.
-- `src/sim/physics/pops.ts`: the MAKE-edge trigger `:130-156` and the radial impulse `:158-206`, to factor out for `applyPulses`. `createPopMechanics` holds each pop's `{coil, switchName, zones, centroidMm}` (`:112-119`) but no ball list, so pass `physics.balls`.
-- `src/sim/physics/game/player-physics.ts:187-212`: `removeBall` throws on an unregistered ball, but is safe for several distinct balls before `physics.step()`.
+  - `DeviceFailure = EjectFailedLike | DeviceOverflowLike` (`:67-79`), so physics never emits `broken`.
+  - `justEjected` (`:258`) and `overflowReported` (`:272`): prune removed balls from both.
+  - `spawnBall` is at `:409-421`.
+  - `applyCommands` spans `:423-487`. An empty parking device answers `eject_failed` at `:437-440`, and a parking eject opens its slot switch at `:448`.
+  - `launch()` (`:490-510`) answers `eject_failed` into an empty lane at `:497-499`. `isBallInsideZoneNow()` (`:512-519`) is the "inside the shooter" test that `recover()` must reuse.
+  - `detectEntries`: overflow is at `:607-618`, and the only existing removal is at `:624`.
+- `src/sim/physics/switches.ts`: zone tests run on each ball's **swept segment within one step** (`:32`, `:126`), and the `before` position comes from inside `machine.step` (`machine.ts:325`). So writing a ball's position between two steps sweeps nothing across the table.
+  - A MAKE latches on the tick it is first observed (`:169-175`, DW-67). Only the break is debounced (`:177-188`).
+  - The trough's eject pose lies inside its `servesInto` zone (`TABLE.ballDevices.bd_trough.servesInto`, `dragonwar.ts:364`, gated by `test/device-eject-pose.test.ts`).
+  - Together these explain why a serve's slot opening and its lane closing arrive in **one** rules batch, which is the DW-187 fix's premise.
+- `src/sim/physics/pops.ts`: the MAKE-edge trigger (`:130-156`) and the radial impulse (`:158-206`), to be factored out for `applyPulses`. `createPopMechanics` holds each pop's `{coil, switchName, zones, centroidMm}` (`:112-119`) but no ball list, so pass `physics.balls`.
+- `src/sim/physics/game/player-physics.ts:187-212`: `removeBall` throws on an unregistered ball, but it is safe for several distinct balls before `physics.step()`.
 
 **Loop and contracts**
 - `src/sim/loop/index.ts`:
-  - `pendingCommands` `:282`, holding `{coil, action}` only.
-  - The two `state` writes at `:284` and `:433`.
-  - The per-tick body `:410-462`: `commandsForThisTick` `:417-423`, `machine.step` `:425`, `rules.step` `:428`, failures into `events` `:435`, and the coil queue `:459-461`.
-  - `setCoilEnabled`/`pulseCoil` `:468-474`.
-- `src/sim/loop/replay.ts`: `runReplay` `:336-417`, whose `onTick` `:302` is the golden probe's hook; `tableHash` `:145-147`; `PHYSICS_VERSION` `:188-214`; `StaleReplayHeaderError` `:240`.
-- `src/sim/contracts/commands.ts`: `CoilCommand` `:12-17` and `RecoverCommand` `:20-23`. There is no union yet, although the header `:3` says "closed command union".
-- `src/sim/contracts/events.ts`: `BallMissingEvent` `:177-181`; the failure types `:248-266`; `SemanticEvent` `:273-290`.
-- `src/sim/table/names.ts:57-58` binds contracts to the `TABLE` unions.
+  - `buttonSwitchByAction()` (`:125-144`) and `buttonSwitchEdges()` (`:153-161`): **both edges of all four buttons already reach rules**.
+    - `previousFrame` starts at `NO_FRAME`, all released (`:276`), and persists for the life of the loop (`:413-415`), across balls and games.
+    - These edges are undebounced and never pass through the switch tracker, so rules see exactly the frame's button levels.
+  - `CreateLoopOptions` (`:225-253`) takes `collisionDoc: unknown`. The AC 2 and AC 4 test instrument uses this existing parameter; production code needs nothing new.
+  - `pendingCommands` (`:282`) holds `{coil, action}` only.
+  - The two `state` writes are at `:284` and `:433`.
+  - The per-tick body spans `:410-462`:
+    - `commandsForThisTick` (`:417-423`);
+    - `machine.step` (`:425`);
+    - `rules.step` (`:428`);
+    - failures pushed into `events` (`:435`);
+    - the coil queue (`:459-461`).
+  - `pulseCoil` and `setCoilEnabled` are at `:468-474`, and `advance`, `pulseCoil` and `setCoilEnabled` are the whole `Loop` (`:476`).
+- `src/sim/loop/replay.ts`: `runReplay` (`:336-417`), `tableHash` (`:145-147`), `PHYSICS_VERSION` (`:188-214`) and `StaleReplayHeaderError` (`:240`).
+- `src/sim/contracts/commands.ts`: `CoilCommand` (`:12-17`) and `RecoverCommand` (`:20-23`). There is no union yet, although the header at `:3` says "closed command union".
+- `src/sim/contracts/events.ts`: `BallMissingEvent` (`:177-181`), the failure types (`:248-266`) and `SemanticEvent` (`:273-290`).
+- `src/sim/table/names.ts:57-58` binds the contracts to the `TABLE` unions.
 
 **Table and tuning**
 - `src/sim/table/dragonwar.ts`:
-  - `bd_trough` `:330-378`: `ballSearchOrder` `:352-356`, `servesInto` `:364`.
-  - `bd_shooter` `:383-396`: `entry` `:385`, `ballSearchOrder` `:389-392`.
-  - `bd_lock` `:404-423`.
-  - `TABLE.lockLaneWiring.device` names the Lock arbiter's device (read at `devices/index.ts:273`). It is the structural handle for the Lock skip.
-  - `popWiring` `:498-501` is the shape `slingWiring` mirrors; `dropBankResetCoil` `:521`.
-- `src/sim/table/tuning.ts`: `entry()` `:49`; `defaultPitchDeg`/`pitchMinDeg` `:269-270`; the ball-save block `:344-358` and tilt block `:367-377` set the style and placement for the two new entries; `resolveTuning` `:809-866`; `shotWindowTicks` `:898`.
+  - `bd_trough` (`:330-378`): `ballSearchOrder` at `:352-356`, `servesInto` at `:364`.
+  - `bd_shooter` (`:383-396`): `entry` at `:385`, `ballSearchOrder` at `:389-392`.
+  - `bd_lock` is at `:404-423`. `TABLE.lockLaneWiring.device` names the Lock arbiter's device (read at `devices/index.ts:273`); it is the structural handle for the Lock skip.
+  - `popWiring` (`:498-501`) is the shape `slingWiring` mirrors. `dropBankResetCoil` is at `:521`.
+  - `flipperButtonWiring` (`:589-592`) is the source for the search's held set.
+- `src/sim/table/tuning.ts`:
+  - `entry()` is at `:49`, and `defaultPitchDeg` and `pitchMinDeg` at `:269-270`.
+  - The ball-save block (`:344-358`) and the tilt block (`:367-377`) set the style and placement for the two new entries.
+  - `resolveTuning` spans `:809-866`, and `shotWindowTicks` is at `:898`.
 
 **Test infrastructure**
-- `test/util/switch-script.ts`: `RunRulesScriptOptions` `:170-179` and `runRulesScript` `:228-251`. It gains `machineReports`; the result gains `recoverCommands`.
-- `test/backglass-integration.test.ts:35, 53-57, 81-83` holds the `NO_BALL_SAVE_TUNING` literal, the five hazard coils and the `setCoilEnabled` pattern. `test/plunger.test.ts:58-66, 87-91` holds the plunge-by-`InputTransition` pattern.
-- `test/rules-lifecycle.test.ts:401-410` drives a shooter arrival at `ballsInPlay` 0. It stays green unchanged: the fix floors at 0.
+- `test/util/switch-script.ts`: `RunRulesScriptOptions` (`:170-179`) and `runRulesScript` (`:228-251`), which steps every tick from 1. The options gain `machineReports`, and the result gains `recoverCommands`.
+- `test/rules-devices.test.ts`:
+  - `:544-547` (`s_plunger`) and `:549-552` (`s_start`) close at tick 10, open at tick 20, and pin **the close only**. AD-19's `button_released` changes exactly that, so both are amended (task 12, AC 14).
+  - `:554-574` script flipper closes only and stay green.
+- `test/backglass-integration.test.ts:35, 53-57, 81-83`: the `NO_BALL_SAVE_TUNING` literal, the five hazard coils and the `setCoilEnabled` pattern.
+- `test/plunger.test.ts:58-66, 87-91`: the plunge-by-`InputTransition` pattern.
+- File-scoped `vi.resetModules()` + `vi.doMock(<src module>, importOriginal)` is established precedent: `test/cabinet-substep.test.ts:44`, `test/machine-serve-drain.test.ts:94`, `test/rules-devices.test.ts:642`. `vitest.config.ts` sets no `isolate: false`, so each test file runs in its own module registry.
+- `test/machine-serve-drain.test.ts:293-325`: ball injection onto `machine.balls` for a machine-level test (AC 8's model).
+- `test/rules-lifecycle.test.ts:401-410` drives a shooter arrival at `ballsInPlay` 0. It stays green unchanged, because the fix floors at 0.
 - `test/rules-tilt.test.ts:390, 807, 845, 872, 913` and `test/rules-ball-save.test.ts:194, 658` close `s_shooter_lane` only after a drain has taken `ballsInPlay` to 0. They stay green unchanged.
-- `test/rules-devices-headless.test.ts:193-208`: `ENTRY_FILES`, where the new headless file goes; the completeness ratchet is `:222-243`.
+- `test/rules-devices-headless.test.ts:193-208`: `ENTRY_FILES`, where the new headless file goes. The completeness ratchet is at `:222-243`.
 - `test/contracts.test.ts:240-339`: `describeEvent`. Its `never` tail is a typecheck gate, and each arm needs an executing assertion.
 - `test/tuning.test.ts:27-110`: `scalarKeys` and its ratchet.
-- `test/machine-serve-drain.test.ts:293-325`: ball injection onto `machine.balls` for a machine-level test.
-- `test/replay-goldens.test.ts:123` and `test/golden-line-endings.test.ts:23-29` are two independent five-name lists.
+- `test/replay-goldens.test.ts:123` and `test/golden-line-endings.test.ts:23-29`: two independent lists of the five golden names.
 
 ## Tasks & Acceptance
 
 **Execution:**
-1. `test/rules-rollback-accounting.test.ts` (new, GPL-3.0 header): the DW-187 pinning test (AC 12). It is a real `createLoop` driven by real input, using only APIs that exist today.
+1. `test/rules-rollback-accounting.test.ts` (new, GPL-3.0 header): the DW-187 pinning test (AC 12). It drives a real `createLoop` with real input, using only APIs that exist today.
    - Write it and run it **before task 2**. It must fail on today's code at the roll-back assertion.
-   - Record the observed today values (`ballsInPlay` 1 after the roll-back, 2 after the re-plunge, 1 after the drain, no `ball_ended`) in `## Verification`'s Rule 19 log. Then task 2.
-2. `src/sim/rules/ball-controller.ts`, `applyDeviceEvents` (DW-187). Keep its signature, its event-order processing and its same-reference return. The change:
-   - Add a module-level map, derived from `TABLE`: each non-parking device → the set of **parking** devices whose `servesInto` equals its `entry`. At this tree that is `bd_shooter` → `{bd_trough}`; `bd_shooter`'s own `servesInto` is excluded because it is non-parking.
+   - Record the observed values in `## Verification`'s Rule 19 log. Today's code gives `ballsInPlay` 1 after the roll-back, 2 after the re-plunge and 1 after the drain, with no `ball_ended`. Then do task 2.
+2. `src/sim/rules/ball-controller.ts`, `applyDeviceEvents` (DW-187). Keep its signature, its event-order processing and its same-reference return.
+   - Add a module-level map, derived from `TABLE`, from each non-parking device to the set of **parking** devices whose `servesInto` equals its `entry`. At this tree that is `bd_shooter` → `{bd_trough}`. `bd_shooter`'s own `servesInto` is excluded, because it is non-parking.
    - Before the loop, count the batch's `device_ball_left` events from each serving set.
-   - A non-parking `device_ball_entered` consumes one such count if any remain: a served ball's arrival, no change. Otherwise it is a return to the lane and decrements `ballsInPlay`, floored at 0 like the parking decrement.
+   - A non-parking `device_ball_entered` consumes one of those counts if any remain: that is a served ball's arrival, and nothing changes. Otherwise it is a return to the lane, and it decrements `ballsInPlay`, floored at 0 like the parking decrement.
    - Rewrite the comments at `:16-31` and `:50-65` to say so.
 
-   Checkpoint before task 3, with no golden file touched: `pnpm test test/rules-rollback-accounting.test.ts test/replay-goldens.test.ts test/rules-devices.test.ts test/rules-lifecycle.test.ts test/rules-ball-save.test.ts test/rules-tilt.test.ts` is green. The plan measured zero moved ticks in all five goldens (Design Notes). If a golden reddens here, run task 17's trace before anything else.
-3. `src/sim/contracts/commands.ts`: add `MachineCommand<TCoil> = CoilCommand<TCoil> | RecoverCommand`, the AD-9 rules→physics union the header already names. `src/sim/table/names.ts`: bind `MachineCommand` and `RecoverCommand` beside `CoilCommand`.
+   Checkpoint before task 3, with no golden file touched: `pnpm test test/rules-rollback-accounting.test.ts test/replay-goldens.test.ts test/rules-devices.test.ts test/rules-lifecycle.test.ts test/rules-ball-save.test.ts test/rules-tilt.test.ts` is green. The plan measured zero moved ticks in all five goldens (Design Notes). If a golden reddens here, run task 18's trace before anything else.
+3. `src/sim/contracts/commands.ts`: add `MachineCommand<TCoil> = CoilCommand<TCoil> | RecoverCommand`, the AD-9 rules→physics union the header already names. In `src/sim/table/names.ts`, bind `MachineCommand` and `RecoverCommand` beside `CoilCommand`.
 4. `src/sim/contracts/events.ts`:
-   - Add `BallSearchStartedEvent { type: 'ball_search_started'; tick }` to `SemanticEvent`. It is payload-complete as a start marker (AD-9).
-   - Add `MachineReport<TBallDevice, TDevice> { recovered: number | null; failures: readonly (EjectFailedEvent|DeviceOverflowEvent|BrokenEvent)[] }`, documented as physics' per-step report that the loop forwards to rules (AD-4, amended). `recovered` is `null` on every step that consumed no `RecoverCommand`.
+   - Add `BallSearchStartedEvent { type: 'ball_search_started'; tick }` to `SemanticEvent`. As a start marker it is payload-complete (AD-9).
+   - Add `MachineReport<TBallDevice, TDevice> { recovered: number | null; failures: readonly (EjectFailedEvent|DeviceOverflowEvent|BrokenEvent)[] }`. Document it as physics' per-step report, which the loop forwards to rules (AD-4, amended). `recovered` is `null` on every step that consumed no `RecoverCommand`.
    - Bind both in `names.ts`.
-5. `src/sim/table/dragonwar.ts`: add `slingWiring: { c_sling_l: { switch: 's_sling_l' }, c_sling_r: { switch: 's_sling_r' } }` beside `popWiring`. This is AD-11 wiring and the only structural source for "the slings". It moves `tableHash` deliberately; task 17 refreshes it.
+5. `src/sim/table/dragonwar.ts`: add `slingWiring: { c_sling_l: { switch: 's_sling_l' }, c_sling_r: { switch: 's_sling_r' } }` beside `popWiring`. This is AD-11 wiring and the only structural source for "the slings". It moves `tableHash` on purpose, and task 18 refreshes it.
 6. `src/sim/table/tuning.ts`: add two top-level entries beside the tilt block.
    - `ballSearchMs: entry(15000, "PRD FR-23: 'If no switch closes for 15 s during play' (epics.md:64; the epic records it as an assumption)", 'unverified')`.
    - `ballSearchStepMs: entry(250, 'authored: no artifact states a per-step interval; long enough for a ball one pulse dislodges to close a playfield switch before the next pulse fires', 'unverified')`.
 
    `test/tuning.test.ts`: list both in `scalarKeys` with a Story 2.12 comment.
 7. `src/sim/physics/devices.ts`: add `recover(tick): number` to `DeviceMechanics`.
-   - It removes every ball in a **copy** of `physics.balls` whose centre is not inside any non-parking device's entry zone (reuse `isBallInsideZoneNow`).
+   - It removes every ball in a **copy** of `physics.balls` whose centre is outside every non-parking device's entry zone (reuse `isBallInsideZoneNow`).
    - It prunes those balls from `justEjected` and `overflowReported`, and returns the count.
-   - It emits no switch edge: the tracker recomputes zone state from movements, so any break edge comes from the tracker itself.
-8. `src/sim/physics/pops.ts`: add `applyPulses(tick, pulses, balls)`. It kicks every ball whose centre lies inside the pulsed pop's own skirt zone, using the same radial impulse as `applyPostSwitchEdges`, factored out rather than duplicated. It emits one `coil_fire` contact per kick. Only enabled pulses reach it (DW-74), so a disabled pop never kicks.
+   - It emits no switch edge. The tracker recomputes zone state from movements, so any break edge comes from the tracker itself.
+8. `src/sim/physics/pops.ts`: add `applyPulses(tick, pulses, balls)`.
+   - It kicks every ball whose centre lies inside the pulsed pop's own skirt zone, with the same radial impulse as `applyPostSwitchEdges`, factored out rather than duplicated.
+   - It emits one `coil_fire` contact per kick.
+   - Only enabled pulses reach it (DW-74), so a disabled pop never kicks.
 9. `src/sim/physics/machine.ts`, in `step`:
-   - Accept `readonly MachineCommand[]`, and partition `type === 'recover'` **before** the enable/disable branch. `CoilCommand` handling is otherwise unchanged.
-   - Call `deviceMechanics.recover(tick)` once when at least one recover was consumed, before `deviceMechanics.applyCommands(` and before the `before` map, so a same-tick serve is never despawned. Call `popMechanics.applyPulses(tick, enabledPulses, physics.balls)` pre-step, after `enabledPulses`.
+   - Accept `readonly MachineCommand[]`, and partition out `type === 'recover'` **before** the enable/disable branch. `CoilCommand` handling is otherwise unchanged.
+   - When at least one recover was consumed, call `deviceMechanics.recover(tick)` once. It runs before `deviceMechanics.applyCommands(` and before the `before` map, so a same-tick serve is never despawned.
+   - Call `popMechanics.applyPulses(tick, enabledPulses, physics.balls)` pre-step, after `enabledPulses`.
    - Return `recovered` (the count, or `null`), and merge the pop pulse's contacts into `contactEvents`.
 
    Elsewhere in the file:
-   - Add `PRE_STEP_HARDWARE_RULES` rows `{ receiver: 'deviceMechanics', method: 'recover', pinnedBy: 'test/ball-search-physics.test.ts' }` and `{ receiver: 'popMechanics', method: 'applyPulses', pinnedBy: 'test/ball-search-physics.test.ts' }`.
+   - Add two `PRE_STEP_HARDWARE_RULES` rows: `{ receiver: 'deviceMechanics', method: 'recover', pinnedBy: 'test/ball-search-physics.test.ts' }` and `{ receiver: 'popMechanics', method: 'applyPulses', pinnedBy: 'test/ball-search-physics.test.ts' }`.
    - Rewrite the `:85-91` comment: failures now also reach rules, through the loop.
 10. `src/sim/loop/index.ts`:
     - Widen `pendingCommands` to also hold a recover. Queue each `rulesResult.recoverCommands` entry for the next tick (AD-4), and emit it in `commandsForThisTick` as `{ type: 'recover', tick }`.
     - Pass `{ recovered: machineResult.recovered, failures: machineResult.semanticEvents }` as `rules.step`'s fourth argument.
     - Keep `events.push(...machineResult.semanticEvents, ...)` unchanged.
-    - Add no write to `state`, and update the header comment `:9-15`.
+    - Add no write to `state`. Update the header comment at `:9-15`.
 11. `src/sim/rules/devices/drop-bank.ts`, `devices/events.ts` and `devices/index.ts`: AD-19's third trigger.
-    - Add a rules-internal `BankResetRequest { type: 'bank_reset_requested'; tick }` to `devices/events.ts`. It is a lifecycle *input*, never a `DeviceEvent` or a `SemanticEvent`, so AD-19's event enumeration is unchanged.
+    - Add a rules-internal `BankResetRequest { type: 'bank_reset_requested'; tick }` to `devices/events.ts`. It is a lifecycle *input*, never a `DeviceEvent` or a `SemanticEvent`.
     - Add `onResetRequested(tick)` to `DropBankTracker`, beside `onBallWillStart`.
-    - Widen the devices layer's lifecycle input to `readonly (BallWillStartEvent | BankResetRequest)[]`, dispatching each kind to its entry point. `runSwitchScript`'s existing `BallWillStartEvent[]` argument stays assignable.
+    - Widen the devices layer's lifecycle input to `readonly (BallWillStartEvent | BankResetRequest)[]`, and dispatch each kind to its entry point. `runSwitchScript`'s existing `BallWillStartEvent[]` argument stays assignable.
     - The physics reset's six `closed: false` edges clear the letter latch silently (`drop-bank.ts:74-80`), exactly as after a ball-start reset.
-12. `src/sim/rules/ball-search.ts` (new, GPL-3.0 header). `createBallSearch(tuning)` resolves `ballSearchTicks` and `ballSearchStepTicks` once via `shotWindowTicks()`. At construction it builds the stage list structurally, in this order:
-    - `slingWiring` keys;
-    - `popWiring` keys;
-    - the bank-reset request;
-    - each device's `ballSearchOrder` `pulse` steps: parking devices with no `servesInto`, then non-parking devices, then parking devices with a `servesInto`;
-    - one recover.
+12. `src/sim/rules/devices/events.ts` and `devices/index.ts`: `button_released`, AD-19 as amended 2026-09-11 (Rule 20 already written by the lead).
+    - Add `ButtonReleasedEvent { type: 'button_released'; button: SwitchName; tick }` beside `ButtonPressedEvent` and into the `DeviceEvent` union.
+    - In Stage 3, where `!event.closed` currently `continue`s (`:368-370`), first emit `button_released` for an opening edge of any switch in `buttonSwitches`. Emit nothing else on an opening edge: no `lane_change_pressed`, no playfield event.
+    - Update the Stage 3 comment and the file header at `:9`.
+    - `rules/index.ts:294` already keeps device events out of `SemanticEvent`, so no `describeEvent` arm is owed.
+    - Amend `test/rules-devices.test.ts:544-552` to the two-event form (AC 14).
+13. `src/sim/rules/ball-search.ts` (new, GPL-3.0 header).
+    - `createBallSearch(tuning)` resolves `ballSearchTicks` and `ballSearchStepTicks` once, via `shotWindowTicks()`.
+    - At construction it builds the stage list structurally, in this order:
+      1. `slingWiring` keys;
+      2. `popWiring` keys;
+      3. the bank-reset request;
+      4. each device's `ballSearchOrder` `pulse` steps: parking devices with no `servesInto`, then non-parking devices, then parking devices with a `servesInto`;
+      5. one recover.
+    - It derives the flipper button set from `TABLE.flipperButtonWiring[*].switch`. It throws on a `TABLE` authoring defect: an empty `slingWiring`, `popWiring` or `flipperButtonWiring`, or a ball device with no `pulse` step.
 
-    It throws on a `TABLE` authoring defect: an empty `slingWiring` or `popWiring`, or a ball device with no `pulse` step.
+    **API (the seam is split so no tick's edges are ever lost):**
+    - `observe(deviceEvents, tick)`. It folds `playfield_switch_closed`: the closure becomes the new origin and cancels a running pass. It also folds the flipper buttons' `button_pressed` / `button_released` into the **held set**, a map from each held flipper button to its press tick. It runs on every tick, in every phase, whatever `ballsInPlay` reads.
+    - `step(state, tick)` returns `{ events, coilCommands, recoverCommands, bankResetRequests }`.
+    - `reset()` clears the timer and schedule for `startBall()`. It does **not** clear the held set (Design Notes, design point 1).
 
-    `step(state, deviceEvents, tick)` returns `{ events, coilCommands, recoverCommands, bankResetRequests }`. It implements the timer, the cancel, and the fixed-slot schedule; a guarded slot keeps its time and issues nothing. The guards:
-    - the slots of `TABLE.lockLaneWiring.device` (the Lock arbiter's device) issue nothing until Story 3.2 (AD-18, amended);
+    **The clock.** Search time is the **quiet count** `q(t)`: the number of ticks `u` with `origin < u ≤ t` at which no flipper button is held, after tick `u`'s own edges are folded.
+    - A tick with both buttons held counts once.
+    - The origin is the latest of two ticks: the one where "a ball is in play" became true, and the latest `playfield_switch_closed`.
+    - The search starts on the first tick where `q ≥ ballSearchTicks`. Slot `k` is issued on the first tick where `q ≥ ballSearchTicks + k · ballSearchStepTicks`, and the recover is the last slot. So a hold pauses the start and a running pass alike (design point 3).
+
+    **Guards.** Each guarded slot keeps its time and issues nothing:
+    - the slots of `TABLE.lockLaneWiring.device` issue nothing until Story 3.2 (AD-18, amended);
     - the non-parking device's slot issues nothing while `machine.tilt.tilted`;
     - each slot of a parking device with a `servesInto` issues nothing while the non-parking device whose `entry` is that `servesInto` reads occupied in `machine.deviceSlots`.
 
-    It also exposes `reset()` for `startBall()`. It is pure apart from its two closure marks.
-13. `src/sim/rules/ball-controller.ts`, the search wiring.
-    - Construct the search inside `createBallController`.
+    **Closure state.** Every mark is a tick (origin, pause accounting, pass progress, each held button's press tick). A mark strictly greater than `tick` is discarded, as in `tilt.ts:88-97`. Apart from that closure state the module is pure.
+14. `src/sim/rules/ball-controller.ts`, the search wiring.
+    - Construct the search inside `createBallController`. Call `ballSearch.observe(deviceEvents, tick)` as the **first** statement of `step()`, ahead of the bonus-step drain at `:518`, so the save re-serve's early return at `:695` can never skip a tick's edges.
     - `step()` gains the `machineReport` parameter. After the Start and drain handling it does the following, in order:
-      - (a) if `recovered !== null`: emit `ball_missing { count: recovered, tick }`; serve one `pulse` of `TABLE.ballDevices.bd_trough.ejectCoil` only if `phase === 'game'` and the non-parking device reads empty;
-      - (b) for each `device_overflow` on a parking device other than `TABLE.lockLaneWiring.device`: one immediate `pulse` of its `ejectCoil`. A Lock overflow is tolerated (AD-18, amended);
-      - (c) tolerate `eject_failed` and `broken` as no-ops;
-      - (d) run the search and merge its outputs.
-    - Export `applyRecovery(machine, recovered)`: `ballsInPlay: 0` when `recovered !== null`, otherwise the same reference.
-    - `startBall()` calls the search's `reset()`.
+      - (a) if `recovered !== null`, emit `ball_missing { count: recovered, tick }`. Serve one `pulse` of `TABLE.ballDevices.bd_trough.ejectCoil` only if `phase === 'game'` and the non-parking device reads empty;
+      - (b) for each `device_overflow` on a parking device other than `TABLE.lockLaneWiring.device`, issue one immediate `pulse` of its `ejectCoil`. A Lock overflow is tolerated (AD-18, amended);
+      - (c) treat `eject_failed` and `broken` as no-ops;
+      - (d) call `ballSearch.step(...)` and merge its outputs.
+
+      On the `:695` path, skipping (a)–(d) is harmless. That path runs only at `ballsInPlay` 0, where the search is idle, and a recover report cannot arrive on a save's drain tick, because a recover leaves no ball to drain.
+    - Export `applyRecovery(machine, recovered)`: it returns `ballsInPlay: 0` when `recovered !== null`, and otherwise the same reference.
+    - `startBall()` calls `ballSearch.reset()`.
     - `BallControllerStepResult` gains `recoverCommands` and `bankResetRequests`.
-14. `src/sim/rules/index.ts`:
-    - `Rules.step` takes the optional `machineReport` (default `EMPTY_MACHINE_REPORT`), and `RulesStepResult` gains `recoverCommands: readonly RecoverCommand[]`.
+15. `src/sim/rules/index.ts`:
+    - `Rules.step` takes the optional `machineReport` (default `EMPTY_MACHINE_REPORT`). `RulesStepResult` gains `recoverCommands: readonly RecoverCommand[]`.
     - Before `applyDeviceEvents`, apply `applyRecovery(state.machine, machineReport.recovered)`.
     - Pass the report to `ballController.step`.
     - Forward `controllerResult.bankResetRequests` into the devices layer's lifecycle input on the **next** tick, beside `pendingLifecycleEvents`.
     - Update the header's three-argument quotation at `:4`.
-15. `test/util/switch-script.ts`: add `machineReports?: ReadonlyMap<number, MachineReport>`, passed as the fourth argument on its tick. Add `recoverCommands` to the result.
-16. Tests. Each follows `## Verification`'s mutation plan and pairs every negative with its positive in the same test.
-    - `test/rules-ball-search.test.ts`: headless, `runRulesScript` with a mid-game `initialState` and injected `machineReports`. Covers ACs 1, 3, 4, 5, 6, the headless half of AC 7, and AC 13. Add it to `ENTRY_FILES`.
-    - `test/ball-search-integration.test.ts`: a real `createLoop` with real input. Covers AC 2 and the real-loop half of AC 7.
-    - `test/ball-search-physics.test.ts`: at `createMachine` level. Covers ACs 8 and 9, and is the manifest's `pinnedBy`.
+16. `test/util/switch-script.ts`: add `machineReports?: ReadonlyMap<number, MachineReport>`, passed as the fourth argument on its tick. Add `recoverCommands` to the result.
+17. Tests. Each follows `## Verification`'s mutation plan, and each pairs every negative with its positive in the same test.
+    - `test/rules-ball-search.test.ts` (new, headless). It uses `runRulesScript` with a mid-game `initialState`, scripted switch edges and injected `machineReports`. It covers ACs 1, 3, 4a, 4b, 4d, 5 and 6, the headless half of AC 7, and AC 13. Add it to `ENTRY_FILES`.
+    - `test/ball-search-integration.test.ts` (new): real `createLoop` runs with real input. It covers AC 2, AC 4c and the real-loop half of AC 7.
+      - It is the **only** home of the test-only instrument (Design Notes, *AC 2's instrument*): the in-memory cup document, the file-scoped `vi.doMock` capture, and `place()`.
+      - `vi.resetModules()` and `vi.doMock('../src/sim/physics/machine', …)` run before `await import('../src/sim/loop/index')`.
+    - `test/ball-search-physics.test.ts` (new): at `createMachine` level. It covers ACs 8 and 9, and it is the manifest's `pinnedBy`.
+    - `test/rules-devices.test.ts`: AC 14.
     - `test/contracts.test.ts`: the `ball_search_started` arm with an executing assertion (AC 11).
-17. Goldens.
+18. Goldens: `test/replays/{roll-and-drain,hold-and-release,full-plunge,nudge-coupling,two-ball-collision}.golden.json`.
     - Run a scratchpad-only harness that refreshes all five goldens' `header.tableHash` and `header.gameStart.tuning`. It adds `ballSearchMs`, `ballSearchTicks`, `ballSearchStepMs` and `ballSearchStepTicks` in `resolveTuning()` order, and appends a `notes` line naming Story 2.12. Verify per field (`## Verification`).
-    - **DW-187 trace, if needed.** The plan measured that the fix moves no golden. If a golden's body field or state hash nevertheless moves, first establish whether the move is the DW-187 fix: re-run with task 2 reverted, from a saved copy.
+    - **DW-187 trace, if needed.** The plan measured that the fix moves no golden. If a golden's body field or state hash moves anyway, first establish whether the move is the DW-187 fix: re-run with task 2 reverted, from a saved copy.
       - A move traced to the fix is re-recorded under decision 3's pre-authorisation. The re-record must show the trajectory traced correct, the golden still asserting its own subject, and every field verified structurally.
       - Any other move is the contract's Block-If: HALT.
 
 **Acceptance Criteria:**
 - **AC 1: the search starts on its bound and walks its stages in order** (epics AC 1, as amended).
-  - **Given** `runRulesScript` at production tuning with a mid-game `initialState`: `phase: 'game'`, one player, `ballsInPlay` 0, `deviceSlots.bd_shooter` `[true]`. `s_shooter_lane` opens at tick O, which emits `ball_launched` and makes `ballsInPlay` 1. No `playfield_switch_closed` follows.
+  - **Given** `runRulesScript` at production tuning with a mid-game `initialState`: `phase: 'game'`, one player, `ballsInPlay` 0, `deviceSlots.bd_shooter` `[true]`. `s_shooter_lane` opens at tick O, which emits `ball_launched` and makes `ballsInPlay` 1. No `playfield_switch_closed` and no flipper button follow.
   - **When** rules step through O+17750.
   - **Then:**
     - no `ball_search_started` appears through O+14999, and exactly one appears at O+15000, carrying `tick: O+15000`;
-    - the merged `coilCommands` per tick equal this authored literal list: `c_sling_l` O+15000, `c_sling_r` O+15250, `c_pop_1` O+15500, `c_pop_2` O+15750, `c_pop_3` O+16000; nothing at O+16250; `c_dragon_bank_reset` at O+16251; nothing at O+16500 or O+16750; `c_autolaunch` O+17000; `c_trough_eject` O+17250 and O+17500;
+    - the merged `coilCommands` per tick equal this authored literal list:
+      - `c_sling_l` at O+15000, `c_sling_r` at O+15250;
+      - `c_pop_1` at O+15500, `c_pop_2` at O+15750, `c_pop_3` at O+16000;
+      - nothing at O+16250, and `c_dragon_bank_reset` at O+16251;
+      - nothing at O+16500 or O+16750;
+      - `c_autolaunch` at O+17000;
+      - `c_trough_eject` at O+17250 and O+17500;
     - exactly one `RecoverCommand` is issued, at O+17750;
-    - no command in the run names `c_mouth`. The O+17000 and O+17250 commands in the same run are the positive: device steps are issued.
+    - no command in the run names `c_mouth`. The same run's O+17000 and O+17250 commands are the positive: device steps are issued.
 - **AC 2: Integration AC — physics' `recovered` reaches rules through the loop, and a ball is ready** (epics AC 2).
-  - **Given** a real `createLoop` at production pitch, with `NO_BALL_SAVE_TUNING` as both `GameStart.tuning` and the loop's `tuning`. Start; the served ball is plunged with a 1200-tick hold and released into `flipper_l: true`, held for the rest of the search.
-  - **When** the loop runs until `ball_search_started` arrives in `FrameOutput.events`, then 3000 ticks more. The arrival must be asserted, bounded at 40,000 ticks after the release.
-  - **Then**, with S the event's tick:
-    - one `bank_reset` contact arrives at S+1252;
+  - **Given** a real `createLoop` at production pitch, with `NO_BALL_SAVE_TUNING` as both `GameStart.tuning` and the loop's `tuning`. It is built from the test-only cup document, with the machine captured by the file-scoped seam (Design Notes, *AC 2's instrument*).
+  - Start. At T = 400 the served ball rests on the plunger tip: `deviceSlots.bd_shooter` `[true]`, `ballsInPlay` 0, three trough slots closed. The test then `place()`s it at rest at (165, 262).
+  - **When** the loop runs with no input to S+3000, and then a 1200-tick plunge is made.
+  - **Then**, reading only `FrameOutput`:
+    - **the premise:**
+      - `ball_launched` arrives at L = 401, and `ballsInPlay` reads 1 on that tick;
+      - from L+3000 through S+2750, the cup ball (tracked by its `snapshot.balls[].id`) stays within 0.1 mm of its L+3000 position;
+      - that position is more than 90 mm from every switch-zone box of the **committed** document's `loadCollision(...).switchZones` (measured: 97.9 mm to `s_inlane_l`);
+    - no `ball_search_started` arrives through L+14999, and exactly one arrives at S = L+15000;
+    - exactly one `bank_reset` contact arrives after S, at S+1252;
     - `eject_failed { device: 'bd_shooter' }` arrives at S+2001;
-    - at S+2251 the trough's closed-slot count drops by one and `deviceSlots.bd_shooter` reads `[true]` on the same tick, while `ballsInPlay` stays 1;
-    - the trough count is unchanged at S+2501;
-    - at S+2751, exactly one `ball_missing { count: 1 }` appears in the whole run, and `snapshot.balls.length` falls from 2 to 1 on that tick, with the lane ball kept;
-    - `snapshot.game.machine.ballsInPlay` is 0, and the trough count is unchanged from then on;
-    - there is no second `ball_search_started` before the plunge;
-    - after the flipper is released, a 1200-tick plunge produces `ball_launched` with `currentPlayer` 0 and `players[0].ballNumber` 1 unchanged, and no `ball_ended` arrives anywhere in the run up to and including that tick.
-  - Every assertion reads `FrameOutput`, never the controller's closure.
+    - at S+2251 the trough's closed-slot count drops from 3 to 2, and `deviceSlots.bd_shooter` reads `[true]` on the same tick, while `ballsInPlay` stays 1;
+    - the trough count is still 2 at S+2501;
+    - at S+2751, exactly one `ball_missing { count: 1 }` appears in the whole run. `snapshot.balls.length` falls from 2 to 1 on that tick, and the ball that remains is not the cup ball;
+    - `ballsInPlay` reads 0 from S+2751, and the trough count stays 2 until the plunge;
+    - no second `ball_search_started` arrives before the plunge;
+    - the plunge produces `ball_launched`, with `currentPlayer` 0 and `players[0].ballNumber` 1 unchanged, and no `ball_ended` arrives anywhere in the run up to and including that tick.
 - **AC 3: the recover's rules-side answers.**
   - **Given** `runRulesScript` with injected `machineReports`.
   - **When** `recovered: 1` arrives with `bd_shooter` `[false]`; the identical script runs with `bd_shooter` `[true]`; and `recovered: 1` arrives on the tick a Slam moves `phase` to `'attract'`.
-  - **Then** each run emits `ball_missing { count: 1 }` and reads `ballsInPlay` 0, but only the first issues `pulse c_trough_eject`. Its positive sits in the same test as the two runs that issue nothing.
-  - **And** in a full search run whose report at O+17751 carries `recovered: 0` with `bd_shooter` `[true]`: `ball_missing { count: 0 }`, `ballsInPlay` 0, no serve, and no second `ball_search_started` through O+33751. The same run's O+15000 start is the positive.
-- **AC 4: a playfield closure cancels and restarts the timer** (epics AC 3).
-  - **Given** a search that started at O+15000.
-  - **When** a `playfield_switch_closed` arrives at C = O+15600.
-  - **Then** that pass issues no command after C and no `RecoverCommand`, and the next `ball_search_started` is at exactly C+15000. The identical script without the closure runs to its `RecoverCommand`, in the same test.
-  - **And** an `s_shooter_lane` close, a trough slot close, a flipper `button_pressed` and `tilt_bob_closed`, each inside the quiet window, leave `ball_search_started` at O+15000. The same test shows a playfield closure moving it.
+  - **Then** each run emits `ball_missing { count: 1 }` and reads `ballsInPlay` 0, but only the first issues `pulse c_trough_eject`. That positive sits in the same test as the two runs that issue nothing.
+  - **And** consider a full search run whose report at O+17751 carries `recovered: 0` with `bd_shooter` `[true]`. It yields `ball_missing { count: 0 }`, `ballsInPlay` 0, no serve, and no second `ball_search_started` through O+33751. The same run's O+15000 start is the positive.
+- **AC 4: a playfield closure cancels and restarts the timer; a held flipper pauses it** (epics AC 3, and epics AC 1's pause clause; decision 6).
+  - **4a — cancel.**
+    - **Given** a search that started at O+15000.
+    - **When** a `playfield_switch_closed` arrives at C = O+15600.
+    - **Then** that pass issues no command after C and no `RecoverCommand`, and the next `ball_search_started` is at exactly C+15000. The identical script without the closure runs to its `RecoverCommand` at O+17750, in the same test.
+  - **4b — the non-playfield closures.**
+    - **Given** AC 1's run, quiet since O.
+    - **When** each of these arrives inside the quiet window:
+      - an `s_shooter_lane` close;
+      - a trough slot close;
+      - an `s_start` close and open (Start's `button_pressed` and `button_released`);
+      - an `s_plunger` close and open;
+      - `tilt_bob_closed`.
+    - **Then** `ball_search_started` stays at O+15000. The same test shows a playfield closure at O+9000 moving it to O+24000.
+  - **4c — Integration AC: the held flipper in the real loop.**
+    - **Given** one test that holds two real `createLoop` runs, both at production pitch with `NO_BALL_SAVE_TUNING` as both `GameStart.tuning` and the loop's `tuning`:
+      - **the cradle, the negative's subject** (committed document): Start at tick 2, then the plunger pressed at 503 and released at 1703, with `flipper_l` pressed on 1703;
+      - **the cup, which carries the pause/resume pair**: AC 2's instrument, placed at T = 400, so O = L = 401.
+    - **When** the cradle's flipper is held until R_c = 31704 and then released, and the cup's empty flipper is pressed at P = 5401 and released at R = 25401.
+    - **Then**, for the cradle:
+      - the premise: `ball_launched` arrives, and `ballsInPlay` reads 1 from then until the release. From tick 6100 until the release, the ball stays within 3 mm of its tick-6100 position (measured spread under 1 mm), and that position is more than 70 mm from every switch-zone box (measured: 76.9 mm to `s_drain`);
+      - no `ball_search_started` arrives through R_c−1, which is more than 25,000 ticks after the ball settled;
+      - the instrument's own positive: after the release the ball drains, and `ball_ended { player: 0, tilted: false }` arrives within 1000 ticks (measured: R_c+593).
+    - **And**, for the cup:
+      - no `ball_search_started` arrives through 35400. In particular none arrives at O+15000 = 15401, while the flipper is held;
+      - exactly one arrives at 35401, which is R + (15000 − (P − O)).
+    - Every assertion reads `FrameOutput`. The flipper edges reach ball search only as the devices layer's `button_pressed` and `button_released`.
+  - **4d — the held flipper's edge cases.**
+    - **Given** `runRulesScript` with AC 1's mid-game `initialState`, and scripted `s_flipper_l` edges.
+    - **When** each of these runs, **then** its negative and its positive hold in the same run:
+      - **a hold from P = O+4000 to R = O+10000:** nothing at O+15000 or at O+20999, and `ball_search_started` at O+21000;
+      - **a one-tick tap** (close at O+4000, open at O+4001): nothing at O+15000, and exactly one `ball_search_started` through O+19001, at O+15001. A press does not restart the count;
+      - **a hold that spans a ball boundary** (design point 1):
+        - The hold starts before ball 1's drain. Across the drain, the scripted re-serve (the trough slot opening and the lane closing in one batch) and ball 2's `ball_launched` at O2, `s_flipper_l` never opens.
+        - It opens at R2 = O2+20000.
+        - Nothing arrives at O2+15000 or at R2+14998, and `ball_search_started` arrives at R2+14999;
+      - **a hold that begins during a pass** (design point 3):
+        - The search starts at O+15000. `s_flipper_l` closes at O+15600 and opens at O+25600.
+        - The slots at O+15000, O+15250 and O+15500 are issued, and nothing is issued from O+15600 through O+25749.
+        - Each remaining slot lands exactly 10,000 ticks later than in AC 1:
+          - `c_pop_2` at O+25750, `c_pop_3` at O+26000;
+          - the merged `c_dragon_bank_reset` at O+26251;
+          - `c_autolaunch` at O+27000;
+          - `c_trough_eject` at O+27250 and O+27500;
+          - one `RecoverCommand` at O+27750.
+        - No second `ball_search_started` arrives;
+      - **tilted** (design point 2): with `machine.tilt.tilted` true, a hold from O+4000 to O+10000 gives `ball_search_started` at O+21000 and nothing at O+15000.
 - **AC 5: the failure vocabulary is tolerated, and overflow is answered** (epics AC 4, as amended).
   - **Given** machine reports carrying `eject_failed` for each ball device, `broken { device: 'c_pop_1' }`, and `device_overflow` for `bd_trough` and for `bd_lock`, plus the controller's own `ball_missing` reaching `modeStack.step()` and the real Backglass fold.
   - **When** rules step.
-  - **Then** nothing throws. `eject_failed` and `broken` issue no command and no event, and leave `state.machine` the same reference.
-  - `device_overflow { bd_trough }` yields exactly one `pulse c_trough_eject` on the same tick, while `device_overflow { bd_lock }` in the same report yields nothing (AD-18, amended).
+  - **Then** nothing throws. `eject_failed` and `broken` issue no command and no event, and leave `state.machine` as the same reference.
+  - `device_overflow { bd_trough }` yields exactly one `pulse c_trough_eject` on the same tick. `device_overflow { bd_lock }` in the same report yields nothing (AD-18, amended).
 - **AC 6: the phase, in-play and tilt gates hold.**
   - **Given** a 16,000-tick quiet window.
   - **When** `phase` is `'attract'` or `'game_over'`, or `ballsInPlay` is 0 with a ball resting in `bd_shooter`.
-  - **Then** no `ball_search_started` is emitted; the paired run in `'game'` with `ballsInPlay` 1 emits it at O+15000.
+  - **Then** no `ball_search_started` is emitted. The paired run in `'game'` with `ballsInPlay` 1 emits it at O+15000.
   - **And, when tilted**, the search runs and its sling and pop slots are issued, but the O+17000 slot issues nothing. The untilted twin issues `c_autolaunch` there.
 - **AC 7: Integration AC — the drop-bank component consumes the search's request** (AD-19, amended).
   - **Given** a search reaching its bank slot at S = O+16250.
   - **When** rules step through S+2.
   - **Then:**
     - a directly constructed `createBallController(...)`, stepped through the same script, returns one `bankResetRequests` entry at S and no `c_dragon_bank_reset` in its own `coilCommands`;
-    - `runRulesScript`'s merged `coilCommands` carry `pulse c_dragon_bank_reset` at S+1 and not at S;
-    - AC 2's real-loop run shows exactly one `bank_reset` contact, at its S+1252.
+    - `runRulesScript`'s merged `coilCommands` carry `pulse c_dragon_bank_reset` at S+1, and not at S;
+    - AC 2's real-loop run shows exactly one `bank_reset` contact after its search start, at S+1252. This was re-measured on the cup instrument.
 - **AC 8: `RecoverCommand` in physics.**
-  - **Given** a machine with one ball injected loose on the playfield and a served ball resting in `bd_shooter`'s entry zone.
+  - **Given** a machine with one ball injected loose on the playfield, and a served ball resting in `bd_shooter`'s entry zone.
   - **When** a step carries `{ type: 'recover', tick }`.
-  - **Then** `recovered` is 1, the loose ball is gone and the lane ball remains. A step with no recover returns `recovered: null`. A recover and a `pulse c_trough_eject` in the same step keep the newly served ball.
+  - **Then** `recovered` is 1, the loose ball is gone, and the lane ball remains. A step with no recover returns `recovered: null`. A recover and a `pulse c_trough_eject` in the same step keep the newly served ball.
 - **AC 9: a commanded pop pulse kicks the ball it can reach.**
   - **Given** a machine with a ball injected at rest inside `s_pop_1`'s skirt zone.
   - **When** `pulse c_pop_1` is stepped.
@@ -385,8 +533,8 @@ Folded into the intent contract's matrix by the lead at the spec gate, 2026-09-1
   - **When** `describeEvent({ type: 'ball_search_started', tick: 7 })` executes in `test/contracts.test.ts`.
   - **Then** it returns that arm's authored text, and `pnpm typecheck` passes with the `never` tail intact.
 - **AC 12: DW-187 — a rolled-back ball leaves play, and its drain ends the ball** (ledger; Integration).
-  - **Given** a real `createLoop` at production pitch, with `NO_BALL_SAVE_TUNING` as both `GameStart.tuning` and the loop's `tuning`. Start; the served ball reads `deviceSlots.bd_shooter` `[true]` with `ballsInPlay` 0.
-  - **When:**
+  - **Given** a real `createLoop` at production pitch, with `NO_BALL_SAVE_TUNING` as both `GameStart.tuning` and the loop's `tuning`. Start. The served ball reads `deviceSlots.bd_shooter` `[true]` with `ballsInPlay` 0.
+  - **When**, in order:
     - a 20-tick plunge is made;
     - the ball rolls back onto the tip;
     - the five hazard coils are disabled with `setCoilEnabled`;
@@ -401,8 +549,21 @@ Folded into the intent contract's matrix by the lead at the spec gate, 2026-09-1
 - **AC 13: DW-187 — a served arrival is never counted as a return.**
   - **Given** `applyDeviceEvents` over a `MachineState` with `ballsInPlay` 1.
   - **When** the batch is `[device_ball_left bd_trough, device_ball_entered bd_shooter]`, the same pair in reverse order, or `[device_ball_entered bd_shooter]` alone.
-  - **Then** the pairs return the same reference with `ballsInPlay` 1, and the lone arrival returns `ballsInPlay` 0, all in one test. At 0, the lone arrival returns the same reference.
-  - AC 2's S+2251 assertion and the `two-ball-collision` golden are its real-loop discriminators.
+  - **Then**, all in one test:
+    - each pair returns the same reference with `ballsInPlay` 1;
+    - the lone arrival returns `ballsInPlay` 0;
+    - at `ballsInPlay` 0, the lone arrival returns the same reference.
+  - Two real-loop discriminators back this:
+    - AC 2's S+2251 assertion. Re-measured on the cup instrument, the serve's slot opening and lane closing both land at S+2251 while the cup ball keeps `ballsInPlay` at 1.
+    - The `two-ball-collision` golden.
+- **AC 14: the devices layer reports each button's release edge** (AD-19, amended 2026-09-11).
+  - **Given** `runSwitchScript` (the devices layer alone).
+  - **When** `s_start`, `s_plunger`, `s_flipper_l` and `s_flipper_r` each close at tick 10 and open at tick 20, and `s_top_2` closes at 10 and opens at 20.
+  - **Then:**
+    - each button yields `button_pressed { button }` at 10 and `button_released { button }` at 20;
+    - a flipper's release adds no second `lane_change_pressed`;
+    - `s_top_2`'s opening edge adds no event. Its close still yields `playfield_switch_closed` and `lane_entered`, the same test's positive;
+    - the two existing close-then-open tests (`test/rules-devices.test.ts:544-552`) assert the two-event form.
 
 ## Spec Change Log
 
@@ -413,158 +574,303 @@ Folded into the intent contract's matrix by the lead at the spec gate, 2026-09-1
   - **The real-loop stuck ball moved from a pitch-0 override to a held left flipper.** Measured at pitch 0, a served ball rolls up the lane by itself: `ball_launched` 182–184 ticks after the serve, with no plunge. So pitch 0 cannot hold a served ball on the tip, and the old AC 3's "the served ball rests in the shooter lane" was false there.
   - **KEEP:** the stage list and its structural order, the fixed-slot schedule, the bank request through AD-19's owner, the recover-before-`applyCommands` ordering, and the header-only golden budget.
 - **2026-09-11 — decision 6 and the lead's fold (lead).** The author chose option (c) at the spec gate: a held flipper suspends the ball-search timer (pause, resume on release). Written into the intent contract as decision 6 with its two Rule 19 test constraints; row 126 split (a Start press still never delays; a new *Flipper held pauses* row); the Approach and *What counts as a switch closes* clauses amended. The lead also folded the re-plan supplement into the contract and retired the stale Lock-pending, DW-241-undecided and "Never fix" clauses. Status reset `ready-for-dev` to `draft` for a re-plan on this spec path. Same-day writes: AD-19 lists `button_released { button }`; PRD FR-23 consequence note; `epics.md` Story 2.12 AC 1 and change log, and the AR-12 digest; `SOLUTION-DESIGN.md:49`.
+- **2026-09-11 — re-plan against decision 6 (plan stage, cycle 3).** The intent contract was preserved byte for byte, and everything outside it was re-derived against the contract as it now reads.
+  - **AC 2's instrument changed.** A held flipper now pauses the timer, so the held-flipper cradle could no longer drive the search.
+    - AC 2 now runs on a test-only stuck ball resting in a test-only cup. The cup is two wall bars added to an in-memory copy of the collision document, and the served ball is moved into it through a file-scoped `vi.doMock` capture of the real machine. It goes through the real `RecoverCommand` path.
+    - Its stability is measured and asserted.
+    - The only natural resting spot outside every zone is a deck defect, and it is recorded in frontmatter `deferred`.
+  - **Timings re-measured on the cup:** S+1252, S+2001, S+2251 (with `ballsInPlay` 1), S+2501, and S+2751 for the recover. S is now exactly L+15000.
+  - **AC 4 gained 4c and 4d.**
+    - 4c is the real-loop pair: the cradle as the negative's subject, and the pause/resume positive on the cup (`LEAD CHECK:`, measured).
+    - 4d is headless coverage of the tap, the ball-boundary, mid-pass and tilted holds.
+    - 4b's flipper press was replaced by Start and plunger presses, per the contract's row.
+  - **New:** task 12 and AC 14 (`button_released`, AD-19 amended), and the `observe`/`step` split of the search (task 14), so the save re-serve's early return cannot drop a tick's edges.
+  - **Retired:** the *Reading the contract under the decisions* map (the lead's fold made it history), and the cradle product note, which the author answered with option (c).
+  - **KEEP:** everything the previous entry's KEEP lists, DW-187's stateless serve pairing and its golden trace, and the quiet-count clock `q(t)`, which reproduces the contract's *Flipper held pauses* row exactly.
+- **2026-09-11 — lead spec gate (cycle 3).** The lead ACCEPTED all three `LEAD CHECK:` lines as planned: a held button pauses the search even while tilted; a hold during a running pass pauses the pass where it stands; AC 4's resumed-tick positive runs on AC 2's cup ball in the same test as the cradle negative (the cradle drains at R+536, and the earliest resumed search is R+14999). They are decided, not open questions, for the implement and review stages.
 
 ## Review Triage Log
 
 ## Design Notes
 
-### Lead fold and decision 6 (2026-09-11)
-
-At the decision-6 re-dispatch the lead folded the decided behaviour into the intent contract itself: the Lock rows, the DW-241 and "Never fix" clauses, and the supplement's DW-187 and serve-pairing rows now read as decided inside the block, and the supplement section is a pointer. The *Reading the contract under the decisions* map below is therefore history, not a live override. Decision 6 supersedes *The real-loop stuck ball (AC 2's instrument)*: the held-flipper cradle is now AC 4's negative subject, and AC 2 runs on a test-only stuck ball through the real recover path. That section's product note is answered (option (c)).
-
-### Reading the contract under the decisions (2026-09-11)
-
-The contract's own **Author decisions** paragraph governs. Each older clause inside the contract that it touches reads as follows:
-- **Approach, "ordered Lock, shooter, trough", and the Lock-pending markers in the "Stage schedule" and `bd_lock` overflow rows.** Decided by decision 1: the Lock's two slots keep their times and issue nothing, and a `bd_lock` overflow is tolerated without a command. The contract's "recommendation (A)" is what the author adopted.
-- **Block If, "Any `c_mouth` pulse … before the AD-18 decision in `## Auto Run Result` is made".** The decision is made. Nothing in this story pulses `c_mouth`, so needing one is a HALT.
-- **Never, "Never disable `c_autolaunch` … That is DW-241's undecided call".** The constraint stands; only its reason changed. DW-241 is decided by-design, and AD-5, amended, keeps the manual plunger live on `c_autolaunch`.
-- **Never, the author-sheet list.** DW-241 has left the sheet. The rest stand, including DW-244.
-- **Never, "Never fix the roll-back double count (frontmatter `deferred`)".** Superseded by decision 3: the fix is in scope (tasks 1–2) and the frontmatter item is gone.
-- **Block If, the golden budget.** It stands as written. Decision 3's re-record grant is conditional on the fix moving a golden, and the plan measured that it moves none (below). Task 17 carries the trace in case it does.
-
 ### Governing architecture decisions (Rule 6)
 
-- **AD-4, as amended 2026-09-11:** the loop contract. `rules.step`'s optional fourth argument is the machine report: `recovered` plus physics' device failures. Commands land on the next tick. The report's `failures` type also admits `broken` from AD-9's vocabulary, so epics AC 4's `broken` clause can be exercised. Physics' own `DeviceFailure` is exactly AD-4's two names (`devices.ts:79`), so nothing physics produces changes.
-- **AD-5, as amended 2026-09-11:** the coil-enable gate that swallows a search pulse on a disabled sling or pop. The manual plunger shares `c_autolaunch`, which no rules path disables.
-- **AD-6:** the protocol itself (`ballSearchOrder` pulses ending in `RecoverCommand`, the `recovered` count, `ball_missing { count }`), and "answer `device_overflow` with an immediate eject", excepting `bd_lock` under AD-18's phasing.
-- **AD-7:** `GameState` ownership, and the closure-state class the search timer joins.
+- **AD-4, as amended 2026-09-11:** the loop contract.
+  - `rules.step`'s optional fourth argument is the machine report: `recovered` plus physics' device failures. Commands land on the next tick.
+  - The report's `failures` type also admits `broken` from AD-9's vocabulary, so epics AC 4's `broken` clause can be exercised. Physics' own `DeviceFailure` is exactly AD-4's two names (`devices.ts:79`), so nothing physics produces changes.
+  - AD-4 also fixes how button edges arise: physics derives edges per tick from consecutive frames, and the loop does the same for the four buttons.
+- **AD-5, as amended 2026-09-11:** the coil-enable gate, which swallows a search pulse on a disabled sling or pop. The manual plunger shares `c_autolaunch`, which no rules path disables.
+- **AD-6:** the protocol itself: `ballSearchOrder` pulses ending in `RecoverCommand`, the `recovered` count, and `ball_missing { count }`. Also "answer `device_overflow` with an immediate eject", excepting `bd_lock` under AD-18's phasing.
+- **AD-7:** `GameState` ownership, and the closure-state class the search joins.
+  - Its Rule sets the bar for a new closure field: "reproducible from tick 0, and bounded or restart-safe".
+  - The held set meets it: it is a pure function of the input edges, holds at most two entries, and discards marks from the future.
+  - AD-7's Rule does not require a `ball_will_start` reset of closure fields. The contract's Always clause asks for one only for "the search timer and schedule".
 - **AD-9:** the closed rules→physics union, including `RecoverCommand`. `ball_search_started` is payload-complete.
 - **AD-15:** two tunables with provenance, and the golden budget.
-- **AD-16:** no name literals.
-- **AD-18, as amended 2026-09-11:** only the ball controller pulses `c_trough_eject`/`c_autolaunch` and mutates `ballsInPlay`. `applyDeviceEvents` lives in `ball-controller.ts`. The phasing: nothing pulses `c_mouth` before Story 3.2.
-- **AD-19, as amended 2026-09-11:** the devices layer is the only `SwitchEvent` consumer. The drop-bank component alone pulses `c_dragon_bank_reset`, on `ball_will_start`, on `bank_completed` and on ball search's reset request. The derived `playfield_switch_closed` set is "has anything closed?".
-- Also relevant:
+- **AD-16:** no name literals. The flipper buttons come from `TABLE.flipperButtonWiring`.
+- **AD-18, as amended 2026-09-11:**
+  - Only the ball controller pulses `c_trough_eject` and `c_autolaunch`, and only it mutates `ballsInPlay`.
+  - `applyDeviceEvents` lives in `ball-controller.ts`.
+  - The phasing: nothing pulses `c_mouth` before Story 3.2.
+- **AD-19, as amended 2026-09-11:**
+  - The devices layer is the only `SwitchEvent` consumer.
+  - The drop-bank component alone pulses `c_dragon_bank_reset`, on three triggers: `ball_will_start`, `bank_completed` and ball search's reset request.
+  - The derived `playfield_switch_closed` set answers "has anything closed?".
+  - **The binding enumeration lists `button_released { button }`**, the release edge of the same button switches, "so ball search can pause its timer while a flipper is held and resume on release". Task 12 implements exactly that amendment; the lead has already written it to the spine (Rule 20).
+- **Also relevant:**
   - **AD-1:** rules and physics never import each other, so the machine report is a contracts type.
   - **AD-2:** failures are semantic events, not contacts.
-  - **AD-3:** both timers are authored in ms and converted once.
+  - **AD-3:** both timers are authored in ms and converted once. `tick` is the only time; the quiet count is a tick count.
   - **AD-11:** `TABLE` owns wiring, hence `slingWiring`.
 
 No AC contradicts any AD's Rule.
 
+### The held flipper (decision 6)
+
+**The clock.** Search time is the quiet count `q(t)` defined in task 13: in-play ticks after the origin at which no flipper button is held.
+- **With no hold**, `q(t) = t − O`, and the search starts at O+15000 (AC 1).
+- **With a hold from P to R, where O < P**, the held ticks are exactly P through R−1. So `q(t) = (t − O) − (R − P)`, and the search lands at R + (15000 − (P − O)), which is the contract's row verbatim.
+- **With a hold already in force at the origin**, the count starts on the release tick itself, so the search lands at R+14999. The row's formula gives the same answer with P = O+1.
+- **A tap of one tick** delays the search by one tick. A press never restarts the count.
+
+**The seam.**
+- `sim/loop` already delivers both edges of every button (`loop/index.ts:153-161`).
+- The devices layer gains the opening-edge branch (task 12, AC 14).
+- Ball search folds the flipper buttons' `button_pressed` / `button_released` into its own held set, as AD-19 says. It never reads a raw switch and never reads the input frame.
+
+**Where the fold runs.** `observe()` is the first statement of `ballController.step()` (task 14).
+- It runs every tick, in every phase, and at any `ballsInPlay`. A hold that begins in Attract, or before the plunge, is therefore known when the ball enters play. The cradle measurement below presses the flipper 19 ticks before `ball_launched`.
+- Folding before evaluation means a press on a slot's tick, or on the start tick, stops that slot. That mirrors "a closure on the start tick cancels it first".
+
+**Design point 1: a hold that spans a ball boundary. Decided: the held set is never reset at `ball_will_start`.** This is an engineering call, and the author's stated intent settles it.
+- The held set is not a latch. It mirrors a physical input level, rebuilt from edges that arrive only on change.
+- `sim/loop`'s `previousFrame` persists across balls, so a button still held at the ball boundary produces no new press edge. Resetting the set would forget a hold that is physically in progress. The next ball's search would then run while the player holds it on the flipper: searched at 15 s, then recovered, which is exactly what the author ruled out.
+- The set meets AD-7's closure bar on its own terms:
+  - it is reproducible from tick 0;
+  - it is bounded by `flipperButtonWiring`'s two entries;
+  - it is restart-safe, because an entry whose press tick exceeds `tick` is discarded.
+- The timer and schedule are still reset in `startBall()`, as the contract requires. AC 4d's ball-boundary row pins the decision, and its mutation (clear the set at `ball_will_start`) turns that row red.
+
+**Design point 2: a held but dead flipper under Tilt. Decided: the pause keys on the button, tilted or not.** The contract's own words are "While EITHER flipper button is held".
+
+LEAD CHECK: a held flipper button pauses the search even while tilted, when the flipper itself is dead. Recommendation: keep it. The contract's words are "either flipper button is held". No ball can rest on a dead flipper, and a tilted stuck ball is searched as soon as the player lets go.
+
+AC 4d's tilted row pins this. If the lead reverses it, that row reverses with a one-conjunct change (`&& !machine.tilt.tilted` on the pause).
+
+**Design point 3: a hold that begins while a pass is running. Decided: the hold pauses the pass where it stands.**
+- The slots already issued stay issued. Nothing further is issued while held.
+- On release, the remaining slots and the `RecoverCommand` resume, each later by exactly the time held.
+- No second `ball_search_started` is emitted, because the pass was paused, not restarted.
+- This falls out of the single clock above: slot times are thresholds on `q`.
+- The rejected options:
+  - Ignoring the hold would recover a ball the player caught on a flipper mid-pass. That breaks the author's intent.
+  - Cancelling the pass would make every tap restart a full 15 s. That is option (b) applied to the pass, and the author chose against (b).
+- One residual. A ball released within the final interval can meet the recover before it reaches a switch, and the cradle closes `s_drain` 536 ticks after release. The ball number is kept, and a ball is served.
+
+LEAD CHECK: a hold that begins during a running pass pauses the pass where it stands; on release the remaining slots and the RecoverCommand resume, each later by exactly the time held. Recommendation: keep it. It is decision 6's pause-not-restart applied to the search's one clock. Cancelling instead would let flipper taps hold off recovery for good, and ignoring the hold would remove a ball caught mid-pass.
+
+AC 4d's mid-pass row pins it.
+
+**A held cradle is never searched (the author's option (c)).** A plunged ball released into a held left flipper cradles near (220.5, 91.9) at production pitch. It is never searched and never replaced, however long the flipper is held. On release, play continues from the cradle. This replaces the earlier plan's product note, which said a held cradle is recovered and replaced. The cradle is now AC 4c's negative subject.
+
+### AC 4's instrument (the cradle) and its measured release
+
+These figures come from the real loop at `ddbd946` with `NO_BALL_SAVE_TUNING` and production pitch, using the `probe212c/cradle-release` scratch probe.
+- **Setup:** Start at tick 2; the plunger held from 503 to 1702 and released at 1703; `flipper_l` pressed on that same tick, 1703; `ball_launched` at 1722.
+- **The last playfield closure** was `s_inlane_l` at 4907, seen through the probe's step recorder.
+- **Settled** by 6035 within 1 mm of (220.5, 91.9). The spread up to the release was 0.978 mm. The nearest zone, `s_drain`, is 76.9 mm away, then `s_trough_1` at 91.9 mm.
+- **Held** until 31704, which is 26,797 ticks after the last closure. `ballsInPlay` stayed 1.
+- **After release at R**, the ball rolls off. It closes `s_drain` at R+536 (its first closure), closes a trough slot and ends the ball at R+593.
+
+The hold began before the ball's origin, so the earliest a resumed search could land is R+14999. The `s_drain` closure at R+536 resets the count long before that. The resumed-tick positive is therefore unobservable on the cradle, and 4c carries it on the cup instead.
+
+LEAD CHECK: AC 4's resumed-tick positive is observed on AC 2's cup stuck ball with an empty-flipper hold, in the same test as the cradle negative. Measured: released at R, the cradled ball closes s_drain at R+536 and ends the ball at R+593, so its quiet count restarts long before any resumed search could land (the earliest is R+14999, because the hold began before the ball's origin).
+
+**The cup's pause/resume run was measured with the schedule emulated.** O = L = 401, P = 5401, R = 25401, S = 35401.
+- The empty flipper rose (left angle 141° → 90°) and closed nothing.
+- No playfield closure occurred at any point after the placement.
+
+### AC 2's instrument: the test-only stuck ball
+
+**Where it sits.** It sits in a test-only V cup with its apex at (165, 240): two convex wall bars, `col_test_cup_l` and `col_test_cup_r`.
+- Each has a 30 mm inner face at 45° and is 6 mm thick. `zLowMm` is 0 and `zHighMm` 50, and the `physMaterial` is copied from `col_ramp_wall_r`.
+- The ball rests at (165.00, 259.09, 13.51), which is the apex plus r·√2 for the 13.5 mm ball radius. That is 97.9 mm from the nearest switch zone (`s_inlane_l`), then `s_sling_l` at 124.8 mm and `s_outlane_l` at 144.7 mm.
+- The distance counts every zone box, device slots and the shooter entry included. So the ball is outside every device and every switch zone, and `recover()` must despawn it.
+
+**The stability measurement.** Measured in the real loop (`probe212c/cup-nohold`) at `ddbd946`, with no hold: T = 400, L = 401, S = 15401 = L+15000.
+- **It settles.** It is within 0.1 mm of its rest point by L+98. Six different placements, spread over x 157–173 and y 262–275, settle within 0.03 mm of one point, so the cup is a genuine attractor.
+- **Its spread over time.** Over L+3000 to S+2750 it is 0.0147 mm from the first sample and 0.0111 mm from the centroid. Residual contact jitter reaches 16.8 mm/s, with no net displacement.
+- **No closure.** No playfield switch closes after the placement.
+- **The pass does not move it.** The emulated pass moved it 0.0016 mm.
+- **The served ball stays put.** The ball served at S+2251 rests on the tip, with no `ball_launched` for the next 3000 ticks.
+
+**Re-measured timings (AC 2, AC 7, AC 13).** The schedule was emulated with dev pulses. Rules issue a command at t, and it is consumed at t+1.
+- one `bank_reset` contact at S+1252;
+- `eject_failed:bd_shooter` at S+2001;
+- the trough slot count drops 3→2 and the lane closes on the same tick, S+2251, with `ballsInPlay` 1;
+- the trough is still 2 at S+2501.
+
+These equal the cradle-era figures, because they are command latencies, not trajectories. The recover lands at S+2751 by the same latency. It cannot be emulated today, because no recover exists yet. Ball ids: the cup ball is 0 and the served ball is 1.
+
+**Why not a natural pocket.** A grid of 2346 rest placements found only one resting spot outside every zone: the Ramp entrance near (377–380, 508).
+- It is not stable: the ball rattles between x 376.9 and 379.6 at up to 7 mm/s and never settles.
+- Placements 6 mm to either side sink through the playfield deck and fall below the table.
+- A test resting on it would rest on a physics defect, and any geometry fix would silently change the premise. It is recorded in frontmatter `deferred` instead.
+
+**The seam, and why it cannot reach production or the goldens.** All of it lives in `test/ball-search-integration.test.ts` (task 17), in three parts:
+1. **The document.** An in-memory copy of the committed collision document, with the two bars appended, is passed through `createLoop`'s existing `collisionDoc` option. `public/assets/` is never written.
+2. **The capture.** A file-scoped `vi.resetModules()` + `vi.doMock('../src/sim/physics/machine', importOriginal)` replaces `createMachine` with a wrapper. The wrapper calls the real one and records the instance it returns; it changes no behaviour.
+3. **`place()`.** Between two `advance()` calls it writes the served ball's `state.pos` and zeroes `hit.vel`, `hit.angularVelocity` and `hit.angularMomentum`. The zone test sweeps only within a step, so the move crosses no zone. The lane switch's own break then yields the real `ball_launched` at T+1.
+
+The seam stays out of production and out of the goldens for these reasons:
+- **No production edit.** No file under `src/` gains a branch, option or export for it.
+- **Mocks do not leak between files.** `vitest.config.ts` keeps per-file module isolation, and `vi.doMock` is registered only inside this file.
+- **The goldens could not load the cup document anyway.** `test/replay-goldens.test.ts` runs `runReplay` from the committed asset in its own module registry. Its headers pin `assetHash ab163ff`, so a changed document would raise `StaleReplayHeaderError` there.
+- **Verification checks it.** `git grep` finds no `col_test_cup` under `src/`, and `git diff --stat -- public/assets/` is empty.
+
+```ts
+// test/ball-search-integration.test.ts, the shape of the seam (not the final code)
+vi.resetModules();
+vi.doMock('../src/sim/physics/machine', async (orig) => {
+  const actual = await orig<typeof import('../src/sim/physics/machine')>();
+  return { ...actual, createMachine: (...a: Parameters<typeof actual.createMachine>) => (captured = actual.createMachine(...a)) };
+});
+const { createLoop, NO_FRAME } = await import('../src/sim/loop/index');
+```
+
 ### DW-187: the rolled-back ball (in scope, decision 3)
 
-**The fix.** A non-parking device's `device_ball_entered` means a ball left play, unless the same batch carries a `device_ball_left` from a parking device that serves into it (`servesInto` equals its `entry`). That pair is a served ball's arrival, which was never counted. The rule is stateless: it keeps `applyDeviceEvents`' signature and its same-reference promise, and adds no closure counter. DW-187's own trailer records why a closure counter breaks every `initialState`-injecting test.
+**The fix.** A non-parking device's `device_ball_entered` means a ball left play, unless the same batch carries a `device_ball_left` from a parking device that serves into it (its `servesInto` equals the entry).
+- That pair is a served ball's arrival, and a served ball was never counted.
+- The rule is stateless. It keeps `applyDeviceEvents`' signature and its same-reference promise, and adds no closure counter.
+- DW-187's own trailer records why a closure counter would break every test that injects an `initialState`.
 
-**Why pairing, not "every shooter arrival decrements".** Two served arrivals happen while a ball is counted:
-- `two-ball-collision`'s second serve arrives at t=196 with `ballsInPlay` 1 (measured). The bare rule moves that golden's state hash.
-- The search's own trough slot serves while the stuck ball is counted. The bare rule zeroes `ballsInPlay` at S+2251, the search idles, and no `RecoverCommand` is ever issued: AC 2 fails.
+**Why pairing, and not "every shooter arrival decrements".** Two served arrivals happen while a ball is counted:
+- `two-ball-collision`'s second serve arrives at t=196 with `ballsInPlay` 1 (measured). The bare rule would move that golden's state hash.
+- The search's own trough slot serves while the stuck ball is counted. The bare rule would zero `ballsInPlay` at S+2251. The search would then go idle, and no `RecoverCommand` would ever be issued, so AC 2 would fail. This is re-measured on the cup: the pair lands on one tick, S+2251.
 
-**Why same-batch pairing is sound.** The trough's eject pose lies inside its `servesInto` zone (`test/device-eject-pose.test.ts`), and a MAKE latches on its first tick (`switches.ts:169-175`). So the slot's opening and the lane's closing come from one physics step. That was measured at the Start serve (tick 3), at `two-ball-collision`'s t=196, and at a search-emulated serve beside a cradled ball.
+**Why same-batch pairing is sound.**
+- The trough's eject pose lies inside its `servesInto` zone, and a MAKE latches on its first tick. So the slot's opening and the lane's closing come from one physics step.
+- That was measured at the Start serve (tick 3), at `two-ball-collision`'s t=196, and at a search-emulated serve beside the cup ball (S+2251).
+- Every serve this story issues is guarded on the lane reading empty. An empty lane means the lane switch is reported open, so the served ball's close edge is certain.
+- The one unpaired shape left is a ball returning to the lane on the exact tick of a serve into it. That is DW-244's stacking shape, and no guarded serve can produce it.
 
-Every serve this story issues is guarded on the lane reading empty. An empty lane means the lane switch is reported open, so the served ball's close edge is certain. The one unpaired shape left is a ball returning to the lane on the exact tick of a serve into it. That is DW-244's stacking shape; no guarded serve can produce it.
-
-**Measured consequence on the goldens: none.** A shadow of today's accounting reproduced every golden's `ballsInPlay` on every tick, with zero model errors. With the fix applied, zero ticks differed in any of the five. So no trajectory or state-hash re-record is expected. Decision 3's grant is held for task 17's trace, not planned on.
+**Measured consequence on the goldens: none.**
+- A shadow of today's accounting reproduced every golden's `ballsInPlay` on every tick, with zero model errors.
+- With the fix applied, zero ticks differed in any of the five.
+- No trajectory or state-hash re-record is expected. Decision 3's grant is held for task 18's trace, not planned on.
 
 **What the fix changes in play.**
 - A rolled-back ball waits on the tip at `ballsInPlay` 0, as a real machine's does, and the player plunges again.
-- No search starts for it, so the old plan's "the search launches a rolled-back ball" is gone.
-- In single-ball play, the search's shooter slot now meets an empty lane and answers `eject_failed { bd_shooter }`, which the controller tolerates (AC 2 observes it). The slot stays in the schedule because the amended AC 1 names "the shooter and trough ejects", and because Story 3.7's multiball will have a counted ball in play beside a ball in the lane.
-- A relaunch still re-arms the ball-save window and the skill shot, exactly as today: both key on `ball_launched`, not on the count.
+- No search starts for it.
+- In single-ball play, the search's shooter slot meets an empty lane and answers `eject_failed { bd_shooter }`, which the controller tolerates (AC 2 observes it). The slot stays in the schedule for two reasons: the amended AC 1 names "the shooter and trough ejects", and Story 3.7's multiball will have a counted ball in play beside a ball in the lane.
+- A relaunch still re-arms the ball-save window and the skill shot, exactly as today, because both key on `ball_launched`, not on the count.
 
 **DW-187's Story 2.5 sub-findings.**
-- **(a)** A parking entry at `ballsInPlay` 0 ends a ball: untouched. It stays unreachable in single-ball play, because a ball at 0 rests in the lane and reaches no parking device without a `ball_launched` first.
-- **(b)** The floor's order dependence: touched only in that the new decrement is floored like the parking one, and it pairs by batch membership, not position, so it adds no new order dependence.
-- **(c)** `startBall()` never resets `ballsInPlay`: untouched. Resetting it at Start decides what a voided ball still live at Start means, which is DW-244's undecided question.
+- **(a)** A parking entry at `ballsInPlay` 0 ends a ball. Untouched: it stays unreachable in single-ball play.
+- **(b)** The floor's order dependence. Touched only in that the new decrement is floored like the parking one. It pairs by batch membership, not position, so it adds no new order dependence.
+- **(c)** `startBall()` never resets `ballsInPlay`. Untouched: resetting it is DW-244's undecided question.
 
-**Spine.** No write is needed. AD-6 defines the increment on `ball_launched` and the device counts, but not the decrement, which is implementation under AD-18's "only the ball controller mutates `ballsInPlay`". The lead may still record the semantics — `ballsInPlay` counts balls launched and not yet arrived at any ball device — as a Rule 20 note for Story 3.7's benefit.
-
-### The real-loop stuck ball (AC 2's instrument)
-
-A plunged ball released into a held left flipper cradles near (220.5, 91.9) at production pitch, with the pops on or off. Measured: it settled by tick 6035; its spread over the following 17,000 ticks was under 1 mm; the nearest switch zone, `s_drain`, is 76.9 mm away. No jitter can close a playfield switch, so the search must start within 15,000 ticks of the ball's last closure.
-
-The same probe emulated the schedule with dev pulses:
-- the sling and pop pulses moved the cradled ball less than 0.1 mm;
-- the bank pulse gave `bank_reset` one tick later;
-- the autolaunch gave `eject_failed:bd_shooter` one tick later;
-- the trough pulse opened a slot and closed the lane in one tick, and the served ball rested on the tip, with no `ball_launched` for 5000 ticks.
-
-The recover then despawns the cradled ball and keeps the lane ball.
-
-**Product note.** The contract fixes "the four buttons never start, delay or cancel a search", so a flipper cradle held for 15 s is recovered and replaced. The player keeps their ball number; they lose only the cradle position. Many real machines suppress the search while a flipper is held. Changing that is an intent change, not this plan's to make. AC 2 pins the contract's behaviour.
+**Spine.** No write is needed. AD-6 defines the increment but not the decrement, which is implementation under AD-18. The lead may still record the semantics as a Rule 20 note for Story 3.7: `ballsInPlay` counts balls launched and not yet arrived at any ball device.
 
 ### How the stage order was resolved: AC 1's order without name literals
 
-- The amended AC 1 reads "(slings, pops, bank reset, then the shooter and trough ejects); the Lock's own steps wait for Story 3.2". Only the three ball devices carry a `ballSearchOrder`, so the parenthetical is the schedule and "each device's `ballSearchOrder`" supplies its device stages.
-- Slings come from a new `TABLE.slingWiring`, mirroring `popWiring`. `HARDWARE_COILS` also holds the flippers, and no field links a flipper coil.
-- The device stages are ordered by structure, never by name:
-  - parking devices with no `servesInto` first — the Mouth ejects into open play, so this is the Lock;
-  - then non-parking devices;
-  - then parking devices with a `servesInto` — the trough, last, so the shooter's autolaunch never fires at the search's own served ball.
+- **What the device stages are.** The amended AC 1 reads "(slings, pops, bank reset, then the shooter and trough ejects); the Lock's own steps wait for Story 3.2". Only the three ball devices carry a `ballSearchOrder`, so that parenthetical is the schedule, and "each device's `ballSearchOrder`" supplies its device stages.
+- **Where the slings come from.** A new `TABLE.slingWiring`, mirroring `popWiring`. `HARDWARE_COILS` also holds the flippers, and no field links a flipper coil.
+- **The device stages are ordered by structure**, never by name:
+  1. parking devices with no `servesInto` — the Lock;
+  2. then non-parking devices;
+  3. then parking devices with a `servesInto` — the trough, last, so the shooter's autolaunch never fires at the search's own served ball.
 
   Story 3.2's received clause ("after the bank reset, before the trough eject") matches this order.
-- The Lock's slots keep their times and issue nothing, identified by `TABLE.lockLaneWiring.device`, the Lock arbiter's device (AD-18, amended). **The seam for Story 3.2:** it replaces "issue nothing" at those two fixed slots with an arbiter request. The recover tick does not move.
-- The three `recover` steps collapse into one `RecoverCommand`.
+- **The Lock's slots** keep their times and issue nothing, identified by `TABLE.lockLaneWiring.device` (AD-18, amended). **The seam for Story 3.2:** it replaces "issue nothing" at those two fixed slots with an arbiter request. The recover's tick does not move.
+- **The recover.** The three `recover` steps collapse into one `RecoverCommand`.
 
 ### The bank reset through its owner (AD-19, as amended)
 
-The ball controller never pulses `c_dragon_bank_reset`. It returns a `bank_reset_requested` request, which `rules/index.ts` forwards on the next tick into the devices layer's lifecycle input. That is the path `ball_will_start` already takes to the same component. The drop-bank component pulses its own coil through `onResetRequested`, conforming to AD-19's amended text: its three triggers, and "ball search *requests* a bank reset through it and never pulses the coil itself".
+The ball controller never pulses `c_dragon_bank_reset`.
+- It returns a `bank_reset_requested` request.
+- `rules/index.ts` forwards the request on the next tick into the devices layer's lifecycle input, the same path `ball_will_start` already takes to the same component.
+- The drop-bank component then pulses its own coil through `onResetRequested`.
 
 ### The machine report (AD-4, as amended)
 
 - Physics' failures keep reaching `FrameOutput.events` from the loop exactly as today, and rules never re-emit them.
 - Every existing three-argument `rules.step` call site compiles unchanged.
-- `sim/loop`'s header, `rules/index.ts:4` and `machine.ts:85-91` quote the three-argument form or its absence; they are updated in the same change.
+- `sim/loop`'s header, `rules/index.ts:4` and `machine.ts:85-91` quote the three-argument form or its absence. They are updated in the same change.
 - `AD-20` stays the next claimable id.
 
 ### The golden budget
 
-- The two top-level `…Ms` tunables add four blocks per golden: `ballSearchMs`, `ballSearchTicks`, `ballSearchStepMs`, `ballSearchStepTicks`.
-- `slingWiring` moves `header.tableHash` on all five goldens.
-- `header.physicsVersion` does not move: `PHYSICS_VERSION` hashes solver constants and the tick rate only (`replay.ts:188-214`).
+- The two top-level `…Ms` tunables add four blocks per golden.
+- `slingWiring` moves `header.tableHash` on all five.
+- `header.physicsVersion` does not move, because `PHYSICS_VERSION` hashes only solver constants and the tick rate.
 - No golden starts a game, so the search, the recover and the pop pulse cannot fire in one.
-- The DW-187 fix moves none (measured above). This is a header-only refresh with the 2.4, 2.9 and 2.10 precedents.
+- `button_released` is a device event that never enters `SemanticEvent` or `GameState`, and the held set is closure state. Neither is hashed.
+- The DW-187 fix moves nothing (measured).
+
+This is a header-only refresh, with the 2.4, 2.9 and 2.10 precedents.
 
 ### The search's seat and timing
 
-- `ball-search.ts` is stepped from inside `ballController.step()`, so the ball controller issues every serving pulse (AD-18). It runs **after** the drain branch, so a drain that ends the ball idles the search on the same tick.
-- The tilt stage runs before the controller, so a Tilt engaging on tick t already suppresses that tick's shooter slot.
-- Commands land on t+1 (AD-4). A recover's report returns to rules on t+1, having been consumed before that step's physics. The correction therefore runs **before** `applyDeviceEvents`: a ball launched during that very step is the only ball that can be in play.
+- **Seat.** `ball-search.ts` is driven from inside `ballController.step()`, so the ball controller issues every serving pulse (AD-18).
+  - `observe()` runs first, every tick.
+  - `step()` runs **after** the Start and drain handling, so a drain that ends the ball idles the search on the same tick. `startBall()`'s `reset()` also lands in that same step.
+- **Tilt.** The tilt stage runs before the controller, so a Tilt engaging on tick t already suppresses that tick's shooter slot.
+- **Latency.** Commands land on t+1 (AD-4). A recover's report returns to rules on t+1, having been consumed before that step's physics. So the correction runs **before** `applyDeviceEvents`.
 
-**"`ballsInPlay` is corrected from slot switches".** After a recover, every simulated ball is inside a device. A ball resting on the plunger tip is inside `bd_shooter` on both sides of the seam: physics keeps it, and with DW-187 fixed, rules no longer count it. So the count of balls outside every device is 0 by construction. The slot switches decide the one open question, whether to serve: the trough serves only while the lane reads empty. A ball already waiting in the lane satisfies "a new ball is served", and serving another would stack two on the tip (DW-244's reproduced shape). `ball_missing` is emitted for every recover, including `count: 0` (`events.ts:176`).
+**"`ballsInPlay` is corrected from slot switches".** After a recover, every simulated ball is inside a device. A ball on the plunger tip is inside `bd_shooter` on both sides of the seam: physics keeps it, and with DW-187 fixed, rules no longer count it. So the count of balls outside every device is 0 by construction.
+- **The slot switches decide the serve.** The trough serves only while the lane reads empty. A ball already waiting in the lane satisfies "a new ball is served", and serving another would stack two on the tip.
+- **`ball_missing` is always emitted.** It fires for every recover, including `count: 0`.
 
-**Why the shooter slot is tilt-guarded but the trough slots are not.** 2.11 shipped "no autolaunch into a tilted playfield" through the controller's guard (`ball-controller.ts:653`). `c_autolaunch` is never disabled (AD-5, amended), so the search keeps that promise the same way. A trough serve under Tilt only places a ball in the lane. Sling and pop pulses under Tilt are issued and swallowed by physics (AD-5, DW-74).
+**Why the shooter slot is tilt-guarded but the trough slots are not.** 2.11 shipped "no autolaunch into a tilted playfield" through the controller's guard at `:653`. `c_autolaunch` is never disabled, so the search keeps that promise the same way. A trough serve under Tilt only places a ball in the lane. Sling and pop pulses under Tilt are issued, and physics swallows them (AD-5, DW-74).
 
 ### Ledger entries touched (Rule 17 inbox: DW-187)
 
-- **DW-187** (`routed`, owner `2-12-ball-search`): **addressed** by tasks 1–2, ACs 12–13, the supplement rows and the section above. Sub-findings (a) and (c) are declined with reasons; (b) is touched only as stated.
-- **DW-230** (`wontfix-accepted`): not fired. `awaitingSaveLaunch` is set only by a save at `ballsInPlay` 0 and is consumed at the re-served ball's paired arrival. No search runs at 0, and the search's trough serve cannot meet a stale flag.
-- **DW-222** (resolved by 2.11): its coupling is settled. Its "reopens if DW-241 is decided disable" condition cannot fire.
-- **DW-241:** decided by-design. **DW-244:** still undecided; the design stays neutral. See the coupling section below.
+- **DW-187** (`routed`, owner `2-12-ball-search`): **addressed** by tasks 1–2, ACs 12–13, the contract's serve-pairing rows and the section above. Sub-findings (a) and (c) are declined with reasons; (b) is touched only as stated.
+- **DW-230** (`wontfix-accepted`): not fired. `awaitingSaveLaunch` is set only by a save at `ballsInPlay` 0, and it is consumed at the re-served ball's paired arrival. No search runs at 0, and the search's trough serve cannot meet a stale flag.
+- **DW-222** (resolved by 2.11): its coupling is settled.
+- **DW-241:** decided by-design. **DW-244:** still undecided, and the design stays neutral.
+- **New finding, not ledgered by this stage:** the Ramp-entrance deck gap. It is in frontmatter `deferred` for the lead's harvest (Rule 15).
 
 ### Consumes, Consumed-by, Integration ACs (Rules 1, 2)
 
 **Consumes:**
-- Stories 1.5 and 2.1d: parking, `eject_failed`, the eject pose inside `s_shooter_lane`.
+- Stories 1.5 and 2.1d: parking, `eject_failed`, and the eject pose inside `s_shooter_lane`.
+- `sim/loop` (Epic 1): the per-tick button edges from consecutive frames (`buttonSwitchEdges`), the producer beneath `button_pressed` and `button_released`.
 - Story 2.2: the pop's radial kick and `popWiring`.
 - Story 2.3: the drop bank and its reset, and the overflow latch.
-- Story 2.4: the devices layer, `PLAYFIELD_SWITCHES` and the lifecycle input.
-- Story 2.5: `startBall()`, `applyDeviceEvents()`, `HARDWARE_COILS`.
-- Story 2.9: `awaitingSaveLaunch` and its tilt guard.
+- Story 2.4: the devices layer, `PLAYFIELD_SWITCHES`, `button_pressed` and the lifecycle input.
+- Story 2.5: `startBall()`, `applyDeviceEvents()` and `HARDWARE_COILS`.
+- Story 2.7: `TABLE.flipperButtonWiring`, the structural source of the flipper buttons.
+- Story 2.9: `awaitingSaveLaunch` and its tilt guard, and the save re-serve's early return.
 - Story 2.11: `machine.tilt` and the disable batch.
 - DW-74: the `enabledPulses` gate.
 - DW-187: the ledger entry this story closes.
 
-**Consumed-by:**
-- **Story 2.13 (Match, game over, Attract):** the search is `phase`-gated, so 2.13's game-over and Attract transitions stop it for free. The empty-trough `eject_failed` after repeated recoveries (frontmatter `deferred`) is the one end state a game could reach there.
-- **Story 3.2 (the Lock arbiter):** it inherits `bd_lock`'s two fixed search slots, the `bd_lock` overflow answer and the `c_mouth` skip, all through the arbiter, together with DW-221.
-- **Story 3.7 (Quick multiball):** `RecoverCommand` despawns *every* loose ball, so a multiball search needs 15 s of total silence and then recovers all of them. The served-arrival pairing is one-to-one per batch, so a multiball serve into the lane while balls are in play is counted correctly, and the shooter slot becomes reachable.
-- **Epic 4:** `ball_search_started` is available to a flasher or sound cue; none is added here.
+**Produced here, and consumed here:**
+- **`button_released { button }`.** The producer is the devices layer (`src/sim/rules/devices/index.ts`, task 12). The consumer is ball search's held set (`src/sim/rules/ball-search.ts` via `ballController.step()`, tasks 13–14). The integration is AC 4c, where a real loop's release moves the search to the resumed tick in `FrameOutput`.
+- **The machine report.** The producer is physics (`recovered`, failures). The forwarder is `sim/loop`. The consumer is the ball controller (AC 2).
+- **The bank-reset request.** The producer is ball search. The consumer is the drop-bank component (AC 7).
 
-**Integration ACs:** AC 2 (`sim/loop` carries physics' `recovered` to the ball controller: `ball_missing`, the corrected count and the serve decision, observed in `FrameOutput`), AC 7 (the drop-bank component consumes the request), and AC 12 (DW-187 through real plunger input). Each runs against real instances, never mocks.
+**Consumed-by:**
+- **Story 2.13 (Match, game over, Attract):** the search is `phase`-gated, so 2.13's transitions stop it for free. The empty-trough `eject_failed` after repeated recoveries (frontmatter `deferred`) is the one end state a game could reach there.
+- **Story 3.2 (the Lock arbiter):** it inherits `bd_lock`'s two fixed search slots, the `bd_lock` overflow answer and the `c_mouth` skip.
+- **Story 3.7 (Quick multiball):** `RecoverCommand` despawns *every* loose ball, so a multiball search needs 15 s of total silence and then recovers all of them. The served-arrival pairing is one-to-one per batch.
+- **Epic 4:** `ball_search_started` is available to a flasher or sound cue. None is added here.
+- **`button_released`:** available to later consumers, such as Epic 6's initials entry and mode selection. None is pre-built.
+
+**Integration ACs:**
+- AC 2: `sim/loop` carries physics' `recovered` to the ball controller, observed in `FrameOutput`.
+- AC 4c: the devices layer's `button_released` reaches ball search through a real loop.
+- AC 7: the drop-bank component consumes the request.
+- AC 12: DW-187 through real plunger input.
+
+Each runs against real instances, never mocks. AC 2's and AC 4c's capture wrapper returns the real machine unchanged.
 
 ### Anti-vacuity plan, by named shape
 
-- **Vacuity #43:** the search tunables are never overridden. `15000`, `250`, `2750` and the slot ticks are literals at the probe, and the mutation "set `ballSearchMs` to 1" must redden AC 1. The only override used is `NO_BALL_SAVE_TUNING`, which touches no tunable under test.
+- **Vacuity #43:** the search tunables are never overridden. `15000`, `250`, `2750` and the slot ticks are literals at the probe, and so are AC 4's `35401`, `R+14999` and `O+25750`. The mutation "set `ballSearchMs` to 1" must redden AC 1. The only override used is `NO_BALL_SAVE_TUNING`, which touches no tunable under test.
 - **Vacuity #51:** every negative has its positive in the same test, on the same instrument:
   - no `ball_search_started` / the start on the bound;
   - no Recover / the uncancelled control;
@@ -573,83 +879,134 @@ The ball controller never pulses `c_dragon_bank_reset`. It returns a `bank_reset
   - no Lock-overflow answer / the trough overflow answer in the same report;
   - no second pass / the pass that ran;
   - no shooter pulse while tilted / the untilted twin;
-  - `ballsInPlay` 0 after the roll-back / 1 on the weak plunge's own tick.
-- **Vacuity #44:** the expected stage list is authored as a literal, derived by hand from `TABLE`, never by calling the module's own derivation. AC 13's expected counts are literals, not a second call of `applyDeviceEvents`.
+  - `ballsInPlay` 0 after the roll-back / 1 on the weak plunge's own tick;
+  - **no search while held / the resumed search on the same cup run** (4c), and the cradle's own drain and `ball_ended` on its release;
+  - **no search while held across the ball boundary, mid-pass, or tilted / each run's resumed tick** (4d);
+  - **no `button_released` for `s_top_2` / the four buttons' releases** (AC 14).
+- **Vacuous premises refused.** AC 2's and AC 4c's stuck balls assert their own stability and distance to every zone in `FrameOutput`. The distance is computed from the committed document's zones, never assumed.
+- **Vacuity #44:** the expected stage list, the resumed ticks and AC 13's counts are authored literals, never a second call of the module's own derivation.
 - **Vacuity #48:** every mutation below is re-walked at the final tree if its target line moves.
-- **Traps:** `toPhysics()` negates y, and the table frame's y rises up-table (the plunger tip is at y ≈ 13.5). Tilt warnings carry across a player's balls. `game_over` is terminal until 2.13. No flipper or plunger is rendered (DW-249). `NullEngine` rasterises nothing.
+- **Traps:**
+  - `toPhysics()` negates y, and the table frame's y rises up-table.
+  - Tilt warnings carry across a player's balls.
+  - `game_over` is terminal until 2.13.
+  - No flipper or plunger is rendered (DW-249).
+  - `NullEngine` rasterises nothing.
 
 ### Coupling to DW-241 / DW-244 / DW-222
 
-**DW-241: settled (by-design; AD-5, amended).** `c_autolaunch` stays enabled under Tilt, game over and Attract, and this story adds none of the three tilt additions. The previous plan's decision-dependency lines are closed: their assumption, "the manual plunger stays live", is now the design.
+**DW-241 is settled** (by-design; AD-5, amended). `c_autolaunch` stays enabled under Tilt, game over and Attract, and this story adds none of the three tilt additions.
 
-**DW-222: coupling settled.** Its shape — a served ball at `ballsInPlay` 0, stranded only if the plunger were dead — is plungeable, so no search is needed and none runs.
+**DW-222's coupling is settled.** Its shape, a served ball at `ballsInPlay` 0, can still be plunged. So no search is needed, and none runs.
 
-**DW-244: still undecided; the design stays neutral.** The search is `phase`-gated and never serves into an occupied lane.
-- Under today's phase-only Start, a new game begun while a voided ball is still live carries a stale `ballsInPlay` ≥ 1 (DW-187(c)). That game may run a search after 15 s of silence. Its shooter slot would launch the new ball waiting in the lane, and its recover would despawn the leftover. That is a side effect, not a design goal.
+**DW-244 is still undecided, and the design stays neutral.** The search is `phase`-gated and never serves into an occupied lane.
+- Under today's phase-only Start, a new game begun while a voided ball is still live carries a stale `ballsInPlay` ≥ 1 (DW-187(c)). That game may run a search after 15 s of silence. That is a side effect, not a design goal.
 - If the author decides "refuse Start until balls are home" or "reuse the resting ball", nothing here changes.
 
-**Where the search runs, and the traces that remain true.**
-- **While tilted: yes.** A tilted ball that lodges would otherwise hang the game. Disabled slings and pops swallow their pulses, the shooter slot issues nothing, and the trough slots and the recover behave as untilted.
-- **In `game_over` and `attract`: no**, by the phase gate.
-- **A ball on the plunger tip (served or rolled back) is always at `ballsInPlay` 0** once DW-187 is fixed. Untilted or tilted, the player plunges it — the plunger is live — and play continues. A tilted ball then drains to `ball_ended { tilted: true }`. The search is not involved.
-- **`RecoverCommand` and a ball resting in `bd_shooter`:** "inside" means the ball's centre is inside the device's entry zone, by the same instant box test `launch()` uses. That ball is never despawned.
+**Where the search runs.**
+- **While tilted: yes.** Disabled slings and pops swallow their pulses, the shooter slot issues nothing, and the trough slots and the recover behave as untilted. A held button still pauses it (design point 2).
+- **In `game_over` and `attract`: no**, by the phase gate. The held set is still tracked there.
+- **With a ball on the plunger tip:** that ball is always at `ballsInPlay` 0 once DW-187 is fixed, so the search is not involved.
+- **What `RecoverCommand` counts as inside `bd_shooter`:** a ball whose centre is inside the device's entry zone, by the same instant box test `launch()` uses. That ball is never despawned.
 
 ## Verification
 
-**Commands.** Export `BLENDER="C:/Users/Josh/tools/blender-5.2.1-windows-x64/blender.exe"` first in every shell; `0 skipped` is the proof it was exported.
+**Commands.** In every shell, first export `BLENDER="C:/Users/Josh/tools/blender-5.2.1-windows-x64/blender.exe"`. A result of `0 skipped` is the proof that it was exported.
 - `pnpm typecheck`: exits 0 across all three tsconfigs. A missing `describeEvent` arm fails here first.
-- `pnpm test`: 0 failing and **0 skipped**. Measure the baseline at your own tree before editing; the epic context records 117 files and 1971 tests at 2.11's close, which must not be transcribed. Account for the delta: four new test files plus new cases.
-- `pnpm lint:boundaries`: `OK -- N .ts file(s)`, where N is one higher than the baseline you measure (`ball-search.ts`). A device-name literal anywhere under `src/` outside `dragonwar.ts` fails as `no-device-name-literal`.
+- `pnpm test`: 0 failing and **0 skipped**.
+  - Measure the baseline at your own tree before editing. Do not transcribe the epic context's 117 files and 1971 tests.
+  - Account for the delta: four new test files, plus new and amended cases in `test/rules-devices.test.ts`, `test/contracts.test.ts` and `test/tuning.test.ts`.
+- `pnpm lint:boundaries`: prints `OK -- N .ts file(s)`, where N is one higher than the baseline you measure (`ball-search.ts`).
 - `pnpm check:headers` and `pnpm check:attributions`: exit 0. `ball-search.ts` and the four new test files carry the GPL-3.0 header.
-- `pnpm check:ad7`: exit 0 with **exactly 3** passing tests.
-- `pnpm check:corridor`: exit 0.
-- `pnpm check:reachability`: exit 0 over its 52 cases.
-- `git ls-files --others --exclude-standard test/`: only the four new test files. The golden harness must never appear.
+- `pnpm check:ad7`: exits 0 with **exactly 3** passing tests.
+- `pnpm check:corridor`: exits 0.
+- `pnpm check:reachability`: exits 0 over its 52 cases.
+- `git ls-files --others --exclude-standard test/`: lists only the four new test files. The golden harness must never appear.
 - `git diff --stat -- public/assets/`: empty.
+- `git grep -n "col_test_cup" -- src/`: no match. The cup exists only inside `test/ball-search-integration.test.ts`.
 - `git diff -- src/sim/table/dragonwar.ts`: only the `slingWiring` block.
 
 **Manual checks:**
-- **The DW-187 checkpoint (task 2).** Before any contract, table or tuning edit, `test/replay-goldens.test.ts` is green with no golden file modified. This is the direct proof the fix moves no golden.
-- **Structural golden comparison (authoritative).** For each golden, parse the JSON at `efe14f5` and at HEAD and compare field by field. Never use a substring grep, which the appended `notes` would trip.
+- **The DW-187 checkpoint (task 2).** Before any contract, table or tuning edit, `test/replay-goldens.test.ts` is green with no golden file modified.
+- **Structural golden comparison (authoritative).** For each golden, parse the JSON at `efe14f5` and at HEAD, and compare field by field. Never use a substring grep.
   - `header.gameStart.tuning` gains exactly four blocks, in `resolveTuning()` order.
   - `header.tableHash` changed.
   - `notes` is a strict append.
-  - Every other field is deeply equal: `assetHash` `ab163ff`, `physicsVersion` `v1-ce6772ef`, `tickHz`, `physicsSeed`, `gameStart.{seed,adjustments,highscores}`, `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, and, for `roll-and-drain`, `checkpointTicks` and `expectedCheckpointHashes`.
+  - Every other field is deeply equal:
+    - in the header: `assetHash` `ab163ff`, `physicsVersion` `v1-ce6772ef`, `tickHz`, `physicsSeed` and `gameStart.{seed,adjustments,highscores}`;
+    - in the body: `transitions`, `coilPrologue`, `durationTicks`, `expectedHash` and `expectedGameStateHash`;
+    - for `roll-and-drain` also: `checkpointTicks` and `expectedCheckpointHashes`.
 - Confirm `HARDWARE_COILS` is unchanged (7 coils) and still excludes `c_autolaunch` and `c_dragon_bank_reset`.
-- Re-read `machine.ts:85-91`, `loop/index.ts:9-15`, `rules/index.ts:4` and `ball-controller.ts:16-31, 50-65`. Each must describe the new behaviour rather than predict or deny it.
-- **Browser smoke (the lead's).** Two user-visible behaviours; no flipper or plunger is rendered (DW-249), but the ball's own motion is visible.
-  - **DW-187:** press Start, tap the plunger for well under 100 ms, and watch the ball roll back onto the tip. Then give a full plunge and let the ball drain. The Backglass must advance to ball 2. Before the fix it stays on ball 1 forever.
-  - **Ball search:** give a full plunge and hold the left flipper key so the ball cradles on the left flipper. About 15 s after it settles, a new ball appears in the shooter lane, and about half a second later the cradled ball disappears.
+- Re-read `machine.ts:85-91`, `loop/index.ts:9-15`, `rules/index.ts:4`, `ball-controller.ts:16-31` and `:50-65`, and `devices/index.ts:9` and Stage 3's comment. Each must describe the new behaviour rather than predict or deny it.
+- **The seam's isolation.** Confirm the following in `test/ball-search-integration.test.ts`:
+  - `vi.doMock` is called only after `vi.resetModules()`, and `createLoop` is imported only after both;
+  - the wrapper returns the real machine unchanged;
+  - `place()` writes nothing but one ball's position and its three velocity fields, between two `advance()` calls.
+- **Browser smoke (the lead's).** No flipper or plunger is rendered (DW-249), but the ball's own motion is visible.
+  - **DW-187:** press Start, tap the plunger for well under 100 ms, and watch the ball roll back onto the tip. Give a full plunge and let the ball drain. The Backglass must advance to ball 2.
+  - **A held cradle is never searched (decision 6):**
+    - Give a full plunge while holding the left flipper key, so the ball cradles on the left flipper. Keep holding for well over 20 s. No new ball may appear in the shooter lane, and the cradled ball must stay.
+    - Release: the ball rolls off and play continues.
+    - Aimed play cannot lodge a ball in smoke, so the recover itself is pinned by AC 2, not by the smoke.
 
-**Rule 19 mutations: one pinning mutation per AC.** State the expected red before each run. Revert from a saved copy, never with `git checkout --` or `git stash`, and confirm `git status --short` and `git diff --stat` are unchanged afterwards.
+**Rule 19 mutations: at least one pinning mutation per AC.** State the expected red before each run. Revert from a saved copy, never with `git checkout --` or `git stash`, and confirm afterwards that `git status --short` and `git diff --stat` are unchanged.
 
 | AC | Mutation | Expected red |
 | --- | --- | --- |
 | AC 1 | Change the start check `>=` to `>` | The bound probe: no event at O+15000. |
 | AC 1 | Set `ballSearchMs` to `1` in `tuning.ts` | The same test, proving the tunable is on the path. |
 | AC 1 | Issue the Lock device's slots (drop the `lockLaneWiring.device` skip) | "No `c_mouth`": a pulse appears at O+16500, while the same test's O+17000 positive stays green. |
-| AC 2 | Decrement on every non-parking arrival (drop the serve pairing) | `ballsInPlay` 0 at S+2251, the search idles, and no `ball_missing` arrives. |
-| AC 2 | Make `recover()` also despawn the entry-zone ball | `snapshot.balls.length` reads 0 and `count` reads 2. |
+| AC 2 | `recover()` despawns nothing and returns 0 | At S+2751, `ball_missing { count: 0 }` instead of `count: 1`, and `snapshot.balls.length` stays 2 with the cup ball still present. |
+| AC 2 | Decrement on every non-parking arrival (drop the serve pairing) | `ballsInPlay` is 0 at S+2251, the search goes idle, and no `ball_missing` arrives. |
+| AC 2 | Make `recover()` also despawn the entry-zone ball | `snapshot.balls.length` reads 0, and `count` reads 2. |
 | AC 3 | Remove the lane-occupied check on the recovery serve | The occupied run issues `c_trough_eject`, while the empty-lane positive stays green. |
-| AC 4 | Fold closures into the origin only while the search is idle | The cancel test: the Recover still arrives. |
-| AC 4 | Count `button_pressed` as activity | The non-playfield row: the start moves. |
+| AC 4 | Fold closures into the origin only while the search is idle | 4a: the Recover still arrives. |
+| AC 4 | Remove the pause (ignore the held set) | 4c: the cup's search arrives at 15401 while held. The cradle is searched at its last closure + 15000, then recovered. 4d's hold rows redden. |
+| AC 4 | A flipper press or release restarts the origin | 4c: the cup's search moves to 40401. 4d's tap row lands at O+19001. |
+| AC 4 | Clear the held set at `ball_will_start` | 4d's ball-boundary row: a search at O2+15000 while held. |
+| AC 4 | Ignore a hold while a pass runs | 4d's mid-pass row: `c_pop_2` at O+15750. |
+| AC 4 | Count a Start `button_pressed` as activity | 4b: the start moves. |
+| AC 4 | Pause only while `!machine.tilt.tilted` | 4d's tilted row: a search at O+15000. |
 | AC 5 | Answer a `bd_lock` overflow with its `ejectCoil` | The tolerance assertion: `c_mouth` appears beside the trough answer. |
 | AC 5 | Remove the `device_overflow` branch | The trough overflow: no pulse. |
 | AC 6 | Remove the search's tilt guard | The tilted twin: a `c_autolaunch` pulse appears at O+17000. |
 | AC 6 | Drop the `phase === 'game'` conjunct | The Attract and game-over rows. |
 | AC 7 | Have `ball-search.ts` push `pulse TABLE.dropBankResetCoil` directly | The "controller emits no reset command" assertion. |
 | AC 8 | Make `recover()` also despawn the entry-zone ball | The kept-ball assertion. |
-| AC 9 | Make `applyPulses` a no-op | The kick assertion reddens; the disabled control stays green. |
+| AC 9 | Make `applyPulses` a no-op | The kick assertion reddens, and the disabled control stays green. |
 | AC 10 | Revert one golden's `gameStart.tuning` | `StaleReplayHeaderError` on exactly that golden. |
 | AC 10 | Remove one key from `scalarKeys` | The ratchet, with its named message. |
 | AC 11 | Template `event.tick` into a wrong arm | The executing assertion. |
-| AC 12 | Today's code, run first (task 1), and afterwards the reverted decrement | `ballsInPlay` 1 after the roll-back; the observed today values are recorded here. |
-| AC 13 | Drop the pairing condition | The served-pair case reads 0; `two-ball-collision` also reddens, because its t=196 serve arrives with `ballsInPlay` 1. |
+| AC 12 | Today's code, run first (task 1); afterwards, the reverted decrement | `ballsInPlay` 1 after the roll-back. The observed today values are recorded here. |
+| AC 13 | Drop the pairing condition | The served-pair case reads 0. `two-ball-collision` also reddens, because its t=196 serve arrives with `ballsInPlay` 1. |
+| AC 14 | Drop the opening-edge branch | The four `button_released` are absent, and 4c's cup positive never arrives. |
+| AC 14 | Emit `button_released` on every opening edge | `s_top_2`'s open yields a release. |
 
 ## Auto Run Result
 
 Status: ready-for-dev
 Blocking condition: none
+
+### Plan-stage record, 2026-09-11 (re-plan cycle 3, after decision 6)
+
+- **Dispatch.** `spec-2-12-ball-search.md Halt after planning.` ran on a `draft` spec committed at `ddbd946`, on `DW-1-epic2`, with a clean tree.
+  - The previous cycle-3 attempt died on a network failure before writing. Its scratch probes survived in the session scratchpad and were **re-run** here, not transcribed.
+  - The committed `epic-2-context.md` was reused, not recompiled.
+  - The intent contract is preserved byte for byte; the splice was verified against HEAD's block. Everything else was re-derived.
+- **Ledger inbox:** DW-187 (`routed`, owner `2-12-ball-search`), addressed as in Design Notes.
+- **Measurements.** All scratch probes ran from the scratchpad with their own vitest config, never under `test/`. `git status --short` was empty after each run.
+  - **Cradle release** (`probe212c/cradle-release`):
+    - pressed at 1703; `ball_launched` at 1722; last closure `s_inlane_l` at 4907;
+    - settled by 6035 within 1 mm (spread 0.978 mm), 76.9 mm from `s_drain`;
+    - no search while held; released at 31704;
+    - `s_drain` closed at +536, `ball_ended` at +593.
+  - **Cup, no hold** (`probe212c/cup-nohold`): T 400, L 401, S 15401.
+    - Settled by L+98. The spread over L+3000 to S+2750 was 0.0147 mm, and 97.9 mm from `s_inlane_l`. No closure.
+    - `bank_reset` at S+1252, `eject_failed:bd_shooter` at S+2001, trough 3→2 with the lane rising at S+2251 and `ballsInPlay` 1, and the trough still 2 at S+2501.
+  - **Cup with an empty hold** (`probe212c/cup-loop`): P 5401, R 25401, S 35401. The same offsets, no closure, and the cup ball moved 0.0016 mm through the pass.
+  - **Cup attractor:** six placements settle within 0.03 mm of (165.00, 259.09).
+  - **Natural pocket** (`pockets`, `creep`, `fallpath`, `pocket-loop`): a single resting cluster at the Ramp entrance. It rattles at up to 7 mm/s, and its neighbours sink through the deck. Rejected as an instrument, and recorded in frontmatter `deferred`.
+- **Nothing committed.** The spec is the only file written in the repository.
 
 ### Plan-stage record, 2026-09-11 (re-plan)
 
