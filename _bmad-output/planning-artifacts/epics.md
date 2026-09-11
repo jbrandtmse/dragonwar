@@ -1664,9 +1664,9 @@ So that the game closes the way a real machine does.
 
 **Given** the last ball of the last player ends
 **When** phase becomes `game_over`
-**Then** the Backglass shows final scores by player and `game_ended { scores[] }` fires
+**Then** the Backglass shows final scores by player and `game_ended { scores[] }` fires -- `game_ended` on the drain tick, and the final scores when the last ball's end-of-ball hold releases, so Story 2.10's bonus count-up is not cut
 
-**Given** `matchPercent` (default 8) and `GameState.rng`
+**Given** `matchProbability` (default 0.08, i.e. 8 %) and `GameState.rng`
 **When** the Match runs
 **Then** a multiple-of-ten number from 00 to 90 is drawn with the configured probability of matching at least one player's last two score digits, `match_drawn { number, winners[] }` fires, the Backglass reveals the number paced by `matchRevealMs` step events, and a win shows MATCH — display-only under free play
 
@@ -1682,6 +1682,7 @@ So that the game closes the way a real machine does.
 - DW-198: the DMD never identifies WHICH player a score belongs to -- `DmdRow.emphasis` is set and asserted but no renderer reads it, and the Attract scores screen emits bare unlabelled numbers; the author's decision is to render `emphasis` as the current player's row highlighted or boxed, and its pinning test must assert that the rendered DOTS differ between an emphasised and an unemphasised row, never merely that the field is set (ledger; routed by merge_gate 2026-09-06)
 - DW-235: the bonus count-up schedule's closure state has no reset across a game-over-to-new-game transition, so a stray `bonus_count_step` from a finished game could animate into the next; 2.13 owns that lifecycle boundary (ledger; routed by harvest 2026-09-08)
 - DW-244: a Slam tilt returns to Attract with the voided game's ball still live, and Start has no balls-home handling, so the old ball's drain ends the NEW game's ball 1 and a second serve stacks in the occupied lane; the author's decision is CLEAN UP THE STRAYS, THEN START -- before serving, for Start in Attract and for every new ball, a loose ball is removed through the `RecoverCommand` path Story 2.12 built and a ball already resting in the shooter lane is treated as the ball being served (no trough eject, no stacking); both routes (a voided game's loose ball; a ball left in the lane by a cancelled search pass) need their own pinning test that is red on the pre-fix code, each negative paired with its positive (ledger; routed by spec_gate 2026-09-11)
+- DW-257: recovered balls are never replenished -- `recover()` removes every ball outside a device and opens no trough slot, while the tree's only `spawnBall()` sits inside a parking eject that needs an already-filled slot, so each recovery permanently costs the machine a ball and four empty the trough, after which the serve answers `eject_failed`, no ball can drain and the ball never ends (a hard hang, reachable by a Slam then Start before the old ball drains, four times). Because 2.13 makes the serve path a second `RecoverCommand` issuer, this story owns the fix: the author's decision is RETURN RECOVERED BALLS TO THE TROUGH -- `recover()` parks each ball it removes into the trough's lowest empty slot and closes that slot's switch, so AD-6's four-ball invariant holds across any number of recoveries and ball search's own hang closes with it; its pinning test must pair the negative (the trough never empties across repeated recoveries) with its positive (the recovered ball IS in a trough slot and CAN be ejected again), and be red on the pre-fix code (ledger; routed by spec_gate 2026-09-11)
 
 ### Story 2.14: The lit Top lane -- rotation, and when it may move
 

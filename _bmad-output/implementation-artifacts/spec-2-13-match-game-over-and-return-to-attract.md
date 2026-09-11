@@ -84,9 +84,10 @@ deferred: []
 
 **Block If:**
 - A route pinning test (AC 5, AC 6, AC 7) cannot be made red on today's code at its stated assertion. The author's Rule 19 binding makes that a premise failure: HALT and report the observed values.
-- Any golden field moves other than `header.gameStart.tuning`, which gains exactly seven blocks, plus an appended `notes`. That includes `header.tableHash`, because `TABLE` is untouched, and any `expectedHash`, `expectedGameStateHash`, checkpoint hash, `transitions` or `coilPrologue`. No golden presses Start, so no game logic this story adds can run in one. A moved state hash means something did: HALT.
+- Any golden field moves other than `header.gameStart.tuning`, which gains exactly seven blocks, plus an appended `notes`. That includes `header.tableHash` (`e22fbdcf` in all five, measured at this gate) and `header.assetHash` (`ab163ff`), and any `expectedHash`, `expectedGameStateHash`, checkpoint hash, `transitions` or `coilPrologue`. **"Checkpoint hash" concretely means `roll-and-drain`'s `checkpointTicks: [5000, 9280]` and its `expectedCheckpointHashes` `{"5000":"9561e345","9280":"796ae0e9"}` -- it is the ONLY golden carrying those two fields** (measured at this gate; named here because "any checkpoint hash" is easy to read as covering nothing). No golden presses Start, so no game logic this story adds can run in one. A moved state hash means something did: HALT.
 - Any widening of `GameState`, `MachineState`, `PlayerState`, `GamePhase` or `GameAdjustments` would be required.
-- `src/sim/loop/**` or `src/sim/physics/**` would need an edit; `check:ad7` must stay at exactly 3 passing tests.
+- `src/sim/loop/**` would need an edit, or `src/sim/physics/**` beyond the ONE sanctioned change named below; `check:ad7` must stay at exactly 3 passing tests.
+  - **Sanctioned (author decision 2026-09-11, DW-257; relayed by the orchestrator, applied at this spec gate):** `src/sim/physics/devices.ts`'s `recover()` returns each ball it removes to `bd_trough`'s lowest empty slot and closes that slot's switch, instead of only despawning it. This is AC 14. It is the whole of the permitted physics edit: no other function in `src/sim/physics/**` changes, and `recover()`'s signature and its `recovered` return value do not change. The lead reports it under `footprint_extensions:`.
 - `HARDWARE_COILS` membership would change, `c_autolaunch` would be disabled anywhere, or `c_mouth` would be pulsed.
 - `check:ad7`, `check:corridor` or `check:reachability` goes red.
 - A third-party file (font, sound, code) would be needed. The CLAUDE.md provenance rule applies.
@@ -325,6 +326,12 @@ Every anchor below was read at `a080bf83653bf034a527311ec350ca9a78c51c3e`, with 
     - `test/host-game-seed.test.ts`: the regex amendment.
     - `test/rules-devices-headless.test.ts`: append `rules-match.test.ts` and `rules-stray-clear.test.ts` to `ENTRY_FILES`, with a Story 2.13 comment. Its completeness ratchet (`:223-245`) requires every `test/rules-*.test.ts` not named `*-integration.test.ts`. `stray-clear-integration.test.ts` and `game-over-integration.test.ts` do not start with `rules-`, so they are outside it.
 13. Goldens: `test/replays/{roll-and-drain,hold-and-release,full-plunge,nudge-coupling,two-ball-collision}.golden.json`. Run a scratchpad harness that sets each `header.gameStart.tuning` to the live `resolveTuning()` output, which is exactly seven new blocks: `matchProbability`, `matchDelayMs`, `matchDelayTicks`, `matchRevealMs`, `matchRevealTicks`, `attractMs`, `attractTicks`. It appends a Story 2.13 `notes` line and writes LF. Verify per field (`## Verification`).
+14. **DW-257, the sanctioned physics edit** (AC 14; author decision 2026-09-11). `src/sim/physics/devices.ts`, `recover()` ONLY:
+    - **Red first**, as task 1: write `test/physics-recover-trough.test.ts` (new, GPL-3.0 header) and run it on today's code. Both halves of AC 14 must be red at their stated assertions before the edit. If either is not, apply the Block-If and report the observed values.
+    - Today `recover()` calls `physics.removeBall(ball)` for every ball outside a device and opens no slot. Change it to park each removed ball into `bd_trough`'s lowest empty slot and close that slot's switch -- the same parking operation an entering ball already gets (AD-6), reusing the existing park path rather than a second implementation of it.
+    - Do NOT change `recover()`'s signature or the meaning of its `recovered` return value: it still counts balls taken out of the simulated set, which is what Story 2.12's `ball_missing { count }` and this story's AC 8 report.
+    - If the trough is somehow full, the ball is still removed and the overflow is NOT ejected (AD-18's phasing; nothing may pulse `c_mouth`, and an overflow eject here would re-enter the loop this fix exists to close). That branch is unreachable while the four-ball invariant holds -- assert the invariant rather than build a path for its violation.
+    - Nothing else in `src/sim/physics/**` changes. Re-run 2.12's ball-search tests: they must stay green, and `recovered` must still be 1 per recovered ball.
 
 **Acceptance Criteria:**
 - **AC 1: game over shows final scores and fires `game_ended`** (epics AC 1; AD-6, AD-7, AD-9, AD-5).
@@ -443,11 +450,24 @@ Every anchor below was read at `a080bf83653bf034a527311ec350ca9a78c51c3e`, with 
     - production `matchDelayTicks` exceeds `BALL_ENDED_HOLD_TICKS`;
     - all five goldens differ from `a080bf8` only in seven new `gameStart.tuning` blocks and an appended `notes`, with no `StaleReplayHeaderError`.
 - **AC 13: the new events are in the closed union** (AD-9).
+- **AC 14: DW-257, a recovered ball returns to the trough** (AD-6 as amended today, AD-9, AD-18). Red first. Author decision 2026-09-11.
+  - **Given** a headless machine at boot: `bd_trough` full (4 closed slot switches) and the asserted four-ball invariant.
+  - **When** a ball is put outside every device and `recover()` runs, repeated four times over (more recoveries than the trough has slots), each time asserting the premise first (the ball really is outside every device, and `recovered` came back 1).
+  - **Then** BOTH halves, in the same test:
+    - *the negative* -- the trough never empties: after every recovery the machine still totals 4 balls (closed trough slots + simulated balls + balls parked elsewhere), and NO serve ever answers `eject_failed`. Red today: the count falls 4, 3, 2, 1 and the fifth serve fails.
+    - *the positive* -- the recovered ball is really THERE and really USABLE: immediately after a recovery the trough's lowest empty slot has become a closed slot switch, and a `pulse c_trough_eject` then spawns a ball from it at the authored eject pose and speed and opens that switch. A recovery followed by an eject returns a playable ball, not a phantom slot count. Red today: there is no slot to eject from.
+  - **And** `recover()`'s `recovered` return value still counts the balls it took out of the simulated set, so Story 2.12's `ball_missing { count }` and this story's stray-clear report (AC 8) are unchanged -- asserted by 2.12's existing ball-search tests staying green and by AC 5's `ball_missing { count: 1 }`.
+  - **And** a ball resting on the plunger tip is still spared (2.12's AC 8 stays green), and a ball parked in `bd_lock` is still untouched (`c_mouth` is never pulsed, AD-18).
+  - **Note** the count identity above is the anti-vacuity guard: asserting only "a slot closed" would pass on a machine that had invented a fifth ball.
   - **Given** `SemanticEvent` with `game_ended`, `match_drawn` and `match_reveal_step`.
   - **When** `describeEvent` executes one example of each in `test/contracts.test.ts`.
   - **Then** each returns its authored text, templating every payload field, and `pnpm typecheck` passes with the `never` tail intact.
 
 ## Spec Change Log
+
+- **2026-09-11, lead (spec gate), author decision on DW-257 -- AC 14 added.** The author decided that `recover()` must RETURN recovered balls to the trough rather than destroy them. The plan had measured the consequence of destruction correctly (four recoveries exhaust the trough, then `eject_failed` and a hard hang) but recorded it as accepted; the hang is reachable by ordinary play, so the author fixed the cause. Added AC 14 and task 14; narrowed the `src/sim/physics/**` Block-If to sanction `devices.ts`'s `recover()` and nothing else; declared the footprint extension; narrowed the physics-diff verification command; added two Rule 19 mutations. The clean-up-the-strays decision behind ACs 5-8 is UNCHANGED. Spine: AD-6's "the one command that lets physics despawn every ball outside a device" amended to the trough return (consistent with AD-6's own four-ball invariant, so no new AD id); AD-9's issuer list already named both issuers and needed no further change.
+- **2026-09-11, lead (spec gate), other amendments.** `epics.md` 2.13 AC 2 `matchPercent` (default 8) -> `matchProbability` (default 0.08, i.e. 8 %), and the same correction in spine AD-15's tunables list: the shipped contract is a fraction and no reader treats it as a percent, so the name was simply wrong and the odds are identical. `epics.md` 2.13 AC 1 now states the final-scores timing explicitly (the scores appear when the last ball's end-of-ball hold releases, not on the drain tick), because the literal reading would cut Story 2.10's shipped bonus count-up. Spine AD-5's "Tilt, game over and Attract disable all of them together" narrowed to an Attract entered from a game: the shipped machine boots every coil enabled and two goldens flip in the boot Attract, so the spine had been asserting something the goldens contradict. Spine AD-6 now records how the stray clear reports (`ball_missing` only when `count > 0`, never a serve) -- the detail AD-6 had left to this story, written where Story 3.7 will look for it.
+- **2026-09-11, lead (spec gate), the six `LEAD CHECK` lines.** All six recommendations accepted as written, each for the reason the plan gave: `matchDelayMs` is kept (it is the game-over dwell the architecture reconciliation S-8 already required, and AC 12 pins its inequality against the 3 s hold, so it is not a free parameter); Start during the reveal stays ignored (epics AC 3's own Given is "Match has resolved"); the stray clear reports `ball_missing` only when `count > 0`; the 2x2 players grid and the shared fields line both stay (they are what makes four players plus a mode fit, which is DW-197's whole promise); the `START 1` / `PLUNGE ENTER` wording stays; and AC 1's final scores appear after the hold.
 
 ## Review Triage Log
 
@@ -560,7 +580,7 @@ LEAD CHECK: `ball_missing { count }` for a stray clear, emitted only when count 
 **The drain guard on the Start tick.** A voided ball entering the trough on the exact tick Start creates the game would otherwise end the new ball 1, through the parking entry at `ballsInPlay` 0. That is a one-tick window, unreachable later because the t+1 recover removes a loose ball before physics steps.
 
 **Couplings, recorded, not decided:**
-- **DW-257** (wontfix-accepted). The stray clear is a second way a ball leaves the machine for good. Each Start after a Slam that leaves a loose ball costs one ball, and four exhaust the trough (`eject_failed`, then a hang). This follows from the author's choice of removal over waiting. LEAD: DW-257's `reopen_if` is now likelier.
+- **DW-257 (DECIDED by the author 2026-09-11, at this spec gate; now this story's AC 14).** The plan was right that the stray clear is a second way a ball leaves the machine for good, and right that four Starts after a Slam exhaust the trough into `eject_failed` and a hang. It was wrong to accept it: the hang is reachable by ordinary play (Slam, then Start before the old ball drains, four times), and it would have shipped. The author's answer is to fix the cause rather than guard the symptom: **`recover()` returns recovered balls to the trough** (AD-6 amended, and AD-9's issuer list already names both issuers). The clean-up-the-strays decision is unchanged. AD-6's four-ball invariant now holds across any number of recoveries, and because ball search and this story's serve path share the one `recover()`, ball search's hang closes with it. Rejected: keep the destroy plus a no-hang guard (balls still lost, machine degrades 4 -> 3 -> 2); recover only on ball search and refuse Start while a ball is loose (loses the half of DW-244 that handles the slam-voided loose ball); defer and ship the hang.
 - **DW-230** is not made reachable: `startBall` resets `awaitingSaveLaunch`, and a reuse serve pulses nothing.
 - **DW-263 and DW-268** are unaffected: no ball is launched at a ball start, and the only lane ball is resting.
 - **DW-254** stays theoretical, as above.
@@ -653,7 +673,8 @@ No entry is declined.
 - **In the epic footprint:** `src/sim/rules/{ball-controller,tilt,index,match}.ts`, `src/sim/table/tuning.ts`, `src/presentation/backglass/{frame,raster,view-config}.ts`.
 - **Established extensions** (listed as required): `src/sim/contracts/events.ts`, `src/host/input/index.ts`, `src/host/boot.ts`.
 - **Tests:** `test/**`, including the five `test/replays/*.golden.json`, which change header-only.
-- **Nothing else** is edited: not `src/sim/loop/**`, `src/sim/physics/**`, `src/sim/table/dragonwar.ts`, `public/assets/**` or `.github/**`.
+- **Footprint extension, declared (Rule 11 (b); no contended epic owns it -- Epic 2 is the only epic running):** `src/sim/physics/devices.ts`, `recover()` only, for AC 14 (author decision, DW-257). The lead reports this path under `footprint_extensions:` in the completion contract.
+- **Nothing else** is edited: not `src/sim/loop/**`, the rest of `src/sim/physics/**`, `src/sim/table/dragonwar.ts`, `public/assets/**` or `.github/**`.
 - No third-party file is added. The key labels are formatted from the existing `FONT_5X7`, so no font is added.
 
 ### Anti-vacuity plan, by named shape
@@ -679,14 +700,18 @@ No entry is declined.
 - `pnpm check:headers` and `pnpm check:attributions`: exit 0.
 - `pnpm check:ad7`: exits 0 with **exactly 3** passing tests.
 - `pnpm check:corridor` and `pnpm check:reachability`: exit 0.
-- These must be empty: `git diff --stat -- src/sim/loop src/sim/physics src/sim/table/dragonwar.ts public/assets .github`.
+- These must be empty: `git diff --stat -- src/sim/loop src/sim/table/dragonwar.ts public/assets .github`.
+- `git diff --stat -- src/sim/physics` must show **exactly one file**, `src/sim/physics/devices.ts`, and `git diff -- src/sim/physics/devices.ts` must touch only `recover()` (AC 14, the sanctioned edit). Any other physics file, or any other function in `devices.ts`, is the Block-If.
 - `git ls-files --others --exclude-standard`: only the new test and source files. No harness.
 
 **Manual checks:**
 - **Structural golden comparison (authoritative).** Parse each golden at `a080bf83653bf034a527311ec350ca9a78c51c3e` and at HEAD, and compare field by field:
   - `header.gameStart.tuning` gains exactly the seven blocks named in task 13, in `resolveTuning()` order;
   - `notes` is a strict append;
-  - every other field is deeply equal, `header.tableHash` `e22fbdcf` included.
+  - every other field is deeply equal, `header.tableHash` `e22fbdcf` and `header.assetHash` `ab163ff` included; for `roll-and-drain` that explicitly includes its two `expectedCheckpointHashes`.
+  - **Trap, measured at this gate -- the obvious probe for "no golden presses Start" is vacuous.** `start` is nested at `transitions[i].frame.start`, NOT at `transitions[i].start`. A check written against the top-level path reads `undefined` for every frame in every golden and "confirms" the claim without testing it -- exactly this epic's recurring vacuity shape. Read the nested path. Verified there at this gate: `frame.start` is `true` in zero frames across all five.
+  - **The decisive fact is stronger than "no Start", and is the one to assert:** `finalRng` is `0` in all five goldens -- `GameState.rng` never advances in any golden at all, not even from the existing skill-shot consumer, because no golden ever leaves `phase: 'attract'` (they serve via `coilPrologue`, bypassing `startBall`). `rng` IS inside the hashed `GameState` (`contracts/state.ts:166`, hashed by `replay.ts:115-122`), so a reachable stray draw WOULD move `expectedHash` and `expectedGameStateHash`. Match cannot move a golden because the draw is unreachable, not because `rng` is unhashed. Assert `finalRng === 0` per golden, and the 52/52 `replay-goldens` baseline.
+  - Tuning key count is a cheap independent check: `header.gameStart.tuning` goes from **57** top-level keys to **64** (measured at this gate). `resolveTuning()` derives a `…Ticks` only for top-level `…Ms` keys, and `matchProbability` is not one, so four new tunables give three new tick keys = seven new blocks.
 - `HARDWARE_COILS` is unchanged, with 7 coils.
 - Re-read these comments; each must describe the new behaviour:
   - `ball-controller.ts:3-8` and the Start comment;
@@ -731,6 +756,8 @@ No entry is declined.
 | AC 12 | Set `matchDelayMs` to 2000 | The hold inequality |
 | AC 12 | Remove `attractMs` from `scalarKeys` | The ratchet |
 | AC 13 | Template a wrong field in one new arm | Its executing assertion |
+| AC 14 | Revert `recover()` to `removeBall` only (today's code) | The negative: the machine's four-ball total falls to 3 on the first recovery, and the fifth serve answers `eject_failed` |
+| AC 14 | Close the trough slot switch WITHOUT parking a ball into it | The positive: `pulse c_trough_eject` spawns nothing, and the four-ball count identity breaks (a phantom slot) |
 
 ## Auto Run Result
 
