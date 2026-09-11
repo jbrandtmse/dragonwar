@@ -92,12 +92,31 @@ export interface DmdFrame {
  * AD-9, never derived from `snapshot.game.players[...].score` (which
  * already includes the bonus by the time this same-tick snapshot arrives,
  * and would still be wrong for every frame before the count-up finishes).
+ *
+ * Smoke rework (DW-247, reopened `by=smoke`): `pendingTiltWarning` is
+ * presentation state, never `GameState` -- no golden moves. A `tilt_warning`
+ * event that arrives on the SAME frame as a `ball_ended` arming, or while a
+ * `ball_ended` hold is already live, sets this `true` rather than being
+ * dropped: one `FrameOutput` carries every owed tick's events, and the
+ * ball_ended screen's own priority (task 10's intent, kept) means the
+ * warning cannot show immediately. It is consumed -- shown for a fresh
+ * `TILT_WARNING_HOLD_TICKS` measured from the moment the `ball_ended` hold
+ * ends, never from when the event originally arrived -- the instant the
+ * hold's own end is reached, UNLESS at that moment the machine is genuinely
+ * tilted (TILT supersedes) or `phase` is no longer `'game'` (the warning
+ * belongs to a game that is no longer live) -- both of which drop it
+ * instead. Before this fix, both the `ball_ended` arming branch and its
+ * live-hold branch returned above the warning-arming check with no memory
+ * of the event, so a warning landing inside a hold was swallowed for good:
+ * the player never saw WARNING, and the next eligible closure could tilt
+ * them with no visible warning at all (found by browser smoke, 2026-09-11).
  */
 export interface BackglassView {
 	readonly screen: DmdScreen;
 	readonly holdUntilTick: number | null;
 	readonly attractCycleOriginTick: number;
 	readonly heldBallEnded: { readonly player: number; readonly score: number; readonly bonusRunning: number | null } | null;
+	readonly pendingTiltWarning: boolean;
 }
 
 /** The view a fresh boot (or a fresh test) starts from: the Attract prompt, nothing held, cycle counting from tick 0. */
@@ -106,6 +125,7 @@ export const INITIAL_BACKGLASS_VIEW: BackglassView = {
 	holdUntilTick: null,
 	attractCycleOriginTick: 0,
 	heldBallEnded: null,
+	pendingTiltWarning: false,
 };
 
 const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
@@ -164,18 +184,31 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  *    (AD-9; AC 3's own sharpest case). `bonusRunning` starts `null` (Story
  *    2.10): the arming frame never carries a `bonus_count_step` itself
  *    (`ball-controller.ts`'s own schedule fires no earlier than
- *    `bonusCountTicks` ticks later), so nothing to show yet.
+ *    `bonusCountTicks` ticks later), so nothing to show yet. Smoke rework
+ *    (DW-247): a `tilt_warning` landing on this SAME frame (one
+ *    `FrameOutput` can carry both) is not dropped -- it sets
+ *    `pendingTiltWarning`, carried forward through the whole hold.
  * 2. Still inside a live hold: a `bonus_count_step` this frame updates
- *    `heldBallEnded.bonusRunning`; otherwise the view is unchanged (Story
- *    2.10 widens this branch -- it used to return `view` unconditionally).
+ *    `heldBallEnded.bonusRunning`; a `tilt_warning` this frame (smoke
+ *    rework, DW-247) sets `pendingTiltWarning` so it is not lost; otherwise
+ *    the view is unchanged (Story 2.10 widens this branch -- it used to
+ *    return `view` unconditionally).
  * 3. Story 2.11: `machine.tilt.tilted` in `phase: 'game'` shows the TILT
  *    screen -- a CONTINUOUS condition read off the snapshot (AD-9: that is
  *    what the snapshot is for), superseding even a live warning hold (a
  *    tilt always follows warnings) but never an armed/held `ball_ended`
- *    (the more specific event, decided above this).
- * 4. Story 2.11: a `tilt_warning` event this frame arms the transient
- *    warning hold -- reading the event alone, never `players[i].tiltWarnings`
- *    (AD-9; AC 9's own control).
+ *    (the more specific event, decided above this). A genuine Tilt here
+ *    also DROPS any `pendingTiltWarning` carried out of a hold (smoke
+ *    rework, DW-247): TILT supersedes a warning that never got shown too.
+ * 4. Story 2.11 (smoke rework, DW-247): a `tilt_warning` event THIS frame,
+ *    OR a `pendingTiltWarning` carried out of a `ball_ended` hold that has
+ *    just ended, arms the transient warning hold -- reading the event (or
+ *    the carried flag) alone, never `players[i].tiltWarnings` (AD-9; AC 9's
+ *    own control). Both are gated on `phase === 'game'`: a carried warning
+ *    whose game is no longer live (game over, or a slam already in
+ *    Attract) is dropped here rather than shown late, by simply not
+ *    reaching this branch (the phase gate on the branches below it clears
+ *    the flag by omission, since every other branch returns a fresh view).
  * 5. Story 2.11: still inside a live warning hold, the SAME reset-safe
  *    half-open window `ball_ended`'s own hold uses -- the view is
  *    unchanged (there is no incremental payload to fold, unlike the BONUS
@@ -188,6 +221,7 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
 export function advanceBackglass(view: BackglassView, input: FrameOutput): BackglassView {
 	const tick = input.snapshot.tick;
 	const game = input.snapshot.game;
+	const tiltWarningEvent = input.events.find(isTiltWarningEvent);
 
 	const ballEndedEvent = input.events.find(isBallEndedEvent);
 	if (ballEndedEvent) {
@@ -198,6 +232,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 			holdUntilTick: tick + BALL_ENDED_HOLD_TICKS,
 			attractCycleOriginTick: view.attractCycleOriginTick,
 			heldBallEnded: { player, score, bonusRunning: null },
+			pendingTiltWarning: view.pendingTiltWarning || Boolean(tiltWarningEvent),
 		};
 	}
 
@@ -237,9 +272,18 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		// since only one ball's schedule is ever live at a time, but payload
 		// completeness (AD-9) means never trusting "the only one running" by
 		// convention alone.
+		//
+		// Smoke rework (DW-247): a `tilt_warning` arriving while this hold is
+		// live must not be lost either -- it sets `pendingTiltWarning` so the
+		// warning surfaces the instant the hold releases (branch 4 below),
+		// rather than being dropped the way this whole fix exists to stop.
 		const stepEvent = input.events.find(isBonusCountStepEvent);
+		const pendingTiltWarning = view.pendingTiltWarning || Boolean(tiltWarningEvent);
 		if (stepEvent && view.heldBallEnded && stepEvent.player === view.heldBallEnded.player) {
-			return { ...view, heldBallEnded: { ...view.heldBallEnded, bonusRunning: stepEvent.running } };
+			return { ...view, heldBallEnded: { ...view.heldBallEnded, bonusRunning: stepEvent.running }, pendingTiltWarning };
+		}
+		if (pendingTiltWarning !== view.pendingTiltWarning) {
+			return { ...view, pendingTiltWarning };
 		}
 		return view;
 	}
@@ -248,9 +292,12 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// machine condition, not a one-tick event) -- supersedes a live warning
 	// hold (checked below) because a tilt always follows warnings, but stays
 	// BELOW the ball_ended arming/hold branches above: a ball ending on the
-	// tilting tick still wins the panel for its own hold (AC 9).
+	// tilting tick still wins the panel for its own hold (AC 9). Smoke
+	// rework (DW-247): also drops any `pendingTiltWarning` carried out of
+	// that hold -- a genuine Tilt supersedes a warning that never got shown,
+	// exactly as it supersedes one already showing.
 	if (game.phase === 'game' && game.machine.tilt.tilted) {
-		return { screen: 'tilt', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null };
+		return { screen: 'tilt', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null, pendingTiltWarning: false };
 	}
 
 	// Code review finding (Blind Hunter / Edge Case Hunter, converged
@@ -266,13 +313,53 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// when a LATER frame's slam ends the game (`phase` moves to 'attract' well
 	// inside `TILT_WARNING_HOLD_TICKS`, 2000 ms) would otherwise keep showing
 	// WARNING instead of the Attract screen the game already reached.
-	const tiltWarningEvent = input.events.find(isTiltWarningEvent);
-	if (game.phase === 'game' && tiltWarningEvent) {
+	//
+	// Smoke rework (DW-247): this frame's OWN `tiltWarningEvent` is only one
+	// of two ways to reach this branch now -- `view.pendingTiltWarning`,
+	// carried out of a `ball_ended` hold that has just released (branches 1
+	// and 2 above), is the other. Both are measured from `tick` HERE: a
+	// carried warning is shown for a fresh `TILT_WARNING_HOLD_TICKS` counted
+	// from the moment the hold ended, never from when the event originally
+	// arrived. The same `phase === 'game'` gate that protects a live event
+	// protects the carried flag too -- if phase is no longer 'game' by the
+	// time control would reach this branch, every branch between here and
+	// the final score/Attract fallback returns a FRESH view with no
+	// `pendingTiltWarning` field carried forward, so the flag is dropped by
+	// omission rather than requiring its own separate clearing step.
+	//
+	// Code review (Blind Hunter, corroborated by Verification Gap): a bare
+	// carried boolean has none of this file's OWN reset-safety discipline
+	// (the half-open windows above and below both bound themselves against
+	// `holdUntilTick`; this flag had no bound at all). A reset restarts
+	// `tick` near 0 while the closure-held `BackglassView` survives
+	// (`host/loop.ts`'s `reset()`, this file's own header comment,
+	// `frame.ts:180-192`'s prior incident), so a stale `pendingTiltWarning:
+	// true` paired with a stale, far-future `holdUntilTick` would otherwise
+	// reach this branch unfiltered -- the SAME shape of bug the hold
+	// branches above already guard against for `screen`/`holdUntilTick`.
+	// `view.holdUntilTick` is exactly the bound needed and is already
+	// carried alongside the flag (both branches that set `pendingTiltWarning
+	// = true` also carry `holdUntilTick` forward unchanged): the legitimate
+	// release case reaches this line only once `tick` has caught up to or
+	// passed the hold's own recorded end (the hold branch's own upper bound,
+	// `tick < view.holdUntilTick`, just failed), so `tick >=
+	// view.holdUntilTick` is true there and false whenever `tick` instead
+	// jumped BACKWARD past a stale, far-future `holdUntilTick` -- no new
+	// field needed. (In the wired product this exact leak is not reachable
+	// today: `sim/loop`'s fresh `GameState` always boots `phase: 'attract'`
+	// and `host/loop.ts`'s `reset()` forces the very next frame to advance
+	// zero ticks, so an 'attract' frame always intervenes and clears the
+	// flag via the branch below before `phase` can read 'game' again -- but
+	// `advanceBackglass()` is a pure fold with no such guarantee of its own,
+	// and this file's history is exactly why it does not rely on a caller's
+	// invariant to stay correct.)
+	if (game.phase === 'game' && (tiltWarningEvent || (view.pendingTiltWarning && view.holdUntilTick !== null && tick >= view.holdUntilTick))) {
 		return {
 			screen: 'tilt_warning',
 			holdUntilTick: tick + TILT_WARNING_HOLD_TICKS,
 			attractCycleOriginTick: view.attractCycleOriginTick,
 			heldBallEnded: null,
+			pendingTiltWarning: false,
 		};
 	}
 
@@ -295,10 +382,10 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	if (game.phase === 'attract') {
 		const originTick = isAttractScreen(view.screen) ? view.attractCycleOriginTick : tick;
 		const screen = attractScreenAt(tick, originTick, game.players.length > 0);
-		return { screen, holdUntilTick: null, attractCycleOriginTick: originTick, heldBallEnded: null };
+		return { screen, holdUntilTick: null, attractCycleOriginTick: originTick, heldBallEnded: null, pendingTiltWarning: false };
 	}
 
-	return { screen: 'score', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null };
+	return { screen: 'score', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null, pendingTiltWarning: false };
 }
 
 const LEFT_MARGIN_COL = 2;

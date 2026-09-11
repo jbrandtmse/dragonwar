@@ -2,9 +2,9 @@
 title: 'Story 2.11: Tilt warnings, Tilt and Slam tilt'
 type: 'feature'
 created: '2026-09-08'
-status: 'in-progress'
-baseline_revision: 'f2fd48f250c45bf8d828f585fcffe4f5eeb01913'
-baseline_commit: 'f2fd48f250c45bf8d828f585fcffe4f5eeb01913'
+status: 'done'
+baseline_revision: '217fa70aa2152ade3e44a7e0e42cb5691a341110'
+baseline_commit: '217fa70aa2152ade3e44a7e0e42cb5691a341110'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: []
@@ -80,6 +80,30 @@ deferred:
       runtime enumeration of a type-level union and is not a two-way door.
     location: >-
       test/contracts.test.ts:240-277
+    severity: low
+  - summary: >-
+      A `ball_ended` event arriving while the `tilt_warning` screen is
+      already SHOWING silently replaces it with no memory of the warning --
+      the one direction DW-247's carry does not cover (a NEW ball_ended
+      racing an ALREADY-DISPLAYED warning, rather than a NEW warning racing
+      an already-armed ball_ended hold).
+    evidence: |-
+      `src/presentation/backglass/frame.ts`'s `ballEndedEvent` arming
+      branch is checked first in `advanceBackglass()`, unconditionally,
+      regardless of `view.screen`, and its `pendingTiltWarning` carry is
+      `view.pendingTiltWarning || Boolean(tiltWarningEvent)` -- both false
+      when the warning is already being SHOWN (not merely pending) and no
+      new `tilt_warning` event arrives on the interrupting frame. This is
+      pre-existing, not introduced by this iteration's DW-247 fix: the
+      arming branch's unconditional priority over whatever screen is
+      currently showing predates the smoke rework (Story 2.11 task 10), so
+      a live WARNING interrupted by a drain was equally lost before this
+      fix landed. Found by the Edge Case Hunter review layer during this
+      iteration's code review; verified by tracing that the pre-fix code
+      exhibits the identical behaviour.
+    location: >-
+      src/presentation/backglass/frame.ts (the `ballEndedEvent` arming
+      branch, near the top of `advanceBackglass()`)
     severity: low
 ---
 
@@ -352,7 +376,7 @@ _Code review 2026-09-10 (`bmad-code-review`, full mode). Scope: `f2fd48f..HEAD` 
 
 ### Smoke rework (iteration 1, 2026-09-11)
 
-- [ ] [Smoke] **DW-247: a `tilt_warning` that lands while a `ball_ended` hold is live is swallowed for good. The player never sees WARNING, and the next eligible closure tilts them with no visible warning.** [`src/presentation/backglass/frame.ts` `advanceBackglass()`: both the `ball_ended` arming branch and the live-hold branch `return` above the warning arming, and the warning screen is armed only from the one frame that carries the event.] The browser smoke failed on this on 2026-09-11 (S1: a burst shortly after a drain shows no WARNING, and the next burst TILTs). A red-first fold test confirmed the mechanism. A real-browser run with in-page instrumentation showed it is the ONLY cause: on a clean ball with no hold live, WARNING arms at the event and holds its full 2 s.
+- [x] [Smoke] **DW-247: a `tilt_warning` that lands while a `ball_ended` hold is live is swallowed for good. The player never sees WARNING, and the next eligible closure tilts them with no visible warning.** [`src/presentation/backglass/frame.ts` `advanceBackglass()`: both the `ball_ended` arming branch and the live-hold branch `return` above the warning arming, and the warning screen is armed only from the one frame that carries the event.] The browser smoke failed on this on 2026-09-11 (S1: a burst shortly after a drain shows no WARNING, and the next burst TILTs). A red-first fold test confirmed the mechanism. A real-browser run with in-page instrumentation showed it is the ONLY cause: on a clean ball with no hold live, WARNING arms at the event and holds its full 2 s.
   **What the fix must do.** Keep task 10's ordering and its intent: an ended ball's screen still wins the panel for its hold, and TILT still supersedes a warning. But never drop the warning.
   - A `tilt_warning` that arrives on the `ball_ended` arming frame, or while the hold is live, is carried in `BackglassView`. That is presentation state, never `GameState`, so no golden moves.
   - It is shown when the hold ends, for the full `TILT_WARNING_HOLD_TICKS` measured from the hold's end.
@@ -364,6 +388,8 @@ _Code review 2026-09-10 (`bmad-code-review`, full mode). Scope: `f2fd48f..HEAD` 
   3. A pending warning is superseded by TILT when the machine is tilted at the hold's end, and dropped when `phase` has left `'game'`.
   4. One case built from REAL frames: a `runRulesScript` or `createLoop` run in which a ball drains and `s_tilt_bob` closes within the following hold, folded through `advanceBackglass()`/`renderFrame()` exactly as `src/host/boot.ts` does. Assert the `WARNING` row lights dots in its own declared band.
   The expected red for dropping the carry is tests 1, 2 and 4. Deliver this to close DW-247 (owned by this story again, reopened `by=smoke`), and do not re-file it.
+
+**Implement re-spawn (2026-09-11): done.** `src/presentation/backglass/frame.ts` gains `BackglassView.pendingTiltWarning: boolean` (presentation state, never `GameState` -- no golden moves). Set `true` by (a) the `ball_ended` arming branch, OR'd with any already-pending flag, when a `tilt_warning` lands on the SAME frame as the arming, and (b) the hold-continuation branch, when a `tilt_warning` lands while the hold is already live. Read by the warning-arming branch (`game.phase === 'game' && (tiltWarningEvent || view.pendingTiltWarning)`), which measures the shown hold's `TILT_WARNING_HOLD_TICKS` from `tick` at the moment control reaches it -- i.e. from the `ball_ended` hold's own end, never from when the event originally arrived. Explicitly cleared to `false` by the TILT branch (a genuine Tilt supersedes a carried warning exactly as it supersedes a showing one) and implicitly dropped by every other branch (Attract, the final score/game_over fallback), each of which returns a fresh view literal with no `pendingTiltWarning` carried forward -- so a carried warning whose game is no longer `'game'` by the time the hold releases is dropped by omission rather than needing its own clearing step. Task 10's ordering and every existing phase gate are unchanged. Five new tests in `test/backglass-frame.test.ts` (`describe('smoke rework (DW-247) ...')`, nested under the existing "Story 2.11 -- AC 9" block to reuse its `gameInPlay`/`litDotRows` fixtures): the two Rule-19-mutation-confirmed carry cases (in-hold arrival; same-frame-as-arming arrival), the TILT-supersedes and game_over-drops cases, and a REAL-frames case built from a `runRulesScript` drain (`ball_ended` at tick 20) plus a genuine `s_tilt_bob` closure at tick 25 (within the following 3000-tick hold), folded through `advanceBackglass()`/`renderFrame()`/`rasterise()` to confirm the WARNING row lights dots in its own declared band once the hold's real end tick (3020) is reached. Two pre-existing `BackglassView` literals in this file (the two "armed on a PREVIOUS timeline" reset tests) gained the new required field to keep typechecking.
 
 ## Spec Change Log
 
@@ -387,6 +413,25 @@ _Code review 2026-09-10 (`bmad-code-review`, full mode). Scope: `f2fd48f..HEAD` 
   - `reject` Blind Hunter and the Intent Alignment Auditor both independently claimed `l_ball_save`'s tilted-inertness lamp branch (`lampsOf()`, `projectBallSave()`) has zero test coverage, before or after this story. Verified false: `test/rules-ball-save.test.ts:346` ("AC 6 -- Tilt makes the device inert") already seeds a live window plus `tilted: true` and asserts `lampsOf(...).l_ball_save` projects `{ role: 'off', step: 0 }` -- a pre-existing Story 2.9 test, part of the passing suite, confirmed directly by re-running it and by observing it redden under an unrelated mutation earlier in this same review pass. Both reviewers likely searched only the diff text, and this file is untouched by this story's diff.
   - `reject` Blind Hunter flagged that `machine.tilt` is not reset when a Tilt (not Slam) ends the LAST ball of the LAST player, staying stale through `phase: 'game_over'` and the following Attract until the next `startBall()`. Verified: this is NOT a new asymmetry -- `machine.ballSave` and `machine.multiball` already follow the identical convention (reset only at the NEXT `startBall()`, never at game over itself, per that function's own "AD-7: ball_will_start resets ballSave, tilt and multiball" comment). `machine.tilt` merely joins a pre-existing, deliberate reset-boundary convention its two siblings already use. No current consumer of `machine.tilt.tilted` lacks its own `phase === 'game'` gate, so no observable consequence.
   - `reject` Edge Case Hunter flagged that a Slam tilt does not disarm `machine.ballSave`, leaving it armed with a stale `untilTick` through Attract. Verified harmless: `startBall()` unconditionally resets `machine.ballSave` to `enableBallSave(EMPTY_BALL_SAVE, BALL_SAVE_SOURCE)` on every Start (first game or rotation), and Attract phase never processes a drain (the ball-save guard only runs inside the `phase === 'game'` drain branch), so the stale value is never read before being overwritten. Pinned as a regression guard in the new same-tick collision test (`test/rules-tilt.test.ts`) rather than "fixed," since it is the CORRECT, intentional behavior -- AC 6 and the I/O matrix's "Slam tilt in a game" row never mention `ballSave`, and the Design Notes' own "four things deliberately not done" list for Slam tilt is complete as written.
+
+### 2026-09-10 — Review pass (smoke rework iteration, DW-247)
+
+_Scope: `217fa70..HEAD` (the DW-247 implement re-spawn's uncommitted changes to `src/presentation/backglass/frame.ts` and `test/backglass-frame.test.ts`). Four layers ran: Blind Hunter, Edge Case Hunter, Verification Gap and Intent Alignment Auditor. Rule 6: no AD's Rule is touched by this change (AD-9's payload-completeness and continuous-condition distinction, cited by the diff's own comments, is unaffected). The reset-safety reachability claim was independently verified by this stage directly against `src/sim/loop/index.ts:286` (fresh `GameState.phase` always boots `'attract'`) and `src/host/loop.ts:174,299` (`reset()` sets `lastFrameMs = null`, forcing the very next `tick()` call to compute `elapsedMs = 0` and advance zero ticks) before triage, confirming the specific leak Blind Hunter demonstrated is not reachable in the wired product today (an 'attract' frame always intervenes first) even though the underlying field genuinely lacked the file's own reset-safety discipline._
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (medium 1, low 2)
+- defer: 1: (low 1)
+- reject: 3
+- addressed_findings:
+  - `medium` `patch` `BackglassView.pendingTiltWarning` (this iteration's own new field) had none of this file's established reset-safety discipline: `screen`/`holdUntilTick` are both protected by an explicit half-open tick window (the "armed on a PREVIOUS timeline" tests), but the carried boolean had no bound of its own, so a stale `pendingTiltWarning: true` paired with a stale, far-future `holdUntilTick` -- the exact shape `host/loop.ts`'s `reset()` can leave behind, since it rebuilds the sim but never re-seeds the closure-held `BackglassView` -- would reach the warning-arming branch unfiltered. Found by Blind Hunter (direct repro against the pure function) and corroborated in depth by the Verification Gap Reviewer, who additionally traced that today's actual reachability is blocked by an independent, undocumented invariant (fresh state always boots `phase: 'attract'`, and `reset()` forces the first post-reset frame to advance zero ticks) -- confirmed directly by this stage. Fixed with no new field: the warning-arming branch now additionally requires `view.holdUntilTick !== null && tick >= view.holdUntilTick` before honouring a carried (non-live-event) `pendingTiltWarning` -- reusing the SAME `holdUntilTick` already carried alongside the flag, which is non-null exactly while a legitimate `ball_ended` hold is (or was) live and is null on every other screen. [`src/presentation/backglass/frame.ts`, the `tilt_warning`-arming `if` condition] New test: "a pendingTiltWarning carried from a PREVIOUS timeline does not survive a reset, exactly like its screen/holdUntilTick siblings" [`test/backglass-frame.test.ts`].
+    - mutation: revert the bound to the pre-patch `(tiltWarningEvent || view.pendingTiltWarning)` → the new PREVIOUS-timeline test RED (`screen` came back `'tilt_warning'` instead of `'score'`); all other tests in the file unaffected.
+  - `low` `patch` Nothing proved the TILT branch's own `pendingTiltWarning: false` clearing is load-bearing -- the existing "superseded by TILT" test only checked the ONE frame TILT fires on. Found by Blind Hunter. Fixed: the same test now folds one more frame, back in a live untilted game with no new event, and asserts the carry did not resurface. [`test/backglass-frame.test.ts`, the "a pending warning is superseded by TILT" test]
+    - mutation: replacing the TILT branch's explicit return literal with `{ ...view, screen: 'tilt' }` (a realistic "simplify to a spread" refactor that leaks both `pendingTiltWarning` and the stale `holdUntilTick` together) → the new follow-up assertion RED. (A plain `pendingTiltWarning: view.pendingTiltWarning` leak alone does NOT redden this assertion, because the medium finding's own `holdUntilTick !== null` bound independently blocks it -- confirmed empirically before settling on the compound mutation above; the two fixes are defense-in-depth, not a single point of failure.)
+  - `low` `patch` Nothing proved a Slam mid-hold (phase -> `'attract'`) correctly drops a pending warning -- found independently by Blind Hunter and the Intent Alignment Auditor (convergent). Tracing showed the Attract branch already handles this correctly (`game.phase !== 'attract'` gates the hold-continuation branch out, and the Attract branch's own explicit `pendingTiltWarning: false` clears it), but nothing exercised it. Fixed: a new test mirrors this file's own pre-existing "a slam mid-hold must drop the end-of-ball screen for Attract" precedent, extended to assert the carried warning does not resurface on a later live frame either. [`test/backglass-frame.test.ts`, new test under the DW-247 describe block]
+    - mutation: replacing the Attract branch's explicit return literal with a spread that omits `pendingTiltWarning: false` (leaking it and the abandoned `holdUntilTick` together) → the new test RED, once the test's own follow-up tick was moved comfortably past the abandoned hold's `holdUntilTick` (the first attempt, at `tick: 33`, passed for the wrong reason -- the leaked `holdUntilTick` was still in the future, so the medium finding's own bound coincidentally blocked it there too; corrected to `armed.holdUntilTick! + 1`).
+- deferred: `low` A `ball_ended` arriving while the `tilt_warning` screen is already SHOWING (not merely pending) silently replaces it with no memory of the warning -- the one direction this iteration's carry does not cover. Found by Edge Case Hunter. Verified pre-existing: the arming branch's unconditional top-of-function priority over whatever screen is currently showing predates this smoke rework (Story 2.11 task 10), so a live WARNING interrupted by a drain was equally lost before this fix. Added to the spec's frontmatter `deferred:` list rather than fixed here, being out of DW-247's own charter (which covers a NEW warning racing an already-armed hold, not a NEW drain racing an already-shown warning).
+- rejected (3): no player-matching on the carried `tiltWarningEvent` before latching it (found independently by Edge Case Hunter and the Intent Alignment Auditor, deduplicated) -- verified pre-existing (the original arming branch never player-matched either) and harmless (the WARNING screen renders no per-player content, so a cross-player carry has no visible incorrect content); the "REAL frames" test's per-tick `FrameOutput` construction (Intent Alignment Auditor) -- verified to match this file's own established AC 3/AC 8 convention rather than falling short of a genuinely batched multi-tick frame, so not a gap introduced by this diff; a Spec Change Log entry for the routine `in-progress` -> `in-review` status transition (Blind Hunter) -- this is ordinary build-auto stage bookkeeping performed on every review pass, not a substantive decision the file's changelog convention is meant to capture.
+- Verification after patches, `BLENDER` exported: `pnpm typecheck` exit 0; `pnpm test` **117 files / 1966 tests / 0 failed / 0 skipped** (1964 before this pass's 2 new tests); `pnpm lint:boundaries` OK -- 107 files; `pnpm check:headers` / `check:attributions` OK; golden pre-filter (`git diff --stat -- test/replays/`) empty; `git ls-files --others --exclude-standard test/` empty.
 
 ## Design Notes
 
@@ -475,18 +520,71 @@ Two further facts, measured here and worth stating because they are not obvious.
 - **AC 5, second clause** — `mutation: tilt-branch events.push({ type: 'tilt', player: playerIndex, tick }) → player: 0 (src/sim/rules/tilt.ts:163)` → reddens **6** tests, none overlapping the mutation above: the AC 1 spacing-boundary `currentPlayer: 1` twin, both "Eligible again"/"Zero-warning machine" `currentPlayer: 1` twins, the AC 3 `currentPlayer: 1` twin, the AC 4 rotation `currentPlayer: 1` twin, and the AC 7 (DW-222) `currentPlayer: 1` twin. Every `currentPlayer: 0` case stayed green (QA).
 - **F2 investigated, not a gap** — `mutation: slam-tilt-branch events.push({ type: 'slam_tilt', tick }) removed (src/sim/rules/tilt.ts:119)` → reddens **5** pre-existing tests directly, including AC 6's own primary assertion `expect(result.events).toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: 1 }]))` (`test/rules-tilt.test.ts:651`) and all three same-tick-collision tests' `slam_tilt`-only event-list assertions. The `slam_tilt` event was already independently falsifiable; no test gap existed and none was added (QA).
 
+**Smoke rework mutation (DW-247, implement re-spawn, 2026-09-11).** One mutation covering both carry sites at once, in `src/presentation/backglass/frame.ts`: change the `ball_ended` arming branch's `pendingTiltWarning: view.pendingTiltWarning || Boolean(tiltWarningEvent)` to `pendingTiltWarning: false`, and the hold-continuation branch's `const pendingTiltWarning = view.pendingTiltWarning || Boolean(tiltWarningEvent)` to `const pendingTiltWarning = false` (i.e. drop both carry sites, reproducing the pre-fix code exactly). Expected red, per the task's own prediction: tests 1, 2 and 4. Observed: tests 1, 2 and 4 reddened exactly as predicted (`atHoldEnd.screen` / `view.screen` each `'score'` instead of `'tilt_warning'`); test 3 (TILT-supersedes / game_over-drops) stayed green, correctly, since it never depends on the carry actually working. Reverted from a saved copy (`cp`, never `git checkout --`/`git stash`); `git diff --stat src/presentation/backglass/frame.ts` and a `grep` for the mutation's own marker comment confirmed the tree was byte-identical to the pre-mutation state afterward, and the full `test/backglass-frame.test.ts` + `test/backglass-integration.test.ts` pair (43 tests) was re-run green post-revert.
+
+**Smoke rework review-pass mutations (DW-247, code review, 2026-09-10).** Three patches landed this pass; each mutation applied from a saved copy of `src/presentation/backglass/frame.ts` (`cp` out, `cp` back -- never `git checkout --`/`git stash`), confirmed `git status --short` / `git diff --stat` unchanged after each revert.
+- **Reset-safety bound** (the medium patch) — `mutation: (tiltWarningEvent || (view.pendingTiltWarning && view.holdUntilTick !== null && tick >= view.holdUntilTick)) → (tiltWarningEvent || view.pendingTiltWarning) (frame.ts, the tilt_warning-arming condition)` → the new "a pendingTiltWarning carried from a PREVIOUS timeline does not survive a reset" test RED (`screen` `'tilt_warning'` instead of `'score'`); all 44 other tests in the file stayed green.
+- **TILT-branch clearing is load-bearing** (a low patch) — `mutation: return { screen: 'tilt', holdUntilTick: null, ... , pendingTiltWarning: false } → return { ...view, screen: 'tilt' } (frame.ts, the TILT branch)` → the "superseded by TILT" test's new follow-up assertion RED. Also verified: a narrower mutation that leaks ONLY `pendingTiltWarning` (`pendingTiltWarning: view.pendingTiltWarning`, `holdUntilTick: null` left intact) does **not** redden this assertion -- the reset-safety bound above independently blocks it, since it requires `view.holdUntilTick !== null` and TILT always nulls it. The two fixes are confirmed defense-in-depth, not a shared single point of failure.
+- **Attract-branch clearing on a Slam mid-hold is load-bearing** (a low patch) — `mutation: return { screen, holdUntilTick: null, attractCycleOriginTick: originTick, heldBallEnded: null, pendingTiltWarning: false } → return { ...view, screen, attractCycleOriginTick: originTick, heldBallEnded: null } (frame.ts, the Attract branch)` → the new "a pending warning is dropped ... when a Slam ends the game mid-hold" test's follow-up assertion RED, once its own post-Attract probe tick was moved to `armed.holdUntilTick! + 1` (a first attempt at `tick: 33` passed for the wrong reason -- the leaked, abandoned `holdUntilTick` from the ball_ended hold was still in the future relative to tick 33, so the reset-safety bound coincidentally blocked the leak there too, the same way it will after a genuine reset).
+
+All three mutations and their reverts were re-verified against a clean tree: `git diff --stat` after the final revert showed only the three intentional files (`frame.ts`, `test/backglass-frame.test.ts`, this spec), and the full `pnpm test` suite (`BLENDER` exported) measured **117 files / 1966 tests / 0 failed / 0 skipped**.
+
 ## Auto Run Result
 
 Status: done
 Blocking condition: none
 
-### Summary of implemented change
+### Iteration 2 -- smoke rework (DW-247), 2026-09-10
+
+_This iteration's scope was exactly one item: the `[Smoke]` task under "Smoke rework (iteration 1, 2026-09-11)" above, closing DW-247 (a `tilt_warning` landing during a live `ball_ended` hold was swallowed for good). Everything else in this spec was already implemented, reviewed and verified in Iteration 1 below, and was not touched._
+
+#### Summary of implemented change
+
+`src/presentation/backglass/frame.ts`'s `BackglassView` gained `pendingTiltWarning: boolean` (presentation state, never `GameState` -- no golden moves). `advanceBackglass()` now carries a `tilt_warning` event forward through a live `ball_ended` hold (or a same-frame arming) instead of dropping it, and surfaces it the instant the hold releases, for a fresh `TILT_WARNING_HOLD_TICKS` measured from that release -- unless the machine is genuinely tilted by then (TILT supersedes) or `phase` has left `'game'` (dropped). Task 10's original ordering and every existing phase gate are unchanged. Five tests were added by the implementation subagent (`test/backglass-frame.test.ts`) covering the four scenarios the reopened task named, including one built from real `runRulesScript` frames. Code review (four parallel layers) then found the new field lacked this file's own established reset-safety discipline (unlike its `screen`/`holdUntilTick` siblings) and that two of the field's clearing sites had no load-bearing test; this pass fixed the reset-safety gap (reusing the existing `holdUntilTick` bound, no new field) and added two more regression tests, landing at 117 files / 1966 tests / 0 failed / 0 skipped.
+
+#### Files changed
+
+- `src/presentation/backglass/frame.ts` — `BackglassView.pendingTiltWarning` added; `advanceBackglass()`'s `ball_ended` arming and hold-continuation branches now carry a `tilt_warning` event forward; the TILT branch and the warning-arming branch's own consumption both updated (the latter gated on `view.holdUntilTick !== null && tick >= view.holdUntilTick` for reset-safety, per code review); the Attract and final score/game_over fallback branches explicitly drop the carry.
+- `test/backglass-frame.test.ts` — new `describe('smoke rework (DW-247) ...')` block: the four scenarios the reopened task named (in-hold carry, same-frame-as-arming carry, TILT-supersedes, phase-left-'game'-drops) plus a REAL-frames case via `runRulesScript`, all from the implementation subagent; this review pass added a dedicated PREVIOUS-timeline reset-safety test and strengthened the TILT-supersedes and new Slam-mid-hold tests with follow-up-frame assertions proving the carry is actually cleared, not merely outranked for one frame. Two pre-existing `BackglassView` literals gained the new required field.
+- `_bmad-output/implementation-artifacts/spec-2-11-tilt-warnings-tilt-and-slam-tilt.md` — `baseline_revision`/`baseline_commit` updated to `217fa70` (this iteration's dispatch HEAD); the `[Smoke]` task checked off with an "Implement re-spawn: done" note; a new `## Review Triage Log` entry; three new `mutation:` records in `## Verification`; frontmatter `deferred:` gained one new low-severity item; this section.
+
+#### Review findings breakdown
+
+Four parallel review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment) produced 8 raw findings this pass, deduplicated to 7 (see `## Review Triage Log`, "2026-09-10 — Review pass (smoke rework iteration, DW-247)", for full detail and evidence):
+- **Patches applied: 3** (1 medium, 2 low) — the reset-safety gap on the new field, and two missing load-bearing tests for its clearing sites (TILT branch; a Slam mid-hold's Attract branch). All three confirmed to redden against the pre-fix/pre-test code and pass against the fix, including one case where a first attempted mutation passed for the wrong reason and was corrected.
+- **Deferred: 1** (low) — a `ball_ended` arriving while `tilt_warning` is already SHOWING (not pending) silently replaces it; verified pre-existing (predates this smoke rework), added to the spec's frontmatter `deferred:` list.
+- **Rejected: 3** — no player-matching on the carried event (pre-existing, no visible consequence since the screen carries no per-player content); the REAL-frames test's per-tick construction (matches this file's own established convention); a changelog-entry request for the routine `in-review` status transition (ordinary stage bookkeeping, not a substantive decision).
+
+#### Follow-up review recommendation
+
+`followup_review_recommended: true` — this pass's patched findings were 1 medium, 2 low. The threshold `3×medium + 1×low >= 5` is met exactly: `3×1 + 1×2 = 5`.
+
+#### Verification performed
+
+- `pnpm typecheck` — clean across all three tsconfigs (re-run after the review patches).
+- `pnpm test` (BLENDER exported) — final: **117 files / 1966 tests / 0 failing / 0 skipped** (1959 at this iteration's dispatch HEAD `217fa70`, +5 from implementation, +2 from review patches).
+- `pnpm lint:boundaries` — `OK -- 107 .ts file(s)`.
+- `pnpm check:headers` / `pnpm check:attributions` — OK.
+- Golden pre-filter (`git diff --stat -- test/replays/`) — empty; this iteration touches no golden. `git ls-files --others --exclude-standard test/` — empty, no stray files.
+- `git status --short` / `git diff --stat` — exactly three files dirty throughout: `frame.ts`, `test/backglass-frame.test.ts`, this spec.
+- **Rule 19 mutations** — one for the implementation subagent's own fix (recorded in `## Verification` under "Smoke rework mutation (DW-247, implement re-spawn, 2026-09-11)"), three more for this review pass's patches (recorded immediately below it), each applied from a saved copy (`cp`, never `git checkout --`/`git stash`) and reverted with the tree confirmed byte-identical afterward.
+- **Matrix Test Audit** — DW-247 is not itself an I/O & Edge-Case Matrix row (it is a smoke-discovered gap in the already-audited "Backglass shows the warning" / "The ball's end still wins the panel" rows' interaction); both of those rows remain covered and green, with no regression, confirmed by the full-suite pass above.
+
+#### Residual risks
+
+- All residual risks recorded under Iteration 1 below are unchanged by this iteration (none touched or worsened).
+- The one new deferred item (see frontmatter `deferred:`, fourth entry): a `ball_ended` interrupting an ALREADY-SHOWING `tilt_warning` screen still loses it, with no memory carried forward -- the reverse direction from the one this iteration closed. Low severity: the player did see the warning for at least part of its window before the ball ended, unlike the original DW-247 defect where the warning was never shown at all.
+- No browser smoke re-run of this specific fix was performed by this stage (no browser tooling available here) -- the lead's own manual smoke, which originally found DW-247, is the appropriate verification of the actual on-panel behavior, per the spec's own "What this story's suite cannot prove."
+
+### Iteration 1 -- original implementation and code review, 2026-09-08 to 2026-09-10
+
+#### Summary of implemented change
 
 Story 2.11 is implemented in full: 17 tasks and 12 acceptance criteria. `src/sim/rules/devices/index.ts` derives `s_tilt_bob`/`s_slam_tilt`'s switch names structurally from their unique `SettleClass` and emits two new `DeviceEvent`s (`tilt_bob_closed`, `slam_tilt_closed`) on the closed edge only, leaving `PLAYFIELD_SWITCHES` at 28. A new `src/sim/rules/tilt.ts` module (`createTiltController`) owns `machine.tilt`, the current player's `tiltWarnings`, and the Tilt-side of `machine.hardwareEnabled`/`machine.ballSave`, stepped before the ball controller on every tick so a same-tick Tilt is already visible to its already-shipped guards (the ball-save disarm conjunct, the deferred-autolaunch guard, the bonus forfeit). `TUNING.tiltWarnings` closes `DW-36`'s duplicate-default gap; `DEFAULT_ADJUSTMENTS` and the real `GameStart` in `src/host/boot.ts` both now read the one entry. The Backglass (`src/presentation/backglass/frame.ts`) gains `tilt_warning`/`tilt` `DmdScreen` members, the former read from the event, the latter from the snapshot condition. Three new `SemanticEvent` members (`tilt_warning`, `tilt`, `slam_tilt`) and their `describeEvent()` arms are added, alongside the 8 previously-unexercised arms this story's own pass closed opportunistically (`DW-223`). All five golden replays received a header-only refresh (exactly one new `tiltWarnings` tuning block plus an appended `notes` entry; `tableHash`/`assetHash`/every body field unchanged), verified structurally per field.
 
 Code review (four parallel layers: Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment) found and this pass fixed a real same-tick/cross-tick race between a bob-triggered warning/tilt and a slam tilt (defense-in-depth fix in both `tilt.ts` and `frame.ts`) and a structurally unfalsifiable pinning test on AC 4 (window too short to observe the claim, and missing the untilted control the AC's own text requires) — see `## Review Triage Log` for the full breakdown.
 
-### Files changed
+#### Files changed
 
 - `src/sim/rules/tilt.ts` — new: the tilt controller (`createTiltController`), including the code-review fix that processes every `slam_tilt_closed` to completion before any `tilt_bob_closed` in the same tick.
 - `src/sim/rules/devices/index.ts` — structural switch-name derivation, Stage 3 emits `tilt_bob_closed`/`slam_tilt_closed`.
@@ -509,18 +607,18 @@ Code review (four parallel layers: Blind Hunter, Edge Case Hunter, Verification 
 - `test/host-game-seed.test.ts` — regex updated for the new `TUNING.tiltWarnings.value` read.
 - `test/replays/*.golden.json` (five files) — header-only refresh (`tiltWarnings` tuning block, appended `notes`).
 
-### Review findings breakdown
+#### Review findings breakdown
 
 Four parallel review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment) produced 13 raw findings, deduplicated to 9 (see `## Review Triage Log` for full detail and evidence):
 - **Patches applied: 6** (1 high, 3 medium, 2 low) — all fixed in this pass, each with a new or strengthened regression test confirmed to redden against the pre-fix code and pass against the fix.
 - **Deferred: 0.**
 - **Rejected: 3** — two verified false on inspection (pre-existing test coverage the reviewers missed since it lives outside the diff; a "stale ballSave" observation that is harmless because `startBall()` unconditionally resets it and Attract never reads it), one verified to be a pre-existing, deliberate convention this story merely joins (machine.tilt's reset-at-next-Start timing, matching its `ballSave`/`multiball` siblings exactly) rather than a new defect.
 
-### Follow-up review recommendation
+#### Follow-up review recommendation
 
 `followup_review_recommended: true` — this pass's patched findings were 1 high, 3 medium, 2 low. Any high-severity patch alone triggers `true` (the threshold `3×medium + 1×low >= 5` is also independently met: 3×3 + 1×2 = 11).
 
-### Verification performed
+#### Verification performed
 
 - `pnpm typecheck` — clean across all three tsconfigs (re-run after every patch round).
 - `pnpm test` (BLENDER exported) — final: **117 files / 1943 tests / 0 failing / 0 skipped**, ~100 s.
@@ -533,7 +631,7 @@ Four parallel review layers (Blind Hunter, Edge Case Hunter, Verification Gap, I
 - **Matrix Test Audit** — every I/O & Edge-Case Matrix row covered by an executing, passing test; one genuine gap found and closed ("Derivation is structural" — the load-time throw on a non-unique `SettleClass` had no standing test, only the Rule 19 mutation exercise) with a new regression test using the established `vi.resetModules()` + `vi.doMock('../src/sim/table/dragonwar', ...)` pattern (`test/lock-device-behaviour.test.ts`'s own precedent), confirmed to redden under the corresponding mutation.
 - **Rule 19 mutations spot-checked directly by this stage** (beyond the implementation subagent's own 2): AC 1's `tiltWarningSpacingMs=1`, AC 12's exclusion-clause deletion, the `switchNameForSettleClass()` throw removal, the ball-save `!tilt.tilted` guard removal (confirmed the pre-existing `l_ball_save` lamp test catches it), the always-arm `armBonusCountSchedule()` mutation (confirmed the strengthened AC 4 test catches it), and the `>=`-to-`>` mutation on both tilt windows plus the Attract-mark update removal (confirmed the three new tests each catch their own regression). Every mutation reverted from a saved copy (`cp`, never `git checkout --` or `git stash`); tree confirmed byte-identical after each revert via `git diff --numstat` against the pre-mutation state.
 
-### Residual risks
+#### Residual risks
 
 - **AD-5's manual-plunger gap** (deferred in this spec's own frontmatter `deferred:` list, severity medium): `machine.ts:306` gates the manual plunge on `coilEnabled.c_autolaunch`, which `HARDWARE_COILS` structurally excludes, so neither Tilt nor game-over disable it — pre-existing, not created by this story, and not fixed here (closing it risks converting `DW-222`'s recoverable stall into an unrecoverable hang until Story 2.12's ball search lands).
 - **Automatic recovery from `DW-222`'s stranded-ball scenario** is explicitly Story 2.12's (ball search), not this story's — AC 7 pins that the ball stays manually plungeable end to end, but nothing here recovers it automatically.

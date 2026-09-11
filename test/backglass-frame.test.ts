@@ -277,6 +277,7 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 			holdUntilTick: 500_000,
 			attractCycleOriginTick: 0,
 			heldBallEnded: { player: 0, score: 1111, bonusRunning: null },
+			pendingTiltWarning: false,
 		};
 		const game: GameState = {
 			...BASE_GAME_STATE,
@@ -379,6 +380,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 			holdUntilTick: 500_000,
 			attractCycleOriginTick: 0,
 			heldBallEnded: null,
+			pendingTiltWarning: false,
 		};
 		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
 		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
@@ -539,6 +541,215 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 		const attractGame: GameState = { ...gameInPlay, phase: 'attract' };
 		const afterSlam = advanceBackglass(armed, frameOutput({ snapshot: buildSnapshot({ tick: 31, game: attractGame }), events: [] }));
 		expect(afterSlam.screen, 'a slam mid-hold must drop the end-of-ball screen for Attract').not.toBe('ball_ended');
+	});
+
+	// Smoke rework (DW-247, reopened `by=smoke`, 2026-09-11): browser smoke
+	// found that a tilt_warning landing while a ball_ended hold is live was
+	// swallowed for good -- both the arming branch and the hold-continuation
+	// branch returned above the warning-arming check with no memory of the
+	// event. The player never saw WARNING, and the next eligible closure
+	// could TILT them with no visible warning at all. Fixed by carrying the
+	// event forward as `BackglassView.pendingTiltWarning` (presentation
+	// state, never GameState -- no golden moves) and consuming it the
+	// instant the hold ends.
+	describe('smoke rework (DW-247) -- a tilt_warning arriving during a ball_ended hold is carried, never swallowed', () => {
+		// Code review (Blind Hunter, corroborated by Verification Gap): unlike
+		// `screen`/`holdUntilTick` -- protected by the pre-existing "armed on a
+		// PREVIOUS timeline" tests just above, in this exact shape -- nothing
+		// pinned `pendingTiltWarning` against the identical reset-shaped hazard.
+		// `host/loop.ts`'s `reset()` restarts `tick` near 0 while the
+		// closure-held `BackglassView` survives; a stale carried flag paired
+		// with a stale, far-future `holdUntilTick` must not resurface as
+		// WARNING the moment `tick` is small again.
+		it('a pendingTiltWarning carried from a PREVIOUS timeline does not survive a reset, exactly like its screen/holdUntilTick siblings', () => {
+			const staleFromLongGame: BackglassView = {
+				screen: 'ball_ended',
+				holdUntilTick: 500_000,
+				attractCycleOriginTick: 0,
+				heldBallEnded: { player: 0, score: 1234, bonusRunning: null },
+				pendingTiltWarning: true,
+			};
+			const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
+			expect(afterReset.screen, 'a stale carried warning paired with a stale, far-future holdUntilTick must not resurface just because tick is small again (mutation: dropping the `tick >= view.holdUntilTick` bound on the carried flag shows tilt_warning here instead of score)').toBe('score');
+		});
+
+		it('a tilt_warning arriving DURING a live ball_ended hold is carried and shown once the hold ends, for its own full window; the same fold without the event never shows WARNING', () => {
+			const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+			const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+			expect(armed.screen, 'sanity: the ball_ended hold is armed').toBe('ball_ended');
+
+			const withWarning = advanceBackglass(armed, frameOutput({
+				snapshot: buildSnapshot({ tick: 31, game: gameInPlay }),
+				events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 31 }],
+			}));
+			expect(withWarning.screen, 'the ball_ended hold must still win the panel -- the warning must not surface early (mutation: dropping the carry reddens this, since the pre-fix code showed "score" here instead)').toBe('ball_ended');
+
+			const beforeHoldEnd = advanceBackglass(withWarning, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick! - 1, game: gameInPlay }), events: [] }));
+			expect(beforeHoldEnd.screen, 'still one tick before the hold ends').toBe('ball_ended');
+
+			const atHoldEnd = advanceBackglass(beforeHoldEnd, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameInPlay }), events: [] }));
+			expect(atHoldEnd.screen, 'the carried warning must surface the instant the ball_ended hold ends').toBe('tilt_warning');
+			expect(
+				atHoldEnd.holdUntilTick,
+				'the warning\'s own hold is measured from the moment it is shown, not from when the event originally arrived',
+			).toBe(armed.holdUntilTick! + TILT_WARNING_HOLD_TICKS);
+
+			const stillWarned = advanceBackglass(atHoldEnd, frameOutput({ snapshot: buildSnapshot({ tick: atHoldEnd.holdUntilTick! - 1, game: gameInPlay }), events: [] }));
+			expect(stillWarned.screen, 'the surfaced warning must hold for its own full window').toBe('tilt_warning');
+
+			const released = advanceBackglass(stillWarned, frameOutput({ snapshot: buildSnapshot({ tick: atHoldEnd.holdUntilTick!, game: gameInPlay }), events: [] }));
+			expect(released.screen, 'once the warning\'s own hold ends, live play resumes').toBe('score');
+
+			// Control (Rule 19): the IDENTICAL fold, minus the tilt_warning event,
+			// never shows WARNING anywhere, including at the moment the hold ends.
+			const controlArmed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+			const controlDuringHold = advanceBackglass(controlArmed, frameOutput({ snapshot: buildSnapshot({ tick: 31, game: gameInPlay }), events: [] }));
+			const controlAtHoldEnd = advanceBackglass(controlDuringHold, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameInPlay }), events: [] }));
+			expect(controlAtHoldEnd.screen, 'control: with no tilt_warning event anywhere in the fold, the hold\'s end must show score, never WARNING').toBe('score');
+		});
+
+		it('a tilt_warning landing on the SAME frame as the ball_ended ARMING (one FrameOutput carries every owed tick\'s events) is carried and shown once the hold ends', () => {
+			const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+			const warningEvent = { type: 'tilt_warning' as const, player: 0, remaining: 0, tick: 30 };
+			const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent, warningEvent] }));
+			expect(armed.screen, 'the ball_ended arming still wins the panel even though the SAME frame also carries a tilt_warning').toBe('ball_ended');
+
+			const atHoldEnd = advanceBackglass(armed, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameInPlay }), events: [] }));
+			expect(atHoldEnd.screen, 'the warning carried from the arming frame itself must surface once the hold ends').toBe('tilt_warning');
+
+			// Control: the identical arming frame with the tilt_warning stripped never shows WARNING afterward.
+			const controlArmed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+			const controlAtHoldEnd = advanceBackglass(controlArmed, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameInPlay }), events: [] }));
+			expect(controlAtHoldEnd.screen, 'control: without the warning event on the arming frame, the hold\'s end must show score').toBe('score');
+		});
+
+		it('a pending warning is superseded by TILT if the machine is genuinely tilted by the time the hold ends', () => {
+			const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+			const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+			const withWarning = advanceBackglass(armed, frameOutput({
+				snapshot: buildSnapshot({ tick: 31, game: gameInPlay }),
+				events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 31 }],
+			}));
+			expect(withWarning.screen).toBe('ball_ended');
+
+			const tiltedGame: GameState = { ...gameInPlay, machine: { ...gameInPlay.machine, tilt: { tilted: true, slamTilted: false } } };
+			const atHoldEnd = advanceBackglass(withWarning, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: tiltedGame }), events: [] }));
+			expect(atHoldEnd.screen, 'a genuine Tilt by the hold\'s end must show TILT, not the pending WARNING (mutation: dropping the TILT branch\'s own pendingTiltWarning: false would show WARNING here instead)').toBe('tilt');
+
+			// Code review (Blind Hunter): the assertion above only proves TILT wins
+			// on THIS frame -- it says nothing about whether the TILT branch
+			// actually clears the carry rather than merely outranking it for one
+			// frame. Fold one more frame, back in a live untilted game with no new
+			// tilt_warning event: if the carry leaked past the TILT branch, this
+			// frame would wrongly show 'tilt_warning' instead of 'score'.
+			// (Verified defense-in-depth, not a single point of failure: this
+			// project's actual reset-safety guard on `pendingTiltWarning` --
+			// consumption requires `view.holdUntilTick !== null && tick >=
+			// view.holdUntilTick`, and TILT always returns `holdUntilTick: null`
+			// -- independently blocks a leaked flag here too, so mutating ONLY the
+			// TILT branch's `pendingTiltWarning: false` to `pendingTiltWarning:
+			// view.pendingTiltWarning` does not redden this assertion by itself.
+			// mutation: replacing the TILT branch's explicit return literal with
+			// `{ ...view, screen: 'tilt' }` -- a realistic "simplify to a spread"
+			// refactor that leaks BOTH `pendingTiltWarning` and the stale
+			// `holdUntilTick` together -- reddens this assertion; reverted and
+			// confirmed green again.)
+			const afterTilt = advanceBackglass(atHoldEnd, frameOutput({ snapshot: buildSnapshot({ tick: atHoldEnd.holdUntilTick === null ? armed.holdUntilTick! + 1 : atHoldEnd.holdUntilTick, game: gameInPlay }), events: [] }));
+			expect(afterTilt.screen, 'the TILT branch must actually clear the carried warning, not merely outrank it for one frame').toBe('score');
+		});
+
+		it('a pending warning is dropped, not shown later, when a Slam ends the game mid-hold (phase -> attract), matching this file\'s existing "a slam mid-hold" precedent', () => {
+			const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+			const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+			const withWarning = advanceBackglass(armed, frameOutput({
+				snapshot: buildSnapshot({ tick: 31, game: gameInPlay }),
+				events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 31 }],
+			}));
+			expect(withWarning.screen).toBe('ball_ended');
+
+			// A Slam tilt reaches Attract directly (Story 2.11's own "minimum state
+			// change" design, Design Notes) -- this is the SAME shape as the
+			// pre-existing "a slam mid-hold must drop the end-of-ball screen for
+			// Attract" test above, extended to prove the carried warning does not
+			// survive it either.
+			const attractGame: GameState = { ...gameInPlay, phase: 'attract', modes: [] };
+			const midHold = advanceBackglass(withWarning, frameOutput({ snapshot: buildSnapshot({ tick: 32, game: attractGame }), events: [] }));
+			expect(midHold.screen, 'sanity: a slam mid-hold must drop the end-of-ball screen for Attract, exactly as the pre-existing test above establishes').not.toBe('ball_ended');
+			expect(midHold.screen, 'a slam mid-hold must not surface the carried warning either -- the game it belonged to is already gone').not.toBe('tilt_warning');
+
+			// If a later frame somehow returned to phase 'game' with no new
+			// tilt_warning event, the dropped carry must not resurface.
+			// A tick comfortably PAST the abandoned ball_ended hold's own recorded
+			// end (`armed.holdUntilTick`), not merely later than 32 -- otherwise a
+			// leaked, stale `holdUntilTick` surviving the Attract branch would
+			// still fail this file's own `tick >= holdUntilTick` reset-safety
+			// bound by coincidence, the same way it would after a genuine reset,
+			// and the assertion below would pass for the wrong reason.
+			const laterInGame = advanceBackglass(midHold, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick! + 1, game: gameInPlay }), events: [] }));
+			expect(laterInGame.screen, 'the warning dropped by the slam must not resurface on a later game frame (mutation: replacing the Attract branch\'s explicit return literal with a spread that omits `pendingTiltWarning: false` -- leaking both it and the abandoned holdUntilTick together -- reddens this; reverted and confirmed green again)').not.toBe('tilt_warning');
+		});
+
+		it('a pending warning is dropped, not shown later, once phase is no longer "game" by the time the hold ends (game over, not a slam)', () => {
+			const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+			const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+			const withWarning = advanceBackglass(armed, frameOutput({
+				snapshot: buildSnapshot({ tick: 31, game: gameInPlay }),
+				events: [{ type: 'tilt_warning', player: 0, remaining: 0, tick: 31 }],
+			}));
+			expect(withWarning.screen).toBe('ball_ended');
+
+			// 'game_over' keeps the ball_ended hold alive (this file's own
+			// established convention, just above) -- unlike 'attract', which ends
+			// it immediately. The pending warning must still be dropped once the
+			// hold's own end tick is reached with the game no longer live.
+			const gameOverGame: GameState = { ...gameInPlay, phase: 'game_over' };
+			const stillHeld = advanceBackglass(withWarning, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick! - 1, game: gameOverGame }), events: [] }));
+			expect(stillHeld.screen, 'sanity: game_over keeps the hold alive, unlike attract').toBe('ball_ended');
+
+			const atHoldEnd = advanceBackglass(stillHeld, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameOverGame }), events: [] }));
+			expect(atHoldEnd.screen, 'phase is no longer "game" at the hold\'s end -- the pending warning must be dropped, not shown over game_over (mutation: gating only on the event and never on view.pendingTiltWarning would still pass; gating on phase alone with no branch reached would show WARNING here)').toBe('score');
+		});
+
+		// Rule 1 (Integration AC): the fix proven against REAL frames from a
+		// real `createRules()` run (`runRulesScript`, this file's own
+		// `realBallEndedFrame()`-style precedent above), not only synthetic
+		// FrameOutputs -- a real drain producing a real ball_ended, and a real
+		// s_tilt_bob closure producing a real tilt_warning while that hold is
+		// still live, folded through advanceBackglass()/renderFrame() exactly
+		// as src/host/boot.ts does.
+		it('REAL frames (runRulesScript): a ball drains and s_tilt_bob closes within the following hold -- the WARNING row lights dots in its own declared band once the hold ends', () => {
+			const holdEndTick = 20 + BALL_ENDED_HOLD_TICKS;
+			const script = close('s_start').at(5).at(8).open('s_shooter_lane').at(10).close('s_trough_1').at(20).close('s_tilt_bob').at(25);
+			const result = runRulesScript(script.build(), { durationTicks: holdEndTick, tuning: NO_BALL_SAVE_TUNING });
+
+			const eventsAtTick20 = result.events.filter((e) => e.tick === 20);
+			expect(eventsAtTick20.some((e) => e.type === 'ball_ended'), 'sanity: the script must genuinely drain and produce ball_ended at tick 20').toBe(true);
+			let view = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 20, game: result.statesByTick.get(20)! }), events: eventsAtTick20 }));
+			expect(view.screen, 'sanity: the ball_ended hold is armed').toBe('ball_ended');
+
+			const eventsAtTick25 = result.events.filter((e) => e.tick === 25);
+			expect(
+				eventsAtTick25.some((e) => e.type === 'tilt_warning'),
+				'sanity: the script must genuinely produce a tilt_warning WHILE the ball_ended hold is still live -- the whole test is vacuous otherwise',
+			).toBe(true);
+			view = advanceBackglass(view, frameOutput({ snapshot: buildSnapshot({ tick: 25, game: result.statesByTick.get(25)! }), events: eventsAtTick25 }));
+			expect(view.screen, 'the hold must still be showing ball_ended -- the warning must not leak out early').toBe('ball_ended');
+
+			const holdUntilTick = view.holdUntilTick!;
+			expect(holdUntilTick, 'sanity: the scripted run must reach exactly the hold\'s own end tick').toBe(holdEndTick);
+			const gameAtHoldEnd = result.statesByTick.get(holdUntilTick)!;
+			const eventsAtHoldEnd = result.events.filter((e) => e.tick === holdUntilTick);
+			view = advanceBackglass(view, frameOutput({ snapshot: buildSnapshot({ tick: holdUntilTick, game: gameAtHoldEnd }), events: eventsAtHoldEnd }));
+			expect(view.screen, 'once the REAL ball_ended hold ends, the carried warning must surface').toBe('tilt_warning');
+
+			const frame = renderFrame(view, buildSnapshot({ tick: holdUntilTick, game: gameAtHoldEnd }));
+			const warningRow = frame.rows.find((r) => r.text === 'WARNING');
+			expect(warningRow, 'sanity: the frame must carry a WARNING row at all').toBeDefined();
+			const raster = rasterise(frame, FONT_5X7);
+			const litRows = litDotRows(raster);
+			const inBand = (r: number): boolean => r >= warningRow!.row && r < warningRow!.row + GLYPH_H;
+			expect(litRows.filter(inBand), 'the WARNING row must light dots in ITS OWN dot band once rasterised, from REAL rules-layer frames').not.toEqual([]);
+		});
 	});
 });
 
