@@ -176,13 +176,15 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * golden replay header; AD-14 makes it a sim adjustment, so it is authored
  * here rather than in `sim/table/tuning.ts` or `TABLE`.
  *
- * Review correction 2026-09-06 (code-review, blind-hunter + acceptance-auditor):
- * the "mirrors" claim above is true of `ballsPerGame` ONLY. `tiltWarnings`
- * and `matchProbability` deliberately do NOT match `src/host/boot.ts:281` or
+ * Review correction 2026-09-06 (code-review, blind-hunter + acceptance-auditor),
+ * re-pointed at Story 2.11's code review: the "mirrors" claim above is true of
+ * `ballsPerGame` ONLY. `tiltWarnings` and `matchProbability` deliberately do
+ * NOT match the dev replay recorder's own `GameStart` in `src/host/boot.ts` or
  * the golden headers, which both carry `tiltWarnings: 3` / `matchProbability: 0`;
- * this default carries `1` / `0.08`. `matchProbability` still has no reader
- * (Match is Story 2.13) so that divergence is unchanged and still that
- * story's product call to reconcile.
+ * this default carries the tuning entry's value / `0.08` (the REAL gameplay
+ * `GameStart` in `boot.ts` is not the divergent one -- see below).
+ * `matchProbability` still has no reader (Match is Story 2.13) so that
+ * divergence is unchanged and still that story's product call to reconcile.
  *
  * Story 2.11 (`DW-36`, closed): `tiltWarnings` no longer diverges by
  * construction -- it now reads `TUNING.tiltWarnings.value` (`sim/table/tuning.ts`,

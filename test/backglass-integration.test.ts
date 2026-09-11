@@ -221,7 +221,7 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 	});
 });
 
-describe('Story 2.11, task 12 (AC 9) -- a real createLoop folds a tilted ball\'s frames into the WARNING and TILT screens, exactly as src/host/boot.ts:291-292 does', () => {
+describe('Story 2.11, task 12 (AC 9) -- a real createLoop folds a tilted ball\'s frames into the WARNING and TILT screens, exactly as src/host/boot.ts\'s own frame fold does', () => {
 	/**
 	 * TWO `nudge_up` rising edges at the fastest achievable spacing -- the
 	 * same cadence `test/cabinet-bob.test.ts`'s own `burstFrames()` uses, but
@@ -261,12 +261,19 @@ describe('Story 2.11, task 12 (AC 9) -- a real createLoop folds a tilted ball\'s
 		let sawWarningRow = false;
 		let sawTiltRow = false;
 		let sawStrippedWarningRow = false;
+		// Code review (Story 2.11): the two-edge burst is measured to stay under
+		// the slam detector's count; pinned here so a tuning drift fails as a
+		// slam, not as a missing WARNING row.
+		let sawSlam = false;
 
 		const firstBurstStart = out.snapshot.tick + 1;
 		const firstBurst = burstTransitions(firstBurstStart);
 		for (let tick = firstBurstStart; tick < firstBurstStart + 1600 && !sawWarningRow; tick++) {
 			const pending = firstBurst.filter((t) => t.tick === tick);
 			out = loop.advance(1, pending);
+			if (out.events.some((e) => e.type === 'slam_tilt')) {
+				sawSlam = true;
+			}
 			view = advanceBackglass(view, out);
 			strippedView = advanceBackglass(strippedView, { ...out, events: [] });
 			if (renderFrame(view, out.snapshot).rows.some((r) => r.text === 'WARNING')) {
@@ -276,6 +283,7 @@ describe('Story 2.11, task 12 (AC 9) -- a real createLoop folds a tilted ball\'s
 				sawStrippedWarningRow = true;
 			}
 		}
+		expect(sawSlam, 'sanity: the two-edge burst must stay under the slam count').toBe(false);
 		expect(sawWarningRow, 'a real nudge burst crossing the bob\'s threshold must produce a WARNING row').toBe(true);
 		expect(sawStrippedWarningRow, 'the SAME frames, re-folded with events stripped, must never show WARNING').toBe(false);
 

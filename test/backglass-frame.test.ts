@@ -454,16 +454,16 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 	});
 
 	// Code review finding (Blind Hunter / Edge Case Hunter, converged
-	// independently): `sim/rules/tilt.ts` now processes a same-tick
-	// slam_tilt_closed before any tilt_bob_closed (Code review fix,
-	// test/rules-tilt.test.ts), so the rules layer itself can no longer
-	// produce a `tilt_warning` event on a tick whose final snapshot phase is
-	// already 'attract'. This describe block's own two tests below are the
-	// PRESENTATION layer's independent, defense-in-depth guard against the
-	// same class of bug -- both the arming branch and the hold-continuation
-	// branch are gated on `game.phase === 'game'`, exactly mirroring the
-	// TILT branch's own gate above -- so the panel is correct even if a
-	// future producer of `tilt_warning` ever again disagreed with `phase`.
+	// independently): `sim/rules/tilt.ts` processes a same-tick
+	// slam_tilt_closed before any tilt_bob_closed, so the rules layer cannot
+	// produce a `tilt_warning` on the very tick a slam ends the game. That
+	// orders ONE tick only (corrected at Story 2.11's code review): a
+	// `FrameOutput` carries every owed tick's events, so one frame CAN carry
+	// a tick-k `tilt_warning` beside a snapshot already in 'attract' from a
+	// slam at tick k+j. The two tests below pin the presentation gates that
+	// handle exactly that -- both the arming branch and the hold-continuation
+	// branch are gated on `game.phase === 'game'`, mirroring the TILT
+	// branch's own gate above. They are load-bearing, not defence in depth.
 	it('a tilt_warning event arriving on a frame whose snapshot phase is already "attract" never arms the WARNING screen', () => {
 		const attractGame: GameState = { ...gameInPlay, phase: 'attract' };
 		const output = frameOutput({
@@ -488,6 +488,57 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 			afterSlam.screen,
 			'the hold must be abandoned the instant phase is no longer "game" -- a slam tilt mid-hold must not keep the WARNING screen alive',
 		).not.toBe('tilt_warning');
+	});
+
+	// Code review (Story 2.11, Rule 19): the TILT branch's `phase === 'game'`
+	// gate was unpinned -- removing it left the suite green. A tilted LAST
+	// ball ends the game with `machine.tilt.tilted` still true (only the next
+	// startBall() clears it), so without the gate the panel would show TILT
+	// for the whole of game over instead of the final scores.
+	it('a tilted snapshot in phase "game_over" does NOT show the TILT screen -- against the same snapshot in phase "game", which does', () => {
+		const tiltedMachine = { ...gameInPlay.machine, tilt: { tilted: true, slamTilted: false } };
+		const inGame = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 40, game: { ...gameInPlay, machine: tiltedMachine } }), events: [] }));
+		expect(inGame.screen, 'control: the same tilted machine in phase "game" shows TILT').toBe('tilt');
+
+		const gameOverSnapshot = buildSnapshot({ tick: 40, game: { ...gameInPlay, phase: 'game_over', machine: tiltedMachine } });
+		const afterGameOver = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: gameOverSnapshot, events: [] }));
+		expect(afterGameOver.screen, 'game over after a tilted last ball must not show TILT').not.toBe('tilt');
+		expect(renderFrame(afterGameOver, gameOverSnapshot).rows.some((r) => r.text === 'TILT'), 'no TILT row anywhere on the game-over panel').toBe(false);
+	});
+
+	// Code review (Story 2.11, Rule 19): "an ended ball still wins the panel
+	// over TILT" was pinned on the ARMING frame only -- moving the TILT branch
+	// between the ball_ended arming and its hold left the suite green. A
+	// player whose warnings are spent can tilt the NEXT ball on its first
+	// eligible closure, inside the previous ball's 3-second hold.
+	it('a live ball_ended hold keeps the panel through a LATER tilted frame, and TILT shows once the hold expires', () => {
+		const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+		const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+		expect(armed.screen, 'sanity: the ball_ended hold is armed').toBe('ball_ended');
+
+		const tiltedGame: GameState = { ...gameInPlay, machine: { ...gameInPlay.machine, tilt: { tilted: true, slamTilted: false } } };
+		const inHold = advanceBackglass(armed, frameOutput({ snapshot: buildSnapshot({ tick: 31, game: tiltedGame }), events: [] }));
+		expect(inHold.screen, 'the previous ball\'s end screen must still hold over a later tilted frame').toBe('ball_ended');
+
+		const afterHold = advanceBackglass(inHold, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: tiltedGame }), events: [] }));
+		expect(afterHold.screen, 'control: once the hold expires the TILT condition shows').toBe('tilt');
+	});
+
+	// Code review (Story 2.11): a Slam tilt within BALL_ENDED_HOLD_TICKS of
+	// the previous drain used to leave that ball's end-of-ball/BONUS screen
+	// up in Attract for the rest of the hold -- the shape the tilt_warning
+	// hold's own phase gate already closes.
+	it('a live ball_ended hold is abandoned the moment phase becomes "attract" (a slam mid-hold) -- against the same hold in phase "game", which keeps it', () => {
+		const endedEvent = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1, total: 0, tilted: false, tick: 30 };
+		const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 30, game: gameInPlay }), events: [endedEvent] }));
+		expect(armed.screen, 'sanity: the ball_ended hold is armed').toBe('ball_ended');
+
+		const stillHeld = advanceBackglass(armed, frameOutput({ snapshot: buildSnapshot({ tick: 31, game: gameInPlay }), events: [] }));
+		expect(stillHeld.screen, 'control: in phase "game" the hold is still live at the next tick').toBe('ball_ended');
+
+		const attractGame: GameState = { ...gameInPlay, phase: 'attract' };
+		const afterSlam = advanceBackglass(armed, frameOutput({ snapshot: buildSnapshot({ tick: 31, game: attractGame }), events: [] }));
+		expect(afterSlam.screen, 'a slam mid-hold must drop the end-of-ball screen for Attract').not.toBe('ball_ended');
 	});
 });
 

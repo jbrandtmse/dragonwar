@@ -644,8 +644,13 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				// auto-launch it. The flag is consumed either way (the ball DID
 				// arrive; leaving it `true` would only wait for an arrival that
 				// has already happened), just without the coil pulse while tilted.
+				// Story 2.11 code review: and never outside a game -- a Slam tilt
+				// landing inside the re-serve window moves `phase` to 'attract'
+				// with `tilt.tilted` left false (a slam is not a ball condition),
+				// so the tilt conjunct alone let this pulse fire `c_autolaunch`
+				// into Attract. The flag is still consumed.
 				awaitingSaveLaunch = false;
-				if (!nextState.machine.tilt.tilted) {
+				if (!nextState.machine.tilt.tilted && nextState.phase === 'game') {
 					coilCommands.push({ type: 'coil', coil: SHOOTER_LAUNCH_COIL, action: 'pulse', tick });
 					// Rework iteration 1 (DW-218): mark the upcoming `ball_launched`
 					// this same pulse will cause (one or more ticks from now) as the

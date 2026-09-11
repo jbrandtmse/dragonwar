@@ -241,7 +241,7 @@ function switchNameForSettleClass(settleClass: SettleClass): SwitchName {
 		([, sw]) => sw.settleClass === settleClass,
 	);
 	if (matches.length !== 1) {
-		throw new Error(`createDevicesLayer(): expected exactly one TABLE.switches entry with settleClass "${settleClass}", found ${matches.length}`);
+		throw new Error(`sim/rules/devices switchNameForSettleClass() (module load): expected exactly one TABLE.switches entry with settleClass "${settleClass}", found ${matches.length}`);
 	}
 	return matches[0]![0];
 }

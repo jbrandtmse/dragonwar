@@ -20,10 +20,16 @@
 // goldens' `attract` snapshots, so a new machine-scoped field would move
 // `expectedGameStateHash` on every one (Block If). They are monotone tick
 // marks that can only DELAY an effect, never enable one, so a stale mark
-// cannot hang a game; but each is still reset-safe against a restarted
-// timeline (`src/host/loop.ts`'s `reset()` restarts `tick` at 0 while this
-// closure survives) -- a mark strictly greater than the current tick is
-// from a different timeline and is discarded, never compared against.
+// cannot hang a game; and each is reset-safe against a restarted timeline
+// -- a mark strictly greater than the current tick is from a different
+// timeline and is discarded, never compared against. Code review (Story
+// 2.11): in production that guard is DEFENCE IN DEPTH, not load-bearing.
+// `src/host/loop.ts`'s `reset()` calls `createLoop()`, which calls
+// `createRules()`, which builds a FRESH tilt controller, so no mark outlives
+// its own timeline today (unlike `frame.ts`'s `backglassView`, which really
+// does survive a reset in `boot.ts`). It binds only for a caller that
+// reuses ONE controller across a restarted tick count, which is what
+// `test/rules-tilt.test.ts`'s restarted-timeline case does directly.
 
 import { disarmBallSave } from './ball-save';
 import { HARDWARE_COILS } from './ball-controller';
@@ -124,12 +130,21 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 			// the last game's scores), ballsInPlay is untouched (self-corrects
 			// via applyDeviceEvents on the parking entry), machine.tilt.tilted
 			// stays false (there is no ball, so no ball CONDITION) -- only
-			// slamTilted moves.
+			// slamTilted moves. Code review (Story 2.11): `ballSave` IS disarmed
+			// -- AD-18's "Tilt disarms all" -- because `lampsOf()` has no phase
+			// gate: left armed, `l_ball_save` stayed lit in Attract for the rest
+			// of the window (the implement-stage review's "Attract never reads
+			// it" was true of the drain branch only).
 			nextState = {
 				...nextState,
 				phase: 'attract',
 				modes: [],
-				machine: { ...nextState.machine, hardwareEnabled: false, tilt: { tilted: false, slamTilted: true } },
+				machine: {
+					...nextState.machine,
+					hardwareEnabled: false,
+					tilt: { tilted: false, slamTilted: true },
+					ballSave: disarmAllBallSave(nextState.machine.ballSave),
+				},
 			};
 		}
 

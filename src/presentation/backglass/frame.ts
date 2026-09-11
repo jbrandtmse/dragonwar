@@ -63,7 +63,7 @@ export interface DmdRow {
 	readonly emphasis: boolean;
 }
 
-/** The closed set of screens this story's Backglass can show. Later stories ADD members (Story 2.7's ARM YOURSELF, 2.13's final scores/Match) -- this union is a contract, not an implementation detail (Consumed-by, Rule 2). */
+/** The closed set of screens the Backglass can show. Later stories ADD members (Story 2.11 added 'tilt_warning' and 'tilt'; 2.13 will add final scores/Match) -- this union is a contract, not an implementation detail (Consumed-by, Rule 2). Story 2.7's ARM YOURSELF shipped as a ROW label on the score screen, not as a screen. */
 export type DmdScreen = 'attract_prompt' | 'attract_scores' | 'score' | 'ball_ended' | 'tilt_warning' | 'tilt';
 
 /** One rendered frame: which screen, and the rows to rasterise. */
@@ -214,7 +214,15 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// DMD froze on the previous game's end-of-ball screen -- for the whole of
 	// the old tick count, i.e. minutes, not the intended 3 seconds
 	// (code review, Story 2.6).
+	//
+	// Code review (Story 2.11): and never in Attract. Only a Slam tilt reaches
+	// 'attract' from a game, and it can land inside this hold (a slam within
+	// BALL_ENDED_HOLD_TICKS of the previous drain); without this gate the
+	// previous ball's end-of-ball/BONUS screen stayed up in Attract for the
+	// rest of the hold -- the shape the tilt_warning hold's own phase gate
+	// below already closes. 'game_over' still holds (the last ball's screen).
 	if (
+		game.phase !== 'attract' &&
 		view.screen === 'ball_ended' &&
 		view.holdUntilTick !== null &&
 		tick < view.holdUntilTick &&
@@ -248,17 +256,16 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// Code review finding (Blind Hunter / Edge Case Hunter, converged
 	// independently): both this arming check and the hold-continuation check
 	// below are gated on `game.phase === 'game'`, mirroring the TILT branch's
-	// own gate immediately above -- otherwise a `tilt_warning` racing a
-	// same-tick `slam_tilt` (the bob and slam detector can both cross
-	// threshold on one violent nudge; `sim/rules/tilt.ts` now processes slam
-	// first specifically so it always wins the GameState, but the WARNING
-	// event itself can still land in this frame's `events` from before that
-	// reordering existed at the presentation layer) -- or a warning hold
-	// still counting down when a LATER tick's slam tilt ends the game
-	// (`phase` moves to 'attract' well inside `TILT_WARNING_HOLD_TICKS`,
-	// which is 2000 ms, far longer than one tick) -- would otherwise keep
-	// showing WARNING instead of the Attract screen the game already
-	// reached.
+	// own gate immediately above. Both are LOAD-BEARING in production, not
+	// defence in depth (corrected at Story 2.11's code review): one
+	// `FrameOutput` carries every owed tick's events (`sim/loop`'s
+	// `advance()`, ~16 ticks per 60 Hz frame), so a single frame can carry a
+	// `tilt_warning` from tick k beside a snapshot already in 'attract' from a
+	// Slam tilt at tick k+j -- `sim/rules/tilt.ts`'s slam-first pass orders
+	// the two within ONE tick only. And a warning hold still counting down
+	// when a LATER frame's slam ends the game (`phase` moves to 'attract' well
+	// inside `TILT_WARNING_HOLD_TICKS`, 2000 ms) would otherwise keep showing
+	// WARNING instead of the Attract screen the game already reached.
 	const tiltWarningEvent = input.events.find(isTiltWarningEvent);
 	if (game.phase === 'game' && tiltWarningEvent) {
 		return {

@@ -20,6 +20,7 @@ import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { HARDWARE_COILS } from '../src/sim/rules/ball-controller';
 import { createTiltController } from '../src/sim/rules/tilt';
+import { lampsOf } from '../src/sim/rules/lamps';
 import { close, runRulesScript } from './util/switch-script';
 import type { GameAdjustments } from '../src/sim/contracts/replay';
 import type { BallSaveState, PlayerState } from '../src/sim/contracts/state';
@@ -133,6 +134,28 @@ describe('AC 1 -- a bob closure warns the current player, and the bob\'s own swi
 		expect(result.coilCommands, 'no CoilCommand of any kind on a mere warning burst').toEqual([]);
 	});
 
+	// QA gap closure (Task 13 / AC 5's second clause: "every other assertion in
+	// this story re-run at currentPlayer 1 as well as 0"). Identical script,
+	// currentPlayer 1 -- proves the warning lands on `players[currentPlayer]`,
+	// not a hardcoded `players[0]`.
+	it('re-run at currentPlayer 1: exactly one tilt_warning at T for player 1; player 0 untouched', () => {
+		const initial = gameState({ currentPlayer: 1 });
+		const T = 100;
+		const script = close('s_tilt_bob').at(T).at(T + 15).at(T + 30).at(T + 45).build();
+		const result = runRulesScript(script, { durationTicks: T + 100, initialState: initial });
+
+		const warnings = result.events.filter((e) => e.type === 'tilt_warning');
+		expect(warnings, 'exactly one tilt_warning, for player 1').toEqual([
+			{ type: 'tilt_warning', player: 1, remaining: 0, tick: T },
+		]);
+		expect(result.events.some((e) => e.type === 'tilt'), 'the burst must not tilt the machine').toBe(false);
+		expect(result.finalState.players[1]!.tiltWarnings).toBe(1);
+		expect(result.finalState.players[0]!.tiltWarnings, 'player 0 (not currentPlayer) must be untouched').toBe(0);
+		expect(result.finalState.machine.tilt.tilted).toBe(false);
+		expect(result.finalState.machine.hardwareEnabled, 'hardware must stay enabled -- no tilt occurred').toBe(true);
+		expect(result.coilCommands, 'no CoilCommand of any kind on a mere warning burst').toEqual([]);
+	});
+
 	// Code review finding (Blind Hunter): AC 1's own burst offsets (T+15/30/45)
 	// and AC 2's own offsets (T+600, T+3100) all sit comfortably PAST their
 	// respective window, never AT the exact `>=` boundary the implementation
@@ -165,6 +188,37 @@ describe('AC 1 -- a bob closure warns the current player, and the bob\'s own swi
 		).toEqual(expect.arrayContaining([{ type: 'tilt', player: 0, tick: T + 500 }]));
 		expect(atBoundary.finalState.machine.tilt.tilted).toBe(true);
 	});
+
+	// QA gap closure (Task 13 / AC 5's second clause). This twin is the one
+	// that also demonstrates a SECOND mutation the currentPlayer-0 suite
+	// cannot: `events.push({ type: 'tilt', player: playerIndex, tick })`
+	// mutated to a hardcoded `player: 0` would leave every currentPlayer-0
+	// assertion green (0 === 0) but must redden here, where the expected
+	// `player` field is 1.
+	it('re-run at currentPlayer 1: the spacing window boundary is inclusive for player 1 -- EXACTLY T+500 tilts, T+499 does not', () => {
+		const T = 100;
+		const initial = gameState({ currentPlayer: 1, players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 0, ballNumber: 2 })] });
+
+		const belowBoundary = runRulesScript(close('s_tilt_bob').at(T).at(T + 499).build(), {
+			durationTicks: T + 500,
+			initialState: initial,
+			adjustments: adjustments(1),
+		});
+		expect(belowBoundary.finalState.players[1]!.tiltWarnings, 'the first closure counts a warning (0 -> 1) for player 1').toBe(1);
+		expect(belowBoundary.finalState.players[0]!.tiltWarnings, 'player 0 untouched').toBe(0);
+		expect(belowBoundary.finalState.machine.tilt.tilted, 'T+499 is ONE TICK SHORT of tiltWarningSpacingTicks (500) -- ineligible, no tilt').toBe(false);
+
+		const atBoundary = runRulesScript(close('s_tilt_bob').at(T).at(T + 500).build(), {
+			durationTicks: T + 501,
+			initialState: initial,
+			adjustments: adjustments(1),
+		});
+		expect(
+			atBoundary.events,
+			'EXACTLY T+500 is eligible for player 1 -- the tilt event\'s own player field must read 1, never a hardcoded 0',
+		).toEqual(expect.arrayContaining([{ type: 'tilt', player: 1, tick: T + 500 }]));
+		expect(atBoundary.finalState.machine.tilt.tilted).toBe(true);
+	});
 });
 
 describe('AC 2 -- the settle window gates the next warning, at production magnitude', () => {
@@ -184,6 +238,26 @@ describe('AC 2 -- the settle window gates the next warning, at production magnit
 		const at3100 = result.statesByTick.get(T + 3100)!;
 		expect(at3100.players[0]!.tiltWarnings, 'past tiltSettleTicks: the second warning counts').toBe(2);
 		expect(result.events.filter((e) => e.tick === T + 3100)).toEqual([{ type: 'tilt_warning', player: 0, remaining: 0, tick: T + 3100 }]);
+	});
+
+	// QA gap closure (Task 13 / AC 5's second clause).
+	it('re-run at currentPlayer 1: a second closure at T+600 is ignored for player 1; at T+3100 it counts', () => {
+		const T = 100;
+		const initial = gameState({ currentPlayer: 1, players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 0, ballNumber: 2 })] });
+		const script = close('s_tilt_bob').at(T).at(T + 600).at(T + 3100).build();
+		const result = runRulesScript(script, { durationTicks: T + 3200, initialState: initial, adjustments: adjustments(2) });
+
+		const atT = result.statesByTick.get(T)!;
+		expect(atT.players[1]!.tiltWarnings, 'the first closure counts, for player 1').toBe(1);
+
+		const at600 = result.statesByTick.get(T + 600)!;
+		expect(at600.players[1]!.tiltWarnings, 'inside tiltSettleTicks of the last COUNTED warning: ignored').toBe(1);
+		expect(result.events.filter((e) => e.tick === T + 600), 'no event at all at T+600').toEqual([]);
+
+		const at3100 = result.statesByTick.get(T + 3100)!;
+		expect(at3100.players[1]!.tiltWarnings, 'past tiltSettleTicks: the second warning counts, for player 1').toBe(2);
+		expect(result.events.filter((e) => e.tick === T + 3100)).toEqual([{ type: 'tilt_warning', player: 1, remaining: 0, tick: T + 3100 }]);
+		expect(result.finalState.players[0]!.tiltWarnings, 'player 0 untouched throughout').toBe(0);
 	});
 
 	// Code review finding (Blind Hunter), the settle-window sibling of AC 1's
@@ -214,6 +288,30 @@ describe('AC 2 -- the settle window gates the next warning, at production magnit
 		expect(atBoundary.finalState.players[0]!.tiltWarnings, 'EXACTLY T+3000 is settled (the >= comparison is inclusive) -- the second warning counts').toBe(2);
 		expect(atBoundary.events).toEqual(expect.arrayContaining([{ type: 'tilt_warning', player: 0, remaining: 1, tick: T + 3000 }]));
 	});
+
+	// QA gap closure (Task 13 / AC 5's second clause).
+	it('re-run at currentPlayer 1: the settle window boundary is inclusive for player 1', () => {
+		const T = 100;
+		const initial = gameState({ currentPlayer: 1, players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 0, ballNumber: 2 })] });
+
+		const belowBoundary = runRulesScript(close('s_tilt_bob').at(T).at(T + 2999).build(), {
+			durationTicks: T + 3000,
+			initialState: initial,
+			adjustments: adjustments(3),
+		});
+		expect(
+			belowBoundary.finalState.players[1]!.tiltWarnings,
+			'T+2999 is ONE TICK SHORT of tiltSettleTicks (3000) since the last COUNTED warning -- ignored',
+		).toBe(1);
+
+		const atBoundary = runRulesScript(close('s_tilt_bob').at(T).at(T + 3000).build(), {
+			durationTicks: T + 3001,
+			initialState: initial,
+			adjustments: adjustments(3),
+		});
+		expect(atBoundary.finalState.players[1]!.tiltWarnings, 'EXACTLY T+3000 is settled -- the second warning counts, for player 1').toBe(2);
+		expect(atBoundary.events).toEqual(expect.arrayContaining([{ type: 'tilt_warning', player: 1, remaining: 1, tick: T + 3000 }]));
+	});
 });
 
 describe('I/O matrix -- "Eligible again" and "Zero-warning machine"', () => {
@@ -234,6 +332,26 @@ describe('I/O matrix -- "Eligible again" and "Zero-warning machine"', () => {
 		const result = runRulesScript(close('s_tilt_bob').at(1).build(), { durationTicks: 1, initialState: initial, adjustments: adjustments(0) });
 
 		expect(result.events).toEqual(expect.arrayContaining([{ type: 'tilt', player: 0, tick: 1 }]));
+		expect(result.events.some((e) => e.type === 'tilt_warning')).toBe(false);
+	});
+
+	// QA gap closure (Task 13 / AC 5's second clause): both matrix rows
+	// re-run at currentPlayer 1.
+	it('re-run at currentPlayer 1: a closure past the spacing window, tiltWarnings already at the adjustment, tilts player 1 -- no warning first', () => {
+		const initial = gameState({ currentPlayer: 1, players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 1, ballNumber: 2 })] });
+		const T = 600;
+		const result = runRulesScript(close('s_tilt_bob').at(T).build(), { durationTicks: T + 10, initialState: initial, adjustments: adjustments(1) });
+
+		expect(result.events).toEqual(expect.arrayContaining([{ type: 'tilt', player: 1, tick: T }]));
+		expect(result.events.some((e) => e.type === 'tilt_warning'), 'no warning first -- the count already equals the adjustment').toBe(false);
+		expect(result.finalState.machine.tilt.tilted).toBe(true);
+	});
+
+	it('re-run at currentPlayer 1: adjustments.tiltWarnings: 0 tilts player 1 on the very first eligible closure, with no warning ever', () => {
+		const initial = gameState({ currentPlayer: 1, players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 0, ballNumber: 2 })] });
+		const result = runRulesScript(close('s_tilt_bob').at(1).build(), { durationTicks: 1, initialState: initial, adjustments: adjustments(0) });
+
+		expect(result.events).toEqual(expect.arrayContaining([{ type: 'tilt', player: 1, tick: 1 }]));
 		expect(result.events.some((e) => e.type === 'tilt_warning')).toBe(false);
 	});
 });
@@ -258,33 +376,77 @@ describe('AC 3 -- the tilt disables the hardware set, disarms every ball-save so
 			expect(disabledAtT.has(coil), `${coil} must receive a disable CoilCommand on the tilt tick`).toBe(true);
 		}
 		expect(HARDWARE_COILS.length, 'sanity: the hardware set is non-empty, or the loop above is vacuous').toBeGreaterThan(0);
+		// Code review (Story 2.11, Rule 19): the autolaunch clause used to be
+		// asserted on THIS run, which has no drain and no re-serve -- nothing
+		// could ever pulse c_autolaunch here, so the silence held whatever the
+		// ball controller's `!tilt.tilted` guard did (removing that guard left
+		// this test green), and its "control" was a different script. The
+		// clause is now asserted on a run where the autolaunch IS reachable: a
+		// live two-source save re-serves a drained ball, the tilt lands before
+		// the re-served ball arrives, and the control is the IDENTICAL script
+		// minus the bob closure.
+		const serveScript = (withTilt: boolean) => {
+			const builder = close(TABLE.ballDevices.bd_trough.slots[3]).at(1);
+			return (withTilt ? builder.close('s_tilt_bob').at(51) : builder).close('s_shooter_lane').at(201).build();
+		};
+		const serveInitial = gameState({
+			players: [emptyPlayer({ tiltWarnings: 1, ballNumber: 2 }), emptyPlayer()],
+			machine: { ballsInPlay: 1, ballSave: { untilTick: 5000, sources: ['ball-controller', 'seeded-second'] } },
+		});
+		const tilted = runRulesScript(serveScript(true), { durationTicks: 260, initialState: serveInitial, adjustments: adjustments(1) });
+		expect(tilted.events.filter((e) => e.type === 'ball_saved'), 'sanity: the drain is genuinely saved and re-served').toHaveLength(1);
+		expect(tilted.events, 'sanity: the closure genuinely tilts before the re-served ball arrives').toEqual(expect.arrayContaining([{ type: 'tilt', player: 0, tick: 51 }]));
 		expect(
-			result.coilCommands.some((c) => c.coil === 'c_autolaunch'),
-			'no c_autolaunch pulse on this tick or any later tick of the run',
+			tilted.coilCommands.some((c) => c.tick >= 51 && c.coil === SHOOTER_LAUNCH_COIL && c.action === 'pulse'),
+			'no c_autolaunch pulse on the tilt tick or any later tick of the run',
 		).toBe(false);
 
-		// Untilted control, same test (Rule 19, vacuity #51): the identical
-		// scenario at tiltWarnings 0 (never eligible to tilt) with a genuine
-		// re-serve DOES pulse c_autolaunch -- proving the silence above is
-		// discriminating.
-		const controlInitial = gameState({
-			players: [emptyPlayer({ tiltWarnings: 0, ballNumber: 2 }), emptyPlayer()],
-			machine: { ballsInPlay: 1, ballSave: { untilTick: 5000, sources: ['ball-controller'] } },
-		});
-		const controlScript = close(TABLE.ballDevices.bd_trough.slots[3]).at(1).close('s_shooter_lane').at(5).build();
-		const controlResult = runRulesScript(controlScript, { durationTicks: 6, initialState: controlInitial });
+		const control = runRulesScript(serveScript(false), { durationTicks: 260, initialState: serveInitial, adjustments: adjustments(1) });
 		expect(
-			controlResult.coilCommands.some((c) => c.tick === 5 && c.coil === SHOOTER_LAUNCH_COIL && c.action === 'pulse'),
-			'sanity: an untilted re-serve genuinely DOES pulse the autolaunch coil on the re-served ball\'s own arrival',
+			control.coilCommands.some((c) => c.tick === 201 && c.coil === SHOOTER_LAUNCH_COIL && c.action === 'pulse'),
+			'control: the IDENTICAL script minus the bob closure DOES pulse c_autolaunch on the re-served ball\'s arrival',
 		).toBe(true);
 	});
 
-	it('nothing armed: the disarm fold is a no-op returning the same BallSaveState reference, through the full rules pipeline', () => {
+	// QA gap closure (Task 13 / AC 5's second clause). Re-run at currentPlayer
+	// 1: the machine-scoped assertions (hardware disable, ballSave disarm)
+	// cannot distinguish currentPlayer by construction, but the `tilt` event's
+	// own `player` field can and must read 1 -- the untilted c_autolaunch
+	// control is not re-run here (it is player-agnostic and already proven by
+	// the currentPlayer-0 test above).
+	it('re-run at currentPlayer 1: tilt fires for player 1, hardware disables, ballSave is fully disarmed', () => {
+		const initial = gameState({
+			currentPlayer: 1,
+			players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 1, ballNumber: 2 })],
+			machine: { ballSave: { untilTick: 5000, sources: ['ball-controller', 'seeded-second'] } },
+		});
+		const T = 100;
+		const script = close('s_tilt_bob').at(T).build();
+		const result = runRulesScript(script, { durationTicks: T + 50, initialState: initial, adjustments: adjustments(1) });
+
+		expect(result.events, 'the tilt event\'s player field must read 1, never a hardcoded 0').toEqual(expect.arrayContaining([{ type: 'tilt', player: 1, tick: T }]));
+		expect(result.finalState.machine.tilt.tilted).toBe(true);
+		expect(result.finalState.machine.hardwareEnabled).toBe(false);
+		expect(result.finalState.machine.ballSave, 'every source removed, not just the controller\'s own').toEqual({ untilTick: null, sources: [] });
+
+		const disabledAtT = new Set(result.coilCommands.filter((c) => c.tick === T && c.action === 'disable').map((c) => c.coil));
+		for (const coil of HARDWARE_COILS) {
+			expect(disabledAtT.has(coil), `${coil} must receive a disable CoilCommand on the tilt tick`).toBe(true);
+		}
+		expect(HARDWARE_COILS.length, 'sanity: the hardware set is non-empty, or the loop above is vacuous').toBeGreaterThan(0);
+	});
+
+	// Code review (Story 2.11): retitled -- `runRulesScript()` cannot observe
+	// reference identity (the next test does, against the controller) -- and
+	// the closure is now proven to have genuinely tilted, or the empty
+	// ballSave below would hold whether or not the disarm fold ever ran.
+	it('nothing armed: a genuine tilt through the full rules pipeline leaves ballSave empty (reference identity is the next test\'s)', () => {
 		const initial = gameState({
 			players: [emptyPlayer({ tiltWarnings: 0, ballNumber: 2 }), emptyPlayer()],
 			machine: { ballSave: { untilTick: null, sources: [] } },
 		});
 		const result = runRulesScript(close('s_tilt_bob').at(1).build(), { durationTicks: 1, initialState: initial, adjustments: adjustments(0) });
+		expect(result.events, 'sanity: the closure must genuinely tilt (adjustments.tiltWarnings: 0)').toEqual(expect.arrayContaining([{ type: 'tilt', player: 0, tick: 1 }]));
 		expect(result.finalState.machine.ballSave).toEqual({ untilTick: null, sources: [] });
 	});
 
@@ -326,7 +488,7 @@ describe('AC 4 -- a tilted ball ends, pays nothing, and the next ball starts cle
 		// below cannot pass merely because a broken reset ALSO produces 0 --
 		// vacuity #51's exact shape.
 		const initial = gameState({
-			players: [emptyPlayer({ tiltWarnings: 3, ballNumber: 2 }), emptyPlayer()],
+			players: [emptyPlayer({ tiltWarnings: 3, ballNumber: 2 }), emptyPlayer({ tiltWarnings: 2 })],
 			machine: { ballsInPlay: 1 },
 		});
 		const tiltAndDrainTick = 10;
@@ -374,6 +536,13 @@ describe('AC 4 -- a tilted ball ends, pays nothing, and the next ball starts cle
 		expect(afterDrain.machine.tilt, 'ball_will_start resets machine.tilt for the next ball').toEqual({ tilted: false, slamTilted: false });
 		expect(afterDrain.machine.hardwareEnabled, 'ball_starting restores hardwareEnabled').toBe(true);
 		expect(afterDrain.players[0]!.tiltWarnings, 'tiltWarnings is UNCHANGED by the rotation -- seeded nonzero (3) so this cannot pass by an accidental reset to 0').toBe(3);
+		// Code review (Story 2.11, Rule 19): the assertion above reads the
+		// ENDING player, whom `startBall()` never touches on a 0 -> 1 rotation
+		// -- a reset written into `startBall()` lands on the STARTING player,
+		// and left this test green. The starting player is seeded nonzero too
+		// and must come through `ball_will_start` unchanged.
+		expect(afterDrain.currentPlayer, 'sanity: the rotation genuinely started player 1').toBe(1);
+		expect(afterDrain.players[1]!.tiltWarnings, 'the STARTING player\'s own warnings are also untouched by ball_will_start (seeded 2)').toBe(2);
 
 		const commandsAtDrainTick = result.coilCommands.filter((c) => c.tick === tiltAndDrainTick);
 		const disableIndices = new Map(HARDWARE_COILS.map((coil) => [coil, commandsAtDrainTick.findIndex((c) => c.coil === coil && c.action === 'disable')]));
@@ -417,6 +586,64 @@ describe('AC 4 -- a tilted ball ends, pays nothing, and the next ball starts cle
 			'untilted, the SAME earned bonus DOES arm and emit the count-up -- proving the tilted case\'s own silence is a real suppression, not an accident of the window',
 		).toBe(true);
 	});
+
+	// QA gap closure (Task 13 / AC 5's second clause). currentPlayer 1 is the
+	// ENDING player here: with two players, endingPlayer 1 IS the last player
+	// (isLastPlayer true), so rotation wraps to player 0 rather than advancing
+	// to 1 -- a genuinely different rotation branch than the currentPlayer-0
+	// test above (which advances 0 -> 1). ballNumber is seeded at 2 (<
+	// adjustments.ballsPerGame: 3) so this drain does not end the game.
+	it('re-run at currentPlayer 1 (the ending AND last player -- rotation wraps to player 0): tilt fires for player 1, tiltWarnings unchanged by the rotation, hardware disables precede the next ball\'s enables', () => {
+		const initial = gameState({
+			currentPlayer: 1,
+			players: [emptyPlayer({ tiltWarnings: 2, ballNumber: 0 }), emptyPlayer({ tiltWarnings: 3, ballNumber: 2 })],
+			machine: { ballsInPlay: 1 },
+		});
+		const tiltAndDrainTick = 10;
+		const durationTicks = tiltAndDrainTick + 1300;
+		const script = close(TABLE.dropBankWiring.d.switch).at(1)
+			.close(TABLE.dropBankWiring.r.switch).at(2)
+			.close('s_tilt_bob').at(tiltAndDrainTick)
+			.close(TABLE.ballDevices.bd_trough.slots[3]).at(tiltAndDrainTick)
+			.build();
+		const result = runRulesScript(script, { durationTicks, initialState: initial, adjustments: adjustments(0), tuning: NO_BALL_SAVE_TUNING });
+
+		expect(result.events, 'the closure must genuinely tilt player 1 at tiltWarnings: 3, adjustments.tiltWarnings: 0').toEqual(
+			expect.arrayContaining([{ type: 'tilt', player: 1, tick: tiltAndDrainTick }]),
+		);
+
+		const ballEnded = result.events.find((e) => e.type === 'ball_ended' && e.tick === tiltAndDrainTick);
+		expect(ballEnded, 'the SAME tick\'s drain must genuinely end player 1\'s ball').toBeDefined();
+		if (!ballEnded || ballEnded.type !== 'ball_ended') {
+			throw new Error('unreachable: filtered above');
+		}
+		expect(ballEnded.player, 'the ending player must be 1').toBe(1);
+		expect(ballEnded.total, 'a tilted ball pays nothing').toBe(0);
+		expect(ballEnded.tilted).toBe(true);
+		expect(ballEnded.bonusByCategory.letters, 'the REAL earned letters must still be carried on the payload, beside total: 0').toBe(2);
+		expect(
+			result.events.some((e) => e.type === 'bonus_count_step'),
+			'a tilted end must never arm the count-up',
+		).toBe(false);
+
+		const afterDrain = result.statesByTick.get(tiltAndDrainTick)!;
+		expect(afterDrain.machine.tilt, 'ball_will_start resets machine.tilt for the next ball').toEqual({ tilted: false, slamTilted: false });
+		expect(afterDrain.machine.hardwareEnabled, 'ball_starting restores hardwareEnabled').toBe(true);
+		expect(afterDrain.players[1]!.tiltWarnings, 'tiltWarnings is UNCHANGED by the rotation -- seeded nonzero (3) so this cannot pass by an accidental reset to 0').toBe(3);
+		expect(afterDrain.currentPlayer, 'player 1 is the LAST player -- rotation wraps to player 0, not to a nonexistent player 2').toBe(0);
+		expect(afterDrain.players[0]!.tiltWarnings, 'code review (Rule 19): the STARTING player (0, after the wrap) keeps its own seeded warnings through ball_will_start').toBe(2);
+
+		const commandsAtDrainTick = result.coilCommands.filter((c) => c.tick === tiltAndDrainTick);
+		const disableIndices = new Map(HARDWARE_COILS.map((coil) => [coil, commandsAtDrainTick.findIndex((c) => c.coil === coil && c.action === 'disable')]));
+		const enableIndices = new Map(HARDWARE_COILS.map((coil) => [coil, commandsAtDrainTick.findIndex((c) => c.coil === coil && c.action === 'enable')]));
+		for (const coil of HARDWARE_COILS) {
+			const disableAt = disableIndices.get(coil)!;
+			const enableAt = enableIndices.get(coil)!;
+			expect(disableAt, `${coil} must receive a disable on the tilt-and-drain tick, from the tilt itself`).toBeGreaterThanOrEqual(0);
+			expect(enableAt, `${coil} must receive an enable on the SAME tick, from the rotation's own startBall()`).toBeGreaterThanOrEqual(0);
+			expect(enableAt, 'the enable must be ORDERED AFTER the disable in the same batch, so the enable wins').toBeGreaterThan(disableAt);
+		}
+	});
 });
 
 describe('AC 5 -- warnings are per player', () => {
@@ -441,7 +668,14 @@ describe('AC 5 -- warnings are per player', () => {
 describe('AC 6 -- Slam tilt ends every player\'s game and returns the machine to Attract', () => {
 	it('in phase "game": slam_tilt fires, phase -> attract, modes -> [], hardware disables, machine.tilt.slamTilted -> true, no ball_ended, no score change, players[] survives', () => {
 		const initial = gameState({
-			players: [emptyPlayer({ score: 1000, ballNumber: 2 }), emptyPlayer({ score: 500 })],
+			// Code review (Story 2.11, Rule 19): both players carry a NONZERO
+			// bonus, so the unchanged scores below genuinely discriminate "the
+			// game ends without bonus" -- with empty bonuses a slam that paid
+			// the bonus left the scores equal and the suite green.
+			players: [
+				emptyPlayer({ score: 1000, ballNumber: 2, bonus: { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 2 } }),
+				emptyPlayer({ score: 500, bonus: { byCategory: { letters: 1, loops: 0, strikes: 1 }, multiplier: 1 } }),
+			],
 			modes: [{ mode: 'skill_shot', priority: 200, player: 0 }, { mode: 'base', priority: 100, player: 0 }],
 		});
 		const result = runRulesScript(close('s_slam_tilt').at(1).build(), { durationTicks: 1, initialState: initial });
@@ -458,6 +692,22 @@ describe('AC 6 -- Slam tilt ends every player\'s game and returns the machine to
 		for (const coil of HARDWARE_COILS) {
 			expect(disabled.has(coil), `${coil} must receive a disable CoilCommand`).toBe(true);
 		}
+	});
+
+	// Code review (Story 2.11): a Slam tilt disarms every ball-save source,
+	// like a Tilt (AD-18, "Tilt disarms all"). Left armed, `lampsOf()` -- no
+	// phase gate -- kept `l_ball_save` lit in Attract for the rest of the
+	// window (measured before the fix: lit at tick 60 of a 5000-tick window).
+	it('in phase "game" with a live ball-save window: the slam disarms every source, and l_ball_save is dark in Attract -- against the same state lit before the slam', () => {
+		const hurryUpTicks = PRODUCTION_TUNING.ballSaveHurryUpTicks.value;
+		const initial = gameState({ machine: { ballSave: { untilTick: 5000, sources: ['ball-controller', 'seeded-second'] } } });
+		expect(lampsOf(initial, hurryUpTicks).l_ball_save.role, 'control: the live window lights l_ball_save before the slam').not.toBe('off');
+
+		const result = runRulesScript(close('s_slam_tilt').at(1).build(), { durationTicks: 60, initialState: initial });
+		expect(result.events).toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: 1 }]));
+		expect(result.finalState.phase).toBe('attract');
+		expect(result.finalState.machine.ballSave, 'every source removed by the slam').toEqual({ untilTick: null, sources: [] });
+		expect(lampsOf(result.finalState, hurryUpTicks).l_ball_save.role, 'l_ball_save must be dark in Attract after a slam').toBe('off');
 	});
 
 	// Driven directly against `createTiltController()` (not `runRulesScript()`):
@@ -520,7 +770,7 @@ describe('Code review fix -- a same-tick tilt_bob_closed + slam_tilt_closed coll
 		expect(disabledAt50.length, 'exactly one disable per coil -- never doubled by a bob branch that should have been suppressed').toBe(HARDWARE_COILS.length);
 	});
 
-	it('the SAME collision when the bob closure alone would have TILTED (tiltWarnings already at the adjustment): still only slam_tilt -- no tilt event, machine.tilt.tilted stays false, ballSave is untouched by the bob branch', () => {
+	it('the SAME collision when the bob closure alone would have TILTED (tiltWarnings already at the adjustment): still only slam_tilt -- no tilt event, machine.tilt.tilted stays false', () => {
 		const initial = gameState({
 			players: [emptyPlayer({ tiltWarnings: 1, ballNumber: 2 }), emptyPlayer()],
 			machine: { ballSave: { untilTick: 5000, sources: ['ball-controller'] } },
@@ -531,10 +781,12 @@ describe('Code review fix -- a same-tick tilt_bob_closed + slam_tilt_closed coll
 
 		expect(result.events.filter((e) => e.tick === 50).map((e) => e.type), 'the bob closure would have TILTED alone, but slam must win: only slam_tilt').toEqual(['slam_tilt']);
 		expect(result.finalState.machine.tilt, 'the final tilt object is slam\'s own -- tilted stays false, only slamTilted moves').toEqual({ tilted: false, slamTilted: true });
-		expect(
-			result.finalState.machine.ballSave,
-			'the bob branch\'s own disarm-all never runs when slam has already ended the game -- ballSave is whatever slam leaves it (untouched)',
-		).toEqual({ untilTick: 5000, sources: ['ball-controller'] });
+		// Code review (Story 2.11): the slam now disarms every ball-save
+		// source itself (AD-18, "Tilt disarms all" -- see the AC 6 lamp test),
+		// so ballSave can no longer tell the two branches apart; that the bob
+		// branch never ran is pinned by the event list and `tilted: false`
+		// above.
+		expect(result.finalState.machine.ballSave, 'the slam itself leaves ballSave empty').toEqual({ untilTick: null, sources: [] });
 	});
 });
 
@@ -598,10 +850,88 @@ describe('AC 7 -- DW-222: a Tilt inside a save\'s re-serve window never strands 
 			'untilted, the deferred autolaunch DOES fire',
 		).toBe(true);
 	});
+
+	// QA gap closure (Task 13 / AC 5's second clause). A ball-save re-serve
+	// never rotates `currentPlayer` (the ballSaveLive branch returns before
+	// any rotation code runs), so currentPlayer stays 1 for the WHOLE script
+	// -- unlike the AC 4 twin above, no wraparound applies here.
+	it('re-run at currentPlayer 1: the re-served ball\'s tilted arrival pulses no c_autolaunch; the manual plunge still reaches ball_launched; ball save does not re-arm', () => {
+		const initial = gameState({
+			currentPlayer: 1,
+			players: [emptyPlayer(), emptyPlayer({ tiltWarnings: 0, ballNumber: 2 })],
+			machine: { ballsInPlay: 1, ballSave: { untilTick: 5000, sources: ['ball-controller'] } },
+		});
+		const drainTick = 1;
+		const tiltTick = drainTick + 50;
+		const arrivalTick = drainTick + 200;
+		const manualPlungeTick = drainTick + 400;
+		const secondDrainTick = drainTick + 600;
+
+		const script = close(TABLE.ballDevices.bd_trough.slots[3]).at(drainTick)
+			.close('s_tilt_bob').at(tiltTick)
+			.close('s_shooter_lane').at(arrivalTick)
+			.open('s_shooter_lane').at(manualPlungeTick)
+			.close(TABLE.ballDevices.bd_trough.slots[3]).at(secondDrainTick)
+			.build();
+		const result = runRulesScript(script, { durationTicks: secondDrainTick + 10, initialState: initial, adjustments: adjustments(0) });
+
+		expect(result.events.filter((e) => e.type === 'ball_saved')).toEqual([{ type: 'ball_saved', player: 1, tick: drainTick }]);
+		expect(result.events).toEqual(expect.arrayContaining([{ type: 'tilt', player: 1, tick: tiltTick }]));
+
+		expect(
+			result.coilCommands.some((c) => c.tick === arrivalTick && c.coil === SHOOTER_LAUNCH_COIL && c.action === 'pulse'),
+			'no c_autolaunch pulse on the re-served ball\'s own tilted arrival',
+		).toBe(false);
+
+		const launchedAtPlunge = result.events.filter((e) => e.tick === manualPlungeTick && e.type === 'ball_launched');
+		expect(launchedAtPlunge, 'the manual plunge still fires ball_launched -- the ball is not stranded').toHaveLength(1);
+		expect(result.statesByTick.get(manualPlungeTick)!.machine.ballsInPlay, 'ballsInPlay reads 1 once the manual plunge lands').toBe(1);
+		expect(
+			result.events.some((e) => e.type === 'ball_save_timer_started' && e.tick === manualPlungeTick),
+			'ball save must NOT re-arm on the manual plunge -- the tilt emptied sources',
+		).toBe(false);
+
+		const secondEnd = result.events.find((e) => e.type === 'ball_ended' && e.tick === secondDrainTick);
+		expect(secondEnd, 'the plunged ball must itself eventually reach ball_ended').toBeDefined();
+		if (!secondEnd || secondEnd.type !== 'ball_ended') {
+			throw new Error('unreachable: filtered above');
+		}
+		expect(secondEnd.player, 'the ending player must be 1').toBe(1);
+		expect(secondEnd.tilted).toBe(true);
+		expect(secondEnd.total).toBe(0);
+	});
+});
+
+describe('Code review (Story 2.11) -- a Slam tilt inside a save\'s re-serve window never autolaunches into Attract', () => {
+	it('the re-served ball\'s arrival after a slam pulses no c_autolaunch -- against the IDENTICAL script minus the slam, which does', () => {
+		const initial = gameState({
+			players: [emptyPlayer({ tiltWarnings: 0, ballNumber: 2 }), emptyPlayer()],
+			machine: { ballsInPlay: 1, ballSave: { untilTick: 5000, sources: ['ball-controller'] } },
+		});
+		const script = (withSlam: boolean) => {
+			const builder = close(TABLE.ballDevices.bd_trough.slots[3]).at(1);
+			return (withSlam ? builder.close('s_slam_tilt').at(51) : builder).close('s_shooter_lane').at(201).build();
+		};
+
+		const slammed = runRulesScript(script(true), { durationTicks: 210, initialState: initial });
+		expect(slammed.events.filter((e) => e.type === 'ball_saved'), 'sanity: the drain is genuinely saved and re-served').toHaveLength(1);
+		expect(slammed.events, 'sanity: the slam genuinely lands before the arrival').toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: 51 }]));
+		expect(slammed.statesByTick.get(201)!.phase, 'sanity: the arrival lands in Attract').toBe('attract');
+		expect(
+			slammed.coilCommands.some((c) => c.tick >= 51 && c.coil === SHOOTER_LAUNCH_COIL && c.action === 'pulse'),
+			'no c_autolaunch pulse in Attract after a slam -- tilt.tilted stays false on a slam, so the tilt guard alone does not cover it',
+		).toBe(false);
+
+		const control = runRulesScript(script(false), { durationTicks: 210, initialState: initial });
+		expect(
+			control.coilCommands.some((c) => c.tick === 201 && c.coil === SHOOTER_LAUNCH_COIL && c.action === 'pulse'),
+			'control: the IDENTICAL script minus the slam DOES pulse c_autolaunch on arrival',
+		).toBe(true);
+	});
 });
 
 describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => {
-	it('a bob closure in Attract updates the spacing mark (physical, phase-agnostic) but emits nothing and returns the same state reference', () => {
+	it('a bob closure in Attract emits nothing (the spacing-mark update is pinned by the next test)', () => {
 		const initial = gameState({ phase: 'attract', players: [], modes: [] });
 		const result = runRulesScript(close('s_tilt_bob').at(1).at(600).build(), { durationTicks: 600, initialState: initial });
 		expect(result.events, 'Attract: no warning, no tilt, ever').toEqual([]);
@@ -636,16 +966,40 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 		const initial = gameState({ players: [], currentPlayer: 0, modes: [] });
 		const result = runRulesScript(close('s_tilt_bob').at(1).build(), { durationTicks: 1, initialState: initial });
 		expect(result.events).toEqual([]);
+		// Code review (Story 2.11): the title's "same state reference" is only
+		// observable against the controller itself (`runRulesScript()` always
+		// rebuilds the top-level wrapper).
+		const direct = createTiltController(adjustments(1), PRODUCTION_TUNING).step(initial, [{ type: 'tilt_bob_closed', tick: 1 }], 1);
+		expect(direct.state, 'the SAME state reference').toBe(initial);
+		expect(direct.events).toEqual([]);
+	});
+
+	// Code review (Story 2.11, Rule 19): nothing pinned the `tilt.tilted`
+	// conjunct -- removing it left the suite green, and every eligible
+	// closure during a tilted ball then re-emitted `tilt` and a whole second
+	// HARDWARE_COILS disable batch (Epic 4's FR-45/FR-48 consumers would
+	// flash and cue twice).
+	it('an eligible closure while ALREADY tilted emits no second tilt and no second disable batch -- against the same closure untilted, which tilts', () => {
+		const tiltedState = gameState({ players: [emptyPlayer({ tiltWarnings: 1, ballNumber: 2 }), emptyPlayer()], machine: { tilt: { tilted: true, slamTilted: false } } });
+		const tiltedRun = runRulesScript(close('s_tilt_bob').at(1).build(), { durationTicks: 1, initialState: tiltedState, adjustments: adjustments(1) });
+		expect(tiltedRun.events, 'no second tilt while already tilted').toEqual([]);
+		expect(tiltedRun.coilCommands.filter((c) => c.action === 'disable'), 'no second disable batch while already tilted').toEqual([]);
+
+		const untiltedState = gameState({ players: [emptyPlayer({ tiltWarnings: 1, ballNumber: 2 }), emptyPlayer()] });
+		const control = runRulesScript(close('s_tilt_bob').at(1).build(), { durationTicks: 1, initialState: untiltedState, adjustments: adjustments(1) });
+		expect(control.events, 'control: the identical closure untilted DOES tilt').toEqual(expect.arrayContaining([{ type: 'tilt', player: 0, tick: 1 }]));
 	});
 
 	// `runRulesScript()` always builds a FRESH `createRules()` -- and so a
 	// fresh tilt controller -- per call, so it can never observe a STALE
-	// mark from a genuinely different (higher) timeline the way a real
-	// `hostLoop.reset()` does (the SAME closure survives, only `tick`
-	// restarts). Driven directly against `createTiltController()` instead,
-	// across two `.step()` calls on ONE instance, mirroring how
-	// `sim/loop/index.ts` really calls it -- the only way to exercise the
-	// reset-safety branch at all.
+	// mark from a different (higher) timeline. Neither can production today
+	// (corrected at Story 2.11's code review): `hostLoop.reset()` calls
+	// `createLoop()`, which builds a fresh `createRules()` and a fresh tilt
+	// controller, so no mark survives a reset. The guard is defence in depth
+	// for any caller that reuses ONE controller across a restarted tick
+	// count, and this test is that caller -- driven directly against
+	// `createTiltController()`, across two `.step()` calls on ONE instance,
+	// the only way to exercise the branch at all.
 	it('a stale mark from a DIFFERENT (higher) timeline is discarded when tick restarts lower -- the next closure is eligible immediately, not blocked for the rest of the new session', () => {
 		const controller = createTiltController(adjustments(5), PRODUCTION_TUNING);
 		const initial = gameState({ players: [emptyPlayer({ tiltWarnings: 0, ballNumber: 2 }), emptyPlayer()] });
@@ -654,11 +1008,9 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 		const first = controller.step(initial, [{ type: 'tilt_bob_closed', tick: 9000 }], 9000);
 		expect(first.events).toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 9000 }]);
 
-		// hostLoop.reset(): tick restarts low while this SAME controller
-		// instance survives in its closure -- exactly what makes the guard
-		// load-bearing (`src/presentation/backglass/frame.ts:180-192` records
-		// the identical failure shape once already, for the end-of-ball hold).
-		// Without it, `tick(1) - lastBobClosureTick(9000)` is hugely negative,
+		// A restarted tick count on the SAME controller instance (the shape
+		// `frame.ts`'s ball_ended hold guard records for real, because
+		// `boot.ts`'s `backglassView` DOES survive a reset). Without the guard, `tick(1) - lastBobClosureTick(9000)` is hugely negative,
 		// never `>= tiltWarningSpacingTicks`, so the closure would be judged
 		// INELIGIBLE and the new session would never warn or tilt again.
 		const second = controller.step(first.state, [{ type: 'tilt_bob_closed', tick: 1 }], 1);

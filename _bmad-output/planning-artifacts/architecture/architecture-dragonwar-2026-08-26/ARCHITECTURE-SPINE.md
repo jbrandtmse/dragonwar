@@ -7,7 +7,7 @@ paradigm: 'Ports-and-adapters around a virtual pinball machine — Physics is th
 scope: 'DragonWar v1 whole system: physics core, rules layer, presentation, host loop, assets, persistence, build and deployment'
 status: final
 created: '2026-08-26'
-updated: '2026-09-08'
+updated: '2026-09-10'
 binds: [FR-1..FR-55, NFR-1..NFR-9, UJ-1..UJ-4]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-dragonwar-2026-08-26/prd.md
@@ -125,7 +125,15 @@ sequenceDiagram
 
 - **Binds:** FR-17, FR-20, FR-25, FR-28, FR-37, FR-39, FR-41, FR-51, UJ-3; `sim/rules`, `sim/contracts`
 - **Prevents:** per-player facts on the machine and machine facts on a player; a Joust running into the next player's ball; a lit lane lost when the skill-shot mode stops; state that cannot be snapshotted, hashed, or replayed
-- **Rule:** `GameState = { tick, phase, machine, players[], currentPlayer, modes[], rng }`, JSON-serializable, no class instances or closures, mutated only inside `rules.step`. **Player-scoped** (only under `players[i]`): score, DRAGON letters, Lock credits, modes played, tilt warnings, bonus by category and multiplier, extra balls, lanes (lit flags and completed sets, owned by the base mode; the skill-shot mode writes the lit Top lane once on `ball_starting` from `rng` and never again), Jackpot seed and Wars started. **Machine-scoped** (only under `machine`): device slot states and `ballsInPlay`, `hardwareEnabled`, `ballSave`, `tilt`, `multiball` (`null` | `'quickmb'` | `'war'`), `highscores` (read-only, from `GameStart`). **Mode-local** (only under `modes[i]`): the mode's own timers and counters, published to presentation only as its typed `ModeView`. `modes[]` is empty between balls: every active mode receives `_will_stop` before `ball_ended`; `ball_will_start` resets `ballSave`, `tilt` and `multiball`; `ball_starting` enables hardware. The bob is never reset by command — its physical decay plus `tiltSettleMs` is the settle.
+- **Rule:** `GameState = { tick, phase, machine, players[], currentPlayer, modes[], rng }`, JSON-serializable, no class instances or closures, mutated only inside `rules.step`. **Player-scoped** (only under `players[i]`): score, DRAGON letters, Lock credits, modes played, tilt warnings, bonus by category and multiplier, extra balls, lanes (lit flags and completed sets, owned by the base mode; the skill-shot mode writes the lit Top lane once on `ball_starting` from `rng` and never again), Jackpot seed and Wars started. **Machine-scoped** (only under `machine`): device slot states and `ballsInPlay`, `hardwareEnabled`, `ballSave`, `tilt`, `multiball` (`null` | `'quickmb'` | `'war'`), `highscores` (read-only, from `GameStart`). **Mode-local** (only under `modes[i]`): the mode's own timers and counters, published to presentation only as its typed `ModeView`. `modes[]` is empty between balls: every active mode receives `_will_stop` before `ball_ended`; `ball_will_start` resets `ballSave`, `tilt` and `multiball`; `ball_starting` enables hardware. The bob is never reset by command — its physical decay plus `tiltSettleMs` is the settle. [AMENDED 2026-09-10, Story 2.11 close. This records a shipped seam the Rule did not describe, found by the story-close spine check. **Rules controllers hold tick-scoped closure state outside `GameState`**, and five such fields have shipped:
+- the ball controller's `awaitingSaveLaunch`;
+- the ball controller's `awaitingSaveRelaunch` (Story 2.9), which is bounded: it clears once `startTick + ballSaveGraceTicks` has passed;
+- the ball controller's `pendingBonusCountSteps` (Story 2.10's bonus count-up schedule);
+- the tilt controller's `lastBobClosureTick` and `lastWarningTick` (`sim/rules/tilt.ts`, Story 2.11), the origins of the tilt spacing and settle windows, discarded if `tick` runs backwards.
+
+They live in closures rather than in `machine` because `machine` is serialized in every golden's snapshot, so each new machine-scoped field would re-record every `expectedGameStateHash`. They stay deterministic because `createRules()` builds every controller fresh inside `createLoop()`, and a replay always starts from `GameStart` at tick 0 (AD-4).
+
+The consequence a later reader must not miss: **`GameState` is not a complete mid-game resume point.** A snapshot restored mid-ball would lose all five fields: a pending save relaunch would be forgotten, the bonus count-up steps dropped and the tilt windows restarted. The state hash cannot see any of them. A story that needs mid-game snapshot and restore must first move them into `GameState`, which is a golden state-hash re-record and needs the author's grant. Any new closure field must meet the same bar: reproducible from tick 0, bounded or restart-safe, and named in this clause.]
 
 ```mermaid
 erDiagram

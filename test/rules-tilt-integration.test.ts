@@ -113,6 +113,10 @@ describe('Story 2.11, AC 10 -- the bob is reached through real nudge input, end 
 				warningTick = out.snapshot.tick;
 			}
 		}
+		// Code review (Story 2.11): this file's header measures that TWO edges
+		// stay under the slam detector's count; nothing pinned it, so a tuning
+		// drift that made two edges slam-tilt failed below as "no warning".
+		expect(events.some((e) => e.type === 'slam_tilt'), 'sanity: the two-edge burst must stay under the slam count -- a slam here means the tuning moved, not that the bob path broke').toBe(false);
 		expect(sawWarning, 'a tilt_warning must arrive from a REAL nudge burst crossing the plumb bob\'s threshold').toBe(true);
 		expect(out.snapshot.game.machine.tilt.tilted, 'sanity: the first burst alone must not yet tilt (production tiltWarnings default is 1: the FIRST eligible closure only warns)').toBe(false);
 
@@ -130,6 +134,7 @@ describe('Story 2.11, AC 10 -- the bob is reached through real nudge input, end 
 				tiltTick = out.snapshot.tick;
 			}
 		}
+		expect(events.some((e) => e.type === 'slam_tilt'), 'sanity: the second two-edge burst must stay under the slam count too').toBe(false);
 		expect(sawTilt, 'a second burst past the spacing window must tilt the machine').toBe(true);
 		expect(out.snapshot.game.machine.tilt.tilted).toBe(true);
 		expect(out.snapshot.game.machine.hardwareEnabled, 'the tilt must disable hardware (the GameState-level flag startBall()/game-over already drive from the SAME HARDWARE_COILS batch)').toBe(false);

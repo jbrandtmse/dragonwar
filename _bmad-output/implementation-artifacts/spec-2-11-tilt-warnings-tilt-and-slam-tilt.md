@@ -286,6 +286,70 @@ deferred:
 
 - **AC 12 — the devices seam is derived, not typed, and does not widen the playfield set.** **Given** the shipped devices layer, **when** `s_tilt_bob` or `s_slam_tilt` closes, **then** exactly one `tilt_bob_closed` / `slam_tilt_closed` is emitted and no `playfield_switch_closed` is; **when** either opens, **then** nothing is emitted; **and** `PLAYFIELD_SWITCHES` still holds exactly 28 switches with neither cabinet switch among them, `pnpm lint:boundaries` reports `OK` with no `no-device-name-literal` violation, and the switch names are resolved from their unique `SettleClass` such that a `TABLE` carrying two entries of either class throws a named authoring error rather than silently choosing one.
 
+### Review Findings
+
+_Code review 2026-09-10 (`bmad-code-review`, full mode). Scope: `f2fd48f..HEAD` plus QA's uncommitted working tree; there were no untracked files. Review tier: full. `_bmad/custom/model-overrides.yaml` is absent, so every layer inherited the reviewer's model. Four layers ran: blind-hunter, edge-case-hunter, verification-gap and acceptance-auditor. None failed, and containment was verified after them: the tree and the unpushed commits were unchanged. After dedup: 16 patch findings (all applied), 8 deferred under Rule 15, 9 dismissed, and 0 decision-needed left open. Rule 3: the real-runtime tests are `test/rules-tilt-integration.test.ts` and `test/backglass-integration.test.ts`; panel pixels remain the lead's smoke. Rule 1: AC 9 is the Integration AC. Rule 6: AD-1, AD-3, AD-5, AD-7, AD-9, AD-15, AD-18 and AD-19 (as amended) were verified. The one AD-5 tension is the pre-existing `DW-241`, and the slam ball-save patch below brings the slam into line with AD-18. Every mutation below was applied from a saved copy, observed through vitest's JSON reporter, and restored byte-identical. After the patches, with `BLENDER` exported, the measured results were:_
+- _`pnpm typecheck`: exit 0._
+- _`pnpm test`: 117 files / 1959 tests / 0 failed / 0 skipped. That is 1952 + 7 review-added tests._
+- _`pnpm lint:boundaries`: OK, 107 files._
+- _`pnpm check:headers`: OK._
+
+**Patch (applied):**
+- [x] [Review][Patch] (med) **Slam tilt during a save's re-serve autolaunched the ball into Attract.** The deferred-autolaunch guard read only `tilt.tilted`, which a slam leaves `false`. It is now also gated on `phase === 'game'`. [src/sim/rules/ball-controller.ts:653] fix-risk low: one conjunct, and the flag is only ever set in a game.
+  - mutation: drop `&& nextState.phase === 'game'` → rules-tilt "a Slam tilt inside a save's re-serve window never autolaunches into Attract" RED.
+- [x] [Review][Patch] (low) **Slam tilt left `machine.ballSave` armed, so `l_ball_save` stayed lit in Attract.** `lampsOf()` has no phase gate. The slam now disarms every source (AD-18, "Tilt disarms all"). This reverses the implement-stage triage's rejection 3, whose "Attract never reads it" held for the drain branch only. [src/sim/rules/tilt.ts:146] fix-risk low.
+  - mutation: remove the slam's `ballSave:` disarm → rules-tilt "AC 6 … l_ball_save is dark in Attract" and the same-tick collision test RED.
+- [x] [Review][Patch] (low) **The `ball_ended` hold survived a slam into Attract.** The end-of-ball/BONUS screen could stay up for as long as `BALL_ENDED_HOLD_TICKS` after the game had ended. The hold is now gated on `game.phase !== 'attract'`. [src/presentation/backglass/frame.ts:225] fix-risk low.
+  - mutation: drop that gate → backglass-frame "a live ball_ended hold is abandoned the moment phase becomes attract" RED.
+- [x] [Review][Patch] (med, Rule 19, AC 3) **AC 3's "no `c_autolaunch` pulse" could not fail.** Its run had no drain and no re-serve, and its control was a different script, so removing the ball controller's `!tilt.tilted` guard left AC 3 green. It is rewritten on a reachable path: a two-source save re-serve with the tilt landing before the arrival. The control is the IDENTICAL script minus the bob closure. [test/rules-tilt.test.ts:379]
+  - mutation: drop the `!nextState.machine.tilt.tilted` conjunct at ball-controller.ts:653 → AC 3 and both AC 7 tests RED.
+- [x] [Review][Patch] (med, Rule 19, AC 4) **"`tiltWarnings` unchanged by the rotation" read the wrong player.** It read the ENDING player, whom `startBall()` never touches. A reset written into `startBall()` hits the STARTING player, so both twins stayed green. The starting player is now seeded nonzero and asserted in both twins. [test/rules-tilt.test.ts:539]
+  - mutation: `tiltWarnings: 0` in `startBall()`'s players map → both AC 4 twins RED.
+  - re-walk (vacuity #48): swap `tiltResult`/`controllerResult` in `rules/index.ts`'s `coilCommands` merge → both AC 4 twins RED.
+- [x] [Review][Patch] (med, Rule 19, AC 6) **AC 6's "no score change" did not discriminate "without bonus".** Both players carried a zero bonus. Both are now seeded with nonzero bonuses. [test/rules-tilt.test.ts:671]
+  - mutation: the slam branch pays each player's bonus → the AC 6 in-game test RED.
+- [x] [Review][Patch] (med, Rule 19, AC 8) **The check that `DEFAULT_ADJUSTMENTS` reads the one entry compared a value with itself.** Reverting `rules/index.ts` to a literal `1` left every test green. A new `vi.doMock` test moves `TUNING.tiltWarnings` to 7 and re-imports `sim/rules`. [test/host-game-seed.test.ts:140]
+  - mutation: `tiltWarnings: 1,` in `DEFAULT_ADJUSTMENTS` → that test RED.
+- [x] [Review][Patch] (med, Rule 19, AC 9) **Nothing pinned the TILT screen's `phase === 'game'` gate.** A tilted last ball leaves `tilted` true through game over. [test/backglass-frame.test.ts:493]
+  - mutation: drop the gate → "a tilted snapshot in phase game_over does NOT show the TILT screen" RED.
+- [x] [Review][Patch] (med, Rule 19, AC 9) **"An ended ball still wins over TILT for its hold" was pinned on the arming frame only.** [test/backglass-frame.test.ts:509]
+  - mutation: move the TILT branch between the `ball_ended` arming and its hold → "a live ball_ended hold keeps the panel through a LATER tilted frame" RED.
+- [x] [Review][Patch] (med, Rule 19) **Nothing pinned `tilt.ts`'s already-tilted guard.** Without it, every eligible closure during a tilted ball re-emits `tilt` and a second disable batch. [test/rules-tilt.test.ts:977]
+  - mutation: `if (!player || nextState.machine.tilt.tilted)` → `if (!player)` → "an eligible closure while ALREADY tilted emits no second tilt" RED.
+- [x] [Review][Patch] (low) **Three test titles claimed more than their tests asserted.** They are retitled, or strengthened with a direct-controller identity check and a tilt-happened sanity check. [test/rules-tilt.test.ts:439, :969]
+- [x] [Review][Patch] (low) **The reset-safety guard's stated premise was false.** `hostLoop.reset()` rebuilds `createRules()`, and with it a fresh tilt controller, so no mark survives a reset. The comments now call the guard defence in depth; the guard and its test stay, per Boundaries. [src/sim/rules/tilt.ts:26, and the restarted-timeline comments in test/rules-tilt.test.ts]
+- [x] [Review][Patch] (low) **The WARNING phase gates carried the wrong rationale.** One `FrameOutput` aggregates every owed tick's events, so a tick-k warning can share a frame with a slam's Attract snapshot from a later tick. The comments now say the gates are load-bearing. [src/presentation/backglass/frame.ts:259, test/backglass-frame.test.ts]
+- [x] [Review][Patch] (low) **Stale and contradictory comments corrected.** [src/sim/rules/index.ts:180, frame.ts:66, test/backglass-integration.test.ts:224]
+  - `rules/index.ts`'s 2026-09-06 correction still said the REAL boot `GameStart` carries 3.
+  - The line references `boot.ts:407`, `boot.ts:291-292` and `frame.ts:180-192` were out of date.
+  - `DmdScreen`'s doc still listed ARM YOURSELF as a future screen.
+- [x] [Review][Patch] (low) **The settle-class authoring error named `createDevicesLayer()` but throws at module load.** [src/sim/rules/devices/index.ts:244, test/rules-devices.test.ts:662]
+- [x] [Review][Patch] (low) **Nothing pinned the "two-edge burst stays under the slam count" measurement.** A tuning drift would have failed as "no warning". Both integration tests now assert that no `slam_tilt` fired. [test/rules-tilt-integration.test.ts:116, test/backglass-integration.test.ts:264]
+  - mutation: `slamNudgesPerWindow` 3 → 2 → both rules-tilt-integration tests RED.
+
+**Defer (dispositioned under Rule 15; ledger ids):**
+- [x] [Review][Defer] (med) **Start in Attract after a slam has no balls-home gate.** The voided game's ball drains and ends the NEW game's unplunged ball 1, then a second ball is served into the occupied shooter lane; a scratch probe confirmed both. [src/sim/rules/ball-controller.ts:569] — `escalated`, **DW-244**, for the decision sheet.
+  - fix-risk high: the fix sets what Start means when balls are not home (refuse, or reuse the resting ball), and it is coupled to DW-241's live plunger, 2.12's ball search and 2.13's attract/new-game path.
+  - The naive refusal gate trades corruption for a machine that cannot start.
+- [x] [Review][Defer] (med) **`slamNudgesPerWindow` (3 per 500 ms, unverified) lets three quick nudge taps void every player's game.** Before this review the only record was a test comment. [src/sim/table/tuning.ts:306] — `decision-pending`, **DW-245**, `human=feel_ritual`.
+- [x] [Review][Defer] (med) **A tilted ball still earns.** It collects DRAGON letters and bonus credit, and a skill-shot award on a DW-222 manual plunge; FR-15 is silent on scoring under Tilt. [src/sim/rules/ball-controller.ts:558, src/sim/rules/modes/skill-shot.ts:124] — `decision-pending`, **DW-246**. This is a product call, and the skill shot stays fenced by DW-232/DW-204.
+- [x] [Review][Defer] (low) **A slam during a pending bonus count-up keeps emitting `bonus_count_step` in Attract.** [src/sim/rules/ball-controller.ts:518] — occurrence on **DW-235** (routed to 2-13). Its visible symptom is closed by the `ball_ended` hold patch above.
+- [x] [Review][Defer] (low) **AC 5's sequential single-run scenario is untested.** Because the marks are machine-wide, player 0's settle window gates player 1's first warning. — occurrence on **DW-240** (decision-pending: what the windows are measured from).
+- [x] [Review][Defer] (low) **Every `GameStart` carries the tilt-warning count twice.** `tuning.tiltWarnings` is read by nothing and sits beside `adjustments.tiltWarnings`, so the dev recorder's header states two different counts. — occurrence on **DW-242**.
+- [x] [Review][Defer] (low) **A `tilt_warning` arriving during a live `ball_ended` hold is never shown.** [src/presentation/backglass/frame.ts:217-245] — `by-design`, **DW-247**: spec task 10 specifies that order.
+- [x] [Review][Defer] (low) **`adjustments.tiltWarnings` is not validated (NaN, negative or fractional).** [src/sim/rules/tilt.ts:161] — `wontfix-theoretical`, **DW-248**: it becomes real once a Settings UI or a save can supply the value.
+
+**Dismissed (9):**
+- AC 7's "arrival consumed exactly once": already pinned. Story 2.9's `rules-ball-save` test goes RED when the flag is consumed only inside the untilted branch.
+- The golden `notes` parenthetical: the reason the note relies on, the phase guard, is correct.
+- Record drift in the spec and cycle log (1943 vs 1952 tests, `4b4388c`): these are point-in-time records for their stages, and the cycle log is the lead's.
+- `describeEvent()` assertions exercise test code: that is DW-243's pattern, already ledgered.
+- `boot.ts` has no executed test host: this predates the story, and the established regex pins it textually.
+- Prose Rule 19 bullets instead of `mutation:` lines: the lead's AD gate ran all 17.
+- AC 9's integration test checks row text rather than a rasterised band: the own-band checks live at frame level, and the named AC 9 mutation reddens.
+- DW-242: already ledgered.
+- Test fixtures that author `tiltWarnings: 1`: literals at the probe are this story's own anti-vacuity rule.
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -386,6 +450,13 @@ Two further facts, measured here and worth stating because they are not obvious.
 - **AC 10** — in `src/sim/rules/devices/index.ts`, drop the `tilt_bob_closed` emission → the integration test reddens with no `tilt_warning` ever arriving from real nudge input, proving the physics→devices→rules chain is what the test traverses and not a scripted stand-in.
 - **AC 11** — revert one golden's `header.gameStart.tuning` to its `4b4388c` content → `test/replay-goldens.test.ts` reddens with a named `StaleReplayHeaderError` (`header.gameStart.tuning no longer matches the live resolveTuning() output`) on exactly that golden's tests, leaving the other four green.
 - **AC 12** — add `s_tilt_bob` to `PLAYFIELD_SWITCHES` by deleting the `'tilt_bob'` clause from `buildPlayfieldSwitches()`'s exclusion at `devices/index.ts:189` → the **pre-existing** AC 8 block at `test/rules-devices.test.ts:631-684` reddens on `size` 29 against its `toBe(28)` (`:665`) and on the exclusion loop (`:684`), and this story's new "no `playfield_switch_closed` on a bob closure" assertion reddens too. That the older block reddens is the point: it proves the derived set is still doing its job rather than having been quietly widened. Separately, make `switchNameForSettleClass` return the first match instead of throwing on a non-unique count → the authoring-defect case reddens.
+
+**QA stage file edits (Rule 8 / file-list completeness).** `test/rules-tilt.test.ts` — edited (QA): nine `currentPlayer: 1` twin tests added (no new file; the headless `ENTRY_FILES` registration in `test/rules-devices-headless.test.ts` was already present from implementation).
+
+**QA stage mutations (Rule 19), this pass.** Task 13's own clause ("each scenario run at both `currentPlayer` 0 and 1") had exactly one executing `currentPlayer: 1` case at implementation hand-off (AC 5's own twin); the mutations below were re-walked against `test/rules-tilt.test.ts` as extended by this stage with nine new `currentPlayer: 1` twins (AC 1 x2, AC 2 x2, the "Eligible again"/"Zero-warning machine" I/O-matrix rows x2, AC 3, AC 4, AC 7). Both reverted from a saved copy (`cp`, never `git checkout --`/`git stash`); `git status --short` and `git diff --stat` on `src/sim/rules/tilt.ts` confirmed unchanged after each.
+- **AC 5, re-walked** — `mutation: warning-branch players.map's index === playerIndex → index === 0 (src/sim/rules/tilt.ts:186)` → now reddens **5** tests (up from 1 at hand-off): AC 1's two new `currentPlayer: 1` twins, AC 2's two new `currentPlayer: 1` twins, and AC 5's own pre-existing twin. Every `currentPlayer: 0` case stayed green (QA).
+- **AC 5, second clause** — `mutation: tilt-branch events.push({ type: 'tilt', player: playerIndex, tick }) → player: 0 (src/sim/rules/tilt.ts:163)` → reddens **6** tests, none overlapping the mutation above: the AC 1 spacing-boundary `currentPlayer: 1` twin, both "Eligible again"/"Zero-warning machine" `currentPlayer: 1` twins, the AC 3 `currentPlayer: 1` twin, the AC 4 rotation `currentPlayer: 1` twin, and the AC 7 (DW-222) `currentPlayer: 1` twin. Every `currentPlayer: 0` case stayed green (QA).
+- **F2 investigated, not a gap** — `mutation: slam-tilt-branch events.push({ type: 'slam_tilt', tick }) removed (src/sim/rules/tilt.ts:119)` → reddens **5** pre-existing tests directly, including AC 6's own primary assertion `expect(result.events).toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: 1 }]))` (`test/rules-tilt.test.ts:651`) and all three same-tick-collision tests' `slam_tilt`-only event-list assertions. The `slam_tilt` event was already independently falsifiable; no test gap existed and none was added (QA).
 
 ## Auto Run Result
 

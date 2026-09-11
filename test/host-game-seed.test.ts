@@ -14,7 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { deriveGameSeed } from '../src/host/game-seed';
 import { DEFAULT_ADJUSTMENTS } from '../src/sim/rules';
 import { TUNING } from '../src/sim/table/tuning';
@@ -134,5 +134,30 @@ describe('DW-201 code review -- boot.ts\'s real gameplay adjustments literal mus
 		expect(TUNING.tiltWarnings.value, 'TUNING.tiltWarnings.value must equal DEFAULT_ADJUSTMENTS.tiltWarnings -- the whole point of AC 8\'s "one definition"').toBe(
 			DEFAULT_ADJUSTMENTS.tiltWarnings,
 		);
+	});
+});
+
+// Code review (Story 2.11, Rule 19): the sanity assertion above compares
+// `TUNING.tiltWarnings.value` with a `DEFAULT_ADJUSTMENTS.tiltWarnings` that
+// reads the SAME expression, so it cannot tell "reads the entry" from
+// "happens to equal it" -- reverting `sim/rules/index.ts` to a literal `1`
+// left the whole suite green. This moves the entry to a value no literal in
+// the tree carries and re-imports the rules layer against it (the
+// `vi.resetModules()` + `vi.doMock()` pattern `test/rules-devices.test.ts`
+// already uses for the settle-class authoring throw).
+describe('Story 2.11, AC 8 (DW-36) -- DEFAULT_ADJUSTMENTS.tiltWarnings FOLLOWS the one TUNING entry, not merely equals it', () => {
+	it('with TUNING.tiltWarnings mocked to 7, a freshly imported sim/rules resolves DEFAULT_ADJUSTMENTS.tiltWarnings to 7', async () => {
+		vi.resetModules();
+		vi.doMock('../src/sim/table/tuning', async (importOriginal) => {
+			const actual = await importOriginal<typeof import('../src/sim/table/tuning')>();
+			return { ...actual, TUNING: { ...actual.TUNING, tiltWarnings: { ...actual.TUNING.tiltWarnings, value: 7 } } };
+		});
+		try {
+			const rules = await import('../src/sim/rules');
+			expect(rules.DEFAULT_ADJUSTMENTS.tiltWarnings, 'DEFAULT_ADJUSTMENTS must read the (mocked) entry, never a second literal').toBe(7);
+		} finally {
+			vi.doUnmock('../src/sim/table/tuning');
+			vi.resetModules();
+		}
 	});
 });

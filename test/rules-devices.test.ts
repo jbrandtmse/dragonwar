@@ -659,7 +659,7 @@ describe('sim/rules/devices/ -- Story 2.11: switchNameForSettleClass() throws a 
 
 		try {
 			await expect(import('../src/sim/rules/devices')).rejects.toThrow(
-				'createDevicesLayer(): expected exactly one TABLE.switches entry with settleClass "tilt_bob", found 2',
+				'sim/rules/devices switchNameForSettleClass() (module load): expected exactly one TABLE.switches entry with settleClass "tilt_bob", found 2',
 			);
 		} finally {
 			vi.doUnmock('../src/sim/table/dragonwar');
