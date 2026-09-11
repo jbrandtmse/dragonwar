@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { createBallController } from '../src/sim/rules/ball-controller';
 import { createBallSearch } from '../src/sim/rules/ball-search';
 import { close, open, runRulesScript } from './util/switch-script';
@@ -79,11 +79,22 @@ function launchAt(origin: number): readonly SwitchEvent[] {
 	return open('s_shooter_lane').at(origin).build();
 }
 
-const SLING_COILS = Object.keys(TABLE.slingWiring);
-const POP_COILS = Object.keys(TABLE.popWiring);
-const SHOOTER_PULSE_COIL = TABLE.ballDevices.bd_shooter.ballSearchOrder.find((s) => s.action === 'pulse')!.coil;
-const TROUGH_EJECT_COIL = TABLE.ballDevices.bd_trough.ejectCoil;
-const BANK_RESET_COIL = TABLE.dropBankResetCoil;
+// Authored literals, never the module's own derivation (spec anti-vacuity
+// #44, Rule 19 shape 3; code review 2026-09-11): AC 1 names this order
+// verbatim, so a TABLE edit that reorders `slingWiring`/`popWiring` or
+// renames a coil turns AC 1 red instead of moving silently with the module.
+const SLING_COILS = ['c_sling_l', 'c_sling_r'] as const;
+const POP_COILS = ['c_pop_1', 'c_pop_2', 'c_pop_3'] as const;
+const SHOOTER_PULSE_COIL = 'c_autolaunch';
+const TROUGH_EJECT_COIL = 'c_trough_eject';
+const BANK_RESET_COIL = 'c_dragon_bank_reset';
+
+/** Every drain-driving test runs here (spec Boundaries); mirrors test/backglass-integration.test.ts. */
+const NO_BALL_SAVE_TUNING = resolveTuning({
+	...RAW_TUNING,
+	ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+});
 
 describe('sim/rules/ball-search.ts -- AC 1: the search starts on its bound and walks its stages in order', () => {
 	it('nothing through O+14999; ball_search_started once at O+15000 with stage slot 0 (pulse c_sling_l) in the same tick; the full 11-slot schedule; exactly one RecoverCommand at O+17750; c_mouth never appears', () => {
@@ -142,13 +153,19 @@ describe('sim/rules/ball-search.ts -- AC 3: the recover\'s rules-side answers', 
 		expect(servesWhenEmpty.coilCommands.filter((c) => c.tick === reportTick)).toEqual([{ type: 'coil', coil: TROUGH_EJECT_COIL, action: 'pulse', tick: reportTick }]);
 
 		// Same script, but the lane already reads occupied at the report tick
-		// (a ball resting there) -- no serve.
-		const occupiedScript = [...launchAt(O), ...close('s_shooter_lane').at(reportTick - 1).build()];
+		// -- by a ball SERVED into it (a trough slot opening and the lane
+		// closing in one batch, DW-187's pairing), so the stuck ball stays
+		// counted until the report and the ballsInPlay 0 below is genuinely
+		// applyRecovery()'s own correction (code review 2026-09-11: an
+		// unpaired lane close had already zeroed it a tick earlier).
+		const occupiedScript = [...launchAt(O), ...open('s_trough_1').at(reportTick - 1).close('s_shooter_lane').at(reportTick - 1).build()];
 		const noServeWhenOccupied = runRulesScript(occupiedScript, {
 			durationTicks: reportTick + 5,
 			initialState: midGameState(),
 			machineReports: new Map([[reportTick, { recovered: 1, failures: [] }]]),
 		});
+		expect(noServeWhenOccupied.statesByTick.get(reportTick - 1)!.machine.ballsInPlay, 'the served arrival keeps the stuck ball counted until the report').toBe(1);
+		expect(noServeWhenOccupied.statesByTick.get(reportTick - 1)!.machine.deviceSlots.bd_shooter).toEqual([true]);
 		const missingEvent2 = noServeWhenOccupied.events.find((e) => e.type === 'ball_missing');
 		expect(missingEvent2).toEqual({ type: 'ball_missing', count: 1, tick: reportTick });
 		expect(noServeWhenOccupied.statesByTick.get(reportTick)!.machine.ballsInPlay).toBe(0);
@@ -172,24 +189,39 @@ describe('sim/rules/ball-search.ts -- AC 3: the recover\'s rules-side answers', 
 		expect(noServeUnderSlam.coilCommands.filter((c) => c.tick === reportTick && c.coil === TROUGH_EJECT_COIL)).toEqual([]);
 	});
 
-	it('a full search run: recovered:0 with bd_shooter occupied yields ball_missing{count:0}, ballsInPlay 0, no serve, and no second ball_search_started through O+33751 -- the same run\'s O+15000 start is the positive', () => {
+	it('a full search run: its OWN RecoverCommand at O+17750, answered at O+17751 with recovered:0 while a SERVED ball rests in bd_shooter, yields ball_missing{count:0}, ballsInPlay 1 -> 0, no serve, and no second ball_search_started through O+33751 -- the same run\'s O+15000 start and O+17250 trough pulse are the positives', () => {
 		const O = 1000;
 		const trueRecoverTick = O + BALL_SEARCH_TICKS + 11 * BALL_SEARCH_STEP_TICKS;
 		const reportTick = trueRecoverTick + 1;
 
-		const script = [...launchAt(O), ...close('s_shooter_lane').at(trueRecoverTick - 10).build()];
-		const durationTicks = O + 2 * BALL_SEARCH_TICKS + 11 * BALL_SEARCH_STEP_TICKS + 10;
+		// The lane is occupied by a SERVED ball (a trough slot opening and the
+		// lane closing in one batch -- DW-187's pairing), so the stuck ball
+		// stays counted and the search runs to its own RecoverCommand. Code
+		// review 2026-09-11: this test previously closed the lane UNPAIRED,
+		// which (correctly, under DW-187) zeroed ballsInPlay ten ticks before
+		// the recover slot -- the search idled, never issued a recover, and the
+		// injected report answered nothing, so every assertion held with
+		// applyRecovery() disabled.
+		const script = [...launchAt(O), ...open('s_trough_1').at(trueRecoverTick - 10).close('s_shooter_lane').at(trueRecoverTick - 10).build()];
+		const durationTicks = O + 33751 + 10;
 		const result = runRulesScript(script, {
 			durationTicks,
 			initialState: midGameState(),
 			machineReports: new Map([[reportTick, { recovered: 0, failures: [] }]]),
 		});
 
-		expect(result.events.filter((e) => e.type === 'ball_search_started')).toEqual([{ type: 'ball_search_started', tick: O + BALL_SEARCH_TICKS }]);
+		expect(result.events.filter((e) => e.type === 'ball_search_started'), 'one pass, at O+15000; none through O+33751').toEqual([{ type: 'ball_search_started', tick: O + BALL_SEARCH_TICKS }]);
+		expect(result.recoverCommands, 'the search itself issues the one RecoverCommand this report answers').toEqual([{ type: 'recover', tick: trueRecoverTick }]);
+		expect(result.coilCommands.filter((c) => c.tick === O + 17250), 'the same instrument\'s positive: the lane was empty at the first trough slot, so it served').toEqual([{ type: 'coil', coil: TROUGH_EJECT_COIL, action: 'pulse', tick: O + 17250 }]);
+
+		const beforeReport = result.statesByTick.get(reportTick - 1)!.machine;
+		expect(beforeReport.ballsInPlay, 'the stuck ball is still counted when the report lands').toBe(1);
+		expect(beforeReport.deviceSlots.bd_shooter, 'a served ball rests in the lane').toEqual([true]);
+
 		const missing = result.events.find((e) => e.type === 'ball_missing');
 		expect(missing).toEqual({ type: 'ball_missing', count: 0, tick: reportTick });
-		expect(result.statesByTick.get(reportTick)!.machine.ballsInPlay).toBe(0);
-		expect(result.coilCommands.filter((c) => c.tick === reportTick)).toEqual([]);
+		expect(result.statesByTick.get(reportTick)!.machine.ballsInPlay, 'recovered:0 still corrects ballsInPlay to 0').toBe(0);
+		expect(result.coilCommands.filter((c) => c.tick === reportTick), 'no serve into the occupied lane').toEqual([]);
 	});
 });
 
@@ -263,16 +295,27 @@ describe('sim/rules/ball-search.ts -- AC 5: the failure vocabulary is tolerated,
 			machineReports: new Map([[reportTick, report]]),
 		});
 
-		expect(() => result).not.toThrow();
+		// A throw in any of these branches would already have failed
+		// runRulesScript() above. (Code review 2026-09-11: the former
+		// `expect(() => result).not.toThrow()` wrapped an already-computed value
+		// and could never fail; its `toEqual` claimed reference equality.)
 		const commandsThisTick = result.coilCommands.filter((c) => c.tick === reportTick);
-		expect(commandsThisTick).toEqual([{ type: 'coil', coil: TABLE.ballDevices.bd_trough.ejectCoil, action: 'pulse', tick: reportTick }]);
+		expect(commandsThisTick).toEqual([{ type: 'coil', coil: TROUGH_EJECT_COIL, action: 'pulse', tick: reportTick }]);
 
+		// No event: rules never re-emit a physics failure (Boundaries; the loop
+		// alone forwards them to FrameOutput.events). The same instrument's
+		// positive: this run's own ball_launched at O.
+		expect(result.events).toContainEqual({ type: 'ball_launched', tick: O });
+		expect(result.events.filter((e) => e.tick === reportTick), 'no rules event of any kind on the report tick').toEqual([]);
+
+		// AC 5: "leave state.machine as the same reference" -- the overflow
+		// answer is a command only.
 		const before = result.statesByTick.get(reportTick - 1)!.machine;
 		const after = result.statesByTick.get(reportTick)!.machine;
-		expect(after, 'eject_failed/broken alone would leave the SAME machine reference -- confirmed by reference equality on ballsInPlay/tilt/ballSave, which the overflow-serve pulse cannot itself change').toEqual(before);
+		expect(after, 'the failures must leave the SAME machine reference').toBe(before);
 	});
 
-	it('the failure vocabulary never throws downstream -- ball_missing reaches modeStack.step() and the real Backglass fold without incident', () => {
+	it('ball_missing reaches modeStack.step() without incident and leaves the mode stack\'s state unchanged (the real Backglass fold is exercised on real FrameOutputs in test/ball-search-integration.test.ts, AC 2)', () => {
 		const O = 1000;
 		const reportTick = O + 5;
 		const result = runRulesScript(launchAt(O), {
@@ -280,8 +323,8 @@ describe('sim/rules/ball-search.ts -- AC 5: the failure vocabulary is tolerated,
 			initialState: midGameState(),
 			machineReports: new Map([[reportTick, { recovered: 3, failures: [] }]]),
 		});
-		expect(() => result).not.toThrow();
 		expect(result.events).toContainEqual({ type: 'ball_missing', count: 3, tick: reportTick });
+		expect(result.statesByTick.get(reportTick)!.modes, 'ball_missing leaves the mode stack\'s state unchanged').toBe(result.statesByTick.get(reportTick - 1)!.modes);
 	});
 });
 
@@ -298,6 +341,17 @@ describe('sim/rules/ball-search.ts -- AC 6: the phase, in-play and tilt gates ho
 		const servedNotLaunched = runRulesScript([], { durationTicks, initialState: midGameState({ machine: { ballsInPlay: 0, deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [true], bd_lock: [false, false, false] } } }) });
 		expect(servedNotLaunched.events.filter((e) => e.type === 'ball_search_started')).toEqual([]);
 
+		// The phase conjunct, isolated from the ballsInPlay conjunct: every case
+		// above pairs a non-'game' phase with ballsInPlay 0, so it cannot by
+		// itself prove the phase check does any work independently of the
+		// ballsInPlay check (`state.phase === 'game' && state.machine.ballsInPlay
+		// > 0`, ball-search.ts's own inPlayNow). This state is synthetic --
+		// ordinary play accounting floors ballsInPlay before or alongside a
+		// phase change away from 'game' -- but the search's own gate must hold
+		// it defensively regardless, and nothing else in this file isolates it.
+		const attractWithBallsInPlay = runRulesScript([], { durationTicks, initialState: midGameState({ phase: 'attract', machine: { ballsInPlay: 1 } }) });
+		expect(attractWithBallsInPlay.events.filter((e) => e.type === 'ball_search_started'), 'phase !== \'game\' alone must suppress the search, even with ballsInPlay > 0').toEqual([]);
+
 		const O = 1000;
 		const positive = runRulesScript(launchAt(O), { durationTicks: O + BALL_SEARCH_TICKS + 10, initialState: midGameState() });
 		expect(positive.events.filter((e) => e.type === 'ball_search_started')).toEqual([{ type: 'ball_search_started', tick: O + BALL_SEARCH_TICKS }]);
@@ -312,6 +366,10 @@ describe('sim/rules/ball-search.ts -- AC 6: the phase, in-play and tilt gates ho
 		expect(tilted.coilCommands.some((c) => c.coil === SLING_COILS[0] && c.tick === O + BALL_SEARCH_TICKS)).toBe(true);
 		expect(tilted.coilCommands.some((c) => c.coil === POP_COILS[0])).toBe(true);
 		expect(tilted.coilCommands.filter((c) => c.tick === O + BALL_SEARCH_TICKS + 8 * BALL_SEARCH_STEP_TICKS)).toEqual([]);
+		// The I/O row "Tilted": the trough and bank slots are unchanged by tilt
+		// (code review 2026-09-11; previously unasserted).
+		expect(tilted.coilCommands.filter((c) => c.coil === BANK_RESET_COIL), 'the bank reset still lands, merged, at O+16251').toEqual([{ type: 'coil', coil: BANK_RESET_COIL, action: 'pulse', tick: O + 16251 }]);
+		expect(tilted.coilCommands.filter((c) => c.coil === TROUGH_EJECT_COIL && c.tick === O + 17250), 'the first trough slot still serves into the empty lane').toHaveLength(1);
 
 		const untilted = runRulesScript(launchAt(O), { durationTicks, initialState: midGameState() });
 		expect(untilted.coilCommands.filter((c) => c.tick === O + BALL_SEARCH_TICKS + 8 * BALL_SEARCH_STEP_TICKS)).toEqual([{ type: 'coil', coil: SHOOTER_PULSE_COIL, action: 'pulse', tick: O + BALL_SEARCH_TICKS + 8 * BALL_SEARCH_STEP_TICKS }]);
@@ -445,7 +503,9 @@ describe('sim/rules/ball-search.ts -- AC 4d: the held flipper\'s edge cases (dec
 		const fullScript = [...script, ...releaseScript];
 
 		const durationTicks = R2 + 14999 + 10;
-		const result = runRulesScript(fullScript, { durationTicks, initialState: midGameState() });
+		// NO_BALL_SAVE_TUNING (spec Boundaries: every drain-driving test; code
+		// review 2026-09-11) -- ball 1's drain must end the ball, never be saved.
+		const result = runRulesScript(fullScript, { durationTicks, initialState: midGameState(), tuning: NO_BALL_SAVE_TUNING });
 
 		// The premise: ball 2 genuinely launched at O2 while ball 1 genuinely
 		// ended first, and the flipper was genuinely held across the whole gap

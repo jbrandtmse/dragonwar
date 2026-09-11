@@ -71,8 +71,9 @@ export interface PopMechanics {
 	 * post-switch-edge manifest above -- this reacts to a coil PULSE, not a
 	 * skirt-edge make), after `enabledPulses` has already been filtered by
 	 * `coilEnabled` (DW-74: a disabled pop's pulse never reaches here at
-	 * all). For every pulsed `c_pop_N` in `pulses`, kicks the ball (if any)
-	 * whose CURRENT centre lies inside `sw_pop_N`'s own zone -- the same
+	 * all). For every pulsed `c_pop_N` in `pulses`, kicks EVERY ball
+	 * whose CURRENT centre lies inside `sw_pop_N`'s own zone, one `coil_fire`
+	 * per kick (task 8; none for an empty skirt) -- the same
 	 * radial impulse `applyPostSwitchEdges()` gives a genuine skirt-edge
 	 * make, factored into `radialKickVelocity()` below rather than
 	 * duplicated. Unlike that switch-edge trigger, a commanded pulse into an
@@ -256,30 +257,26 @@ export function createPopMechanics(options: {
 			// commanded pulse into an empty skirt is an ORDINARY outcome (ball
 			// search reaches this stage whether or not a ball happens to be
 			// wedged in the skirt) -- silently kicks nothing, never throws.
-			let resolved: Ball | undefined;
-			let posMm: Vec3 | undefined;
+			// Task 8: EVERY ball whose centre lies inside the pulsed pop's own
+			// skirt zone is kicked, one `coil_fire` per kick (code review
+			// 2026-09-11, DW-259: a first-match `break` here left a second
+			// co-located ball unkicked).
 			for (const ball of balls) {
-				const candidatePosMm = livePosMm(ball);
-				if (device.zones.some((zone) => segmentIntersectsBox(candidatePosMm, candidatePosMm, zone.minMm, zone.maxMm))) {
-					resolved = ball;
-					posMm = candidatePosMm;
-					break;
+				const posMm = livePosMm(ball);
+				if (!device.zones.some((zone) => segmentIntersectsBox(posMm, posMm, zone.minMm, zone.maxMm))) {
+					continue;
 				}
+				ball.hit.vel.add(radialKickVelocity(posMm, device.centroidMm, tuning.hardware.popKickMmPerS.value));
+				contactEvents.push({
+					type: 'contact',
+					kind: 'coil_fire',
+					device: device.coil,
+					ballId: ball.id,
+					surface: 'bumper',
+					pos: posMm,
+					tick,
+				});
 			}
-			if (!resolved || !posMm) {
-				continue;
-			}
-			const impulse = radialKickVelocity(posMm, device.centroidMm, tuning.hardware.popKickMmPerS.value);
-			resolved.hit.vel.add(impulse);
-			contactEvents.push({
-				type: 'contact',
-				kind: 'coil_fire',
-				device: device.coil,
-				ballId: resolved.id,
-				surface: 'bumper',
-				pos: posMm,
-				tick,
-			});
 		}
 
 		return { contactEvents };

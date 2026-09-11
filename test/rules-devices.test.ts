@@ -614,7 +614,11 @@ describe('sim/rules/devices/ -- the remaining bare device/shot events (AC 7)', (
 		// s_top_2's own OPEN adds nothing at all -- no button_released (it is
 		// not a button), no playfield_switch_closed (an opening edge is never
 		// one), no lane_entered.
-		const atOpenTick = result.events.filter((e) => e.tick === 20 && !(e.type === 'button_released'));
+		// Code review 2026-09-11: exclude ONLY the four buttons' own releases --
+		// filtering every button_released would also hide a spurious one for
+		// s_top_2, the very event this negative exists to catch.
+		const buttonReleases = new Set<string>(['s_start', 's_plunger', 's_flipper_l', 's_flipper_r']);
+		const atOpenTick = result.events.filter((e) => e.tick === 20 && !(e.type === 'button_released' && buttonReleases.has(e.button)));
 		expect(atOpenTick, 's_top_2 opening at tick 20 must add no event beyond the four buttons\' own button_released above').toEqual([]);
 	});
 });

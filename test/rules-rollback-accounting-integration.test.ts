@@ -1,12 +1,16 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // Story 2.12, task 1 (DW-187, AC 12): the pinning test for the rolled-back-
-// ball double count. Rule 19: written and run BEFORE task 2's fix, and
-// observed RED on today's code at the roll-back assertion (see this file's
-// own `## Verification` note in the story's implementation report -- today's
-// code gives `ballsInPlay` 1 after the roll-back, 2 after the re-plunge, 1
-// after the drain, and no `ball_ended`). Green after the fix
-// (`sim/rules/ball-controller.ts`'s `applyDeviceEvents`, task 2).
+// ball double count. Rule 19 provenance (corrected at code review
+// 2026-09-11): the SCENARIO was observed red on pre-fix code by the lead's
+// and the plan stage's scratch probes (ledger DW-187; the spec's plan-stage
+// record). THIS FILE's own red was demonstrated after the fix landed -- by a
+// surgical revert of only the serve-pairing branch in `applyDeviceEvents`
+// (implement stage) and by the lead's AD-gate mutation -- and was not
+// recorded before the fix. The reverted code gives `ballsInPlay` 1 after the
+// roll-back, 2 after the re-plunge, 1 after the drain, and no `ball_ended`.
+// Green on the fix (`sim/rules/ball-controller.ts`'s `applyDeviceEvents`,
+// task 2).
 //
 // Driven entirely through a real `createLoop()`, real input (`InputTransition`s),
 // and real physics -- no fabricated events, no stubbed accounting. Mirrors
@@ -116,7 +120,11 @@ describe('DW-187 (AC 12): a rolled-back ball leaves play, and its drain ends the
 		let ballsInPlayAtSecondLaunch = -1;
 		let ballEndedEvent: { readonly type: 'ball_ended'; readonly player: number; readonly tilted: boolean } | undefined;
 		let ballsInPlayAtDrain = -1;
+		let troughClosedBeforeEnd = -1;
+		let troughClosedAtEnd = -1;
+		let ballNumberAtEnd = -1;
 		for (let i = 0; i < MAX_TICKS; i++) {
+			const troughClosedBefore = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
 			out = loop.advance(1, []);
 			if (out.events.some((e) => e.type === 'ball_launched')) {
 				secondLaunchCount += 1;
@@ -126,9 +134,17 @@ describe('DW-187 (AC 12): a rolled-back ball leaves play, and its drain ends the
 			if (ended && ended.type === 'ball_ended') {
 				ballEndedEvent = ended;
 				ballsInPlayAtDrain = out.snapshot.game.machine.ballsInPlay;
+				troughClosedBeforeEnd = troughClosedBefore;
+				troughClosedAtEnd = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
+				ballNumberAtEnd = out.snapshot.game.players[0]!.ballNumber;
 				break;
 			}
 		}
+
+		// Code review 2026-09-11 (AC 12's own "on the tick a trough slot
+		// closes", and the I/O row's "ball 2 starts"): previously unasserted.
+		expect(troughClosedAtEnd, 'ball_ended arrives on the very tick a trough slot closes').toBe(troughClosedBeforeEnd + 1);
+		expect(ballNumberAtEnd, 'ball 2 starts on that same tick').toBe(2);
 
 		expect(secondLaunchCount, 'the re-plunge must fire exactly one MORE ball_launched').toBe(1);
 		expect(ballsInPlayAtSecondLaunch, 'DW-187: ballsInPlay must read 1 (not 2 -- today\'s code double-counts the rolled-back ball)').toBe(1);

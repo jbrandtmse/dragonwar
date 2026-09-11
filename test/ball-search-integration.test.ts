@@ -36,6 +36,7 @@ import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { toPhysics } from '../src/sim/table/frames';
 import { loadCollision } from '../src/sim/physics/loader';
+import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../src/presentation/backglass/frame';
 import type { GameStart } from '../src/sim/table/names';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -224,6 +225,14 @@ function startAndSettle(loop: LoopType, NO_FRAME: InputFrameType): FrameOutputTy
 	for (let i = 0; i < 500 && out.snapshot.mechanisms.devices.bd_shooter.slots[0] !== true; i++) {
 		out = loop.advance(1, []);
 	}
+	// AC 2's own Given: "At T = 400 the served ball rests on the plunger tip".
+	// Code review 2026-09-11: the loop above alone returned at T = 3, with the
+	// ball still rolling onto the tip; running on to T = 400 puts it at rest
+	// and makes L = 401 and AC 4c's P / R / S the spec's own literals
+	// (5401, 25401, 35401).
+	while (out.snapshot.tick < 400) {
+		out = loop.advance(1, []);
+	}
 	return out;
 }
 
@@ -258,6 +267,7 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			const L = out.snapshot.tick;
 			expect(out.events.some((e) => e.type === 'ball_launched'), "the premise: place() must genuinely produce ball_launched").toBe(true);
 			expect(out.snapshot.game.machine.ballsInPlay, 'the premise: ballsInPlay reads 1 on the launch tick').toBe(1);
+			expect(L, "AC 2's premise: ball_launched arrives at L = 401 (the ball placed at T = 400)").toBe(401);
 
 			const O = L;
 			const S = O + BALL_SEARCH_TICKS;
@@ -278,9 +288,15 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			let ballsLenAfterMissing = -1;
 			let cupBallGoneAfterMissing = false;
 			let ballsInPlayAtS2751 = -1;
+			// Code review 2026-09-11 (the I/O row "ball_missing downstream"): every
+			// frame is folded through the REAL Backglass, as src/host/boot.ts's
+			// onFrame does, so the controller's own ball_missing reaches it.
+			let backglassView = INITIAL_BACKGLASS_VIEW;
+			let screenAtMissing: string | null = null;
 
 			function updateTrackers(): void {
 				const tick = out.snapshot.tick;
+				backglassView = advanceBackglass(backglassView, out);
 				if (out.events.some((e) => e.type === 'ball_ended')) {
 					sawBallEnded = true;
 				}
@@ -325,6 +341,7 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 					ballsLenBeforeMissing = previousBallsLength;
 					ballsLenAfterMissing = out.snapshot.balls.length;
 					cupBallGoneAfterMissing = !out.snapshot.balls.some((b) => b.id === servedBallId);
+					screenAtMissing = renderFrame(backglassView, out.snapshot).screen;
 				}
 				if (tick === S + 2751) {
 					ballsInPlayAtS2751 = out.snapshot.game.machine.ballsInPlay;
@@ -385,6 +402,7 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			expect(ballsLenBeforeMissing, 'two balls (cup + served) exist just before the recover').toBe(2);
 			expect(ballsLenAfterMissing, 'one ball remains after the recover').toBe(1);
 			expect(cupBallGoneAfterMissing, 'the ball that remains is not the cup ball').toBe(true);
+			expect(screenAtMissing, 'ball_missing through the real Backglass fold: no throw, and the score screen stays up -- never mistaken for an end of ball').toBe('score');
 			expect(ballsInPlayAtS2751, 'ballsInPlay reads 0 from S+2751').toBe(0);
 			expect(troughUntilPlunge, 'the trough count stays 2 until the plunge').toBe(2);
 			expect(ballsInPlayUntilPlunge, 'ballsInPlay stays 0 until the plunge').toBe(0);
@@ -526,10 +544,11 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 				}
 			}
 
+			expect(O, 'the cup premise: O = L = 401 (the ball placed at T = 400)').toBe(401);
 			expect(
 				searchStartedTicks,
-				`exactly one ball_search_started, at R + (${BALL_SEARCH_TICKS} - (P - O)) = ${expectedResumedTick}, none while held`,
-			).toEqual([expectedResumedTick]);
+				`exactly one ball_search_started, at the spec's literal 35401 = R + (15000 - (P - O)), none while held (formula here: ${expectedResumedTick})`,
+			).toEqual([35401]);
 		},
 		180_000,
 	);

@@ -49,7 +49,7 @@
 import { TABLE } from '../table/dragonwar';
 import { armBallSave, EMPTY_BALL_SAVE, enableBallSave, hasGraceLapsed, isRunning, isWithinGrace } from './ball-save';
 import { bonusCountUpSteps, bonusTotal, BONUS_EMPTY } from './bonus';
-import { createBallSearch } from './ball-search';
+import { createBallSearch, servesIntoOf } from './ball-search';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { BankResetRequest, DeviceEvent } from './devices';
 import type { RecoverCommand } from '../contracts/commands';
@@ -80,7 +80,7 @@ function buildServingSetsByNonParkingEntry(): ReadonlyMap<BallDeviceName, Readon
 			if (otherDevice.kind !== 'parking') {
 				continue;
 			}
-			const servesInto = (otherDevice as { readonly servesInto?: string }).servesInto;
+			const servesInto = servesIntoOf(otherDevice);
 			if (servesInto && servesInto === device.entry) {
 				servingSet.add(otherName);
 			}

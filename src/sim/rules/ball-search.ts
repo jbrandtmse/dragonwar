@@ -43,6 +43,17 @@ import type { CoilCommand, CoilName, GameState, SemanticEvent, SwitchName } from
 type BallDeviceEntry = (typeof TABLE.ballDevices)[keyof typeof TABLE.ballDevices];
 type BallDeviceKey = keyof typeof TABLE.ballDevices;
 
+/**
+ * A ball device's optional `servesInto` -- declared only by a parking device
+ * that serves another device's entry (`bd_trough` at this tree). The one
+ * typed accessor for it: this module's stage-order derivation and
+ * `ball-controller.ts`'s DW-187 serving sets both read it here (code review
+ * 2026-09-11, DW-262: two hand-written copies of the same narrowing cast).
+ */
+export function servesIntoOf(device: BallDeviceEntry): string | undefined {
+	return (device as { readonly servesInto?: string }).servesInto;
+}
+
 /** A guarded pulse stage's reason for silently issuing nothing -- see `applyStage()` below. */
 type StageGuard =
 	| { readonly kind: 'lock' }
@@ -103,10 +114,6 @@ function buildStages(): readonly BallSearchStage[] {
 		if (device.kind === 'non-parking') {
 			nonParkingByEntrySwitch.set(device.entry, name);
 		}
-	}
-
-	function servesIntoOf(device: BallDeviceEntry): string | undefined {
-		return (device as { readonly servesInto?: string }).servesInto ?? undefined;
 	}
 
 	function guardFor(name: BallDeviceKey, device: BallDeviceEntry): StageGuard | undefined {

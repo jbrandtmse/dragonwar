@@ -263,6 +263,35 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		}
 	});
 
+	// Story 2.12 (AC 10): `ballSearchMs`/`ballSearchStepMs` are covered by the
+	// generic ratchet above only for source/confidence (the scalarKeys loop) --
+	// nothing until now DIRECTLY asserted that resolveTuning() actually derives
+	// their own `ballSearchTicks`/`ballSearchStepTicks` counterparts (only
+	// exercised indirectly, through the search's own schedule in
+	// rules-ball-search.test.ts, which assumes rather than proves the 1:1
+	// conversion at TICK_HZ 1000). AC 10's own Given names both derived keys
+	// explicitly, so this closes that direct gap.
+	it('AC 10: ballSearchMs (15000) and ballSearchStepMs (250) resolve with a non-empty source and a valid confidence, and derive ballSearchTicks/ballSearchStepTicks', () => {
+		const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+		// Authored tick literals at the production 1000 Hz (AD-3), never
+		// re-derived from the ms value under test (Rule 19 shape 3; code review
+		// 2026-09-11). The generic ms->ticks conversion is pinned separately,
+		// at a non-1000 rate, elsewhere in this file.
+		for (const [msKey, ticksKey, expectedMsValue, expectedTicksValue] of [
+			['ballSearchMs', 'ballSearchTicks', 15000, 15000],
+			['ballSearchStepMs', 'ballSearchStepTicks', 250, 250],
+		] as const) {
+			const msEntry = resolved[msKey] as unknown as TuningEntry<number>;
+			const ticksEntry = resolved[ticksKey] as unknown as TuningEntry<number>;
+			expect(msEntry.value).toBe(expectedMsValue);
+			expect(msEntry.source.length).toBeGreaterThan(0);
+			expect(validConfidences).toContain(msEntry.confidence);
+			expect(ticksEntry.value).toBe(expectedTicksValue);
+			expect(ticksEntry.source).toBe(msEntry.source);
+			expect(ticksEntry.confidence).toBe(msEntry.confidence);
+		}
+	});
+
 	it('produces switchSettleTicksByClass with every class converted, preserving source/confidence', () => {
 		const classes = ['rollover', 'standup', 'drop_target', 'bumper_skirt', 'tilt_bob', 'button', 'slam'] as const;
 		for (const settleClass of classes) {

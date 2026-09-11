@@ -653,6 +653,126 @@ Every anchor below was re-read at `ddbd946`. `src/`, `test/`, `tools/` and `publ
     - `s_top_2`'s opening edge adds no event. Its close still yields `playfield_switch_closed` and `lane_entered`, the same test's positive;
     - the two existing close-then-open tests (`test/rules-devices.test.ts:544-552`) assert the two-event form.
 
+### Review Findings
+
+Code review, 2026-09-11 (`bmad-code-review` under `/epic-cycle`; working directory `C:/git/dragonwar/.worktrees/epic-2`, branch `DW-1-epic2`). Diff: `git diff 7c25c4d` (committed `7c25c4d..2539905` plus QA's uncommitted edits; no untracked files), 34 files, reviewed in full. Review tier: full-opus (no `_bmad/custom/model-overrides.yaml`). Layers run, each synchronously from the worktree: blind-hunter, edge-case-hunter, verification-gap, acceptance-auditor. No layer changed a file.
+
+- **Rule 6:** every AD checked against its current text (AD-1, 2, 3, 4 amended, 5 amended, 6, 7, 9, 11, 15, 16, 18 amended, 19 amended). No violation.
+- **Rule 1:** Integration ACs 2, 4c, 7 and 12 run against real instances.
+- **Rule 3:** the real-runtime tier is `createLoop()`. `test/ball-search-integration.test.ts` and `test/rules-rollback-accounting-integration.test.ts` drive real input and assert on `FrameOutput`.
+- **Rule 5:** no NFR workaround found.
+- **Goldens:** header-only, verified structurally by the auditor, and untouched by this review.
+- **Counts:** 0 decision-needed; 17 patch, all applied and verified (4 med, 13 low); 7 defer, each ledgered (2 med, 5 low); 10 dismissed; 0 high.
+
+**Patch -- applied.** Each `mutation:` line below is this review's own demonstration. Every mutation was applied from a saved copy, observed red, then reverted; md5 and `git status --short` / `git diff --stat` were byte-identical afterwards.
+
+- [x] [Review][Patch] (med) AC 3's count-0 test never issued a recover [test/rules-ball-search.test.ts:192, :141]. Fix-risk low (test only), in-story.
+  - The defect: an unpaired `s_shooter_lane` close zeroed `ballsInPlay` ten ticks before the recover slot (DW-187). The search idled, and the injected report answered a recover that was never issued. The first test's occupied run had the same shape.
+  - The fix: both runs now occupy the lane with a paired serve. The count-0 run asserts its own `RecoverCommand` at O+17750, `ballsInPlay` 1 before the report and 0 after, and runs through O+33751.
+  - mutation: `applyRecovery(state.machine, machineReport.recovered || null)` in `src/sim/rules/index.ts` -> the AC 3 count-0 test red ("expected 1 to be +0").
+- [x] [Review][Patch] (med) AC 5's assertions could not fail [test/rules-ball-search.test.ts:279]. Fix-risk low, in-story.
+  - The defect: `expect(() => result).not.toThrow()` appeared twice, over an already-computed value. A `toEqual` claimed reference equality. The "no event" clause was unasserted, and the "real Backglass fold" was never exercised.
+  - The fix: the machine check is now `toBe(before)`. No rules event lands on the report tick; the positive is the run's own `ball_launched`. The mode stack's `modes` reference is unchanged. AC 2's real loop folds every `FrameOutput` through `advanceBackglass` / `renderFrame` and reads `score` on the `ball_missing` frame [test/ball-search-integration.test.ts:405].
+  - mutation: `events.push(failure)` in the controller's `(c)` no-op branch -> AC 5 red ("no rules event of any kind on the report tick").
+- [x] [Review][Patch] (med) AC 1's expected coils came from the same `TABLE` expressions the module reads (Rule 19 shape 3; the spec's anti-vacuity #44) [test/rules-ball-search.test.ts:86]. Fix-risk low, in-story.
+  - The fix: authored literals `c_sling_l`, `c_sling_r`, `c_pop_1..3`, `c_autolaunch`, `c_trough_eject` and `c_dragon_bank_reset`.
+  - mutation: swap `c_sling_l` / `c_sling_r` in `TABLE.slingWiring` -> AC 1, AC 6 (tilted) and AC 4d (mid-pass) red.
+- [x] [Review][Patch] (med) AC 9's clause "directed away from `col_pop_1`'s centroid" was unasserted [test/ball-search-physics.test.ts:166]. Fix-risk low, in-story.
+  - The fix: the ball now rests off-axis at the centroid + (30, 20) mm, clear of the bumper body. The table-frame kick must have a cosine above 0.99 with the radial.
+  - Why that placement: an injected ball is hit-tested, so a placement overlapping the body is pushed out on the priming tick (measured: speed 1.39).
+  - mutation: negate `popKickMmPerS` in `applyPulses()` -> AC 9 red (cosine -1.0000).
+- [x] [Review][Patch] (low) DW-259: `applyPulses()` stopped at the first ball in the pulsed skirt, while task 8 says it "kicks every ball" [src/sim/physics/pops.ts:260]. Fix-risk low, in-story, spec-clear.
+  - The fix: it now kicks every ball in the zone, one `coil_fire` each, and its doc comment says so. The new test places two co-located balls, checks both are at rest after the priming tick, and asserts both are kicked [test/ball-search-physics.test.ts:202].
+  - mutation: skip every ball after the device's first `coil_fire` -> the two-ball test red ("expected 0 to be greater than 1").
+- [x] [Review][Patch] (low) `applyPulses()`'s pulsed-coil guard was unpinned, as the test file's header admitted [test/ball-search-physics.test.ts:166].
+  - The fix: AC 9 first pulses an enabled `c_pop_2` beside the `sw_pop_1` ball.
+  - mutation: `if (false)` in place of the `pulsedCoils.has` guard -> AC 9 red ("a pulse of a DIFFERENT pop must never kick", 3.71).
+- [x] [Review][Patch] (low) AC 14's `s_top_2` negative filtered out every `button_released`, which would hide a spurious one [test/rules-devices.test.ts:620].
+  - The fix: it excludes only the four buttons' own releases.
+  - mutation: emit `button_released` on every opening edge -> AC 14 red, plus five other devices tests.
+- [x] [Review][Patch] (low) The "Tilted" I/O row's clause "the trough and bank slots are unchanged" was unasserted [test/rules-ball-search.test.ts:360].
+  - The fix: the tilted run asserts the merged bank reset at O+16251 and the trough pulse at O+17250.
+  - mutation: tilt-guard the `laneOccupied` (trough) slot -> the AC 6 tilted run red.
+- [x] [Review][Patch] (low) The AC 2 / AC 4c instrument returned at T = 3 with the served ball still rolling [test/ball-search-integration.test.ts:233].
+  - The defect: its "resting before place()" message was false, and the ticks differed from the spec's literals. L read 4, not 401, and AC 4c's P / R / S read 5004 / 25004 / 35004, not 5401 / 25401 / 35401.
+  - The fix: `startAndSettle()` runs to T = 400. The tests assert L = 401, O = 401 and the literal `[35401]` [:551]. Green, with every S+ offset unchanged.
+- [x] [Review][Patch] (low) AC 12 asserted neither "on the tick a trough slot closes" nor "ball 2 starts" [test/rules-rollback-accounting-integration.test.ts:146]. Both are asserted now.
+- [x] [Review][Patch] (low) AC 10's tick expectation, `Math.round(msEntry.value * TICK_HZ / 1000)`, was derived from the value under test [test/tuning.test.ts:280]. Now the authored literals 15000 and 250.
+- [x] [Review][Patch] (low) The AC 4d ball-boundary test drove a drain at default tuning, against the Boundaries clause "every drain-driving test runs at NO_BALL_SAVE_TUNING" [test/rules-ball-search.test.ts:508]. It now passes `NO_BALL_SAVE_TUNING`; it already asserted that `ball_ended` arrived.
+- [x] [Review][Patch] (low) DW-262: the `servesInto` narrowing cast was duplicated in two files, with a redundant `?? undefined` [src/sim/rules/ball-search.ts:53, src/sim/rules/ball-controller.ts:83].
+  - The fix: one exported `servesIntoOf()` in `ball-search.ts`, which the controller imports. AC 1, AC 13 and the goldens stay green.
+- [x] [Review][Patch] (low) `EMPTY_MACHINE_REPORT`'s comment said "frozen", but the object and its shared `failures` array were mutable [src/sim/rules/index.ts:87]. Both are now frozen with `Object.freeze`.
+- [x] [Review][Patch] (low) DW-187's red-before-fix provenance was stated inaccurately [test/rules-rollback-accounting-integration.test.ts:4].
+  - The defect: the test header and `## Auto Run Result` both say the test was "observed RED on today's pre-fix code (task 1, before the fix landed)". The cycle log records the red as shown after the fix, by a surgical revert.
+  - The correct record: the lead's and the plan stage's scratch probes observed the scenario red on pre-fix code. This file's own red was demonstrated by the implement stage's revert and by the lead's AD-gate mutation.
+  - The fix: the header is corrected. `## Auto Run Result` is build-auto's record, so it is left as written, and this line supersedes it.
+- [x] [Review][Patch] (low) AC 8's same-step test title claimed to pin the recover-before-`applyCommands()` ordering, which it cannot distinguish [test/ball-search-physics.test.ts:109]. The title and comment are corrected; the residual is DW-264 below.
+- [x] [Review][Patch] (low) AC 4b's test substitutes a PAIRED lane close (with a trough slot opening) for the matrix row's bare `s_shooter_lane` close and trough-slot close. The spec recorded no deviation [test/rules-ball-search.test.ts, AC 4b].
+  - Recorded here: after DW-187 the row's literal edges cannot serve as a quiet-window premise, because an unpaired lane close, or a trough-slot close at `ballsInPlay` 1, ends play. The paired edges are the row's reachable equivalent, and the test's own comment says so. No code change.
+
+**Defer -- each ledgered** (Rule 15, `by=cr`):
+
+- [x] [Review][Defer] (med) A pass cancelled after its trough slot can leave an extra ball in the lane [src/sim/rules/ball-controller.ts:608; src/sim/rules/ball-search.ts:177].
+  - The shape: a playfield closure between the trough slot (O+17250) and the recover (O+17750) cancels the pass, leaving a served, uncounted ball on the plunger tip. The next `startBall()` serve stacks a second ball on it, or a plunge starts an unplanned two-ball game.
+  - Why deferred: the root cause is DW-244's (ball start serves with no balls-home or lane decision), and the intent contract forbids pre-empting DW-244. Filed as `DW-244 occurrence=2-12-ball-search` (escalated, owner burndown, for the decision sheet). Fix-risk high, in-epic, non-blocking.
+- [x] [Review][Defer] (med) A plunge of the search-served ball in the ~500 ms before that pass's `RecoverCommand` is despawned by the recover [src/sim/rules/ball-search.ts:177].
+  - Spec-bound: the shooter lane never cancels a search (decision 6's list), and `RecoverCommand` despawns every ball outside a device (AD-6).
+  - DW-263 `by-design`, owner 2-12-ball-search. Reopens only by spec amendment. Fix-risk med.
+- [x] [Review][Defer] (low) Recovered balls are never re-parked, so once the trough empties the game cannot end the ball, a hard hang [src/sim/physics/devices.ts, recover()]. An existing root cause: `DW-257 occurrence=2-12-ball-search` (wontfix-accepted; its reopen_if stands).
+- [x] [Review][Defer] (low) AC 8 cannot distinguish recover-before from recover-after `applyCommands()`, because the trough's eject pose lies inside `bd_shooter`'s entry zone [src/sim/physics/machine.ts:356].
+  - DW-264 `wontfix-accepted`, with reopen_if = a `c_mouth` eject lands (Story 3.2) and no test steps a recover and a `c_mouth` pulse in one step.
+  - Not a two-way door: the discriminating instrument needs a ball parked in `bd_lock`.
+- [x] [Review][Defer] (low) The `device_overflow` answer pulses with no phase, tilt or lane guard [src/sim/rules/ball-controller.ts:919].
+  - DW-265 `wontfix-theoretical`. Unreachable today: the trough's capacity of 4 equals the machine's 4 balls, and a Lock overflow is tolerated until Story 3.2.
+  - It becomes real once Story 3.2 answers a `bd_lock` overflow.
+- [x] [Review][Defer] (low) No golden or determinism check covers a search pass, the loop's recover marker, `recover()` or `applyPulses()`.
+  - DW-266 `wontfix-accepted`, with reopen_if = a game-starting golden is recorded, or two `createLoop` runs of AC 2's cup scenario diverge.
+  - Not a two-way door: it falls outside this story's header-only golden budget.
+- [x] [Review][Defer] (low) The reset-safety guard catches only a restart below the stale origin, and leaves `wasInPlay` true after discarding [src/sim/rules/ball-search.ts:267].
+  - DW-267 `wontfix-theoretical`. Every production path builds a fresh Rules instance per loop and per replay.
+  - It becomes real only if a host reused one Rules instance across a timeline restart.
+
+**Ledger inbox** (the lead adjudicates):
+
+- **DW-187:** the fix closes it.
+  - The rolled-back ball reads 0, the re-plunge reads 1, and the drain ends the ball (AC 12; the AD gate's mutation reddened it).
+  - The pairing is stateless and same-batch, and keeps the signature and the same-reference return.
+  - Recommend `resolved-by:2-12-ball-search`. Sub-findings (a) and (c) stay declined, as the spec records.
+- **DW-259:** patched above. Probe: the two-ball test under the first-match mutation.
+- **DW-260:** not patched, because it is not a spec-clear two-way door.
+  - Task 14 itself declares skipping (a)-(d) harmless on the save re-serve path.
+  - Branch (b) can issue nothing in any reachable state at this tree: a `bd_trough` overflow needs a fifth ball, and a `bd_lock` overflow is tolerated with no answer until Story 3.2.
+  - Recommend `wontfix-theoretical`, with reopen_if = Story 3.2 answers a `bd_lock` overflow (the save-drain early return must then run (b) too). That is DW-265's trigger.
+- **DW-261:** not patched, because its premise does not hold.
+  - Accrual while not in play is always discarded: `step()` re-origins a fresh pass on every false-to-true "in play" transition [src/sim/rules/ball-search.ts:298].
+  - A ball-save re-serve always passes through at least one `step()` at `ballsInPlay` 0: the re-served ball's trough pulse lands at t+1 and its autolaunch at t+2 at the earliest. So no `ballSaveMs` tuning can carry quiet ticks across the gap.
+  - An `inPlayNow` conjunct on the accrual (:311) would be a guard no test could redden.
+  - Recommend `dropped` (invalid) or `wontfix-theoretical`.
+- **DW-262:** patched above.
+
+**Dismissed** (10; noise, or handled elsewhere):
+
+- A tilted recover re-serves: author decision 2 adds no tilted-recovery ball end.
+- The shooter slot answers `eject_failed` in single-ball play: the Design Notes keep the slot for Story 3.7.
+- The two sling slots are inert: DW-256, and the spec's "Never build a commanded sling kick".
+- `TABLE`'s per-device `recover` steps collapse into one `RecoverCommand`: as the Design Notes specify.
+- `recover()` skips a non-parking device with no zone instead of throwing: already adjudicated at build-auto's triage, and the committed document is verified.
+- `runRulesScript()` keeps a three-argument branch: the spec requires that call site to keep compiling.
+- `roll-and-drain` has a re-serialised `checkpointTicks`: the values are identical, verified structurally.
+- Same-batch serve pairing rests on a premise: `test/device-eject-pose.test.ts` gates it.
+- The recovery serve names `bd_shooter` / `bd_trough`: task 14(a)'s own wording, with in-file precedent.
+- AC 9's injected ball is not a registered mover: the AC asserts velocity, and the ball's hit-testing is now accounted for above.
+
+**Verification after the patches:**
+
+- `pnpm typecheck`: clean.
+- `pnpm test`: 121 files, 2009 passed, 0 skipped.
+- `pnpm lint:boundaries`: OK (108 files).
+- `check:headers` and `check:attributions`: OK.
+- `check:ad7`: exactly 3 passing tests.
+- `check:corridor` and `check:reachability`: OK.
+- `git diff --stat -- test/replays/ public/assets/`: unchanged by this review.
+
 ## Spec Change Log
 
 - **2026-09-11 — re-dispatch after the plan-stage AD-18 halt (lead).** The author's five decisions are written into the intent contract (`Author decisions, 2026-09-11`), replacing the "Blocked on AD-18" paragraph. Frontmatter `status` reset `blocked` → `draft` for a re-plan on this spec path. Frontmatter `deferred` item 1 (DW-187's rolled-back-ball double count) removed because it is now in scope. Same-day planning writes: `epics.md` Story 2.12 (AC 1, AC 2, AC 5 amended, change log) and Story 3.2 (three clauses received, change log); spine AD-4, AD-5, AD-18 and AD-19 amended; ledger DW-241 `by-design`, DW-222 coupling-settled note, DW-187 corrected-severity and in-scope notes.
@@ -1095,6 +1215,33 @@ Each runs against real instances, never mocks. AC 2's and AC 4c's capture wrappe
 | AC 14 | Drop the opening-edge branch | The four `button_released` are absent, and 4c's cup positive never arrives. |
 | AC 14 | Emit `button_released` on every opening edge | `s_top_2`'s open yields a release. |
 | I/O matrix, "Restarted timeline" | Neutralize the reset-safety guard (`ball-search.ts`'s `if (pass !== null && pass.origin > tick) { pass = null; }`) | `test/rules-ball-search.test.ts`'s dedicated reset-safety test (build-auto step 3 addition, Matrix Test Audit): the stale mark fires anyway. Confirmed red with the guard disabled, green restored, source byte-identical after (md5 `366f0dc04c18f73a303cf52cc95ff962`). |
+
+### QA pass, 2026-09-11 -- falsification of every AC not already demonstrated at the AD gate
+
+The AD gate had already demonstrated three mutations (AC 2's `recover()` despawn-nothing, which also reddens AC 8's "the loose ball is gone" assertion; AC 4's held-flipper pause via `!held &&`; AC 12's DW-187 revert, logged above). This pass audits and falsifies every other AC and the named I/O-matrix rows, each following Rule 19: name the mutation, apply it, confirm red, revert from the edit (never `git checkout --`/`git stash`), confirm `git status --short`/`git diff --stat` unchanged. All 17 mutations below were applied and reverted individually; the tree was confirmed byte-identical after every single one, and again after the full pass (`git diff --stat` shows only this spec file and the two test-file amendments noted in Decisions).
+
+| AC / row | Mutation | Test that went red |
+| --- | --- | --- |
+| AC 1 (stage schedule) | `ball-search.ts`: `pass.quietTicks >= threshold` to `>` | AC 1's own test ("nothing through O+14999 ... c_mouth never appears"): the O+15000 slot shifted to O+15001. Also reddened AC 4d's mid-pass test (shares the same bound check). |
+| AC 1 / the Lock issuing nothing | `ball-search.ts`: `guardFor()`'s `name === lockDevice` Lock guard neutralized | AC 1's own test, at "the Lock's first slot issues nothing": `c_mouth` appeared at O+16500, reddening the "no command names c_mouth" assertion. |
+| AC 3 (recover's rules-side answers) | `ball-controller.ts`: dropped `!nextState.machine.deviceSlots.bd_shooter[0]` from the recovery-serve guard | AC 3's first test, both the "occupied does not serve" and "no second ball_search_started" sub-assertions. |
+| AC 3 / recover outside a game | `ball-controller.ts`: dropped `nextState.phase === 'game' &&` from the recovery-serve guard | AC 3's first test, specifically the Slam/attract sub-case: a `c_trough_eject` pulse appeared under `phase: 'attract'`. |
+| AC 4a (closure cancels) | `ball-search.ts`: `observe()`'s closure fold guarded to `closed && pass === null` (a running pass no longer cancels) | AC 4a's own test: the cancelled pass still reached its own `RecoverCommand` at O+17750 instead of being cut off at C. |
+| AC 4b (non-playfield closures) | `ball-search.ts`: `observe()`'s `button_pressed` fold widened from `flipperButtons.has(event.button)` to every button | AC 4b's own test: Start's press paused the timer, so `ball_search_started` never landed at O+15000 within the test's window. |
+| AC 5 (device failure vocabulary / overflow answer) | `ball-controller.ts`: neutralized the `device_overflow` loop (forced its body to always `continue`) | AC 5's first test: the `bd_trough` overflow's `c_trough_eject` pulse disappeared. |
+| AC 6 (tilted) | `ball-search.ts`: `guardFor()`'s non-parking `tilt` guard neutralized | AC 6's second test: a `c_autolaunch` pulse appeared at O+17000 while tilted. |
+| AC 6 (not-in-play) | `ball-search.ts`: dropped `state.phase === 'game' &&` from `inPlayNow` | **Vacuous against every pre-existing test first** (0 of 77 tests in the four ball-search files reddened -- every existing non-'game' case also had `ballsInPlay` 0, so it could not discriminate the phase conjunct from the ballsInPlay conjunct). A new sub-case was added to AC 6's own first test (`phase: 'attract', machine: { ballsInPlay: 1 }`, a synthetic-but-defensive state) and confirmed green on unmutated code, then red under this mutation, then the mutation was reverted with the new test kept. See Decisions. |
+| AC 7 (bank reset through its owner) | `ball-search.ts`: `applyStage()`'s `bankReset` case changed to push `pulse TABLE.dropBankResetCoil` directly instead of a `bank_reset_requested` request | AC 7's own headless test: `c_dragon_bank_reset` appeared in the ball controller's own `coilCommands`, reddening the "no c_dragon_bank_reset in its own coilCommands" assertion. |
+| AC 8 (recover keeping the shooter ball) | `devices.ts`: `recover()`'s `insideADevice` forced to `false` unconditionally | `test/ball-search-physics.test.ts`'s AC 8 test: `recovered` rose from 1 to 2 (both balls despawned), reddening "exactly one ball is outside every device". |
+| AC 9 (commanded pop kick) | `pops.ts`: `applyPulses()` made a no-op (returns empty `contactEvents` before doing any work) | `test/ball-search-physics.test.ts`'s AC 9 test: the ball's speed stayed at 0 instead of rising off rest. |
+| AC 10 (tunables ratchet) | `test/tuning.test.ts`: removed `'ballSearchMs'` from the `scalarKeys` list | The ratchet's own completeness assertion ("every top-level TuningEntry must be listed in scalarKeys above"): `declared` (derived from live `TUNING`) no longer matched the (now short) `scalarKeys`. |
+| AC 10 (goldens / the tuning-drift detector) | `sim/loop/replay.ts`: `assertHeaderMatchesLiveEnvironment()`'s tuning-canonical comparison neutralized (`false && headerTuningCanonical !== liveTuningCanonical`) | `test/replay-goldens.test.ts`'s existing "a golden whose resolved tuning no longer matches the live resolveTuning() output fails naming the tuning, not the hash" test. This is the SAME whole-object canonicalized-JSON comparison a stale `ballSearchMs`/`ballSearchStepMs` block in a golden's own `header.gameStart.tuning` would trip -- confirming the mechanism the "goldens" I/O row depends on is genuinely wired, without needing to hand-edit a committed golden file. |
+| AC 10 | `resolveTuning() derives ballSearchTicks/ballSearchStepTicks` -- no existing test asserted this DIRECTLY (only indirectly, through the search's own schedule assuming the 1:1 conversion at TICK_HZ 1000). A new test was added (`test/tuning.test.ts`, "AC 10: ballSearchMs ... and ballSearchStepMs ... derive ..."), confirmed green, then falsified | `tuning.ts`: `ballSearchMs`'s value changed 15000 -> 15001 reddened the new test's `msEntry.value` assertion. Reverted; new test kept. See Decisions. |
+| AC 11 (the new event in the closed union) | `test/contracts.test.ts`: `describeEvent()`'s own `ball_search_started` arm re-templated to drop `${event.tick}` | The "narrows exhaustively on type" test: `'ball search started'` != `'ball search started at 19'`. |
+| AC 13 (served arrival never counted as a return) | `ball-controller.ts`: `applyDeviceEvents()`'s pairing condition (`remaining > 0`) forced to `false` | `test/rules-devices.test.ts`'s AC 13 test: the paired-arrival case's `ballsInPlay` read 0 instead of 1 (expected `1`, got `+0`). |
+| AC 14 (`button_released`) | `sim/rules/devices/index.ts`: Stage 3's opening-edge `button_released` emission removed | `test/rules-devices.test.ts`'s AC 14 test, plus the two amended Plunger/Start tests (3 tests total) -- all four buttons' releases disappeared. |
+
+**mutations_demonstrated=17** (this QA pass), on top of the AD gate's own 3 and the implement stage's own 2 (AC 12's DW-187 revert and the "Restarted timeline" reset-safety guard, both logged above with their own Observed records) -- 22 named, falsified mutations covering every acceptance criterion and every I/O-matrix row this stage's brief named.
 
 ## Auto Run Result
 

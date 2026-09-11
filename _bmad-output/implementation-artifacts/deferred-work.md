@@ -1203,6 +1203,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-06T13:54:24Z status=wontfix-theoretical owner=2-5-start-hot-seat-and-the-ball-lifecycle by=cr note=Not patched: the correct fix needs the pre-accounting ballsInPlay threaded into BallController.step (a closure counter breaks every test that injects an initialState), which is real seam surgery for a defect with no reachable trigger. reopen_if=multiball (3.7), ball save (2.9) or ball search (2.12) makes more than one ball countable at once
 - 2026-09-11T04:13:42Z status=routed owner=2-12-ball-search by=spec_gate occurrence=2-12-ball-search note=REOPEN_IF MET AT TODAY'S TREE, measured by the lead 2026-09-11 (scratch probe via createLoop, NO_BALL_SAVE tuning, production pitch): Start, a 20-tick weak manual plunge emits one ball_launched, the ball rolls back onto the plunger tip (deviceSlots.bd_shooter [true]) with ballsInPlay 1; a full plunge of the SAME ball reads ballsInPlay 2; after its drain ballsInPlay stays 1 with no ball and no ball_ended in 2000 ticks -- a HARD HANG reachable without ball search, so effective severity is med, not low. Mechanism: applyDeviceEvents (ball-controller.ts:44-73) increments on every ball_launched and never decrements on a non-parking arrival. Falsified: making a shooter arrival decrement turns the rollback count red. Routed to 2.12 because its ball_missing reconciliation is the story that corrects ballsInPlay; its plan-stage spec lists this as deferred item 1 (fix may move golden state hashes)
 - 2026-09-11T06:52:08Z note=SEVERITY CORRECTED (the header field predates reachability and cannot be edited through LEDGER): effective severity MED -- a hard hang a player can reach with two weak plunges at today's tree. AUTHOR DECISION 2026-09-11: the fix is IN Story 2.12's scope; a golden trajectory re-record, if the fix moves one, is pre-authorised for 2.12 on the standing condition (traced correct; each golden still asserts its own subject, verified field by field). Rule 19: the lead's two-weak-plunge probe is the pinning test -- red on today's code before the fix, green after
+- 2026-09-11T16:01:24Z status=resolved-by:2-12-ball-search by=adjudication note=CLOSED on delivered scope. applyDeviceEvents now treats an UNPAIRED non-parking arrival as leaving play (floored at 0) and a served arrival paired in the same batch with a serving parking device's device_ball_left as uncounted (stateless; signature and same-reference promise kept). Pinned by test/rules-rollback-accounting-integration.test.ts through real createLoop and plunger input: weak plunge rolls back to ballsInPlay 0, re-plunge counts 1, the drain emits ball_ended. Lead AD gate: treating every shooter arrival as paired turned it red (expected 1 to be 0); reverted sha-identical. No golden moved (header-only refresh)
 
 ### DW-188: ENTRY_FILES in test/rules-devices-headless.test.ts is hand-maintained with no completeness check, so the next headless rules test file silently escapes the AC 9 gate
 - source: spec-2-5-start-hot-seat-and-the-ball-lifecycle.md | severity: med | fix-risk: med | footprint: in-epic
@@ -1545,6 +1546,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Scratch probe: slam@10, Start@20, old ball drains@300 -> ball_ended(p0) for the new game's ball 1 with bd_shooter still occupied, then a 2nd trough eject into that lane; ball-controller.ts Start branch checks only phase
 - 2026-09-11T00:25:55Z status=escalated owner=burndown by=cr note=fix sets Start semantics with balls not home (refuse vs reuse the resting ball); coupled to DW-241, 2.12 ball search, 2.13
 - 2026-09-11T01:03:06Z occurrence=2-11-tilt-warnings-tilt-and-slam-tilt note=Reproduced LIVE in 2.11's browser smoke (orchestrator backstop, 2026-09-11). After a slam, the voided game's ball stayed in the shooter lane. Start then served a SECOND ball on top of it (two meshes at 818,705 and 818,724), and the new game jumped to BALL 2 within seconds.
+- 2026-09-11T15:50:46Z occurrence=2-12-ball-search by=cr note=a search pass cancelled after its trough slot leaves a served ball in the lane; next startBall serve stacks on it
 
 ### DW-245: slamNudgesPerWindow 3 in 500 ms (unverified) makes three quick nudge taps slam-tilt every player's game; the story's own integration tests had to cut burstFrames() to two edges to avoid it
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: med | fix-risk: low | footprint: in-epic
@@ -1615,6 +1617,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: devices.ts spawnBall() is reached only from a parking eject; four recoveries in one session exhaust the machine, as a real machine's lost ball stays lost
 - 2026-09-11T14:48:57Z status=wontfix-accepted owner=2-12-ball-search by=harvest note=reopen_if=a session reaches a serve that answers eject_failed with bd_trough empty after recoveries (playtest or replay)
+- 2026-09-11T15:50:46Z occurrence=2-12-ball-search by=cr note=code review re-found it: once recoveries empty the trough, no ball can drain, so the ball never ends (hard hang)
 
 ### DW-258: A ball at rest at the Ramp entrance (near x 377-380, y 508) rattles without settling or sinks through the playfield deck and falls below the table, closing no switch and never draining
 - source: spec-2-12-ball-search.md | severity: med | fix-risk: high | footprint: in-epic
@@ -1625,18 +1628,52 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: pops.ts applyPulses() breaks after the first match; its only caller is ball search's pop stage; two balls in one skirt needs multiball (3.7)
 - 2026-09-11T14:48:57Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review: kick every ball in the zone, or close with a probe
+- 2026-09-11T16:01:25Z status=resolved-by:2-12-ball-search by=adjudication note=Patched at code review: pops.ts applyPulses() now kicks every ball inside a pulsed pop's skirt zone, per the spec's task 8. Pinned by test/ball-search-physics.test.ts 'two balls resting in sw_pop_1 are BOTH kicked by one commanded pulse', falsified by the reviewer
 
 ### DW-260: The ball-save re-serve's early return skips applyRecovery's device_overflow answer, so an overflow on another device in the same machine report as a save's drain tick goes unanswered
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: ball-controller.ts's ball-save early-return comment justifies skipping recover handling and the search step only; a device_overflow answer is not a no-op; needs two balls on one tick (3.7)
 - 2026-09-11T14:48:58Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review
+- 2026-09-11T16:01:25Z status=wontfix-theoretical by=adjudication note=The skipped device_overflow answer on the ball-save early return can issue nothing in any state reachable today: it needs a second ball meeting a ball device on the exact tick of a single-ball save drain. Becomes real when Story 3.7 puts two balls in play or Story 3.2 answers a Lock overflow; reopen then
 
 ### DW-261: Ball search's quiet-tick clock accrues without an in-play gate, so a ball-save re-serve's transient ballsInPlay-0 gap relies on being shorter than ballSearchMs rather than on a guard
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: ball-search.ts step(): quietTicks += 1 has no inPlayNow conjunct; unreachable at production tuning (a save window is seconds, the search 15 s); a ballSaveMs at or above ballSearchMs could reach it
 - 2026-09-11T14:48:58Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review
+- 2026-09-11T16:01:25Z status=dropped by=adjudication note=Invalid premise, verified by the lead at ball-search.ts step(): when play resumes (inPlayNow && !wasInPlay) the pass is REPLACED with quietTicks 0, so quiet ticks accrued during a ball-save ballsInPlay-0 gap are discarded, whatever the tuning; stage application is separately gated on inPlayNow
 
 ### DW-262: ball-controller.ts buildServingSetsByNonParkingEntry() and ball-search.ts servesIntoOf() duplicate the same servesInto cast instead of sharing one typed accessor
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: The DW-149 derive-not-duplicate shape applied to a type-narrowing cast; two consumers today, a third would add a divergence point
 - 2026-09-11T14:48:58Z status=open owner=2-12-ball-search by=harvest note=Two-way door for this story's code review: one shared accessor
+- 2026-09-11T16:01:25Z status=resolved-by:2-12-ball-search by=adjudication note=Patched at code review: one shared typed servesIntoOf() accessor replaces the cast duplicated in ball-controller.ts and ball-search.ts
+
+### DW-263: A plunge of the ball that ball search's own trough slot served, made in the ~500 ms before that pass's RecoverCommand, is despawned by the recover
+- source: spec-2-12-ball-search.md | severity: med | fix-risk: med | footprint: in-epic
+- evidence: ball-search.ts stages: trough at O+17250, recover at O+17750; ball_launched is a shooter-lane opening edge, which the spec's closed list says never cancels a search; recover() despawns every ball outside a non-parking entry zone (AD-6)
+- 2026-09-11T15:50:46Z status=by-design owner=2-12-ball-search by=cr note=spec-bound: shooter-lane edges never cancel a search (decision 6 list); reopens only by spec amendment
+
+### DW-264: The AC 8 same-step recover-plus-serve test cannot tell recover-before from recover-after applyCommands(): the trough's eject pose lies inside bd_shooter's entry zone
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: med | footprint: in-epic
+- evidence: spawnBall() places the served ball at the trough eject pose, which test/device-eject-pose.test.ts requires inside s_shooter_lane; recover() spares entry-zone balls either way; the ordering is held only by machine.ts code order (recover before applyCommands)
+- 2026-09-11T15:50:47Z status=wontfix-accepted owner=2-12-ball-search by=cr note=reopen_if=a c_mouth eject lands (Story 3.2) with no test stepping recover + pulse c_mouth in one step
+
+### DW-265: The device_overflow answer pulses a parking device's eject coil with no phase, tilt or lane-occupied guard, unlike the recovery serve beside it
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: ball-controller.ts step() branch (b); unreachable at this tree: bd_trough capacity 4 equals the machine's 4 balls (AD-6), and a bd_lock overflow is tolerated with no answer until Story 3.2 (AD-18 phasing)
+- 2026-09-11T15:50:47Z status=wontfix-theoretical owner=2-12-ball-search by=cr note=real once Story 3.2 answers a bd_lock overflow (capacity 3 < 4 balls): guard the answer then
+
+### DW-266: No golden replay or determinism check covers ball search: the loop's recover marker, recover() and applyPulses() are pinned only by unhashed integration tests
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: med | footprint: in-epic
+- evidence: all five goldens run under 9,600 ticks and never press Start (the header-only golden budget), so no hashed replay exercises a search pass, a RecoverCommand or a commanded pop pulse
+- 2026-09-11T15:50:47Z status=wontfix-accepted owner=2-12-ball-search by=cr note=reopen_if=a game-starting golden is recorded, or two createLoop runs of the AC 2 cup scenario diverge
+
+### DW-267: Ball search's reset-safety guard discards only a stale mark above the current tick, and leaves wasInPlay true after discarding, so no re-origin follows until a closure
+- source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: ball-search.ts observe()/step(); every production path builds a fresh createRules() -> createBallController() -> createBallSearch() per loop and per replay, so one closure never sees a restarted timeline
+- 2026-09-11T15:50:47Z status=wontfix-theoretical owner=2-12-ball-search by=cr note=real only if a host reused one Rules instance across a timeline restart
+
+### DW-268: Ball search's own autolaunch step can launch a ball resting in the shooter lane into play, and the same pass's RecoverCommand despawns it about 750 ms later unless it closes a playfield switch first
+- source: spec-2-12-ball-search.md | severity: med | fix-risk: med | footprint: in-epic
+- evidence: Lead smoke replay of the browser recording under the pre-fix accounting mutation: search at 18252, its autolaunch launched the lane ball at 20272, a trough serve landed at 20503, the recover at 21003 removed the launched ball (ball_missing, ballsInPlay 0). In shipped single-ball play the autolaunch slot meets an empty lane (eject_failed), so this needs a counted ball beside a lane ball: multiball
+- 2026-09-11T16:08:02Z status=routed owner=3-7-quick-multiball-fight-the-monster by=smoke note=Related to DW-263 (by-design: a player's plunge of a search-served ball); this one is the machine launching and then deleting its own ball. Story 3.7 should decide whether a recover spares a ball launched by the same pass

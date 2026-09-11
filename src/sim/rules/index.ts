@@ -84,7 +84,7 @@ import { TUNING, type ResolvedTuning } from '../table/tuning';
  * `MachineReport` carries no mutable state, so one frozen instance is safe
  * to share as every omitted call's default.
  */
-const EMPTY_MACHINE_REPORT: MachineReport = { recovered: null, failures: [] };
+const EMPTY_MACHINE_REPORT: MachineReport = Object.freeze({ recovered: null, failures: Object.freeze([]) });
 
 /** The devices layer's own declared switch-events input -- see this file's header on why it is reached this way rather than by naming `SwitchEvent` directly. */
 type SwitchEventsParam = Parameters<DevicesLayer['step']>[0];

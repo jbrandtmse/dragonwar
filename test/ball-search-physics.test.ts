@@ -11,9 +11,13 @@
 // despawned unconditionally -- AC 8's "the lane ball remains" assertion goes
 // red. mutation 2 -- in `pops.ts`'s `applyPulses()`, drop the
 // `pulsedCoils.has(device.coil)` guard so every pop kicks on every pulse --
-// unreachable here since only one coil is ever pulsed per case, but the
-// disabled-coil negative (AC 9) would still catch a dropped `coilEnabled`
-// gate upstream in `machine.ts`'s own `enabledPulses` filter.
+// AC 9's sibling-pulse negative (an enabled `c_pop_2` pulse beside a ball
+// resting in `sw_pop_1`) goes red. mutation 3 -- negate the commanded kick --
+// AC 9's direction assertion goes red. mutation 4 -- restore a first-match
+// `break` in the ball scan -- the two-ball case (DW-259) goes red. (Code
+// review 2026-09-11 added mutations 2-4's pinning assertions.) The
+// disabled-coil negative still pins the upstream `coilEnabled` gate in
+// `machine.ts`'s own `enabledPulses` filter.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -22,7 +26,8 @@ import { NO_FRAME } from '../src/sim/loop';
 import { createMachine } from '../src/sim/physics/machine';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { MM_PER_VU, toPhysics } from '../src/sim/table/frames';
+import { fromPhysics, MM_PER_VU, toPhysics } from '../src/sim/table/frames';
+import { loadCollision } from '../src/sim/physics/loader';
 import { Ball } from '../src/sim/physics/ball/ball';
 import { BallData } from '../src/sim/physics/ball/ball-data';
 import { BallState } from '../src/sim/physics/ball/ball-state';
@@ -95,7 +100,13 @@ describe('sim/physics/devices.ts -- DeviceMechanics.recover() (Story 2.12, AD-6,
 		expect(machine.balls[0]!.id, 'the SURVIVING ball must be B (the lane ball), not A').toBe(ballBId);
 	});
 
-	it('a recover and a pulse c_trough_eject in the SAME step keep the newly served ball -- recover() runs BEFORE applyCommands(), so a ball that same tick\'s own pulse spawns is never despawned by the recover alongside it', () => {
+	// Code review 2026-09-11: this case pins AC 8's clause as written (the
+	// newly served ball is kept) but CANNOT by itself tell recover-before
+	// from recover-after applyCommands() -- the trough's eject pose lies
+	// inside bd_shooter's own entry zone, which recover() spares either way.
+	// The ordering is held by machine.ts's code order; the first
+	// discriminating instrument is Story 3.2's first Mouth eject (ledger).
+	it('AC 8: a recover and a pulse c_trough_eject in the SAME step keep the newly served ball', () => {
 		const machine = createMachine(loadDoc(), resolveTuning());
 		expect(machine.balls).toHaveLength(0);
 
@@ -118,7 +129,103 @@ describe('sim/physics/pops.ts -- PopMechanics.applyPulses() (Story 2.12, AD-5, A
 		};
 	}
 
-	it('AC 9: a commanded pulse kicks a ball at rest inside sw_pop_1 -- speed rises from rest, and exactly one coil_fire fires for c_pop_1', () => {
+	function popOneCentroidMm(): { readonly x: number; readonly y: number } {
+		return loadCollision(loadDoc(), resolveTuning()).popCentroidsMm.c_pop_1;
+	}
+
+	/**
+	 * A point inside `sw_pop_1`'s own zone, offset from `col_pop_1`'s own
+	 * centroid on both axes (test/pop-bumper.test.ts's off-axis idiom), so
+	 * "directed away from the centroid" is a real, falsifiable direction --
+	 * never the on-axis case `POP_KICK_TIE_BREAK_MM` floors (code review
+	 * 2026-09-11: AC 9's direction clause was unasserted).
+	 */
+	function popOneOffAxisMm(dxMm: number, dyMm: number): { readonly x: number; readonly y: number; readonly z: number } {
+		const zone = switchZoneMm('sw_pop_1');
+		const centroid = popOneCentroidMm();
+		return {
+			x: Math.min(Math.max(centroid.x + dxMm, zone.minMm.x + 2), zone.maxMm.x - 2),
+			y: Math.min(Math.max(centroid.y + dyMm, zone.minMm.y + 2), zone.maxMm.y - 2),
+			z: (zone.minMm.z + zone.maxMm.z) / 2,
+		};
+	}
+
+	/** The ball's velocity in the TABLE frame: `fromPhysics` is affine, so the difference of two converted points. */
+	function tableVelocity(ball: Ball): { readonly x: number; readonly y: number } {
+		const p = ball.state.pos;
+		const v = ball.hit.vel;
+		const a = fromPhysics({ x: p.x, y: p.y, z: p.z });
+		const b = fromPhysics({ x: p.x + v.x, y: p.y + v.y, z: p.z + v.z });
+		return { x: b.x - a.x, y: b.y - a.y };
+	}
+
+	function speedOf(ball: Ball): number {
+		return Math.hypot(ball.hit.vel.x, ball.hit.vel.y, ball.hit.vel.z);
+	}
+
+	it('AC 9: a commanded pulse kicks a ball at rest inside sw_pop_1 radially AWAY from col_pop_1\'s centroid, with exactly one coil_fire for c_pop_1 -- and an enabled SIBLING pulse (c_pop_2) earlier in the same run kicks nothing', () => {
+		const machine = createMachine(loadDoc(), resolveTuning());
+		const placedMm = popOneOffAxisMm(30, 20);
+		const ball = injectBallAt(placedMm, 501);
+		(machine.balls as Ball[]).push(ball);
+		expect(speedOf(ball), 'sanity: the probe starts genuinely at rest').toBe(0);
+
+		machine.step(1, NO_FRAME, [{ type: 'coil', coil: 'c_pop_1', action: 'disable', tick: 1 }]);
+		expect(speedOf(ball), 'sanity: the priming tick itself must not have moved the ball').toBeLessThan(0.01);
+
+		// The sibling negative: c_pop_2 enabled AND pulsed while the only ball
+		// rests in sw_pop_1 -- applyPulses() must kick only the pulsed pop's
+		// own skirt. The positive is the same run's tick 3, same instrument.
+		const sibling = machine.step(2, NO_FRAME, [
+			{ type: 'coil', coil: 'c_pop_1', action: 'enable', tick: 2 },
+			{ type: 'coil', coil: 'c_pop_2', action: 'enable', tick: 2 },
+			{ type: 'coil', coil: 'c_pop_2', action: 'pulse', tick: 2 },
+		]);
+		expect(speedOf(ball), 'a pulse of a DIFFERENT pop must never kick a ball resting in sw_pop_1').toBeLessThan(0.01);
+		expect(sibling.contactEvents.filter((c) => c.kind === 'coil_fire'), 'no coil_fire for a pulse into an empty skirt').toEqual([]);
+
+		const result = machine.step(3, NO_FRAME, [{ type: 'coil', coil: 'c_pop_1', action: 'pulse', tick: 3 }]);
+		expect(speedOf(ball), 'the kick must measurably raise the ball\'s speed off rest').toBeGreaterThan(1);
+
+		const centroid = popOneCentroidMm();
+		const away = { x: placedMm.x - centroid.x, y: placedMm.y - centroid.y };
+		const vel = tableVelocity(ball);
+		const cosine = (vel.x * away.x + vel.y * away.y) / (Math.hypot(vel.x, vel.y) * Math.hypot(away.x, away.y));
+		expect(cosine, `the kick must point radially away from col_pop_1's centroid (cosine ${cosine.toFixed(4)})`).toBeGreaterThan(0.99);
+
+		const coilFires = result.contactEvents.filter((c) => c.kind === 'coil_fire' && c.device === 'c_pop_1');
+		expect(coilFires, 'exactly one coil_fire for c_pop_1').toHaveLength(1);
+		expect(coilFires[0]!.tick).toBe(3);
+		expect(coilFires[0]!.surface).toBe('bumper');
+	});
+
+	it('DW-259 / task 8: two balls resting in sw_pop_1 are BOTH kicked by one commanded pulse, one coil_fire each', () => {
+		const machine = createMachine(loadDoc(), resolveTuning());
+		const first = injectBallAt(popOneOffAxisMm(30, 20), 503);
+		const second = injectBallAt(popOneOffAxisMm(-30, 20), 504);
+		(machine.balls as Ball[]).push(first, second);
+
+		// Both placements sit 36 mm from col_pop_1's centroid -- clear of its
+		// 20 mm-radius body plus the 13.5 mm ball radius (an injected ball IS
+		// hit-tested, so an overlapping one is pushed out) -- and inside
+		// sw_pop_1 alone. The priming tick must leave both at rest, so any
+		// speed below comes from the commanded pulse and nothing else.
+		machine.step(1, NO_FRAME, [{ type: 'coil', coil: 'c_pop_1', action: 'disable', tick: 1 }]);
+		expect(speedOf(first), 'sanity: the priming tick leaves the first ball at rest').toBeLessThan(0.01);
+		expect(speedOf(second), 'sanity: the priming tick leaves the second ball at rest').toBeLessThan(0.01);
+		const result = machine.step(2, NO_FRAME, [
+			{ type: 'coil', coil: 'c_pop_1', action: 'enable', tick: 2 },
+			{ type: 'coil', coil: 'c_pop_1', action: 'pulse', tick: 2 },
+		]);
+
+		expect(speedOf(first), 'the first ball is kicked').toBeGreaterThan(1);
+		expect(speedOf(second), 'the second, co-located ball is kicked too').toBeGreaterThan(1);
+		const firedFor = result.contactEvents.filter((c) => c.kind === 'coil_fire' && c.device === 'c_pop_1').map((c) => c.ballId);
+		expect(firedFor, 'one coil_fire per kicked ball').toHaveLength(2);
+		expect(new Set(firedFor)).toEqual(new Set([503, 504]));
+	});
+
+	it('AC 9 (original shape, kept as a regression): a pulse kicks a ball resting at the centre of sw_pop_1 -- speed rises from rest, and exactly one coil_fire fires for c_pop_1', () => {
 		const machine = createMachine(loadDoc(), resolveTuning());
 		const ball = injectBallAt(popOneCentreMm(), 501);
 		(machine.balls as Ball[]).push(ball);
