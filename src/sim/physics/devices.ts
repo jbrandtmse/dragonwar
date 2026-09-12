@@ -120,6 +120,31 @@ export interface DeviceMechanics {
 	 * recover that landed alongside it (AD-6, AC 8).
 	 */
 	recover(tick: number): number;
+	/**
+	 * Story 2.13 rework iteration 1 (CR-1, AD-6 amended, DW-269): the switch
+	 * edge(s) `recover()`'s most recent call(s) queued for the slot(s) it
+	 * closed -- a SEPARATE channel from `recover()`'s own `number` return
+	 * (frozen by the spec's Block-If: it still means "how many balls were
+	 * taken out of the simulated set", never widened to carry these), drained
+	 * by `machine.ts`'s `step()` immediately after calling `recover()` and
+	 * BEFORE `applyCommands()` -- the ORDERING REQUIREMENT (spec Boundaries &
+	 * Constraints): on a bottom-filled contiguous trough (AD-6's own
+	 * invariant), `recover()`'s own park (`indexOf(false)`, the lowest empty
+	 * slot) and a same-tick `c_trough_eject` pulse's own eject
+	 * (`lastIndexOf(true)`, the highest filled slot) always converge on the
+	 * SAME slot the instant `recover()` parks anything, so the CLOSE edge
+	 * queued here must reach `sim/rules/ball-controller.ts`'s
+	 * `deriveDeviceSlots()` strictly BEFORE that eject's own OPEN edge
+	 * (`commandResult.switchEvents`) -- never through `detectEntries()`
+	 * (which runs AFTER `commandResult` is assembled), which would emit
+	 * open-then-close and leave rules believing the slot is still closed (a
+	 * silent off-by-one against physics; `deriveDeviceSlots()`'s own
+	 * same-value identity guard swallows an out-of-order edge instead of
+	 * merely reordering it). Returns (and clears) whatever is pending;
+	 * ordinarily empty (a step that consumed no `RecoverCommand`, or one that
+	 * found nothing loose, queues nothing).
+	 */
+	drainRecoverSwitchEvents(): readonly SwitchEdgeLike[];
 }
 
 type BallDevice = (typeof TABLE.ballDevices)[BallDeviceName];
@@ -283,6 +308,18 @@ export function createDeviceMechanics(options: {
 	 * overflow latch instead.
 	 */
 	const overflowReported = new Map<BallDeviceName, Set<Ball>>();
+	/**
+	 * Story 2.13 rework iteration 1 (CR-1): `recover()`'s own queued switch
+	 * edges, drained by `drainRecoverSwitchEvents()` -- see both functions'
+	 * own doc comments (below, and on the `DeviceMechanics` interface above)
+	 * for why this is a channel separate from `recover()`'s `number` return.
+	 * Module-instance-scoped (this closure, mirroring `justEjected`/
+	 * `overflowReported` above), never module-level -- a module-level array
+	 * would leak between two loops in one process, the exact defect this
+	 * file's own header already names for `createDeviceMechanics()`'s other
+	 * per-instance state.
+	 */
+	const pendingRecoverSwitchEvents: SwitchEdgeLike[] = [];
 	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, BallDevice]>) {
 		if (device.kind === 'parking') {
 			justEjected.set(name, new Map<Ball, number>());
@@ -679,36 +716,42 @@ export function createDeviceMechanics(options: {
 	 * stray-clear report both read it that way, unaffected by where the ball
 	 * ends up).
 	 *
-	 * KNOWN GAP, code review second pass (Story 2.13) -- do not read the
-	 * paragraph below as settled. No `SwitchEvent` is emitted here for the
-	 * newly-closed slot, and AD-6 as amended at this story's spec gate
-	 * requires one: "`recover()` parks each ball it removes into `bd_trough`'s
-	 * lowest empty slot AND CLOSES THAT SLOT'S SWITCH, exactly as a parking
-	 * entry does", with "Device counts in `GameState` are the number of closed
-	 * slot switches and nothing else". The real parking entry a few lines
-	 * above does both halves; this does only the first. `GameState.machine
-	 * .deviceSlots` is derived exclusively from `device_ball_entered`/`_left`
-	 * (`rules/ball-controller.ts`'s `deriveDeviceSlots()`), and `sim/loop`
-	 * deliberately never re-seeds it from physics, so the rules-side trough
-	 * count UNDER-REPORTS physics by the number of parked-but-not-yet-ejected
-	 * balls. It is not self-healing in the way this comment previously
-	 * claimed: the next eject's OPENING edge is swallowed by
-	 * `deriveDeviceSlots()`'s own identity guard (the rules slot already reads
-	 * open), so the two records only coincide again by arithmetic accident.
-	 * It is latent rather than live today -- no `sim/rules/**` module reads
-	 * `deviceSlots.bd_trough`, only `bd_shooter` -- and AD-6 names Story 3.7
-	 * as the next reader of this clause. A conformant fix is NOT a one-liner:
-	 * it needs an event channel out of `recover()` (whose signature this
-	 * story's Block-If freezes) and the ball controller's Start-tick drain
-	 * guard widened to the stray-clear report tick, because the emitted
-	 * `device_ball_entered bd_trough` would otherwise read as a parking entry
-	 * at `ballsInPlay === 0` and fire a spurious `ball_ended` for the
-	 * brand-new ball 1. That is an author/lead call, filed as this review's
-	 * one HIGH against DW-257's own unfulfilled half.
+	 * FIXED, Story 2.13 rework iteration 1 (CR-1, code review 2026-09-12) --
+	 * the paragraph this replaces (filed as the review's one HIGH, against
+	 * DW-257's own unfulfilled half) named a real gap: no `SwitchEvent` was
+	 * emitted here for the newly-closed slot, so `GameState.machine
+	 * .deviceSlots.bd_trough` (`rules/ball-controller.ts`'s
+	 * `deriveDeviceSlots()`, driven exclusively by `device_ball_entered`/
+	 * `_left` -- `sim/loop` deliberately never re-seeds it from physics)
+	 * under-reported physics by the number of parked-but-not-yet-ejected
+	 * balls, reachable for hundreds of ticks (`test/ball-search-integration
+	 * .test.ts`'s own recover, unpaired with any same-tick eject). Fixed by
+	 * queuing the identical switch edge a real parking entry gets --
+	 * `{ type: 'switch', switch: <the parked slot>, closed: true, tick }` --
+	 * onto `pendingRecoverSwitchEvents` (below), a SEPARATE channel
+	 * `drainRecoverSwitchEvents()` (this file's own exported method, see the
+	 * `DeviceMechanics` interface above) exposes to `machine.ts`'s `step()`,
+	 * which drains it immediately after calling `recover()` and BEFORE
+	 * `applyCommands()` -- never `recover()`'s own `number` return, which the
+	 * spec's Block-If keeps meaning exactly what it always meant ("how many
+	 * balls were taken out of the simulated set"), and never folded into
+	 * `detectEntries()`'s own post-step output either: see
+	 * `drainRecoverSwitchEvents()`'s own doc comment for the ORDERING
+	 * REQUIREMENT this split exists to satisfy (a same-tick `c_trough_eject`
+	 * ejects from the SAME slot `recover()` just parked into, on a
+	 * bottom-filled contiguous trough, AD-6 -- the close edge must reach
+	 * rules before that eject's own open edge, or `deriveDeviceSlots()`'s
+	 * identity guard leaves the slot stuck reading closed). DW-269 (the
+	 * sibling hazard this fix's own close edge activates -- a spurious
+	 * `ball_ended` on a brand-new ball 1, since that edge is itself a
+	 * `device_ball_entered` on a parking device landing at `ballsInPlay ===
+	 * 0`) is closed in `sim/rules/ball-controller.ts`'s drain-branch guard,
+	 * not here.
 	 */
 	function recover(tick: number): number {
 		let count = 0;
 		const troughSlots = parkingSlots.bd_trough!;
+		const troughSlotSwitches = TABLE.ballDevices.bd_trough.slots as readonly SwitchName[];
 		// A COPY: physics.removeBall() below mutates the live array this
 		// closure otherwise shares with detectEntries()'s own `physics.balls`
 		// reads elsewhere in the same tick.
@@ -758,8 +801,28 @@ export function createDeviceMechanics(options: {
 				);
 			}
 			troughSlots[lowestEmpty] = true;
+			// CR-1: the real parking-entry branch above (`detectEntries()`) pushes
+			// BOTH a switch edge and a contact event for the identical
+			// `slots[lowestEmpty] = true` write; this recover path stays scoped
+			// to the switch edge alone (AD-9's `contact` vocabulary is about a
+			// ball's own collision-level arrival, and a recovered ball's own
+			// disappearance already has its semantic-level event, `ball_missing`,
+			// from the rules layer -- inventing a second, physics-level contact
+			// event for the same occurrence would be new vocabulary this fix
+			// does not need).
+			pendingRecoverSwitchEvents.push({ type: 'switch', switch: troughSlotSwitches[lowestEmpty]!, closed: true, tick });
 		}
 		return count;
+	}
+
+	/** See `DeviceMechanics.drainRecoverSwitchEvents()`'s own doc comment. */
+	function drainRecoverSwitchEvents(): readonly SwitchEdgeLike[] {
+		if (pendingRecoverSwitchEvents.length === 0) {
+			return [];
+		}
+		const drained = pendingRecoverSwitchEvents.slice();
+		pendingRecoverSwitchEvents.length = 0;
+		return drained;
 	}
 
 	return {
@@ -769,6 +832,7 @@ export function createDeviceMechanics(options: {
 		applyCommands,
 		detectEntries,
 		recover,
+		drainRecoverSwitchEvents,
 		launch,
 	};
 }

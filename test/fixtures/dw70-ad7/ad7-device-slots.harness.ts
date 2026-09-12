@@ -36,18 +36,48 @@
 //         (`sim/loop/index.ts`'s buildSnapshot(), reading `machine.deviceSlots`
 //         DIRECTLY and independently of rules -- untouched by this story,
 //         Code Map: "Do not change this") -- for ALL THREE ball devices, across
-//         a real trough eject.
+//         a real trough eject AND (Story 2.13 rework iteration 1, the
+//         reviewer's own finding) a real stray-clear RECOVER, driven by a
+//         genuine Slam-tilt-then-Start, never a dev seam. Still ONE `it()`
+//         (the wrapper's exact-3 count is load-bearing, Rule 19) -- the
+//         recover phase is a SECOND scenario inside the SAME body, not a
+//         fourth case.
 //   (iii) anti-vacuity self-check -- `bd_trough` must be OBSERVED leaving
 //         `[true,true,true,true]` (i.e. the eject genuinely ran), so a
 //         harness that silently never drove anything cannot pass (i) or (ii)
 //         by never having anything to disagree about.
+//
+// Story 2.13 rework iteration 1 (CR-1's own third finding): before this
+// pass, (ii)'s only recover-adjacent coverage was a bare `c_trough_eject`
+// pulse -- a PARKING entry, never a RECOVER -- so this harness would not
+// have caught CR-1 (`devices.ts`'s `recover()` parking a ball without
+// closing the trough slot switch, leaving `GameState.machine.deviceSlots
+// .bd_trough` under-reporting physics). (ii) now ALSO drives a real Slam
+// (ten `nudge_up` edges, mirroring `test/rules-tilt-integration.test.ts`'s
+// own burst) followed by a real Start, reaching a STANDALONE recover
+// deliberately -- NOT `test/stray-clear-integration.test.ts`'s own AC 5
+// route-1 shape, whose paired recover+eject on the same trough slot makes
+// `deriveDeviceSlots()`'s identity guard swallow a MISSING recover edge
+// exactly as completely as it nets a present, correctly-ordered one (see
+// that file's own comment for the worked derivation). This scenario dev-
+// pulses a second ball into the lane before the Slam (this file's own (ii)
+// scenario above already uses that seam) so the eventual Start sees the
+// lane occupied and issues no eject of its own -- the recover this reaches
+// has nothing to pair with, and a missing or wrongly-ordered edge is an
+// undisguised divergence from physics, measured and verified by mutation at
+// this rework pass (reverting the switch-edge push reddens this exact case
+// with `bd_trough` stuck at 2 closed slots instead of physics' own 3).
+// Cross-checks EVERY ball device, not only `bd_trough`, at the recover's
+// own report tick.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createLoop } from '../../../src/sim/loop';
+import { createLoop, NO_FRAME } from '../../../src/sim/loop';
+import { resolveTuning, TUNING as RAW_TUNING } from '../../../src/sim/table/tuning';
 import { TABLE } from '../../../src/sim/table/dragonwar';
-import type { BallDeviceName } from '../../../src/sim/table/names';
+import type { BallDeviceName, GameStart } from '../../../src/sim/table/names';
+import type { InputTransition } from '../../../src/sim/contracts/input';
 
 // Review finding 2026-09-06 (code-review re-review, DW-189): the device-slot
 // views this harness computes are now published on `task.meta` as WELL as
@@ -77,6 +107,12 @@ declare module 'vitest' {
 		bdTroughRulesDerivedAfterEject?: boolean[];
 		/** (ii) the snapshot's independent physics-derived `bd_trough` view after the eject. */
 		bdTroughPhysicsDerivedAfterEject?: boolean[];
+		/** (ii), rework iteration 1: every ball device's rules-derived slots, one tick after a real Slam-then-Start's own stray-clear recover. */
+		recoverRulesDerivedByDevice?: Record<string, readonly boolean[]>;
+		/** (ii), rework iteration 1: the same tick's independent physics-derived slots, for every ball device. */
+		recoverPhysicsDerivedByDevice?: Record<string, readonly boolean[] | undefined>;
+		/** (ii), rework iteration 1: the recover's own `ball_missing` count -- must be 1, the anti-vacuity guard that the recover genuinely ran and found the voided ball loose. */
+		recoverBallMissingCount?: number;
 	}
 }
 
@@ -103,7 +139,7 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 		).toBe(outA.snapshot.game.machine.deviceSlots);
 	});
 
-	it('(ii) whole-record cross-derivation: the rules-derived deviceSlots agree with the snapshot\'s own independent physics-derived view, for all three ball devices, across a real trough eject', ({ task }) => {
+	it('(ii) whole-record cross-derivation: the rules-derived deviceSlots agree with the snapshot\'s own independent physics-derived view, for all three ball devices, across a real trough eject AND a real stray-clear recover', ({ task }) => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		loop.pulseCoil('c_trough_eject');
 		let out = loop.advance(1, []);
@@ -142,6 +178,152 @@ describe('DW-70 (AD-7): GameState.machine.deviceSlots is derived inside rules.st
 					`directly and is NOT touched by this fix). Rules-derived: ${JSON.stringify(rulesDerived[device])}. ` +
 					`Physics-derived: ${JSON.stringify(physicsDerived[device]?.slots)}.`,
 			).toEqual(physicsDerived[device]?.slots);
+		}
+
+		// ---------------------------------------------------------------
+		// Rework iteration 1 (CR-1's own third finding): a SECOND scenario,
+		// same `it()` -- a real Slam-then-Start, which is the ONLY way to
+		// reach a genuine `RecoverCommand` through rules (AD-6: ball search
+		// gates on `ballsInPlay > 0`, and the stray clear only fires from a
+		// ball start). Built as a STANDALONE recover (no same-tick eject
+		// paired with it) deliberately, not `test/stray-clear-integration
+		// .test.ts`'s own AC 5 route-1 shape: on a bottom-filled contiguous
+		// trough (AD-6), a PAIRED recover+eject on the SAME slot makes
+		// `deriveDeviceSlots()`'s identity guard swallow a MISSING recover
+		// edge exactly as completely as it nets a present, correctly-ordered
+		// one (see that file's own comment for the fully worked derivation)
+		// -- a harness built on that shape alone would not have caught
+		// CR-1's own "no switch event at all" half. So: dev-pulse a SECOND
+		// ball into the lane while ball 1 is still rolling (never a rules
+		// decision -- the same seam this file's own (ii) scenario above
+		// already uses), THEN Slam -- ball 1 is voided loose, ball 2 stays
+		// resting in `bd_shooter` untouched, so the Start below sees the
+		// lane occupied and issues no eject of its own. The recover this
+		// scenario reaches has nothing to pair with.
+		// ---------------------------------------------------------------
+		const noBallSaveTuning = resolveTuning({
+			...RAW_TUNING,
+			ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+			ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+		});
+		const recoverGameStart: GameStart = {
+			seed: 0,
+			tuning: noBallSaveTuning,
+			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0 },
+			highscores: [],
+		};
+		const recoverLoop = createLoop({ collisionDoc: loadDoc(), gameStart: recoverGameStart, tuning: noBallSaveTuning });
+
+		recoverLoop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
+		recoverLoop.advance(1, [{ tick: 3, frame: NO_FRAME }]);
+		let rOut = recoverLoop.advance(1, []);
+		for (let i = 0; i < 398; i++) {
+			rOut = recoverLoop.advance(1, []);
+		}
+		rOut = recoverLoop.advance(1, [{ tick: rOut.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+		for (let i = 0; i < 1199; i++) {
+			rOut = recoverLoop.advance(1, []);
+		}
+		rOut = recoverLoop.advance(1, [{ tick: rOut.snapshot.tick + 1, frame: NO_FRAME }]);
+		let sawLaunch = false;
+		for (let i = 0; i < 500 && !sawLaunch; i++) {
+			rOut = recoverLoop.advance(1, []);
+			if (rOut.events.some((e) => e.type === 'ball_launched')) {
+				sawLaunch = true;
+			}
+		}
+		expect(sawLaunch, 'the recover phase\'s own premise: the manual plunge must genuinely launch ball 1 onto the field').toBe(true);
+		const ball1Id = rOut.snapshot.balls[0]!.id;
+
+		// The dev pulse: a second ball served into the now-empty lane while
+		// ball 1 is still rolling -- `test/ball-search-integration.test.ts`'s
+		// own former AC 7 (route 2) technique, reused here for the SAME
+		// reason it was reused there: this reaches the identical rules-level
+		// state ("bd_shooter occupied while another ball is loose") a
+		// genuine ball-search pass would too, without that pass's own
+		// ~15,000-tick timeline.
+		recoverLoop.pulseCoil('c_trough_eject');
+		let sawArrival = false;
+		for (let i = 0; i < 500 && !sawArrival; i++) {
+			rOut = recoverLoop.advance(1, []);
+			if (rOut.snapshot.mechanisms.devices.bd_shooter.slots[0] === true) {
+				sawArrival = true;
+			}
+		}
+		expect(sawArrival, 'the recover phase\'s own premise: ball 2 must genuinely settle in the lane').toBe(true);
+		expect(rOut.snapshot.balls, 'the recover phase\'s own premise: two balls now exist').toHaveLength(2);
+
+		// Ten nudge_up edges, starting 50 ticks after ball 2 settles (the
+		// margin `test/stray-clear-integration.test.ts`'s own `tenEdgeBurst()`
+		// spacing needs, inlined here -- this harness runs out-of-process and
+		// never imports a `test/**` sibling).
+		const burstStart = rOut.snapshot.tick + 50;
+		while (rOut.snapshot.tick < burstStart - 1) {
+			rOut = recoverLoop.advance(1, []);
+		}
+		const burst: InputTransition[] = [];
+		for (let i = 0; i < 10; i++) {
+			const onTick = burstStart + i * 2;
+			burst.push({ tick: onTick, frame: { ...NO_FRAME, nudge_up: true } });
+			burst.push({ tick: onTick + 1, frame: NO_FRAME });
+		}
+		let sawSlam = false;
+		for (let tick = burstStart; tick < burstStart + 400 && !sawSlam; tick++) {
+			const pending = burst.filter((t) => t.tick === tick);
+			rOut = recoverLoop.advance(1, pending);
+			if (rOut.events.some((e) => e.type === 'slam_tilt')) {
+				sawSlam = true;
+			}
+		}
+		expect(sawSlam, 'the recover phase\'s own premise: the ten-edge burst must genuinely slam-tilt the machine').toBe(true);
+		expect(rOut.snapshot.game.phase, 'the recover phase\'s own premise: a Slam voids the game to Attract').toBe('attract');
+		expect(rOut.snapshot.mechanisms.devices.bd_shooter.slots, 'the recover phase\'s own premise: ball 2 still rests in the lane after the Slam').toEqual([true]);
+		expect(rOut.snapshot.balls.some((b) => b.id === ball1Id), 'the recover phase\'s own premise: ball 1 has not yet drained').toBe(true);
+
+		// A margin past the Slam, mirroring AC 5/AC 6's own reasoning, so the
+		// cabinet's residual ringing cannot self-launch or self-recover
+		// anything before this deliberate Start.
+		const recoverStartTick = rOut.snapshot.tick + 1000;
+		while (rOut.snapshot.tick < recoverStartTick - 1) {
+			rOut = recoverLoop.advance(1, []);
+		}
+		expect(rOut.snapshot.balls.some((b) => b.id === ball1Id), 'the recover phase\'s own premise, re-checked after the wait: ball 1 is still loose, not yet drained').toBe(true);
+		rOut = recoverLoop.advance(1, [{ tick: recoverStartTick, frame: { ...NO_FRAME, start: true } }]);
+		// No eject: `bd_shooter` reads occupied (ball 2) at Start time, so
+		// `startBall()`'s own lane-occupied check skips the trough pulse --
+		// this recover has nothing to pair with, unlike AC 5's own route 1.
+		rOut = recoverLoop.advance(1, [{ tick: recoverStartTick + 1, frame: NO_FRAME }]);
+
+		const missing = rOut.events.find((e) => e.type === 'ball_missing');
+		task.meta.recoverBallMissingCount = missing && missing.type === 'ball_missing' ? missing.count : undefined;
+		expect(
+			missing,
+			"anti-vacuity: the recover must genuinely have found ball 1 loose (ball_missing { count: 1 }) at T+1, standalone -- or the cross-derivation below would compare two views that never disagreed about anything",
+		).toMatchObject({ count: 1 });
+		expect(rOut.snapshot.balls, 'the positive: exactly the resting lane ball (ball 2) remains -- ball 1 is gone, and no eject was drawn from the trough').toHaveLength(1);
+
+		const recoverRulesDerived = rOut.snapshot.game.machine.deviceSlots;
+		const recoverPhysicsDerived = rOut.snapshot.mechanisms.devices;
+		const recoverRulesByDevice: Record<string, readonly boolean[]> = {};
+		const recoverPhysicsByDevice: Record<string, readonly boolean[] | undefined> = {};
+		for (const device of Object.keys(TABLE.ballDevices) as BallDeviceName[]) {
+			recoverRulesByDevice[device] = recoverRulesDerived[device];
+			recoverPhysicsByDevice[device] = recoverPhysicsDerived[device]?.slots;
+		}
+		task.meta.recoverRulesDerivedByDevice = recoverRulesByDevice;
+		task.meta.recoverPhysicsDerivedByDevice = recoverPhysicsByDevice;
+		console.log(`DW-70 (recover phase) rules-derived: ${JSON.stringify(recoverRulesByDevice)}`);
+		console.log(`DW-70 (recover phase) physics-derived: ${JSON.stringify(recoverPhysicsByDevice)}`);
+
+		for (const device of Object.keys(TABLE.ballDevices) as BallDeviceName[]) {
+			expect(
+				recoverRulesByDevice[device],
+				`CR-1 (Story 2.13 rework iteration 1): GameState.machine.deviceSlots.${device} (rules-derived) disagrees ` +
+					`with the snapshot's own independent physics-derived view ONE TICK AFTER a real stray-clear recover -- ` +
+					`exactly the class of defect CR-1 shipped (recover() parking a ball without closing the trough slot ` +
+					`switch, so the rules-derived view under-reported physics). Rules-derived: ` +
+					`${JSON.stringify(recoverRulesByDevice[device])}. Physics-derived: ${JSON.stringify(recoverPhysicsByDevice[device])}.`,
+			).toEqual(recoverPhysicsByDevice[device]);
 		}
 	});
 

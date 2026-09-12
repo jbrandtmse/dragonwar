@@ -355,6 +355,22 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 		// nothing outside a device".
 		const recovered = recoverRequested ? deviceMechanics.recover(tick) : null;
 
+		// Story 2.13 rework iteration 1 (CR-1, DW-269): `recover()`'s own
+		// queued slot-close switch edge(s), drained HERE -- immediately after
+		// `recover()` and BEFORE `deviceMechanics.applyCommands()` two lines
+		// down -- so that when this same tick's own `c_trough_eject` pulse
+		// ejects from the SAME slot `recover()` just parked into (the
+		// trough's lowest-empty/highest-filled convergence on a bottom-filled
+		// contiguous stack, AD-6, whenever `recover()` parks anything), the
+		// CLOSE edge is assembled into `switchEvents` below BEFORE
+		// `commandResult`'s own OPEN edge -- the ORDERING REQUIREMENT (spec
+		// Boundaries & Constraints; `devices.ts`'s own `drainRecoverSwitchEvents()`
+		// doc comment has the full reasoning for why the reverse order is a
+		// silent off-by-one against physics). Drained unconditionally, a
+		// no-op empty array on a step that consumed no `RecoverCommand`, or
+		// one that found nothing loose to park.
+		const recoverSwitchEvents = deviceMechanics.drainRecoverSwitchEvents();
+
 		// Story 2.12 (AD-5, AD-6): ball search's commanded pop stage -- also
 		// pre-step, right after enabledPulses (task 9), reusing the SAME
 		// DW-74-filtered pulse list applyCommands below reads. Runs whether or
@@ -461,6 +477,9 @@ export function createMachine(collisionDoc: unknown, tuning: ResolvedTuning): Ma
 
 		return {
 			switchEvents: [
+				// CR-1/DW-269: MUST precede `commandResult.switchEvents` -- see
+				// `recoverSwitchEvents`'s own declaration above for why.
+				...recoverSwitchEvents,
 				...commandResult.switchEvents,
 				...plungerResult.switchEvents,
 				...cabinetResult.switchEvents,

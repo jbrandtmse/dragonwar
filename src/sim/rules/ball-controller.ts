@@ -796,6 +796,30 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		if (pendingStrayClear !== null && (tick < pendingStrayClear.tick || tick > pendingStrayClear.tick + 1)) {
 			pendingStrayClear = null;
 		}
+		// Rework iteration 1, review pass (DW-269, the ledger's own broader
+		// mechanism -- distinct from CR-1's drain-branch guard above): a
+		// snapshot taken HERE, before the Start-handling block and the drain
+		// branch below (both of which can call `startBall()` again, THIS SAME
+		// TICK, and overwrite the closure variable `pendingStrayClear` to
+		// `{ tick }`) -- reachable via a genuine same-tick collision: a
+		// `slam_tilt_closed` device event moves `phase` to 'attract'
+		// (`tiltController.step()` runs BEFORE `ballController.step()`,
+		// `sim/rules/index.ts`) and a `button_pressed(START)` event in the
+		// SAME tick's `deviceEvents` is then honoured by the Start-handling
+		// block below, landing exactly one tick after a prior `startBall()`
+		// call armed `pendingStrayClear`. Reading the LIVE closure variable at
+		// "(a)" below (as before this fix) would then find it already
+		// overwritten to the SECOND clear's own `{ tick }`, misrouting the
+		// FIRST clear's own report into branch (a) -- a spurious
+		// `ball_missing { count: 0 }` (Boundaries: "never emit ... for it")
+		// and, whenever the lane reads empty, a SECOND `c_trough_eject` pulse
+		// alongside the second game's own genuine serve pulse the SAME tick --
+		// exactly the double-serve DW-244/AD-6 exists to prevent. The snapshot
+		// makes "(a)" always resolve the ORIGINAL clear's own report
+		// correctly; the reference-equality guard on the null-out just below
+		// "(a)" (see there) then leaves the SECOND clear's own freshly-armed
+		// record untouched so ITS OWN report still arrives one tick later.
+		const pendingStrayClearAtStart = pendingStrayClear;
 
 		// Story 2.13 (task 5(e)): the game-over sequence's own paced drain --
 		// the Match draw, its ten reveal steps, and the eventual Attract
@@ -1022,7 +1046,40 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// this branch -- `newGameStartedThisTick` is this tick's own guard
 		// (the t+1 stray-clear recover removes the loose ball before physics
 		// steps again, so this is a one-tick window, never reachable later).
-		if (!newGameStartedThisTick && nextState.phase === 'game' && parkingEntryThisTick && nextState.machine.ballsInPlay === 0) {
+		//
+		// Rework iteration 1 (CR-1/DW-269): `newGameStartedThisTick` alone
+		// covers only Start's OWN tick -- it says nothing about the stray
+		// clear's own REPORT tick, one tick later, which is exactly where the
+		// physics fix for CR-1 (`devices.ts`'s `recover()` now closing the
+		// trough slot it parks into, AD-6 amended) introduces a second,
+		// sibling hazard: that closed-slot edge is itself a
+		// `device_ball_entered` on a parking device, landing on a tick where
+		// `ballsInPlay` is still 0 (route 1's own brand-new ball 1, or any
+		// mid-game rotation's fresh serve). Read naively, `parkingEntryThisTick`
+		// would be true and this branch would fire a SPURIOUS `ball_ended` on
+		// the ball that was just served -- DW-269, filed by this story's own
+		// first code review and closed here. The recover's own park is never a
+		// drain (a ball leaving the simulated set to be RETURNED to the
+		// trough, never one arriving there from open play), so it is excluded
+		// by the SAME kind of tick-scoped guard as `newGameStartedThisTick`
+		// above: `machineReport.recovered` is non-null on (and only on) a tick
+		// whose machine report answers a `RecoverCommand` this same tick
+		// consumed -- the stray clear's own report tick (`pendingStrayClear.tick
+		// + 1`) always carries one (Design Notes, "every ball start clears
+		// strays itself"), and ball search's own recover answers the identical
+		// way. A genuine drain reaching zero coincides with a recover's own
+		// report tick only within that one-tick window right after a serve --
+		// exactly where `applyRecovery()` has already forced `ballsInPlay` to
+		// 0 by construction (every simulated ball is inside a device once a
+		// recover has run), so there is no OTHER ball this guard could ever be
+		// hiding a real drain for.
+		if (
+			!newGameStartedThisTick &&
+			machineReport.recovered === null &&
+			nextState.phase === 'game' &&
+			parkingEntryThisTick &&
+			nextState.machine.ballsInPlay === 0
+		) {
 			const endingPlayer = nextState.currentPlayer;
 
 			// Story 2.9 (AD-18, AC 3/AC 6/AC 11): a live ball-save window --
@@ -1166,12 +1223,21 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// search's own final-stage answer) takes the EXISTING branch:
 		// `ball_missing` always, even at count 0, and a trough serve only
 		// into a genuinely empty lane.
-		const strayClearReportDue = pendingStrayClear !== null && tick === pendingStrayClear.tick + 1;
+		const strayClearReportDue = pendingStrayClearAtStart !== null && tick === pendingStrayClearAtStart.tick + 1;
 		if (strayClearReportDue && machineReport.recovered !== null) {
 			if (machineReport.recovered > 0) {
 				events.push({ type: 'ball_missing', count: machineReport.recovered, tick });
 			}
-			pendingStrayClear = null;
+			// Reference equality, not `!== null`: a same-tick second
+			// `startBall()` (see `pendingStrayClearAtStart`'s own doc comment,
+			// top of `step()`) may have already re-armed `pendingStrayClear` to
+			// a NEW `{ tick }` for its OWN future report -- nulling it out here
+			// unconditionally would silently swallow that second clear's own
+			// report one tick from now. Only clear it if it still IS the same
+			// record this report is answering.
+			if (pendingStrayClear === pendingStrayClearAtStart) {
+				pendingStrayClear = null;
+			}
 		} else if (machineReport.recovered !== null) {
 			events.push({ type: 'ball_missing', count: machineReport.recovered, tick });
 			if (nextState.phase === 'game' && !nextState.machine.deviceSlots.bd_shooter[0]) {

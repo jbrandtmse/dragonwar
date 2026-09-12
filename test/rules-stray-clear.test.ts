@@ -180,6 +180,77 @@ describe('AC 8 (v) -- a mid-game rotation with the lane already occupied never r
 	});
 });
 
+describe("DW-269 (review pass, rework iteration 1) -- a same-tick Slam+Start collision one tick after a prior startBall() must not misroute that clear's own report", () => {
+	it("the FIRST clear's own report at t+1 stays silent at recovered:0 and pulses no extra trough eject, even though a same-tick Slam+Start re-arms pendingStrayClear for a SECOND clear; the second clear's own report still arrives undisturbed one tick later", () => {
+		const freshAttract: GameState = {
+			tick: 0,
+			phase: 'attract',
+			machine: {
+				ballsInPlay: 0,
+				hardwareEnabled: false,
+				ballSave: { untilTick: null, sources: [] },
+				tilt: { tilted: false, slamTilted: false },
+				multiball: null,
+				highscores: [],
+				deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
+			},
+			players: [],
+			currentPlayer: 0,
+			modes: [],
+			rng: 0,
+		};
+
+		// t=5: Start in Attract creates game 1's ball 1 -- startBall() arms
+		// pendingStrayClear={tick:5} and issues a RecoverCommand at 5 (the
+		// lane is empty, so it also pulses c_trough_eject at 5).
+		// t=6 (=5+1, game 1's own report tick): a genuine same-tick collision.
+		// `tiltController.step()` runs BEFORE `ballController.step()`
+		// (`sim/rules/index.ts`'s own stage order), so a `slam_tilt_closed`
+		// device event this tick moves `phase` to 'attract' in time for the
+		// SAME tick's `button_pressed(s_start)` to be honoured by the
+		// Start-handling block, creating game 2 and calling `startBall()`
+		// again at tick 6 -- exactly one tick after game 1's own call,
+		// re-arming `pendingStrayClear` to `{tick:6}` before "(a)" below reads
+		// it for game 1's own report. Neither `close()` call needs an
+		// intervening `.open()`: at this headless rules layer, `button_pressed`
+		// / `slam_tilt_closed` are derived unconditionally from each scripted
+		// `closed:true` `SwitchEvent` (debounce is a physics-layer concern,
+		// upstream of `switchEvents`), so two scripted closures at two
+		// different ticks are already two independent edges.
+		const script = close('s_start').at(5).close('s_slam_tilt').at(6).close('s_start').at(6).build();
+
+		const result = runRulesScript(script, {
+			durationTicks: 10,
+			initialState: freshAttract,
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0 },
+			machineReports: new Map<number, MachineReport>([
+				[6, { recovered: 0, failures: [] }], // answers game 1's OWN RecoverCommand (issued at t=5)
+				[7, { recovered: 1, failures: [] }], // answers game 2's OWN RecoverCommand (issued at t=6)
+			]),
+		});
+
+		// Premise: the Slam genuinely voided game 1 and Start genuinely
+		// re-created a game, both landing on tick 6 as scripted.
+		expect(result.events.some((e) => e.tick === 6 && e.type === 'slam_tilt'), 'the premise: the Slam genuinely lands at tick 6').toBe(true);
+		expect(result.statesByTick.get(6)!.phase, 'the premise: Start is honoured the SAME tick, creating game 2').toBe('game');
+
+		// The negative (Rule 19; red today): game 1's own silent-at-0 report
+		// must not leak a ball_missing{count:0} (Boundaries: "never emit
+		// ball_missing { count: 0 }" for the stray clear), and must not pulse
+		// a SECOND trough eject at tick 6 alongside game 2's own genuine serve
+		// pulse -- exactly the double-serve DW-244/AD-6 exists to prevent.
+		expect(result.events.some((e) => e.tick === 6 && e.type === 'ball_missing'), "DW-269: game 1's own count:0 report must stay silent, never leaking through branch (a)").toBe(false);
+		const trough6 = result.coilCommands.filter((c) => c.tick === 6 && c.coil === TROUGH_EJECT_COIL);
+		expect(trough6, "DW-269: exactly ONE trough-eject pulse at tick 6 (game 2's own serve) -- never a second, misrouted one").toHaveLength(1);
+
+		// The positive: game 2's own `pendingStrayClear` must survive tick 6's
+		// handling of game 1's report (the reference-equality guard on the
+		// null-out), and still answer correctly one tick later.
+		const eventsAt7 = result.events.filter((e) => e.tick === 7);
+		expect(eventsAt7, "the positive: game 2's own report at t+1 still arrives, undisturbed").toEqual([{ type: 'ball_missing', count: 1, tick: 7 }]);
+	});
+});
+
 describe('AC 8 (vi) -- the Start-tick drain guard: a parking entry on the exact tick Start creates a game never ends that new ball; the identical closure in an ongoing game still ends it', () => {
 	it('Start and a trough-slot close on the same tick yield no ball_ended; the same close in phase "game" yields ball_ended', () => {
 		const t = 5;

@@ -51,6 +51,19 @@ function winnersFor(number: number, scores: readonly number[]): readonly number[
  * I/O Matrix's own "Weighted draw" row, verbatim. `probability` is clamped to
  * [0,1] here (never thrown on): a `p` outside that range "behaves as 0" or
  * "as 1" respectively.
+ *
+ * Review pass (blind-hunter, rework iteration 1): `c` (the `value >= p`
+ * branch's own candidate set) is indexed unconditionally, and is safe only
+ * because `w.length` -- the number of DISTINCT `score % 100` values across
+ * `scores` -- can never reach `MATCH_NUMBERS.length` (10) while
+ * `ball-controller.ts`'s own hot-seat gate caps a game at 4 players
+ * (`nextState.players.length < 4`), so `c.length = 10 - w.length >= 6 > 0`
+ * always. This function does not enforce that cap itself (`scores` is a
+ * plain array here, not `GameState`), so it relies on it silently -- unlike
+ * `devices.ts`'s own four-ball invariant, which throws rather than build a
+ * path for its violation. Latent, not live: real only if a future story
+ * raises the per-game player cap to 10 or more, letting every one of
+ * `MATCH_NUMBERS`' ten slots collect a distinct player's own value at once.
  */
 export function matchNumberFor(
 	value: number,

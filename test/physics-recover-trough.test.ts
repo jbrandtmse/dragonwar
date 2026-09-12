@@ -16,6 +16,33 @@
 // - close the trough slot switch WITHOUT parking a ball into it -- the
 //   positive (`pulse c_trough_eject` spawns nothing, and the four-ball
 //   count identity breaks, a phantom slot) goes red.
+//
+// Story 2.13 rework iteration 1 (CR-1, code review 2026-09-12): every
+// assertion below reads `machine.deviceSlots`, the PHYSICS getter over the
+// very `parkingSlots` array `recover()` itself writes -- CR-1's own
+// diagnosis of why this file shipped green over a missing-switch-edge
+// defect that left `GameState.machine.deviceSlots` (the RULES-derived view,
+// `sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`) under-reporting
+// physics for hundreds of ticks. This file's own scenario is kept as-is (it
+// still correctly pins AC 14's physics-level "the trough never empties"
+// invariant) but is a POOR fit for the RULES-side pin CR-1 also requires:
+// every recovery here shares its tick with a same-tick `c_trough_eject`
+// pulse, and on a bottom-filled contiguous trough (AD-6) a paired
+// recover+eject on the SAME slot makes `deriveDeviceSlots()`'s own
+// same-value identity guard swallow a MISSING recover edge just as
+// completely as it correctly nets a present, correctly-ordered one -- the
+// two are indistinguishable from the rules-side count alone (see
+// `test/stray-clear-integration.test.ts`'s own AC 5 comment for the fully
+// worked derivation of that coincidence). The RULES-side presence pin
+// therefore lives in `test/ball-search-integration.test.ts`'s own AC 7 case
+// instead, at the one point that scenario's own recover (S+2751) shares no
+// tick with any eject (the search's own trough serve already happened 500
+// ticks earlier, at S+2251) -- a missing edge there is a real, undisguised
+// 2-vs-3 divergence. `test/stray-clear-integration.test.ts`'s AC 5 case
+// pins the ORDER of the edge instead (the one property that scenario's own
+// coincidence cannot mask: a wrongly-ordered edge flips the final count to
+// a THIRD, detectably wrong value, 4, that neither "present and correct"
+// nor "absent" ever produces).
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

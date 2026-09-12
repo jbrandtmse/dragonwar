@@ -36,7 +36,6 @@ import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { toPhysics } from '../src/sim/table/frames';
 import { loadCollision } from '../src/sim/physics/loader';
-import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../src/presentation/backglass/frame';
 import type { GameStart } from '../src/sim/table/names';
 
@@ -358,6 +357,17 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			}
 			const troughUntilPlunge = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
 			const ballsInPlayUntilPlunge = out.snapshot.game.machine.ballsInPlay;
+			// Rework iteration 1 (CR-1): the RULES-derived view
+			// (`sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`), never
+			// read anywhere in this file before this pass -- CR-1's own named
+			// gap ("test/physics-recover-trough.test.ts observes the physics
+			// getter over the very array recover() wrote"; this recover, at
+			// S+2751, shares no tick with any eject -- the search's own
+			// trough serve already happened 500 ticks earlier, at S+2251 --
+			// so a missing switch edge out of `recover()` would leave THIS
+			// stuck at 2 forever, an undisguised divergence from physics' own
+			// 3, unlike a paired recover+eject on the same slot).
+			const troughUntilPlungeRulesDerived = out.snapshot.game.machine.deviceSlots.bd_trough.filter(Boolean).length;
 
 			// The plunge (a 1200-tick hold -- full strength, the same idiom
 			// test/rules-rollback-accounting-integration.test.ts's own re-plunge uses).
@@ -413,6 +423,14 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			// implementation left it.
 			expect(troughUntilPlunge, 'the trough count rises to 3 (the recovered ball parked) and stays there until the plunge').toBe(3);
 			expect(ballsInPlayUntilPlunge, 'ballsInPlay stays 0 until the plunge').toBe(0);
+			// CR-1's own presence pin: rules must agree with physics here, not
+			// under-report it -- see `troughUntilPlungeRulesDerived`'s own
+			// comment above for why this exact recover cannot mask a missing
+			// switch edge the way a paired recover+eject would.
+			expect(
+				troughUntilPlungeRulesDerived,
+				'CR-1: the RULES-derived trough count must also rise to 3 and stay there -- it must not under-report physics by the parked-but-not-yet-ejected ball',
+			).toBe(3);
 
 			// --- the plunge ---
 			expect(launchTick, 'the plunge must genuinely produce ball_launched').toBeGreaterThan(0);
@@ -563,65 +581,75 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 
 // ---------------------------------------------------------------------------
 // Story 2.13, AC 7 -- DW-244 route 2: a lane ball already resting when the
-// CURRENT ball drains is served as the NEXT ball, never stacked. Driven
-// through a real createLoop(), using the SAME "dev pulse serves a second
-// ball into the lane" construction the spec's own Code Map measures directly
-// ("Measured at this tree", "The same shape via a dev pulse"): a genuine
-// ball-search pass (the full V-cup instrument above) and a dev pulseCoil()
-// serve both reach the identical rules-level state this route's own fix
-// guards -- bd_shooter occupied while the CURRENT ball is still draining --
-// so this reproduces route 2 without re-deriving the cup's own geometry.
+// CURRENT ball drains is served as the NEXT ball, never stacked.
+//
+// Rework iteration 1 (CR-9, rides the CR-1 rework): the FIRST version of
+// this test substituted a dev-only `loop.pulseCoil('c_trough_eject')` for
+// AC 7's own named Given ("AC 2 of 2.12's cup run through S+2251: the
+// search's trough serve lands in the lane"), which left its own "no
+// ball_missing arrives anywhere in the run: the drain closure cancelled the
+// search pass before its RecoverCommand" clause asserted in a run where no
+// search ever started -- `sawMissingAnywhere === false` proved nothing
+// about that cancellation, since nothing was ever in flight to cancel.
+// Replaced with the named instrument: the SAME real V-cup and real search
+// the AC 2 + AC 7 (2.12) test above drives, through S+2251 (the search's
+// own trough serve lands in the lane), then `place()` releases the
+// cup-trapped ball to (257, 30, 13.5) at S+2300 -- a spot with no wall
+// nearby, so it rolls the rest of the way down and drains on real contact
+// physics alone, landing (measured at this tree, matching the spec's own
+// Code Map figures exactly: L=401, S=15401, the trough drop at S+2251, the
+// drain at S+2577) safely inside the window between the replacement serve
+// (S+2251) and the search's own final recover stage (S+2751) -- so THIS
+// run genuinely has a search pass in flight for the drain to cancel.
 // ---------------------------------------------------------------------------
 describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current ball drains plays as the NEXT ball, never stacked', () => {
 	it(
-		'a second ball served into the lane while ball 1 is still in play: ball 1\'s eventual drain gives ball_ended and ball_will_start with no re-serve; no ball_missing anywhere; the lane ball then plunges as ball 2',
-		() => {
-			const loop = createLoop({ collisionDoc: loadCommittedDoc(), gameStart: gameStart(), tuning: NO_BALL_SAVE_TUNING });
+		"the search's own replacement lane ball plays as ball 2 once ball 1's real drain cancels the in-flight search pass before its RecoverCommand; no ball_missing anywhere",
+		async () => {
+			const { createLoop, NO_FRAME, getCaptured } = await importLoopWithMachineCapture();
+			const loop = createLoop({ collisionDoc: buildCupDoc(), gameStart: gameStart(), tuning: NO_BALL_SAVE_TUNING });
+			expect(getCaptured(), 'the machine-capture mock must have fired').toBeDefined();
 
-			loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
-			let out = loop.advance(1, [{ tick: 3, frame: NO_FRAME }]);
-			for (let i = 0; i < 398; i++) {
-				out = loop.advance(1, []);
-			}
-			// The manual plunge -- ball 1 out onto the field.
-			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
-			for (let i = 0; i < 1199; i++) {
-				out = loop.advance(1, []);
-			}
-			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
-			let sawFirstLaunch = false;
-			for (let i = 0; i < 500 && !sawFirstLaunch; i++) {
-				out = loop.advance(1, []);
-				if (out.events.some((e) => e.type === 'ball_launched')) {
-					sawFirstLaunch = true;
-				}
-			}
-			expect(sawFirstLaunch, 'sanity: ball 1 must genuinely be out on the field').toBe(true);
-			expect(out.snapshot.balls, 'sanity: exactly one ball before the dev serve').toHaveLength(1);
+			// The Given's own first half, identical to the AC 2 + AC 7 (2.12)
+			// test above through the serve: Start, settle, place() into the
+			// V-cup -- the cup's own real contact physics holds the ball until
+			// this test releases it below.
+			let out = startAndSettle(loop, NO_FRAME);
 			const ball1Id = out.snapshot.balls[0]!.id;
+			place(getCaptured()!, ball1Id, CUP_PLACEMENT_MM);
+			out = loop.advance(1, []);
+			const L = out.snapshot.tick;
+			expect(L, "AC 2's own premise, reused here: ball_launched arrives at L = 401").toBe(401);
 
-			// The dev pulse: a second ball served into the now-empty lane while
-			// ball 1 is still rolling on the field.
-			loop.pulseCoil('c_trough_eject');
-			let sawArrival = false;
-			for (let i = 0; i < 500 && !sawArrival; i++) {
+			const S = L + BALL_SEARCH_TICKS;
+
+			// Run to S+2251 (the search's own trough serve into the lane) and a
+			// little past it (S+2300, the Given's own release tick), watching
+			// for the trough's own 3->2 drop en route -- the premise this
+			// route's Given names explicitly.
+			let troughDropTick = -1;
+			while (out.snapshot.tick < S + 2300) {
 				out = loop.advance(1, []);
-				if (out.snapshot.mechanisms.devices.bd_shooter.slots[0] === true) {
-					sawArrival = true;
+				const troughClosed = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
+				if (troughDropTick === -1 && troughClosed === 2) {
+					troughDropTick = out.snapshot.tick;
 				}
 			}
-			expect(sawArrival, 'the second ball must genuinely settle in the lane').toBe(true);
-			expect(out.snapshot.balls, 'two balls now exist').toHaveLength(2);
+			expect(troughDropTick, "the premise: the search's own trough serve lands at S+2251").toBe(S + 2251);
+			expect(out.snapshot.balls, 'the premise: two balls exist by S+2300 (the cup ball, and the replacement)').toHaveLength(2);
+			expect(out.snapshot.game.machine.ballsInPlay, 'the premise: the replacement lane ball is never counted as a ball in play').toBe(1);
 			const laneBallId = out.snapshot.balls.find((b) => b.id !== ball1Id)!.id;
-			expect(out.snapshot.game.machine.ballsInPlay, 'the served lane ball is never counted as a ball in play').toBe(1);
 
-			// Ball 1's own eventual, natural drain (gravity alone -- the SAME
-			// "no player input" idiom test/rules-tilt-integration.test.ts's own
-			// tilted-ball drain uses).
+			// The Given's own release: the cup ball, place()d again -- this time
+			// to (257, 30, 13.5), a spot with no wall nearby -- so it rolls the
+			// rest of the way down and drains on real contact physics, never
+			// teleported again after this.
+			place(getCaptured()!, ball1Id, { x: 257, y: 30, z: BALL_REST_Z_MM });
+
 			let sawBallEnded = false;
 			let ballEndedTick = -1;
 			let sawMissingAnywhere = false;
-			for (let i = 0; i < 40000 && !sawBallEnded; i++) {
+			for (let i = 0; i < 5000 && !sawBallEnded; i++) {
 				out = loop.advance(1, []);
 				if (out.events.some((e) => e.type === 'ball_missing')) {
 					sawMissingAnywhere = true;
@@ -631,20 +659,28 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 					ballEndedTick = out.snapshot.tick;
 				}
 			}
-			expect(sawBallEnded, 'ball 1 must eventually drain on its own').toBe(true);
-			expect(sawMissingAnywhere, 'no ball_missing anywhere in the run -- nothing was ever loose').toBe(false);
+			expect(sawBallEnded, 'ball 1 must genuinely drain on its own, through real contact physics').toBe(true);
+			expect(ballEndedTick, 'the drain lands at S+2577 (measured at this tree, matching the spec\'s own Code Map)').toBe(S + 2577);
+			// The positive this route's own cancellation clause needs: a search
+			// pass was genuinely IN FLIGHT (the trough serve at S+2251 already
+			// fired, from the SAME pass) when this drain landed, strictly
+			// before that pass's own final recover stage (S+2751) -- so
+			// `sawMissingAnywhere === false` below is evidence the drain
+			// closure actually cancelled something, not a vacuous absence.
+			expect(ballEndedTick, "the positive: the drain lands strictly before the search pass's own recover stage (S+2751)").toBeLessThan(S + 2751);
+			expect(sawMissingAnywhere, "no ball_missing anywhere in the run -- the drain closure cancelled the search pass before its RecoverCommand").toBe(false);
 
 			const eventsAtDrain = out.events.filter((e) => e.tick === ballEndedTick).map((e) => e.type);
 			expect(eventsAtDrain).toContain('ball_ended');
 			expect(eventsAtDrain, 'ball_will_start must arrive the SAME tick -- the rotation is immediate').toContain('ball_will_start');
 
-			// The negative (Red today: two balls in the lane the tick after the
-			// drain): the ball count is unaffected by this drain -- the lane
-			// ball was never re-served or stacked.
+			// The negative: the ball count is unaffected by this drain -- the
+			// lane ball was never re-served or stacked.
 			expect(out.snapshot.balls, 'balls.length stays 1 (only the lane ball) at the drain tick').toHaveLength(1);
 			expect(out.snapshot.balls[0]!.id, 'the surviving ball is the lane ball, not a re-serve').toBe(laneBallId);
 
-			// Code review (second pass, Rule 19): the assertion pair above is
+			// Code review (second pass, Rule 19, carried over from the
+			// dev-pulse version this replaces): the assertion pair above is
 			// asserted ON `ballEndedTick`, and a `c_trough_eject` pulse issued
 			// on that tick does not SPAWN until the next one (AD-4: commands
 			// land on the next tick). So AC 7's own named mutation -- "drop the

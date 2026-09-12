@@ -142,6 +142,35 @@ describe('AC 5 -- DW-244 route 1: a voided game\'s loose ball is removed before 
 		expect(out.snapshot.mechanisms.devices.bd_shooter.slots, 'the served ball is in the lane at T+1').toEqual([true]);
 		expect(out.snapshot.balls, 'exactly the served ball remains -- the loose one is gone').toHaveLength(1);
 		expect(out.snapshot.balls.some((b) => b.id === looseBallId), 'the recorded loose ball id must be gone').toBe(false);
+		// Rework iteration 1 (CR-1/DW-269): the RULES side must net to the
+		// SAME 3 physics reads -- a wrongly-ordered recover/eject switch edge
+		// (the close reaching rules AFTER the eject's own open, rather than
+		// before -- see `devices.ts`'s `drainRecoverSwitchEvents()` doc
+		// comment) would leave `deriveDeviceSlots()` believing the slot is
+		// STILL closed, stuck at 4 here instead of netting back to 3. This is
+		// the ONE route where the fix's presence and its absence coincide by
+		// arithmetic accident (`deriveDeviceSlots()`'s identity guard
+		// swallows the eject's lone open edge either way) -- so this
+		// assertion pins the ORDER specifically, not the edge's mere
+		// presence (that is `test/physics-recover-trough.test.ts`'s own
+		// rework-iteration addition, which has no competing same-tick eject
+		// to mask a missing edge).
+		expect(
+			out.snapshot.game.machine.deviceSlots.bd_trough.filter(Boolean).length,
+			'CR-1: the rules-derived trough slot count must net to 3 (open), matching physics, never stuck at 4 (closed) from a wrongly-ordered edge',
+		).toBe(3);
+		// DW-269: the recover's own park at T+1 must never be misread as a
+		// drain of the brand-new ball 1 -- `parkingEntryThisTick` is true this
+		// tick (the recover's own close edge) at `ballsInPlay === 0`, exactly
+		// the drain branch's trigger shape, guarded off by
+		// `machineReport.recovered === null` in `ball-controller.ts`. Checked
+		// at T+1 itself (Rule 19: a check that never ran is not a check) --
+		// the "quiet run" loop below only starts sampling `ball_ended` from
+		// T+2 onward, which would never have observed this exact tick.
+		expect(
+			out.events.some((e) => e.type === 'ball_ended'),
+			'DW-269: no spurious ball_ended at T+1, the stray clear\'s own report tick',
+		).toBe(false);
 
 		// Release Start (a real press must not stay held into the run below).
 		out = loop.advance(1, [{ tick: T + 2, frame: NO_FRAME }]);
