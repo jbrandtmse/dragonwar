@@ -9,9 +9,9 @@ geometry drawn from reference dimensions, every device and shot with switches re
 speed, start and Hot seat, plunge and Skill shot, ball save, end-of-ball bonus, lane change, tilt
 warnings, Tilt and Slam tilt, ball search, Match, and game over back to a minimal Attract — all read
 off a DMD Backglass and inserts lit in the held colour grammar. Geometry is the first story and
-iterates with the rules. Eighteen of the twenty stories are done; what remains is the game's closing
-sequence (Match, game over, return to Attract) and a chartered correction to how the skill shot's lit
-Top lane moves.
+iterates with the rules. Nineteen of the twenty stories are done, the game's closing sequence
+(Match, game over, return to Attract) among them; what remains is the chartered correction to how
+the skill shot's lit Top lane moves.
 
 ## Stories
 
@@ -33,22 +33,35 @@ Top lane moves.
 - Story 2.10: End-of-ball bonus and the multiplier *(done)*
 - Story 2.11: Tilt warnings, Tilt and Slam tilt *(done)*
 - Story 2.12: Ball search *(done)*
-- Story 2.13: Match, game over and return to Attract *(backlog — next)*
-- Story 2.14: The lit Top lane — rotation, and when it may move *(backlog)*
+- Story 2.13: Match, game over and return to Attract *(done)*
+- Story 2.14: The lit Top lane — rotation, and when it may move *(backlog — next, and last in the epic)*
 
 ## Requirements & Constraints
+
+**The lit Top lane — the only requirement still open.** The lit Top lane advances one position
+through the declared lane order each plunge, wrapping, rather than being drawn afresh, so the same
+lane is never lit on consecutive balls and a three-ball repeat is impossible **by construction** —
+which is what the PRD's "rotating each plunge" describes. The *starting* position is still drawn
+once per game from the seeded PRNG and then advanced: that is the recorded decision, and it is what
+keeps the seed observable instead of making every machine play an identical lane sequence for ever.
+The not-all-same property must be pinned for *every* starting position rather than for the one seed
+a test picks for itself, and freezing the advance must redden that pin. The existing mutation-proven
+evidence that the seed reaches the RNG and changes something observable is rewritten onto the new
+mechanism, or deliberately retired with its replacement named — never silently deleted, and never
+left asserting a lane the rotation now fixes. Ratified text still describing the superseded random
+draw is amended in the same commit, with the reasoning recorded.
 
 **Closing the game.** When the last ball of the last player ends the machine enters a game-over
 phase, the Backglass shows final scores by player, and a payload-complete game-ended event carrying
 the scores fires. The event fires on the drain tick; the final scores appear only when the last
 ball's end-of-ball hold releases, so the bonus count-up is never cut short.
 
-**The Match.** A multiple of ten from 00 to 90 is drawn from the game's seeded PRNG, with the
-configured probability of matching at least one player's last two score digits. A payload-complete
-match-drawn event carries the number and the winners; the Backglass reveals the number paced by step
-events; a win shows MATCH and is display-only under free play, since credits are deferred. The
-probability is a player-adjustable sim setting — a fraction defaulting to 0.08, deliberately
-conventional rather than sourced, and marked unverified.
+**The Match.** A multiple of ten from 00 to 90 is drawn from the game's seeded PRNG in a single
+step, with the configured probability of matching at least one player's last two score digits. A
+payload-complete match-drawn event carries the number and the winners; the Backglass reveals the
+number paced by step events; a win shows MATCH and is display-only under free play, since credits
+are deferred. The probability is a player-adjustable sim setting — a fraction defaulting to 0.08,
+deliberately conventional rather than sourced, and marked unverified.
 
 **Leaving game over.** A configured Attract delay, or a Start press, moves the machine into Attract
 or starts a new game. Hardware is disabled, the mode stack is empty, and the player list is cleared
@@ -59,33 +72,23 @@ flashers and audio belong to later epics and must not be pre-built here.
 **One ball in play, always.** Before serving — on Start from Attract and at every ball start — the
 ball controller clears strays itself. A ball already resting in the shooter lane *is* the ball being
 served: no trough eject, so nothing stacks in an occupied lane. A loose ball outside every device is
-removed through the recover path. Exactly one ball is in play after the serve, never two. This closes
-two strays: a voided game's ball left loose by a Slam tilt, whose later drain would otherwise end the
-new game's ball 1, and a ball left in the lane by a search pass cancelled after its serve.
+removed through the recover path. Exactly one ball is in play after the serve, never two. This
+closes two strays: a voided game's ball left loose by a Slam tilt, whose later drain would otherwise
+end the new game's ball 1, and a ball left in the lane by a search pass cancelled after its serve.
 
-**No hang, no ball loss.** A recovered ball is returned to the trough rather than destroyed, so the
-four-ball invariant survives any number of recoveries and the serve can never answer with an eject
-failure that leaves a ball unable to drain (see Technical Decisions).
+**No hang, no ball loss.** A recovered ball is returned to the trough rather than destroyed, and the
+slot it lands in reports closed, so the four-ball invariant survives any number of recoveries, the
+rules' device counts never drift from physics, and the serve can never answer with an eject failure
+that leaves a ball unable to drain (see Technical Decisions).
 
 **Lifecycle hygiene.** No display schedule armed by a finished game — the bonus count-up in
 particular — may animate into the next game.
 
-**Backglass legibility.** The score screen has no combined line budget, so with several players plus
-an active mode the mode information silently drops off rather than degrading visibly; the ball number
-takes a shared or shortened line rather than one of its own. The display must also identify *which*
-player a score belongs to: the current player's row is rendered highlighted or boxed, and the pinning
-evidence must be that the rendered dots differ between an emphasised and an unemphasised row — never
-merely that a field was set.
-
-**The lit Top lane.** It advances one position through the declared lane order each plunge, wrapping,
-rather than being drawn at random, so the same lane is never lit on consecutive balls and a
-three-ball repeat is impossible by construction — which is what the PRD's "rotating each plunge"
-describes. The not-all-same property must be pinned for *every* starting position rather than for one
-seed the test itself chose, and freezing the advance must redden that pin. The seed must keep an
-observable effect somewhere: the existing mutation-proven evidence that the seed reaches the RNG is
-rewritten, or deliberately retired with its replacement named — never silently deleted. Ratified text
-still describing the superseded random draw is amended in the same commit, with the reasoning
-recorded.
+**Backglass legibility.** The score screen has no combined line budget of its own, so the ball
+number shares a shortened status line rather than taking a row, which keeps four players plus an
+active mode on the panel. The display must also identify *which* player a score belongs to: the
+current player's row is rendered emphasised, and the pinning evidence must be that the rendered dots
+differ between an emphasised and an unemphasised row — never merely that a field was set.
 
 **Determinism and language.** The rules layer runs headless as a pure function of switch events, and
 identical inputs replay identically. English only; display literals live in the backglass
@@ -100,15 +103,19 @@ structurally. Three complementary provenance gates (header presence, structural 
 import boundaries) each stand alone; none may be retired in favour of another.
 
 **Clock, randomness and tunables (AD-3, AD-15).** One tick constant is the only time inside `sim/`.
-Every rules timer — including the Match reveal and the Attract delay — is authored in ms in the
-tunables file, converted to ticks once at load, and drives presentation by emitting step events;
-presentation animates to them and never reports completion. All rules randomness draws from the
-seeded PRNG in game state. The Match tunable is **`matchProbability`**, a fraction defaulting to
-0.08; `matchPercent` no longer appears in any live planning artifact, and the shipped adjustments
-contract was deliberately not renamed because 0.08 and 8 % are the same odds while a rename would
-move five golden headers for no behaviour change. Every tunable carries `source` and `confidence`,
-and both are part of the hashed contract: even a prose-only provenance correction invalidates all
-five replay goldens, so budget a header re-record with it.
+Every rules timer — the Match delay, the Match reveal and the Attract delay included — is authored
+in ms in the tunables file, converted to ticks once at load, and drives presentation by emitting step
+events; presentation animates to them and never reports completion. A `…Ms` tunable that resolves to
+exactly 0 is reachable through the dev tuning panel, so arithmetic that assumes a positive interval
+must clamp. All rules randomness draws from the seeded PRNG in game state, which now has **two**
+consumers: the lit-lane draw at each ball start and the Match draw once at game end. The PRNG's own
+value is part of the hashed state, so a change in how many steps a game consumes is hash-visible on
+its own *and* moves a given seed's Match number. The Match tunable is **`matchProbability`**, a
+fraction defaulting to 0.08; `matchPercent` appears in no live planning artifact, and the shipped
+adjustments contract was deliberately not renamed because 0.08 and 8 % are the same odds while a
+rename would move five golden headers for no behaviour change. Every tunable carries `source` and
+`confidence`, and both are part of the hashed contract: even a prose-only provenance correction
+invalidates all five replay goldens, so budget a header re-record with it.
 
 **Loop contract (AD-4).** Commands issued at tick *t* are consumed by physics at *t+1*, so a coil or
 recover command takes effect on the next tick. `rules.step` takes an optional fourth argument, the
@@ -117,12 +124,13 @@ overflow), so ball accounting can be reconciled and device failures answered as 
 thrown.
 
 **Hardware enable (AD-5).** Tilt, game over, and an Attract *entered from a game* disable the
-flippers, slingshots and pop bumpers together, all through one shared enter-Attract path. The **boot**
-Attract deliberately ships with every coil enabled, and two replay goldens flip in exactly that
-Attract, so their trajectories depend on it — darkening boot is a golden re-record and the author's
-grant to give, not a tidy-up. The manual plunger shares the autolauncher's serving coil, which is
-outside the disable set by design and therefore stays live in game over and Attract; never disable
-it, or a search pulse and a player's own plunge are both swallowed.
+flippers, slingshots and pop bumpers together, all through one shared enter-Attract path that the
+Slam route also uses. The **boot** Attract deliberately ships with every coil enabled, and two
+replay goldens flip in exactly that Attract, so their trajectories depend on it — darkening boot is
+a golden re-record and the author's grant to give, not a tidy-up. The manual plunger shares the
+autolauncher's serving coil, which is outside the disable set by design and therefore stays live in
+game over and Attract; never disable it, or a search pulse and a player's own plunge are both
+swallowed.
 
 **Balls and devices (AD-6).** The machine carries four balls, asserted by name at construction; boot
 occupancy is a declared property of each device. Trough and Lock are parking devices (park into the
@@ -134,17 +142,22 @@ shooter-lane switch is the one event meaning "plunged"; the ball-save window is 
 player plunge inside a game, never by a save's own re-serve. Balls-in-play counts balls launched and
 not yet arrived at any ball device.
 
-**Recover, as amended.** `recover()` parks each ball it removes into the trough's lowest empty slot
-and closes that slot's switch, exactly as a parking entry does, instead of despawning it. The
-previous despawn behaviour lost a ball per recovery and, once the trough emptied, produced a hard
-hang in which no ball could drain. Both issuers — ball search's final stage and the serve path's
-stray clear — share this one call, so the fix closes the hang for ball search too. *Note:* the
-epics-file requirements inventory and the solution design's ball-accounting section still carry the
-older "despawn" wording; the spine's amendment governs. The stray clear reports through the machine
-report on the tick *after* the ball start, emits its ball-missing event only when the count is above
-zero, and never serves — the serve decision was already taken on the start tick from the shooter
-lane's own slot. Within one physics step recover runs before commands are applied, and a ball resting
-on the plunger tip counts as inside the shooter lane, so the ball being served is spared.
+**Recover, as amended and now shipped.** `recover()` parks each ball it removes into the trough's
+lowest empty slot and closes that slot's switch, exactly as a parking entry does, instead of
+despawning it. The close edge is queued by physics and ordered *ahead* of any same-tick eject's own
+open edge — on a trough with one slot free the parked and the ejected slot can be the same slot, and
+the wrong order leaves it stuck reading closed while physics reads one ball fewer. The previous
+despawn behaviour lost a ball per recovery and, once the trough emptied, produced a hard hang in
+which no ball could drain. Both issuers — ball search's final stage and the serve path's stray clear
+— share this one call, so the fix closed the hang for ball search too. The requirements inventory,
+the solution design and the spine all now carry this wording; no live artifact still says "despawn".
+The stray clear reports through the machine report on the tick *after* the ball start, emits its
+ball-missing event only when the count is above zero, and never serves — the serve decision was
+already taken on the start tick from the shooter lane's own slot. That pending report is snapshotted
+where it is armed rather than read live at the end of the tick, because a same-tick Slam-plus-Start
+can otherwise re-point it at a second ball start and leak a spurious ball-missing plus a second
+eject. Within one physics step recover runs before commands are applied, and a ball resting on the
+plunger tip counts as inside the shooter lane, so the ball being served is spared.
 
 **State (AD-7).** One plain-data, JSON-serializable tree with fixed ownership scopes — machine facts
 under `machine`, per-player facts under `players[i]`, mode-local facts under `modes[i]` published only
@@ -165,8 +178,9 @@ Every semantic event is payload-complete, because a frame carries N steps and pr
 join a tick-*t* event to a later snapshot.
 
 **Modes (AD-8).** Epic 2 ships a minimal stack (base plus skill shot) that starts and stops modes
-directly. The four-phase lifecycle events and the priority registry are Story 3.1's; omitting them is
-conforming until that story lands.
+directly. The base mode owns lane state and the skill-shot mode reads the lit lane live rather than
+caching a lane of its own — the composition tests pin exactly that. The four-phase lifecycle events
+and the priority registry are Story 3.1's; omitting them is conforming until that story lands.
 
 **Devices layer (AD-19).** It is the only consumer of raw switch events and emits device and shot
 events, which modes, scoring and the ball controller consume. The derived playfield-closure set is
@@ -194,9 +208,9 @@ properties against the registry.
 
 ## UX & Interaction Patterns
 
-- The Backglass is a 128×32, 1-bit DMD driven by a closed union of screens; final-scores and Match
-  screens are new members of it.
-- The combined line budget is the live constraint: at four players the ball row drops, and a mode's
+- The Backglass is a 128×32, 1-bit DMD driven by a closed union of screens; the game-over /
+  final-scores screen and the Attract keys screen are members of it.
+- The line budget is the live constraint: the ball number rides a shared status line, and a mode's
   optional fields drop before its whole block does. The tilt screens sidestep this by replacing the
   panel wholesale.
 - Assertions about a rendered row take a differential band from the row's own declared coordinate —
@@ -213,22 +227,28 @@ properties against the registry.
 
 ## Cross-Story Dependencies
 
-- **Story 2.13** carries five ledger items: the score-screen line budget, the player-identifying row
-  emphasis, the bonus count-up lifecycle reset, the stray-ball clear before every serve, and the
-  recovered-ball replenishment whose fix is the return-to-trough amendment above.
-- 2.13 should subsume the Slam tilt path's minimal Attract write into one shared game-over-to-Attract
-  path rather than build a second one; today the Slam path keeps the player list, does not zero
-  balls-in-play, and emits no ball-ended event.
-- 2.13 makes Match the **second** consumer of the game RNG and 2.14 reshapes the **first** (the lit
-  lane draw). The RNG's own value is hashed, so the order in which the two land sets the stream
-  offsets and their hash visibility.
-- **Story 2.14**'s prerequisite is Story 2.7. It should carry the coupled open question about whether
-  the paying lane freezes at launch into the same pass rather than edit the same composition tests
-  twice, and landing it before Epic 3 re-records the goldens through the rules layer is strictly
-  cheaper.
+- **Story 2.13 is closed, and carried its five ledger items to done:** the score-screen line budget,
+  the player-identifying row emphasis, the bonus count-up lifecycle reset, the stray-ball clear
+  before every serve, and the recovered-ball replenishment — the last of these in both halves, the
+  park *and* the slot-switch edge. Its Attract entry is one exported helper that the Slam path now
+  reuses, so there is no second game-over-to-Attract route left to reconcile.
+- **Story 2.14's prerequisite is Story 2.7** (done): the skill shot, the lit lane and lane change.
+  2.14 reshapes the *first* consumer of the game RNG, and the Match — shipped by 2.13 — is now the
+  live second one, so how many steps a game draws before the Match is observable in the Match number
+  as well as in the hashed PRNG value. Measured at 2.13's close: no replay golden ever starts a game
+  and all five end with the PRNG unadvanced, so this change cannot redden a golden today — landing
+  it before Epic 3 re-records the goldens through the rules layer is strictly cheaper.
+- **Story 2.14 should carry the coupled open question** — whether the paying lane freezes at launch
+  — into the same pass rather than edit the same composition tests twice. It sits on the author's
+  decision sheet and is not the story's to settle unilaterally.
+- Two ordering hazards of one shape were found independently in the ball controller's Story-2.13
+  closure state (a value read later in the step than a same-tick write that can precede it). The
+  other pre-existing closure fields have not been swept for that pattern; that sweep is the standing
+  follow-up recommendation for whichever story or burn-down takes it.
 - **Routed elsewhere — do not pre-build:** the Lock arbiter, the Mouth-open lead and the Lock
   overflow eject (Story 3.2); the four-phase mode lifecycle and the priority registry (Story 3.1);
-  multiball drain and arming cases (Story 3.7); flashers and audio cues for Tilt and Match (Epic 4);
-  the Walk-up camera (Story 4.6); high-score entry and the Settings panel (Epic 6).
+  multiball drain, arming, and the recover-versus-own-launch case (Story 3.7); flashers and audio
+  cues for Tilt and Match (Epic 4); the Walk-up camera (Story 4.6); high-score entry and the
+  Settings panel (Epic 6).
 - No stage may settle an item sitting on the author's decision sheet; fence those in each spec's
   prohibitions section rather than deciding them in flight.
