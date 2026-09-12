@@ -1457,7 +1457,7 @@ So that arming myself on the plunge is a real shot and I can steer which lane is
 
 **Given** `ball_starting` fires
 **When** the skill-shot mode (priority 200) starts on a minimal mode stack (base mode 100 + skill shot)
-**Then** it draws the lit Top lane once from `GameState.rng`, writes it to the player's lane state, and the Backglass shows ARM YOURSELF
+**Then** it lights the game's rotating Top lane -- the starting position drawn once per game from `GameState.rng`, then advanced one position through the declared Top order per the player's own ball number (Story 2.14) -- writes it to the player's lane state, and the Backglass shows ARM YOURSELF [AMENDED 2026-09-12, Story 2.14 spec gate -- author decisions DW-205/DW-214]
 
 **Given** the ball is plunged and enters the lit Top lane before any other playfield switch closes
 **When** `lane_entered` matches the lit lane
@@ -1704,7 +1704,7 @@ So that the skill shot is a pattern I can read, and I never face the same lit la
 **When** the draw is replaced
 **Then** that evidence is either preserved (the seed still decides the starting position, and the block is rewritten rather than deleted) or deliberately retired with its replacement named -- never silently deleted, and never left asserting a lane the rotation now fixes. A change that leaves the shipped seed with no observable effect anywhere has reintroduced DW-201's user-visible symptom in a new costume, and this criterion exists to make that impossible to do by accident
 
-**Given** `epics.md` Story 2.7 AC 5 and `spec-2-7-*.md` AC 6 both describe the superseded random draw
+**Given** `epics.md` Story 2.7 **AC 1** and `spec-2-7-*.md` AC 1 and AC 6 describe the superseded random draw [AMENDED 2026-09-12, Story 2.14 spec gate -- author decisions DW-205/DW-214] -- this Given originally cited Story 2.7 AC 5, which is the wrong reference: AC 5 ("the lit lane differs across balls under the seeded PRNG and replays identically for the same seed") stays **true verbatim** under the rotation, and the author's DW-214 decision requires it be left unreworded. AC 1 is the criterion that describes the draw
 **When** this story lands
 **Then** both are amended in the same commit with the reasoning recorded, so no ratified artifact is left describing a game the code no longer plays
 
