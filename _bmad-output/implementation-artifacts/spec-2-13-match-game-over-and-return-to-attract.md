@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-11'
 status: 'done'
 baseline_revision: 'a588a667e5d44a521ddc8e8e036eb120e11bf26f'
+baseline_commit: 'a588a667e5d44a521ddc8e8e036eb120e11bf26f'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: []
@@ -390,9 +391,9 @@ Every anchor below was read at `a080bf83653bf034a527311ec350ca9a78c51c3e`, with 
   - **When** Start is pressed at T = 3501 (released at 3502), the loop runs 10,000 ticks with no input, and then a 1200-tick plunge is made.
   - **Then**:
     - `ballsInPlay` reads 0 at T (today: 1);
-    - at T+1 the trough drops 3→2 with `bd_shooter` `[true]`;
+    - at T+1 the trough reads **3, unchanged**, with `bd_shooter` `[true]`;  [AMENDED 2026-09-11 by the lead at this spec gate: AC 14/DW-257 supersedes this literal. `recover()` now returns the loose ball to the trough, so at T+1 the park (3->4) and the paired eject (4->3) net the trough UNCHANGED at 3. The invariant both clauses exist to protect -- one ball served, no stacking, ball supply conserved -- is unchanged and is strengthened by DW-257.]
     - exactly one `ball_missing { count: 1 }` arrives in the run, at T+1, and `snapshot.balls.length` is 1 with the recorded id absent from T+1. That is the positive: **the loose ball IS removed**;
-    - from T+1 until the plunge: `balls.length` stays 1, the trough stays 2, and no `ball_ended` and no `ball_launched` arrive (the negatives: no stacking, no misattributed drain);
+    - from T+1 until the plunge: `balls.length` stays 1, the trough stays **3**, and no `ball_ended` and no `ball_launched` arrive (the negatives: no stacking, no misattributed drain);
     - the plunge yields `ball_launched` with `currentPlayer` 0, `players[0].ballNumber` 1 and `ballsInPlay` 1.
   - If the served ball launches itself before the plunge because the cabinet is still ringing, move T later, record the reason, and never drop the assertion.
 - **AC 6: DW-244 route 1b, a resting ball is the ball served** (AD-6). Red first.
@@ -465,6 +466,8 @@ Every anchor below was read at `a080bf83653bf034a527311ec350ca9a78c51c3e`, with 
   - **Then** each returns its authored text, templating every payload field, and `pnpm typecheck` passes with the `never` tail intact.
 
 ## Spec Change Log
+
+- **2026-09-11, lead (post-implement gate reconciliation) -- AC 5's trough literal corrected.** AC 5 said "at T+1 the trough drops 3->2" and "the trough stays 2". Both were authored before AC 14/DW-257 existed and are arithmetically superseded by it: with `recover()` returning the loose ball, the park and the paired eject net the trough at 3. The lead re-derived this independently from the Design Notes' own measured ordering (`recover()` before `applyCommands()` within the step) rather than accepting the implement stage's reading, and confirmed `test/stray-clear-integration.test.ts` asserts 3 with an explicit stated expectation. The AC text is corrected here so the spec does not contradict its own passing test at code review. No behaviour changed; no assertion was weakened or deleted.
 
 - **2026-09-11, lead (spec gate), author decision on DW-257 -- AC 14 added.** The author decided that `recover()` must RETURN recovered balls to the trough rather than destroy them. The plan had measured the consequence of destruction correctly (four recoveries exhaust the trough, then `eject_failed` and a hard hang) but recorded it as accepted; the hang is reachable by ordinary play, so the author fixed the cause. Added AC 14 and task 14; narrowed the `src/sim/physics/**` Block-If to sanction `devices.ts`'s `recover()` and nothing else; declared the footprint extension; narrowed the physics-diff verification command; added two Rule 19 mutations. The clean-up-the-strays decision behind ACs 5-8 is UNCHANGED. Spine: AD-6's "the one command that lets physics despawn every ball outside a device" amended to the trough return (consistent with AD-6's own four-ball invariant, so no new AD id); AD-9's issuer list already named both issuers and needed no further change.
 - **2026-09-11, lead (spec gate), other amendments.** `epics.md` 2.13 AC 2 `matchPercent` (default 8) -> `matchProbability` (default 0.08, i.e. 8 %), and the same correction in spine AD-15's tunables list: the shipped contract is a fraction and no reader treats it as a percent, so the name was simply wrong and the odds are identical. `epics.md` 2.13 AC 1 now states the final-scores timing explicitly (the scores appear when the last ball's end-of-ball hold releases, not on the drain tick), because the literal reading would cut Story 2.10's shipped bonus count-up. Spine AD-5's "Tilt, game over and Attract disable all of them together" narrowed to an Attract entered from a game: the shipped machine boots every coil enabled and two goldens flip in the boot Attract, so the spine had been asserting something the goldens contradict. Spine AD-6 now records how the stray clear reports (`ball_missing` only when `count > 0`, never a serve) -- the detail AD-6 had left to this story, written where Story 3.7 will look for it.
