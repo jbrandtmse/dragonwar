@@ -1292,7 +1292,22 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		recoverCommands.push(...searchResult.recoverCommands);
 		bankResetRequests.push(...searchResult.bankResetRequests);
 
-		return { state: nextState, events, coilCommands, ballWillStartEvents, recoverCommands, bankResetRequests };
+		// Story 2.15 (DW-235): no `bonus_count_step` may be emitted on or
+		// after the tick a new game is created. `pendingBonusCountSteps` IS
+		// cleared on that tick (the Start-handling block above, "clears BOTH
+		// pendingBonusCountSteps (DW-235) and the old sequence"), but the
+		// bonus-step drain at the TOP of this function runs BEFORE
+		// Start-handling in the SAME `step()` call -- so a step due on
+		// EXACTLY the tick Start is pressed is drained into `events` before
+		// the clear ever runs (measured: a real emission at tick 810 for the
+		// scenario this guard exists to close). Filtered here rather than
+		// reordered: the only OTHER return in this function (the ball-save
+		// re-serve branch above) is gated on `!newGameStartedThisTick`, so
+		// it is provably unreachable on this tick and this is the one place
+		// that can ever see a stale-game `bonus_count_step` slip through.
+		const finalEvents = newGameStartedThisTick ? events.filter((event) => event.type !== 'bonus_count_step') : events;
+
+		return { state: nextState, events: finalEvents, coilCommands, ballWillStartEvents, recoverCommands, bankResetRequests };
 	}
 
 	return { step };

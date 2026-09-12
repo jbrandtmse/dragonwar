@@ -3,7 +3,13 @@
 // AD-3: TICK_HZ is the single simulation-clock constant. No other file under
 // sim/ may contain a literal millisecond or tick-rate number.
 
-// PROVISIONAL - pending the author's macOS legs of Spike 1.
+// RATIFIED by the author at the Epic 1 decision sheet (DW-2, ledger:
+// "Author-owned: TICK_HZ ratification from Spike 1", terminal trailer
+// 2026-08-30): TICK_HZ = 1000, on the Windows production-build numbers
+// below (Chrome and Edge both 1.8 ms, 8 of 8, after the gravity-scaling
+// fix). [CORRECTED, Story 2.15, DW-270: this comment used to read
+// "PROVISIONAL ... NOT ratified", which DW-2's own adjudication overtook --
+// the value is decided, and there is no live 480 branch.]
 //
 // Set from the Spike 1 PRODUCTION-BUILD measurement of 2026-08-27, re-taken on
 // the CORRECTED-GRAVITY harness after code review found the scene had been run
@@ -18,7 +24,13 @@
 //   Chrome / Windows   MEASURED 1.8 ms median (8/8 runs under the bar)
 //   Chrome / macOS     PENDING - author's leg
 //   Safari / macOS     PENDING - author's leg; JavaScriptCore, not V8, so it is
-//                      the real remaining performance risk. It GATES.
+//                      the real remaining performance risk. It no longer GATES
+//                      the ratified value above (DW-2) -- these two rows stay
+//                      open as their own action item, epic-1-retro-item-1
+//                      (still genuinely PENDING -- a real Mac is needed to run
+//                      them, and docs/spikes/spike-1.md / test/spike-1-docs
+//                      .test.ts's own PENDING pins are about THAT, unaffected
+//                      by DW-2's separate ratification of the value below).
 // Best-effort for this gate only:
 //   Edge / Windows     MEASURED 1.8 ms median (8/8 runs under the bar). Recorded,
 //                      never gating. Edge remains a fully supported browser -
@@ -31,17 +43,32 @@
 // half the measured window, so the number is a floor rather than a
 // characterization. Both are ledgered; Story 1.5 re-takes the characterization.
 //
-// Two of the three gating paths are still unmeasured, so this value is NOT
-// ratified. Ledger: "Author-owned: TICK_HZ ratification from Spike 1".
-// Changing it re-records every golden replay (AD-3, AD-15).
-export const TICK_HZ = 1000; // 1000 on PASS, 480 on FAIL
+// PROVISIONAL / NOT ratified was the premise BEFORE DW-2's own adjudication;
+// it no longer describes this constant (kept, verbatim, as historical record
+// of the AC this comment discharges -- Story 1.1's own acceptance criterion,
+// pinned by test/time-contract.test.ts, which now pins the RATIFIED reading
+// instead). Changing TICK_HZ re-records every golden replay (AD-3, AD-15).
+//
+// DW-270 (Story 2.15): if TICK_HZ ever changes off 1000, 22 test-fixture
+// sites across 17 files carry an independent `value: 1` (ms) override on
+// some OTHER tunable, authored to be genuinely sub-tick at 1000 Hz and
+// closed here `wontfix-accepted` (none is load-bearing on the literal 1
+// today) -- they must be re-examined WITH this constant, not assumed safe a
+// second time. `pnpm lint:boundaries`'s tick/ms rule does not catch this
+// class (the literal lives on `value`, not on the binding name).
+export const TICK_HZ = 1000; // RATIFIED at 1000 (DW-2) -- no live 480 branch
 
 // Story 1.5 -- the loop's own TICK_HZ arithmetic (AD-3: "TICK_HZ may be named
 // only here and in sim/table/tuning.ts"; the accumulator's helpers therefore
 // live beside the constant they use, and sim/loop imports them from here
-// rather than naming TICK_HZ itself). Every phrase above this comment block
-// -- PROVISIONAL, NOT ratified, the ledger entry name, PENDING, macOS -- is
-// pinned verbatim by test/time-contract.test.ts and is left untouched.
+// rather than naming TICK_HZ itself). Several of this comment block's own
+// key words above are pinned verbatim by test/time-contract.test.ts --
+// deliberately NOT re-quoted here (a second copy of the same substrings
+// would keep a mutation to the block above from reddening that pin, exactly
+// the "pass with no mutation" shape the burn-down's own Anti-vacuity plan
+// warns against) [CORRECTED, Story 2.15, DW-270 -- this note used to spell
+// the pinned phrases out a second time, and the block above used to read
+// PROVISIONAL / NOT ratified, the premise DW-2's own adjudication overtook].
 //
 // AD-4's 200 ms owed-time cap is expressed here in TICKS, not as a
 // millisecond constant in sim/loop: `pnpm lint:boundaries`'s tick/ms rule

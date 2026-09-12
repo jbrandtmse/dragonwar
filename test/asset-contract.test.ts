@@ -523,11 +523,21 @@ function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: n
  * `rubber_post`/`bumper` (round bodies -- they terminate a guide, they do
  * not need one, and freeEndsMm()'s own two-cap assumption does not apply to
  * an octagon); `target` (the DRAGON bank's own faces and backstop -- hit
- * face-on, not run alongside toward a tip, and 2.1f-adjacent); `wood`/`glass`
- * (the table's own perimeter and playfield/glass planes -- structural
- * boundary, not a guide); `metal` (switch-adjacent bodies, none of which is
- * a rail either). `plastic`/`rubber_band`/`dragon`/`ramp` cover every guide
- * this story's own Code Map measured.
+ * face-on, not run alongside toward a tip, and 2.1f-adjacent); `wood` (the
+ * table's own perimeter -- structural boundary, not a guide).
+ * `plastic`/`rubber_band`/`dragon`/`ramp` cover every guide this story's own
+ * Code Map measured.
+ *
+ * [CORRECTED, Story 2.15, DW-151] This comment used to also name `glass` and
+ * `metal` here, as though both were deliberately classified into
+ * `NON_GUIDE_SURFACES` below. Neither ever was -- only `wood` is in that
+ * set. The truth: `glass` (`col_glass`) and `flipper` (`col_flipper_l/_r`)
+ * do exist in the committed document, but only on `shape !== 'wall'` bodies
+ * (`plane`/`box`), so they never reach `wallSurfaces` below and the
+ * completeness check at this file's own `GUIDE_SURFACES`/`NON_GUIDE_SURFACES`
+ * union test is green by ABSENCE for them, not by classification. `metal`
+ * does not appear on any body in the document at all today. Neither claim
+ * changes what the gate actually proves; this correction is prose-only.
  */
 const GUIDE_SURFACES = new Set(['plastic', 'rubber_band', 'dragon', 'ramp']);
 
@@ -1785,6 +1795,124 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		).toBeGreaterThan(5);
 	});
 
+	// DW-126: col_loop_r_lower's own north edge (the crossing-gap's own top
+	// lip, RAMP_RETURN_GAP_Y0_MM = 750) is a flat-topped ledge under this
+	// solver's no-x-component gravity -- VERBATIM the DW-119 defect
+	// col_wall_bottom_l/_r's BOTTOM_WALL_DRAIN_DROP_MM gate above already
+	// fixed and pins. tools/make-placeholder-blend.py:2072 already carries
+	// the fix (add_box_wall_sloped(..., drop_mm=6.0, drop_corner='x1')) but
+	// had no dimensional gate of its own -- test/shot-routing.test.ts:1137-
+	// 1141 records that no descending column can even be authored here (a
+	// 13 mm gap under a 13.495 mm ball radius), so the behavioural route
+	// this ledger entry originally feared is not merely expensive, it is
+	// geometrically unavailable, and the dimensional form below is the only
+	// form that can catch removal or reversal.
+	it('col_loop_r_lower\'s own north edge carries a LOOP_LOWER_BEVEL_DROP_MM chamfer toward the lane (x1), so a ball resting on top of it is not stranded for good (DW-126, DW-119 residual)', () => {
+		const LOOP_LOWER_BEVEL_DROP_MM = 6.0; // tools/make-placeholder-blend.py:2072's drop_mm argument
+		const doc = readCollisionDoc();
+		const node = doc.nodes.find((n) => n.name === 'col_loop_r_lower');
+		expect(node, 'col_loop_r_lower missing').toBeDefined();
+		const footprint = node!.footprintMm!;
+		expect(footprint, 'col_loop_r_lower must be a wall with a footprint').toBeDefined();
+
+		// The north edge is the pair of vertices with the greatest y at each
+		// end of the footprint's x-span (the same topYAt technique as the
+		// BOTTOM_WALL_DRAIN_DROP_MM gate above).
+		const x0 = Math.min(...footprint.map((v) => v.x));
+		const x1 = Math.max(...footprint.map((v) => v.x));
+		const northYAt = (x: number) => Math.max(...footprint.filter((v) => Math.abs(v.x - x) < 1e-6).map((v) => v.y));
+		const yAtX0 = northYAt(x0);
+		const yAtX1 = northYAt(x1);
+		// topY is the flat (un-bevelled) reference regardless of which end
+		// carries it, so the magnitude checks below stay meaningful even
+		// under the reversed-direction mutation (where x1, not x0, is 750).
+		const topY = Math.max(yAtX0, yAtX1);
+		const dropMm = topY - Math.min(yAtX0, yAtX1);
+
+		// mutation (seeding-script form): change the drop_mm argument at
+		// tools/make-placeholder-blend.py:2072 from 6.0 to 0.0 and re-export.
+		// mutation (committed-document form, no Blender needed): flatten
+		// col_loop_r_lower's footprint north edge to y = 750.0 at both x ends
+		// in public/assets/dragonwar.collision.json directly, then revert
+		// with `git checkout -- public/assets/dragonwar.collision.json` --
+		// either form -> yAtX1 rises to 750 and dropMm reports 0.000 against
+		// 6.0.
+		expect(
+			topY,
+			'col_loop_r_lower\'s own north-edge top must stay at 750.0 -- RAMP_RETURN_GAP_Y0_MM, the flat reference the DW-126 bevel measures its drop against',
+		).toBeCloseTo(750.0, 3);
+		expect(
+			dropMm,
+			`col_loop_r_lower's own north edge drops ${dropMm.toFixed(3)} mm across its footprint; DW-126 pins that at LOOP_LOWER_BEVEL_DROP_MM = ${LOOP_LOWER_BEVEL_DROP_MM} mm. A flat (0 mm) edge is the DW-119 residual this bevel exists to remove: under this solver's no-x-component gravity a ball resting on a flat top face never moves again, and a descending column cannot be authored here to catch that behaviourally (13 mm gap, 13.495 mm ball radius).`,
+		).toBeCloseTo(LOOP_LOWER_BEVEL_DROP_MM, 3);
+		// mutation: swap the chamfer to run toward x0 instead of x1 (author y
+		// = 744.0 at x0 = 390.4 and y = 750.0 at x1 = 402.4 in the committed
+		// document, then revert) -> topY and dropMm are unmoved (750 and 6
+		// either way), so only THIS assertion fails -- distinct from the two
+		// magnitude checks above, naming the direction rather than a missing
+		// bevel.
+		expect(
+			yAtX1,
+			'col_loop_r_lower\'s own chamfer must fall toward the lane (its east end, x1), not away from it',
+		).toBeLessThan(yAtX0);
+	});
+
+	// DW-150 (Story 2.15). Measured at this tree via ShotResult.
+	// positionSamples-equivalent instrumentation of descend-dragon-leg-l's
+	// own driven trajectory: closest approach to col_dragon_leg_l is
+	// 55.615 mm (reproducing, not citing, the ledger's own bespoke 55.62 mm
+	// figure), while the SAME drive passes 13.488 mm from col_lock_ceiling
+	// and 13.487 mm from col_lock_ceiling_west_fill -- both at the ball's
+	// own tangent radius, genuine contact. The column's own release point
+	// therefore never reaches col_dragon_leg_l at all; it is shielded by
+	// col_lock_ceiling_west_fill, exactly as this gate pins dimensionally.
+	// Re-authoring the leg's cap flat to restore a reachable column would
+	// reopen a DW-119 shelf with nothing observing it (and would move
+	// assetHash) -- out of bounds for this story either way. The false
+	// claim is retired at its own case (test/util/shot-cases.ts,
+	// descend-dragon-leg-l's own comment and probesBody, corrected to name
+	// col_lock_ceiling_west_fill, the body it actually covers); this gate
+	// is the durable, geometry-only replacement, independent of any shot.
+	it('col_lock_ceiling_west_fill\'s own south edge sits LOCK_FILL_WEST_MARGIN_MM below col_dragon_leg_l\'s own diagonal cap along their shared run, so the shielding can never fall short of the leg it plugs (DW-150, DW-119 residual)', () => {
+		const LOCK_FILL_WEST_MARGIN_MM = 2.0; // tools/make-placeholder-blend.py:859
+		const doc = readCollisionDoc();
+		const leg = doc.nodes.find((n) => n.name === 'col_dragon_leg_l');
+		const fill = doc.nodes.find((n) => n.name === 'col_lock_ceiling_west_fill');
+		expect(leg, 'col_dragon_leg_l missing').toBeDefined();
+		expect(fill, 'col_lock_ceiling_west_fill missing').toBeDefined();
+		const legFootprint = leg!.footprintMm!;
+		const fillFootprint = fill!.footprintMm!;
+		expect(legFootprint, 'col_dragon_leg_l must be a wall with a footprint').toBeDefined();
+		expect(fillFootprint, 'col_lock_ceiling_west_fill must be a wall with a footprint').toBeDefined();
+
+		// The leg's own diagonal cap is its own north edge -- the greatest y
+		// at each of its two x ends (the same topYAt technique the
+		// BOTTOM_WALL_DRAIN_DROP_MM and DW-126 gates above use). The fill's
+		// own south edge, by the seeding script's own construction, is the
+		// SAME two-point line, offset down by the margin -- the LEAST y at
+		// those SAME two x ends.
+		const legX0 = Math.min(...legFootprint.map((v) => v.x));
+		const legX1 = Math.max(...legFootprint.map((v) => v.x));
+		const legCapYAt = (x: number) => Math.max(...legFootprint.filter((v) => Math.abs(v.x - x) < 1e-6).map((v) => v.y));
+		const fillSouthYAt = (x: number) => Math.min(...fillFootprint.filter((v) => Math.abs(v.x - x) < 1e-6).map((v) => v.y));
+
+		// mutation: pull col_lock_ceiling_west_fill's footprint off
+		// col_dragon_leg_l's cap in the committed document (e.g. raise both
+		// south-edge y values by 3 mm, past the margin) -> both margins
+		// below shrink and this gate goes red naming LOCK_FILL_WEST_MARGIN_MM
+		// -- reopening the DW-119 shelf observably rather than by silence.
+		const marginAtLegX0 = legCapYAt(legX0) - fillSouthYAt(legX0);
+		const marginAtLegX1 = legCapYAt(legX1) - fillSouthYAt(legX1);
+		expect(
+			marginAtLegX0,
+			`col_lock_ceiling_west_fill's own south edge sits ${marginAtLegX0.toFixed(3)} mm below col_dragon_leg_l's own cap at x = ${legX0}; LOCK_FILL_WEST_MARGIN_MM pins that at ${LOCK_FILL_WEST_MARGIN_MM} mm`,
+		).toBeCloseTo(LOCK_FILL_WEST_MARGIN_MM, 3);
+		expect(
+			marginAtLegX1,
+			`col_lock_ceiling_west_fill's own south edge sits ${marginAtLegX1.toFixed(3)} mm below col_dragon_leg_l's own cap at x = ${legX1}; LOCK_FILL_WEST_MARGIN_MM pins that at ${LOCK_FILL_WEST_MARGIN_MM} mm`,
+		).toBeCloseTo(LOCK_FILL_WEST_MARGIN_MM, 3);
+	});
+
 	it('each inlane\'s clear channel (its divider guide to its inlane guide) passes the reference ball with margin', () => {
 		const doc = readCollisionDoc();
 		const dividerL = doc.nodes.find((n) => n.name === 'col_guide_divider_l')!;
@@ -2253,6 +2381,17 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		expect(laneBottom!.bboxMm.max.z, 'col_wall_lane_bottom is not a true perimeter wall and stays at the interior height').toBeCloseTo(50, 1);
 	});
 
+	// [STORY 2.15 -- DW-149, newly found instance] The count below WAS
+	// `.toBeGreaterThanOrEqual(29)` against exactly 29 today -- a floor that
+	// binds with zero margin and silently loosens the moment one more
+	// zone-requiring switch is added (Anti-vacuity plan's own named shape:
+	// "a floor derived from the collection it guards"). Replaced with an
+	// exact-equality ratchet against a SEPARATELY DECLARED constant a human
+	// bumps, in the shape of `test/tuning.test.ts:104-120`'s own completeness
+	// ratchet -- a genuinely new zone-requiring switch now fails loudly,
+	// naming the drift, instead of passing silently under a loosened floor.
+	const EXPECTED_ZONE_REQUIRING_SWITCHES = 29;
+
 	// The switch-zone completeness assertion (AC 2): sw_ entries live in
 	// doc.switchZones as minMm/maxMm and have NO bboxMm -- read from there,
 	// never doc.nodes.
@@ -2270,7 +2409,14 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		const zoneRequired = Object.entries(TABLE.switches)
 			.filter(([name, entry]) => !excludedClasses.has(entry.settleClass) && !parkingDeviceSlots.has(name))
 			.map(([name]) => name);
-		expect(zoneRequired.length, 'sanity: the shot map must have added zone-requiring switches').toBeGreaterThanOrEqual(29);
+		// mutation: add one non-button, non-tilt_bob/slam, non-parking-slot
+		// switch to TABLE.switches -> this goes red naming the new live count
+		// against the unmoved 29 -- it would have stayed green under the old
+		// `>= 29` floor.
+		expect(
+			zoneRequired.length,
+			`TABLE.switches now declares ${zoneRequired.length} zone-requiring switches, against the recorded EXPECTED_ZONE_REQUIRING_SWITCHES = ${EXPECTED_ZONE_REQUIRING_SWITCHES}. If this is a genuine new switch, bump the constant above (with a matching sw_ zone, asserted below); a floor that silently absorbs the change is the DW-149 defect this ratchet exists to close.`,
+		).toBe(EXPECTED_ZONE_REQUIRING_SWITCHES);
 
 		const presentSwitches = new Set(doc.switchZones.map((z) => z.switch));
 		for (const switchName of zoneRequired) {

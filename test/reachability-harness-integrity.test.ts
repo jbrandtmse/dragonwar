@@ -3,9 +3,10 @@
 // QA pass, Story 2.1e. This story's own deliverable IS test infrastructure
 // (`test/util/plan-geometry.ts`, `test/util/reachability.ts`,
 // `test/util/shot-cases.ts`) -- every one of `test/shot-reachability.test.ts`'s
-// 88 tests and `pnpm check:reachability`'s 471-release sweep is built on
-// three primitives this file is the FIRST to test directly, independent of
-// the 39-case manifest: `pointToSegmentDistanceMm()` (the distance metric
+// tests (167 today, re-measure at your own tree) and `pnpm check:reachability`'s
+// dense sweep is built on three primitives this file is the FIRST to test
+// directly, independent of the manifest (52 cases today, not 39 or 45 --
+// [CORRECTED, Story 2.15, DW-151]): `pointToSegmentDistanceMm()` (the distance metric
 // EVERY reachability measurement in this story reduces to), and the two
 // "fails loudly, never silently" contracts the whole design leans on --
 // `witnessPath()`/`closestApproachMm()` on an unknown witness id, and
@@ -18,10 +19,14 @@
 // `test/geometry.test.ts`'s own DW-61 header -- "the FIRST direct test of
 // the function itself" for a sibling geometry primitive).
 
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { pointToSegmentDistanceMm, pointInPolygon, distanceToPolygonMm } from './util/plan-geometry';
 import { closestApproachMm, closestApproachOverAll, witnessPath, witnessIds, REACHABILITY_TOLERANCE_MM } from './util/reachability';
 import { shotCase, SHOT_CASES } from './util/shot-cases';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 // ---------------------------------------------------------------------------
 // pointToSegmentDistanceMm() -- the primitive every reachability measurement
@@ -75,7 +80,8 @@ describe('plan-geometry.ts -- pointInPolygon() / distanceToPolygonMm()', () => {
 // checks every REAL manifest entry's witness id against `witnessIds()`
 // before the per-case proof ever runs `closestApproachMm()` -- so the engine
 // itself failing loudly on a bad id, rather than silently returning
-// Infinity/0/undefined, is never exercised by the real 39-case manifest.
+// Infinity/0/undefined, is never exercised by the real manifest (52 cases
+// today -- [CORRECTED, Story 2.15, DW-151]).
 // It is the only thing standing between a typo'd witness id and a silently
 // wrong verdict if that completeness check were ever weakened or bypassed.
 // ---------------------------------------------------------------------------
@@ -118,8 +124,9 @@ describe('reachability.ts -- closestApproachOverAll() genuinely discriminates ne
 // shotCase() on an unknown case id: this is the gate `driveCase()`
 // (test/shot-routing.test.ts) depends on to refuse an undeclared coordinate.
 // The existing suite only ever calls shotCase() with ids it already knows
-// are good (the manifest's own 39 entries, or the DW-130 record's hand-
-// maintained id lists) -- the refusal path itself has no direct test.
+// are good (the manifest's own 52 entries [CORRECTED, Story 2.15, DW-151 --
+// was 39], or the DW-130 record's hand-maintained id lists) -- the refusal
+// path itself has no direct test.
 // ---------------------------------------------------------------------------
 
 describe('shot-cases.ts -- shotCase() genuinely refuses an undeclared id', () => {
@@ -129,5 +136,89 @@ describe('shot-cases.ts -- shotCase() genuinely refuses an undeclared id', () =>
 
 	it('(contrast) a real manifest id resolves without throwing', () => {
 		expect(() => shotCase(SHOT_CASES[0]!.id)).not.toThrow();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// DW-151, the durable half (Story 2.15, task 9). The class of harm that
+// misled this ledger entry was manifest-count PROSE going stale -- a
+// comment quoting a case count (e.g. "39" or "45", each spelled with a
+// hyphen before the word "case" and "manifest"/"suite" after it, so as not
+// to itself match the pattern this gate scans for) long after SHOT_CASES
+// grew past it (this file's own header carried exactly that defect until
+// this story). No prior gate reads an in-code comment against
+// the live subject it describes (frontmatter `deferred:`, "no gate resolves
+// a `<file>.ts:<line>` comment anchor against the file it cites" -- the
+// GENERAL form is declined as story-sized). This is the narrow, durable gate
+// for the one class that actually caused harm: scans test/** and tools/**
+// for the exact prose shape and asserts every quoted N against the live
+// count, so the next story that grows the manifest is told, loudly, the
+// moment it leaves a comment behind.
+// ---------------------------------------------------------------------------
+
+describe('DW-151 -- every "<N>-case manifest"/"<N>-case suite" comment agrees with the live SHOT_CASES.length', () => {
+	// Review pass, Story 2.15: `\s+` (not a literal space) between "case"
+	// and "manifest"/"suite" so a phrase wrapped across a line break (this
+	// codebase's comments wrap prose routinely -- see the many multi-line
+	// comments this very story added) is still matched. Scanned against
+	// whole-file content below, never split into lines first, unlike a
+	// naive per-line scan -- a per-line scan would silently miss exactly
+	// that wrapped case, defeating the "durable" gate task 9 asks for.
+	const MANIFEST_COUNT_PROSE_RE = /(\d+)-case\s+(?:manifest|suite)/g;
+	const SCAN_EXTENSIONS: Readonly<Record<string, readonly string[]>> = {
+		test: ['.ts'],
+		tools: ['.py', '.mjs'],
+	};
+
+	function scanDir(dir: string, exts: readonly string[], out: string[]): void {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (entry.name === 'node_modules') {
+					continue;
+				}
+				scanDir(full, exts, out);
+			} else if (exts.some((ext) => entry.name.endsWith(ext))) {
+				out.push(full);
+			}
+		}
+	}
+
+	// mutation: change a live "<N>-case manifest/suite" comment (e.g. this
+	// very describe block's own header prose, or any of the ones this
+	// story corrected) to a wrong N -> this test goes red naming the file,
+	// line, quoted text and the live SHOT_CASES.length -- it would have
+	// passed silently under no gate at all before this story.
+	it(`every quoted case count agrees with the live SHOT_CASES.length (${SHOT_CASES.length} today)`, () => {
+		const files: string[] = [];
+		for (const [dir, exts] of Object.entries(SCAN_EXTENSIONS)) {
+			scanDir(path.join(REPO_ROOT, dir), exts, files);
+		}
+
+		const mismatches: string[] = [];
+		let matchCount = 0;
+		for (const file of files) {
+			const content = readFileSync(file, 'utf8');
+			const relative = path.relative(REPO_ROOT, file).replace(/\\/g, '/');
+			// Scanned against the WHOLE file's content, never split into
+			// lines first (a phrase wrapped across a line break would
+			// silently escape a per-line scan). The line number reported on
+			// a mismatch is recovered from the match's own character offset.
+			MANIFEST_COUNT_PROSE_RE.lastIndex = 0;
+			let m: RegExpExecArray | null;
+			while ((m = MANIFEST_COUNT_PROSE_RE.exec(content))) {
+				matchCount += 1;
+				const quotedN = parseInt(m[1]!, 10);
+				if (quotedN !== SHOT_CASES.length) {
+					const lineNo = content.slice(0, m.index).split(/\r\n|\n/).length;
+					mismatches.push(`${relative}:${lineNo} quotes "${m[0].replace(/\s+/g, ' ')}" -- SHOT_CASES.length is ${SHOT_CASES.length}`);
+				}
+			}
+		}
+		// Anti-vacuity: a scan that never finds any manifest-count prose to
+		// check proves nothing -- this file's own corrected comments above
+		// (and shot-cases.ts's own header) guarantee at least one real hit.
+		expect(matchCount, 'sanity: the scan must find at least one "<N>-case manifest/suite" comment, or this gate is vacuous').toBeGreaterThan(0);
+		expect(mismatches, `${mismatches.length} comment(s) quote a stale case count:\n${mismatches.join('\n')}`).toEqual([]);
 	});
 });

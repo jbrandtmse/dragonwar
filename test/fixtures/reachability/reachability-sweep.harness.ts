@@ -53,30 +53,50 @@
 //   (b) a SECOND flip. `ReleaseRecipe` admits at most one, so no
 //       left-flip-then-right-flip chain -- the ordinary way a real player
 //       moves a ball across the table -- was ever searched.
-//   (c) `bd_lock` / `pulse c_mouth`. AD-6 gives the Lock an authored eject
-//       pose that IS the Mouth, "aimed at the flippers"; the committed
-//       collision document carries it at (170, 650) with dir (0, -1, 0),
-//       plus slot zones `sw_lock_1..3` (x 150-190, y 630-678); parking and
-//       ejecting are generic over every parking device in
-//       `src/sim/physics/devices.ts`; and `test/shot-routing.test.ts`
-//       already models the outcome (`Terminal = 'locked'`). A ball parked
-//       there and re-ejected is a genuine, never-teleported SECOND origin
-//       in the middle of the table -- within ~50 mm of `pop-bumper-1`,
-//       `descend-dragon-leg-l` and `descend-dragon-leg-r`, three of the
-//       cases this sweep currently reports unreached.
-// Those four cases (`top-lane-1/2/3`, `pop-bumper-1`) plus the drop-column
-// verdicts are recorded against DW-138, whose own trailer carries these
-// axes as the next probe. Read every "missed by every release in the sweep"
-// verdict below as "missed along the axes this file sweeps", not as a
-// property of the geometry.
+//   (c) `bd_lock` / `pulse c_mouth`. CLOSED, burn-down (Story 2.15) --
+//       DW-138 root cause 2. [CORRECTED, Story 2.15] This paragraph's own
+//       figures were stale: the committed collision document's `bd_lock`
+//       `ejectPose` is `(170, 460)` with dir `(0, -1, 0)` (not `(170, 650)`),
+//       and the `sw_lock_1..3` slot zones are `x` 146..205 / `y` 544..592
+//       (not `y` 630..678) -- both corrected here, since this axis touches
+//       exactly these numbers. Chained off the SAME `flip:{side:'l',
+//       atTick:3945,holdTicks:30}` recipe this file already pushes below
+//       (measured to capture into `bd_lock`, `s_lock_1`, at relative tick
+//       4316 at this tree), `mouthEjectAtTick` pulses `c_mouth` 84+ ticks
+//       later and `sweepOneRelease()` now tolerates the ball's temporary
+//       absence between capture and eject (the SAME `devices.ts` parking
+//       model `test/util/reachability.ts`'s own `lock-eject-drain` witness
+//       relies on) rather than treating it as "left play". A bounded (not
+//       exhaustive -- runtime budget) `secondFlip` grid, swept over the
+//       window the ejected ball occupies the flipper deck (measured this
+//       pass: relative tick ~5100-5700 -- atTick 5100..5600, holdTicks up
+//       to 100), searches for a redirect toward the still-unreached cases.
+//
+//       MEASURED, this pass: the eject's own natural path (no second flip)
+//       runs straight down the Lock lane's own axis and drains centre,
+//       never leaving `y` = [0, 460]. Across the `secondFlip` grid swept
+//       below, no combination redirects the ball within tolerance of
+//       `top-lane-1/2/3` or `pop-bumper-1/2/3` -- consistent with, not
+//       merely assumed from, the eject axis pointing at the flippers, the
+//       structurally opposite side of the table from y = 700..935 where
+//       those six cases sit. Discharging the recorded blocker (the eject
+//       pose sitting inside its own zone) did not, by itself, restore a
+//       witness to any of them; see `test/util/reachability.ts`'s own
+//       `assertWitnessCorpusHealthy()` for the pinned, falsifiable
+//       statement of that residual, and this story's frontmatter
+//       `deferred:` entry.
+// Axis (b), the SECOND chained flip off the ORIGINAL plunge origin (not this
+// lock-eject origin's own bounded second-flip grid, which searches a
+// different, narrower question), remains unswept -- declined as story-sized
+// for a 644-recipe sweep already at ~131 s; see this story's frontmatter
+// `deferred:`.
 //
 // Story 2.1e's own charter was explicit that DW-137 and DW-136 were NOT this
 // harness's to fix: it reports, and Story 2.1f decides. [STORY 2.1f] That
 // story has now landed. The bottom-right corridor is re-solved, DW-137 is
 // closed, `ramp-return-geometry` is `reachable` on a right-bat witness, and
-// six per-letter DRAGON cases carry DW-136. What remains unsearched here is
-// axes (b) and (c) above, both of which the 2026-09-04 adjudication routed to
-// `burndown` rather than to a geometry story.
+// six per-letter DRAGON cases carry DW-136. [STORY 2.15] Axis (c) is now
+// swept (above); axis (b) remains unswept, declined as story-sized.
 
 import { describe, expect, it } from 'vitest';
 import { createMachine, type Machine } from '../../../src/sim/physics/machine';
@@ -107,6 +127,12 @@ interface ReleaseRecipe {
 	// every release in the sweep" verdicts were verdicts about the search,
 	// not about the table. See this file's own header, axis (a).
 	readonly flip?: { readonly side: 'l' | 'r'; readonly atTick: number; readonly holdTicks: number };
+	// [STORY 2.15] DW-138 root cause 2, axis (c): a `c_mouth` pulse at this
+	// relative tick, chained off a `flip` that has already captured the ball
+	// into `bd_lock`. An optional `secondFlip` afterward searches for a
+	// redirect off the ejected ball's own arrival at the flipper deck.
+	readonly mouthEjectAtTick?: number;
+	readonly secondFlip?: { readonly side: 'l' | 'r'; readonly atTick: number; readonly holdTicks: number };
 }
 
 /**
@@ -126,12 +152,20 @@ function sweepOneRelease(recipe: ReleaseRecipe, ticksAfterRelease: number): read
 	const segments: Segment[] = [];
 	let lastPosMm: { x: number; y: number } | null = null;
 
-	function step(frame: InputFrame, commands: readonly CoilCommand[]): boolean {
+	// [STORY 2.15] A ball's absence is no longer always "left play, stop for
+	// good": a `mouthEjectAtTick` recipe relies on a legitimate temporary
+	// absence (parked in `bd_lock`, `devices.ts`'s own `physics.removeBall()`
+	// / `addBall()` model) between capture and eject. `lastPosMm` resets on
+	// absence either way, so a reappearing ball never fabricates a segment
+	// spanning the gap; recipes with no `mouthEjectAtTick` are unaffected in
+	// practice since their own ball never returns once gone.
+	function step(frame: InputFrame, commands: readonly CoilCommand[]): void {
 		tick += 1;
 		machine.step(tick, frame, commands);
 		const ball = machine.balls[0];
 		if (!ball) {
-			return false;
+			lastPosMm = null;
+			return;
 		}
 		const posMm = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
 		const here = { x: posMm.x, y: posMm.y };
@@ -139,28 +173,25 @@ function sweepOneRelease(recipe: ReleaseRecipe, ticksAfterRelease: number): read
 			segments.push({ fromMm: lastPosMm, toMm: here });
 		}
 		lastPosMm = here;
-		return true;
 	}
 
 	for (let i = 0; i < 320; i++) {
-		if (!step(NO_FRAME, i === 0 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick: tick + 1 }] : [])) {
-			return segments;
-		}
+		step(NO_FRAME, i === 0 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick: tick + 1 }] : []);
 	}
 	const held: InputFrame = { ...NO_FRAME, plunger: true };
 	for (let i = 0; i < recipe.plungeHoldTicks; i++) {
-		if (!step(held, [])) {
-			return segments;
-		}
+		step(held, []);
 	}
 	for (let i = 0; i < ticksAfterRelease; i++) {
 		let frame: InputFrame = NO_FRAME;
 		if (recipe.flip && i >= recipe.flip.atTick && i < recipe.flip.atTick + recipe.flip.holdTicks) {
 			frame = { ...NO_FRAME, [recipe.flip.side === 'l' ? 'flipper_l' : 'flipper_r']: true };
 		}
-		if (!step(frame, [])) {
-			break;
+		if (recipe.secondFlip && i >= recipe.secondFlip.atTick && i < recipe.secondFlip.atTick + recipe.secondFlip.holdTicks) {
+			frame = { ...NO_FRAME, [recipe.secondFlip.side === 'l' ? 'flipper_l' : 'flipper_r']: true };
 		}
+		const commands: readonly CoilCommand[] = recipe.mouthEjectAtTick !== undefined && i === recipe.mouthEjectAtTick ? [{ type: 'coil', coil: 'c_mouth', action: 'pulse', tick: tick + 1 }] : [];
+		step(frame, commands);
 	}
 	return segments;
 }
@@ -279,6 +310,22 @@ function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	recipes.push({ plungeHoldTicks: 285, flip: { side: 'r', atTick: 3890, holdTicks: 100 } });
 	recipes.push({ plungeHoldTicks: 285, flip: { side: 'r', atTick: 3899, holdTicks: 60 } });
 	recipes.push({ plungeHoldTicks: 285, flip: { side: 'r', atTick: 3906, holdTicks: 60 } });
+	// [STORY 2.15] DW-138 root cause 2, axis (c): the bd_lock/c_mouth eject
+	// origin, explicitly (mirrors `lock-eject-drain` in
+	// test/util/reachability.ts's own WITNESSES) plus a bounded second-flip
+	// grid over the window the ejected ball occupies the flipper deck
+	// (measured this pass, relative tick ~5100-5700), searching for a
+	// redirect toward the still-unreached cases. See this file's own header.
+	recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3945, holdTicks: 30 }, mouthEjectAtTick: 4400 });
+	// Bounded rather than exhaustive (measured runtime budget, this file's
+	// own SWEEP_RUNTIME_BUDGET_MS): a coarse grid over the same window,
+	// sized to add well under a minute against the ~131 s baseline.
+	for (const atTick of [5100, 5200, 5300, 5400, 5500, 5600]) {
+		for (const holdTicks of [30, 60, 100]) {
+			recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3945, holdTicks: 30 }, mouthEjectAtTick: 4400, secondFlip: { side: 'l', atTick, holdTicks } });
+			recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3945, holdTicks: 30 }, mouthEjectAtTick: 4400, secondFlip: { side: 'r', atTick, holdTicks } });
+		}
+	}
 	return recipes;
 }
 
@@ -383,7 +430,9 @@ const MIN_RELEASE_PATH_MM = 300;
  * cannot tell "the search shrank" from "the search lost the axis that made
  * it a proof": deleting the fine 240-380 plunge loop -- the axis that
  * DISCOVERED `plunge-medium-285`, this story's own headline finding --
- * leaves 442 releases, over the 300 total floor, and changes no verdict
+ * leaves 652 releases today [CORRECTED, Story 2.15, DW-151 -- re-measure at
+ * your own tree; this is illustrative prose, never asserted], over the 300
+ * total floor, and changes no verdict
  * (because every `WITNESSES` recipe is separately re-pushed below), so
  * the sweep would silently degrade into a replay of the in-suite witness
  * set and still report success. These floors make each axis fail on its own.

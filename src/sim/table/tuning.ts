@@ -482,7 +482,7 @@ export const TUNING = deepFreeze({
 	 */
 	lockEjectExemptionTimeoutMs: entry(
 		600,
-		"authored: a conservative backstop against the per-ball ejection exemption never clearing (deflection/stall/reversal) -- see this entry's own doc comment for the measured ~135-tick normal-case clear time this is a generous multiple of",
+		"authored: a conservative backstop bounding the PATHOLOGICAL case where the per-ball ejection exemption never clears via the normal path (deflection/stall/reversal) -- the normal case clears essentially immediately (the tick after eject), not the ~135-tick pre-corridor-seal trace an earlier measurement recorded; see this entry's own doc comment's [CORRECTED, code review 2026-09-04] note (DW-152)",
 		'unverified',
 	),
 

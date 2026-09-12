@@ -262,12 +262,15 @@ describe('bd_lock: the just-ejected exemption times out (Phase 5 review finding 
 
 		// Hold the ball inside sw_lock_2 -- a DIFFERENT zone from the seed
 		// (proving this is bd_lock's own zone-UNION, not just the one zone
-		// it was seeded into) -- at a y (588) that is NOT < 564
-		// (buildClearBeyond()'s own boundary for bd_lock, the union's
-		// nearest edge along its -y eject axis), so clearBeyond() reads
-		// false on every check below: this ball never clears by the normal
-		// mechanism, exactly the stall/deflection/reversal case task 22
-		// describes.
+		// it was seeded into) -- at a y (568, sw_lock_2's own centre; the
+		// committed band is sw_lock_1 544..558 / sw_lock_2 561..575 /
+		// sw_lock_3 578..592 [CORRECTED, Story 2.15, DW-151 -- this comment
+		// used to say 588, which is inside sw_lock_3, not sw_lock_2]) that
+		// is NOT < 544 (buildClearBeyond()'s own boundary for bd_lock, the
+		// union's nearest edge along its -y eject axis -- also corrected
+		// here, from a stale 564), so clearBeyond() reads false on every
+		// check below: this ball never clears by the normal mechanism,
+		// exactly the stall/deflection/reversal case task 22 describes.
 		const heldMm = zoneCentreMm('sw_lock_2');
 		// Code review 2026-09-03: this bound used to be the literal 564 --
 		// buildClearBeyond()'s own boundary for bd_lock written out by hand,
@@ -770,8 +773,18 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 	it('a ball released from open field ABOVE col_lock_ceiling, descending straight down across the corridor\'s own x-width, is NOT parked -- the corridor\'s north seal blocks entry from above, not only a sideways crossing at one fixed height', () => {
 		const ceilingTopY = nodeBboxMm('col_lock_ceiling').max.y;
 		const ceilingBottomY = nodeBboxMm('col_lock_ceiling').min.y;
-		const lockLaneX0 = Math.min(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).minMm.x));
-		const lockLaneX1 = Math.max(...LOCK_ZONE_NAMES.map((n) => switchZoneMm(n).maxMm.x));
+		// [CORRECTED, Story 2.15 -- DW-149 instance 5] Was `switchZoneMm()`
+		// bounds over `LOCK_ZONE_NAMES` -- the same declaration
+		// `sw_lock_1..3`'s own zones use, so this probe's own "where is the
+		// corridor" read the identical source as "is the corridor safe": a
+		// corridor that narrowed while its `sw_lock_*` declaration moved
+		// WITH it (the two are authored from the same generator constants
+		// today, but nothing enforces that) would re-centre this probe onto
+		// the new, narrower band and could never strand it. Re-derived from
+		// the PHYSICAL walls that actually bound the Lock lane -- the
+		// Dragon's own two legs -- independent of any zone declaration.
+		const lockLaneX0 = nodeBboxMm('col_dragon_leg_l').max.x;
+		const lockLaneX1 = nodeBboxMm('col_dragon_leg_r').min.x;
 		// Build-auto review pass (2026-09-04): the release height below is
 		// derived from col_lock_ceiling itself, the same self-referential
 		// shape the static enclosure test above was found vacuous against --
@@ -908,7 +921,8 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 		// sw_lock_* zones themselves (their union's own y-midpoint), not
 		// hardcoded, so a future re-siting of the zones moves this probe
 		// with them rather than leaving it decoupled. With today's geometry
-		// (zones at y 564..612) this lands well inside the legs' solidly-
+		// (zones at y 544..592 [CORRECTED, Story 2.15, DW-151 -- was
+		// 564..612], probeY = 568) this lands well inside the legs' solidly-
 		// walled region (y 480..600/620) and the crossing is blocked, same
 		// as before the fix; if the zones were ever moved back into the
 		// open field above y 620, this probe would move there too and the

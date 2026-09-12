@@ -65,6 +65,19 @@ interface WitnessRecipe {
 	/** Ticks to run AFTER the plunger releases (i.e., after the ball leaves `bd_shooter`), or until the ball leaves play, whichever comes first. */
 	readonly ticksAfterRelease: number;
 	/**
+	 * DW-138 root cause 2 (origins): the `bd_lock` / `c_mouth` eject origin.
+	 * Chains a real `c_mouth` pulse off a recipe that has already captured
+	 * its own ball into `bd_lock` (via `flip`, as `plunge-then-bat-l-3945`
+	 * does) -- `atTick` is the SAME relative-tick clock `flip.atTick` uses
+	 * (ticks since the plunger released). Never teleported: `devices.ts`
+	 * physically removes the parked ball from `physics.balls` on capture and
+	 * re-adds a fresh one at `bd_lock`'s own authored eject pose on the
+	 * pulse (`src/sim/physics/devices.ts:469,674`), so `replayWitness()`
+	 * must tolerate a temporary ball absence between capture and eject
+	 * without treating it as "left play" -- see `stepOnce()`'s own note.
+	 */
+	readonly mouthEject?: { readonly atTick: number };
+	/**
 	 * At least one switch this witness's own trajectory is expected to close
 	 * -- `assertWitnessCorpusHealthy()`'s dead-witness guard reads this.
 	 *
@@ -167,6 +180,48 @@ const WITNESSES: readonly WitnessRecipe[] = [
 		flip: { side: 'l', atTick: 3945, holdTicks: 30 },
 		ticksAfterRelease: 7000,
 		expectedSwitch: 's_lock_1',
+	},
+	// ---- DW-138 root cause 2: the bd_lock/c_mouth eject origin. ----------
+	// The recorded blocker ("bd_lock's own eject pose sits INSIDE its own
+	// sw_lock_2 zone, so detectEntries re-parks the ejected ball on the same
+	// tick") is discharged: `bd_lock`'s committed `ejectPose` is
+	// (170, 460, 13.495), outside every `sw_lock_*` zone (544..592) since
+	// Story 2.1d's own corridor seal. Chained off `plunge-then-bat-l-3945`,
+	// the recipe already known to capture into `bd_lock` (`s_lock_lane`
+	// then `s_lock_1`, measured at relative tick 4316 at this tree) --
+	// `mouthEject.atTick: 4400` pulses `c_mouth` 84 ticks after capture,
+	// comfortably clear of the just-ejected re-park exemption window
+	// (`test/lock-device-behaviour.test.ts`'s own Phase 5 timeout note).
+	//
+	// Measured at this tree: the ejected ball travels straight down the
+	// Lock lane's own axis (`ejectPose.dir` = (0, -1, 0)) from (170, 460) to
+	// the flipper deck, deflects briefly near the left bat, and drains
+	// centre -- `s_drain` at relative tick 5756, captured into `bd_trough`
+	// (`s_trough_4`) at 5807. This is a GENUINELY DIFFERENT trajectory from
+	// every plunge-origin witness above (none can start mid-table at the
+	// Lock's own pose), so it is a real new origin family, not a
+	// duplicate -- see `assertWitnessCorpusHealthy()`'s own family-breadth
+	// check, extended for `lock-eject` below.
+	//
+	// This origin's own natural eject direction sends the ball toward the
+	// flippers/drain -- structurally the OPPOSITE side of the table from
+	// the pop-bumper cluster (y 700..820) and the Top lanes (y 900..935),
+	// the remaining `unreachable` cases this axis was hoped to rescue
+	// (DW-138's own ledger note). Measured: this witness's own post-eject
+	// segments never leave y = [0, 460], so it cannot be, and is not, the
+	// closest witness to any of those six cases -- discharging the blocker
+	// did not, by itself, restore a pop-bumper (or Top-lane) witness. See
+	// `assertWitnessCorpusHealthy()`'s own explicit, falsifiable statement
+	// of that residual gap, and the story's frontmatter `deferred:` entry.
+	{
+		id: 'lock-eject-drain',
+		label: 'the full plunge, chained into a left-bat flip at relative tick 3945 (captures into bd_lock, s_lock_1), then a c_mouth pulse at relative tick 4400 ejects the SAME ball back onto the playfield at bd_lock\'s own pose -- the bd_lock/c_mouth origin axis (DW-138 root cause 2) -- and it drains centre',
+		settleTicks: 320,
+		plungeHoldTicks: 521,
+		flip: { side: 'l', atTick: 3945, holdTicks: 30 },
+		mouthEject: { atTick: 4400 },
+		ticksAfterRelease: 6000,
+		expectedSwitch: 's_drain',
 	},
 	{
 		id: 'plunge-then-bat-l-3944-35',
@@ -329,8 +384,16 @@ function replayWitness(recipe: WitnessRecipe): WitnessResult {
 	let pathLengthMm = 0;
 	let lastPosMm: { x: number; y: number } | null = null;
 
-	/** Advances one tick with `frame`/`commands`; returns false once the ball has left play (there is nothing left to sweep). */
-	function stepOnce(frame: InputFrame, commands: readonly CoilCommand[]): boolean {
+	/**
+	 * Advances one tick with `frame`/`commands`. A ball's absence is no
+	 * longer treated as "left play, stop sweeping forever": `mouthEject`
+	 * (DW-138 root cause 2) relies on a ball being legitimately absent for a
+	 * stretch (parked in `bd_lock`) and then reappearing on the pulse.
+	 * `lastPosMm` resets to null whenever no ball exists, so the segment
+	 * recorded on reappearance always starts fresh -- never a fabricated
+	 * segment spanning the parked gap between two unrelated positions.
+	 */
+	function stepOnce(frame: InputFrame, commands: readonly CoilCommand[]): void {
 		tick += 1;
 		const result = machine.step(tick, frame, commands);
 		for (const event of result.switchEvents) {
@@ -340,7 +403,8 @@ function replayWitness(recipe: WitnessRecipe): WitnessResult {
 		}
 		const ball = machine.balls[0];
 		if (!ball) {
-			return false;
+			lastPosMm = null;
+			return;
 		}
 		const posMm = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
 		const here = { x: posMm.x, y: posMm.y };
@@ -349,32 +413,27 @@ function replayWitness(recipe: WitnessRecipe): WitnessResult {
 			pathLengthMm += Math.hypot(here.x - lastPosMm.x, here.y - lastPosMm.y);
 		}
 		lastPosMm = here;
-		return true;
 	}
 
 	for (let i = 0; i < recipe.settleTicks; i++) {
 		const commands: readonly CoilCommand[] = i === 0 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick: tick + 1 }] : [];
-		if (!stepOnce(NO_FRAME, commands)) {
-			return { segments, closedSwitches, pathLengthMm };
-		}
+		stepOnce(NO_FRAME, commands);
 	}
 
 	const held: InputFrame = { ...NO_FRAME, plunger: true };
 	for (let i = 0; i < recipe.plungeHoldTicks; i++) {
-		if (!stepOnce(held, [])) {
-			return { segments, closedSwitches, pathLengthMm };
-		}
+		stepOnce(held, []);
 	}
 
 	const flip = recipe.flip;
+	const mouthEject = recipe.mouthEject;
 	for (let i = 0; i < recipe.ticksAfterRelease; i++) {
 		let frame: InputFrame = NO_FRAME;
 		if (flip && i >= flip.atTick && i < flip.atTick + flip.holdTicks) {
 			frame = { ...NO_FRAME, [flip.side === 'l' ? 'flipper_l' : 'flipper_r']: true };
 		}
-		if (!stepOnce(frame, [])) {
-			break;
-		}
+		const commands: readonly CoilCommand[] = mouthEject && i === mouthEject.atTick ? [{ type: 'coil', coil: 'c_mouth', action: 'pulse', tick: tick + 1 }] : [];
+		stepOnce(frame, commands);
 	}
 
 	return { segments, closedSwitches, pathLengthMm };
@@ -515,14 +574,19 @@ export function assertWitnessCorpusHealthy(): void {
 	// far less breadth than the count suggests. Story 2.1e shipped exactly
 	// that -- every witness a plunge or a plunge-then-LEFT-bat -- which is
 	// why the Ramp could not be proved reachable at ANY corridor width until
-	// Story 2.1f added a right-bat origin. Each origin family the recipes
-	// themselves declare must be represented.
+	// Story 2.1f added a right-bat origin, and DW-138 root cause 2 named a
+	// third unswept origin (`bd_lock`/`c_mouth`) this story adds. Each
+	// origin family the recipes themselves declare must be represented.
 	const families = new Map<string, number>();
 	for (const recipe of WITNESSES) {
-		const family = recipe.flip === undefined ? 'plunge-only' : `plunge-then-bat-${recipe.flip.side}`;
+		// A `mouthEject` recipe's own ORIGIN is the Lock's eject pose, not
+		// the plunger -- classified first so a lock-eject recipe that also
+		// carries a (pre-capture) `flip` is never miscounted as an ordinary
+		// plunge-then-bat witness.
+		const family = recipe.mouthEject !== undefined ? 'lock-eject' : recipe.flip === undefined ? 'plunge-only' : `plunge-then-bat-${recipe.flip.side}`;
 		families.set(family, (families.get(family) ?? 0) + 1);
 	}
-	for (const family of ['plunge-only', 'plunge-then-bat-l', 'plunge-then-bat-r']) {
+	for (const family of ['plunge-only', 'plunge-then-bat-l', 'plunge-then-bat-r', 'lock-eject']) {
 		expect(
 			families.get(family) ?? 0,
 			`assertWitnessCorpusHealthy(): the witness corpus contains no "${family}" origin at all (families present: ${[...families].map(([k, v]) => `${k}=${v}`).join(', ')}). ` +
@@ -544,5 +608,30 @@ export function assertWitnessCorpusHealthy(): void {
 			[...result.closedSwitches],
 			`assertWitnessCorpusHealthy(): witness "${recipe.id}" (${recipe.label}) never closed its own expected switch "${recipe.expectedSwitch}" -- makes: ${[...result.closedSwitches].join(',')}`,
 		).toContain(recipe.expectedSwitch);
+	}
+	// DW-138 root cause 2 residual, named explicitly rather than left silent
+	// (task 4's own instruction). Adding the bd_lock/c_mouth origin
+	// discharged the recorded BLOCKER (the eject pose sat inside its own
+	// zone) but did not, by construction, restore a witness to the
+	// pop-bumper cluster: `bd_lock`'s own eject direction (0, -1, 0) sends
+	// the ball toward the flippers/drain, the opposite side of the table
+	// from `s_pop_1`/`s_pop_2`/`s_pop_3` (y 700..820). This is a pinned,
+	// falsifiable statement of the gap (Rule 19): if a FUTURE witness
+	// (a further chained flip, a different origin) genuinely closes one of
+	// these, this assertion goes red and must be updated to say so -- the
+	// gap may never silently close without this file noticing. See the
+	// story's own frontmatter `deferred:` entry.
+	const POP_BUMPER_SWITCHES: readonly SwitchName[] = ['s_pop_1', 's_pop_2', 's_pop_3'];
+	const closedByAnyWitness = new Set<SwitchName>();
+	for (const recipe of WITNESSES) {
+		for (const sw of witnessPath(recipe.id).closedSwitches) {
+			closedByAnyWitness.add(sw);
+		}
+	}
+	for (const sw of POP_BUMPER_SWITCHES) {
+		expect(
+			closedByAnyWitness.has(sw),
+			`assertWitnessCorpusHealthy(): "${sw}" is now closed by some witness in this corpus -- the DW-138 pop-bumper coverage gap this assertion pins is stale. Update the corresponding SHOT_CASES entry (test/util/shot-cases.ts) to "reachable" with the witness that closes it, and remove "${sw}" from POP_BUMPER_SWITCHES here.`,
+		).toBe(false);
 	}
 }

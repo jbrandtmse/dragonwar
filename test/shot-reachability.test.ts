@@ -27,7 +27,7 @@ import { NO_FRAME } from '../src/sim/loop';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { toPhysics, fromPhysics, MM_PER_VU } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { SHOT_CASES, MIN_SHOT_CASES, shotCase } from './util/shot-cases';
+import { SHOT_CASES, MIN_SHOT_CASES, shotCase, type ShotCase } from './util/shot-cases';
 import {
 	REACHABILITY_TOLERANCE_MM,
 	assertWitnessCorpusHealthy,
@@ -148,9 +148,57 @@ const RECORDED_APPROACH_AGREEMENT_BAND_MM = 0.5;
  */
 const evaluatedIds = new Set<string>();
 
+/**
+ * DW-138 root cause 1 (criterion). A `probesBody` case's obligation is a
+ * body-coverage claim checked against the collision document, not a
+ * witness-search verdict (I/O matrix, "Drop-probe case"). Every `descend-*`
+ * case releases at 1 mm/s with `dirDeg: 0`, so horizontal drift before any
+ * gravity-driven y-slide is negligible -- the release column is fixed in x.
+ * "Covered" means the released ball's own disc, centred at that x, overlaps
+ * the named body's own x-span: a real, static, falsifiable claim that this
+ * probe can genuinely contact the body it names, proven purely from the
+ * committed document rather than a simulated trajectory. A `probesBody`
+ * naming an absent node fails by name (AC 5's own required falsifier),
+ * checked before the coverage claim so the failure names the real defect
+ * first.
+ */
+function assertProbesBodyCovered(id: string, c: ShotCase): void {
+	const bodyName = c.probesBody!;
+	const doc = readCollisionDoc();
+	const node = doc.nodes.find((n) => n.name === bodyName);
+	expect(node, `case "${id}" declares probesBody "${bodyName}", which is absent from the committed collision document`).toBeDefined();
+	const footprint = node!.footprintMm;
+	expect(
+		footprint,
+		`case "${id}"'s probed body "${bodyName}" has no footprintMm in the collision document -- it cannot present a strandable face`,
+	).toBeDefined();
+	const ballRadiusMm = TABLE.reference.ballMm / 2;
+	const bodyX0 = Math.min(...footprint!.map((v) => v.x));
+	const bodyX1 = Math.max(...footprint!.map((v) => v.x));
+	const releaseX0 = c.startMm.x - ballRadiusMm;
+	const releaseX1 = c.startMm.x + ballRadiusMm;
+	const overlaps = releaseX0 <= bodyX1 && releaseX1 >= bodyX0;
+	expect(
+		overlaps,
+		`case "${id}"'s release column (x = ${c.startMm.x} mm +/- ${ballRadiusMm} mm ball radius = [${releaseX0.toFixed(3)}, ${releaseX1.toFixed(3)}]) does not overlap "${bodyName}"'s own x-span [${bodyX0}, ${bodyX1}] -- the probe does not cover the body it claims to probe`,
+	).toBe(true);
+}
+
 describe('shot reachability -- per case, proven or recorded unreachable (AC 1, AC 2, AC 3)', () => {
 	it.each(SHOT_CASES.map((c) => [c.id, c] as const))('%s', (id, c) => {
 		evaluatedIds.add(id);
+		// Review pass, Story 2.15: a `probesBody` case's body-coverage claim
+		// (DW-138 root cause 1) is checked IN ADDITION TO, not instead of,
+		// its own declared `reachability` verdict below -- dropping the
+		// latter for `probesBody` cases silently lost the live regression
+		// check on the ~7 `reachable`-declared descend-* cases (e.g.
+		// descend-sling-l) whose recorded witness distance was previously
+		// re-verified by this very block every `pnpm test` run. The
+		// body-coverage claim is still checked and still fails by name
+		// first when the named body is absent.
+		if (c.probesBody !== undefined) {
+			assertProbesBodyCovered(id, c);
+		}
 		if (c.reachability.kind === 'reachable') {
 			const distanceMm = closestApproachMm(c.startMm, c.reachability.witness);
 			expect(

@@ -42,10 +42,55 @@ import { describe, expect, it } from 'vitest';
 import { resolveBlender } from '../tools/blender.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const RUN_TIMEOUT_MS = 120_000;
+/**
+ * DW-227. Was `120_000` -- a budget with no stated measurement behind it,
+ * and one already close to the ledger's own recorded UNDER-LOAD range
+ * (103-118 s), so a nested run sharing the host with the rest of a parallel
+ * `pnpm test` invocation could genuinely exceed it. Measured, not guessed:
+ * isolated baseline **45.9 s** at this tree, 2026-09-12 (re-measured; the
+ * ledger's own dispatch-time figure was 54.8 s -- both hosts, not a
+ * regression here) and an observed under-load range of **103-118 s**
+ * (the ledger's own citation, this story's own re-measurement pass did not
+ * repeat the load condition). `300_000` (5 min) is a little over 2.5x the
+ * worst OBSERVED figure and over 6x the isolated baseline -- real headroom
+ * against both, not merely against the number this constant used to be.
+ */
+const RUN_TIMEOUT_MS = 300_000;
 
 function countOccurrences(text: string, pattern: RegExp): number {
 	return (text.match(pattern) ?? []).length;
+}
+
+/**
+ * DW-227. `spawnSync()`'s own contract (Node's `child_process` docs): a
+ * process killed by its own `timeout` option never sets `status` (it stays
+ * `null`) -- only `signal` does. The bare `expect(result.status).toBe(0)`
+ * this replaces reported `expected null to be 0` on a timeout, which reads
+ * identically to an ordinary nonzero exit and names neither the cause nor
+ * the budget it was measured against. Pure and instance-free: takes only
+ * the two fields `spawnSync()` actually sets on kill/exit, so the timeout
+ * branch is unit-testable against a synthesized result without ever
+ * spawning a process or waiting for a real kill (task 14).
+ */
+export interface NestedRunOutcome {
+	readonly kind: 'ok' | 'timeout' | 'nonzero';
+	readonly message: string;
+}
+
+export function describeNestedRunOutcome(result: { readonly status: number | null; readonly signal: NodeJS.Signals | null }, timeoutMs: number): NestedRunOutcome {
+	if (result.status === 0) {
+		return { kind: 'ok', message: 'the nested run exited 0' };
+	}
+	if (result.status === null) {
+		return {
+			kind: 'timeout',
+			message: `the nested run was killed (signal ${result.signal ?? 'unknown'}) -- it did not complete within the ${timeoutMs} ms budget`,
+		};
+	}
+	return {
+		kind: 'nonzero',
+		message: `the nested run exited with a nonzero status (${result.status})`,
+	};
 }
 
 /** Extracts the source slice for ONE `describe.skipIf(...)(...) => { ... }` block, matched by its opening line's own literal text -- from that line to the FIRST column-0 `});` after it (this repository's own consistent indentation style, matching every other structural-count helper in this suite, e.g. test/hardware-rule-seam.test.ts's own comment-stripping approach). */
@@ -181,7 +226,11 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 				],
 				{ cwd: REPO_ROOT, encoding: 'utf8', timeout: RUN_TIMEOUT_MS },
 			);
-			expect(result.status, `the nested run itself must succeed. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+			// DW-227: names a timeout distinctly from an ordinary nonzero exit
+			// (and the elapsed budget it was measured against), rather than
+			// `expected null to be 0` -- see describeNestedRunOutcome() above.
+			const outcome = describeNestedRunOutcome(result, RUN_TIMEOUT_MS);
+			expect(outcome.kind, `the nested run itself must succeed: ${outcome.message}. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe('ok');
 			expect(existsSync(reportPath), `the nested run wrote no JSON report at ${reportPath}. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(true);
 
 			const raw = readFileSync(reportPath, 'utf8');
@@ -218,4 +267,36 @@ describe('Blender-gated skip visibility (Code Map Part D item 7): the skip count
 			rmSync(reportDir, { recursive: true, force: true });
 		}
 	}, RUN_TIMEOUT_MS + 5_000);
+});
+
+// DW-227, task 14. The timeout branch above is otherwise unreachable in a
+// green run (Anti-vacuity plan, "a check that never ran") -- a real kill is
+// slow and flaky to arrange on demand, so this proves the branch against a
+// synthesized result instead: exactly the shape `spawnSync()` produces when
+// its own `timeout` option fires (`status: null`, `signal` set) and the
+// ordinary nonzero-exit shape it must be told apart from.
+describe('DW-227 -- describeNestedRunOutcome() distinguishes ok / timeout / nonzero without waiting for a real kill', () => {
+	it('a synthesized killed result ({ status: null, signal: "SIGTERM" }) is classified "timeout", naming the signal and the elapsed budget', () => {
+		const outcome = describeNestedRunOutcome({ status: null, signal: 'SIGTERM' }, 300_000);
+		expect(outcome.kind).toBe('timeout');
+		expect(outcome.message).toContain('SIGTERM');
+		expect(outcome.message).toContain('300000');
+	});
+
+	it('a synthesized nonzero exit ({ status: 1, signal: null }) is classified "nonzero", distinctly from "timeout"', () => {
+		const outcome = describeNestedRunOutcome({ status: 1, signal: null }, 300_000);
+		expect(outcome.kind).toBe('nonzero');
+		expect(outcome.message).toContain('1');
+	});
+
+	it('a successful exit ({ status: 0, signal: null }) is classified "ok"', () => {
+		const outcome = describeNestedRunOutcome({ status: 0, signal: null }, 300_000);
+		expect(outcome.kind).toBe('ok');
+	});
+
+	// mutation: remove the `result.status === null` branch (fall through to
+	// the nonzero case, or delete the check entirely so `status: null`
+	// reaches the `ok` check's `=== 0` and falls to "nonzero") -> the first
+	// test above goes red, asserting "nonzero" (or the message losing
+	// "SIGTERM"/the budget) where "timeout" is required.
 });

@@ -345,6 +345,60 @@ describe('AC 4 -- the count-up stream is paced by bonusCountMs at its PRODUCTION
 		});
 		expect(result.events.some((e) => e.type === 'bonus_count_step')).toBe(false);
 	});
+
+	// Story 2.15 (DW-235). Reproduces the measured scenario exactly: ball 1
+	// drains at tick D with a nonzero bonus (arming the 400/800/1200 count-up
+	// schedule), a Slam tilt one tick later ends the game (phase -> 'attract')
+	// WITHOUT touching that schedule -- `pendingBonusCountSteps` is
+	// ball-controller closure state (AD-7), armed once on drain and cleared
+	// only by a new game's own Start, never by a slam -- and Start is pressed
+	// on EXACTLY the tick the second step (E+800) is due. `pendingBonusCount
+	// Steps` IS cleared when the new game is created, but the drain that
+	// reports a step due THIS tick runs before Start-handling in the SAME
+	// `step()` call, so without the guard the stale step still fires. A
+	// negative with no positive proves nothing (Anti-vacuity plan): this
+	// pins BOTH that the schedule genuinely was armed (E+400 still fires,
+	// well before the slam/Start) AND that nothing fires at or after E+800.
+	describe('DW-235 -- Start on the exact tick a count-up step is due, after a Slam-tilt game-over, emits no stale bonus_count_step', () => {
+		it('E+400 still fires (the schedule was genuinely armed); nothing fires at or after the new game\'s own Start tick (E+800)', () => {
+			const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
+			const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+			const drainTick = 5;
+			const slamTick = drainTick + 1;
+			const startTick = drainTick + 800; // exactly the schedule's own second step
+			const script = close('s_trough_1')
+				.at(drainTick)
+				.close('s_slam_tilt')
+				.at(slamTick)
+				.close('s_start')
+				.at(startTick)
+				.build();
+			const result = runRulesScript(script, {
+				durationTicks: drainTick + 1300,
+				initialState: initial,
+				tuning: NO_BALL_SAVE_TUNING,
+			});
+
+			// Sanity: the slam genuinely ended the game, and Start genuinely
+			// started a new one on the tick this test is about.
+			expect(result.events, 'sanity: the slam must fire as scripted').toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: slamTick }]));
+			expect(result.finalState.phase, 'sanity: Start must have created a new game').toBe('game');
+
+			const steps = result.events.filter((e) => e.type === 'bonus_count_step');
+			// Positive first (Anti-vacuity plan, "a negative with no
+			// positive"): the schedule genuinely was armed and would have
+			// gone on to fire every step, undisturbed by the slam alone.
+			expect(steps.some((e) => e.tick === drainTick + 400), 'sanity: the count-up schedule must genuinely have been armed by the drain').toBe(true);
+			// The negative this story's own guard exists for: nothing at or
+			// after the tick the new game's own Start created it -- neither
+			// the exact due tick (E+800) nor the still-later E+1200.
+			const leaked = steps.filter((e) => e.tick >= startTick);
+			expect(
+				leaked,
+				`bonus_count_step emitted at or after the new game's own Start tick (${startTick}): ${JSON.stringify(leaked)} -- reverting the DW-235 guard in ball-controller.ts reproduces this at tick ${startTick}`,
+			).toEqual([]);
+		});
+	});
 });
 
 describe('AC 5 -- a tilted ball forfeits the bonus and keeps the score', () => {

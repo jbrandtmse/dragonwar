@@ -34,6 +34,21 @@ export interface ShotCase {
 	readonly dirDeg: number;
 	readonly ticks: number;
 	readonly switchesUnderTest: readonly SwitchName[];
+	/**
+	 * DW-138 root cause 1 (criterion). Set on every `descend-*` strand
+	 * probe, naming the `col_` node the probe is genuinely about. When
+	 * present, `test/shot-reachability.test.ts`'s per-case gate checks a
+	 * body-coverage claim against the collision document -- this release
+	 * column's own ball-radius reach overlaps the named body's own x-span --
+	 * instead of running the witness-search verdict `reachability` below
+	 * would otherwise drive. A probe's `reachability` field is still
+	 * declared (every case owes one -- there is no third state), but for a
+	 * `probesBody` case it is no longer the operative check: a witness
+	 * passing nearby says nothing about whether THIS teleported release
+	 * actually lands on the body it claims to probe (Story 2.1e's own blind
+	 * spot, reopened when the two kinds shared one verdict).
+	 */
+	readonly probesBody?: string;
 	readonly reachability: Reachability;
 }
 
@@ -623,6 +638,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// within tolerance of this drop point (re-measured 62.005 mm). The
 		// swept replacement, plunge-then-bat-l-3969, passes 5.934 mm from it.
 		// The release point itself is unchanged and still clear (17.934 mm).
+		probesBody: 'col_sling_l',
 		reachability: { kind: 'reachable', witness: 'plunge-then-bat-l-3969' },
 	},
 	{
@@ -643,6 +659,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// in-suite witness plunge-then-bat-r-3890, so the in-suite gate and
 		// the sweep agree. The release point itself is unchanged and still
 		// clear (18.350 mm); col_sling_r moved east under it.
+		probesBody: 'col_sling_r',
 		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3890' },
 	},
 	{
@@ -664,23 +681,43 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// merely close -- where DW-77 requires > 13.495 mm clearance for
 		// any release point driveShot() teleports a ball to. 680 clears
 		// west_fill's own true height at x = 120 (662, interpolated) by
-		// 18 mm, comfortably past the 13.495 mm floor, and still drops the
-		// ball onto the identical col_dragon_leg_l flat-topped face this
-		// case exists to pin -- unrelated to the fix, only its own
-		// clearance moved.
+		// 18 mm, comfortably past the 13.495 mm floor.
+		//
+		// [CORRECTED, Story 2.15 -- DW-150] The claim above (this column
+		// "drops the ball onto the identical col_dragon_leg_l flat-topped
+		// face") was FALSE, and had been since the y-move above (or
+		// earlier): instrumented per tick via driveCase()'s own
+		// positionSamples at this tree, the driven trajectory's closest
+		// approach to col_dragon_leg_l is 55.615 mm -- it never contacts
+		// that body -- while the SAME drive passes 13.487 mm from
+		// col_lock_ceiling_west_fill and 13.488 mm from col_lock_ceiling,
+		// both genuine ball-radius contact. col_lock_ceiling_west_fill's own
+		// footprint now sits over the leg's own diagonal cap (a 2 mm margin,
+		// LOCK_FILL_WEST_MARGIN_MM), so no descending ball can reach the leg
+		// from here -- the cause is geometric, not a stale release point,
+		// and re-authoring the cap flat to restore one would reopen a
+		// DW-119 shelf (and move assetHash) -- out of bounds either way.
+		// `probesBody` corrected to name what this column actually covers;
+		// the durable, dimensional pin for the shielding itself lives in
+		// test/asset-contract.test.ts (the LOCK_FILL_WEST_MARGIN_MM gate),
+		// independent of this or any other shot.
 		id: 'descend-dragon-leg-l',
-		label: 'Descending release onto the left Dragon leg (col_dragon_leg_l)',
+		label: 'Descending release, shielded from the left Dragon leg by col_lock_ceiling_west_fill (DW-150)',
 		startMm: { x: 120, y: 680, z: 13.5 },
 		speedMmPerS: 1,
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		probesBody: 'col_lock_ceiling_west_fill',
 		// Story 2.1d task 8: closestApproachMm re-measured (32.71 -> 67.712)
 		// against the real physics pipeline after this story's own geometry
 		// changes -- still unreachable. Rework iteration 3 round 7:
 		// re-measured again after startMm's own y moved (67.712 -> 67.684,
 		// essentially unchanged -- the same witness, plunge-full, remains
-		// the nearest one regardless of the small y shift).
+		// the nearest one regardless of the small y shift). This
+		// declaration is orthogonal to DW-150 above: it is the WITNESS-
+		// SEARCH verdict (does some witness's own trajectory pass nearby),
+		// unaffected by the body-coverage correction to probesBody.
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
@@ -711,6 +748,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// TRUE geometry fix moved this witness's own trajectory again,
 		// 111.542 -> 129.388 mm clear (same underlying cause as pop-bumper-2's
 		// own re-measurement, above).
+		probesBody: 'col_dragon_leg_r',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
@@ -736,6 +774,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// Story 2.1d task 8: closestApproachMm re-measured (68.45 -> 87.896)
 		// against the real physics pipeline after this story's own geometry
 		// changes -- still unreachable.
+		probesBody: 'col_ramp_wall_l',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
@@ -776,6 +815,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// genuine consequence of the sling kick, not a geometry change (no
 		// col_ coordinate moved this story) or a widened tolerance -- the
 		// DW-138 note below no longer applies to this point.
+		probesBody: 'col_ramp_wall_r',
 		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3890' },
 	},
 	{
@@ -792,6 +832,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		probesBody: 'col_ramp_turn',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
@@ -815,6 +856,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// from the release point -- inside the 13.495 mm tolerance. A
 		// genuinely-fixed case is re-declared, never left marked unreachable
 		// (this manifest's own AC 2).
+		probesBody: 'col_ramp_return_1',
 		reachability: { kind: 'reachable', witness: 'plunge-then-bat-r-3899' },
 	},
 	{
@@ -832,6 +874,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// lane swallow fix -- still unreachable. The note's own "descend-
 		// dragon-n IS reached" clause is now stale too (also unreachable as
 		// of this story -- see its own entry's note); corrected below.
+		probesBody: 'col_dragon_d',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
@@ -861,6 +904,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// Lock (see that witness's own updated note in reachability.ts)
 		// well before it would have reached the DRAGON bank; the best
 		// remaining witness (plunge-medium-285) passes 114.250 mm clear.
+		probesBody: 'col_dragon_bank_backstop',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
@@ -876,6 +920,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		probesBody: 'col_loop_top',
 		reachability: { kind: 'reachable', witness: 'plunge-weak-345' },
 	},
 	{
@@ -886,6 +931,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 6600,
 		switchesUnderTest: [],
+		probesBody: 'col_loop_top',
 		reachability: { kind: 'reachable', witness: 'plunge-weak-345' },
 	},
 	// [STORY 2.1f, code review] col_wall_lane's own north cap. This story's
@@ -928,6 +974,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		dirDeg: 0,
 		ticks: 3000,
 		switchesUnderTest: [],
+		probesBody: 'col_wall_lane',
 		reachability: { kind: 'reachable', witness: 'plunge-full' },
 	},
 	// Rework iteration 3 (code review 2026-09-04, HIGH finding): col_lock_
@@ -957,6 +1004,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// class as the other descend-* probes above (col_dragon_d,
 		// col_ramp_turn, etc.): no witness the in-suite search could
 		// construct reaches this drop point. See DW-138.
+		probesBody: 'col_lock_ceiling',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 97.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	{
@@ -968,6 +1016,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:185,y:680}). See DW-138.
+		probesBody: 'col_lock_ceiling',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 68.743, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	{
@@ -989,6 +1038,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:132,y:680}). See DW-138.
+		probesBody: 'col_lock_ceiling_west_fill',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 79.684, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	// Rework iteration 4 (code review 2026-09-04, HIGH finding): the new
@@ -1016,6 +1066,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:211,y:680}). See DW-138.
+		probesBody: 'col_post_dragon_leg_r',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 52.395, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	// Rework iteration 4 code review (2026-09-04, blind-hunter/edge-case-hunter
@@ -1036,6 +1087,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:210,y:680}). See DW-138.
+		probesBody: 'col_post_dragon_leg_r',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 54.059, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	{
@@ -1047,6 +1099,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:212,y:680}). See DW-138.
+		probesBody: 'col_post_dragon_leg_r',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 51.124, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	// Code review, rework iteration 4 (2026-09-04, verification-gap layer,
@@ -1074,6 +1127,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		ticks: 6600,
 		switchesUnderTest: [],
 		// Measured via closestApproachOverAll({x:212,y:660}). See DW-138.
+		probesBody: 'col_post_dragon_leg_r',
 		reachability: { kind: 'unreachable', ledger: 'DW-138', closestApproachMm: 47.294, note: 'no witness the in-suite search could construct reaches this drop point -- same finding class as the DRAGON-bank/Ramp-turn descend probes -- see DW-138.' },
 	},
 	// Story 2.2, DW-148: the ledger's own strand -- a ball released AT REST
@@ -1097,6 +1151,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// any witness's own natural path (this is a strand-column probe, not a
 		// shot; test/shot-routing.test.ts's own descend-pop-1 case is what
 		// exercises the pop-bumper kick this ledger entry is really about).
+		probesBody: 'col_pop_1',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',
