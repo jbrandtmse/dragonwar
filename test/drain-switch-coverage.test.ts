@@ -37,14 +37,14 @@
 // `settleClass: 'rollover'` (zero settle both ways, AD-2 AMENDED: "settleTicks
 // gates the break, never the make"). A ball resting in the trough forever
 // would therefore be the mirror of DW-121's own defect -- a rollover that
-// never opens. Settled EMPIRICALLY, not assumed: `devices.ts:325`'s
+// never opens. Settled EMPIRICALLY, not assumed: `devices.ts:674`'s
 // `detectEntries()` calls `physics.removeBall(movement.ball)` the tick a ball
 // is parked into a slot, which deletes it from `physics.balls` entirely --
-// not merely moves it. `switches.ts:108`'s `raw` test is
+// not merely moves it. `switches.ts:125`'s `raw` test is
 // `movements.some(...)`, built fresh each tick from `physics.balls`
-// (`machine.ts:237-241`), so a parked ball contributes NOTHING to the next
+// (`machine.ts:446-456`), so a parked ball contributes NOTHING to the next
 // tick's `movements` array at all, `raw` is `false`, and because `rollover`'s
-// `settleTicks` is `0` (`tuning.ts:179`), the break fires on that very next
+// `settleTicks` is `0` (`tuning.ts:251`), the break fires on that very next
 // tick -- confirmed by hand-running each case below and observing genuine
 // make/break pairs (e.g. the right-outlane case: make at tick 1179, break at
 // tick 1628, the ~450-tick gap being the ball's own dwell time travelling
@@ -72,7 +72,7 @@ function loadDoc(): unknown {
  * Serves a ball via `c_trough_eject`, then teleports it to `(xMm, yMm)`
  * with zero velocity (the same "reposition a served ball" recipe
  * `test/switch-max-speed.test.ts`'s own Integration case and
- * `test/machine-serve-drain.test.ts:442-535` use -- vel, angularVelocity
+ * `test/machine-serve-drain.test.ts:528-540` use -- vel, angularVelocity
  * AND angularMomentum all reset, or residual spin walks the ball sideways
  * under friction), then steps forward `maxTicks` watching every
  * `machine.step().switchEvents` for `s_drain`, returning every make/break

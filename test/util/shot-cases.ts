@@ -874,7 +874,25 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		// lane swallow fix -- still unreachable. The note's own "descend-
 		// dragon-n IS reached" clause is now stale too (also unreachable as
 		// of this story -- see its own entry's note); corrected below.
-		probesBody: 'col_dragon_d',
+		//
+		// [CODE REVIEW, Story 2.15] probesBody was 'col_dragon_d' -- a FALSE
+		// claim of the same class DW-150 retired for descend-dragon-leg-l,
+		// and one the review pass's own strengthened body-coverage gate
+		// caught on live data. `col_dragon_bank_backstop` (x 202.4..286.4,
+		// north edge y 723) fully spans this release column [208.905,
+		// 235.895] at an overlapping z, and sits between the release (y 750)
+		// and `col_dragon_d`'s own north edge (y 708): a ball descending
+		// this column meets the backstop and never reaches the target face
+		// behind it. The whole DRAGON bank (every col_dragon_[dragon] target
+		// spans y 700..708, inside the backstop's x-span) is shielded the
+		// same way -- which the sibling descend-dragon-n case's own comment
+		// already states in prose ("the same body a ball above this column
+		// actually meets first -- col_dragon_bank_backstop, the wide sloped
+		// wall that spans the whole bank"). Repointed to the body this
+		// column actually covers; the DRAGON target faces are hit face-on
+		// from the field, not stranded on from above, so no coverage claim
+		// is lost. The witness-search verdict below is unaffected.
+		probesBody: 'col_dragon_bank_backstop',
 		reachability: {
 			kind: 'unreachable',
 			ledger: 'DW-138',

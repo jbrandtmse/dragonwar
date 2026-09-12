@@ -371,10 +371,13 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 	// Math.round(ms * 1000 / 1000) === ms for every integer tunable in TUNING,
 	// so every assertion above is satisfied by a resolveTuning() that does no
 	// conversion at all (`return ms` was verified to leave the whole suite
-	// green). time.ts marks TICK_HZ PROVISIONAL -- "1000 on PASS, 480 on
-	// FAIL" -- which is precisely when a regressed conversion would start
-	// silently mis-scaling every debounce, tilt and plunger duration. These
-	// cases evaluate the conversion at a rate where it is NOT the identity.
+	// green). [CODE REVIEW, Story 2.15, DW-270] This used to read "time.ts
+	// marks TICK_HZ PROVISIONAL -- 1000 on PASS, 480 on FAIL", a claim
+	// about a file that no longer makes it (RATIFIED at 1000, DW-2). The
+	// case for these cases is unchanged and does not rest on it: at any rate
+	// other than 1000 a regressed conversion silently mis-scales every
+	// debounce, tilt and plunger duration, so the conversion is evaluated
+	// here at a rate where it is NOT the identity.
 	describe('the conversion is real, not the identity it looks like at 1000 Hz', () => {
 		const at480 = resolveTuning(TUNING, 480);
 

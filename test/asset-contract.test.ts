@@ -530,8 +530,9 @@ function freeEndsMm(footprint: ReadonlyArray<{ readonly x: number; readonly y: n
  *
  * [CORRECTED, Story 2.15, DW-151] This comment used to also name `glass` and
  * `metal` here, as though both were deliberately classified into
- * `NON_GUIDE_SURFACES` below. Neither ever was -- only `wood` is in that
- * set. The truth: `glass` (`col_glass`) and `flipper` (`col_flipper_l/_r`)
+ * `NON_GUIDE_SURFACES` below. Neither ever was: that set holds
+ * `rubber_post`, `bumper`, `target` and `wood`, and of the three surfaces
+ * this comment used to name only `wood` is among them. The truth: `glass` (`col_glass`) and `flipper` (`col_flipper_l/_r`)
  * do exist in the committed document, but only on `shape !== 'wall'` bodies
  * (`plane`/`box`), so they never reach `wallSurfaces` below and the
  * completeness check at this file's own `GUIDE_SURFACES`/`NON_GUIDE_SURFACES`

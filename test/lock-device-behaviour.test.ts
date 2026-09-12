@@ -783,8 +783,30 @@ describe('bd_lock: a ball crossing the Lock lane band from open field is NOT par
 		// the new, narrower band and could never strand it. Re-derived from
 		// the PHYSICAL walls that actually bound the Lock lane -- the
 		// Dragon's own two legs -- independent of any zone declaration.
-		const lockLaneX0 = nodeBboxMm('col_dragon_leg_l').max.x;
-		const lockLaneX1 = nodeBboxMm('col_dragon_leg_r').min.x;
+		//
+		// [CODE REVIEW, Story 2.15] Read from `footprintMm`, not `bboxMm`.
+		// Both legs are `shape: 'wall'`, and `loadCollision()` builds a wall
+		// node's collision solid from its `footprintMm` polygon alone
+		// (src/sim/physics/loader/index.ts:266-285) -- `bboxMm` is an
+		// independently authored field that no loader validation and no test
+		// asserts agrees with it. Deriving the band from `bboxMm` therefore
+		// still read a DECLARATION rather than the body the solver actually
+		// builds: a corridor narrowed in `footprintMm` alone would leave this
+		// probe band unmoved, one step removed from the very circularity
+		// DW-149 instance 5 exists to close (and the shape this story's own
+		// QA pass hit -- its first mutation edited `footprintMm`, which
+		// `nodeBboxMm()` does not read). Identical values today (both legs'
+		// footprint bounds equal their bbox bounds), so this is a source
+		// correction, not a numeric change.
+		const legFootprintXs = (name: string): readonly number[] => {
+			const node = readCollisionDoc().nodes.find((n) => n.name === name);
+			if (!node?.footprintMm) {
+				throw new Error(`expected a wall node "${name}" carrying a footprintMm polygon in the committed collision document`);
+			}
+			return node.footprintMm.map((v) => v.x);
+		};
+		const lockLaneX0 = Math.max(...legFootprintXs('col_dragon_leg_l'));
+		const lockLaneX1 = Math.min(...legFootprintXs('col_dragon_leg_r'));
 		// Build-auto review pass (2026-09-04): the release height below is
 		// derived from col_lock_ceiling itself, the same self-referential
 		// shape the static enclosure test above was found vacuous against --

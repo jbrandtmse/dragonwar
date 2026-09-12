@@ -182,7 +182,82 @@ function assertProbesBodyCovered(id: string, c: ShotCase): void {
 		overlaps,
 		`case "${id}"'s release column (x = ${c.startMm.x} mm +/- ${ballRadiusMm} mm ball radius = [${releaseX0.toFixed(3)}, ${releaseX1.toFixed(3)}]) does not overlap "${bodyName}"'s own x-span [${bodyX0}, ${bodyX1}] -- the probe does not cover the body it claims to probe`,
 	).toBe(true);
+
+	// [CODE REVIEW, Story 2.15] The x-overlap above, ALONE, was not a
+	// binding check: it says nothing about y, so it cannot distinguish the
+	// named body from every other body sharing the release column. Measured
+	// at this tree: 9 to 14 distinct `col_` bodies share each descend-*
+	// column's x-span, and `col_dragon_leg_l` (x 90..150) and
+	// `col_lock_ceiling_west_fill` (x 90..150) are INDISTINGUISHABLE under
+	// it -- so `descend-dragon-leg-l`'s `probesBody: 'col_dragon_leg_l'`,
+	// the false claim DW-150 measured at 55.615 mm and this very story
+	// retired, would have passed the replacement gate green. A burn-down
+	// that swaps one non-binding check for another has made things worse
+	// (this spec's own Boundaries), so the two discriminating facts the
+	// committed document already carries are asserted here too.
+	//
+	// (1) The named body lies at or below the release point along the
+	// descent axis -- every descend-* case releases with `dirDeg: 0` and
+	// falls toward -y, so a body whose own north edge is ABOVE the release
+	// can never be met by this probe at all.
+	const bodyY1 = Math.max(...footprint!.map((v) => v.y));
+	expect(
+		bodyY1,
+		`case "${id}" releases at y = ${c.startMm.y} mm and descends, but "${bodyName}"'s own north edge is at y = ${bodyY1} mm -- ABOVE the release point, so this probe can never reach the body it claims to probe`,
+	).toBeLessThanOrEqual(c.startMm.y);
+
+	// (2) Nothing SHIELDS it. A wall body that fully spans the release
+	// column (so the descending disc cannot pass either side of it), whose
+	// own north edge sits between the named body's north edge and the
+	// release point, and whose z-extent overlaps the ball's, is met first
+	// and makes the named body unreachable from this column. That is
+	// exactly the DW-150 finding, stated once and applied to all 21 probes
+	// rather than re-measured case by case: `col_lock_ceiling_west_fill`
+	// (north edge y 672) shields `col_dragon_leg_l` (north edge y 620) from
+	// a release at y 680. Conservative on purpose -- only a FULL span
+	// counts, so a body the disc can still pass beside never produces a
+	// false failure (verified: all 21 shipped declarations pass).
+	const ballZ0 = c.startMm.z - ballRadiusMm;
+	const ballZ1 = c.startMm.z + ballRadiusMm;
+	const shieldedBy = doc.nodes
+		.filter((n) => n.shape === 'wall' && n.footprintMm !== undefined && n.name !== bodyName)
+		.map((n) => ({
+			name: n.name,
+			x0: Math.min(...n.footprintMm!.map((v) => v.x)),
+			x1: Math.max(...n.footprintMm!.map((v) => v.x)),
+			y1: Math.max(...n.footprintMm!.map((v) => v.y)),
+			z0: n.bboxMm.min.z,
+			z1: n.bboxMm.max.z,
+		}))
+		.filter((n) => n.x0 <= releaseX0 && n.x1 >= releaseX1 && n.y1 > bodyY1 && n.y1 <= c.startMm.y && n.z0 < ballZ1 && n.z1 > ballZ0)
+		.sort((a, b) => b.y1 - a.y1);
+	expect(
+		shieldedBy.map((n) => `${n.name} (north edge y ${n.y1})`),
+		`case "${id}" declares probesBody "${bodyName}" (north edge y ${bodyY1}), but the descending column [${releaseX0.toFixed(3)}, ${releaseX1.toFixed(3)}] is fully spanned by a nearer body first -- the named body is SHIELDED and this probe cannot strand on it. Either name the body the column actually meets, or re-site startMm`,
+	).toEqual([]);
 }
+
+// [CODE REVIEW, Story 2.15] AC 5 states the invariant ("when a `descend-*`
+// strand probe is inspected, then it carries a `probesBody`"), but nothing
+// asserted it: `probesBody` is optional and the body-coverage check below is
+// gated on `!== undefined`, so a new `descend-*` case that simply omitted the
+// field would skip the whole criterion silently -- reinstating, with no test
+// red, the blind spot DW-138 root cause 1 exists to close.
+describe('shot reachability -- every descending strand probe declares the body it probes (AC 5)', () => {
+	it('every `descend-*` case carries a probesBody naming the col_ node it is about', () => {
+		const missing = SHOT_CASES.filter((c) => c.id.startsWith('descend-') && c.probesBody === undefined).map((c) => c.id);
+		expect(
+			missing,
+			`${missing.length} descending strand probe(s) declare no probesBody, so their body-coverage obligation is not checked at all: ${missing.join(', ')}`,
+		).toEqual([]);
+		// Anti-vacuity: the filter above must have a non-empty subject set,
+		// or an empty `SHOT_CASES` would satisfy it.
+		expect(
+			SHOT_CASES.filter((c) => c.id.startsWith('descend-')).length,
+			'sanity: there must be descend-* cases for this gate to be about',
+		).toBeGreaterThan(0);
+	});
+});
 
 describe('shot reachability -- per case, proven or recorded unreachable (AC 1, AC 2, AC 3)', () => {
 	it.each(SHOT_CASES.map((c) => [c.id, c] as const))('%s', (id, c) => {

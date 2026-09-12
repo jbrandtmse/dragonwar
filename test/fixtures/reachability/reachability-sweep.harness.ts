@@ -57,8 +57,11 @@
 //       DW-138 root cause 2. [CORRECTED, Story 2.15] This paragraph's own
 //       figures were stale: the committed collision document's `bd_lock`
 //       `ejectPose` is `(170, 460)` with dir `(0, -1, 0)` (not `(170, 650)`),
-//       and the `sw_lock_1..3` slot zones are `x` 146..205 / `y` 544..592
-//       (not `y` 630..678) -- both corrected here, since this axis touches
+//       and the `sw_lock_1..3` slot zones are `x` 150..190 / `y` 544..592
+//       (not `y` 630..678). [CODE REVIEW, Story 2.15] Only the `y` half was
+//       ever stale: the `x` half read 150-190 before this story and was
+//       briefly mis-corrected to 146..205, a span no zone or body in the
+//       committed document carries. Restored, since this axis touches
 //       exactly these numbers. Chained off the SAME `flip:{side:'l',
 //       atTick:3945,holdTicks:30}` recipe this file already pushes below
 //       (measured to capture into `bd_lock`, `s_lock_1`, at relative tick
@@ -250,6 +253,13 @@ const LEFT_FLIP_STEP_TICKS = 10;
 const RIGHT_FLIP_MIN_TICK = 3780;
 const RIGHT_FLIP_MAX_TICK = 4050;
 const RIGHT_FLIP_STEP_TICKS = 10;
+// [CODE REVIEW, Story 2.15] Axis (c)'s post-eject redirect grid, hoisted out
+// of the recipe loop so `gridDensityFloors()` can derive an absolute floor
+// from the SAME named bounds the loop builds from -- the one direction the
+// built-vs-realised pair structurally cannot see (a deleted loop shrinks
+// both sides together).
+const SECOND_FLIP_TICKS = [5100, 5200, 5300, 5400, 5500, 5600] as const;
+const SECOND_FLIP_HOLD_TICKS = [30, 60, 100] as const;
 
 function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	const recipes: ReleaseRecipe[] = [];
@@ -320,8 +330,8 @@ function buildSweepRecipes(): readonly ReleaseRecipe[] {
 	// Bounded rather than exhaustive (measured runtime budget, this file's
 	// own SWEEP_RUNTIME_BUDGET_MS): a coarse grid over the same window,
 	// sized to add well under a minute against the ~131 s baseline.
-	for (const atTick of [5100, 5200, 5300, 5400, 5500, 5600]) {
-		for (const holdTicks of [30, 60, 100]) {
+	for (const atTick of SECOND_FLIP_TICKS) {
+		for (const holdTicks of SECOND_FLIP_HOLD_TICKS) {
 			recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3945, holdTicks: 30 }, mouthEjectAtTick: 4400, secondFlip: { side: 'l', atTick, holdTicks } });
 			recipes.push({ plungeHoldTicks: 521, flip: { side: 'l', atTick: 3945, holdTicks: 30 }, mouthEjectAtTick: 4400, secondFlip: { side: 'r', atTick, holdTicks } });
 		}
@@ -464,6 +474,15 @@ interface AxisCoverage {
 	readonly plungeStrengths: number;
 	readonly flipTicks: number;
 	readonly flipSides: number;
+	// [CODE REVIEW, Story 2.15] Axis (c), the `bd_lock`/`c_mouth` origin this
+	// story added, was measured by NO floor: every one of its 37 recipes
+	// reuses `plungeHoldTicks: 521` and `flip.atTick: 3945`, both already
+	// present, so deleting the entire new axis left `plungeStrengths` and
+	// `flipTicks` unmoved and every assertion green -- exactly the "a floor
+	// that lags its own subject set" shape this file's own header ("These
+	// floors make each axis fail on its own") exists to prevent.
+	readonly lockEjectReleases: number;
+	readonly secondFlipTicks: number;
 }
 
 /**
@@ -510,7 +529,16 @@ function gridDensityFloors(): { readonly plungeStrengths: number; readonly flipT
 	for (let t = RIGHT_FLIP_MIN_TICK; t <= RIGHT_FLIP_MAX_TICK; t += RIGHT_FLIP_STEP_TICKS) {
 		ticks.add(t);
 	}
-	return { plungeStrengths: strengths.size, flipTicks: ticks.size };
+	return {
+		plungeStrengths: strengths.size,
+		flipTicks: ticks.size,
+		// Axis (c): the one explicit natural-eject recipe plus the full
+		// secondFlip grid over both bat sides, derived from the named bounds
+		// exactly as the two floors above are -- so thinning or deleting that
+		// grid loop fails here instead of passing unobserved.
+		lockEjectReleases: 1 + SECOND_FLIP_TICKS.length * SECOND_FLIP_HOLD_TICKS.length * 2,
+		secondFlipTicks: SECOND_FLIP_TICKS.length,
+	};
 }
 function axisCoverage(recipes: readonly ReleaseRecipe[]): AxisCoverage {
 	return {
@@ -518,11 +546,29 @@ function axisCoverage(recipes: readonly ReleaseRecipe[]): AxisCoverage {
 		plungeStrengths: new Set(recipes.map((r) => r.plungeHoldTicks)).size,
 		flipTicks: new Set(recipes.filter((r) => r.flip).map((r) => r.flip!.atTick)).size,
 		flipSides: new Set(recipes.filter((r) => r.flip).map((r) => r.flip!.side)).size,
+		lockEjectReleases: recipes.filter((r) => r.mouthEjectAtTick !== undefined).length,
+		secondFlipTicks: new Set(recipes.filter((r) => r.secondFlip).map((r) => r.secondFlip!.atTick)).size,
 	};
 }
 
-/** Task 7's "stated budget", stated (code review: the measured figure was recorded, the budget it was measured against was not). Measured 75-76 s on this story's host across repeated runs; this is the ceiling above which the sweep has become too expensive to be run on demand and should be re-shaped rather than re-timed. Reported, not asserted -- a slower CI host is not a defect, and `testTimeout: 180_000` in the sibling config is the hard stop. */
-const SWEEP_RUNTIME_BUDGET_MS = 120_000;
+/**
+ * Task 7's "stated budget", stated (code review: the measured figure was
+ * recorded, the budget it was measured against was not). The ceiling above
+ * which the sweep has become too expensive to run on demand and should be
+ * re-shaped rather than re-timed. Reported, not asserted -- a slower host is
+ * not a defect, and `testTimeout: 180_000` in the sibling
+ * `vitest.harness.config.ts` is the hard stop.
+ *
+ * [CODE REVIEW, Story 2.15] Was 120_000 against a "measured 75-76 s", both
+ * predating axis (c). This story added 37 recipes and the sweep now measures
+ * 138-151 s at this tree, so the stated ceiling was already exceeded by a
+ * console line nobody reads. Re-stated at 165_000 against the 151 s worst
+ * observed. NOTE for the lead: the sibling config's 180_000 hard stop is now
+ * only ~19% above that worst figure, so a modestly slower host fails
+ * `pnpm check:reachability` outright. Widening it is a config change outside
+ * this story's footprint -- recorded, not silently re-timed.
+ */
+const SWEEP_RUNTIME_BUDGET_MS = 165_000;
 
 describe('reachability-sweep (pnpm check:reachability) -- the dense, out-of-process search that proves a negative (INTENDED GREEN)', () => {
 	it(`sweeps far more densely than the in-suite WITNESSES set, evaluates every release its own recipe set builds, and every SHOT_CASES entry's own reachability declaration agrees with the sweep's own best closest approach`, () => {
@@ -555,6 +601,15 @@ describe('reachability-sweep (pnpm check:reachability) -- the dense, out-of-proc
 			`the sweep BUILT only ${coverage.flipTicks} distinct flip ticks, below the ${floors.flipTicks} its own named grid bounds `
 			+ `(LEFT_FLIP_* / RIGHT_FLIP_*) describe -- a grid loop has been thinned or deleted, and every "unreachable" verdict below rests on a search that shrank`,
 		).toBeGreaterThanOrEqual(floors.flipTicks);
+		expect(
+			coverage.lockEjectReleases,
+			`the sweep BUILT only ${coverage.lockEjectReleases} bd_lock/c_mouth eject releases, below the ${floors.lockEjectReleases} its own named grid bounds `
+			+ `(SECOND_FLIP_TICKS / SECOND_FLIP_HOLD_TICKS) describe -- axis (c) has been thinned or deleted, and DW-138 root cause 2's "restored no witness" verdict rests on a search that shrank`,
+		).toBeGreaterThanOrEqual(floors.lockEjectReleases);
+		expect(
+			coverage.secondFlipTicks,
+			`the sweep BUILT only ${coverage.secondFlipTicks} distinct secondFlip ticks, below the ${floors.secondFlipTicks} SECOND_FLIP_TICKS names -- the post-eject redirect grid has been thinned or deleted`,
+		).toBeGreaterThanOrEqual(floors.secondFlipTicks);
 
 		const { verdicts, releasesEvaluated, runtimeMs, realizedCoverage } = main();
 

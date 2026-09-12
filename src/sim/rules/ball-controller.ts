@@ -1299,8 +1299,10 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// bonus-step drain at the TOP of this function runs BEFORE
 		// Start-handling in the SAME `step()` call -- so a step due on
 		// EXACTLY the tick Start is pressed is drained into `events` before
-		// the clear ever runs (measured: a real emission at tick 810 for the
-		// scenario this guard exists to close). Filtered here rather than
+		// the clear ever runs. Reproduced by this story's own pinning test in
+		// test/rules-bonus.test.ts at tick 805 (drainTick 5, Start at 805);
+		// Story 2.13's original ad-hoc probe measured the same structural
+		// scenario at tick 810 under its own parameterisation. Filtered here rather than
 		// reordered: the only OTHER return in this function (the ball-save
 		// re-serve branch above) is gated on `!newGameStartedThisTick`, so
 		// it is provably unreachable on this tick and this is the one place

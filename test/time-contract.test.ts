@@ -60,11 +60,22 @@ describe('src/sim/contracts/time.ts -- TICK_HZ ratification pin (Story 1.1 AC, A
 
 	// [CORRECTED, Story 2.15, DW-270] Was "is marked loudly PROVISIONAL and
 	// explicitly NOT ratified" -- the premise DW-2's own adjudication
-	// overtook. Pins the CORRECTED reading instead of being deleted, so a
-	// future edit that silently reverts the comment back to claiming
-	// "PROVISIONAL"/"NOT ratified" (re-opening a question DW-2 already
-	// closed) fails here.
-	it('is marked RATIFIED, naming DW-2 and the Epic 1 decision sheet -- not PROVISIONAL, not NOT ratified', () => {
+	// overtook. Pins the CORRECTED reading instead of being deleted: an edit
+	// that DELETED the ratification paragraph would fail here, because
+	// "Epic 1 decision sheet" occurs nowhere else in the file.
+	//
+	// [CODE REVIEW, Story 2.15] This note used to claim the test also fails
+	// if the comment "silently reverts back to claiming PROVISIONAL / NOT
+	// ratified". It does not, and cannot: `time.ts` still contains both
+	// phrases DELIBERATELY, as historical references to the premise DW-2
+	// overtook, so no negative assertion is available here without
+	// forbidding the file from describing its own history. Only the three
+	// positive assertions below hold, and only `Epic 1 decision sheet` is
+	// single-sourced -- `RATIFIED` and `DW-2` also appear on the
+	// `export const TICK_HZ` line's own trailing comment, which
+	// `joinComments()` passes through unchanged. Stated plainly rather than
+	// left as a protection a reader would trust and not have.
+	it('is marked RATIFIED, naming DW-2 and the Epic 1 decision sheet', () => {
 		const joined = joinComments(readFileSync(TIME_TS_PATH, 'utf8'));
 		expect(joined).toMatch(/RATIFIED/);
 		expect(joined).toContain('DW-2');

@@ -458,8 +458,11 @@ export const TUNING = deepFreeze({
 	 * every OTHER duration in this codebase is authored in ms here and
 	 * converted once by `resolveTuning()` (AD-3, AD-15's own "one file, with
 	 * provenance" Rule), so a bare tick constant's wall-clock meaning would
-	 * silently change if `TICK_HZ` (explicitly provisional) ever moved, and
-	 * nothing would fail to say so.
+	 * silently change if `TICK_HZ` ever moved, and nothing would fail to say
+	 * so. [CODE REVIEW, Story 2.15, DW-270] Was "(explicitly provisional)";
+	 * `TICK_HZ` is RATIFIED at 1000 (DW-2). The reason stands regardless --
+	 * it is that a bare tick constant's wall-clock meaning is rate-dependent,
+	 * not that the rate was ever unsettled.
 	 *
 	 * [CORRECTED, code review 2026-09-04 (build-auto review pass,
 	 * blind-hunter finding): this comment previously justified 600 as a
@@ -815,10 +818,14 @@ function msToTicks(ms: number, label: string, tickHz: number): number {
  * `tickHz` is injectable so the conversion can be observed at a rate other
  * than the current `TICK_HZ`. At 1000 Hz `Math.round(ms * 1000 / 1000) === ms`
  * for every integer tunable, so a test pinned to the default rate cannot tell
- * a real conversion from `return ms` -- and `TICK_HZ` is explicitly
- * PROVISIONAL ("1000 on PASS, 480 on FAIL", `sim/contracts/time.ts`), which is
- * exactly when a regressed conversion would start mattering (review finding,
- * this story's review pass).
+ * a real conversion from `return ms`. [CODE REVIEW, Story 2.15, DW-270]
+ * This used to justify the injectable rate by calling `TICK_HZ` explicitly
+ * PROVISIONAL ("1000 on PASS, 480 on FAIL", `sim/contracts/time.ts`) --
+ * no longer true of that file, which now records DW-2's ratification at
+ * 1000. The justification is unchanged in substance and stronger without the
+ * stale premise: the identity at 1000 Hz hides a regressed conversion at ANY
+ * other rate, so the conversion must be observed at one (review finding,
+ * Story 2.10's review pass).
  */
 function isTuningEntryLike(value: unknown): value is TuningEntry<unknown> {
 	return typeof value === 'object' && value !== null && 'value' in value && 'source' in value && 'confidence' in value;

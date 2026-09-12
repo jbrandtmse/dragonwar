@@ -30,6 +30,14 @@ export default defineConfig({
 		// deliberately exhaustive, hundreds-of-trajectories search. This
 		// mirrors this project's own precedent for a single expensive case
 		// (test/spike-1.test.ts's own reporting timeout).
-		testTimeout: 180_000,
+		//
+		// [CODE REVIEW, Story 2.15] Was 180_000, set when the sweep built 644
+		// recipes and ran ~75-131 s. Story 2.15's axis (c) took it to 681
+		// recipes and 138-151 s measured at this tree, leaving this hard stop
+		// only ~19% above the worst observed figure -- a modestly slower host
+		// would fail `pnpm check:reachability` on the clock rather than on a
+		// verdict. Raised to 300_000, restoring roughly the headroom the
+		// 180_000 figure originally carried.
+		testTimeout: 300_000,
 	},
 });

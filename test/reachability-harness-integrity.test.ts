@@ -157,18 +157,76 @@ describe('shot-cases.ts -- shotCase() genuinely refuses an undeclared id', () =>
 // ---------------------------------------------------------------------------
 
 describe('DW-151 -- every "<N>-case manifest"/"<N>-case suite" comment agrees with the live SHOT_CASES.length', () => {
-	// Review pass, Story 2.15: `\s+` (not a literal space) between "case"
-	// and "manifest"/"suite" so a phrase wrapped across a line break (this
-	// codebase's comments wrap prose routinely -- see the many multi-line
-	// comments this very story added) is still matched. Scanned against
-	// whole-file content below, never split into lines first, unlike a
-	// naive per-line scan -- a per-line scan would silently miss exactly
-	// that wrapped case, defeating the "durable" gate task 9 asks for.
+	// [CORRECTED, Story 2.15 QA pass] Review pass, Story 2.15 changed the
+	// separator to `\s+` and scanned whole-file content instead of
+	// per-line, reasoning that this would survive a phrase wrapped across a
+	// line break. Independently re-verified at the QA pass and found NOT to
+	// close that gap: every multi-line comment this codebase actually
+	// writes re-prefixes each continuation line with its own marker ("// ",
+	// " * ", or "# " -- this very file's own header above, and
+	// shot-reachability.test.ts's DW-138 JSDoc block, are live examples of
+	// the first two), so the text between "case" and "manifest"/"suite" is
+	// never PURE whitespace when a real wrap happens -- it is
+	// "\n// "/"\n * "/"\n# ", which `\s+` alone does not span. A synthetic
+	// two-line string with NO comment marker on its second line (not a
+	// shape any real comment in this repo takes) passes under `\s+` and
+	// gave false confidence; a synthetic wrap in each of the three
+	// conventions this repo actually uses does not. Fixed by masking each
+	// line's leading comment marker to same-length spaces before scanning:
+	// offsets and line breaks are preserved exactly (so the recovered line
+	// number is still correct), but the marker no longer breaks the `\s+`
+	// span across a real wrap.
 	const MANIFEST_COUNT_PROSE_RE = /(\d+)-case\s+(?:manifest|suite)/g;
+	const LEADING_COMMENT_MARKER_RE = /^[ \t]*(?:\/\/|\*(?!\/)|#)/gm;
+	// [CODE REVIEW, Story 2.15] `src` added. DW-272's own evidence counts
+	// stale citations "across test/, tools/ and src/", but this gate saw only
+	// the first two, so manifest-count prose in src/ escaped it entirely.
+	// Verified zero live matches under src/ today, so this widens the gate's
+	// reach without changing its verdict.
 	const SCAN_EXTENSIONS: Readonly<Record<string, readonly string[]>> = {
 		test: ['.ts'],
 		tools: ['.py', '.mjs'],
+		src: ['.ts'],
 	};
+
+	/**
+	 * [CODE REVIEW, Story 2.15] The masked scan, extracted as a pure
+	 * function. Reason: the QA pass's comment-marker masking -- the whole
+	 * point of the repair -- had NO executed test host. Reverting
+	 * `LEADING_COMMENT_MARKER_RE` and scanning raw content left this file at
+	 * 28/28 and the full suite green, because the only live
+	 * "<N>-case manifest/suite" phrase in the scanned tree
+	 * (tools/make-placeholder-blend.py:857) sits entirely on one line, so the
+	 * masked and unmasked scans return an identical result on every real
+	 * file. A repair whose red has never been observed is not evidence
+	 * (Rule 19); the fixture test below observes it.
+	 */
+	interface ProseCountMatch {
+		readonly quotedN: number;
+		readonly lineNo: number;
+		readonly text: string;
+	}
+
+	function findManifestCountProse(content: string): readonly ProseCountMatch[] {
+		// Mask each line's leading comment marker to same-length spaces so a
+		// phrase wrapped across the line break is joined by `\s+` alone,
+		// while every character offset (and therefore the line number
+		// recovered below) stays IDENTICAL to the original content -- this
+		// replaces marker characters with spaces of the same count, it never
+		// removes or reflows anything.
+		const masked = content.replace(LEADING_COMMENT_MARKER_RE, (marker) => ' '.repeat(marker.length));
+		const out: ProseCountMatch[] = [];
+		MANIFEST_COUNT_PROSE_RE.lastIndex = 0;
+		let m: RegExpExecArray | null;
+		while ((m = MANIFEST_COUNT_PROSE_RE.exec(masked))) {
+			out.push({
+				quotedN: parseInt(m[1]!, 10),
+				lineNo: masked.slice(0, m.index).split(/\r\n|\n/).length,
+				text: m[0].replace(/\s+/g, ' '),
+			});
+		}
+		return out;
+	}
 
 	function scanDir(dir: string, exts: readonly string[], out: string[]): void {
 		for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -189,6 +247,13 @@ describe('DW-151 -- every "<N>-case manifest"/"<N>-case suite" comment agrees wi
 	// story corrected) to a wrong N -> this test goes red naming the file,
 	// line, quoted text and the live SHOT_CASES.length -- it would have
 	// passed silently under no gate at all before this story.
+	//
+	// mutation (QA pass, the wrap-fix itself): quote a wrong N split across
+	// two lines in this codebase's own "// " convention (e.g. "the full
+	// 99-case\n// manifest") -> with the marker masked out this still goes
+	// red naming the file/line/text; reverting the mask (back to plain
+	// `\s+` against unmasked content) leaves the SAME two-line mutation
+	// GREEN, reproducing the defect this fix closes.
 	it(`every quoted case count agrees with the live SHOT_CASES.length (${SHOT_CASES.length} today)`, () => {
 		const files: string[] = [];
 		for (const [dir, exts] of Object.entries(SCAN_EXTENSIONS)) {
@@ -198,27 +263,68 @@ describe('DW-151 -- every "<N>-case manifest"/"<N>-case suite" comment agrees wi
 		const mismatches: string[] = [];
 		let matchCount = 0;
 		for (const file of files) {
-			const content = readFileSync(file, 'utf8');
 			const relative = path.relative(REPO_ROOT, file).replace(/\\/g, '/');
-			// Scanned against the WHOLE file's content, never split into
-			// lines first (a phrase wrapped across a line break would
-			// silently escape a per-line scan). The line number reported on
-			// a mismatch is recovered from the match's own character offset.
-			MANIFEST_COUNT_PROSE_RE.lastIndex = 0;
-			let m: RegExpExecArray | null;
-			while ((m = MANIFEST_COUNT_PROSE_RE.exec(content))) {
+			for (const hit of findManifestCountProse(readFileSync(file, 'utf8'))) {
 				matchCount += 1;
-				const quotedN = parseInt(m[1]!, 10);
-				if (quotedN !== SHOT_CASES.length) {
-					const lineNo = content.slice(0, m.index).split(/\r\n|\n/).length;
-					mismatches.push(`${relative}:${lineNo} quotes "${m[0].replace(/\s+/g, ' ')}" -- SHOT_CASES.length is ${SHOT_CASES.length}`);
+				if (hit.quotedN !== SHOT_CASES.length) {
+					mismatches.push(`${relative}:${hit.lineNo} quotes "${hit.text}" -- SHOT_CASES.length is ${SHOT_CASES.length}`);
 				}
 			}
 		}
 		// Anti-vacuity: a scan that never finds any manifest-count prose to
-		// check proves nothing -- this file's own corrected comments above
-		// (and shot-cases.ts's own header) guarantee at least one real hit.
+		// check proves nothing. [CODE REVIEW, Story 2.15] This note used to
+		// claim "this file's own corrected comments above (and
+		// shot-cases.ts's own header) guarantee at least one real hit" --
+		// neither does. Measured across the whole scanned tree: exactly ONE
+		// live match, `tools/make-placeholder-blend.py:857`, because this
+		// story's own DW-151 corrections reworded every other instance into
+		// shapes the pattern deliberately does not see ("52 cases today").
+		// The assertion still binds -- reword that one line and this gate
+		// fails loudly rather than going quietly vacuous -- but its basis is
+		// one comment in one Python file, not the sources named above.
 		expect(matchCount, 'sanity: the scan must find at least one "<N>-case manifest/suite" comment, or this gate is vacuous').toBeGreaterThan(0);
 		expect(mismatches, `${mismatches.length} comment(s) quote a stale case count:\n${mismatches.join('\n')}`).toEqual([]);
+	});
+
+	// [CODE REVIEW, Story 2.15] The wrap branch, pinned. The scan above
+	// cannot exercise it: no wrapped "<N>-case manifest" phrase exists
+	// anywhere in test/** or tools/**, so masking or not masking produced
+	// the same single result and the QA repair could be deleted with nothing
+	// red. These fixtures execute the branch directly, in each of the three
+	// continuation-marker conventions this repository actually uses.
+	//
+	// mutation: delete `LEADING_COMMENT_MARKER_RE`'s replacement (scan raw
+	// content, the state QA diagnosed as broken) -> the three wrapped
+	// fixtures below find 0 matches and this test goes red on each; the
+	// file-tree scan above stays green either way, which is exactly why this
+	// test has to exist.
+	it('the scan spans a count phrase wrapped across a line break in each comment convention this repo uses', () => {
+		// Assembled from parts on purpose: the tree scan above reads THIS
+		// file, so a literal count phrase written out here would itself be a
+		// mismatch and fail that test. Interpolating puts a `}` before the
+		// hyphen, which the pattern cannot match in the source, while the
+		// runtime string is exactly the phrase under test.
+		const COUNT = '99';
+		const PHRASE = `${COUNT}-case`;
+		const wrapped: Readonly<Record<string, string>> = {
+			'// line comment': `// the full ${PHRASE}\n// manifest is driven here\n`,
+			'/* * jsdoc */': ` * the full ${PHRASE}\n * manifest is driven here\n`,
+			'# python': `# the full ${PHRASE}\n# manifest is driven here\n`,
+			'tab-indented //': `\t// the full ${PHRASE}\n\t// manifest is driven here\n`,
+		};
+		for (const [convention, content] of Object.entries(wrapped)) {
+			const hits = findManifestCountProse(content);
+			expect(hits.map((h) => h.quotedN), `a "${PHRASE} manifest" wrapped in the ${convention} convention must still be found -- an unmasked scan sees the continuation marker between "case" and "manifest" and misses it`).toEqual([99]);
+			// The recovered line number must still point at the line the
+			// phrase STARTS on: masking replaces markers with spaces of the
+			// same length, so no offset may shift.
+			expect(hits[0]!.lineNo, `the ${convention} fixture's match must report line 1, where the phrase starts`).toBe(1);
+		}
+		// Positive control: an unwrapped phrase is found too, so a fixture
+		// set that found nothing at all could not pass by accident.
+		expect(findManifestCountProse(`// a ${PHRASE} suite\n`).map((h) => h.quotedN)).toEqual([99]);
+		// Negative control: a comment with no count is ignored (the gate's
+		// own stated contract, I/O matrix "Manifest count prose drifts").
+		expect(findManifestCountProse('// the manifest is driven here\n')).toEqual([]);
 	});
 });

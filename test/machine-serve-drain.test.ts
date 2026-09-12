@@ -286,7 +286,7 @@ describe('sim/physics/devices.ts -- park into the lowest empty slot; the ball le
 // createDeviceMechanics()-direct unit level above, "appropriately". This
 // closes the REACHABLE half of that same gap one layer deeper: it exercises
 // machine.ts's own step() wiring (`semanticEvents: [...commandResult.
-// failures, ...entryResult.failures]`, machine.ts:116) -- the exact spread a
+// failures, ...entryResult.failures]`, machine.ts:533) -- the exact spread a
 // dropped-entryResult.failures regression would silently break -- without
 // needing a legitimate real-loop path to the unreachable trigger itself.
 describe("sim/physics/machine.ts -- device_overflow reaches step()'s semanticEvents, not just createDeviceMechanics().detectEntries() directly", () => {
@@ -559,7 +559,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 	// Review finding 2026-08-28 (verification gap): every eject_failed/
 	// device_overflow test above drives sim/physics/devices.ts's
 	// createDeviceMechanics() DIRECTLY -- never through machine.ts's step()
-	// (src/sim/physics/machine.ts:116's semanticEvents: [...commandResult.
+	// (src/sim/physics/machine.ts:533's semanticEvents: [...commandResult.
 	// failures, ...entryResult.failures]) or through the full sim/loop's
 	// FrameOutput.events. A regression that dropped commandResult.failures
 	// from that spread (a plausible copy/paste slip) would leave every
@@ -593,7 +593,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 // ("this tick's pulses apply to the devices layer ... before
 // physics.step()"), but nothing failed if that ordering broke. The
 // observable: bd_trough's spawnBall() places a new ball at the device's
-// AUTHORED eject pose (devices.ts:238, table mm); if the eject runs BEFORE
+// AUTHORED eject pose (devices.ts:232, table mm); if the eject runs BEFORE
 // physics.step() (the correct ordering), that same tick's step() integrates
 // one tick of gravity + the eject velocity into it, so the ball has already
 // moved measurably off the authored pose by the time this tick's result is
@@ -602,7 +602,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 // until the NEXT tick. Measured this pass: ~0.29 mm
 // (troughEjectSpeedMmPerS 300 mm/s * SECONDS_PER_TICK 1e-3 s ~= 0.3 mm,
 // slightly bled by one tick of gravity/contact) vs exactly 0 mm under the
-// mutation -- matching test/machine-serve-drain.test.ts:333-347's own
+// mutation -- matching test/machine-serve-drain.test.ts:386's own
 // independently-measured 293.25 mm/s at this exact tick. The 0.05 mm bound
 // sits with wide margin below the true ~0.29 mm and far above float noise.
 describe('src/sim/physics/machine.ts -- the fourth hardware rule (deviceMechanics.applyCommands), behavioural pin (AD-5, Story 1.8 sweep)', () => {
