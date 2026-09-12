@@ -64,7 +64,7 @@ Counts are the number of closed slot switches and nothing else (AD-6): a separat
 
 "Plunged" is one event: the *opening* of `s_shooter_lane` (AD-6), which the devices layer emits as `ball_launched`; on it the ball controller increments `ballsInPlay`, starts ball save and arms the skill shot. Every other candidate — the plunger key, a rollover, a timer — has a case where it is wrong.
 
-Drop targets and the spinner are stateful physics devices: a dropped target is non-collidable until `pulse c_dragon_bank_reset` raises the bank; the spinner closes `s_spinner` once per revolution. Letters and counts live only in rules (AD-6, AD-19). Ball search is a rules protocol of tick-timed pulses in each device's `ballSearchOrder`; its final stage issues `RecoverCommand`, the one command that lets physics despawn every loose ball, and the controller emits `ball_missing { count }` from the returned `recovered`. PRD FR-23 adds one suppression: never release locked balls while a Mode timer runs.
+Drop targets and the spinner are stateful physics devices: a dropped target is non-collidable until `pulse c_dragon_bank_reset` raises the bank; the spinner closes `s_spinner` once per revolution. Letters and counts live only in rules (AD-6, AD-19). Ball search is a rules protocol of tick-timed pulses in each device's `ballSearchOrder`; its final stage issues `RecoverCommand`, the one command that lets physics clear every loose ball, and the controller emits `ball_missing { count }` from the returned `recovered`. A cleared ball is **returned to `bd_trough`'s lowest empty slot**, not destroyed [AMENDED 2026-09-11, Story 2.13 spec gate -- author decision, DW-257]; the ball controller's stray clear before a serve is a second issuer. PRD FR-23 adds one suppression: never release locked balls while a Mode timer runs.
 
 ## 6. The game CPU
 
@@ -195,7 +195,7 @@ Plain-language guide to `sim/contracts/`; the spine's Seam Contracts table is th
 - **`ContactEvent`** — a ball hit or an actuation; physics produces, only presentation consumes.
 - **`ContactSurface`** — the closed material enum a `col_` mesh carries.
 - **`CoilCommand`** — `pulse | enable | disable` on a named coil; rules produce, physics consumes next tick.
-- **`RecoverCommand`** — ball-search final stage; physics's only licence to despawn a loose ball.
+- **`RecoverCommand`** — ball-search final stage, and the ball controller's stray clear before a serve; physics's only licence to take a loose ball out of the simulated set, which **returns it to the trough** rather than destroying it [AMENDED 2026-09-11, Story 2.13 spec gate -- author decision, DW-257].
 - **`LampCommand`** — `{ lamp, role, step }`, the diff of `lampsOf(state)`, looked up in `grammar.ts`.
 - **`GiCommand`** — `{ channel, level }`, the only continuous light level; latest wins.
 - **`FlasherCommand`** — `{ flasher, ms }`, coil-class; the driver enforces duty cycle.
