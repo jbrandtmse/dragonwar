@@ -1738,6 +1738,56 @@ So that the skill shot is a pattern I can read, and I never face the same lit la
   FR-18 sentence, and both are load-bearing for the same two DW-202 composition tests. Whoever plans this story
   should carry DW-204's answer into the same pass rather than edit those tests twice.
 
+### Story 2.15: Epic 2 burn-down
+
+As the author,
+I want the deferred work Epic 2 accumulated closed or consciously retired before Epic 3 starts,
+So that the ledger's open count means something and no finding is carried silently into the next epic.
+
+This story is chartered by the Epic 2 burn-down gate (Rule 17). It holds the ten story-closable
+entries that survived per-story adjudication -- every one already judged real, owned, and not
+closable on existing evidence. It deliberately holds **no** `escalated` and **no**
+`decision-pending` entry: those are product calls on the author's decision sheet, and a burn-down
+story cannot ratify one. Each bullet is closed by evidence or explicitly retired with a probe; an
+entry that turns out to need a product decision is raised, not guessed.
+
+**Acceptance Criteria:**
+
+**Given** the ten ledger entries below
+**When** this story completes
+**Then** each is either resolved with cited evidence (a test, a commit, a measurement) or made terminal with a stated reason, and `LEDGER slice burndown` reads empty of `routed` and `open` entries
+
+**Given** the gates this epic leaned on
+**When** an entry names a missing or vacuous check
+**Then** its replacement is falsifiable: the mutation that would break it is named, applied, observed red, and reverted, per Rule 19 -- this epic recorded 70 vacuities, and a burn-down story that adds unfalsifiable checks has made the problem worse
+
+**Given** the five replay goldens
+**When** this story lands
+**Then** `test/replays/**` is byte-unchanged unless an entry's own fix requires a re-record, which is a Block-If needing the author's explicit grant
+
+- DW-126: `col_loop_r_lower`'s DW-119 bevel has no test that would catch its removal or reversal (ledger; chartered by burndown 2026-09-12)
+- DW-127: no dimensional gate exists for `col_loop_turn_l`/`_r` or `col_ramp_turn`'s own constants, unlike nearly every other new load-bearing figure Story 2.1c adds (ledger; chartered by burndown 2026-09-12)
+- DW-138: 14 of 39 shot cases have no reachability witness, and the harness cannot yet distinguish "the geometry is genuinely unreachable" from "the witness search is too narrow" (ledger; chartered by burndown 2026-09-12)
+- DW-149: every anti-vacuity floor in the reachability and termination gates is a hand-typed literal that lags its own subject set; three are below it today, so those floors no longer bind (ledger; chartered by burndown 2026-09-12)
+- DW-150: the `descend-dragon-leg-l` strand column no longer touches `col_dragon_leg_l`, so that body's north cap is pinned by nothing in the descending sweep (ledger; chartered by burndown 2026-09-12)
+- DW-151: Story 2.1d's iteration-3 review Fix Pack was bundled into a rework the author then narrowly scoped, so it executed nothing and its items are tracked in no artifact any gate reads (ledger; chartered by burndown 2026-09-12)
+- DW-152: `TUNING.lockEjectExemptionTimeoutMs`'s AD-15 `source` string cites a measurement its own doc comment retracts, and the retracted claim is frozen verbatim in all five committed goldens -- so correcting it costs a header-only golden refresh (ledger; chartered by burndown 2026-09-12)
+- DW-227: `test/export-py-skip-visibility.test.ts` is a load-dependent coin flip -- its nested vitest spawn runs about 103-118 s against its own 120 s `RUN_TIMEOUT_MS` and is killed under full-suite load (ledger; chartered by burndown 2026-09-12)
+- DW-235: the bonus count-up schedule still fires a step due on the exact Start tick, because `step()`'s bonus drain runs before the new-game clear -- the measured residual Story 2.13 could not close, contradicting DW-235's own I/O row. Three occurrences (ledger; chartered by burndown 2026-09-12)
+- DW-270: the epic-wide test convention of authoring millisecond overrides as exactly `1` would throw `resolveTuning()`'s rounds-to-0-ticks guard if the tick rate ever moved; 22 sites across 18 test files. Its filed premise was corrected at the gate -- `TICK_HZ` 1000 is RATIFIED (DW-2), so the live residual is that `src/sim/contracts/time.ts:34-36`'s comment is stale against that ratification (ledger; chartered by burndown 2026-09-12)
+
+**Prerequisites:** Stories 2.0 through 2.14 (this story closes their residue).
+
+**Story change log**
+
+- **2026-09-12 -- chartered by the Epic 2 burn-down gate.** Eleven story-closable entries were
+  owned by `burndown` after every story's own `ledger_adjudicated` gate. One, DW-179, was closed
+  at the gate itself on accumulated non-reproduction (a single unexplained failure against roughly
+  ten clean full-suite runs, with no failing artefact to debug and no hypothesis to test), leaving
+  these ten. Ten is within `burndown_story_max`, so **nothing overflowed** and no entry was
+  re-owned to a next-epic story key. The 12 `escalated` and 10 `decision-pending` entries were set
+  aside for the author's decision sheet and are deliberately absent from this charter.
+
 ## Epic 3: The Campaign and the War
 
 The five modes and the moment: lock two balls under the Dragon, spell DRAGON in either order, the Mouth opens and fires them back as fire, ten Strikes win the Jackpot. Hurry-up, Quick multiball, Joust, the Lock arbiter, the War, Strikes and the progressive Jackpot, re-qualification, stacking by priority, the extra-ball achievement menu, and the Dragon's mouth and hit-reaction shows. Scoring values freeze after this epic's first full playtest.
