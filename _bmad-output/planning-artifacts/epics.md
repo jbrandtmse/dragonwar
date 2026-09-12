@@ -1763,7 +1763,7 @@ entry that turns out to need a product decision is raised, not guessed.
 
 **Given** the five replay goldens
 **When** this story lands
-**Then** `test/replays/**` is byte-unchanged unless an entry's own fix requires a re-record, which is a Block-If needing the author's explicit grant
+**Then** any golden change is a **header-only** refresh -- `header.gameStart.tuning` and an appended `notes`, with `tableHash`, `assetHash`, every state and checkpoint hash, `transitions` and `coilPrologue` all unmoved, verified per field by JSON parse and never by grep. A header-only refresh is ROUTINE and needs no author grant (precedents: Stories 2.4, 2.9, 2.10 and 2.13). A **trajectory or state-hash** re-record is the Block-If and needs the author's explicit grant. This distinction matters here: DW-152's cheapest correct fix is a `source`-string correction, and AD-15 records that `resolveTuning()`'s whole serialized output is hashed into every golden header, so a provenance fix necessarily carries a header-only refresh with it
 
 - DW-126: `col_loop_r_lower`'s DW-119 bevel has no test that would catch its removal or reversal (ledger; chartered by burndown 2026-09-12)
 - DW-127: no dimensional gate exists for `col_loop_turn_l`/`_r` or `col_ramp_turn`'s own constants, unlike nearly every other new load-bearing figure Story 2.1c adds (ledger; chartered by burndown 2026-09-12)
