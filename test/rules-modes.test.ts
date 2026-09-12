@@ -20,8 +20,10 @@
 // 5/6/7 fixtures) with `modes[]` already populated -- this is headless
 // GameState-level testing (Rule 8), not an Integration AC, so building the
 // fixture directly (rather than driving a full Start-to-here script) is the
-// established, permitted pattern; AC 1 and AC 6 below are the ones that
-// exercise the REAL `ball_starting` -> `start()` wiring end to end.
+// established, permitted pattern; AC 1 and the "Story 2.14 -- the lit Top
+// lane rotates" block below (this file's own former "AC 6", renamed and
+// rewritten by Story 2.14) are the ones that exercise the REAL
+// `ball_starting` -> `start()` wiring end to end.
 
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';

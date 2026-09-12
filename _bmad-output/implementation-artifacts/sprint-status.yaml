@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-12-2026 09:50
+last_updated: 09-12-2026 10:30
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -68,7 +68,7 @@ development_status:
   2-11-tilt-warnings-tilt-and-slam-tilt: done
   2-12-ball-search: done
   2-13-match-game-over-and-return-to-attract: done
-  2-14-the-lit-top-lane-rotation-and-when-it-may-move: review
+  2-14-the-lit-top-lane-rotation-and-when-it-may-move: done
   epic-2-retrospective: optional
 
   epic-3: backlog
