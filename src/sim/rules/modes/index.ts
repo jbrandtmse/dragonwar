@@ -45,6 +45,16 @@
 // exactly ...") does not require same-tick timing, and is satisfied one
 // tick later; AC I1/AC I2 (real physics, many ticks between `s_start` and
 // any assertion) are unaffected either way.
+//
+// [Story 2.14] This one-tick defer is also what makes `players[p].ballNumber`
+// already correct by the time `skillShot.start()` reads it: `startBall()`
+// increments `ballNumber` the SAME tick it emits `ball_starting`
+// (`ball-controller.ts`), one tick before the deferred `start()` call above
+// reads it -- so the skill shot's own per-ball lane advance (keyed on that
+// same `ballNumber`) needs no counter of its own. A reader tempted to "fix"
+// the defer into same-tick timing must see this: doing so would hand
+// `skillShot.start()` the PRE-increment `ballNumber`, silently shifting every
+// player's own lane rotation by one ball.
 
 import type { DeviceEvent } from '../devices';
 import type { GameState, SemanticEvent } from '../../table/names';

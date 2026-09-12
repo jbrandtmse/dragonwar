@@ -27,6 +27,7 @@ import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, runRulesScript } from './util/switch-script';
+import { createSkillShotMode } from '../src/sim/rules/modes/skill-shot';
 import type { GameState, SwitchName } from '../src/sim/table/names';
 
 const TUNING = resolveTuning();
@@ -175,10 +176,15 @@ describe('DW-203 -- the launched guard is falsifiable: a closure BEFORE ball_lau
 
 describe('DW-202 -- lane change actually repositions the lane the skill shot pays on (composition, not each mechanism proven only in isolation)', () => {
 	/**
-	 * Boots straight into Attract at `rng: 12345` -- the SAME seed AC 6 below
-	 * pins, whose own `EXPECTED_SEQUENCE` records the first ball's draw as
-	 * `top_3` (verified there against `src/sim/rules/rng.ts`'s own
-	 * algorithm, never guessed). Driving this test through the REAL
+	 * Boots straight into Attract at `rng: 12345` -- the SAME seed
+	 * `test/rules-modes-integration.test.ts`'s own DW-201 block and
+	 * `test/lighting-integration.test.ts` pin, whose first draw is `top_3`
+	 * under EITHER mechanism ([AMENDED 2026-09-12, Story 2.14]: this seed's
+	 * shipped per-ball draw and its rotation sequence are byte-identical --
+	 * Story 2.14's own Code Map measured it -- which is exactly why Story
+	 * 2.14's own sequence pin below excludes it as non-discriminating).
+	 * Verified here against `src/sim/rules/rng.ts`'s own algorithm, never
+	 * guessed. Driving this test through the REAL
 	 * `ball_starting` -> `start()` path (rather than the hand-built
 	 * `armedAfterLaunch()` fixture every other test in this file uses) is
 	 * deliberate: it is the only way a mutation that caches the drawn lane
@@ -472,7 +478,32 @@ describe('AC 7 -- Attract: no mode is ever pushed, rng is never advanced, lanes 
 	});
 });
 
-describe('AC 6 -- deterministic under a fixed seed; a different seed diverges', () => {
+// Story 2.14 (DW-205, DW-214): the lit Top lane no longer draws fresh from
+// `GameState.rng` at every ball start -- a starting position is drawn ONCE
+// per game, and the lane then advances one position through `TOP_LANES`,
+// wrapping, per the player's own `players[p].ballNumber`. This block replaces
+// the file's former "AC 6" (that title was Story 2.7's own numbering, not
+// this story's -- see this spec's Code Map) with Story 2.14's own pins.
+const FAST_GAME_OVER_TUNING = resolveTuning({
+	...RAW_TUNING,
+	// Same rationale as NO_BALL_SAVE_TUNING above: a scripted drain must be a
+	// real one, never intercepted as a save.
+	ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+	// Shrinks the game-over sequence's own three paced durations to 1 tick
+	// each (still nonzero -- DW-35 rejects a duration that rounds to 0
+	// ticks), so a "second game after game over" test needs tens of ticks,
+	// not production's matchDelayMs 5000 + matchRevealMs 250*10 + attractMs
+	// 8000 (~15,500 ticks). Only this describe block's own "second game"
+	// test uses this tuning; every sequence/hot-seat/one-draw test above and
+	// below it never reaches game_over, so production's game-over pacing is
+	// irrelevant to them.
+	matchDelayMs: { ...RAW_TUNING.matchDelayMs, value: 1 },
+	matchRevealMs: { ...RAW_TUNING.matchRevealMs, value: 1 },
+	attractMs: { ...RAW_TUNING.attractMs, value: 1 },
+});
+
+describe('Story 2.14 -- the lit Top lane rotates from a game-scoped starting position, per the player\'s own ballNumber', () => {
 	/** Boots straight into Attract at `rng`, mirroring `test/util/switch-script.ts`'s own private `DEFAULT_INITIAL_STATE` (not exported -- duplicated here, test-local, per that file's own boot-seed convention). */
 	function attractState(rng: number): GameState {
 		return {
@@ -524,36 +555,204 @@ describe('AC 6 -- deterministic under a fixed seed; a different seed diverges', 
 		});
 	}
 
-	// Seeds and their expected sequences were computed directly from
-	// src/sim/rules/rng.ts's own algorithm (a scratch Node harness, verified
-	// at implementation time) -- never guessed. Seed 0 was rejected for the
-	// PRIMARY seed specifically because it draws [top_1, top_1, top_1] (all
-	// three the SAME lane), which AC 6 explicitly forbids as the pinned case.
-	// [CORRECTED 2026-09-06, code review] This comment previously named
-	// [top_3, top_3, top_3]. Seed 0's first three bound-3 draws are indices
-	// 0,0,0 -- lane index 0 is `top_1`, not `top_3` -- re-derived here from
-	// the shipped `nextRng`/`nextRngInt` and agreeing with the three other
-	// artifacts that record it (`src/host/game-seed.ts`'s header, spec task
-	// 22, and DW-201's own ledger evidence line, all of which say index 0).
-	// Only the lane NAME was wrong; the "all three the same lane" half --
-	// the reason seed 0 is unusable here -- was and is correct.
-	const SEED = 12345;
-	const EXPECTED_SEQUENCE: readonly LaneName[] = ['top_3', 'top_1', 'top_2'];
-	const OTHER_SEED = 42;
-	const OTHER_SEQUENCE: readonly LaneName[] = ['top_2', 'top_2', 'top_3'];
+	/** `state.players[playerIndex]`'s own lit Top lane, or `undefined` if none is. */
+	function litTopLaneFor(state: GameState, playerIndex: number): LaneName | undefined {
+		const lit = state.players[playerIndex]!.lanes.lit;
+		return LANE_NAMES.find((name) => TABLE.laneWiring[name].set === 'top' && lit[name] === true);
+	}
 
-	it(`seed ${SEED}: the recorded sequence is pinned literally, replays identically twice, and is not all three draws the same lane`, () => {
-		const first = threeBallDrawSequence(SEED);
-		const second = threeBallDrawSequence(SEED);
+	// Sequences computed directly from src/sim/rules/rng.ts's own algorithm (a
+	// scratch Node harness transcribing its four lines verbatim, verified at
+	// implementation time) -- never guessed, and never re-imported into the
+	// expectation below (Anti-vacuity: "an expectation derived from the value
+	// or table under test"). Seeds 0, 1 and 2 are each one of the three
+	// possible starting positions (AC 2: "every starting position, not one
+	// chosen seed") and were each measured, before this story's production
+	// edit landed, to differ from their OWN shipped per-ball-draw sequence
+	// (Rule 19 premise check -- see this spec's own `## Verification`).
+	//
+	// Seed 12345 -- this file's own FORMER primary pin here, and the seed
+	// DW-202 above and `test/lighting-integration.test.ts` still reuse -- is
+	// deliberately excluded: measured (Code Map), its shipped per-ball-draw
+	// sequence and its rotation sequence are byte-identical (`top_3, top_1,
+	// top_2` either way), so a pin on it stays green whether or not this
+	// story's rotation exists at all (Anti-vacuity: "an expectation that both
+	// mechanisms satisfy").
+	const CASES: readonly { readonly seed: number; readonly sequence: readonly LaneName[] }[] = [
+		{ seed: 0, sequence: ['top_1', 'top_2', 'top_3'] },
+		{ seed: 1, sequence: ['top_2', 'top_3', 'top_1'] },
+		{ seed: 2, sequence: ['top_3', 'top_1', 'top_2'] },
+	];
 
-		expect(first, 'the pinned sequence for this seed').toEqual(EXPECTED_SEQUENCE);
-		expect(second, 'replaying the identical script from the identical seed must reproduce the identical sequence').toEqual(first);
-		expect(new Set(first).size, 'not all three draws may be the same lane').toBeGreaterThan(1);
+	for (const { seed, sequence } of CASES) {
+		it(`seed ${seed}: the starting position advances through TOP_LANES, wrapping, one position per ball; all three balls distinct; replays identically`, () => {
+			const first = threeBallDrawSequence(seed);
+			const second = threeBallDrawSequence(seed);
+
+			expect(first, 'the rotation from this seed\'s own starting position, as authored literals').toEqual(sequence);
+			expect(second, 'replaying the identical script from the identical seed must reproduce the identical sequence').toEqual(first);
+			expect(new Set(first).size, 'AC 1/AC 2: a three-ball repeat is impossible BY CONSTRUCTION -- all three must be distinct').toBe(3);
+		});
+	}
+
+	it('wrap: the starting-position-2 seed\'s own ball 3 is top_2 (wraps past top_3 back to the front of TOP_LANES)', () => {
+		const sequence = threeBallDrawSequence(2);
+		expect(sequence[2], 'ball 3 from starting position 2: (2 + 2) mod 3 = 1 -> top_2').toBe('top_2');
 	});
 
-	it(`seed ${OTHER_SEED}: a different seed produces a genuinely different sequence`, () => {
-		const other = threeBallDrawSequence(OTHER_SEED);
-		expect(other).toEqual(OTHER_SEQUENCE);
-		expect(other).not.toEqual(EXPECTED_SEQUENCE);
+	// I/O Matrix row "ballsPerGame above 3": driven directly against
+	// createSkillShotMode().start() (mirroring the "AC 5 (direct)" technique
+	// below) rather than a scripted 5-ball game, since the mode's own closure
+	// state is exactly what needs exercising past the 3-ball window -- the
+	// wrapping index arithmetic itself does not know how many balls a game
+	// has. Starting position 2 (seed 2, top_3 -- see the CASES table above):
+	// the five-ball rotation is an authored literal, never re-derived from
+	// the `(gameLaneStart + ballNumber - 1) % n` formula under test.
+	it('ballsPerGame above 3: a 5-ball game never repeats a lane on two consecutive balls, at any length', () => {
+		const mode = createSkillShotMode(TUNING);
+		const seed = 2;
+		const sequence: (LaneName | undefined)[] = [];
+		for (let ballNumber = 1; ballNumber <= 5; ballNumber++) {
+			const state = gameState({ players: [player({ ballNumber })], rng: seed });
+			const after = mode.start(state, 0);
+			sequence.push(litTopLaneFor(after, 0));
+		}
+
+		expect(sequence, 'the authored five-ball rotation from starting position 2').toEqual([
+			'top_3', 'top_1', 'top_2', 'top_3', 'top_1',
+		]);
+		for (let i = 1; i < sequence.length; i++) {
+			expect(sequence[i], `ball ${i + 1} must not repeat ball ${i}'s own lane`).not.toBe(sequence[i - 1]);
+		}
+	});
+
+	it('AC 4: one draw per game -- rng advances exactly once, at the game\'s first ball, and stays byte-identical at balls 2 and 3', () => {
+		const seed = 0;
+		const script = close('s_start').at(5)
+			.open('s_shooter_lane').at(7)
+			.close('s_trough_1').at(10)
+			.open('s_shooter_lane').at(12)
+			.close('s_trough_2').at(20)
+			.open('s_shooter_lane').at(22)
+			.close('s_trough_3').at(30)
+			.build();
+		const result = runRulesScript(script, { durationTicks: 35, initialState: attractState(seed), tuning: NO_BALL_SAVE_TUNING });
+
+		const beforeBall1Draw = result.statesByTick.get(5)!.rng;
+		const afterBall1Draw = result.statesByTick.get(6)!.rng;
+		const atBall2 = result.statesByTick.get(11)!.rng;
+		const atBall3 = result.statesByTick.get(21)!.rng;
+
+		expect(afterBall1Draw, 'the game\'s first ball must genuinely draw -- rng must have moved from its pre-tick value').not.toBe(beforeBall1Draw);
+		expect(atBall2, 'ball 2 must take NO draw of its own -- rng stays byte-identical to its post-ball-1 value').toBe(afterBall1Draw);
+		expect(atBall3, 'ball 3 must also take no draw of its own').toBe(afterBall1Draw);
+
+		// Positive, paired with the negatives above (Anti-vacuity: "a negative
+		// with no positive"): a Top lane genuinely was lit at every ball.
+		expect(litLanesInSet(result.statesByTick.get(6)!, 'top'), 'ball 1 genuinely lit a Top lane').toHaveLength(1);
+		expect(litLanesInSet(result.statesByTick.get(11)!, 'top'), 'ball 2 genuinely lit a Top lane').toHaveLength(1);
+		expect(litLanesInSet(result.statesByTick.get(21)!, 'top'), 'ball 3 genuinely lit a Top lane').toHaveLength(1);
+	});
+
+	it('AC 5: Hot seat -- two players share the one starting draw; each advances by their OWN ball number; no player disturbs the other', () => {
+		// Starting position 1 (seed 1): ball 1 -> top_2 (both players' own ball
+		// 1); ball 2 -> top_3 (both players' own ball 2) -- see the CASES table.
+		const seed = 1;
+		const script = close('s_start').at(5) // player 0's game begins (draw at tick 6)
+			.close('s_start').at(7) // Hot seat: adds player 1 (currentPlayer 0, ballNumber 1)
+			.open('s_shooter_lane').at(8) // player 0's ball 1 plunge (simulated)
+			.close('s_trough_1').at(10) // drains player 0's ball 1 -> rotates to player 1's ball 1 (start deferred to tick 11)
+			.open('s_shooter_lane').at(12) // player 1's ball 1 plunge
+			.close('s_trough_2').at(20) // drains player 1's ball 1 -> rotates to player 0's ball 2 (start deferred to tick 21)
+			.open('s_shooter_lane').at(22) // player 0's ball 2 plunge
+			.close('s_trough_3').at(30) // drains player 0's ball 2 -> rotates to player 1's ball 2 (start deferred to tick 31)
+			.build();
+		const result = runRulesScript(script, { durationTicks: 35, initialState: attractState(seed), tuning: NO_BALL_SAVE_TUNING });
+
+		expect(result.statesByTick.get(7)!.players, 'the Hot seat press must genuinely add player 1, or the rest of this test proves nothing').toHaveLength(2);
+
+		const p0Ball1 = litTopLaneFor(result.statesByTick.get(6)!, 0);
+		const p1Ball1 = litTopLaneFor(result.statesByTick.get(11)!, 1);
+		const p0Ball2 = litTopLaneFor(result.statesByTick.get(21)!, 0);
+		const p1Ball2 = litTopLaneFor(result.statesByTick.get(31)!, 1);
+
+		expect(p0Ball1, 'player 0\'s own ball 1 -- the game\'s one starting position').toBe('top_2');
+		expect(p1Ball1, 'player 1\'s own ball 1 lights the SAME lane as player 0\'s ball 1 -- one starting position, drawn once per game').toBe('top_2');
+		expect(p0Ball2, 'player 0\'s own ball 2 advances one position by player 0\'s OWN ball number').toBe('top_3');
+		expect(p1Ball2, 'player 1\'s own ball 2 advances one position by player 1\'s OWN ball number -- the same index as player 0\'s ball 2, since both are that player\'s second ball').toBe('top_3');
+
+		expect(result.statesByTick.get(11)!.rng, 'player 1\'s ball 1 takes NO draw of its own -- rng stays exactly the game\'s one draw').toBe(result.statesByTick.get(6)!.rng);
+		expect(result.statesByTick.get(21)!.rng, 'player 0\'s ball 2 takes no further draw either').toBe(result.statesByTick.get(6)!.rng);
+		expect(result.statesByTick.get(31)!.rng, 'nor does player 1\'s ball 2 -- one draw for the whole game, however many balls or players').toBe(result.statesByTick.get(6)!.rng);
+
+		expect(litTopLaneFor(result.statesByTick.get(21)!, 1), 'player 1\'s own lanes must be untouched by player 0\'s ball 2 starting').toBe(p1Ball1);
+		expect(litTopLaneFor(result.statesByTick.get(31)!, 0), 'player 0\'s own lanes must be untouched by player 1\'s ball 2 starting').toBe(p0Ball2);
+	});
+
+	// [Rule 19 discriminator for AC 5] The scripted Hot-seat test above drives
+	// the REAL ball controller's own rotation, which -- by construction of
+	// `startBall()` (`ball-controller.ts:746`, `currentPlayer: playerIndex`)
+	// and the one-tick DEFERRED START -- always has `state.currentPlayer`
+	// already equal to the mode entry's own `player` argument by the time
+	// `skillShot.start()` runs: `pendingStartPlayer` is captured from
+	// `currentPlayer` the SAME tick `startBall()` sets it, and nothing can
+	// rotate `currentPlayer` again in the one-tick gap before the deferred
+	// call reads it. So a script driven through the real system, however
+	// elaborate, CANNOT construct a `player` / `currentPlayer` mismatch --
+	// verified by mutation: keying the advance's `ballNumber` lookup on
+	// `state.currentPlayer` instead of `player` leaves the Hot-seat test
+	// above GREEN. This direct call (mirroring this file's own "AD-7 player
+	// scoping" describe block, which hand-builds the SAME kind of mismatch
+	// for `step()` for the identical reason) closes that gap for `start()`.
+	it('AC 5 (direct): the advance reads the mode entry\'s OWN player argument\'s ballNumber, never state.currentPlayer\'s', () => {
+		const mode = createSkillShotMode(TUNING);
+		// Establishes gameLaneStart = 1 (seed 1's own starting position, top_2 -- see the CASES table) in this mode's own closure.
+		const afterBall1 = mode.start(gameState({ players: [player({ ballNumber: 1 })], rng: 1 }), 0);
+		expect(litLanesInSet(afterBall1, 'top'), 'sanity: the game genuinely drew a starting position').toEqual(['top_2']);
+
+		// player 1's own ball 2 (ballNumber 2) -- but state.currentPlayer is
+		// DELIBERATELY left at 0, whose OWN ballNumber (4) differs. Correct:
+		// advance by player 1's OWN ballNumber (2) -> (1 + 2 - 1) mod 3 = 2 ->
+		// top_3. Mutant (currentPlayer's ballNumber, 4): (1 + 4 - 1) mod 3 = 1 -> top_2.
+		const mismatched: GameState = {
+			...afterBall1,
+			players: [player({ ballNumber: 4 }), player({ ballNumber: 2 })],
+			currentPlayer: 0,
+		};
+		const after = mode.start(mismatched, 1);
+		expect(litTopLaneFor(after, 1), 'must advance by player 1\'s OWN ballNumber (2), not currentPlayer 0\'s ballNumber (4)').toBe('top_3');
+		expect(litTopLaneFor(after, 0), 'player 0 must be untouched by player 1\'s own ball starting').toBeUndefined();
+	});
+
+	it('AC 6: a second game in one rules instance takes a fresh draw, not a repeat of game 1\'s own starting position', () => {
+		// Measured (scratch harness, src/sim/rules/rng.ts's own arithmetic,
+		// never guessed): from rng 2, game 1 (ballsPerGame: 1) draws index 2
+		// (top_3); the Match's own single nextRng() step at game over (AD-3:
+		// "Match still draws last") then advances rng once more; game 2's own
+		// fresh draw from THAT value is index 0 (top_1) -- discriminating,
+		// since it differs from game 1's own opening lane.
+		const script = close('s_start').at(2)
+			.open('s_shooter_lane').at(10)
+			.close('s_trough_1').at(20) // G: the only ball of the only player drains -- game over
+			.close('s_start').at(31) // Start once resolvedTick (G + 1 + 10, under FAST_GAME_OVER_TUNING) has passed
+			.build();
+		const result = runRulesScript(script, {
+			durationTicks: 33,
+			initialState: attractState(2),
+			tuning: FAST_GAME_OVER_TUNING,
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 0 },
+		});
+
+		const game1Lane = litLanesInSet(result.statesByTick.get(3)!, 'top');
+		expect(game1Lane, 'game 1\'s own opening lane (this test\'s own positive)').toEqual(['top_3']);
+		expect(result.statesByTick.get(20)!.phase, 'the single-ball game ends the instant it drains').toBe('game_over');
+
+		const rngBeforeGame2 = result.statesByTick.get(31)!.rng;
+		const rngAfterGame2 = result.statesByTick.get(32)!.rng;
+		expect(rngAfterGame2, 'game 2 must take a FRESH draw -- rng must move again').not.toBe(rngBeforeGame2);
+
+		const game2Lane = litLanesInSet(result.statesByTick.get(32)!, 'top');
+		expect(game2Lane, 'game 2\'s own freshly-drawn opening lane, as an authored literal').toEqual(['top_1']);
+		expect(game2Lane, 'game 2 must NOT continue game 1\'s own rotation').not.toEqual(game1Lane);
 	});
 });

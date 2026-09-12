@@ -17,8 +17,10 @@
 //
 // Seed 12345 is not arbitrary: it is the SAME seed
 // `test/replays/full-plunge.golden.json` and Story 2.7's own DW-201 block
-// (`test/rules-modes-integration.test.ts`) already use, and its FIRST draw
-// is independently pinned there as `top_3` (`sim/rules/rng.ts`'s own
+// (`test/rules-modes-integration.test.ts`) already use, and its game's own
+// starting position [AMENDED 2026-09-12, Story 2.14: was "FIRST draw" -- the
+// lane no longer redraws per ball, it advances from this one] is
+// independently pinned there as `top_3` (`sim/rules/rng.ts`'s own
 // published mulberry32 arithmetic) -- reusing it here means this test's own
 // "the skill shot must genuinely arm" sanity check is corroborated by two
 // OTHER files' independent pins, not merely asserted once in isolation.
@@ -48,7 +50,7 @@ import type { CoilName, FrameOutput, GameStart, LampCommand, LampName } from '..
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 const DISABLED_HAZARD_COILS: readonly CoilName[] = ['c_pop_1', 'c_pop_2', 'c_pop_3', 'c_sling_l', 'c_sling_r'];
-const SEED = 12345; // full-plunge.golden.json / DW-201's own seed -- first draw independently pinned elsewhere as top_3
+const SEED = 12345; // full-plunge.golden.json / DW-201's own seed -- the game's starting position, independently pinned elsewhere as top_3 [AMENDED 2026-09-12, Story 2.14]
 
 function loadCollisionDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
