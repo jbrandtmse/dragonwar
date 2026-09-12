@@ -210,6 +210,11 @@ const ENTRY_FILES = [
 	// exempts it from this list, the same convention `rules-lifecycle-integration.test.ts`
 	// and `rules-ball-save-integration.test.ts` already use.)
 	path.join(__dirname, 'rules-ball-search.test.ts'),
+	// Story 2.13: same reasoning -- ungated otherwise. (`stray-clear-integration.test.ts`
+	// and `game-over-integration.test.ts` do not start with `rules-` at all,
+	// so this file's own completeness ratchet below never names them either.)
+	path.join(__dirname, 'rules-match.test.ts'),
+	path.join(__dirname, 'rules-stray-clear.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

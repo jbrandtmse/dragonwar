@@ -24,6 +24,7 @@ import { FONT_5X7 } from '../presentation/backglass/font';
 import { advanceLamps, INITIAL_LAMP_VIEW, type LampView } from '../presentation/lighting/lamp-view';
 import { syncLamps } from '../presentation/lighting/lamp-driver';
 import { createHostLoop, type HostLoop, type ResetOptions } from './loop';
+import { viewConfigFromKeyMap } from './input';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
 import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
 import { createTuningPanel, buildOverriddenTuning, type TuningPanel } from './dev/tuning-panel';
@@ -226,6 +227,11 @@ async function onBegin(): Promise<void> {
 		// `backglassView` or `advanceBackglass()` itself.
 		let backglassView = INITIAL_BACKGLASS_VIEW;
 		let latestRaster: DmdRaster | undefined;
+		// Story 2.13 (AD-1, AD-14): built ONCE from the real `KEY_MAP` --
+		// `renderFrame()`'s own `ViewConfig` argument for the Attract keys
+		// screen. `host/input`'s `KEY_MAP` never changes at runtime, so this
+		// never needs rebuilding per frame.
+		const viewConfig = viewConfigFromKeyMap();
 		// Story 2.8 -- the lamp channel's own view state, folded forward every
 		// SIM frame exactly like `backglassView` above (never the Babylon
 		// render frame, for the same reason: the two rAF chains are
@@ -282,7 +288,12 @@ async function onBegin(): Promise<void> {
 			// literal. host/** may not import sim/rules/** directly (AD-1/AD-16),
 			// but sim/table/** is fine (TABLE.reference.pitchDeg on this same
 			// line is the existing precedent for reading the table layer here).
-			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: TUNING.tiltWarnings.value, ballsPerGame: 3, matchProbability: 0.08 },
+			// Story 2.13 (AD-14, AD-15): matchProbability reads TUNING.matchProbability.value,
+			// mirroring tiltWarnings' own precedent exactly (the one place AD-15's
+			// Rule names it, sim/table/tuning.ts) -- the dev replay recorder's own
+			// SEPARATE GameStart (below) keeps its deliberate literal 0 (DW-185,
+			// routed to Story 3.7).
+			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: TUNING.tiltWarnings.value, ballsPerGame: 3, matchProbability: TUNING.matchProbability.value },
 			highscores: [],
 		};
 		hostLoop = createHostLoop(
@@ -295,7 +306,7 @@ async function onBegin(): Promise<void> {
 				// reaches anything today) and rasterise it against this same frame's
 				// snapshot -- state from the sim chain, blit from the render chain.
 				backglassView = advanceBackglass(backglassView, output);
-				latestRaster = rasterise(renderFrame(backglassView, output.snapshot), FONT_5X7);
+				latestRaster = rasterise(renderFrame(backglassView, output.snapshot, viewConfig), FONT_5X7);
 				// Story 2.8 (AD-9): fold this frame's LampCommands (if any) into the
 				// held view -- the render hook below is what actually drives the
 				// Babylon driver from it.

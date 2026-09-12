@@ -32,7 +32,7 @@
 // `test/rules-tilt.test.ts`'s restarted-timeline case does directly.
 
 import { disarmBallSave } from './ball-save';
-import { HARDWARE_COILS } from './ball-controller';
+import { enterAttract, HARDWARE_COILS } from './ball-controller';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { DeviceEvent } from './devices';
 import type { GameAdjustments } from '../contracts/replay';
@@ -123,27 +123,29 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 				continue;
 			}
 			events.push({ type: 'slam_tilt', tick });
-			coilCommands.push(...disableHardwareCoils(tick));
-			// The minimal state change that reaches the Attract the Backglass
-			// already renders (Design Notes, "Slam tilt reaches Attract; it does
-			// not build a second path there"): players[] is KEPT (Attract cycles
-			// the last game's scores), ballsInPlay is untouched (self-corrects
-			// via applyDeviceEvents on the parking entry), machine.tilt.tilted
-			// stays false (there is no ball, so no ball CONDITION) -- only
-			// slamTilted moves. Code review (Story 2.11): `ballSave` IS disarmed
-			// -- AD-18's "Tilt disarms all" -- because `lampsOf()` has no phase
-			// gate: left armed, `l_ball_save` stayed lit in Attract for the rest
-			// of the window (the implement-stage review's "Attract never reads
-			// it" was true of the drain branch only).
+			// Story 2.13 (AD-18): the Slam now uses the SAME shared Attract helper
+			// the ball controller's own game-over-to-Attract transition uses,
+			// rather than re-implementing "phase, modes, hardwareEnabled, the
+			// disable batch" a second time (Design Notes, "Slam tilt reaches
+			// Attract through the shared helper; it does not build a second path
+			// there"). `enterAttract()` keeps `players[]` (Attract cycles the last
+			// game's scores), `ballsInPlay` (self-corrects via
+			// `applyDeviceEvents` on the parking entry), `rng` and `tilt`
+			// untouched -- this block then layers `tilt.tilted: false` (there is
+			// no ball, so no ball CONDITION, only `slamTilted` moves) and the
+			// ball-save disarm on top. Code review (Story 2.11): `ballSave` IS
+			// disarmed -- AD-18's "Tilt disarms all" -- because `lampsOf()` has no
+			// phase gate: left armed, `l_ball_save` stayed lit in Attract for the
+			// rest of the window (the implement-stage review's "Attract never
+			// reads it" was true of the drain branch only).
+			const attract = enterAttract(nextState, tick);
+			coilCommands.push(...attract.coilCommands);
 			nextState = {
-				...nextState,
-				phase: 'attract',
-				modes: [],
+				...attract.state,
 				machine: {
-					...nextState.machine,
-					hardwareEnabled: false,
+					...attract.state.machine,
 					tilt: { tilted: false, slamTilted: true },
-					ballSave: disarmAllBallSave(nextState.machine.ballSave),
+					ballSave: disarmAllBallSave(attract.state.machine.ballSave),
 				},
 			};
 		}

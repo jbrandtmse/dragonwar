@@ -255,6 +255,54 @@ export interface SlamTiltEvent {
 }
 
 /**
+ * Story 2.13 (AD-6, AD-7, AD-9): the last ball of the last player drained --
+ * `phase` moves to `game_over` the same tick. Payload-complete: `scores[i]`
+ * is `players[i].score` AFTER the drain's own bonus payment, so a consumer
+ * never needs to join this to a later snapshot to show final scores.
+ *
+ * Code review (this pass): today's own `game_over` screen (`frame.ts`'s
+ * `buildGameOverRows()`) does not actually READ this field -- it re-reads
+ * `snapshot.game.players` live instead, which is safe only because no score
+ * can change after this event's own tick (the last ball already paid its
+ * bonus at G; Design Notes, "The draw reads players[i].score at M. Scores
+ * cannot change after G"), so the two are always equal. `scores` still earns
+ * its keep as the durable, payload-complete contract Story 6.5's
+ * `highscore_entry` phase is specified to read once it exists.
+ */
+export interface GameEndedEvent {
+	readonly type: 'game_ended';
+	readonly scores: readonly number[];
+	readonly tick: number;
+}
+
+/**
+ * Story 2.13 (AD-3, AD-9): the Match number, drawn from `GameState.rng` at
+ * `matchDelayTicks` after game over. Payload-complete: `winners` is already
+ * the ascending list of player indices whose score matched, so presentation
+ * never computes it from `number` and a snapshot.
+ */
+export interface MatchDrawnEvent {
+	readonly type: 'match_drawn';
+	readonly number: number;
+	readonly winners: readonly number[];
+	readonly tick: number;
+}
+
+/**
+ * Story 2.13 (AD-3, AD-9): one paced step of the ten-step Match reveal.
+ * Payload-complete: `shown` is the two-digit value this step displays, so
+ * the Backglass never reveals `match_drawn.number` early by reading ahead --
+ * it renders only the `shown` of the steps it has actually received.
+ */
+export interface MatchRevealStepEvent {
+	readonly type: 'match_reveal_step';
+	readonly step: number;
+	readonly steps: number;
+	readonly shown: number;
+	readonly tick: number;
+}
+
+/**
  * Device-failure vocabulary (AD-9 Conventions): named so the vocabulary
  * exists, even though nothing in Epic 1 emits them. No artifact states a
  * payload beyond the device that failed, so none is invented here.
@@ -317,6 +365,9 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| TiltWarningEvent
 	| TiltEvent
 	| SlamTiltEvent
+	| GameEndedEvent
+	| MatchDrawnEvent
+	| MatchRevealStepEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

@@ -112,27 +112,33 @@ describe('DW-201 -- src/host/boot.ts (source scan): the real gameplay GameStart 
 // `DEFAULT_ADJUSTMENTS.tiltWarnings` reads. The regex below asserts that
 // EXACT expression appears, textually, rather than a second hand-typed
 // number -- AC 8's own "no second literal 1 for this figure anywhere
-// outside the tuning entry". `ballsPerGame`/`matchProbability` are
-// unaffected (Story 2.13's own figures) and stay bare numeric literals.
+// outside the tuning entry". `ballsPerGame` is unaffected (this story's own
+// figure) and stays a bare numeric literal.
+//
+// Story 2.13 (AD-14, AD-15): `matchProbability` now reads
+// `TUNING.matchProbability.value` for the IDENTICAL reason -- Match now has
+// a real reader, and this is the one place AD-15's Rule names the entry.
+// The regex is amended to require that exact expression too, mirroring
+// `tiltWarnings`'s own treatment rather than a second hand-typed literal.
 describe('DW-201 code review -- boot.ts\'s real gameplay adjustments literal must not silently drift from sim/rules/index.ts\'s own DEFAULT_ADJUSTMENTS', () => {
-	it('tiltWarnings reads TUNING.tiltWarnings.value (never a second hand-typed literal); ballsPerGame and matchProbability equal DEFAULT_ADJUSTMENTS\'s own values', () => {
+	it('tiltWarnings and matchProbability both read their own TUNING entry (never a hand-typed literal); ballsPerGame equals DEFAULT_ADJUSTMENTS\'s own value', () => {
 		const source = readFileSync(BOOT_PATH, 'utf8');
 		const match = source.match(
-			/adjustments:\s*\{\s*pitchDeg:\s*TABLE\.reference\.pitchDeg,\s*tiltWarnings:\s*TUNING\.tiltWarnings\.value,\s*ballsPerGame:\s*(-?\d+(?:\.\d+)?),\s*matchProbability:\s*(-?\d+(?:\.\d+)?)\s*\}/,
+			/adjustments:\s*\{\s*pitchDeg:\s*TABLE\.reference\.pitchDeg,\s*tiltWarnings:\s*TUNING\.tiltWarnings\.value,\s*ballsPerGame:\s*(-?\d+(?:\.\d+)?),\s*matchProbability:\s*TUNING\.matchProbability\.value\s*\}/,
 		);
-		expect(match, 'the real gameplay adjustments literal must be found in this exact shape in boot.ts, with tiltWarnings reading TUNING.tiltWarnings.value').not.toBeNull();
-		const [, ballsPerGame, matchProbability] = match!;
+		expect(match, 'the real gameplay adjustments literal must be found in this exact shape in boot.ts, with tiltWarnings and matchProbability both reading their own TUNING entry').not.toBeNull();
+		const [, ballsPerGame] = match!;
 
 		expect(Number(ballsPerGame), 'boot.ts\'s ballsPerGame must equal DEFAULT_ADJUSTMENTS.ballsPerGame').toBe(DEFAULT_ADJUSTMENTS.ballsPerGame);
-		expect(Number(matchProbability), 'boot.ts\'s matchProbability must equal DEFAULT_ADJUSTMENTS.matchProbability').toBe(
-			DEFAULT_ADJUSTMENTS.matchProbability,
-		);
 		// Sanity: the one entry both readers point at must actually be the
 		// figure DEFAULT_ADJUSTMENTS resolves to -- otherwise this test's own
 		// regex match proves only that the TEXT "TUNING.tiltWarnings.value"
 		// appears, not that it names the entry DEFAULT_ADJUSTMENTS itself reads.
 		expect(TUNING.tiltWarnings.value, 'TUNING.tiltWarnings.value must equal DEFAULT_ADJUSTMENTS.tiltWarnings -- the whole point of AC 8\'s "one definition"').toBe(
 			DEFAULT_ADJUSTMENTS.tiltWarnings,
+		);
+		expect(TUNING.matchProbability.value, 'TUNING.matchProbability.value must equal DEFAULT_ADJUSTMENTS.matchProbability -- the same "one definition" now true for Match').toBe(
+			DEFAULT_ADJUSTMENTS.matchProbability,
 		);
 	});
 });
@@ -159,5 +165,31 @@ describe('Story 2.11, AC 8 (DW-36) -- DEFAULT_ADJUSTMENTS.tiltWarnings FOLLOWS t
 			vi.doUnmock('../src/sim/table/tuning');
 			vi.resetModules();
 		}
+	});
+});
+
+// Code review (this pass, verification-gap layer): Story 2.13 task 11 wires
+// a real `ViewConfig` (from `viewConfigFromKeyMap()`) into the real
+// `renderFrame()` call every actual machine boots through, so the Attract
+// keys screen shows the player's genuine bound key codes rather than
+// `EMPTY_VIEW_CONFIG`'s bare action labels (`renderFrame()`'s own default
+// for its optional third argument). Nothing else in the suite executes or
+// scans `boot.ts` for this specific wiring: `test/host-input.test.ts`'s own
+// AC 4 integration test calls `viewConfigFromKeyMap(KEY_MAP)` and
+// `renderFrame()` directly, never through `boot.ts`; `test/module-coverage.test.ts`'s
+// own allowlist names the other two files that scan this browser-only file
+// at all, and neither looks at this call. So dropping this wiring
+// (reverting to the two-argument `renderFrame(view, snapshot)`, or never
+// building `viewConfig` at all) would leave `pnpm typecheck` and the rest of
+// `pnpm test` green while silently regressing the real Attract keys screen
+// to unlabelled action names -- exactly this file's own established
+// source-scan pattern (above, for the real gameplay adjustments literal)
+// closes that gap here too.
+describe('Code review -- src/host/boot.ts (source scan): the real renderFrame() call is wired to a genuine ViewConfig, not the EMPTY_VIEW_CONFIG default', () => {
+	it('boot.ts builds viewConfig from viewConfigFromKeyMap() and passes it as renderFrame()\'s third argument', () => {
+		const source = readFileSync(BOOT_PATH, 'utf8');
+		expect(source, 'boot.ts must import viewConfigFromKeyMap from ./input').toMatch(/import\s*\{\s*viewConfigFromKeyMap\s*\}\s*from\s*'\.\/input'/);
+		expect(source, 'boot.ts must build a real ViewConfig from the host key map, not a hand-typed object').toMatch(/const\s+viewConfig\s*=\s*viewConfigFromKeyMap\(\)/);
+		expect(source, 'the real renderFrame() call must pass viewConfig as its third argument').toMatch(/renderFrame\(backglassView,\s*output\.snapshot,\s*viewConfig\)/);
 	});
 });

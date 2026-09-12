@@ -5,7 +5,24 @@
 // Start presses add players up to four before ball 1 ends, this module alone
 // pulses `c_trough_eject` to serve, a drain ends the ball and rotates to the
 // next player or the next ball, and the last player's last ball ends the
-// game. AD-19: consumes the devices-and-shots layer's OWN event vocabulary
+// game.
+//
+// Story 2.13 widens that last clause: the last player's last ball ends the
+// game by firing `game_ended { scores }` and arming a closure-held sequence
+// (`gameOverSequence`) that, unattended, draws the Match from `GameState.rng`
+// at `matchDelayTicks`, paces its ten `match_reveal_step`s at
+// `matchRevealTicks`, and returns the machine to Attract at `attractTicks`
+// past resolution via the shared `enterAttract()` helper (exported so
+// `sim/rules/tilt.ts`'s Slam path uses the SAME implementation). Start is
+// honoured from `game_over` once that sequence has resolved, exactly as it
+// already was from `attract`. AD-6 amended (DW-244, author decision
+// 2026-09-11): EVERY `startBall()` call now clears stray balls itself before
+// serving -- one `RecoverCommand` always, and a trough pulse only into a
+// genuinely empty `bd_shooter` (a ball already resting there IS the ball
+// being served, never stacked under a second one) -- tracked by the second
+// new closure record, `pendingStrayClear`, whose own one-tick-later report
+// is silent at count 0 and never serves. AD-19: consumes the devices-and-shots
+// layer's OWN event vocabulary
 // (`DeviceEvent`) -- `button_pressed { button }`, `device_ball_entered/_left`,
 // `bank_target_down`, `ball_launched` -- never a raw `SwitchEvent`; this file
 // names no `s_`/`c_`/`bd_`-prefixed string literal anywhere (AD-16's
@@ -50,6 +67,7 @@ import { TABLE } from '../table/dragonwar';
 import { armBallSave, EMPTY_BALL_SAVE, enableBallSave, hasGraceLapsed, isRunning, isWithinGrace } from './ball-save';
 import { bonusCountUpSteps, bonusTotal, BONUS_EMPTY } from './bonus';
 import { createBallSearch, servesIntoOf } from './ball-search';
+import { drawMatch, MATCH_REVEAL_STEPS, revealShown } from './match';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { BankResetRequest, DeviceEvent } from './devices';
 import type { RecoverCommand } from '../contracts/commands';
@@ -334,6 +352,8 @@ interface StartBallResult {
 	readonly events: SemanticEvent[];
 	readonly coilCommands: CoilCommand[];
 	readonly ballWillStartEvents: BallWillStartEvent[];
+	/** Story 2.13 (DW-244, AD-6 amended): the one stray-clear `RecoverCommand` every `startBall()` call now issues -- every caller merges it into `RulesStepResult.recoverCommands`. */
+	readonly recoverCommands: RecoverCommand[];
 }
 
 /**
@@ -354,6 +374,31 @@ export function applyRecovery(machine: MachineState, recovered: number | null): 
 		return machine;
 	}
 	return { ...machine, ballsInPlay: 0 };
+}
+
+/**
+ * Story 2.13 (AD-18): the shared Attract-entry helper. Boundaries: "Only the
+ * ball controller ... moves `phase` to or from `game_over` ... The Slam's
+ * Attract entry calls the ball controller's exported helper; it never
+ * re-implements it." Returns `phase: 'attract'`, `modes: []` and
+ * `hardwareEnabled: false`, plus the `HARDWARE_COILS` disable batch --
+ * `players`, `ballsInPlay`, `rng` and `tilt` are all kept, exactly as spread
+ * (task 5(a)'s own contract). Pure and instance-free (unlike `startBall()`,
+ * which needs the controller's closure state): both this file's own
+ * game-over-to-Attract transition and `sim/rules/tilt.ts`'s Slam call it
+ * directly, so the "phase, modes, hardwareEnabled, the disable batch" shape
+ * is written exactly once.
+ */
+export function enterAttract(state: GameState, tick: number): { readonly state: GameState; readonly coilCommands: readonly CoilCommand[] } {
+	return {
+		state: {
+			...state,
+			phase: 'attract',
+			modes: [],
+			machine: { ...state.machine, hardwareEnabled: false },
+		},
+		coilCommands: HARDWARE_COILS.map((coil): CoilCommand => ({ type: 'coil', coil, action: 'disable', tick })),
+	};
 }
 
 /**
@@ -378,6 +423,13 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	// resolved once here exactly like the two ball-save windows above --
 	// `armBonusCountSchedule()` below is the one reader.
 	const bonusCountTicks = shotWindowTicks('bonusCountMs', tuning);
+	// Story 2.13 (AD-3/AD-15): the game-over sequence's own three paced
+	// durations, resolved once here exactly like the ball-save/bonus windows
+	// above -- the game-over block and the top-of-step() drain below are the
+	// only readers.
+	const matchDelayTicks = shotWindowTicks('matchDelayMs', tuning);
+	const matchRevealTicks = shotWindowTicks('matchRevealMs', tuning);
+	const attractTicks = shotWindowTicks('attractMs', tuning);
 
 	// Story 2.12 (AD-18): the search's own seat -- ONE instance for the life
 	// of this controller (mirrors every other cross-tick component this
@@ -501,6 +553,46 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	let pendingBonusCountSteps: readonly PendingBonusCountStep[] = [];
 
 	/**
+	 * Story 2.13 (AD-7, the closure-state class): the game-over sequence's own
+	 * tick marks, drawn number and winners -- closure state for the identical
+	 * reason `pendingBonusCountSteps` above is (a `GameState`-scoped field
+	 * would move `expectedGameStateHash` on all five goldens, a Block-If).
+	 * `armTick` is G, the tick the sequence was armed at -- the reset-safety
+	 * mark (`tilt.ts:88-97`'s own precedent: a mark strictly greater than the
+	 * current tick means a restarted timeline, discarded at the top of
+	 * `step()` below). `scores` is captured once, at arm time, rather than
+	 * re-read from `GameState.players` at the draw tick -- scores cannot
+	 * change after G (the last ball already paid its bonus), so the two are
+	 * equivalent, and capturing avoids the draw ever reading a value that
+	 * moved for an unrelated reason. `drawn` is `null` until `matchTick`,
+	 * after which it holds the one `nextRng()` draw for the rest of the
+	 * sequence's life (the reveal steps and the `game_over` screen's `MATCH`
+	 * line all read the SAME `{ number, winners }`, never re-drawn).
+	 */
+	interface GameOverSequence {
+		readonly armTick: number;
+		readonly scores: readonly number[];
+		readonly matchTick: number;
+		readonly resolvedTick: number;
+		readonly attractTick: number;
+		readonly drawn: { readonly number: number; readonly winners: readonly number[] } | null;
+	}
+	let gameOverSequence: GameOverSequence | null = null;
+
+	/**
+	 * Story 2.13 (AD-6 amended, AD-7, AD-18): DW-244's own stray clear,
+	 * armed by EVERY `startBall()` call (below) alongside its one
+	 * `RecoverCommand`. Closure state, bounded to exactly one tick past its
+	 * own start (Boundaries: "the pending stray clear expires after one
+	 * tick") -- reset-safe by the identical rule as `gameOverSequence` above,
+	 * checked at the top of `step()`.
+	 */
+	interface PendingStrayClear {
+		readonly tick: number;
+	}
+	let pendingStrayClear: PendingStrayClear | null = null;
+
+	/**
 	 * Turns `bonusCountUpSteps()`'s arithmetic (`sim/rules/bonus.ts`) into a
 	 * timed schedule for `player`, the first step landing `bonusCountTicks`
 	 * after `endedTick` (the `ball_ended` tick) and each later one
@@ -604,10 +696,25 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// transitions (start -> enable, game over -> disable) both drive an
 		// actual physics-side effect through the one gate AD-5 recognises
 		// (`coilEnabled`, never a `GameState` read -- physics has none).
+		//
+		// Story 2.13 (DW-244, AD-6 amended, task 5(c)): the stray clear. A
+		// ball already RESTING in `bd_shooter` (checked against `state`, the
+		// PRE-start machine snapshot this function was called with -- never
+		// `machine` above, which this function has not yet mutated it away
+		// from anyway) IS the ball being served: no trough pulse, and never
+		// stack a second ball onto it. Otherwise the existing pulse serves as
+		// before. Either way, one `RecoverCommand` is ALWAYS issued (every
+		// ball start clears strays itself, Author decision DW-244) and
+		// `pendingStrayClear` is armed so the report one tick from now (Story
+		// 2.13's own stray-clear branch, in `step()` below) can tell this
+		// clear's own answer apart from ball search's.
+		const laneOccupied = state.machine.deviceSlots.bd_shooter[0] === true;
 		const coilCommands: CoilCommand[] = [
-			{ type: 'coil', coil: TABLE.ballDevices.bd_trough.ejectCoil as CoilName, action: 'pulse', tick },
+			...(laneOccupied ? [] : [{ type: 'coil' as const, coil: TABLE.ballDevices.bd_trough.ejectCoil as CoilName, action: 'pulse' as const, tick }]),
 			...HARDWARE_COILS.map((coil): CoilCommand => ({ type: 'coil', coil, action: 'enable', tick })),
 		];
+		const recoverCommands: RecoverCommand[] = [{ type: 'recover', tick }];
+		pendingStrayClear = { tick };
 
 		return {
 			state: { ...state, players, currentPlayer: playerIndex, machine },
@@ -619,6 +726,7 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			],
 			coilCommands,
 			ballWillStartEvents: [willStart],
+			recoverCommands,
 		};
 	}
 
@@ -647,6 +755,65 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			if (due.length > 0) {
 				events.push(...due.map((scheduled) => scheduled.event));
 				pendingBonusCountSteps = pendingBonusCountSteps.filter((scheduled) => scheduled.tick !== tick);
+			}
+		}
+
+		// Story 2.13 (AD-7): reset-safety FIRST, for both new closure-state
+		// records this story adds -- a mark strictly greater than `tick` means
+		// a restarted timeline (`tilt.ts:88-97`'s own precedent), discarded
+		// before either record is read below. `pendingStrayClear` is ALSO
+		// discarded once its own one-tick window has passed uneventfully
+		// (Boundaries: "the pending stray clear expires after one tick").
+		if (gameOverSequence !== null && tick < gameOverSequence.armTick) {
+			gameOverSequence = null;
+		}
+		if (pendingStrayClear !== null && (tick < pendingStrayClear.tick || tick > pendingStrayClear.tick + 1)) {
+			pendingStrayClear = null;
+		}
+
+		// Story 2.13 (task 5(e)): the game-over sequence's own paced drain --
+		// the Match draw, its ten reveal steps, and the eventual Attract
+		// transition. Positioned beside the bonus drain above (both report a
+		// PAST tick's own scheduled consequence) and, critically, BEFORE the
+		// Start handling below: "a Start on the Attract tick starts a game"
+		// requires `enterAttract()`'s own `phase: 'attract'` write to have
+		// already landed on `nextState` by the time Start is read this same
+		// tick.
+		if (gameOverSequence !== null) {
+			if (tick === gameOverSequence.matchTick) {
+				const draw = drawMatch(nextState.rng, gameOverSequence.scores, adjustments.matchProbability);
+				nextState = { ...nextState, rng: draw.rng };
+				events.push({ type: 'match_drawn', number: draw.number, winners: draw.winners, tick });
+				gameOverSequence = { ...gameOverSequence, drawn: { number: draw.number, winners: draw.winners } };
+			}
+
+			const ticksSinceMatch = tick - gameOverSequence.matchTick;
+			// Code review (this pass): `matchRevealTicks > 0` guards the modulo
+			// below -- a `matchRevealMs` of exactly 0, reachable the same way
+			// `matchDelayTicks` is above (the dev tuning panel; `resolveTuning()`
+			// rejects negative but not zero), would make `ticksSinceMatch %
+			// matchRevealTicks` evaluate to `NaN` in JS, which is never `=== 0`:
+			// every `match_reveal_step` would silently stop firing, though
+			// `match_drawn` and the eventual Attract return still proceed on
+			// schedule. Production's authored value (250) is unaffected.
+			if (matchRevealTicks > 0 && gameOverSequence.drawn !== null && ticksSinceMatch > 0 && ticksSinceMatch % matchRevealTicks === 0) {
+				const revealStep = ticksSinceMatch / matchRevealTicks;
+				if (revealStep <= MATCH_REVEAL_STEPS) {
+					events.push({
+						type: 'match_reveal_step',
+						step: revealStep,
+						steps: MATCH_REVEAL_STEPS,
+						shown: revealShown(gameOverSequence.drawn.number, revealStep),
+						tick,
+					});
+				}
+			}
+
+			if (tick >= gameOverSequence.attractTick) {
+				const attract = enterAttract(nextState, tick);
+				coilCommands.push(...attract.coilCommands);
+				nextState = attract.state;
+				gameOverSequence = null;
 			}
 		}
 
@@ -691,15 +858,39 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		}
 
 		// Start / Hot seat (AD-6/AD-18: the ball controller alone decides).
+		//
+		// Story 2.13 (task 5(b)): Start is now ALSO honoured from `game_over`,
+		// once the game-over sequence has resolved (I/O Matrix, "Start after
+		// resolution" / "Start during the reveal") -- `gameOverSequence ===
+		// null` covers the theoretical case where a game somehow reaches
+		// `game_over` with no sequence armed (never true in production, but a
+		// test can construct one directly), letting Start through rather than
+		// wedging the machine. A new game zeroes `machine.ballsInPlay`
+		// (DW-244: Probe A's own measured stale-1 defect) and clears BOTH
+		// `pendingBonusCountSteps` (DW-235) and the old sequence, BEFORE
+		// `startBall()` arms its own stray clear -- so a new game never
+		// inherits either.
 		const startPressed = deviceEvents.some((event) => event.type === 'button_pressed' && event.button === START_BUTTON);
+		let newGameStartedThisTick = false;
 		if (startPressed) {
-			if (nextState.phase === 'attract') {
-				const created: GameState = { ...nextState, phase: 'game', players: [emptyPlayer()], currentPlayer: 0 };
+			const gameOverResolved = nextState.phase === 'game_over' && (gameOverSequence === null || tick >= gameOverSequence.resolvedTick);
+			if (nextState.phase === 'attract' || gameOverResolved) {
+				const created: GameState = {
+					...nextState,
+					phase: 'game',
+					players: [emptyPlayer()],
+					currentPlayer: 0,
+					machine: { ...nextState.machine, ballsInPlay: 0 },
+				};
+				pendingBonusCountSteps = [];
+				gameOverSequence = null;
 				const started = startBall(created, 0, tick);
 				nextState = started.state;
 				events.push(...started.events);
 				coilCommands.push(...started.coilCommands);
 				ballWillStartEvents.push(...started.ballWillStartEvents);
+				recoverCommands.push(...started.recoverCommands);
+				newGameStartedThisTick = true;
 			} else if (
 				nextState.phase === 'game' &&
 				nextState.players.length < 4 &&
@@ -716,8 +907,9 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				nextState = { ...nextState, players: [...nextState.players, emptyPlayer()] };
 			}
 			// Else: no-op by construction -- a fifth press (players.length is
-			// already 4) or a press after ball 1 has ended (the window above is
-			// closed) changes nothing.
+			// already 4), a press after ball 1 has ended (the window above is
+			// closed), or a press in `game_over` before the Match has resolved
+			// (I/O Matrix, "Start during the reveal": ignored) changes nothing.
 		}
 
 		// Ball save (AD-18, AC 2/AC 4): the timer starts on the PLUNGE, never on
@@ -800,7 +992,13 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		const parkingEntryThisTick = deviceEvents.some(
 			(event) => event.type === 'device_ball_entered' && TABLE.ballDevices[event.device].kind === 'parking',
 		);
-		if (nextState.phase === 'game' && parkingEntryThisTick && nextState.machine.ballsInPlay === 0) {
+		// Story 2.13 (the "Stray drain on the Start tick" I/O row): a voided
+		// ball's own parking entry landing on the EXACT tick Start just
+		// created a new game must never end that brand-new ball 1 through
+		// this branch -- `newGameStartedThisTick` is this tick's own guard
+		// (the t+1 stray-clear recover removes the loose ball before physics
+		// steps again, so this is a one-tick window, never reachable later).
+		if (!newGameStartedThisTick && nextState.phase === 'game' && parkingEntryThisTick && nextState.machine.ballsInPlay === 0) {
 			const endingPlayer = nextState.currentPlayer;
 
 			// Story 2.9 (AD-18, AC 3/AC 6/AC 11): a live ball-save window --
@@ -871,6 +1069,37 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 					coilCommands.push({ type: 'coil', coil, action: 'disable', tick });
 				}
 				nextState = { ...nextState, phase: 'game_over', machine: { ...nextState.machine, hardwareEnabled: false } };
+
+				// Story 2.13 (AD-6/AD-7/AD-9, task 5(e)): `game_ended` fires the
+				// SAME tick, right after `ball_ended` (I/O Matrix, "Game over"):
+				// `scores[i]` is `players[i].score` AFTER the bonus this drain just
+				// paid -- read from `nextState.players`, already updated by the
+				// teardown map above. The game-over sequence is armed from THIS
+				// tick (G): the Match draw, its ten reveal steps and the eventual
+				// Attract transition are all paced from here, in `step()`'s own
+				// top-of-tick drain (above).
+				const scores = nextState.players.map((existing) => existing.score);
+				events.push({ type: 'game_ended', scores, tick });
+				// Code review (this pass): `matchDelayTicks` is clamped to at least 1
+				// so `matchTick` is always STRICTLY greater than `armTick` (this same
+				// `tick`) -- the top-of-`step()` `tick === gameOverSequence.matchTick`
+				// check above already ran earlier THIS SAME tick, before this sequence
+				// existed, so a `matchDelayTicks` of exactly 0 (reachable only via the
+				// dev tuning panel hot-applying `matchDelayMs: 0` -- `resolveTuning()`
+				// itself only rejects a NEGATIVE `…Ms`, not zero) would make that
+				// check's one chance to fire already missed, and `match_drawn` would
+				// never arrive at all. Production's authored value (5000) is
+				// unaffected by this clamp.
+				const matchTick = tick + Math.max(1, matchDelayTicks);
+				const resolvedTick = matchTick + MATCH_REVEAL_STEPS * matchRevealTicks;
+				gameOverSequence = {
+					armTick: tick,
+					scores,
+					matchTick,
+					resolvedTick,
+					attractTick: resolvedTick + attractTicks,
+					drawn: null,
+				};
 			} else {
 				const nextPlayer = isLastPlayer ? 0 : endingPlayer + 1;
 				const started = startBall(nextState, nextPlayer, tick);
@@ -878,6 +1107,7 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				events.push(...started.events);
 				coilCommands.push(...started.coilCommands);
 				ballWillStartEvents.push(...started.ballWillStartEvents);
+				recoverCommands.push(...started.recoverCommands);
 			}
 
 			// Story 2.10, task 7(e): armed AFTER the game-over/rotation block
@@ -907,9 +1137,22 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// (`sim/rules/index.ts` applies it before `applyDeviceEvents`, AD-4) --
 		// this block only decides the EVENT and the SERVE, never the count.
 
-		// (a) the recover's own answer: ball_missing, always (even count 0),
-		// and a trough serve only into a genuinely empty lane.
-		if (machineReport.recovered !== null) {
+		// (a) the recover's own answer, now split in two (Story 2.13, Design
+		// Notes "The stray clear: reporting and ordering"). The stray clear's
+		// OWN report -- exactly one tick after a `startBall()` armed
+		// `pendingStrayClear` -- is silent at count 0 and never serves
+		// (Boundaries: "never serve from the stray-clear report, and never
+		// emit ball_missing { count: 0 } for it"). Any OTHER report (ball
+		// search's own final-stage answer) takes the EXISTING branch:
+		// `ball_missing` always, even at count 0, and a trough serve only
+		// into a genuinely empty lane.
+		const strayClearReportDue = pendingStrayClear !== null && tick === pendingStrayClear.tick + 1;
+		if (strayClearReportDue && machineReport.recovered !== null) {
+			if (machineReport.recovered > 0) {
+				events.push({ type: 'ball_missing', count: machineReport.recovered, tick });
+			}
+			pendingStrayClear = null;
+		} else if (machineReport.recovered !== null) {
 			events.push({ type: 'ball_missing', count: machineReport.recovered, tick });
 			if (nextState.phase === 'game' && !nextState.machine.deviceSlots.bd_shooter[0]) {
 				coilCommands.push({ type: 'coil', coil: TABLE.ballDevices.bd_trough.ejectCoil as CoilName, action: 'pulse', tick });

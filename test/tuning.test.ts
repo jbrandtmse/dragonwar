@@ -85,6 +85,12 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'bonusLetterValue',
 			'bonusLoopValue',
 			'bonusStrikeValue',
+			// Story 2.13 (AD-14/AD-15): the Match's win chance and the
+			// game-over sequence's three paced durations.
+			'matchProbability',
+			'matchDelayMs',
+			'matchRevealMs',
+			'attractMs',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
@@ -290,6 +296,43 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 			expect(ticksEntry.source).toBe(msEntry.source);
 			expect(ticksEntry.confidence).toBe(msEntry.confidence);
 		}
+	});
+
+	// Story 2.13 (AC 12): the four new tunables resolve to their authored
+	// literals, with a non-empty source and a valid confidence, and the three
+	// `…Ms` entries derive their `…Ticks` siblings -- authored tick literals
+	// at the production 1000 Hz (AD-3), never re-derived from the ms value
+	// under test (Rule 19 shape 3, the `ballSearchMs` precedent above).
+	// `matchProbability` derives no `…Ticks` sibling: a fraction, not a
+	// duration.
+	it('AC 12: matchProbability (0.08), matchDelayMs (5000), matchRevealMs (250) and attractMs (8000) resolve with a non-empty source and a valid confidence, and the three …Ms entries derive matchDelayTicks/matchRevealTicks/attractTicks', () => {
+		const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+		expect(resolved.matchProbability.value).toBe(0.08);
+		expect(resolved.matchProbability.source.length).toBeGreaterThan(0);
+		expect(validConfidences).toContain(resolved.matchProbability.confidence);
+
+		for (const [msKey, ticksKey, expectedMsValue, expectedTicksValue] of [
+			['matchDelayMs', 'matchDelayTicks', 5000, 5000],
+			['matchRevealMs', 'matchRevealTicks', 250, 250],
+			['attractMs', 'attractTicks', 8000, 8000],
+		] as const) {
+			const msEntry = resolved[msKey] as unknown as TuningEntry<number>;
+			const ticksEntry = resolved[ticksKey] as unknown as TuningEntry<number>;
+			expect(msEntry.value).toBe(expectedMsValue);
+			expect(msEntry.source.length).toBeGreaterThan(0);
+			expect(validConfidences).toContain(msEntry.confidence);
+			expect(ticksEntry.value).toBe(expectedTicksValue);
+			expect(ticksEntry.source).toBe(msEntry.source);
+			expect(ticksEntry.confidence).toBe(msEntry.confidence);
+		}
+	});
+
+	// Story 2.13 (AC 12): production `matchDelayTicks` must exceed the
+	// Backglass's `BALL_ENDED_HOLD_TICKS` (3000), so the last ball's own
+	// end-of-ball hold and bonus count-up (Story 2.10) are never cut by the
+	// Match sequence starting underneath them.
+	it('AC 12: production matchDelayTicks (5000) exceeds BALL_ENDED_HOLD_TICKS (3000)', () => {
+		expect(resolved.matchDelayTicks.value).toBeGreaterThan(3000);
 	});
 
 	it('produces switchSettleTicksByClass with every class converted, preserving source/confidence', () => {

@@ -725,6 +725,42 @@ export const TUNING = deepFreeze({
 		'<AD-12: "the live dynamic-light budget on the floor is 20 per frame [ASSUMPTION]", verified 2026-08-26 at ~23 Babylon clustered-forward lights per WebGL2 batch, re-verify 2026-09-26. No artifact states a measured figure>',
 		'unverified',
 	),
+
+	/**
+	 * Story 2.13 (AD-14, AD-15): the Match's own win chance, a dimensionless
+	 * FRACTION in [0,1] -- never a duration, so it derives no `…Ticks`
+	 * sibling (following `tiltWarnings`'s own top-level-count shape above).
+	 * `sim/rules/index.ts`'s `DEFAULT_ADJUSTMENTS.matchProbability` reads this
+	 * value (AD-14, the `tiltWarnings` precedent: a table default layered
+	 * into `GameAdjustments`, itself overridable per `GameStart`).
+	 */
+	matchProbability: entry(
+		0.08,
+		"PRD FR-22: 'probability is a Setting defaulting to 8%' (chosen deliberately 2026-08-27; conventional, not sourced; the research marks it unverified). The table default GameAdjustments.matchProbability reads it (AD-14, the tiltWarnings precedent)",
+		'unverified',
+	),
+
+	/**
+	 * Story 2.13 (AD-3, AD-15): the game-over sequence's own three paced
+	 * durations, each a top-level `…Ms` scalar (never nested, DW-34) so
+	 * `resolveTuning()` derives `matchDelayTicks`, `matchRevealTicks` and
+	 * `attractTicks`.
+	 */
+	matchDelayMs: entry(
+		5000,
+		"authored: AD-3 names the game-over scores and the Match reveal as display-paced sequences (reconcile-prd S-8); no artifact states a duration. It must exceed the Backglass's 3000 ms ball_ended hold, so the last ball's end-of-ball screen and bonus count-up are never cut and the final scores show for 2 s before the Match",
+		'unverified',
+	),
+	matchRevealMs: entry(
+		250,
+		'authored: no artifact states a pace; ten reveal steps (one per multiple of ten) x 250 ms = 2.5 s',
+		'unverified',
+	),
+	attractMs: entry(
+		8000,
+		'authored: epics AC 3 names attractMs, not a duration; long enough to read four final scores and the Match result, short enough that an idle machine returns to Attract promptly',
+		'unverified',
+	),
 } as const);
 
 type TuningMsKey<T> = {

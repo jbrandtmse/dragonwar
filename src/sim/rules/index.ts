@@ -208,10 +208,8 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * `ballsPerGame` ONLY. `tiltWarnings` and `matchProbability` deliberately do
  * NOT match the dev replay recorder's own `GameStart` in `src/host/boot.ts` or
  * the golden headers, which both carry `tiltWarnings: 3` / `matchProbability: 0`;
- * this default carries the tuning entry's value / `0.08` (the REAL gameplay
+ * this default carries each tuning entry's own value (the REAL gameplay
  * `GameStart` in `boot.ts` is not the divergent one -- see below).
- * `matchProbability` still has no reader (Match is Story 2.13) so that
- * divergence is unchanged and still that story's product call to reconcile.
  *
  * Story 2.11 (`DW-36`, closed): `tiltWarnings` no longer diverges by
  * construction -- it now reads `TUNING.tiltWarnings.value` (`sim/table/tuning.ts`,
@@ -221,6 +219,16 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * `GameStart` (`boot.ts:407`) is untouched and keeps its deliberate literal
  * `3` -- `DW-185`'s divergence, routed to Story 3.7, not this story's to
  * touch.
+ *
+ * Story 2.13 (AD-14, AD-15): `matchProbability` now reads
+ * `TUNING.matchProbability.value` for the identical reason -- Match now has
+ * a real reader (the ball controller's game-over sequence), and
+ * `src/host/boot.ts`'s real `GameStart` reads the SAME entry, mirroring
+ * `tiltWarnings`'s own precedent exactly. The dev replay recorder's own
+ * separate `GameStart` (`boot.ts:413`) is untouched and keeps its literal
+ * `matchProbability: 0` -- DW-185's divergence, routed to Story 3.7. The
+ * golden headers' own `matchProbability: 0` is likewise untouched (Block If:
+ * no golden may move).
  */
 // Test-only named export (the `HARDWARE_COILS` / `PLAYFIELD_SWITCHES`
 // precedent, `ball-controller.ts` / `devices/index.ts`) -- Story 2.7, DW-201
@@ -236,7 +244,7 @@ export const DEFAULT_ADJUSTMENTS: GameAdjustments = {
 	pitchDeg: TABLE.reference.pitchDeg,
 	tiltWarnings: TUNING.tiltWarnings.value,
 	ballsPerGame: 3,
-	matchProbability: 0.08,
+	matchProbability: TUNING.matchProbability.value,
 };
 
 /**

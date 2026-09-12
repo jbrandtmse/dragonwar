@@ -17,7 +17,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { KEY_MAP, createKeyboardInput, type KeyboardEventTarget } from '../src/host/input';
+import { KEY_MAP, createKeyboardInput, viewConfigFromKeyMap, type KeyboardEventTarget } from '../src/host/input';
+import { renderFrame, INITIAL_BACKGLASS_VIEW } from '../src/presentation/backglass/frame';
+import { buildSnapshot } from './util/snapshot-factory';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 interface StubEvent {
@@ -448,5 +450,38 @@ describe('AD-4 -- no key code, KeyboardEvent reference or "code" string exists a
 			}
 		}
 		expect(offenders).toEqual([]);
+	});
+});
+
+describe('Story 2.13, AC 4 (integration half) -- viewConfigFromKeyMap(KEY_MAP), through the REAL renderFrame(), produces the exact keys rows', () => {
+	it('with viewConfigFromKeyMap(KEY_MAP) (the real host map, the real renderer), the keys rows are exactly L FLIP SHIFT LEFT, R FLIP SHIFT RIGHT, PLUNGE ENTER and START 1 at rows 0/8/16/24', () => {
+		const viewConfig = viewConfigFromKeyMap(KEY_MAP);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'attract_keys' }, buildSnapshot(), viewConfig);
+		expect(frame.rows).toEqual([
+			{ text: 'L FLIP SHIFT LEFT', col: 2, row: 0, emphasis: false },
+			{ text: 'R FLIP SHIFT RIGHT', col: 2, row: 8, emphasis: false },
+			{ text: 'PLUNGE ENTER', col: 2, row: 16, emphasis: false },
+			{ text: 'START 1', col: 2, row: 24, emphasis: false },
+		]);
+	});
+
+	it('with a custom binding ({ flipper_l: ["KeyZ"] }), the first row reads L FLIP Z', () => {
+		const viewConfig = { bindings: { flipper_l: ['KeyZ'] } };
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'attract_keys' }, buildSnapshot(), viewConfig);
+		expect(frame.rows[0]).toEqual({ text: 'L FLIP Z', col: 2, row: 0, emphasis: false });
+	});
+
+	it('viewConfigFromKeyMap() defaults to the real KEY_MAP -- nudge_up resolves to BOTH its codes, in map order (ArrowUp then Space)', () => {
+		const viewConfig = viewConfigFromKeyMap();
+		expect(viewConfig.bindings.nudge_up).toEqual(['ArrowUp', 'Space']);
+		expect(viewConfig.bindings.flipper_l).toEqual(['ShiftLeft']);
+		expect(viewConfig.bindings.flipper_r).toEqual(['ShiftRight']);
+		expect(viewConfig.bindings.plunger).toEqual(['Enter']);
+		expect(viewConfig.bindings.start).toEqual(['Digit1']);
+	});
+
+	it('with no ViewConfig argument at all, renderFrame() renders the keys rows with the action labels only', () => {
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'attract_keys' }, buildSnapshot());
+		expect(frame.rows.map((r) => r.text)).toEqual(['L FLIP', 'R FLIP', 'PLUNGE', 'START']);
 	});
 });

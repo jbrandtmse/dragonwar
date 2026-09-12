@@ -275,6 +275,12 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return `broken ${event.device}`;
 				case 'device_overflow':
 					return `overflow ${event.device}`;
+				case 'game_ended':
+					return `game ended ${event.scores.join(',')}`;
+				case 'match_drawn':
+					return `match drawn ${event.number} winners ${event.winners.join(',')}`;
+				case 'match_reveal_step':
+					return `match reveal ${event.step}/${event.steps} shown ${event.shown}`;
 				default: {
 					// Exhaustiveness: if a new event variant is ever added without a
 					// case above, this line fails `pnpm typecheck`.
@@ -341,6 +347,14 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(describeEvent({ type: 'eject_failed', device: 'bd_lock', tick: 16 })).toBe('eject failed bd_lock');
 		expect(describeEvent({ type: 'broken', device: 'c_pop_1', tick: 17 })).toBe('broken c_pop_1');
 		expect(describeEvent({ type: 'device_overflow', device: 'bd_lock', tick: 18 })).toBe('overflow bd_lock');
+
+		// Story 2.13 (AC 13): the three new arms, each with an executing
+		// assertion from the moment it ships -- distinct field values so a
+		// field swap (e.g. templating event.number where event.shown was
+		// intended) reddens rather than typechecks.
+		expect(describeEvent({ type: 'game_ended', scores: [100, 200], tick: 200 })).toBe('game ended 100,200');
+		expect(describeEvent({ type: 'match_drawn', number: 30, winners: [0, 2], tick: 205 })).toBe('match drawn 30 winners 0,2');
+		expect(describeEvent({ type: 'match_reveal_step', step: 4, steps: 10, shown: 70, tick: 206 })).toBe('match reveal 4/10 shown 70');
 	});
 });
 

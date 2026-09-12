@@ -122,6 +122,11 @@ describe('code review -- a REAL renderFrame() output actually LIGHTS DOTS, at th
 	// `src/host/boot.ts:236` actually ships (`rasterise(renderFrame(...))`),
 	// so it is the one that has to be observable.
 	it('the score screen lights dots in four distinct 8-row bands with genuinely unlit gutter rows between them, and starts near the left edge', () => {
+		// Story 2.13 (DW-197): three players now lay out as a 2x2 grid (rows 0
+		// and 8), so a fourth band needs a mode with a published field to reach
+		// row 24 (the shared fields line) -- the SAME "four distinct bands"
+		// claim this test has always pinned, over the new layout that actually
+		// ships.
 		const game: GameState = {
 			...BASE_GAME_STATE,
 			phase: 'game',
@@ -131,9 +136,12 @@ describe('code review -- a REAL renderFrame() output actually LIGHTS DOTS, at th
 				buildPlayer({ score: 5678, ballNumber: 3 }),
 				buildPlayer({ score: 90, ballNumber: 1 }),
 			],
+			modes: [{ mode: 'skill_shot', priority: 200, player: 1, timerTicks: 4500 }],
 		};
 		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
-		expect(frame.rows.length, 'sanity: three scores plus the ball row').toBe(4);
+		// The 2x2 players grid (2 rows), the shared status line (mode name +
+		// BALL n), and the fields line.
+		expect(frame.rows.length, 'sanity: the 2x2 grid, the status line (2 rows) and the fields line').toBe(6);
 
 		const raster = rasterise(frame, FONT_5X7);
 		const lit = litDotRows(raster);
@@ -154,32 +162,55 @@ describe('code review -- a REAL renderFrame() output actually LIGHTS DOTS, at th
 			).toBe(true);
 		}
 
-		// (d) The gutter rows between the bands are genuinely unlit. This is
-		//     what pins LINE_PITCH_ROWS = 8 against GLYPH_H = 7: any overlap or
-		//     any different pitch puts a lit dot on one of these rows.
-		for (const gutter of [7, 15, 23, 31]) {
+		// (d) The gutter rows between the bands are genuinely unlit -- EXCEPT
+		//     row 7, the gutter directly beneath the emphasised player (index
+		//     1, currentPlayer, row 0): Story 2.13 (DW-198) inverts an 8-row
+		//     box (`row..row+7`, glyph height 7 PLUS the gutter beneath it) for
+		//     an emphasised row, by design, so that gutter is now genuinely
+		//     lit -- proven directly, rather than silently excluded. This
+		//     still pins LINE_PITCH_ROWS = 8 against GLYPH_H = 7 for every
+		//     UNemphasised line: any overlap or different pitch would light
+		//     one of the other three gutters instead.
+		expect(lit, 'the emphasised row\'s own gutter (row 7) is inverted by design (DW-198) and must carry a lit dot').toContain(7);
+		for (const gutter of [15, 23, 31]) {
 			expect(lit, `dot row ${gutter} is the gutter between two lines and must carry no lit dot`).not.toContain(gutter);
 		}
 
-		// (e) No lit dot outside the four bands at all.
+		// (e) No lit dot outside the four bands (each 7 glyph rows, widened to
+		//     8 for band 0 alone, which carries the emphasised row's own
+		//     inverted gutter).
 		for (const r of lit) {
 			expect(
-				BANDS.some((band) => r >= band && r <= band + 6),
+				BANDS.some((band) => r >= band && r <= band + (band === 0 ? 7 : 6)),
 				`lit dot row ${r} falls outside every line band -- the line arithmetic has drifted`,
 			).toBe(true);
 		}
 	});
 });
 
-describe('advanceBackglass() -- game_over and highscore_entry also fall through to the score screen (DW-196: only phase "game" was previously exercised, though the doc comment above advanceBackglass() names all three)', () => {
-	it.each(['game_over', 'highscore_entry'] as const)('phase "%s" selects the score screen, exactly like phase "game"', (phase) => {
+describe('advanceBackglass() -- highscore_entry falls through to the score screen (DW-196); game_over now has its OWN screen (Story 2.13)', () => {
+	it('phase "highscore_entry" selects the score screen, exactly like phase "game"', () => {
 		const game: GameState = {
 			...BASE_GAME_STATE,
-			phase,
+			phase: 'highscore_entry',
 			players: [buildPlayer({ score: 42, ballNumber: 1 })],
 		};
 		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ game }) }));
 		expect(view.screen).toBe('score');
+	});
+
+	// Story 2.13 (AC 1): DW-196's old claim -- game_over used to fall through
+	// to 'score' too -- is no longer true. `game_over` now selects its OWN
+	// screen (final scores, GAME OVER, the Match reveal); the positive that
+	// the screen genuinely changed.
+	it('phase "game_over" selects the game_over screen, not the score screen', () => {
+		const game: GameState = {
+			...BASE_GAME_STATE,
+			phase: 'game_over',
+			players: [buildPlayer({ score: 42, ballNumber: 1 })],
+		};
+		const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ game }) }));
+		expect(view.screen).toBe('game_over');
 	});
 });
 
@@ -278,6 +309,7 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 			attractCycleOriginTick: 0,
 			heldBallEnded: { player: 0, score: 1111, bonusRunning: null },
 			pendingTiltWarning: false,
+			heldMatch: null,
 		};
 		const game: GameState = {
 			...BASE_GAME_STATE,
@@ -381,6 +413,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 			attractCycleOriginTick: 0,
 			heldBallEnded: null,
 			pendingTiltWarning: false,
+			heldMatch: null,
 		};
 		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
 		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
@@ -582,6 +615,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 				attractCycleOriginTick: 0,
 				heldBallEnded: { player: 0, score: 1234, bonusRunning: null },
 				pendingTiltWarning: true,
+				heldMatch: null,
 			};
 			const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
 			expect(afterReset.screen, 'a stale carried warning paired with a stale, far-future holdUntilTick must not resurface just because tick is small again (mutation: dropping the `tick >= view.holdUntilTick` bound on the carried flag shows tilt_warning here instead of score)').toBe('score');
@@ -745,7 +779,10 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 			expect(stillHeld.screen, 'sanity: game_over keeps the hold alive, unlike attract').toBe('ball_ended');
 
 			const atHoldEnd = advanceBackglass(stillHeld, frameOutput({ snapshot: buildSnapshot({ tick: armed.holdUntilTick!, game: gameOverGame }), events: [] }));
-			expect(atHoldEnd.screen, 'phase is no longer "game" at the hold\'s end -- the pending warning must be dropped, not shown over game_over (mutation: dropping `game.phase === \'game\' &&` from the warning-arming branch shows WARNING here)').toBe('score');
+			// Story 2.13 (AC 1): the hold's own release now falls through to the
+			// NEW game_over screen, not 'score' -- the warning must still be
+			// dropped, not shown over it.
+			expect(atHoldEnd.screen, 'phase is no longer "game" at the hold\'s end -- the pending warning must be dropped, not shown over game_over (mutation: dropping `game.phase === \'game\' &&` from the warning-arming branch shows WARNING here)').toBe('game_over');
 		});
 
 		// Code review (cycle 2, verification-gap / blind-hunter / acceptance-
@@ -830,7 +867,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 
 			// Reset-safety (this file's half-open discipline): a WARNING view from a
 			// PREVIOUS, longer timeline is not "still showing" on a new one.
-			const staleWarning: BackglassView = { screen: 'tilt_warning', holdUntilTick: 500_000, attractCycleOriginTick: 0, heldBallEnded: null, pendingTiltWarning: false };
+			const staleWarning: BackglassView = { screen: 'tilt_warning', holdUntilTick: 500_000, attractCycleOriginTick: 0, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null };
 			const afterReset = advanceBackglass(staleWarning, frameOutput({ snapshot: buildSnapshot({ tick: 40, game: gameInPlay }), events: [endedAt(40)] }));
 			const afterResetEnd = advanceBackglass(afterReset, frameOutput({ snapshot: buildSnapshot({ tick: afterReset.holdUntilTick!, game: gameInPlay }), events: [] }));
 			expect(afterResetEnd.screen, 'a stale WARNING from a previous timeline must not be carried into a new one').toBe('score');
@@ -1103,7 +1140,7 @@ describe('Story 2.10 -- the count-up\'s pacing is coupled to two constants nothi
 });
 
 describe('AC 4 -- Attract cycles with scores, and pins to the prompt with none', () => {
-	it('with two players carrying distinct scores, the screen id is not constant across a full cycle, both screens appear, the prompt reads PRESS START, the scores screen shows both scores, and it wraps', () => {
+	it('with two players carrying distinct scores, a fresh entry opens with attract_keys, then the screen id is not constant across a full prompt/scores cycle, both cycling screens appear labelled, and it wraps', () => {
 		const game: GameState = {
 			...BASE_GAME_STATE,
 			phase: 'attract',
@@ -1112,50 +1149,67 @@ describe('AC 4 -- Attract cycles with scores, and pins to the prompt with none',
 
 		let view = INITIAL_BACKGLASS_VIEW;
 		const screensByTick = new Map<number, string>();
-		// One full cycle's worth of ticks, plus one -- the cycle length is an
-		// implementation constant, so probe generously past any single
-		// reasonable period rather than importing it.
-		const PROBE_TICKS = 8000;
+		// Story 2.13: a fresh entry now opens with ATTRACT_KEYS_HOLD_TICKS (3000)
+		// of 'attract_keys' before the prompt/scores cycle even starts, so the
+		// probe window is widened past one full cycle AFTER that keys phase --
+		// the cycle length itself is an implementation constant, so probe
+		// generously rather than importing it.
+		const KEYS_HOLD_TICKS = 3000;
+		const PROBE_TICKS = 12000;
 		for (let tick = 0; tick <= PROBE_TICKS; tick++) {
 			view = advanceBackglass(view, frameOutput({ snapshot: buildSnapshot({ tick, game }) }));
 			screensByTick.set(tick, view.screen);
 		}
 
 		const distinctScreens = new Set(screensByTick.values());
+		expect(distinctScreens.has('attract_keys'), 'a fresh entry must visit attract_keys').toBe(true);
 		expect(distinctScreens.has('attract_prompt'), 'the cycle must visit attract_prompt').toBe(true);
 		expect(distinctScreens.has('attract_scores'), 'the cycle must visit attract_scores').toBe(true);
-		expect(distinctScreens.size, 'the screen id must not be constant').toBeGreaterThan(1);
+		expect(distinctScreens.size, 'the screen id must not be constant').toBeGreaterThan(2);
 
-		// The cycle must wrap: some later tick returns to tick 0's own screen,
-		// with at least one tick strictly in between differing from it.
-		const screenAtT0 = screensByTick.get(0)!;
+		// attract_keys shows for exactly the first KEYS_HOLD_TICKS of this
+		// entry, and never again afterward (I/O Matrix: "does not return until
+		// Attract is re-entered").
+		for (let tick = 0; tick < KEYS_HOLD_TICKS; tick++) {
+			expect(screensByTick.get(tick), `tick ${tick} must still show attract_keys`).toBe('attract_keys');
+		}
+		for (let tick = KEYS_HOLD_TICKS; tick <= PROBE_TICKS; tick++) {
+			expect(screensByTick.get(tick), `tick ${tick} must never show attract_keys again within this stay`).not.toBe('attract_keys');
+		}
+
+		// The prompt/scores cycle must wrap: some later tick returns to the
+		// cycle's own starting screen (measured from KEYS_HOLD_TICKS, its own
+		// origin), with at least one tick strictly in between differing from it.
+		const screenAtCycleStart = screensByTick.get(KEYS_HOLD_TICKS)!;
 		let sawDifferent = false;
 		let wrapTick = -1;
-		for (let tick = 1; tick <= PROBE_TICKS; tick++) {
+		for (let tick = KEYS_HOLD_TICKS + 1; tick <= PROBE_TICKS; tick++) {
 			const screen = screensByTick.get(tick);
-			if (screen !== screenAtT0) {
+			if (screen !== screenAtCycleStart) {
 				sawDifferent = true;
 			} else if (sawDifferent) {
 				wrapTick = tick;
 				break;
 			}
 		}
-		expect(wrapTick, 'the cycle must return to tick 0\'s own screen after genuinely differing in between').toBeGreaterThan(0);
+		expect(wrapTick, 'the cycle must return to its own starting screen after genuinely differing in between').toBeGreaterThan(0);
 
 		const promptFrame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'attract_prompt' }, buildSnapshot({ game }));
 		expect(promptFrame.rows.some((r) => r.text.includes('PRESS START'))).toBe(true);
 
+		// Story 2.13 (DW-198): Attract scores now identify the player.
 		const scoresFrame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'attract_scores' }, buildSnapshot({ game }));
-		expect(scoresFrame.rows.some((r) => r.text === '4,200')).toBe(true);
-		expect(scoresFrame.rows.some((r) => r.text === '990')).toBe(true);
+		expect(scoresFrame.rows.some((r) => r.text === 'PLAYER 1 4,200')).toBe(true);
+		expect(scoresFrame.rows.some((r) => r.text === 'PLAYER 2 990')).toBe(true);
 	});
 
-	it('cold boot (players: []) renders only the prompt, at every tick, with no empty score rows', () => {
+	it('cold boot (players: []) shows the keys screen, then only the prompt afterward, at every tick, with no empty score rows', () => {
 		const game: GameState = { ...BASE_GAME_STATE, phase: 'attract', players: [] };
 		let view = INITIAL_BACKGLASS_VIEW;
+		const expected: Record<number, string> = { 0: 'attract_keys', 1000: 'attract_keys', 5000: 'attract_prompt', 9000: 'attract_prompt' };
 		for (const tick of [0, 1000, 5000, 9000]) {
 			view = advanceBackglass(view, frameOutput({ snapshot: buildSnapshot({ tick, game }) }));
-			expect(view.screen, `at tick ${tick}, cold boot must show only the prompt`).toBe('attract_prompt');
+			expect(view.screen, `at tick ${tick}, cold boot must show ${expected[tick]}`).toBe(expected[tick]);
 		}
 		const frame = renderFrame(view, buildSnapshot({ game }));
 		expect(frame.rows.some((r) => r.text.includes('PRESS START'))).toBe(true);
@@ -1192,7 +1246,7 @@ describe('AC 5 -- the highest-priority mode, with published fields converted to 
 		expect(texts.some((t) => t.includes('4500'))).toBe(false);
 	});
 
-	it('a ModeView publishing timerTicks only produces no row for value, charge or strikesRemaining', () => {
+	it('a ModeView publishing timerTicks only produces no field for value, charge or strikesRemaining on the shared fields line', () => {
 		const game = gameWithModes([{ mode: 'skill_shot', priority: 200, player: 0, timerTicks: 1000 }]);
 		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
 		// The EXACT row list, not merely a filtered subset (Rule 19's own
@@ -1201,7 +1255,14 @@ describe('AC 5 -- the highest-priority mode, with published fields converted to 
 		// measured live authoring this test: unconditionally rendering
 		// value/charge/strikesRemaining left this exact filtered assertion
 		// green while three stray "undefined" rows had appeared).
-		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', 'ARM YOURSELF', '1.0']);
+		//
+		// Story 2.13 (DW-197): the mode's name and its published fields now
+		// share ONE status line and ONE fields line respectively with `BALL n`
+		// (never a row per field any more) -- the name comes before `BALL n`
+		// on the status line (the I/O Matrix's own literal row order), and the
+		// fields line carries only `1.0` (timerTicks alone; value/charge/
+		// strikesRemaining are all absent).
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'ARM YOURSELF', 'BALL 1', '1.0']);
 	});
 });
 
@@ -1227,16 +1288,18 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 		// Rule 19 condition this ledger entry (DW-200) imposes explicitly: a
 		// helper returning empty text is not enough to trust -- the
 		// RASTERISED dot buffer must actually be dark where the mode's own
-		// name row would have landed. For a single player the name row would
-		// sit at dot row 16 (player row 0, BALL row 8, mode name row 16 --
-		// LEFT_MARGIN_COL/LINE_PITCH_ROWS math, this file's own AC 5 block)
-		// and span GLYPH_H (7) rows beneath it.
+		// name WOULD have landed. Story 2.13 (DW-197) moved the mode name onto
+		// the SHARED status line with `BALL n` (row 8 for a single player,
+		// LINE_PITCH_ROWS math) -- the name would occupy the LEFT segment
+		// (cols 2-85, AC 9's own boundary) if present; `BALL 1` legitimately
+		// lights the RIGHT segment of that same row band, so only the left
+		// segment is checked here.
 		const raster = rasterise(frame, FONT_5X7);
-		const MODE_NAME_ROW = 16;
+		const STATUS_ROW = 8;
 		const GLYPH_H = 7;
-		for (let row = MODE_NAME_ROW; row < MODE_NAME_ROW + GLYPH_H; row++) {
-			for (let col = 0; col < raster.cols; col++) {
-				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} must be unlit -- no mode row may render`).toBe(0);
+		for (let row = STATUS_ROW; row < STATUS_ROW + GLYPH_H; row++) {
+			for (let col = 0; col <= 85; col++) {
+				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} (the mode-name segment) must be unlit -- no mode row may render`).toBe(0);
 			}
 		}
 	});
@@ -1262,12 +1325,16 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1']);
 		expect(frame.rows.some((r) => r.text.includes('SOME UNMAPPED MODE') || r.text === '1.0')).toBe(false);
 
+		// Story 2.13 (DW-197): the same left-segment check as the base-only
+		// case above -- the mode name's own segment (cols 2-85) of the shared
+		// status line (row 8 for a single player), never the whole row (`BALL
+		// 1` legitimately lights its right segment).
 		const raster = rasterise(frame, FONT_5X7);
-		const MODE_NAME_ROW = 16;
+		const STATUS_ROW = 8;
 		const GLYPH_H = 7;
-		for (let row = MODE_NAME_ROW; row < MODE_NAME_ROW + GLYPH_H; row++) {
-			for (let col = 0; col < raster.cols; col++) {
-				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} must be unlit -- no mode row may render`).toBe(0);
+		for (let row = STATUS_ROW; row < STATUS_ROW + GLYPH_H; row++) {
+			for (let col = 0; col <= 85; col++) {
+				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} (the mode-name segment) must be unlit -- no mode row may render`).toBe(0);
 			}
 		}
 	});
@@ -1311,7 +1378,22 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 			.map((entry) => path.join(dir, entry));
 	}
 
-	const DISPLAY_LITERALS = ['PRESS START', 'PLAYER ', 'BALL ', 'ARM YOURSELF', 'BONUS ', 'TILT', 'WARNING'];
+	// 'MATCH ' (trailing space, matching the rendered "MATCH 00" text) rather
+	// than bare 'MATCH': sim/rules/match.ts and ball-controller.ts legitimately
+	// name `MATCH_NUMBERS`/`MATCH_REVEAL_STEPS` (Story 2.13's own authored
+	// identifiers, an underscore immediately after "MATCH", never a space) --
+	// the bare word would false-positive on those non-display identifiers.
+	//
+	// Code review (this pass): the identical collision exists for the Attract
+	// keys screen's own 'START' row label (`frame.ts`'s `ATTRACT_KEYS_ROW_SPECS`,
+	// `{ prefix: 'START', action: 'start' }`) against `ball-controller.ts`'s
+	// `START_BUTTON` identifier -- a bare 'START' is a substring of
+	// "START_BUTTON" too (unlike 'PRESS START' above, which is already safe:
+	// no identifier can contain a space). `"'START'"` (the quote characters
+	// included) sidesteps it the same way 'MATCH ' sidesteps its own
+	// collision: `START_BUTTON` never appears quoted in source, so the quoted
+	// form matches only the genuine display literal in `frame.ts`.
+	const DISPLAY_LITERALS = ['PRESS START', "'START'", 'PLAYER ', 'BALL ', 'ARM YOURSELF', 'BONUS ', 'TILT', 'WARNING', 'GAME OVER', 'MATCH ', 'L FLIP', 'R FLIP', 'PLUNGE'];
 
 	/**
 	 * Comments freely discuss balls and players in English prose -- this scan
@@ -1415,5 +1497,141 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 				expect(contents.includes(literal), `${path.relative(simDir, file)} must not contain the display literal "${literal}" outside a comment (AD-9: rules never format text)`).toBe(false);
 			}
 		}
+	});
+});
+
+describe('AC 9 (DW-197) -- the literal I/O Matrix score-screen rows, at every player count', () => {
+	function gameWith(players: GameState['players'], currentPlayer: number, modes: GameState['modes'] = []): GameState {
+		return { ...BASE_GAME_STATE, phase: 'game', players, currentPlayer, modes };
+	}
+
+	it('4 players + mode: the 2x2 grid, the shared status line (mode name then BALL n) and the fields line -- every row inside the 32-row panel', () => {
+		const game = gameWith(
+			[buildPlayer({ score: 10, ballNumber: 1 }), buildPlayer({ score: 20, ballNumber: 1 }), buildPlayer({ score: 30, ballNumber: 2 }), buildPlayer({ score: 40, ballNumber: 1 })],
+			2,
+			[{ mode: 'skill_shot', priority: 200, player: 2, timerTicks: 4500, value: 7 }],
+		);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		expect(frame.rows).toEqual([
+			{ text: '10', col: 2, row: 0, emphasis: false },
+			{ text: '20', col: 66, row: 0, emphasis: false },
+			{ text: '30', col: 2, row: 8, emphasis: true },
+			{ text: '40', col: 66, row: 8, emphasis: false },
+			{ text: 'ARM YOURSELF', col: 2, row: 16, emphasis: false },
+			{ text: 'BALL 2', col: 91, row: 16, emphasis: false },
+			{ text: '4.5  7', col: 2, row: 24, emphasis: false },
+		]);
+		for (const r of frame.rows) {
+			expect(r.row, `row ${r.row} must lie inside the 32-row panel`).toBeLessThan(32);
+		}
+	});
+
+	it('1 player + mode', () => {
+		const game = gameWith([buildPlayer({ score: 0, ballNumber: 1 })], 0, [{ mode: 'skill_shot', priority: 200, player: 0, timerTicks: 4500 }]);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		expect(frame.rows).toEqual([
+			{ text: '0', col: 2, row: 0, emphasis: true },
+			{ text: 'ARM YOURSELF', col: 2, row: 8, emphasis: false },
+			{ text: 'BALL 1', col: 91, row: 8, emphasis: false },
+			{ text: '4.5', col: 2, row: 16, emphasis: false },
+		]);
+	});
+
+	it('base only (DW-200): no mode text and no fields line', () => {
+		const game = gameWith([buildPlayer({ score: 0, ballNumber: 1 })], 0, [{ mode: 'base', priority: 100, player: 0 }]);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		expect(frame.rows).toEqual([
+			{ text: '0', col: 2, row: 0, emphasis: true },
+			{ text: 'BALL 1', col: 91, row: 8, emphasis: false },
+		]);
+	});
+
+	it('grid overflow: a 3-4-player score whose separated form exceeds 10 characters shows plain digits', () => {
+		const game = gameWith(
+			[buildPlayer({ score: 123456789, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 })],
+			1,
+		);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		// formatScore(123456789) = "123,456,789" (11 chars, over the 10-char
+		// cap) -- falls back to plain digits, "123456789" (9 chars).
+		const cell = frame.rows.find((r) => r.col === 2 && r.row === 0);
+		expect(cell?.text).toBe('123456789');
+	});
+
+	it('2 players + mode and 3 players -- BALL n stays right-aligned at col 91 regardless of player count', () => {
+		const twoPlayers = gameWith([buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 2 })], 1, [
+			{ mode: 'skill_shot', priority: 200, player: 1, timerTicks: 1000 },
+		]);
+		const twoFrame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game: twoPlayers }));
+		expect(twoFrame.rows.find((r) => r.text === 'BALL 2')).toEqual({ text: 'BALL 2', col: 91, row: 16, emphasis: false });
+
+		const threePlayers = gameWith(
+			[buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 3 })],
+			2,
+		);
+		const threeFrame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game: threePlayers }));
+		expect(threeFrame.rows.find((r) => r.text === 'BALL 3')).toEqual({ text: 'BALL 3', col: 91, row: 16, emphasis: false });
+	});
+
+	// DW-206: an unlabelled mode publishing a field still contributes no row
+	// and no dot, even alongside three other players (the 2x2 grid engaged).
+	it('DW-206: an unlabelled mode publishing timerTicks contributes no row and no dot, even with the 2x2 grid engaged', () => {
+		const game = gameWith(
+			[buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 })],
+			0,
+			[{ mode: 'some_unmapped_mode', priority: 100, player: 0, timerTicks: 1000 }],
+		);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
+		expect(frame.rows.some((r) => r.text.includes('1.0') || r.text.includes('SOME UNMAPPED'))).toBe(false);
+	});
+});
+
+/**
+ * Code review (this pass, Rule 19 gap): `buildScoreRows()`'s AC 9 battery
+ * above exhaustively covers the LIVE score screen's own emphasis (the
+ * current player's row inverted), but nothing exercised the `game_over`
+ * screen's OWN Design Notes rule -- "Players block. Used by the score and
+ * `game_over` screens... `game_over` screen shows no emphasis at all" --
+ * with more than one player. `game-over-integration.test.ts`'s own real-loop
+ * run is single-player (`ballsPerGame: 1`, one player throughout), so its
+ * `currentPlayer` is always 0 -- the SAME value `emphasis: false` would
+ * produce even if the game-over screen wrongly emphasised the current player
+ * (`buildPlayersRows(state.players, state.currentPlayer)`, the score
+ * screen's own call), because index 0 is exactly where a one-player game's
+ * only row sits. That mutation is invisible to a single-player run; it is
+ * only observable with `currentPlayer` at a NON-ZERO index.
+ */
+describe('Code review -- the game_over screen never emphasises a player, even a non-zero currentPlayer (Design Notes, "Players block")', () => {
+	function gameOverGame(players: GameState['players'], currentPlayer: number): GameState {
+		return { ...BASE_GAME_STATE, phase: 'game_over', players, currentPlayer, modes: [] };
+	}
+
+	it('4 players, currentPlayer at index 2 (non-zero): every player row is emphasis: false -- the mutation "emphasise the current player, like the score screen" would flip row 2 to true and this assertion would catch it', () => {
+		const game = gameOverGame(
+			[buildPlayer({ score: 10, ballNumber: 3 }), buildPlayer({ score: 20, ballNumber: 3 }), buildPlayer({ score: 30, ballNumber: 3 }), buildPlayer({ score: 40, ballNumber: 3 })],
+			2,
+		);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'game_over', heldMatch: null }, buildSnapshot({ game }));
+		const playerRows = frame.rows.filter((r) => r.text !== 'GAME OVER');
+		expect(playerRows, 'sanity: all four player rows are present').toHaveLength(4);
+		for (const row of playerRows) {
+			expect(row.emphasis, `row "${row.text}" at (${row.col},${row.row}) must not be emphasised on the game_over screen`).toBe(false);
+		}
+	});
+
+	it('pre-reveal (heldMatch: null): the status line is GAME OVER alone, with nothing on the right', () => {
+		const game = gameOverGame([buildPlayer({ score: 0, ballNumber: 1 })], 0);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'game_over', heldMatch: null }, buildSnapshot({ game }));
+		expect(frame.rows).toEqual([
+			{ text: '0', col: 2, row: 0, emphasis: false },
+			{ text: 'GAME OVER', col: 2, row: 8, emphasis: false },
+		]);
+	});
+
+	it('resolved but LOST (heldMatch.resolved true, winners empty): the right side shows the bare two-digit shown value, never a MATCH prefix', () => {
+		const game = gameOverGame([buildPlayer({ score: 0, ballNumber: 1 })], 0);
+		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'game_over', heldMatch: { shown: 30, resolved: true, winners: [] } }, buildSnapshot({ game }));
+		const statusRight = frame.rows.find((r) => r.row === 8 && r.text !== 'GAME OVER');
+		expect(statusRight?.text, 'a losing resolution shows the bare two digits, never "MATCH "').toBe('30');
 	});
 });

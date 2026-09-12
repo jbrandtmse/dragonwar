@@ -23,6 +23,7 @@
 // from `sim/physics` or `sim/rules`.
 
 import type { InputAction, InputFrame, InputTransition } from '../../sim/contracts/input';
+import type { ViewConfig } from '../../presentation/backglass/view-config';
 
 /**
  * A minimal, DOM-shaped event -- `event.code`/`event.timeStamp` for
@@ -187,4 +188,29 @@ export function createKeyboardInput(options: { readonly tickAt: (domTimeStampMs:
 			return drained;
 		},
 	};
+}
+
+/**
+ * Story 2.13 (AD-1, AD-14): inverts `keyMap` (defaulting to the real
+ * `KEY_MAP` above) into presentation's own `ViewConfig` shape -- action ->
+ * codes, in MAP ORDER (`Object.keys()` over a plain object literal preserves
+ * insertion order for string keys, which is how `KEY_MAP` is authored: this
+ * is what makes `nudge_up`'s two codes, `ArrowUp` then `Space`, come out in
+ * that same order, and is why `flipper_l`/`flipper_r`/`plunger`/`start` each
+ * resolve to exactly their own single code). This is the ONE place `KEY_MAP`
+ * is read for this purpose; the Attract keys screen itself (`presentation/
+ * backglass/frame.ts`) never reaches into `host/input` directly.
+ */
+export function viewConfigFromKeyMap(keyMap: Readonly<Record<string, InputAction>> = KEY_MAP): ViewConfig {
+	const bindings: Partial<Record<InputAction, string[]>> = {};
+	for (const code of Object.keys(keyMap)) {
+		const action = keyMap[code]!;
+		const codes = bindings[action];
+		if (codes) {
+			codes.push(code);
+		} else {
+			bindings[action] = [code];
+		}
+	}
+	return { bindings };
 }

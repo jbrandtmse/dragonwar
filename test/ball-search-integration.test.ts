@@ -36,6 +36,7 @@ import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { toPhysics } from '../src/sim/table/frames';
 import { loadCollision } from '../src/sim/physics/loader';
+import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../src/presentation/backglass/frame';
 import type { GameStart } from '../src/sim/table/names';
 
@@ -404,7 +405,13 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			expect(cupBallGoneAfterMissing, 'the ball that remains is not the cup ball').toBe(true);
 			expect(screenAtMissing, 'ball_missing through the real Backglass fold: no throw, and the score screen stays up -- never mistaken for an end of ball').toBe('score');
 			expect(ballsInPlayAtS2751, 'ballsInPlay reads 0 from S+2751').toBe(0);
-			expect(troughUntilPlunge, 'the trough count stays 2 until the plunge').toBe(2);
+			// Story 2.13 (DW-257, amended expectation): `recover()` now RETURNS
+			// the recovered cup ball to bd_trough's lowest empty slot instead of
+			// despawning it (AC 14) -- the trough count rises 2 -> 3 at the
+			// recover and stays there until the plunge ejects a ball for the
+			// next serve, never dropping back to 2 the way the destroy-only
+			// implementation left it.
+			expect(troughUntilPlunge, 'the trough count rises to 3 (the recovered ball parked) and stays there until the plunge').toBe(3);
 			expect(ballsInPlayUntilPlunge, 'ballsInPlay stays 0 until the plunge').toBe(0);
 
 			// --- the plunge ---
@@ -551,5 +558,110 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			).toEqual([35401]);
 		},
 		180_000,
+	);
+});
+
+// ---------------------------------------------------------------------------
+// Story 2.13, AC 7 -- DW-244 route 2: a lane ball already resting when the
+// CURRENT ball drains is served as the NEXT ball, never stacked. Driven
+// through a real createLoop(), using the SAME "dev pulse serves a second
+// ball into the lane" construction the spec's own Code Map measures directly
+// ("Measured at this tree", "The same shape via a dev pulse"): a genuine
+// ball-search pass (the full V-cup instrument above) and a dev pulseCoil()
+// serve both reach the identical rules-level state this route's own fix
+// guards -- bd_shooter occupied while the CURRENT ball is still draining --
+// so this reproduces route 2 without re-deriving the cup's own geometry.
+// ---------------------------------------------------------------------------
+describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current ball drains plays as the NEXT ball, never stacked', () => {
+	it(
+		'a second ball served into the lane while ball 1 is still in play: ball 1\'s eventual drain gives ball_ended and ball_will_start with no re-serve; no ball_missing anywhere; the lane ball then plunges as ball 2',
+		() => {
+			const loop = createLoop({ collisionDoc: loadCommittedDoc(), gameStart: gameStart(), tuning: NO_BALL_SAVE_TUNING });
+
+			loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
+			let out = loop.advance(1, [{ tick: 3, frame: NO_FRAME }]);
+			for (let i = 0; i < 398; i++) {
+				out = loop.advance(1, []);
+			}
+			// The manual plunge -- ball 1 out onto the field.
+			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+			for (let i = 0; i < 1199; i++) {
+				out = loop.advance(1, []);
+			}
+			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
+			let sawFirstLaunch = false;
+			for (let i = 0; i < 500 && !sawFirstLaunch; i++) {
+				out = loop.advance(1, []);
+				if (out.events.some((e) => e.type === 'ball_launched')) {
+					sawFirstLaunch = true;
+				}
+			}
+			expect(sawFirstLaunch, 'sanity: ball 1 must genuinely be out on the field').toBe(true);
+			expect(out.snapshot.balls, 'sanity: exactly one ball before the dev serve').toHaveLength(1);
+			const ball1Id = out.snapshot.balls[0]!.id;
+
+			// The dev pulse: a second ball served into the now-empty lane while
+			// ball 1 is still rolling on the field.
+			loop.pulseCoil('c_trough_eject');
+			let sawArrival = false;
+			for (let i = 0; i < 500 && !sawArrival; i++) {
+				out = loop.advance(1, []);
+				if (out.snapshot.mechanisms.devices.bd_shooter.slots[0] === true) {
+					sawArrival = true;
+				}
+			}
+			expect(sawArrival, 'the second ball must genuinely settle in the lane').toBe(true);
+			expect(out.snapshot.balls, 'two balls now exist').toHaveLength(2);
+			const laneBallId = out.snapshot.balls.find((b) => b.id !== ball1Id)!.id;
+			expect(out.snapshot.game.machine.ballsInPlay, 'the served lane ball is never counted as a ball in play').toBe(1);
+
+			// Ball 1's own eventual, natural drain (gravity alone -- the SAME
+			// "no player input" idiom test/rules-tilt-integration.test.ts's own
+			// tilted-ball drain uses).
+			let sawBallEnded = false;
+			let ballEndedTick = -1;
+			let sawMissingAnywhere = false;
+			for (let i = 0; i < 40000 && !sawBallEnded; i++) {
+				out = loop.advance(1, []);
+				if (out.events.some((e) => e.type === 'ball_missing')) {
+					sawMissingAnywhere = true;
+				}
+				if (out.events.some((e) => e.type === 'ball_ended')) {
+					sawBallEnded = true;
+					ballEndedTick = out.snapshot.tick;
+				}
+			}
+			expect(sawBallEnded, 'ball 1 must eventually drain on its own').toBe(true);
+			expect(sawMissingAnywhere, 'no ball_missing anywhere in the run -- nothing was ever loose').toBe(false);
+
+			const eventsAtDrain = out.events.filter((e) => e.tick === ballEndedTick).map((e) => e.type);
+			expect(eventsAtDrain).toContain('ball_ended');
+			expect(eventsAtDrain, 'ball_will_start must arrive the SAME tick -- the rotation is immediate').toContain('ball_will_start');
+
+			// The negative (Red today: two balls in the lane the tick after the
+			// drain): the ball count is unaffected by this drain -- the lane
+			// ball was never re-served or stacked.
+			expect(out.snapshot.balls, 'balls.length stays 1 (only the lane ball) at the drain tick').toHaveLength(1);
+			expect(out.snapshot.balls[0]!.id, 'the surviving ball is the lane ball, not a re-serve').toBe(laneBallId);
+
+			// The positive: the plunge serves the lane ball as ball 2.
+			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+			for (let i = 0; i < 1199; i++) {
+				out = loop.advance(1, []);
+			}
+			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
+			let sawSecondLaunch = false;
+			for (let i = 0; i < 500 && !sawSecondLaunch; i++) {
+				out = loop.advance(1, []);
+				if (out.events.some((e) => e.type === 'ball_launched')) {
+					sawSecondLaunch = true;
+				}
+			}
+			expect(sawSecondLaunch, 'the plunge must genuinely launch the lane ball').toBe(true);
+			expect(out.snapshot.balls.some((b) => b.id === laneBallId), 'the SAME lane ball leaves the lane').toBe(true);
+			expect(out.snapshot.game.players[0]!.ballNumber, 'it plays as ball 2').toBe(2);
+			expect(out.snapshot.game.machine.ballsInPlay).toBe(1);
+		},
+		60_000,
 	);
 });

@@ -658,8 +658,30 @@ export function createDeviceMechanics(options: {
 		}
 	}
 
+	/**
+	 * Story 2.13 (DW-257, AD-6 amended, author decision 2026-09-11, AC 14):
+	 * `recover()` now RETURNS every ball it removes to `bd_trough`'s lowest
+	 * empty slot, closing that slot, instead of only despawning it -- the
+	 * same parking operation an entering ball already gets (AD-6), reusing
+	 * the EXISTING park state `applyCommands()`'s own (unmodified) eject
+	 * branch already reads via `slots.lastIndexOf(true)` a few lines above --
+	 * so a later `c_trough_eject` pulse ejects this exact ball at the
+	 * trough's authored eject pose and speed, opening that same slot, with
+	 * NO change to that eject path at all. This is the whole of the
+	 * sanctioned physics edit (spec Block-If): `recover()`'s own signature
+	 * and its `recovered` return value are UNCHANGED -- still a plain
+	 * `number`, still "how many balls were taken out of the simulated set"
+	 * (Story 2.12's `ball_missing { count }` and this story's stray-clear
+	 * report both read it that way, unaffected by where the ball ends up).
+	 * No `SwitchEvent` is emitted here for the newly-closed slot -- nothing
+	 * under `sim/rules/**` reads `deviceSlots.bd_trough` (only `bd_shooter`
+	 * matters to the ball controller), and the slot's own switch genuinely
+	 * closing is what the NEXT real eject from it already reports, through
+	 * the untouched `applyCommands()` path.
+	 */
 	function recover(tick: number): number {
 		let count = 0;
+		const troughSlots = parkingSlots.bd_trough!;
 		// A COPY: physics.removeBall() below mutates the live array this
 		// closure otherwise shares with detectEntries()'s own `physics.balls`
 		// reads elsewhere in the same tick.
@@ -682,6 +704,25 @@ export function createDeviceMechanics(options: {
 			for (const reported of overflowReported.values()) {
 				reported.delete(ball);
 			}
+
+			// DW-257: park it, rather than let it vanish. `lowestEmpty === -1`
+			// (the trough is somehow already full) is unreachable while the
+			// four-ball invariant holds (bd_trough's own capacity, 4, equals
+			// the machine's total ball count) -- AD-18's phasing forbids
+			// inventing an overflow eject here (nothing may pulse `c_mouth`,
+			// and doing so would re-enter the very loop this fix exists to
+			// close), so this asserts the invariant rather than building a
+			// path for its violation. The ball is still removed above either
+			// way; only the park is skipped if this ever throws.
+			const lowestEmpty = troughSlots.indexOf(false);
+			if (lowestEmpty === -1) {
+				throw new Error(
+					'recover(): bd_trough has no empty slot to park a recovered ball into at tick ' +
+						String(tick) +
+						' -- the four-ball invariant (AD-6) has been violated',
+				);
+			}
+			troughSlots[lowestEmpty] = true;
 		}
 		return count;
 	}

@@ -10,6 +10,16 @@
 // pixel buffer `backglass.ts` blits into a `RawTexture`, with a genuine
 // unlit gutter between adjacent lit cells -- the dot grid lives HERE, not in
 // a shader.
+//
+// Story 2.13 (DW-198): `DmdRow.emphasis` is rendered here, as inverse video
+// over the row's own text box -- the ONLY reader of that field (`frame.ts`
+// itself still ignores it when composing rows). Computed from that row's
+// own glyph mask alone (I/O Matrix, "Emphasis"): after every row's glyphs
+// are drawn normally, a second pass over the emphasised rows inverts every
+// dot inside `[col-1, col+6n-1] x [row, row+7]` (`n` the row's own,
+// clamped, text length), clipped to the panel -- a dot ends up lit exactly
+// where the glyph pixel was unlit, and vice versa. Unemphasised rows are
+// completely unchanged by this pass.
 
 import { DMD_COLS, DMD_ROWS, type DmdFrame } from './frame';
 import { GLYPH_ADVANCE, GLYPH_H, GLYPH_W } from './font';
@@ -61,6 +71,30 @@ export function rasterise(frame: DmdFrame, font: Readonly<Record<string, readonl
 					}
 					dots[destRow * DMD_COLS + destCol] = 1;
 				}
+			}
+		}
+	}
+
+	// Story 2.13 (DW-198): the emphasis pass, second and separate -- every
+	// row's glyphs are already drawn above, so this inverts in place rather
+	// than tracking "was this dot lit by MY row" during the first pass.
+	for (const row of frame.rows) {
+		if (!row.emphasis) {
+			continue;
+		}
+		const text = row.text.slice(0, LINE_WIDTH_COLS);
+		const minCol = row.col - 1;
+		const maxCol = row.col + GLYPH_ADVANCE * text.length - 1;
+		const minRow = row.row;
+		const maxRow = row.row + GLYPH_H;
+		const rowStart = Math.max(0, minRow);
+		const rowEnd = Math.min(DMD_ROWS - 1, maxRow);
+		const colStart = Math.max(0, minCol);
+		const colEnd = Math.min(DMD_COLS - 1, maxCol);
+		for (let r = rowStart; r <= rowEnd; r++) {
+			for (let c = colStart; c <= colEnd; c++) {
+				const idx = r * DMD_COLS + c;
+				dots[idx] = dots[idx] === 1 ? 0 : 1;
 			}
 		}
 	}

@@ -212,3 +212,48 @@ describe('toRgba() -- the expanded pixel buffer and its unlit gutter', () => {
 		expect(DOT_SIZE_PX).toBeLessThan(DOT_PITCH_PX);
 	});
 });
+
+describe('rasterise() -- DmdRow.emphasis is rendered (Story 2.13, DW-198)', () => {
+	// AC 10, I/O Matrix "Emphasis": the box [col-1, col+6n-1] x [row, row+7]
+	// (n = the row's own text length) is inverted -- a dot is lit exactly
+	// where the glyph pixel is unlit, and vice versa.
+	it('the dot buffers genuinely differ: emphasised, dot (1,0) is lit and every pixel lit in the unemphasised "8" is unlit; unemphasised, dot (1,0) is unlit', () => {
+		const unemphasised = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: false })), FONT_5X7);
+		const emphasised = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: true })), FONT_5X7);
+
+		expect(unemphasised.dots[0 * DMD_COLS + 1], 'unemphasised: dot (1,0), the gutter before the glyph, is unlit').toBe(0);
+		expect(emphasised.dots[0 * DMD_COLS + 1], 'emphasised: dot (1,0) is inverted to lit').toBe(1);
+
+		let anyLitGlyphPixelStillLit = false;
+		for (let r = 0; r < GLYPH_H; r++) {
+			for (let c = 0; c < GLYPH_W; c++) {
+				const idx = r * DMD_COLS + (2 + c);
+				if (unemphasised.dots[idx] === 1 && emphasised.dots[idx] === 1) {
+					anyLitGlyphPixelStillLit = true;
+				}
+			}
+		}
+		expect(anyLitGlyphPixelStillLit, 'every pixel lit in the unemphasised "8" must be UNLIT once emphasised (a genuine invert, not an overlay)').toBe(false);
+
+		expect(unemphasised.dots, 'the dot buffers must genuinely differ').not.toEqual(emphasised.dots);
+	});
+
+	// The author's own named Rule 19 mutation (AC 10's mutation table):
+	// "render with emphasis forced false" must redden the assertion above.
+	it('Rule 19: rendering with emphasis forced false reproduces the UNEMPHASISED buffer even when the row is marked emphasised -- the named mutation this AC pins against', () => {
+		const emphasisForcedFalse = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: false })), FONT_5X7);
+		const trueEmphasis = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: true })), FONT_5X7);
+		expect(emphasisForcedFalse.dots, 'sanity: the mutation\'s own output is the plain unemphasised buffer').not.toEqual(trueEmphasis.dots);
+	});
+
+	it('the emphasis box is clipped to the panel and inverts a genuinely unlit background dot within its own bounds, never past DMD_COLS/DMD_ROWS', () => {
+		const raster = rasterise(frameOf(row({ text: '1', col: DMD_COLS - 3, row: 0, emphasis: true })), FONT_5X7);
+		expect(raster.dots.length).toBe(DMD_COLS * DMD_ROWS);
+	});
+
+	it('an UNEMPHASISED row is completely unaffected by this pass -- identical to a frame with no emphasis field exercised at all', () => {
+		const a = rasterise(frameOf(row({ text: 'HELLO', col: 2, row: 8, emphasis: false })), FONT_5X7);
+		const b = rasterise(frameOf(row({ text: 'HELLO', col: 2, row: 8 })), FONT_5X7);
+		expect(a.dots).toEqual(b.dots);
+	});
+});
