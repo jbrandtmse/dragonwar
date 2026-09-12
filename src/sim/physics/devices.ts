@@ -664,20 +664,47 @@ export function createDeviceMechanics(options: {
 	 * empty slot, closing that slot, instead of only despawning it -- the
 	 * same parking operation an entering ball already gets (AD-6), reusing
 	 * the EXISTING park state `applyCommands()`'s own (unmodified) eject
-	 * branch already reads via `slots.lastIndexOf(true)` a few lines above --
-	 * so a later `c_trough_eject` pulse ejects this exact ball at the
-	 * trough's authored eject pose and speed, opening that same slot, with
-	 * NO change to that eject path at all. This is the whole of the
-	 * sanctioned physics edit (spec Block-If): `recover()`'s own signature
-	 * and its `recovered` return value are UNCHANGED -- still a plain
-	 * `number`, still "how many balls were taken out of the simulated set"
-	 * (Story 2.12's `ball_missing { count }` and this story's stray-clear
-	 * report both read it that way, unaffected by where the ball ends up).
-	 * No `SwitchEvent` is emitted here for the newly-closed slot -- nothing
-	 * under `sim/rules/**` reads `deviceSlots.bd_trough` (only `bd_shooter`
-	 * matters to the ball controller), and the slot's own switch genuinely
-	 * closing is what the NEXT real eject from it already reports, through
-	 * the untouched `applyCommands()` path.
+	 * branch already reads via `slots.lastIndexOf(true)` a few lines above.
+	 * Because the trough is a bottom-filled contiguous stack, the slot this
+	 * parks into (`indexOf(false)`, the lowest empty) is the same slot that
+	 * branch ejects from (`lastIndexOf(true)`, the highest occupied) whenever
+	 * the trough is contiguous -- which it always is while AD-6's four-ball
+	 * invariant holds -- so a later `c_trough_eject` pulse ejects this exact
+	 * ball at the trough's authored eject pose and speed, opening that same
+	 * slot, with NO change to that eject path at all. This is the whole of
+	 * the sanctioned physics edit (spec Block-If): `recover()`'s own
+	 * signature and its `recovered` return value are UNCHANGED -- still a
+	 * plain `number`, still "how many balls were taken out of the simulated
+	 * set" (Story 2.12's `ball_missing { count }` and this story's
+	 * stray-clear report both read it that way, unaffected by where the ball
+	 * ends up).
+	 *
+	 * KNOWN GAP, code review second pass (Story 2.13) -- do not read the
+	 * paragraph below as settled. No `SwitchEvent` is emitted here for the
+	 * newly-closed slot, and AD-6 as amended at this story's spec gate
+	 * requires one: "`recover()` parks each ball it removes into `bd_trough`'s
+	 * lowest empty slot AND CLOSES THAT SLOT'S SWITCH, exactly as a parking
+	 * entry does", with "Device counts in `GameState` are the number of closed
+	 * slot switches and nothing else". The real parking entry a few lines
+	 * above does both halves; this does only the first. `GameState.machine
+	 * .deviceSlots` is derived exclusively from `device_ball_entered`/`_left`
+	 * (`rules/ball-controller.ts`'s `deriveDeviceSlots()`), and `sim/loop`
+	 * deliberately never re-seeds it from physics, so the rules-side trough
+	 * count UNDER-REPORTS physics by the number of parked-but-not-yet-ejected
+	 * balls. It is not self-healing in the way this comment previously
+	 * claimed: the next eject's OPENING edge is swallowed by
+	 * `deriveDeviceSlots()`'s own identity guard (the rules slot already reads
+	 * open), so the two records only coincide again by arithmetic accident.
+	 * It is latent rather than live today -- no `sim/rules/**` module reads
+	 * `deviceSlots.bd_trough`, only `bd_shooter` -- and AD-6 names Story 3.7
+	 * as the next reader of this clause. A conformant fix is NOT a one-liner:
+	 * it needs an event channel out of `recover()` (whose signature this
+	 * story's Block-If freezes) and the ball controller's Start-tick drain
+	 * guard widened to the stray-clear report tick, because the emitted
+	 * `device_ball_entered bd_trough` would otherwise read as a parking entry
+	 * at `ballsInPlay === 0` and fire a spurious `ball_ended` for the
+	 * brand-new ball 1. That is an author/lead call, filed as this review's
+	 * one HIGH against DW-257's own unfulfilled half.
 	 */
 	function recover(tick: number): number {
 		let count = 0;
@@ -712,8 +739,16 @@ export function createDeviceMechanics(options: {
 			// inventing an overflow eject here (nothing may pulse `c_mouth`,
 			// and doing so would re-enter the very loop this fix exists to
 			// close), so this asserts the invariant rather than building a
-			// path for its violation. The ball is still removed above either
-			// way; only the park is skipped if this ever throws.
+			// path for its violation. Correction, code review second pass: a
+			// throw here does NOT merely skip the park. It aborts `recover()`
+			// entirely -- any remaining loose ball is never processed, `count`
+			// is never returned, and the exception propagates out of
+			// `machine.step()` and `loop.advance()`, ending the frame with the
+			// balls removed so far already gone. That is deliberate fail-fast
+			// on a branch AD-6's four-ball invariant makes unreachable (a full
+			// trough means all four balls are parked in it, so no ball can be
+			// outside a device and this loop body never runs), not a graceful
+			// degradation.
 			const lowestEmpty = troughSlots.indexOf(false);
 			if (lowestEmpty === -1) {
 				throw new Error(

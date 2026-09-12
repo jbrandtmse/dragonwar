@@ -238,17 +238,75 @@ describe('rasterise() -- DmdRow.emphasis is rendered (Story 2.13, DW-198)', () =
 		expect(unemphasised.dots, 'the dot buffers must genuinely differ').not.toEqual(emphasised.dots);
 	});
 
-	// The author's own named Rule 19 mutation (AC 10's mutation table):
-	// "render with emphasis forced false" must redden the assertion above.
-	it('Rule 19: rendering with emphasis forced false reproduces the UNEMPHASISED buffer even when the row is marked emphasised -- the named mutation this AC pins against', () => {
-		const emphasisForcedFalse = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: false })), FONT_5X7);
-		const trueEmphasis = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: true })), FONT_5X7);
-		expect(emphasisForcedFalse.dots, 'sanity: the mutation\'s own output is the plain unemphasised buffer').not.toEqual(trueEmphasis.dots);
+	// Code review (second pass): this case was titled as the author's named
+	// Rule 19 mutation ("render with emphasis forced false") but did not model
+	// it -- it rendered `emphasis: false`, which is simply an unemphasised row,
+	// and its one assertion was byte-for-byte the last assertion of the test
+	// above. The mutation's real pin IS that test's dots-differ assertion:
+	// forcing emphasis false inside `rasterise()` makes the emphasised buffer
+	// equal the unemphasised one, so `not.toEqual` reddens. What was NOT
+	// covered anywhere is the strictly stronger claim below -- that the
+	// emphasised buffer is the unemphasised one with the box inverted and
+	// nothing else -- which a partial mutation (inverting the glyph pixels but
+	// not the background, say) would break while `not.toEqual` stayed green.
+	it('Rule 19: the emphasised buffer is EXACTLY the unemphasised buffer with the box inverted -- every dot inside the box flipped, every dot outside it untouched', () => {
+		const unemphasised = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: false })), FONT_5X7);
+		const emphasised = rasterise(frameOf(row({ text: '8', col: 2, row: 0, emphasis: true })), FONT_5X7);
+
+		// The box for a one-character row at col 2: cols [1, 7], rows [0, 7].
+		const BOX_COL_LO = 1;
+		const BOX_COL_HI = 7;
+		const BOX_ROW_LO = 0;
+		const BOX_ROW_HI = 7;
+		let flippedInside = 0;
+		for (let r = 0; r < DMD_ROWS; r++) {
+			for (let c = 0; c < DMD_COLS; c++) {
+				const idx = r * DMD_COLS + c;
+				const inside = r >= BOX_ROW_LO && r <= BOX_ROW_HI && c >= BOX_COL_LO && c <= BOX_COL_HI;
+				if (inside) {
+					expect(emphasised.dots[idx], `inside the box, dot (${c},${r}) must be the INVERSE of the unemphasised buffer`).toBe(unemphasised.dots[idx] === 1 ? 0 : 1);
+					flippedInside += 1;
+				} else {
+					expect(emphasised.dots[idx], `outside the box, dot (${c},${r}) must be IDENTICAL to the unemphasised buffer`).toBe(unemphasised.dots[idx]);
+				}
+			}
+		}
+		// The positive that the loop above genuinely visited the box: 7 cols x
+		// 8 rows, an authored literal, never read back from the box bounds.
+		expect(flippedInside, 'the box the loop checked must be the authored 7x8 one, not an empty range').toBe(56);
 	});
 
 	it('the emphasis box is clipped to the panel and inverts a genuinely unlit background dot within its own bounds, never past DMD_COLS/DMD_ROWS', () => {
+		// Code review (second pass, Rule 19): this test used to assert only
+		// `raster.dots.length === DMD_COLS * DMD_ROWS`, which `rasterise()`
+		// makes true by construction (it allocates exactly that Uint8Array and
+		// returns it), so NEITHER clause of the title was asserted and the
+		// clamps below could be deleted with the suite green. A one-character
+		// row at `col: DMD_COLS - 3` has a box of [col-1, col+6*1-1] =
+		// [125, 130]: cols 128..130 are off-panel, and without the `colEnd`
+		// clamp the writes at `idx = r * DMD_COLS + c` would land in row r+1,
+		// cols 0..2 -- corrupting a neighbouring row, exactly what
+		// `rasterise()`'s own doc comment promises never happens.
 		const raster = rasterise(frameOf(row({ text: '1', col: DMD_COLS - 3, row: 0, emphasis: true })), FONT_5X7);
 		expect(raster.dots.length).toBe(DMD_COLS * DMD_ROWS);
+
+		// Within its own bounds: a genuinely unlit background dot IS inverted.
+		expect(raster.dots[0 * DMD_COLS + (DMD_COLS - 4)], 'the box\'s left gutter dot, on-panel, is inverted to lit').toBe(1);
+		// Clipped: nothing past DMD_COLS wrapped into the next dot row. Row 1
+		// is inside the glyph band, so a wrap would light cols 0..2 there; the
+		// row band [0, GLYPH_H) belongs to this row alone and its own text sits
+		// at col 125, so every dot in row 1's first four columns must be dark.
+		for (let c = 0; c < 4; c++) {
+			expect(raster.dots[1 * DMD_COLS + c], `row 1, col ${c} must be dark -- an off-panel emphasis write must be dropped, never wrapped into the next row`).toBe(0);
+		}
+		// And the vertical clamp, the same claim one axis over: a row at the
+		// LAST dot row has a box of rows [DMD_ROWS-1, DMD_ROWS-1+GLYPH_H], so
+		// all but the first are off-panel. Out-of-range typed-array writes are
+		// silent, so the observable is that the on-panel part still inverted
+		// while the buffer stayed exactly its allocated size.
+		const bottom = rasterise(frameOf(row({ text: '1', col: 2, row: DMD_ROWS - 1, emphasis: true })), FONT_5X7);
+		expect(bottom.dots.length).toBe(DMD_COLS * DMD_ROWS);
+		expect(bottom.dots[(DMD_ROWS - 1) * DMD_COLS + 1], 'the bottom row\'s own gutter dot is still inverted').toBe(1);
 	});
 
 	it('an UNEMPHASISED row is completely unaffected by this pass -- identical to a frame with no emphasis field exercised at all', () => {

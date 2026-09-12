@@ -38,9 +38,16 @@ function attractStaleState(): GameState {
 
 /** The same Attract-phase premise, but the lane already holds the resting ball (DW-244's route 1b). */
 function attractLaneOccupiedState(): GameState {
+	// Code review (second pass): the trough holds THREE, not four. With
+	// `bd_shooter` occupied, a full trough would make this a five-ball
+	// machine -- contradicting the four-ball invariant (AD-6) this same story
+	// now hard-asserts, and throws on, inside `recover()`. The route-1b
+	// premise is a full lane with three balls behind it, which is exactly what
+	// AC 6's own integration test constructs. Nothing in AC 8 (iv) reads the
+	// trough count, so this only makes the fixture honest.
 	return {
 		...attractStaleState(),
-		machine: { ...attractStaleState().machine, deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [true], bd_lock: [false, false, false] } },
+		machine: { ...attractStaleState().machine, deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [true], bd_lock: [false, false, false] } },
 	};
 }
 

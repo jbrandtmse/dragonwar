@@ -1137,9 +1137,66 @@ describe('Story 2.10 -- the count-up\'s pacing is coupled to two constants nothi
 		const worstCaseSteps = BONUS_CATEGORIES.length + 1;
 		expect(PRODUCTION_TUNING.bonusCountTicks.value * worstCaseSteps).toBeLessThan(BALL_ENDED_HOLD_TICKS);
 	});
+
+	// Story 2.13, AC 12 -- the inequality task 12 asked for "beside :1101", in
+	// THIS file, where both symbols already live. Code review (second pass):
+	// `test/tuning.test.ts` pins it as `matchDelayTicks > 3000`, a hand-typed
+	// copy of the presentation constant, so only ONE direction of a two-sided
+	// coupling is guarded: raising `BALL_ENDED_HOLD_TICKS` alone (a
+	// presentation-only retune that never touches `tuning.ts`) breaks the
+	// invariant, falsifies the two source comments in `frame.ts` that cite AC
+	// 12 by name, and leaves the whole suite green. This is the same
+	// cross-constant idiom the test directly above already uses.
+	it('AC 12: production matchDelayTicks exceeds BALL_ENDED_HOLD_TICKS, compared symbol to symbol -- so the last ball\'s end-of-ball hold and its bonus count-up are never cut by the Match lead-in', () => {
+		expect(PRODUCTION_TUNING.matchDelayTicks.value).toBeGreaterThan(BALL_ENDED_HOLD_TICKS);
+	});
 });
 
 describe('AC 4 -- Attract cycles with scores, and pins to the prompt with none', () => {
+	// Code review (second pass): the new keys branch is the one Attract screen
+	// decision with no lower bound on `tick`. `hostLoop.reset()` (the dev
+	// tuning panel's hot-apply, replay playback, and boot.ts's two dev hatches)
+	// restarts the tick count at 0 while `backglassView` survives in boot.ts's
+	// closure, and advanceBackglass()'s Attract branch carries a STALE
+	// `attractCycleOriginTick` forward whenever the pre-reset screen was itself
+	// an Attract screen. Before the `tick >= originTick` guard, every tick of
+	// the old count satisfied `tick < originTick + 3000` and the keys screen
+	// was pinned for the whole of it -- the "DMD froze for the whole of the old
+	// tick count" shape frame.ts's own header warns about, and a REGRESSION
+	// this story introduced (the prompt/scores cycle below already normalises a
+	// negative phase, so before this story a stale origin self-corrected).
+	it('a restarted tick count does NOT pin the keys screen: with a stale high attractCycleOriginTick, a low tick falls through to the prompt/scores cycle', () => {
+		const game: GameState = {
+			...BASE_GAME_STATE,
+			phase: 'attract',
+			players: [buildPlayer({ score: 4200 }), buildPlayer({ score: 990 })],
+		};
+
+		// The premise, asserted rather than assumed: at the stale origin's OWN
+		// timeline the keys screen is genuinely what shows -- so the assertion
+		// below is about the restart, not about the keys screen being absent.
+		const STALE_ORIGIN = 90_000;
+		const staleView: BackglassView = { ...INITIAL_BACKGLASS_VIEW, screen: 'attract_scores', attractCycleOriginTick: STALE_ORIGIN };
+		const onItsOwnTimeline = advanceBackglass(
+			{ ...INITIAL_BACKGLASS_VIEW, screen: 'score' as const, attractCycleOriginTick: 0 },
+			frameOutput({ snapshot: buildSnapshot({ tick: STALE_ORIGIN, game }) }),
+		);
+		expect(onItsOwnTimeline.screen, 'premise: a genuinely fresh entry at this tick DOES open on the keys screen').toBe('attract_keys');
+
+		// The restart: tick 0..3000 against the stale origin. Not one of them
+		// may show the keys screen, and the cycle must still be alive (both
+		// cycling screens seen), never frozen on a single id.
+		const seen = new Set<string>();
+		let view = staleView;
+		for (let tick = 0; tick <= 9000; tick++) {
+			view = advanceBackglass(view, frameOutput({ snapshot: buildSnapshot({ tick, game }) }));
+			seen.add(view.screen);
+		}
+		expect(seen.has('attract_keys'), 'the restarted low-tick timeline must NEVER show the keys screen from a stale high origin').toBe(false);
+		expect(seen.has('attract_prompt'), 'the positive: the prompt/scores cycle runs normally on the restarted timeline').toBe(true);
+		expect(seen.has('attract_scores'), 'the positive: both cycling screens still appear').toBe(true);
+	});
+
 	it('with two players carrying distinct scores, a fresh entry opens with attract_keys, then the screen id is not constant across a full prompt/scores cycle, both cycling screens appear labelled, and it wraps', () => {
 		const game: GameState = {
 			...BASE_GAME_STATE,
@@ -1302,6 +1359,24 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} (the mode-name segment) must be unlit -- no mode row may render`).toBe(0);
 			}
 		}
+
+		// Code review (second pass): AC 9's DW-200 clause is "the status band's
+		// left segment (cols 2-85) has no lit dot AND ITS BALL SEGMENT DOES".
+		// Only the negative was asserted here, which is the "negative with no
+		// positive" shape this epic's anti-vacuity plan claims every AC pairs
+		// in the same test -- and it left a real regression uncovered: a
+		// right-align or clamp interaction that rendered `BALL 1` to NO dots at
+		// all would keep every dot in this band dark and pass, while the row
+		// coordinates asserted elsewhere stayed correct. The positive:
+		let litInBallSegment = 0;
+		for (let row = STATUS_ROW; row < STATUS_ROW + GLYPH_H; row++) {
+			for (let col = 86; col < raster.cols; col++) {
+				if (raster.dots[row * raster.cols + col] === 1) {
+					litInBallSegment += 1;
+				}
+			}
+		}
+		expect(litInBallSegment, 'the BALL segment of the SAME status band (cols 86+) must genuinely be lit -- BALL n renders dots, it is not merely a row object').toBeGreaterThan(0);
 	});
 
 	// Code review, intent-alignment layer, 2026-09-06: `buildModeRows()`'s own
@@ -1337,6 +1412,24 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 				expect(raster.dots[row * raster.cols + col], `dot at row ${row}, col ${col} (the mode-name segment) must be unlit -- no mode row may render`).toBe(0);
 			}
 		}
+
+		// Code review (second pass): AC 9's DW-200 clause is "the status band's
+		// left segment (cols 2-85) has no lit dot AND ITS BALL SEGMENT DOES".
+		// Only the negative was asserted here, which is the "negative with no
+		// positive" shape this epic's anti-vacuity plan claims every AC pairs
+		// in the same test -- and it left a real regression uncovered: a
+		// right-align or clamp interaction that rendered `BALL 1` to NO dots at
+		// all would keep every dot in this band dark and pass, while the row
+		// coordinates asserted elsewhere stayed correct. The positive:
+		let litInBallSegment = 0;
+		for (let row = STATUS_ROW; row < STATUS_ROW + GLYPH_H; row++) {
+			for (let col = 86; col < raster.cols; col++) {
+				if (raster.dots[row * raster.cols + col] === 1) {
+					litInBallSegment += 1;
+				}
+			}
+		}
+		expect(litInBallSegment, 'the BALL segment of the SAME status band (cols 86+) must genuinely be lit -- BALL n renders dots, it is not merely a row object').toBeGreaterThan(0);
 	});
 });
 

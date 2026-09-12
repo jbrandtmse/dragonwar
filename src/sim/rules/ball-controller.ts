@@ -427,9 +427,35 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	// durations, resolved once here exactly like the ball-save/bonus windows
 	// above -- the game-over block and the top-of-step() drain below are the
 	// only readers.
-	const matchDelayTicks = shotWindowTicks('matchDelayMs', tuning);
-	const matchRevealTicks = shotWindowTicks('matchRevealMs', tuning);
-	const attractTicks = shotWindowTicks('attractMs', tuning);
+	//
+	// Code review (second pass, the named follow-up risk): all THREE are
+	// clamped to at least 1 tick, at this ONE derivation site. A `…Ms` of
+	// exactly 0 is reachable -- `resolveTuning()` rejects a NEGATIVE `…Ms` but
+	// not zero, and Story 1.9's dev tuning panel hot-applies any finite
+	// non-negative value to the running sim -- and each zero silently breaks a
+	// different part of this story's arithmetic:
+	//   * `matchDelayMs: 0` puts `matchTick` on the arming tick itself, whose
+	//     one chance to fire was the top-of-step() check that already ran
+	//     earlier this same tick, before the sequence existed: no `match_drawn`
+	//     ever (the first pass clamped this at the use site; the clamp now
+	//     lives here with its two siblings);
+	//   * `matchRevealMs: 0` collapses `resolvedTick` onto `matchTick` and
+	//     makes `ticksSinceMatch % matchRevealTicks` evaluate to `NaN`, which
+	//     is never `=== 0`: the Match resolves with no reveal step ever
+	//     emitted, so the player never sees a number. (Note for the record:
+	//     the first pass's `matchRevealTicks > 0 &&` conjunct was behaviour-
+	//     NEUTRAL, because `NaN === 0` was already false -- it documented the
+	//     defect rather than fixing it. This clamp is the fix.)
+	//   * `attractMs: 0` puts `attractTick` ON `resolvedTick`, so
+	//     `enterAttract()` lands in the same tick as the tenth reveal step and
+	//     `advanceBackglass()`'s Attract branch drops `heldMatch`: the
+	//     resolution (`MATCH nn`) is never rendered at all. This was the third
+	//     instance of the shape, traced as harmless by the first pass and
+	//     re-verified here as real.
+	// Production's authored values (5000 / 250 / 8000) are unaffected.
+	const matchDelayTicks = Math.max(1, shotWindowTicks('matchDelayMs', tuning));
+	const matchRevealTicks = Math.max(1, shotWindowTicks('matchRevealMs', tuning));
+	const attractTicks = Math.max(1, shotWindowTicks('attractMs', tuning));
 
 	// Story 2.12 (AD-18): the search's own seat -- ONE instance for the life
 	// of this controller (mirrors every other cross-tick component this
@@ -788,14 +814,12 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			}
 
 			const ticksSinceMatch = tick - gameOverSequence.matchTick;
-			// Code review (this pass): `matchRevealTicks > 0` guards the modulo
-			// below -- a `matchRevealMs` of exactly 0, reachable the same way
-			// `matchDelayTicks` is above (the dev tuning panel; `resolveTuning()`
-			// rejects negative but not zero), would make `ticksSinceMatch %
-			// matchRevealTicks` evaluate to `NaN` in JS, which is never `=== 0`:
-			// every `match_reveal_step` would silently stop firing, though
-			// `match_drawn` and the eventual Attract return still proceed on
-			// schedule. Production's authored value (250) is unaffected.
+			// `matchRevealTicks` is clamped to at least 1 at its single
+			// derivation site above, so this modulo can never see 0 (and so can
+			// never evaluate to `NaN`). The `> 0` conjunct is kept as dead
+			// defence-in-depth for a future caller that derives the value some
+			// other way; it is NOT what makes a zero-valued `matchRevealMs`
+			// safe -- see the derivation comment for why it never was.
 			if (matchRevealTicks > 0 && gameOverSequence.drawn !== null && ticksSinceMatch > 0 && ticksSinceMatch % matchRevealTicks === 0) {
 				const revealStep = ticksSinceMatch / matchRevealTicks;
 				if (revealStep <= MATCH_REVEAL_STEPS) {
@@ -1080,17 +1104,13 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				// top-of-tick drain (above).
 				const scores = nextState.players.map((existing) => existing.score);
 				events.push({ type: 'game_ended', scores, tick });
-				// Code review (this pass): `matchDelayTicks` is clamped to at least 1
-				// so `matchTick` is always STRICTLY greater than `armTick` (this same
-				// `tick`) -- the top-of-`step()` `tick === gameOverSequence.matchTick`
-				// check above already ran earlier THIS SAME tick, before this sequence
-				// existed, so a `matchDelayTicks` of exactly 0 (reachable only via the
-				// dev tuning panel hot-applying `matchDelayMs: 0` -- `resolveTuning()`
-				// itself only rejects a NEGATIVE `…Ms`, not zero) would make that
-				// check's one chance to fire already missed, and `match_drawn` would
-				// never arrive at all. Production's authored value (5000) is
-				// unaffected by this clamp.
-				const matchTick = tick + Math.max(1, matchDelayTicks);
+				// All three `…Ticks` below are clamped to at least 1 at their single
+				// derivation site (see the comment there), so `matchTick` is always
+				// STRICTLY greater than `armTick` (this same `tick`), `resolvedTick`
+				// strictly greater than `matchTick`, and `attractTick` strictly
+				// greater than `resolvedTick`. Every milestone therefore falls on a
+				// tick the top-of-`step()` block has yet to see.
+				const matchTick = tick + matchDelayTicks;
 				const resolvedTick = matchTick + MATCH_REVEAL_STEPS * matchRevealTicks;
 				gameOverSequence = {
 					armTick: tick,

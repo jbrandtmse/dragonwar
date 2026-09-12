@@ -644,6 +644,35 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 			expect(out.snapshot.balls, 'balls.length stays 1 (only the lane ball) at the drain tick').toHaveLength(1);
 			expect(out.snapshot.balls[0]!.id, 'the surviving ball is the lane ball, not a re-serve').toBe(laneBallId);
 
+			// Code review (second pass, Rule 19): the assertion pair above is
+			// asserted ON `ballEndedTick`, and a `c_trough_eject` pulse issued
+			// on that tick does not SPAWN until the next one (AD-4: commands
+			// land on the next tick). So AC 7's own named mutation -- "drop the
+			// lane-occupied check in startBall" -- puts the stacked second ball
+			// at ballEndedTick+1, a tick this test never used to look at, and
+			// every remaining assertion below (the lane ball still present,
+			// ballNumber 2, ballsInPlay 1) holds just as well with two balls in
+			// the lane. AC 7's own "the trough stays 3" clause was likewise
+			// asserted nowhere. Both are pinned here, one tick later, where the
+			// stacked ball can actually exist.
+			out = loop.advance(1, []);
+			expect(out.snapshot.balls, 'ballEndedTick+1, where a stacked serve WOULD have spawned: still exactly one ball').toHaveLength(1);
+			expect(out.snapshot.balls[0]!.id, 'and it is still the lane ball').toBe(laneBallId);
+			expect(
+				out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length,
+				'AC 7: the trough stays 3 -- no second serve was drawn from it (Red today: 3 -> 2 at this exact tick)',
+			).toBe(3);
+			// And it holds through the quiet run up to the plunge, not just for
+			// the one tick after.
+			for (let i = 0; i < 2000; i++) {
+				out = loop.advance(1, []);
+			}
+			expect(out.snapshot.balls, 'still one ball 2000 quiet ticks later').toHaveLength(1);
+			expect(
+				out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length,
+				'and the trough is still 3 through the quiet run',
+			).toBe(3);
+
 			// The positive: the plunge serves the lane ball as ball 2.
 			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
 			for (let i = 0; i < 1199; i++) {

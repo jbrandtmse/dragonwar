@@ -253,7 +253,20 @@ function isAttractScreen(screen: DmdScreen): boolean {
  * only").
  */
 function attractScreenAt(tick: number, originTick: number, hasScores: boolean): DmdScreen {
-	if (tick < originTick + ATTRACT_KEYS_HOLD_TICKS) {
+	// Code review (second pass): the `tick >= originTick` lower bound is the
+	// keys branch's own reset-safety, the same hazard the cycle below already
+	// normalises for with its `((x % N) + N) % N`. `hostLoop.reset()` (the dev
+	// tuning panel's hot-apply, replay playback, and the two dev hatches in
+	// `boot.ts`) restarts the tick count at 0 while `boot.ts`'s `backglassView`
+	// survives in its closure, and `advanceBackglass()`'s Attract branch
+	// carries a STALE `attractCycleOriginTick` forward whenever the pre-reset
+	// screen was itself an Attract screen. Without this bound every tick of the
+	// old count satisfies `tick < originTick + 3000`, pinning the keys screen
+	// for minutes -- verbatim the "DMD froze for the whole of the old tick
+	// count" shape this file's own header warns about. A `tick` below the origin
+	// can only be a restarted timeline, so it falls through to the cycle, which
+	// handles a negative phase correctly.
+	if (tick >= originTick && tick < originTick + ATTRACT_KEYS_HOLD_TICKS) {
 		return 'attract_keys';
 	}
 	if (!hasScores) {

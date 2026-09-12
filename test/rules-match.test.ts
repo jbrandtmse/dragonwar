@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { drawMatch, matchNumberFor, revealShown, MATCH_NUMBERS, MATCH_REVEAL_STEPS } from '../src/sim/rules/match';
+import { nextRng } from '../src/sim/rules/rng';
 import { HARDWARE_COILS } from '../src/sim/rules/ball-controller';
 import { DEFAULT_ADJUSTMENTS, createRules } from '../src/sim/rules';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
@@ -130,6 +131,22 @@ describe('sim/rules/match.ts -- drawMatch() (AC 2, AD-3: exactly one nextRng() s
 	it('advances rng exactly once, and its number/winners agree with matchNumberFor() fed the SAME advanced value', () => {
 		const before = 12345;
 		const drawn = drawMatch(before, [25000], 0.08);
+
+		// Code review (second pass, Rule 19): this test used to assert only
+		// `drawn.rng !== before` plus a determinism re-draw, so a two-step (or
+		// three-step) implementation passed -- AD-3's load-bearing "the Match
+		// number comes from EXACTLY ONE nextRng() step of GameState.rng" was
+		// unpinned by the whole suite, and no golden can catch it (none leaves
+		// phase 'attract', so the draw is never reached). Both halves of this
+		// test's own title are now asserted against an independently computed
+		// single step.
+		const oneStep = nextRng(before);
+		expect(drawn.rng, 'EXACTLY ONE nextRng() step (AD-3): the returned rng is nextRng(before).rng, not two steps on').toBe(oneStep.rng);
+		expect(
+			{ number: drawn.number, winners: drawn.winners },
+			'the number/winners are matchNumberFor() fed that SAME single advanced value',
+		).toEqual(matchNumberFor(oneStep.value, [25000], 0.08));
+
 		expect(drawn.rng).not.toBe(before);
 		// A second draw from the SAME advanced rng must differ in general from
 		// a re-draw at the ORIGINAL rng -- proving this really advanced, not a
@@ -283,6 +300,89 @@ describe('AC 3 -- leaving game over', () => {
 	});
 });
 
+/**
+ * Code review, second pass -- the named follow-up risk from the first pass.
+ * A `…Ms` tunable resolving to exactly 0 is reachable: `resolveTuning()`
+ * rejects a NEGATIVE `…Ms` but not zero, and Story 1.9's dev tuning panel
+ * hot-applies any finite non-negative value to the running sim. The first pass
+ * fixed `matchDelayMs: 0` and BELIEVED it had fixed `matchRevealMs: 0` (its
+ * `matchRevealTicks > 0` conjunct was behaviour-neutral: `NaN === 0` was
+ * already false), and traced `attractMs: 0` as harmless. This block is the
+ * independent re-verification: each of the three zeros, driven through a real
+ * game-over sequence, must still produce the whole observable timeline in
+ * strict order -- draw, then ten reveal steps, then Attract on a LATER tick
+ * than the resolution. Every expected tick below is authored from the clamp's
+ * own contract (at least 1 tick), never read back from `tuning.ts`.
+ */
+describe('zero-valued …Ms tunables cannot silently break the game-over timeline (code review, second pass)', () => {
+	function zeroTuning(overrides: Partial<Record<'matchDelayMs' | 'matchRevealMs' | 'attractMs', number>>) {
+		const raw = { ...RAW_TUNING, ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 }, ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 } };
+		for (const [key, value] of Object.entries(overrides)) {
+			const entry = raw[key as keyof typeof raw] as { value: number };
+			(raw as Record<string, unknown>)[key] = { ...entry, value };
+		}
+		return resolveTuning(raw);
+	}
+
+	/** The clamped marks for an all-zero run: every `…Ticks` floors at 1, so matchTick = G+1, ten steps at G+2..G+11, resolution G+11, Attract G+12. */
+	const CLAMPED_MATCH_TICK = G + 1;
+	const CLAMPED_RESOLVED_TICK = CLAMPED_MATCH_TICK + 10;
+	const CLAMPED_ATTRACT_TICK = CLAMPED_RESOLVED_TICK + 1;
+
+	it('all three at 0: match_drawn still arrives, all ten reveal steps still arrive, and Attract lands STRICTLY after the resolution', () => {
+		const result = runRulesScript(gameOverScript(), {
+			durationTicks: CLAMPED_ATTRACT_TICK + 5,
+			tuning: zeroTuning({ matchDelayMs: 0, matchRevealMs: 0, attractMs: 0 }),
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 1 },
+		});
+
+		// The premise (a check that never ran is not a check): the drain really
+		// was game over.
+		expect(result.statesByTick.get(G)!.phase, 'premise: the drain at G is game over').toBe('game_over');
+
+		const drawnTicks = result.events.filter((e) => e.type === 'match_drawn').map((e) => e.tick);
+		expect(drawnTicks, 'match_drawn must still fire exactly once, on the tick AFTER the arming tick -- never swallowed by a matchTick equal to armTick').toEqual([CLAMPED_MATCH_TICK]);
+
+		const steps = result.events.filter((e) => e.type === 'match_reveal_step');
+		expect(steps.map((e) => e.tick), 'all ten reveal steps must still fire, one per tick -- never lost to a NaN modulo').toEqual([G + 2, G + 3, G + 4, G + 5, G + 6, G + 7, G + 8, G + 9, G + 10, G + 11]);
+		expect(steps.map((e) => (e as { step: number }).step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+		// The resolution tick's own step is the tenth, and Attract must be a
+		// LATER tick -- if attractTick collapsed onto resolvedTick, the Attract
+		// branch's `heldMatch: null` would drop the resolution before the
+		// Backglass could ever render `MATCH nn`.
+		expect(result.statesByTick.get(CLAMPED_RESOLVED_TICK)!.phase, 'the resolution tick is still game_over, so the tenth step is displayable').toBe('game_over');
+		expect(result.statesByTick.get(CLAMPED_ATTRACT_TICK)!.phase, 'Attract lands on the NEXT tick, strictly after the resolution').toBe('attract');
+	});
+
+	it('attractMs: 0 alone (the instance the first pass traced as harmless): the tenth reveal step and the Attract transition are on DIFFERENT ticks', () => {
+		const result = runRulesScript(gameOverScript(), {
+			durationTicks: RESOLVED_TICK + 5,
+			tuning: zeroTuning({ attractMs: 0 }),
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 1 },
+		});
+
+		const steps = result.events.filter((e) => e.type === 'match_reveal_step');
+		expect(steps, 'premise: the full production-paced reveal still ran').toHaveLength(10);
+		expect(steps[9]!.tick, 'premise: the tenth step is the resolution tick').toBe(RESOLVED_TICK);
+		// The positive: the resolution tick is still game_over (renderable), and
+		// Attract is the tick after it -- not the same tick.
+		expect(result.statesByTick.get(RESOLVED_TICK)!.phase).toBe('game_over');
+		expect(result.statesByTick.get(RESOLVED_TICK + 1)!.phase).toBe('attract');
+	});
+
+	it('production tuning is unaffected by the clamps: the marks are still G+5000, +250 steps and resolvedTick+8000', () => {
+		const result = runRulesScript(gameOverScript(), {
+			durationTicks: ATTRACT_TICK + 1,
+			tuning: NO_BALL_SAVE_TUNING,
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 1 },
+		});
+		expect(result.events.filter((e) => e.type === 'match_drawn').map((e) => e.tick)).toEqual([MATCH_TICK]);
+		expect(result.statesByTick.get(ATTRACT_TICK - 1)!.phase).toBe('game_over');
+		expect(result.statesByTick.get(ATTRACT_TICK)!.phase).toBe('attract');
+	});
+});
+
 describe('AC 11 (DW-235) -- a new game drops the previous game\'s count-up', () => {
 	const D = 10;
 
@@ -386,14 +486,18 @@ describe('reset-safety -- I/O Matrix "Restarted timeline": a stale gameOverSeque
 		return current;
 	}
 
-	it('a stale sequence armed at armTick=20 (old resolvedTick ~22520) never fires match_drawn/reveal/Attract on a restarted LOW-tick timeline; Start succeeds immediately there instead of waiting for the stale resolvedTick -- the positive proving the discard, not merely a still-pending wait', () => {
+	it('a stale sequence armed at armTick=20 (old resolvedTick 7520) never fires match_drawn/reveal/Attract on a restarted LOW-tick timeline; Start succeeds immediately there instead of waiting for the stale resolvedTick -- the positive proving the discard, not merely a still-pending wait', () => {
 		const rules = createRules(NO_BALL_SAVE_TUNING, { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 0 });
 		const armingScript = close('s_start').at(2).open('s_shooter_lane').at(10).close('s_trough_1').at(20).build();
 
 		// Phase 1 (the ORIGINAL, high timeline): drive ticks 1..20 -- Start,
 		// serve, drain -- exactly `gameOverScript()`/`G` above. Ball 1 of 1
 		// ends the (only) player's (only) ball: game over, armTick = 20,
-		// matchTick = 5020, resolvedTick = 22520.
+		// matchTick = 20 + 5000 = 5020, resolvedTick = 5020 + 10*250 = 7520.
+		// (Code review, second pass: this comment and the spec's own Rule 19
+		// mutation line both read "~22520", which is wrong by 15000 -- it
+		// implies a matchDelayTicks of 20000. The test's logic is unaffected:
+		// Start lands at 101, far below 7520 either way.)
 		let state = stepThrough(rules, freshAttractState(), armingScript, 1, 20);
 		expect(state.phase, 'sanity: armed -- the drain at tick 20 is game over').toBe('game_over');
 
@@ -404,12 +508,12 @@ describe('reset-safety -- I/O Matrix "Restarted timeline": a stale gameOverSeque
 		// that reuses ONE controller across a restarted tick count", the
 		// identical justification `rules-tilt.test.ts`'s own precedent test
 		// gives). No switch edges: a quiet run from 1 through 100, far short of
-		// the OLD matchTick (5020) let alone the OLD resolvedTick (22520).
+		// the OLD matchTick (5020) let alone the OLD resolvedTick (7520).
 		state = stepThrough(rules, state, [], 1, 100);
 		expect(state.phase, 'no Attract transition from the stale sequence anywhere in the restarted run').toBe('game_over');
 
 		// The positive: Start at tick 101 -- WAY below the stale sequence's own
-		// resolvedTick (22520) -- must succeed immediately. If the stale
+		// resolvedTick (7520) -- must succeed immediately. If the stale
 		// sequence had NOT been discarded, `gameOverResolved` requires `tick >=
 		// gameOverSequence.resolvedTick`, which 101 is nowhere near: the Start
 		// press would be ignored and `phase` would stay `game_over`. Success
