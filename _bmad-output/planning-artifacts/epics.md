@@ -1755,7 +1755,7 @@ entry that turns out to need a product decision is raised, not guessed.
 
 **Given** the ten ledger entries below
 **When** this story completes
-**Then** each is either resolved with cited evidence (a test, a commit, a measurement) or made terminal with a stated reason, and `LEDGER slice burndown` reads empty of `routed` and `open` entries
+**Then** each is either resolved with cited evidence (a test, a commit, a measurement) or made terminal with a stated reason, and **`LEDGER slice 2-15-epic-2-burn-down`** reads empty of `routed` and `open` entries [AMENDED 2026-09-12 at this story's own spec gate: this criterion originally named `LEDGER slice burndown`, which the burn-down gate had ALREADY emptied when it re-owned the ten entries from the generic `burndown` owner to this story's real key -- so as written the criterion was satisfied before any work began. A self-satisfying assertion is exactly the vacuity shape this epic has recorded 70 times, and it would have been embarrassing to leave it in the story chartered to close them. The story key is the binding reading]
 
 **Given** the gates this epic leaned on
 **When** an entry names a missing or vacuous check
