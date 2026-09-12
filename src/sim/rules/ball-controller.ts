@@ -1240,7 +1240,30 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			}
 		} else if (machineReport.recovered !== null) {
 			events.push({ type: 'ball_missing', count: machineReport.recovered, tick });
-			if (nextState.phase === 'game' && !nextState.machine.deviceSlots.bd_shooter[0]) {
+			// Code review, rework iteration 1 (the closure-state sweep the
+			// review pass's own DW-269 find asked for -- a THIRD instance of
+			// the same-tick coordination shape, in the OTHER branch): this
+			// serve must never double up on one `startBall()` already issued
+			// THIS SAME TICK. `pendingStrayClear?.tick === tick` is true on
+			// exactly the ticks a `startBall()` call has just run (it arms the
+			// record with this tick), and `startBall()` has already pulsed
+			// `c_trough_eject` itself into the same empty lane this branch
+			// tests for -- so without this conjunct both fire and the trough
+			// ejects TWICE, the two-balls-in-the-lane defect AD-6's amended
+			// invariant ("exactly one ball is in play after the serve, never
+			// two") and the whole of DW-244 exist to prevent. Reachable
+			// through a genuine collision: ball search's own final-stage
+			// `RecoverCommand` issued at t-1 while a stuck ball was in play,
+			// answered at t, on the very tick a `slam_tilt_closed` moves
+			// `phase` to 'attract' (`tiltController.step()` runs first) and a
+			// same-tick `button_pressed(START)` is honoured -- `startBall()`
+			// then serves game 2 while THIS branch, correctly seeing a report
+			// that is not the stray clear's own, serves again. The
+			// `ball_missing` above is still emitted: a ball genuinely did
+			// leave the simulated set, and that is Story 2.12's contract for
+			// every non-stray-clear report.
+			const servedThisTickByStartBall = pendingStrayClear !== null && pendingStrayClear.tick === tick;
+			if (!servedThisTickByStartBall && nextState.phase === 'game' && !nextState.machine.deviceSlots.bd_shooter[0]) {
 				coilCommands.push({ type: 'coil', coil: TABLE.ballDevices.bd_trough.ejectCoil as CoilName, action: 'pulse', tick });
 			}
 		}

@@ -248,6 +248,20 @@ describe("DW-269 (review pass, rework iteration 1) -- a same-tick Slam+Start col
 		// null-out), and still answer correctly one tick later.
 		const eventsAt7 = result.events.filter((e) => e.tick === 7);
 		expect(eventsAt7, "the positive: game 2's own report at t+1 still arrives, undisturbed").toEqual([{ type: 'ball_missing', count: 1, tick: 7 }]);
+		// Code review, rework iteration 1 (verification-gap): the assertion
+		// above pins the SNAPSHOT half of the DW-269 fix but not the
+		// REFERENCE-EQUALITY half -- measured, not argued. Restoring the
+		// unconditional `pendingStrayClear = null` (keeping the snapshot)
+		// wipes game 2's own freshly-armed record at tick 6, so at tick 7 the
+		// report falls through to branch (b), which pushes the BYTE-IDENTICAL
+		// `ball_missing { count: 1, tick: 7 }` (the `toEqual` above still
+		// passes) AND a second `c_trough_eject` -- game 2 already served at
+		// tick 6. The pulse count is the only observable that separates the
+		// two branches here, so it is the assertion that pins the guard.
+		expect(
+			result.coilCommands.filter((c) => c.tick === 7 && c.coil === TROUGH_EJECT_COIL),
+			"DW-269: game 2's own report must arrive through branch (a) and draw NO second serve at tick 7",
+		).toHaveLength(0);
 	});
 });
 
@@ -266,5 +280,59 @@ describe('AC 8 (vi) -- the Start-tick drain guard: a parking entry on the exact 
 			initialState: midGameState(false, 1),
 		});
 		expect(inGame.events.some((e) => e.tick === t && e.type === 'ball_ended'), 'the control: the identical closure in an ONGOING game genuinely ends the ball').toBe(true);
+	});
+});
+
+describe('Code review, rework iteration 1 (the closure-state sweep) -- a NON-stray-clear recover report must never draw a second serve on a tick startBall() already served', () => {
+	it("a ball-search recover answered on the very tick a same-tick Slam+Start starts a new game yields exactly ONE trough eject, and still reports the ball that genuinely left the set", () => {
+		const T = 6;
+		// The collision: a stuck ball had ball search running (phase 'game',
+		// ballsInPlay 1), whose final-stage RecoverCommand at T-1 is answered
+		// at T. On that same tick a `slam_tilt_closed` voids the game to
+		// 'attract' (`tiltController.step()` runs before this controller) and
+		// a same-tick Start is honoured, so `startBall()` serves game 2 while
+		// the report -- which is NOT the stray clear's own -- is handled below
+		// it. `pendingStrayClear` is null on entry, so `strayClearReportDue`
+		// is false and the report takes branch (b).
+		const result = runRulesScript(close('s_slam_tilt').at(T).close('s_start').at(T).build(), {
+			durationTicks: T + 4,
+			initialState: midGameState(false, 1),
+			machineReports: new Map<number, MachineReport>([[T, { recovered: 1, failures: [] }]]),
+		});
+
+		// Premises: the Slam genuinely voided the game and Start genuinely
+		// re-created one on the SAME tick -- without both, nothing below is
+		// exercising the collision at all.
+		expect(result.events.some((e) => e.tick === T && e.type === 'slam_tilt'), 'the premise: the Slam lands at T').toBe(true);
+		expect(result.statesByTick.get(T)!.phase, 'the premise: Start is honoured the SAME tick, creating a new game').toBe('game');
+		expect(result.events.some((e) => e.tick === T && e.type === 'ball_will_start'), "the premise: startBall() genuinely ran at T").toBe(true);
+
+		// The negative (red before the guard: 2): startBall() has already
+		// pulsed the trough into the empty lane at T, so branch (b) must not
+		// pulse again -- two ejects here are two balls in the lane, exactly
+		// the DW-244/AD-6 double serve.
+		expect(
+			result.coilCommands.filter((c) => c.tick === T && c.coil === TROUGH_EJECT_COIL),
+			'exactly ONE trough eject at the collision tick -- never a second, from the recover report landing on the same tick',
+		).toHaveLength(1);
+
+		// The positive, in the same test: the report is still reported (a ball
+		// genuinely left the simulated set -- Story 2.12's contract for every
+		// non-stray-clear report is unchanged), and the ordinary
+		// non-colliding case still serves.
+		expect(
+			result.events.filter((e) => e.tick === T && e.type === 'ball_missing'),
+			'the positive: the recover is still reported at its own tick',
+		).toEqual([{ type: 'ball_missing', count: 1, tick: T }]);
+
+		const alone = runRulesScript([], {
+			durationTicks: T + 4,
+			initialState: midGameState(false, 1),
+			machineReports: new Map<number, MachineReport>([[T, { recovered: 1, failures: [] }]]),
+		});
+		expect(
+			alone.coilCommands.filter((c) => c.tick === T && c.coil === TROUGH_EJECT_COIL),
+			"the positive: the SAME report with no same-tick startBall() still serves the empty lane (Story 2.12's branch, unchanged)",
+		).toHaveLength(1);
 	});
 });

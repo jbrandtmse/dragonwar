@@ -152,9 +152,15 @@ describe('AC 5 -- DW-244 route 1: a voided game\'s loose ball is removed before 
 		// arithmetic accident (`deriveDeviceSlots()`'s identity guard
 		// swallows the eject's lone open edge either way) -- so this
 		// assertion pins the ORDER specifically, not the edge's mere
-		// presence (that is `test/physics-recover-trough.test.ts`'s own
-		// rework-iteration addition, which has no competing same-tick eject
-		// to mask a missing edge).
+		// presence. Corrected at code review: the presence pin is
+		// `test/ball-search-integration.test.ts`'s own "AC 2 + AC 7" (2.12)
+		// case, whose recover shares no tick with any eject -- measured by
+		// mutation (remove `recover()`'s `pendingRecoverSwitchEvents.push`:
+		// that case reddens "the RULES-derived trough count must also rise to
+		// 3", as does `test/ad7-device-slots.test.ts`). This comment
+		// previously named `test/physics-recover-trough.test.ts`, whose own
+		// rework-iteration change is comment-only and adds no assertion --
+		// and whose header says the opposite.
 		expect(
 			out.snapshot.game.machine.deviceSlots.bd_trough.filter(Boolean).length,
 			'CR-1: the rules-derived trough slot count must net to 3 (open), matching physics, never stuck at 4 (closed) from a wrongly-ordered edge',

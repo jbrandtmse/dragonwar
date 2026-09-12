@@ -54,8 +54,10 @@ function winnersFor(number: number, scores: readonly number[]): readonly number[
  *
  * Review pass (blind-hunter, rework iteration 1): `c` (the `value >= p`
  * branch's own candidate set) is indexed unconditionally, and is safe only
- * because `w.length` -- the number of DISTINCT `score % 100` values across
- * `scores` -- can never reach `MATCH_NUMBERS.length` (10) while
+ * because `w.length` -- the number of `MATCH_NUMBERS` members (multiples of
+ * ten) that appear among the players' own `score % 100` values, which is at
+ * most the player count, NOT the count of all distinct `score % 100` values
+ * -- can never reach `MATCH_NUMBERS.length` (10) while
  * `ball-controller.ts`'s own hot-seat gate caps a game at 4 players
  * (`nextState.players.length < 4`), so `c.length = 10 - w.length >= 6 > 0`
  * always. This function does not enforce that cap itself (`scores` is a
@@ -64,6 +66,12 @@ function winnersFor(number: number, scores: readonly number[]): readonly number[
  * path for its violation. Latent, not live: real only if a future story
  * raises the per-game player cap to 10 or more, letting every one of
  * `MATCH_NUMBERS`' ten slots collect a distinct player's own value at once.
+ * (Second code review: a non-finite `probability` would defeat the clamp
+ * independently of `w.length` -- `Math.min(1, Math.max(0, NaN))` is `NaN`,
+ * so `value < p` is false and `c[Math.floor(NaN)]` is `undefined` behind the
+ * non-null assertion. Not reachable: every producer of `matchProbability` is
+ * either `TUNING.matchProbability.value` or a JSON replay header, and JSON
+ * has no `NaN` literal.)
  */
 export function matchNumberFor(
 	value: number,

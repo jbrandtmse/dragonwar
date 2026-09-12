@@ -668,7 +668,6 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 			// `sawMissingAnywhere === false` below is evidence the drain
 			// closure actually cancelled something, not a vacuous absence.
 			expect(ballEndedTick, "the positive: the drain lands strictly before the search pass's own recover stage (S+2751)").toBeLessThan(S + 2751);
-			expect(sawMissingAnywhere, "no ball_missing anywhere in the run -- the drain closure cancelled the search pass before its RecoverCommand").toBe(false);
 
 			const eventsAtDrain = out.events.filter((e) => e.tick === ballEndedTick).map((e) => e.type);
 			expect(eventsAtDrain).toContain('ball_ended');
@@ -699,9 +698,21 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 				'AC 7: the trough stays 3 -- no second serve was drawn from it (Red today: 3 -> 2 at this exact tick)',
 			).toBe(3);
 			// And it holds through the quiet run up to the plunge, not just for
-			// the one tick after.
+			// the one tick after. Code review, rework iteration 1: this loop
+			// (and the plunge loops below) now SAMPLE `ball_missing` too --
+			// before this patch `sawMissingAnywhere` was written only inside
+			// the drain loop above, which exits at the first `ball_ended`
+			// (S+2577), so the two ticks where a `ball_missing` could actually
+			// appear -- the new ball's own stray-clear report at S+2578 and
+			// the search pass's own recover stage at S+2751 -- both fell
+			// OUTSIDE the watched window and `false` was guaranteed there
+			// regardless of behaviour (this epic's "a check that never ran"
+			// vacuity shape).
 			for (let i = 0; i < 2000; i++) {
 				out = loop.advance(1, []);
+				if (out.events.some((e) => e.type === 'ball_missing')) {
+					sawMissingAnywhere = true;
+				}
 			}
 			expect(out.snapshot.balls, 'still one ball 2000 quiet ticks later').toHaveLength(1);
 			expect(
@@ -713,15 +724,33 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
 			for (let i = 0; i < 1199; i++) {
 				out = loop.advance(1, []);
+				if (out.events.some((e) => e.type === 'ball_missing')) {
+					sawMissingAnywhere = true;
+				}
 			}
 			out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
 			let sawSecondLaunch = false;
 			for (let i = 0; i < 500 && !sawSecondLaunch; i++) {
 				out = loop.advance(1, []);
+				if (out.events.some((e) => e.type === 'ball_missing')) {
+					sawMissingAnywhere = true;
+				}
 				if (out.events.some((e) => e.type === 'ball_launched')) {
 					sawSecondLaunch = true;
 				}
 			}
+			// Now that every tick of the run has been sampled, the clause AC 7
+			// actually states. Scoped honestly: this pins that NO ball goes
+			// missing anywhere on route 2 -- not the internal mechanism by
+			// which the search pass stops, which this scenario over-determines
+			// (`ball-search.ts`'s own `inPlayNow` gate is false from the drain
+			// until the plunge, so the pass could not reach its recover stage
+			// here even without `ballSearch.reset()`; the reset itself is
+			// pinned by `test/rules-ball-search.test.ts`).
+			expect(
+				sawMissingAnywhere,
+				"AC 7: no ball_missing anywhere in the whole run -- neither the new ball's own stray-clear report (S+2578, recovered 0) nor any search recover",
+			).toBe(false);
 			expect(sawSecondLaunch, 'the plunge must genuinely launch the lane ball').toBe(true);
 			expect(out.snapshot.balls.some((b) => b.id === laneBallId), 'the SAME lane ball leaves the lane').toBe(true);
 			expect(out.snapshot.game.players[0]!.ballNumber, 'it plays as ball 2').toBe(2);
