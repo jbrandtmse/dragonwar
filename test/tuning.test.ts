@@ -33,6 +33,12 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'slamNudgeWindowMs',
 			'tiltWarningSpacingMs',
 			'tiltSettleMs',
+			// Story 2.11 (DW-36, AD-15): the tilt-warning count's table default.
+			'tiltWarnings',
+			// Story 2.12 (AD-3/AD-15): ball search's own quiet-window and
+			// per-stage-pulse durations.
+			'ballSearchMs',
+			'ballSearchStepMs',
 			'plungerMinHoldMs',
 			'plungerMaxHoldMs',
 			'plungerMinSpeedScale',
@@ -40,6 +46,51 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'troughEjectSpeedMmPerS',
 			'autolaunchSpeedMmPerS',
 			'nudgeImpulseMs',
+			// Code review 2026-09-04 (iteration 2, AD-15): Story 2.1d moved
+			// the Lock's ejection-exemption backstop out of devices.ts and
+			// into TUNING, but this allowlist is hand-maintained, so the new
+			// entry escaped the source/confidence check entirely -- which is
+			// precisely the half of that finding that read "nothing fails if
+			// the value or its confidence drifts", recorded as resolved when
+			// only the relocation had happened.
+			'lockEjectExemptionTimeoutMs',
+			// Story 2.4 (AD-19, task 1): the three shot-window tunables
+			// TABLE.shots[*].windowMs and DW-166's own lock-capture window
+			// point at -- each measured at this tree, never guessed.
+			'loopWindowMs',
+			'rampWindowMs',
+			'lockCaptureWindowMs',
+			// Story 2.7 (AD-15): the first scoring value in the file.
+			'skillShotAward',
+			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.
+			'liveLightBudget',
+			// Code review 2026-09-08 (Story 2.10, blind-hunter): TEN top-level
+			// entries were missing from this list when Story 2.10 was reviewed --
+			// its own four bonus tunables, Story 2.9's three ball-save timers, and
+			// three geometry figures that had never been listed. Every one of them
+			// was escaping the AD-15 source/confidence check above entirely. The
+			// Story 2.1d note higher up records this exact miss happening once
+			// before; enumerating them again would only fix the instance, so the
+			// completeness ratchet at the end of this test now fixes the class.
+			'flipperTipGapMm',
+			'outlaneWidthLeftMm',
+			'outlaneWidthRightMm',
+			// Story 2.9 (AD-18): the ball-save window, its hurry-up and its grace.
+			'ballSaveMs',
+			'ballSaveHurryUpMs',
+			'ballSaveGraceMs',
+			// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count-up's pace and
+			// the three per-category scoring values.
+			'bonusCountMs',
+			'bonusLetterValue',
+			'bonusLoopValue',
+			'bonusStrikeValue',
+			// Story 2.13 (AD-14/AD-15): the Match's win chance and the
+			// game-over sequence's three paced durations.
+			'matchProbability',
+			'matchDelayMs',
+			'matchRevealMs',
+			'attractMs',
 		] as const;
 		for (const key of scalarKeys) {
 			const entry = TUNING[key];
@@ -49,6 +100,24 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
 			expect(validConfidences).toContain(entry.confidence);
 		}
+
+		// Completeness ratchet (code review 2026-09-08): the list above is
+		// hand-maintained, so it can only stay honest if something fails when it
+		// falls behind. Derived from TUNING itself -- every top-level key whose
+		// value IS a TuningEntry must be listed, so the next tunable added
+		// without a line here reddens instead of silently skipping the checks.
+		const declared = Object.entries(TUNING)
+			.filter(([, value]) => isTuningEntry(value))
+			.map(([key]) => key)
+			.sort();
+		expect(
+			declared.length,
+			'sanity: TUNING must genuinely carry top-level scalar entries, or this ratchet passes on an empty set',
+		).toBeGreaterThan(20);
+		expect(
+			declared,
+			'every top-level TuningEntry must be listed in scalarKeys above -- an unlisted tunable escapes the source/confidence check entirely',
+		).toEqual([...scalarKeys].sort());
 	});
 
 	it('every switchSettleMsByClass entry is a TuningEntry, one per SettleClass', () => {
@@ -200,6 +269,72 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		}
 	});
 
+	// Story 2.12 (AC 10): `ballSearchMs`/`ballSearchStepMs` are covered by the
+	// generic ratchet above only for source/confidence (the scalarKeys loop) --
+	// nothing until now DIRECTLY asserted that resolveTuning() actually derives
+	// their own `ballSearchTicks`/`ballSearchStepTicks` counterparts (only
+	// exercised indirectly, through the search's own schedule in
+	// rules-ball-search.test.ts, which assumes rather than proves the 1:1
+	// conversion at TICK_HZ 1000). AC 10's own Given names both derived keys
+	// explicitly, so this closes that direct gap.
+	it('AC 10: ballSearchMs (15000) and ballSearchStepMs (250) resolve with a non-empty source and a valid confidence, and derive ballSearchTicks/ballSearchStepTicks', () => {
+		const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+		// Authored tick literals at the production 1000 Hz (AD-3), never
+		// re-derived from the ms value under test (Rule 19 shape 3; code review
+		// 2026-09-11). The generic ms->ticks conversion is pinned separately,
+		// at a non-1000 rate, elsewhere in this file.
+		for (const [msKey, ticksKey, expectedMsValue, expectedTicksValue] of [
+			['ballSearchMs', 'ballSearchTicks', 15000, 15000],
+			['ballSearchStepMs', 'ballSearchStepTicks', 250, 250],
+		] as const) {
+			const msEntry = resolved[msKey] as unknown as TuningEntry<number>;
+			const ticksEntry = resolved[ticksKey] as unknown as TuningEntry<number>;
+			expect(msEntry.value).toBe(expectedMsValue);
+			expect(msEntry.source.length).toBeGreaterThan(0);
+			expect(validConfidences).toContain(msEntry.confidence);
+			expect(ticksEntry.value).toBe(expectedTicksValue);
+			expect(ticksEntry.source).toBe(msEntry.source);
+			expect(ticksEntry.confidence).toBe(msEntry.confidence);
+		}
+	});
+
+	// Story 2.13 (AC 12): the four new tunables resolve to their authored
+	// literals, with a non-empty source and a valid confidence, and the three
+	// `…Ms` entries derive their `…Ticks` siblings -- authored tick literals
+	// at the production 1000 Hz (AD-3), never re-derived from the ms value
+	// under test (Rule 19 shape 3, the `ballSearchMs` precedent above).
+	// `matchProbability` derives no `…Ticks` sibling: a fraction, not a
+	// duration.
+	it('AC 12: matchProbability (0.08), matchDelayMs (5000), matchRevealMs (250) and attractMs (8000) resolve with a non-empty source and a valid confidence, and the three …Ms entries derive matchDelayTicks/matchRevealTicks/attractTicks', () => {
+		const validConfidences: Confidence[] = ['high', 'medium', 'low', 'unverified'];
+		expect(resolved.matchProbability.value).toBe(0.08);
+		expect(resolved.matchProbability.source.length).toBeGreaterThan(0);
+		expect(validConfidences).toContain(resolved.matchProbability.confidence);
+
+		for (const [msKey, ticksKey, expectedMsValue, expectedTicksValue] of [
+			['matchDelayMs', 'matchDelayTicks', 5000, 5000],
+			['matchRevealMs', 'matchRevealTicks', 250, 250],
+			['attractMs', 'attractTicks', 8000, 8000],
+		] as const) {
+			const msEntry = resolved[msKey] as unknown as TuningEntry<number>;
+			const ticksEntry = resolved[ticksKey] as unknown as TuningEntry<number>;
+			expect(msEntry.value).toBe(expectedMsValue);
+			expect(msEntry.source.length).toBeGreaterThan(0);
+			expect(validConfidences).toContain(msEntry.confidence);
+			expect(ticksEntry.value).toBe(expectedTicksValue);
+			expect(ticksEntry.source).toBe(msEntry.source);
+			expect(ticksEntry.confidence).toBe(msEntry.confidence);
+		}
+	});
+
+	// Story 2.13 (AC 12): production `matchDelayTicks` must exceed the
+	// Backglass's `BALL_ENDED_HOLD_TICKS` (3000), so the last ball's own
+	// end-of-ball hold and bonus count-up (Story 2.10) are never cut by the
+	// Match sequence starting underneath them.
+	it('AC 12: production matchDelayTicks (5000) exceeds BALL_ENDED_HOLD_TICKS (3000)', () => {
+		expect(resolved.matchDelayTicks.value).toBeGreaterThan(3000);
+	});
+
 	it('produces switchSettleTicksByClass with every class converted, preserving source/confidence', () => {
 		const classes = ['rollover', 'standup', 'drop_target', 'bumper_skirt', 'tilt_bob', 'button', 'slam'] as const;
 		for (const settleClass of classes) {
@@ -236,10 +371,13 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 	// Math.round(ms * 1000 / 1000) === ms for every integer tunable in TUNING,
 	// so every assertion above is satisfied by a resolveTuning() that does no
 	// conversion at all (`return ms` was verified to leave the whole suite
-	// green). time.ts marks TICK_HZ PROVISIONAL -- "1000 on PASS, 480 on
-	// FAIL" -- which is precisely when a regressed conversion would start
-	// silently mis-scaling every debounce, tilt and plunger duration. These
-	// cases evaluate the conversion at a rate where it is NOT the identity.
+	// green). [CODE REVIEW, Story 2.15, DW-270] This used to read "time.ts
+	// marks TICK_HZ PROVISIONAL -- 1000 on PASS, 480 on FAIL", a claim
+	// about a file that no longer makes it (RATIFIED at 1000, DW-2). The
+	// case for these cases is unchanged and does not rest on it: at any rate
+	// other than 1000 a regressed conversion silently mis-scales every
+	// debounce, tilt and plunger duration, so the conversion is evaluated
+	// here at a rate where it is NOT the identity.
 	describe('the conversion is real, not the identity it looks like at 1000 Hz', () => {
 		const at480 = resolveTuning(TUNING, 480);
 
@@ -286,11 +424,21 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		it('throws naming the tunable when a strictly positive …Ms value rounds to 0 ticks at the live tick rate', () => {
 			// At tickHz = 1, 400 ms -> round(400 * 1 / 1000) = round(0.4) = 0 ticks
 			// -- a nonzero duration that would silently become a no-op wait.
+			//
+			// Story 2.4: deliberately NOT `{ ...TUNING, tiltSettleMs: {...} }`
+			// any more -- at tickHz = 1, EVERY sub-1000ms …Ms tunable rounds to
+			// 0 (Story 2.4 added three: loopWindowMs 600, rampWindowMs 800,
+			// lockCaptureWindowMs 180), and `Object.entries()` iteration order
+			// means whichever one appears FIRST in the object throws first --
+			// not necessarily tiltSettleMs. A minimal fixture naming ONLY
+			// switchSettleMsByClass (structurally required) and tiltSettleMs
+			// itself makes this test's own target the ONLY …Ms key present,
+			// immune to any future tunable's position in TUNING.
 			const broken = {
-				...TUNING,
+				switchSettleMsByClass: TUNING.switchSettleMsByClass,
 				tiltSettleMs: { value: 400, source: 'test fixture', confidence: 'unverified' as const },
 			};
-			expect(() => resolveTuning(broken, 1)).toThrow(/tiltSettleMs/);
+			expect(() => resolveTuning(broken as unknown as typeof TUNING, 1)).toThrow(/tiltSettleMs/);
 		});
 
 		it('an authored 0 ms still converts to 0 ticks with no throw', () => {

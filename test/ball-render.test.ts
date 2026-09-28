@@ -38,7 +38,7 @@ const BASE_GAME_STATE: GameState = {
 		tilt: { tilted: false, slamTilted: false },
 		multiball: null,
 		highscores: [],
-		deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false] },
+		deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
 	},
 	players: [],
 	currentPlayer: 0,
@@ -55,7 +55,7 @@ function buildSnapshot(overrides: Partial<Snapshot>): Snapshot {
 			plunger: { posMm: 0, holdTicks: 0 },
 			dropTargets: {},
 			spinner: {},
-			devices: { bd_trough: { slots: [true, true, true, true] }, bd_shooter: { slots: [false] } },
+			devices: { bd_trough: { slots: [true, true, true, true] }, bd_shooter: { slots: [false] }, bd_lock: { slots: [false, false, false] } },
 		},
 		game: BASE_GAME_STATE,
 		effectivePitchDeg: TABLE.reference.pitchDeg,
@@ -321,6 +321,68 @@ describe('src/presentation/scene/create-engine.ts -- loadAndRenderOnce() actuall
 				await new Promise((resolve) => setTimeout(resolve, 50));
 
 				expect(callCount, 'onFrame must still be called on frames after the first -- this is the branch a real play session runs on for its entire duration').toBeGreaterThan(countAtFirstFrame);
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+});
+
+// Story 2.1b task 22 (DW-120): a ball below the playfield's front edge
+// (table y < 0) is inside the below-deck return channel, which this
+// collision model cannot express as a real subway (col_playfield is a
+// single plane node -- see src/presentation/scene/balls.ts's own comment).
+// Culling is a rendering decision derived from position, not new game
+// state, and is contained to this one file.
+//
+// Falsifiability (spec ## Verification): mutation: revert the cull in
+// src/presentation/scene/balls.ts -> the y = -50 case goes red because the
+// mesh is present/visible, while the y = +50 control stays green. The
+// control is what stops a fix that culls everything.
+describe('src/presentation/scene/balls.ts -- DW-120: a ball below the deck (table y < 0) is culled', () => {
+	it('a ball at table y = -50 (below deck, inside the return channel) is NOT visible', async () => {
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			const { scene, playfieldNodes } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' });
+			try {
+				const snapshot = buildSnapshot({
+					balls: [{ id: 0, pos: { x: 250, y: -50, z: 13.495 }, vel: { x: 0, y: 0, z: 0 }, speed: 0 }],
+				});
+				syncBalls(scene, playfieldNodes.playfieldRoot, snapshot);
+
+				const mesh = scene.getMeshByName('ball_0');
+				// Asserted both ways round (this file's own precedent, :87):
+				// either the mesh is absent, or it exists with isVisible ===
+				// false. This story's own fix uses isVisible (never disposal,
+				// so the mesh resumes rendering instantly once served back),
+				// so pin that property directly.
+				expect(mesh, 'a ball below the deck must not be rendered').not.toBeNull();
+				expect(mesh!.isVisible, 'a ball at table y < 0 must have isVisible === false').toBe(false);
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+
+	it('control: a ball at table y = +50 (on the deck) IS visible', async () => {
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			const { scene, playfieldNodes } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' });
+			try {
+				const snapshot = buildSnapshot({
+					balls: [{ id: 0, pos: { x: 250, y: 50, z: 13.495 }, vel: { x: 0, y: 0, z: 0 }, speed: 0 }],
+				});
+				syncBalls(scene, playfieldNodes.playfieldRoot, snapshot);
+
+				const mesh = scene.getMeshByName('ball_0');
+				expect(mesh, 'a ball on the deck must be rendered').not.toBeNull();
+				expect(mesh!.isVisible, 'a ball at table y >= 0 must have isVisible === true').toBe(true);
 			} finally {
 				scene.dispose();
 			}

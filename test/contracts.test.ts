@@ -9,7 +9,7 @@
 // anyway (TypeScript types have no runtime representation).
 
 import { describe, expect, it } from 'vitest';
-import { CONTACT_SURFACES } from '../src/sim/contracts';
+import { CONTACT_SURFACES, LAMP_ROLES } from '../src/sim/contracts';
 import type {
 	ContactEvent,
 	ContactSurface,
@@ -22,6 +22,9 @@ import type {
 	InputFrame,
 	InputTransition,
 	LampCommand,
+	LampProjectionEntry,
+	LampRole,
+	LampState,
 	ModeView,
 	RecoverCommand,
 	ReplayHeader,
@@ -114,6 +117,52 @@ describe('sim/contracts -- commands are discriminated on type and carry tick', (
 		expect(cmd.tick).toBe(3);
 	});
 
+	// Story 2.8 (AC 2): `LAMP_ROLES` pins the seven AD-9 role members AND
+	// their order at runtime -- the `CONTACT_SURFACES` shape above, copied.
+	// `LampRole` had no runtime representation before this story (Code Map:
+	// "LampRole currently has no runtime representation, which is why AC 2's
+	// closure test is not satisfiable today").
+	it('LAMP_ROLES pins the seven AD-9 role members AND their order at runtime, not just at the type level', () => {
+		const roles: LampRole[] = ['off', 'lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special'];
+		expect(roles).toHaveLength(7);
+		expect(LAMP_ROLES).toEqual(['off', 'lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special']);
+	});
+
+	it('rejects an eighth role value at compile time (LampRole is closed to the seven AD-9 members)', () => {
+		// @ts-expect-error -- 'nonexistent_role' is not one of AD-9's seven roles.
+		const role: LampRole = 'nonexistent_role';
+		void role;
+	});
+
+	// Code review pass 3 (verification-gap, Rule 19): this used to construct
+	// `{ l_dummy: entry }` and then assert that same object's own two fields.
+	// `LampState`/`LampProjectionEntry` are TYPES with no runtime
+	// representation -- as this file's own header says -- so no
+	// implementation of anything could redden it, and unlike the neighbouring
+	// `toHaveLength(7)` case there was no load-bearing assertion inside the
+	// same `it()`. The load-bearing checks are the `@ts-expect-error`
+	// directives below, enforced by `pnpm typecheck` (vitest's esbuild
+	// transform strips types and never sees them) -- the same enforcement
+	// point the role-rejection case above relies on. The runtime assertions
+	// are kept only as executable documentation of the shape.
+	it('LampState<TLamp> is TOTAL over its lamp union and closed to LampStep (compile-time; runtime lines are shape documentation only)', () => {
+		const entry: LampProjectionEntry = { role: 'dragon', step: 2 };
+		const state: LampState<'l_dummy'> = { l_dummy: entry };
+		expect(state.l_dummy.role).toBe('dragon');
+		expect(state.l_dummy.step).toBe(2);
+
+		// @ts-expect-error -- LampState is a total Record, never Partial: a lamp in the union may not be omitted.
+		const missing: LampState<'l_dummy' | 'l_other'> = { l_dummy: entry };
+		void missing;
+
+		// @ts-expect-error -- 4 is outside LampStep's closed {0,1,2,3}.
+		const badStep: LampProjectionEntry = { role: 'dragon', step: 4 };
+		void badStep;
+
+		// @ts-expect-error -- LampProjectionEntry's fields are readonly; the projection is recomputed whole, never mutated in place (AD-9).
+		entry.step = 1;
+	});
+
 	it('GiCommand', () => {
 		const cmd: GiCommand<'gi_backbox'> = { type: 'gi', channel: 'gi_backbox', level: 0.5, tick: 4 };
 		expect(cmd.type).toBe('gi');
@@ -139,17 +188,45 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(event.type).toBe('sim_time_discarded');
 	});
 
+	it('ball_started (Story 2.5, AC 2: the third member of ball_will_start -> ball_starting -> ball_started)', () => {
+		const event: SemanticEvent = { type: 'ball_started', tick: 21 };
+		expect(event.type).toBe('ball_started');
+	});
+
 	it('ball_ended carries the AD-9-named payload', () => {
+		// Story 2.10: bonusByCategory is now a TOTAL record over BonusCategory
+		// (letters/loops/strikes all present) -- {} or a partial record no
+		// longer typechecks.
 		const event: SemanticEvent = {
 			type: 'ball_ended',
 			player: 0,
-			bonusByCategory: { loops: 3 },
+			bonusByCategory: { letters: 0, loops: 3, strikes: 0 },
 			multiplier: 2,
 			total: 6,
 			tilted: false,
 			tick: 20,
 		};
 		expect(event.type).toBe('ball_ended');
+	});
+
+	it('bonus_count_step (Story 2.10, AD-3/AD-9): the end-of-ball count-up\'s own step event', () => {
+		const event: SemanticEvent = {
+			type: 'bonus_count_step',
+			player: 1,
+			step: 2,
+			steps: 3,
+			running: 40000,
+			total: 60000,
+			tick: 820,
+		};
+		expect(event.type).toBe('bonus_count_step');
+	});
+
+	it('ball_save_enabled / ball_save_timer_started / ball_saved (Story 2.9, AD-18)', () => {
+		const enabled: SemanticEvent = { type: 'ball_save_enabled', tick: 40 };
+		const timerStarted: SemanticEvent = { type: 'ball_save_timer_started', untilTick: 8040, tick: 40 };
+		const saved: SemanticEvent = { type: 'ball_saved', player: 0, tick: 8020 };
+		expect([enabled.type, timerStarted.type, saved.type]).toEqual(['ball_save_enabled', 'ball_save_timer_started', 'ball_saved']);
 	});
 
 	it('the device-failure vocabulary exists even though Epic 1 never emits it', () => {
@@ -168,18 +245,42 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return 'ball will start';
 				case 'ball_starting':
 					return 'ball starting';
+				case 'ball_started':
+					return 'ball started';
 				case 'ball_launched':
 					return 'ball launched';
+				case 'ball_save_enabled':
+					return 'ball save enabled';
+				case 'ball_save_timer_started':
+					return `ball save timer started until ${event.untilTick}`;
+				case 'ball_saved':
+					return `ball saved ${event.player}`;
 				case 'ball_missing':
 					return `missing ${event.count}`;
+				case 'ball_search_started':
+					return `ball search started at ${event.tick}`;
 				case 'ball_ended':
-					return `ended ${event.total}`;
+					return `ended ${event.player} ${event.total}`;
+				case 'bonus_count_step':
+					return `bonus step ${event.step}/${event.steps} running ${event.running}`;
+				case 'tilt_warning':
+					return `tilt warning ${event.player} remaining ${event.remaining}`;
+				case 'tilt':
+					return `tilted ${event.player}`;
+				case 'slam_tilt':
+					return 'slam tilted';
 				case 'eject_failed':
 					return `eject failed ${event.device}`;
 				case 'broken':
 					return `broken ${event.device}`;
 				case 'device_overflow':
 					return `overflow ${event.device}`;
+				case 'game_ended':
+					return `game ended ${event.scores.join(',')}`;
+				case 'match_drawn':
+					return `match drawn ${event.number} winners ${event.winners.join(',')}`;
+				case 'match_reveal_step':
+					return `match reveal ${event.step}/${event.steps} shown ${event.shown}`;
 				default: {
 					// Exhaustiveness: if a new event variant is ever added without a
 					// case above, this line fails `pnpm typecheck`.
@@ -189,6 +290,71 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 			}
 		}
 		expect(describeEvent({ type: 'ball_will_start', tick: 1 })).toBe('ball will start');
+		// QA (Story 2.9 / DW-217, narrowed to this story's own three new arms):
+		// these three case bodies were previously compiled (for the `neverEvent`
+		// exhaustiveness gate) but never executed by any assertion, so a wrong
+		// field reference inside one (e.g. templating `event.tick` where
+		// `event.player` was intended) would type-check and ship silently.
+		// `untilTick`/`tick` and `player`/`tick` are each authored as distinct
+		// values below specifically so such a field swap reddens the assertion
+		// instead of passing by coincidence.
+		expect(describeEvent({ type: 'ball_save_enabled', tick: 40 })).toBe('ball save enabled');
+		expect(describeEvent({ type: 'ball_save_timer_started', untilTick: 8040, tick: 40 })).toBe('ball save timer started until 8040');
+		expect(describeEvent({ type: 'ball_saved', player: 3, tick: 8020 })).toBe('ball saved 3');
+		// Story 2.10 / DW-223: the ball_ended arm above was compiled (for the
+		// neverEvent exhaustiveness gate) but never executed by any assertion --
+		// player/total are each authored as distinct values so a field swap
+		// (e.g. templating event.tick where event.player was intended) reddens
+		// this, not merely typechecks.
+		expect(
+			describeEvent({
+				type: 'ball_ended',
+				player: 2,
+				bonusByCategory: { letters: 1, loops: 0, strikes: 0 },
+				multiplier: 1,
+				total: 777,
+				tilted: false,
+				tick: 50,
+			}),
+		).toBe('ended 2 777');
+		expect(
+			describeEvent({ type: 'bonus_count_step', player: 1, step: 2, steps: 3, running: 40000, total: 60000, tick: 820 }),
+		).toBe('bonus step 2/3 running 40000');
+
+		// Story 2.11: this story's own three new arms, each with an
+		// executing assertion from the moment it ships (never joining the
+		// residual DW-223 pattern below) -- distinct player/remaining values
+		// so a field swap (e.g. templating event.remaining where event.player
+		// was intended) reddens rather than typechecks.
+		expect(describeEvent({ type: 'tilt_warning', player: 1, remaining: 2, tick: 90 })).toBe('tilt warning 1 remaining 2');
+		expect(describeEvent({ type: 'tilt', player: 3, tick: 91 })).toBe('tilted 3');
+		expect(describeEvent({ type: 'slam_tilt', tick: 92 })).toBe('slam tilted');
+
+		// DW-223 (task 16, this story's own reopen_if: "a story touches that
+		// switch for another reason and can close the pattern cheaply while
+		// it is already there"): the eight arms that were compiled for the
+		// exhaustiveness gate but never executed by any assertion, closed in
+		// the same pass as this story's own three new arms above. Distinct
+		// field values throughout, same reasoning as every arm above.
+		expect(describeEvent({ type: 'sim_time_discarded', ms: 55, tick: 9 })).toBe('discarded 55ms');
+		expect(describeEvent({ type: 'ball_starting', tick: 12 })).toBe('ball starting');
+		expect(describeEvent({ type: 'ball_started', tick: 13 })).toBe('ball started');
+		expect(describeEvent({ type: 'ball_launched', tick: 14 })).toBe('ball launched');
+		expect(describeEvent({ type: 'ball_missing', count: 4, tick: 15 })).toBe('missing 4');
+		// Story 2.12 (AC 11): a fresh arm ships with an executing assertion from
+		// the moment it lands, never joining the DW-223 residual pattern below.
+		expect(describeEvent({ type: 'ball_search_started', tick: 19 })).toBe('ball search started at 19');
+		expect(describeEvent({ type: 'eject_failed', device: 'bd_lock', tick: 16 })).toBe('eject failed bd_lock');
+		expect(describeEvent({ type: 'broken', device: 'c_pop_1', tick: 17 })).toBe('broken c_pop_1');
+		expect(describeEvent({ type: 'device_overflow', device: 'bd_lock', tick: 18 })).toBe('overflow bd_lock');
+
+		// Story 2.13 (AC 13): the three new arms, each with an executing
+		// assertion from the moment it ships -- distinct field values so a
+		// field swap (e.g. templating event.number where event.shown was
+		// intended) reddens rather than typechecks.
+		expect(describeEvent({ type: 'game_ended', scores: [100, 200], tick: 200 })).toBe('game ended 100,200');
+		expect(describeEvent({ type: 'match_drawn', number: 30, winners: [0, 2], tick: 205 })).toBe('match drawn 30 winners 0,2');
+		expect(describeEvent({ type: 'match_reveal_step', step: 4, steps: 10, shown: 70, tick: 206 })).toBe('match reveal 4/10 shown 70');
 	});
 });
 
@@ -268,8 +434,40 @@ describe('sim/contracts -- Snapshot / FrameOutput / ModeView', () => {
 	});
 
 	it('ModeView is the only shape of an active mode presentation may read', () => {
-		const view: ModeView = { mode: 'skillshot', priority: 200, player: 0, timerTicks: 500 };
-		expect(view.mode).toBe('skillshot');
+		// Story 2.7 QA stage (Rule 19): the previous version of this test
+		// (`const view: ModeView = { mode: 'skill_shot', ... }; expect(view.mode)
+		// .toBe('skill_shot')`) asserted a literal against the value assigned to
+		// the very same field two lines above -- it could not go red for any
+		// change to ModeView's shape, including deleting the interface's `mode`
+		// field entirely (only `pnpm typecheck` would ever have caught that, and
+		// nothing routed the assertion there). Replaced with checks that are
+		// actually falsifiable at the boundary this interface exists to police
+		// (AD-9: "ModeView is the only shape of `modes[i]` presentation may
+		// read"), using the `@ts-expect-error` convention `table.test.ts`
+		// already established for this codebase's other name-union contracts --
+		// caught by `pnpm typecheck`, since vitest's esbuild transform strips
+		// types and never sees these directives.
+		const minimal: ModeView = { mode: 'base', priority: 100, player: 0 };
+		expect(minimal.timerTicks, 'the four extra fields are genuinely optional, not merely defaulted').toBeUndefined();
+
+		const full: ModeView = { mode: 'skill_shot', priority: 200, player: 1, timerTicks: 500, value: 3, charge: 0.5, strikesRemaining: 2 };
+		expect(Object.keys(full).sort()).toEqual(['charge', 'mode', 'player', 'priority', 'strikesRemaining', 'timerTicks', 'value']);
+
+		// @ts-expect-error -- `mode` is required; omitting it must fail
+		// typecheck. A version of ModeView that made `mode` optional would make
+		// this line compile silently and this directive would report an unused
+		// '@ts-expect-error'.
+		const missingMode: ModeView = { priority: 200, player: 0 };
+		void missingMode;
+
+		// @ts-expect-error -- AD-9: ModeView is the ONLY shape presentation may
+		// read. `launched` is a real mode-local field (the skill-shot mode's own
+		// launch gate, carried on `ActiveModeState`'s open index signature,
+		// Story 2.7) that must NOT be readable through ModeView -- if ModeView
+		// ever grew an index signature of its own (mirroring ActiveModeState's),
+		// this line would compile and the directive above would report unused.
+		const leaked: ModeView = { mode: 'skill_shot', priority: 200, player: 0, launched: true };
+		void leaked;
 	});
 });
 

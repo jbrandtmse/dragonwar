@@ -22,7 +22,7 @@ import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { createDeviceMechanics } from '../src/sim/physics/devices';
 import { createMachine } from '../src/sim/physics/machine';
 import { loadCollision } from '../src/sim/physics/loader';
-import { step as rulesStep } from '../src/sim/rules';
+import { createRules } from '../src/sim/rules';
 import { resolveTuning } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { MM_PER_VU, fromPhysics, toPhysics } from '../src/sim/table/frames';
@@ -32,9 +32,19 @@ import { BallState } from '../src/sim/physics/ball/ball-state';
 import { Vertex3D } from '../src/sim/physics/math/vertex3d';
 import type { BallHitTableData } from '../src/sim/physics/ball/ball-hit';
 import type { CoilCommand, GameState } from '../src/sim/table/names';
+import { nodeBboxMm, switchZoneMm } from './util/collision-doc';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
+
+// DW-65: the plunger-lane divider's main-field face, derived from the
+// committed collision document rather than the literal 468.4 -- a genuine
+// geometry change (moving col_wall_lane) now tracks automatically instead of
+// silently breaking this test for the wrong reason.
+const LANE_X0_MM = nodeBboxMm('col_wall_lane').min.x;
+// The sw_shooter_lane switch zone's own x range -- the same defect class as
+// LANE_X0_MM above (task 21), derived rather than hardcoded.
+const SHOOTER_LANE_ZONE = switchZoneMm('sw_shooter_lane');
 
 function loadDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
@@ -276,7 +286,7 @@ describe('sim/physics/devices.ts -- park into the lowest empty slot; the ball le
 // createDeviceMechanics()-direct unit level above, "appropriately". This
 // closes the REACHABLE half of that same gap one layer deeper: it exercises
 // machine.ts's own step() wiring (`semanticEvents: [...commandResult.
-// failures, ...entryResult.failures]`, machine.ts:116) -- the exact spread a
+// failures, ...entryResult.failures]`, machine.ts:533) -- the exact spread a
 // dropped-entryResult.failures regression would silently break -- without
 // needing a legitimate real-loop path to the unreachable trigger itself.
 describe("sim/physics/machine.ts -- device_overflow reaches step()'s semanticEvents, not just createDeviceMechanics().detectEntries() directly", () => {
@@ -345,10 +355,10 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		}
 		const ball = out.snapshot.balls[0];
 		expect(ball, 'the ball must still be in play after settling').toBeDefined();
-		expect(ball!.pos.x).toBeGreaterThanOrEqual(484.4);
-		expect(ball!.pos.x).toBeLessThanOrEqual(510.4);
-		expect(ball!.pos.y).toBeGreaterThanOrEqual(10);
-		expect(ball!.pos.y).toBeLessThanOrEqual(60);
+		expect(ball!.pos.x).toBeGreaterThanOrEqual(SHOOTER_LANE_ZONE.minMm.x);
+		expect(ball!.pos.x).toBeLessThanOrEqual(SHOOTER_LANE_ZONE.maxMm.x);
+		expect(ball!.pos.y).toBeGreaterThanOrEqual(SHOOTER_LANE_ZONE.minMm.y);
+		expect(ball!.pos.y).toBeLessThanOrEqual(SHOOTER_LANE_ZONE.maxMm.y);
 		expect(out.snapshot.mechanisms.devices.bd_shooter.slots).toEqual([true]);
 	});
 
@@ -409,13 +419,13 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 		for (let i = 0; i < 400 && !reachedMainField; i++) {
 			out = loop.advance(16.667, []);
 			const ball = out.snapshot.balls[0];
-			// The plunger-lane divider's main-field face is at table x = 468.4
-			// (LANE_X0_MM) -- reaching below it means the ball left the lane.
-			if (ball && ball.pos.x < 468.4) {
+			// The plunger-lane divider's main-field face -- reaching below it
+			// means the ball left the lane (DW-65: derived, not the literal 468.4).
+			if (ball && ball.pos.x < LANE_X0_MM) {
 				reachedMainField = true;
 			}
 		}
-		expect(reachedMainField, `the ball never crossed the plunger-lane divider's main-field face (x = 468.4); last known position: ${JSON.stringify(out.snapshot.balls[0]?.pos)}`).toBe(true);
+		expect(reachedMainField, `the ball never crossed the plunger-lane divider's main-field face (x = ${LANE_X0_MM}); last known position: ${JSON.stringify(out.snapshot.balls[0]?.pos)}`).toBe(true);
 	});
 
 	// Story 1.6 update: this scenario used to let the launched ball bounce
@@ -440,7 +450,19 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 	// createMachine()+rules pipeline through, after confirming the ball
 	// genuinely launched and reached the main field first.
 	it('end to end: serve, autolaunch, drain -- the ball returns to the trough and ballsInPlay settles back to 0', () => {
-		const machine = createMachine(loadDoc(), resolveTuning());
+		const tuning = resolveTuning();
+		const machine = createMachine(loadDoc(), tuning);
+		const rules = createRules(tuning);
+		// Story 2.5, task 10: the hand-rolled per-tick copy below (`deviceSlots:
+		// machine.deviceSlots`, re-applied after every rules.step()) was a
+		// verbatim duplicate of DW-70's own violating line and masked the fix --
+		// dropped. This test never reads `state.machine.deviceSlots` (only
+		// `state.machine.ballsInPlay` and the physics machine's OWN
+		// `machine.deviceSlots` directly), so the boot seed below is a
+		// TABLE-derived literal (`bd_trough` full, `bd_lock`/`bd_shooter` empty,
+		// matching `TABLE.ballDevices[*].startsFullAtBoot`) rather than a
+		// physics read -- an AD-7-conforming construction, never touched again
+		// outside `rules.step()`'s own returned state.
 		let state: GameState = {
 			tick: 0,
 			phase: 'attract',
@@ -451,7 +473,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 				tilt: { tilted: false, slamTilted: false },
 				multiball: null,
 				highscores: [],
-				deviceSlots: machine.deviceSlots,
+				deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
 			},
 			players: [],
 			currentPlayer: 0,
@@ -461,8 +483,8 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 
 		function step(tick: number, commands: CoilCommand[] = []) {
 			const result = machine.step(tick, NO_FRAME, commands);
-			const rulesResult = rulesStep(state, result.switchEvents, tick);
-			state = { ...rulesResult.state, machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots } };
+			const rulesResult = rules.step(state, result.switchEvents, tick);
+			state = rulesResult.state;
 			return result;
 		}
 
@@ -490,7 +512,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 			const ball = machine.balls[0];
 			if (ball) {
 				const posMm = fromPhysics({ x: ball.state.pos.x, y: ball.state.pos.y, z: ball.state.pos.z });
-				if (posMm.x < 468.4) {
+				if (posMm.x < LANE_X0_MM) {
 					reachedMainField = true;
 				}
 			}
@@ -537,7 +559,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 	// Review finding 2026-08-28 (verification gap): every eject_failed/
 	// device_overflow test above drives sim/physics/devices.ts's
 	// createDeviceMechanics() DIRECTLY -- never through machine.ts's step()
-	// (src/sim/physics/machine.ts:116's semanticEvents: [...commandResult.
+	// (src/sim/physics/machine.ts:533's semanticEvents: [...commandResult.
 	// failures, ...entryResult.failures]) or through the full sim/loop's
 	// FrameOutput.events. A regression that dropped commandResult.failures
 	// from that spread (a plausible copy/paste slip) would leave every
@@ -571,7 +593,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 // ("this tick's pulses apply to the devices layer ... before
 // physics.step()"), but nothing failed if that ordering broke. The
 // observable: bd_trough's spawnBall() places a new ball at the device's
-// AUTHORED eject pose (devices.ts:238, table mm); if the eject runs BEFORE
+// AUTHORED eject pose (devices.ts:232, table mm); if the eject runs BEFORE
 // physics.step() (the correct ordering), that same tick's step() integrates
 // one tick of gravity + the eject velocity into it, so the ball has already
 // moved measurably off the authored pose by the time this tick's result is
@@ -580,7 +602,7 @@ describe('sim/loop -- serve, autolaunch and drain (integration, real physics)', 
 // until the NEXT tick. Measured this pass: ~0.29 mm
 // (troughEjectSpeedMmPerS 300 mm/s * SECONDS_PER_TICK 1e-3 s ~= 0.3 mm,
 // slightly bled by one tick of gravity/contact) vs exactly 0 mm under the
-// mutation -- matching test/machine-serve-drain.test.ts:333-347's own
+// mutation -- matching test/machine-serve-drain.test.ts:386's own
 // independently-measured 293.25 mm/s at this exact tick. The 0.05 mm bound
 // sits with wide margin below the true ~0.29 mm and far above float noise.
 describe('src/sim/physics/machine.ts -- the fourth hardware rule (deviceMechanics.applyCommands), behavioural pin (AD-5, Story 1.8 sweep)', () => {

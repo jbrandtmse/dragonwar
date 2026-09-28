@@ -1,0 +1,309 @@
+// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
+//
+// Story 2.4 QA (DW-172): AC 9's own named Rule 19 mutation -- "drop the
+// DSL's tick ordering" -- turned out to be a no-op. Applying it (reversing
+// test/util/switch-script.ts's build() sort comparator from `a.tick -
+// b.tick` to `b.tick - a.tick`) left test/rules-devices.test.ts GREEN at
+// 32/32 (measured by the lead's AD gate, 2026-09-05): runSwitchScript()
+// re-groups every scripted edge into a `Map` keyed by tick and iterates
+// `1..durationTicks` in order, so build()'s own array order -- the one thing
+// that mutation touches -- never reaches the layer (same-tick ties are
+// resolved by the stable sort's ORIGINAL push order regardless of overall
+// sort direction, so even within-tick ordering is unaffected). The AC's real
+// claim was left with no falsifiable pin at all.
+//
+// AC 9's REAL, load-bearing claim is "no physics or rendering module is
+// imported by [test/rules-devices.test.ts]" (spec I/O matrix, AC 9) -- true
+// today, but until now asserted only by this file's own header comment and
+// the spec's Manual Checks bullet ("Confirm test/rules-devices.test.ts's
+// import list contains no src/sim/physics/**, no src/sim/loop/**, no
+// @babylonjs/* and no node:fs specifier"). Neither a comment nor a manual
+// check can turn red. This file replaces both with a textual scan --
+// mirroring tools/boundary-lint.mjs's own textual-scan idiom (this story's
+// Design Notes: "a hand-rolled textual pass instead"), scoped to exactly the
+// claim AC 9 makes -- over the two files whose import lists together decide
+// whether running rules-devices.test.ts ever loads physics, rendering, loop
+// or real-filesystem code: rules-devices.test.ts itself, and the
+// switch-script DSL it drives its whole suite through
+// (test/util/switch-script.ts). A forbidden import landing in the DSL would
+// defeat the headless claim exactly as surely as one landing in the test
+// file, since the DSL's own module load is part of running the test.
+//
+// Mutation (Rule 19, replacing AC 9's no-op): add
+// `import type { SwitchTracker } from '../src/sim/physics/switches';` to
+// test/rules-devices.test.ts, then run this file -- it reddens naming the
+// forbidden specifier and the offending file/family. Revert; confirm
+// `git status --short` / `git diff --stat` unchanged. (QA-observed
+// 2026-09-05: applied, watched red on both the direct assertion and the
+// arrayContaining("sim/physics") check below, reverted, tree byte-identical.)
+
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const toPosix = (p: string): string => p.split(path.sep).join('/');
+
+/**
+ * Blanks line and block comments, preserving length and newlines --
+ * `tools/boundary-lint.mjs`'s `maskForCodeOnly()` idiom, which this file's
+ * header says it mirrors and originally did not actually apply. Without it a
+ * comment merely MENTIONING a forbidden path in `from '...'` shape reddens the
+ * scan spuriously -- and this file's own header carries exactly such a line
+ * (its Rule 19 mutation recipe), so the risk is one copy-paste away. String
+ * literals are deliberately left intact: an import specifier IS a string
+ * literal.
+ */
+function maskComments(source: string): string {
+	const chars = source.split('');
+	let i = 0;
+	let quote: string | null = null;
+	while (i < chars.length) {
+		const c = chars[i];
+		const next = chars[i + 1];
+		if (quote) {
+			if (c === '\\') { i += 2; continue; }
+			if (c === quote) { quote = null; }
+			i += 1;
+			continue;
+		}
+		if (c === "'" || c === '"' || c === '`') { quote = c; i += 1; continue; }
+		if (c === '/' && next === '/') {
+			while (i < chars.length && chars[i] !== '\n') { chars[i] = ' '; i += 1; }
+			continue;
+		}
+		if (c === '/' && next === '*') {
+			while (i < chars.length && !(chars[i] === '*' && chars[i + 1] === '/')) {
+				if (chars[i] !== '\n') { chars[i] = ' '; }
+				i += 1;
+			}
+			chars[i] = ' ';
+			if (i + 1 < chars.length) { chars[i + 1] = ' '; }
+			i += 2;
+			continue;
+		}
+		i += 1;
+	}
+	return chars.join('');
+}
+
+/**
+ * Every `from '<specifier>'` module path (or a dynamic `import('<specifier>')`
+ * call, caught by the same quoting shape) named in `source`'s CODE --
+ * static imports, type-only imports and re-exports alike.
+ */
+function importSpecifiers(source: string): readonly string[] {
+	const specifiers: string[] = [];
+	const pattern = /(?:from\s*|import\s*\(\s*)['"]([^'"]+)['"]/g;
+	const code = maskComments(source);
+	let match: RegExpExecArray | null;
+	while ((match = pattern.exec(code)) !== null) {
+		specifiers.push(match[1]);
+	}
+	return specifiers;
+}
+
+/**
+ * Resolves a RELATIVE specifier against the importing file's directory, trying
+ * the extensionless spellings this repository actually writes. Returns null for
+ * a bare specifier (`vitest`, `node:fs`) -- those are checked against
+ * `FORBIDDEN_FAMILIES` but never recursed into.
+ */
+function resolveRelative(fromFile: string, specifier: string): string | null {
+	if (!specifier.startsWith('.')) {
+		return null;
+	}
+	const base = path.resolve(path.dirname(fromFile), specifier);
+	for (const candidate of [`${base}.ts`, path.join(base, 'index.ts'), `${base}.tsx`, base]) {
+		if (existsSync(candidate) && statSync(candidate).isFile()) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+/**
+ * The TRANSITIVE first-party module closure reachable from `entryFiles` -- the
+ * set of modules that actually LOAD when the entry files run, as opposed to the
+ * handful they name directly. Returns every visited file plus every specifier
+ * seen along the way, each tagged with the file that named it.
+ */
+function importClosure(entryFiles: readonly string[]): {
+	readonly files: readonly string[];
+	readonly edges: ReadonlyArray<{ readonly from: string; readonly specifier: string; readonly target: string }>;
+} {
+	const visited = new Set<string>();
+	const edges: Array<{ from: string; specifier: string; target: string }> = [];
+	const queue = [...entryFiles];
+	while (queue.length > 0) {
+		const file = queue.shift()!;
+		if (visited.has(file)) {
+			continue;
+		}
+		visited.add(file);
+		for (const specifier of importSpecifiers(readFileSync(file, 'utf8'))) {
+			const resolved = resolveRelative(file, specifier);
+			// `target` is what the families are matched against: the
+			// repo-relative path a RELATIVE specifier resolves to, and the raw
+			// specifier for a bare one (`@babylonjs/core`, `node:fs`). Matching
+			// the raw specifier alone is what made the original two-file version
+			// of this pin unable to see the very import it exists to catch --
+			// `src/sim/rules/index.ts` reaches physics as `'../physics/machine'`,
+			// which does not contain the string `sim/physics` at all.
+			const target = resolved ? toPosix(path.relative(REPO_ROOT, resolved)) : specifier;
+			edges.push({ from: toPosix(path.relative(REPO_ROOT, file)), specifier, target });
+			if (resolved && !visited.has(resolved)) {
+				queue.push(resolved);
+			}
+		}
+	}
+	return { files: [...visited], edges };
+}
+
+/**
+ * The exact module families AC 9's headless claim rules out, plus `node:fs`
+ * (the spec's own Manual Checks bullet for this AC) -- a "headless" rules
+ * test that starts reading real files off disk is no longer headless in the
+ * sense AC 9 means, even though nothing here is physics or rendering.
+ */
+const FORBIDDEN_FAMILIES: ReadonlyArray<{ readonly label: string; readonly matches: (specifier: string) => boolean }> = [
+	{ label: 'src/sim/physics', matches: (s) => s.includes('sim/physics') },
+	{ label: 'src/sim/loop', matches: (s) => s.includes('sim/loop') },
+	{ label: '@babylonjs', matches: (s) => s.includes('@babylonjs') },
+	// `node:fs/promises`, `fs/promises` and the like are the same claim: a
+	// headless rules test that reads real files off disk is not headless.
+	{ label: 'node:fs', matches: (s) => /^(?:node:)?fs(?:\/|$)/.test(s) },
+];
+
+// Story 2.5, task 13: test/rules-lifecycle.test.ts (the new headless
+// lifecycle suite, AC 9) is appended here -- a new test file is an ENTRY,
+// never reachable transitively from the two files already listed, so an
+// ungated file would defeat this scan's own claim (this file's own
+// :186-192 warning named this story by name: "sim/rules/index.ts is one
+// import away from dragging in 55 physics modules", and the ball controller
+// is exactly what task 4 wires into it).
+// Story 2.5 QA (DW-176, DW-178): the two new headless unit-test files closing
+// those ledger entries (deriveDeviceSlots()'s multi-edge fold and the
+// devices-layer-occupancy/deviceSlots agreement check) are appended here for
+// the same reason task 13's own comment above gives -- neither is reachable
+// transitively from the entries already listed (ordinary test files never
+// import each other), so leaving either out would let it claim headlessness
+// with no gate actually proving it, exactly the gap task 13 closed for
+// rules-lifecycle.test.ts.
+const ENTRY_FILES = [
+	path.join(__dirname, 'rules-devices.test.ts'),
+	path.join(__dirname, 'rules-lifecycle.test.ts'),
+	path.join(__dirname, 'rules-derive-device-slots-fold.test.ts'),
+	path.join(__dirname, 'rules-device-slots-agreement.test.ts'),
+	path.join(__dirname, 'rules-modes.test.ts'),
+	path.join(__dirname, 'rules-lamps.test.ts'),
+	path.join(__dirname, 'rules-ball-save.test.ts'),
+	// Story 2.10, task 9: a new headless rules test file -- ungated otherwise
+	// (this file's own completeness ratchet below, "AC 9 (headless),
+	// completeness").
+	path.join(__dirname, 'rules-bonus.test.ts'),
+	// Story 2.11, task 13: same reasoning -- ungated otherwise.
+	path.join(__dirname, 'rules-tilt.test.ts'),
+	// Story 2.12: same reasoning -- ungated otherwise. (The DW-187 pinning
+	// test, `rules-rollback-accounting-integration.test.ts`, drives a real
+	// `createLoop()` on purpose -- its own `-integration` suffix is what
+	// exempts it from this list, the same convention `rules-lifecycle-integration.test.ts`
+	// and `rules-ball-save-integration.test.ts` already use.)
+	path.join(__dirname, 'rules-ball-search.test.ts'),
+	// Story 2.13: same reasoning -- ungated otherwise. (`stray-clear-integration.test.ts`
+	// and `game-over-integration.test.ts` do not start with `rules-` at all,
+	// so this file's own completeness ratchet below never names them either.)
+	path.join(__dirname, 'rules-match.test.ts'),
+	path.join(__dirname, 'rules-stray-clear.test.ts'),
+	path.join(__dirname, 'util', 'switch-script.ts'),
+];
+
+// Review finding 2026-09-06 (code-review, blind-hunter): ENTRY_FILES was
+// hand-maintained with nothing asserting it was COMPLETE, so the next headless
+// rules test file would silently escape this gate entirely -- precisely the
+// trap the comment above describes for rules-lifecycle.test.ts, left standing
+// as a comment rather than a check after this story and QA appended three
+// entries by hand between them. The convention is already unambiguous in the
+// tree: a `test/rules-*.test.ts` file is headless UNLESS it is named
+// `*-integration.test.ts` (those deliberately drive a real createLoop and real
+// physics -- rules-devices-integration.test.ts, rules-lifecycle-integration.test.ts),
+// or is this gate file itself. That makes the completeness rule mechanical.
+// The list is complete at this tree, so this is a ratchet, not a fix: it is
+// green today and reddens the moment a file is added without being listed.
+const HEADLESS_RULES_TESTS = readdirSync(__dirname)
+	.filter(
+		(name) =>
+			name.startsWith('rules-') &&
+			name.endsWith('.test.ts') &&
+			!name.endsWith('-integration.test.ts') &&
+			name !== 'rules-devices-headless.test.ts',
+	)
+	.sort();
+
+describe('AC 9 (headless), completeness: every headless rules test file is actually listed in ENTRY_FILES', () => {
+	it('ENTRY_FILES names every test/rules-*.test.ts that is not an -integration test and not this gate itself', () => {
+		const listed = ENTRY_FILES.map((f) => path.basename(f))
+			.filter((n) => n.startsWith('rules-'))
+			.sort();
+		expect(
+			listed,
+			`a headless rules test file that is not in ENTRY_FILES is ungated -- it claims headlessness with nothing ` +
+				`proving it (Rule 8). Add it to ENTRY_FILES, or name it *-integration.test.ts if it genuinely drives ` +
+				`sim/loop or sim/physics on purpose.`,
+		).toEqual(HEADLESS_RULES_TESTS);
+	});
+
+	it('sanity: the scan finds real files and excludes the integration tests -- it is discriminating, not vacuously empty', () => {
+		expect(HEADLESS_RULES_TESTS.length, 'the headless rules test set must be non-empty').toBeGreaterThan(0);
+		expect(HEADLESS_RULES_TESTS, 'this gate file must never gate itself').not.toContain('rules-devices-headless.test.ts');
+		expect(
+			existsSync(path.join(__dirname, 'rules-lifecycle-integration.test.ts')) &&
+				!HEADLESS_RULES_TESTS.includes('rules-lifecycle-integration.test.ts'),
+			'an -integration test must exist on disk AND be excluded, or the exclusion rule is untested',
+		).toBe(true);
+	});
+});
+
+describe('AC 9 (headless) -- nothing in any of this file\'s ENTRY_FILES\' TRANSITIVE module closure is physics, loop, rendering or filesystem code (DW-172, Story 2.5; DW-176/DW-178 entries added at QA)', () => {
+	const { files, edges } = importClosure(ENTRY_FILES);
+
+	// Scanning only the two entry files' own import lists was the original
+	// shape of this pin, and it was measured too narrow at code review: adding
+	// a real `import { createMachine } from '../physics/machine'` to
+	// `src/sim/rules/index.ts` pulled 55 `src/sim/physics/**` modules into this
+	// test's load graph and left the pin GREEN. Nothing else in the gate
+	// catches it either -- `tools/dependency-cruiser.config.mjs` has no rule
+	// forbidding `sim/rules/**` from importing `sim/physics/**` or
+	// `sim/loop/**`, and boundary-lint's textual checks do not inspect import
+	// targets at all. Story 2.5 wires the ball controller into
+	// `src/sim/rules/**`, which is exactly where such an import would arrive.
+	it('no module anywhere in the closure names a forbidden specifier', () => {
+		for (const edge of edges) {
+			for (const forbidden of FORBIDDEN_FAMILIES) {
+				expect(
+					forbidden.matches(edge.target),
+					`${edge.from} imports "${edge.specifier}" (resolving to "${edge.target}"), matching the forbidden "${forbidden.label}" family -- ` +
+						`AC 9's headless claim requires neither physics, rendering nor loop code (nor a real filesystem ` +
+						`read) to load when test/rules-devices.test.ts runs`,
+				).toBe(false);
+			}
+		}
+	});
+
+	// The guard that keeps the assertion above non-vacuous: a resolver that
+	// silently stopped walking (a changed file layout, a broken regex, a
+	// masking bug that blanked real code) would visit almost nothing and the
+	// loop would pass by finding no edges at all.
+	it('sanity: the closure really is transitive -- it reaches the layer\'s own modules, not just the two entry files', () => {
+		const relative = files.map((f) => path.relative(REPO_ROOT, f).replace(/\\/g, '/'));
+		expect(relative, 'the DSL entry itself').toContain('test/util/switch-script.ts');
+		expect(relative, 'one hop out: the devices layer barrel').toContain('src/sim/rules/devices/index.ts');
+		expect(relative, 'two hops out: a component the barrel imports').toContain('src/sim/rules/devices/shots.ts');
+		expect(relative, 'the registry, reached only transitively').toContain('src/sim/table/dragonwar.ts');
+		expect(
+			relative.length,
+			`expected the closure to span the whole rules/table/contracts graph, got ${relative.length}: ${JSON.stringify(relative)}`,
+		).toBeGreaterThan(10);
+		expect(edges.length, 'and to have collected an edge for every specifier along the way').toBeGreaterThan(relative.length);
+	});
+});

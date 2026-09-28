@@ -13,7 +13,7 @@
 // the normalised `ContactEvent{kind:'eject'}`).
 //
 // This file is authored, not ported (AD-16, declared in
-// `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import type { DeviceMechanics, DeviceMechanicsResult } from './devices';
 import { TABLE } from '../table/dragonwar';

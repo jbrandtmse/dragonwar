@@ -72,9 +72,18 @@ export interface MachineState<TBallDevice extends string = string> {
 	readonly deviceSlots: Readonly<Record<TBallDevice, readonly boolean[]>>;
 }
 
-/** Player-scoped bonus accounting (AD-7/AD-9: "bonus by category and multiplier"). */
+/**
+ * Story 2.10, PRD FR-20: the closed bonus-category vocabulary -- DRAGON
+ * letters, the two Loops, and the War's Strikes (Epic 3, `strikes` seeded 0
+ * all epic since nothing in Epic 2 produces one -- `sim/rules/bonus.ts`'s
+ * own header). One definition; `sim/rules/bonus.ts` is the only file that
+ * ever writes a value under one of these keys.
+ */
+export type BonusCategory = 'letters' | 'loops' | 'strikes';
+
+/** Player-scoped bonus accounting (AD-7/AD-9: "bonus by category and multiplier"). A TOTAL record over `BonusCategory` (Story 2.10) -- every category is always present, so a typo'd key is a `pnpm typecheck` failure rather than a silently-ignored one, and the bonus total's own Σ is exhaustive by construction. */
 export interface PlayerBonusState {
-	readonly byCategory: Readonly<Record<string, number>>;
+	readonly byCategory: Readonly<Record<BonusCategory, number>>;
 	readonly multiplier: number;
 }
 
@@ -102,6 +111,19 @@ export interface PlayerState {
 	readonly warsStarted: number;
 	/** Names of the modes this player has played this game. */
 	readonly modesPlayed: readonly string[];
+	/**
+	 * Story 2.5: the ball number currently (or most recently) in play for
+	 * THIS player, 1-indexed -- `0` before their first ball has started.
+	 * Incremented by the ball controller every time `ball_will_start` starts
+	 * a ball for them (AD-18: the ball controller alone owns the lifecycle),
+	 * and is what `GameStart.adjustments.ballsPerGame` (AD-14) is compared
+	 * against to decide "the last player's last ball" (AC 6). Necessarily
+	 * player-scoped (AD-7): Hot seat lets each player be on a different ball
+	 * number relative to the OTHERS only in the sense that this field, not a
+	 * single game-wide counter, is what the rotation and game-over checks
+	 * read.
+	 */
+	readonly ballNumber: number;
 }
 
 /**

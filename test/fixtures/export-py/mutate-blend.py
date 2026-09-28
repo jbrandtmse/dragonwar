@@ -17,7 +17,7 @@
 #
 # Usage: blender --background --factory-startup assets/src/dragonwar.blend \
 #   --python test/fixtures/export-py/mutate-blend.py -- \
-#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|angled-wall-footprint|degenerate-wall|col-node-not-a-mesh>
+#   --out <path> --mutation <bad-name|two-materials|unknown-property|name-collision-attempt|missing-node|missing-uv|missing-switch-property|missing-surface-property|missing-phys-material-property|missing-lightgroup|no-material|rotated-wall|angled-wall-footprint|concave-wall-footprint|degenerate-wall|col-node-not-a-mesh>
 
 import argparse
 import math
@@ -147,8 +147,15 @@ def mutate_angled_wall_footprint():
 	# order): every vertex sitting at (x_max, y_min) -- at both z_low and
 	# z_high -- is moved onto (x_max, y_max), collapsing the "x = x_max" face
 	# onto the "x = x_max, y = y_max" edge and leaving three distinct
-	# footprint corners instead of four.
-	obj = bpy.data.objects['col_wall_bottom_l']
+	# footprint corners instead of four. Requires a genuine axis-aligned
+	# rectangular box in the mesh's own local coordinates, so the collapse
+	# lands exactly on an existing vertex rather than merely relocating one --
+	# col_wall_top is used here (retargeted from col_wall_bottom_l by Story
+	# 2.1a task 25: that wall's own footprint is no longer a simple rectangle
+	# -- its top edge slopes toward the drain aperture, DW-119 -- so this
+	# same position-matching collapse would move a corner onto empty space
+	# instead of an existing vertex and stop producing a triangle at all).
+	obj = bpy.data.objects['col_wall_top']
 	mesh = obj.data
 	xs = sorted({round(v.co.x, 6) for v in mesh.vertices})
 	ys = sorted({round(v.co.y, 6) for v in mesh.vertices})
@@ -170,6 +177,58 @@ def mutate_col_node_not_a_mesh():
 	bpy.context.scene.collection.objects.link(empty)
 
 
+def mutate_concave_wall_footprint():
+	# Story 2.1d task 15 (DW-125): an L-shaped (concave) plan-view footprint
+	# -- export.py's own DW-68 rejection (tools/export.py:434-440, inside
+	# wall_footprint_mm()) has no end-to-end pin; this mutation demonstrates
+	# it fires. Same position-matching technique as
+	# mutate_angled_wall_footprint() above (index-independent: matches
+	# vertices by POSITION, not bmesh vertex-creation order), targeting the
+	# SAME node (col_wall_top, the one plain untouched axis-aligned box --
+	# col_wall_bottom_l is no longer rectangular, DW-119) for the identical
+	# reason that comment states.
+	#
+	# Unlike the angled-footprint mutation (which COLLAPSES one corner onto
+	# an EXISTING vertex, dropping a rectangle to a triangle), a concave
+	# footprint needs a REFLEX vertex -- moving one corner to a NEW point
+	# strictly inside the rectangle's own interior, past the diagonal formed
+	# by its two non-adjacent neighbours.
+	#
+	# [CORRECTED, code review 2026-09-04, rework iteration 3, MED finding:
+	# this comment previously said the moved vertex went to the RECTANGLE's
+	# own centroid, (x_min+x_max)/2, (y_min+y_max)/2, and claimed that point
+	# "sits strictly inside the triangle" formed by the other three corners.
+	# It does not, for any rectangle: a rectangle's two diagonals always
+	# share the same midpoint, so the rectangle's own centroid is exactly the
+	# MIDPOINT of the diagonal from (x_max, y_min) to (x_min, y_max) --
+	# collinear with those two points, sitting ON the triangle's own
+	# hypotenuse, never strictly inside it. `_convex_hull_2d()` drops points
+	# that are "either interior to, or exactly colinear on an edge of" the
+	# hull (tools/export.py), so `fail()` still fired under the OLD formula
+	# and this fixture's own forward assertion (a non-zero exit naming
+	# DW-68) still passed -- but the mutation was pinning the wrong branch of
+	# DW-68's own rejection (a collinear vertex, not a genuine reflex one),
+	# where AC 6 names "an L-shaped wall footprint" specifically. Moved to
+	# the TRIANGLE's own centroid instead -- the average of the other three
+	# corners, (x_min, y_min), (x_max, y_min) and (x_min, y_max) -- which is
+	# strictly interior to any non-degenerate triangle by construction,
+	# genuinely past the diagonal rather than sitting on it.]
+	obj = bpy.data.objects['col_wall_top']
+	mesh = obj.data
+	xs = sorted({round(v.co.x, 6) for v in mesh.vertices})
+	ys = sorted({round(v.co.y, 6) for v in mesh.vertices})
+	x_min, x_max, y_min, y_max = xs[0], xs[-1], ys[0], ys[-1]
+	# Triangle centroid of (x_min, y_min), (x_max, y_min), (x_min, y_max) --
+	# strictly interior to that triangle, never on its own hypotenuse.
+	interior_x = (2.0 * x_min + x_max) / 3.0
+	interior_y = (2.0 * y_min + y_max) / 3.0
+	for v in mesh.vertices:
+		if abs(v.co.x - x_max) < 1e-6 and abs(v.co.y - y_max) < 1e-6:
+			v.co.x = interior_x
+			v.co.y = interior_y
+	mesh.update()
+
+
 MUTATIONS = {
 	'bad-name': mutate_bad_name,
 	'two-materials': mutate_two_materials,
@@ -184,6 +243,7 @@ MUTATIONS = {
 	'no-material': mutate_no_material,
 	'rotated-wall': mutate_rotated_wall,
 	'angled-wall-footprint': mutate_angled_wall_footprint,
+	'concave-wall-footprint': mutate_concave_wall_footprint,
 	'degenerate-wall': mutate_degenerate_wall,
 	'col-node-not-a-mesh': mutate_col_node_not_a_mesh,
 }

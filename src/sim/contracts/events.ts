@@ -4,6 +4,14 @@
 // actuations go to presentation only; semantic events are payload-complete.
 // This file is table-free (AD-1): every type that names a device is generic
 // over the relevant name union, bound to TABLE only in sim/table/names.ts.
+//
+// Story 2.10: imports `BonusCategory` from `./state` -- `PlayerBonusState`'s
+// own closed category vocabulary, reused here (never re-declared) so
+// `BallEndedEvent.bonusByCategory` stays the same TOTAL record shape as the
+// `GameState` field it reports on. `./state` names no seam type back, so
+// this is a one-way import, not a cycle.
+
+import type { BonusCategory } from './state';
 
 /**
  * One edge of one named switch. Physics emits playfield and cabinet-mechanism
@@ -105,12 +113,63 @@ export interface BallStartingEvent {
 }
 
 /**
+ * Story 2.5, AC 2: the third member of the Start-of-ball lifecycle
+ * (`ball_will_start` -> `ball_starting` -> `ball_started`), authored so the
+ * ball controller has a closed-union event for "the ball is now fully
+ * started" -- additive, consistent with the existing two-thirds of the
+ * vocabulary (`events.ts:96-105`), and deliberately trips
+ * `test/contracts.test.ts`'s exhaustive `never` guard at `pnpm typecheck`
+ * until a `case` arm is added there (Design Notes, "`ball_started` must be
+ * authored").
+ */
+export interface BallStartedEvent {
+	readonly type: 'ball_started';
+	readonly tick: number;
+}
+
+/**
  * AD-6: the one event that means "plunged" -- the opening of the shooter-lane
  * switch, from which the ball controller increments `ballsInPlay`, starts the
  * ball-save timer and arms the skill shot (later-story consumers).
  */
 export interface BallLaunchedEvent {
 	readonly type: 'ball_launched';
+	readonly tick: number;
+}
+
+/**
+ * Story 2.9, AD-18: `machine.ballSave` records the ball controller's own
+ * source at `ball_starting`, with `untilTick` left `null` -- enabling is not
+ * starting the timer (that is `ball_launched`, below). PRD FR-19: "Ball save
+ * is enabled at launch".
+ */
+export interface BallSaveEnabledEvent {
+	readonly type: 'ball_save_enabled';
+	readonly tick: number;
+}
+
+/**
+ * Story 2.9, AD-18: the ball-save timer actually starts, on `ball_launched`
+ * -- PRD FR-19: "starts its timer when the ball is plunged (not when
+ * enabled)". `untilTick` is the arbiter's resulting effective deadline
+ * (the longest live window across every armed source), not merely this
+ * one arming's own `tick + ticks`.
+ */
+export interface BallSaveTimerStartedEvent {
+	readonly type: 'ball_save_timer_started';
+	readonly untilTick: number;
+	readonly tick: number;
+}
+
+/**
+ * Story 2.9, AD-18: a drain inside the live window (or its grace) re-served
+ * the ball instead of ending it -- PRD FR-19: "a saved ball is auto-launched".
+ * `player` is the index into `GameState.players` whose ball was saved,
+ * mirroring `BallEndedEvent`'s own `player` field.
+ */
+export interface BallSavedEvent {
+	readonly type: 'ball_saved';
+	readonly player: number;
 	readonly tick: number;
 }
 
@@ -121,14 +180,125 @@ export interface BallMissingEvent {
 	readonly tick: number;
 }
 
-/** AD-7/AD-9's own payload-complete example: a ball has ended for a player. */
+/**
+ * Story 2.12 (AD-9): a ball-search pass began this tick -- a bare start
+ * marker, payload-complete as-is (AD-9: nothing downstream needs to join it
+ * to a later snapshot to know what happened). Emitted at most once per pass;
+ * the pass's own stage schedule (slings, pops, the bank-reset request, each
+ * ball device's `ballSearchOrder` pulses, the one recover) is never itself
+ * observable through `SemanticEvent` -- only through the `coilCommands`/
+ * `recoverCommands` channels a step also returns.
+ */
+export interface BallSearchStartedEvent {
+	readonly type: 'ball_search_started';
+	readonly tick: number;
+}
+
+/** AD-7/AD-9's own payload-complete example: a ball has ended for a player. Story 2.10: `bonusByCategory` is the same TOTAL record `PlayerBonusState.byCategory` is (`sim/contracts/state.ts`'s own `BonusCategory`) -- every category always present. */
 export interface BallEndedEvent {
 	readonly type: 'ball_ended';
 	readonly player: number;
-	readonly bonusByCategory: Readonly<Record<string, number>>;
+	readonly bonusByCategory: Readonly<Record<BonusCategory, number>>;
 	readonly multiplier: number;
 	readonly total: number;
 	readonly tilted: boolean;
+	readonly tick: number;
+}
+
+/**
+ * Story 2.10 (AD-3, AD-9): one tick of the end-of-ball bonus count-up,
+ * paced by `bonusCountMs` (`sim/table/tuning.ts`) -- the first
+ * implementation of AD-3's "every display-paced sequence ... emits step
+ * events; presentation animates to them and never reports completion".
+ * Payload-complete (AD-9): `step`/`steps` let a consumer know it is on the
+ * LAST step without joining to a later snapshot, and `running` is the
+ * un-multiplied subtotal through this step -- the final step's `running`
+ * always equals `total`. Emitted only for an UNTILTED ball whose `total` is
+ * greater than 0 (`ball-controller.ts`'s own drain branch); a tilted or
+ * zero-bonus ball end emits none.
+ */
+export interface BonusCountStepEvent {
+	readonly type: 'bonus_count_step';
+	readonly player: number;
+	readonly step: number;
+	readonly steps: number;
+	readonly running: number;
+	readonly total: number;
+	readonly tick: number;
+}
+
+/**
+ * Story 2.11 (AD-7, AD-9): a debounced `s_tilt_bob` closure that counted --
+ * the current player's `tiltWarnings` moved. `remaining` is the payload-
+ * complete count of warnings still available before the NEXT eligible
+ * closure tilts (`max(0, adjustments.tiltWarnings - tiltWarnings)`), so
+ * presentation never needs to join this event to a later snapshot (AD-9).
+ */
+export interface TiltWarningEvent {
+	readonly type: 'tilt_warning';
+	readonly player: number;
+	readonly remaining: number;
+	readonly tick: number;
+}
+
+/** Story 2.11 (AD-5, AD-7): the machine tilted -- `machine.tilt.tilted` moved true, hardware disabled, every ball-save source disarmed. `player` is the player whose closure tilted the machine (AD-7: `tiltWarnings` is player-scoped; the tilt CONDITION is machine-scoped, but the triggering player is worth carrying on the payload). */
+export interface TiltEvent {
+	readonly type: 'tilt';
+	readonly player: number;
+	readonly tick: number;
+}
+
+/** Story 2.11 (AD-5, PRD FR-16): `s_slam_tilt` closed during a live game -- every player's game ends and the machine returns to Attract. No payload beyond `tick`: unlike `TiltEvent`, a slam tilt is not attributed to one player's closure count (there is no per-player slam-tilt state at all). */
+export interface SlamTiltEvent {
+	readonly type: 'slam_tilt';
+	readonly tick: number;
+}
+
+/**
+ * Story 2.13 (AD-6, AD-7, AD-9): the last ball of the last player drained --
+ * `phase` moves to `game_over` the same tick. Payload-complete: `scores[i]`
+ * is `players[i].score` AFTER the drain's own bonus payment, so a consumer
+ * never needs to join this to a later snapshot to show final scores.
+ *
+ * Code review (this pass): today's own `game_over` screen (`frame.ts`'s
+ * `buildGameOverRows()`) does not actually READ this field -- it re-reads
+ * `snapshot.game.players` live instead, which is safe only because no score
+ * can change after this event's own tick (the last ball already paid its
+ * bonus at G; Design Notes, "The draw reads players[i].score at M. Scores
+ * cannot change after G"), so the two are always equal. `scores` still earns
+ * its keep as the durable, payload-complete contract Story 6.5's
+ * `highscore_entry` phase is specified to read once it exists.
+ */
+export interface GameEndedEvent {
+	readonly type: 'game_ended';
+	readonly scores: readonly number[];
+	readonly tick: number;
+}
+
+/**
+ * Story 2.13 (AD-3, AD-9): the Match number, drawn from `GameState.rng` at
+ * `matchDelayTicks` after game over. Payload-complete: `winners` is already
+ * the ascending list of player indices whose score matched, so presentation
+ * never computes it from `number` and a snapshot.
+ */
+export interface MatchDrawnEvent {
+	readonly type: 'match_drawn';
+	readonly number: number;
+	readonly winners: readonly number[];
+	readonly tick: number;
+}
+
+/**
+ * Story 2.13 (AD-3, AD-9): one paced step of the ten-step Match reveal.
+ * Payload-complete: `shown` is the two-digit value this step displays, so
+ * the Backglass never reveals `match_drawn.number` early by reading ahead --
+ * it renders only the `shown` of the steps it has actually received.
+ */
+export interface MatchRevealStepEvent {
+	readonly type: 'match_reveal_step';
+	readonly step: number;
+	readonly steps: number;
+	readonly shown: number;
 	readonly tick: number;
 }
 
@@ -158,6 +328,23 @@ export interface DeviceOverflowEvent<TBallDevice extends string = string> {
 }
 
 /**
+ * Story 2.12 (AD-4, amended 2026-09-11): physics' own per-step report,
+ * forwarded whole by `sim/loop` as `rules.step()`'s optional fourth argument
+ * -- never round-tripped through `FrameOutput.events` a second time (those
+ * keep reaching presentation exactly as before, straight from the loop).
+ * `recovered` is the count `Machine.step()` returned for a `RecoverCommand`
+ * consumed THIS step, or `null` on a step that consumed none. `failures` is
+ * physics' own `DeviceFailure` vocabulary (`eject_failed` / `device_overflow`)
+ * widened to also admit `broken` (AD-9's Conventions table names it; nothing
+ * under `sim/physics/**` emits it yet, so the widening only lets a test
+ * exercise the tolerate-and-ignore path this story's AC 5 requires).
+ */
+export interface MachineReport<TBallDevice extends string = string, TDevice extends string = string> {
+	readonly recovered: number | null;
+	readonly failures: readonly (EjectFailedEvent<TBallDevice> | BrokenEvent<TDevice> | DeviceOverflowEvent<TBallDevice>)[];
+}
+
+/**
  * The closed, discriminated semantic-event union. Generic over the ball
  * device / mechanism name unions used by the device-failure vocabulary;
  * `sim/table/names.ts` binds these to `TABLE`'s unions for consumers.
@@ -166,9 +353,21 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| SimTimeDiscardedEvent
 	| BallWillStartEvent
 	| BallStartingEvent
+	| BallStartedEvent
 	| BallLaunchedEvent
 	| BallMissingEvent
+	| BallSearchStartedEvent
 	| BallEndedEvent
+	| BallSaveEnabledEvent
+	| BallSaveTimerStartedEvent
+	| BallSavedEvent
+	| BonusCountStepEvent
+	| TiltWarningEvent
+	| TiltEvent
+	| SlamTiltEvent
+	| GameEndedEvent
+	| MatchDrawnEvent
+	| MatchRevealStepEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

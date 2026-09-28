@@ -23,16 +23,37 @@ export interface RecoverCommand {
 }
 
 /**
+ * Story 2.12 (AD-9): the closed rules -> physics command union `machine.ts:step()`
+ * accepts. A `CoilCommand` pulses/enables/disables a coil; the one
+ * `RecoverCommand` a ball-search pass may issue is physics's sole licence to
+ * despawn a loose ball (AD-6). `sim/loop/index.ts` is the one place that
+ * builds this union from `RulesStepResult.coilCommands` (next tick) and
+ * `RulesStepResult.recoverCommands` (also next tick, AD-4).
+ */
+export type MachineCommand<TCoil extends string = string> = CoilCommand<TCoil> | RecoverCommand;
+
+/**
+ * The closed role set AD-9 names, as a RUNTIME value (Story 2.8, the
+ * `CONTACT_SURFACES` idiom -- `contracts/events.ts:30-46`): a lamp role is
+ * never a colour, so this list is the seven values `lampsOf(state,
+ * ballSaveHurryUpTicks)` may ever
+ * emit, no more and no fewer. `LampRole` below is re-derived from it so the
+ * type and the runtime closure test (`test/contracts.test.ts`) can never
+ * silently drift apart.
+ */
+export const LAMP_ROLES = ['off', 'lit', 'hurryup', 'quickmb', 'joust', 'dragon', 'special'] as const;
+
+/**
  * `role` is never a colour (AD-9): `presentation/lighting/grammar.ts` is the
  * one `(role, step)` -> RGB/intensity/cadence table. The closed role set
  * named by AD-9's own rule text.
  */
-export type LampRole = 'off' | 'lit' | 'hurryup' | 'quickmb' | 'joust' | 'dragon' | 'special';
+export type LampRole = (typeof LAMP_ROLES)[number];
 
 /** The only progression rules may express for a lamp: off, lit, emphasised, urgent (AD-9). */
 export type LampStep = 0 | 1 | 2 | 3;
 
-/** Rules -> presentation: the diff of `lampsOf(state)` (AD-9). */
+/** Rules -> presentation: the diff of `lampsOf(state, ballSaveHurryUpTicks)` (AD-9). */
 export interface LampCommand<TLamp extends string = string> {
 	readonly type: 'lamp';
 	readonly lamp: TLamp;
@@ -40,6 +61,15 @@ export interface LampCommand<TLamp extends string = string> {
 	readonly step: LampStep;
 	readonly tick: number;
 }
+
+/** One lamp's current projected state (Story 2.8, AD-9): `lampsOf(state, ballSaveHurryUpTicks)`'s own per-lamp value, computed fresh every rules step -- `sim/loop` diffs consecutive values of this into the `LampCommand`s above; it is never itself sent anywhere. */
+export interface LampProjectionEntry {
+	readonly role: LampRole;
+	readonly step: LampStep;
+}
+
+/** `lampsOf(state, ballSaveHurryUpTicks): LampState` (Story 2.8, AD-9): every `TABLE.lamps` key's current `{ role, step }` -- recomputed whole every step, never mutated in place. Pure, but NOT of `GameState` alone since Story 2.9: `l_ball_save`'s hurry-up span needs a tuning-derived tick count, which the loop resolves once and threads in rather than adding a field to the hashed `GameState`. A caller that omits it gets no hurry-up span at all. */
+export type LampState<TLamp extends string = string> = Readonly<Record<TLamp, LampProjectionEntry>>;
 
 /** Rules -> presentation: the only continuous light level; latest wins per channel (AD-9). */
 export interface GiCommand<TGiChannel extends string = string> {

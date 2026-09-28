@@ -134,6 +134,46 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		).toBe(0);
 	});
 
+	it('a fresh collision.json export contains no carriage-return byte anywhere, on any host platform (task 21 regression pin, iteration 2)', () => {
+		// export.py used to open the collision document in Python TEXT mode with
+		// the default newline=None, which translates every '\n' the writer emits
+		// to os.linesep -- '\r\n' on Windows -- while .gitattributes pins the
+		// committed artifact to a bare LF (`* text=auto eol=lf`). The sibling
+		// byte-identity test above only catches the resulting drift AFTER a
+		// fresh `git checkout --` of public/assets/dragonwar.collision.json (git
+		// re-normalises the working-tree file back to LF, so the next export's
+		// CRLF output then disagrees with it); on an ordinary working tree that
+		// already holds a CRLF copy from a prior un-fixed export, the two CRLF
+		// buffers compare equal and nothing goes red (empirically verified this
+		// story's AD-tooled iteration-2 pass: `git checkout --` was required to
+		// expose it). This test instead asserts a platform-independent
+		// invariant directly on the fresh bytes -- no CR anywhere -- so the LF
+		// guarantee cannot regress silently regardless of checkout order or
+		// what the working tree already contains.
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(BLEND_PATH, outDir);
+		expect(status, `stderr: ${stderr}`).toBe(0);
+
+		const outputCollisionPath = path.join(outDir, 'dragonwar.collision.json');
+		expect(
+			existsSync(outputCollisionPath),
+			`export.py exited 0 but did not write ${outputCollisionPath} -- stderr: ${stderr}`,
+		).toBe(true);
+
+		const freshDoc = readFileSync(outputCollisionPath);
+		expect(
+			freshDoc.length,
+			'dragonwar.collision.json was written empty -- the CR-byte check below would pass vacuously against an empty buffer, so guard against that first.',
+		).toBeGreaterThan(0);
+
+		const crIndex = freshDoc.indexOf(0x0d);
+		expect(
+			crIndex,
+			`dragonwar.collision.json contains a carriage-return byte (0x0D) at offset ${crIndex} -- ` +
+				'tools/export.py must write the collision document with newline=\'\\n\' so line endings never depend on the host platform.',
+		).toBe(-1);
+	});
+
 	it('the real pnpm export:assets entry point (runExportAssets(), not just this file’s own hand-rolled spawnSync helper) succeeds end to end', () => {
 		// test/export-py.test.ts's own runExportPy() above independently
 		// hand-rolls an equivalent spawnSync call with its own argument list --
@@ -253,6 +293,36 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		expect(stderr.toLowerCase()).toMatch(/rotated|sheared/);
 	});
 
+	it('DW-125/DW-68: a wall with a CONCAVE mesh footprint (an L-shape) exits non-zero naming the node, the kept/dropped vertex counts, DW-68 and AD-11 -- never a silent convex-hull fill', () => {
+		// Story 2.1d task 15. tools/export.py:434-440's own DW-68 rejection
+		// (inside wall_footprint_mm(), called from build_collision_nodes())
+		// fires when _convex_hull_2d() drops any distinct rounded plan-view
+		// vertex -- but had no end-to-end pin anywhere in this suite before
+		// this case (DW-125's own finding: the AD gate for Story 2.1b
+		// demonstrated the path firing once, by hand, but nothing regression-
+		// tests it). mutate_concave_wall_footprint() moves one corner of
+		// col_wall_top (the one plain untouched axis-aligned box -- see the
+		// angled-footprint mutation's own comment for why) to a point
+		// strictly interior to the triangle formed by the OTHER three
+		// corners -- see that mutation's own corrected comment (rework
+		// iteration 3, MED finding) for why the rectangle's own centroid is
+		// the wrong point (collinear on the hull's own edge, not reflex) --
+		// a genuine reflex vertex: the resulting 4-point ring's true convex
+		// hull is that same three-corner triangle, so the hull must drop
+		// exactly one vertex.
+		const mutated = mutateBlend('concave-wall-footprint');
+		const outDir = freshTmpDir();
+		const { status, stderr } = runExportPy(mutated, outDir);
+		expect(status, `expected a non-zero exit (DW-68's own rejection); stderr: ${stderr}`).not.toBe(0);
+		expect(stderr).toContain('col_wall_top');
+		expect(stderr).toContain('DW-68');
+		expect(stderr).toContain('AD-11');
+		// The kept/dropped vertex counts export.py's own fail() message
+		// names: 4 distinct points in, 3 kept by the hull, 1 dropped.
+		expect(stderr).toMatch(/keeps 3 of its 4 distinct plan-view point/);
+		expect(stderr).toMatch(/\(1 vertex\/vertices dropped\)/);
+	});
+
 	it('Story 1.5: a wall with a genuinely angled mesh footprint exports a three-point footprintMm, not a four-corner bounding box', () => {
 		// wall_footprint_mm()'s reduction changed from the object's AXIS-ALIGNED
 		// bounding box to the convex hull of its own mesh vertices -- see
@@ -260,6 +330,14 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		// of a triangular footprint would still report a 4-corner rectangle
 		// (the bbox of the triangle); the hull reduction must report the true
 		// 3-point shape.
+		//
+		// Mutation target is col_wall_top, not col_wall_bottom_l: Story 2.1a
+		// task 25 (DW-119) reshaped col_wall_bottom_l's own footprint into a
+		// four-point convex quad whose top edge slopes toward the drain
+		// aperture, so the mutator's position-matched corner collapse (see its
+		// own header comment) no longer lands on an existing vertex there.
+		// col_wall_top is a plain, untouched axis-aligned box, which is all
+		// this mutation needs.
 		const mutated = mutateBlend('angled-wall-footprint');
 		const outDir = freshTmpDir();
 		const { status, stderr } = runExportPy(mutated, outDir);
@@ -268,9 +346,9 @@ describe.skipIf(!blenderPath)('tools/export.py -- Blender-gated (skipped when Bl
 		const doc = JSON.parse(readFileSync(path.join(outDir, 'dragonwar.collision.json'), 'utf8')) as {
 			nodes: Array<{ name: string; footprintMm?: Array<{ x: number; y: number }> }>;
 		};
-		const node = doc.nodes.find((n) => n.name === 'col_wall_bottom_l');
-		expect(node, 'col_wall_bottom_l missing from the mutated export').toBeDefined();
-		expect(node!.footprintMm, 'col_wall_bottom_l must still carry a footprintMm').toBeDefined();
+		const node = doc.nodes.find((n) => n.name === 'col_wall_top');
+		expect(node, 'col_wall_top missing from the mutated export').toBeDefined();
+		expect(node!.footprintMm, 'col_wall_top must still carry a footprintMm').toBeDefined();
 		expect(
 			node!.footprintMm!.length,
 			`expected a 3-point triangular footprint, got ${node!.footprintMm!.length} points -- the hull reduction is not representing the mesh's true (angled) shape`,

@@ -3,9 +3,20 @@
 // Story 1.7's AC 2 (a nudge frees a ball resting on a raised bat), plus its
 // control-run discriminating negative (Hazard 1 in this story's spec). Built
 // on `test/flipper-collision.test.ts`'s harness SHAPE (`loadCollision()` +
-// `createFlipperMechanics()`, the same ball placement (195, 85) mm on the
-// raised left bat) WITHOUT importing from or modifying that file (ledger
-// DW-72: Story 2.1 re-asserts the full 5 s cradle against that exact test).
+// `createFlipperMechanics()`) WITHOUT importing from or modifying that file
+// (ledger DW-72: Story 2.1a re-asserts the full 5 s cradle against that exact
+// file's own tests).
+//
+// Story 2.1a re-derivation (DW-77): the superseded spawn (195, 85) sat
+// embedded in the pre-reconciliation modelled body, and even after DW-78's
+// fix a ball merely PLACED near the drain-triangle's new tip-side pocket
+// drifts continuously rather than resting -- only a ball the PHYSICS ITSELF
+// settles (dropped from clear of the modelled body, then held through an
+// arrange window) reaches the same tight, near-zero-drift equilibrium
+// `test/flipper-collision.test.ts`'s own `arrangeCradleBall()` measures. This
+// file mirrors that SHAPE (drop at `pivotMm.x + 30`, `y = 100`, a 2500-tick
+// arrange) rather than importing it, matching this file's own established
+// "mirror the shape, do not import" convention.
 //
 // Measured finding (recorded in the spec): a SINGLE nudge_up rising edge
 // changes this ball's departure timing only within measurement noise (an
@@ -13,9 +24,15 @@
 // nudge should result in around 3 to 5 mm cabinet displacement", not a
 // violent one). A rapid BURST of rising edges (the same "firm/violent nudge"
 // realisation `test/cabinet-bob.test.ts`'s AC 3 and `test/cabinet-slam.test.ts`'s
-// AC 5 already needed) produces a large, unambiguous effect -- measured
-// 848 ticks (control) vs 192 ticks (burst) to reach 20 mm of drift. This test
+// AC 5 already needed) produces a large, unambiguous effect. This test
 // arranges that burst; its first rising edge is "the nudge tick" AC 2 names.
+// Re-measured against the reconciled geometry: all four constants below
+// (`FIRST_NUDGE_TICK`, `OBSERVE_TICK`, `DEPARTED_DRIFT_MM`,
+// `CONTROL_STILL_ON_BAT_DRIFT_MM`) still hold without change -- the new
+// pocket is markedly MORE stable than the old embedded placement was (the
+// settled control drifts under 0.13 mm over the whole 600-tick window,
+// against this file's already-generous 10 mm bound), so nothing here needed
+// loosening.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -74,6 +91,8 @@ function ballSpeed(ball: Ball): number {
 const BURST_TICKS = new Set(Array.from({ length: 10 }, (_, i) => 100 + i * 2));
 const FIRST_NUDGE_TICK = 100;
 const OBSERVE_TICK = 300;
+/** Length of runCradle()'s own recorded measurement window, in ticks. Every tick offset above indexes into it. */
+const MEASURE_TICKS = 600;
 const DEPARTED_DRIFT_MM = 20;
 const CONTROL_STILL_ON_BAT_DRIFT_MM = 10;
 
@@ -83,13 +102,34 @@ interface RunResult {
 	readonly speedAt: (tick: number) => number;
 }
 
+// The arrange window flipper-collision.test.ts's own arrangeCradleBall()
+// uses -- mirrored here (this file's own "mirror the shape" convention), not
+// imported. 2500 ticks is comfortably past where the settled control's own
+// drift stops moving at all (measured this pass: under 0.01 mm between the
+// tick-2000 and tick-2500 samples).
+const ARRANGE_TICKS = 2500;
+
 function runCradle(nudge: boolean): RunResult {
 	const rig = buildRig();
 	const held: InputFrame = { ...NO_FRAME, flipper_l: true };
 
-	// Exactly test/flipper-collision.test.ts's own "(b)" arrange: raise the
-	// bat for 60 ticks first (it reaches end-of-stroke well inside that, per
-	// that test's own sanity check), then place the ball resting against it.
+	// Raise the bat for 60 ticks first (it reaches end-of-stroke well inside
+	// that), then DROP the ball from a position derived from the committed
+	// geometry (the left bat's own pivotMm.x, offset toward the tip -- the
+	// same derivation arrangeCradleBall() uses) and comfortably clear of the
+	// modelled body (y = 100), rather than placing it already resting --
+	// DW-77: a ball merely placed near the pocket does not reproduce the
+	// same tight equilibrium a physics-settled one does.
+	const { flippers } = loadCollision(loadDoc());
+	// DW-112: a named diagnostic instead of a bare `!` non-null assertion, so
+	// a missing/renamed "l"-side flipper node reports which node was expected
+	// rather than an unhelpful "Cannot read properties of undefined".
+	const leftFlipper = flippers.find((f) => f.side === 'l');
+	if (!leftFlipper) {
+		throw new Error('expected a "l"-side flipper (col_flipper_l) in the loaded collision document, found none');
+	}
+	const leftPivotXMm = leftFlipper.pivotMm.x;
+
 	let tick = 0;
 	for (let t = 1; t <= 60; t++) {
 		tick = t;
@@ -97,14 +137,39 @@ function runCradle(nudge: boolean): RunResult {
 		rig.cabinetMechanics.applyFrame(t, NO_FRAME);
 		rig.physics.step();
 	}
-	const ball = spawnBallAt(rig.physics, 195, 85, 'CradleBall');
+	const ball = spawnBallAt(rig.physics, leftPivotXMm + 30, 100, 'CradleBall');
+
+	// Settle guard mirrors flipper-collision.test.ts's own arrangeCradleBall():
+	// speed ALONE is not sufficient -- a ball that is still slowly sliding can
+	// sit under the speed bound while genuinely still in motion, so drift over
+	// a lookback window is checked too (code review, 2026-08-30).
+	const SETTLE_CHECK_LOOKBACK = 500;
+	let posAtLookback = ballPosMm(ball);
+	for (let i = 1; i <= ARRANGE_TICKS; i++) {
+		tick += 1;
+		rig.flipperMechanics.applyFrame(tick, held, { l: true, r: true });
+		rig.cabinetMechanics.applyFrame(tick, held);
+		rig.physics.step();
+		if (i === ARRANGE_TICKS - SETTLE_CHECK_LOOKBACK) {
+			posAtLookback = ballPosMm(ball);
+		}
+	}
 	const startPos = ballPosMm(ball);
+	const settleDrift = Math.hypot(startPos.x - posAtLookback.x, startPos.y - posAtLookback.y);
+	const settleSpeed = ballSpeed(ball);
+	if (settleDrift >= 1 || settleSpeed >= 2) {
+		throw new Error(
+			`runCradle(): the ball never settled within the ${ARRANGE_TICKS}-tick arrange window -- drift over the last ` +
+			`${SETTLE_CHECK_LOOKBACK} ticks was ${settleDrift.toFixed(3)} mm (must be < 1), speed ${settleSpeed.toFixed(3)} ` +
+			`(must be < 2). Failing loudly rather than measuring free travel as if it were a resting contact.`,
+		);
+	}
 
 	const drifts: number[] = [];
 	const speeds: number[] = [];
-	for (let i = 1; i <= 600; i++) {
+	for (let i = 1; i <= MEASURE_TICKS; i++) {
 		tick += 1;
-		const frame: InputFrame = nudge && BURST_TICKS.has(tick) ? { ...held, nudge_up: true } : held;
+		const frame: InputFrame = nudge && BURST_TICKS.has(i) ? { ...held, nudge_up: true } : held;
 		rig.flipperMechanics.applyFrame(tick, frame, { l: true, r: true });
 		rig.cabinetMechanics.applyFrame(tick, frame);
 		rig.physics.step();
@@ -112,21 +177,39 @@ function runCradle(nudge: boolean): RunResult {
 		drifts.push(Math.hypot(pos.x - startPos.x, pos.y - startPos.y));
 		speeds.push(ballSpeed(ball));
 	}
-	// Recording starts at tick 61 (drifts[0]), after the 60-tick warmup that
-	// raises the bat -- so absolute tick T is stored at index T - 61.
+	// Recording starts at i=1 (drifts[0]), the first tick AFTER the arrange
+	// window's own settled sample -- so relative tick T (1-indexed, matching
+	// BURST_TICKS's own numbering) is stored at index T - 1.
 	return {
 		startPos,
-		driftAt: (t: number) => drifts[t - 61]!,
-		speedAt: (t: number) => speeds[t - 61]!,
+		driftAt: (t: number) => drifts[t - 1]!,
+		speedAt: (t: number) => speeds[t - 1]!,
 	};
 }
 
 describe('sim/physics/cabinet -- AC 2: a nudge frees a ball resting on a raised bat', () => {
-	it('arrange: the ball is genuinely still on the bat, strictly inside the first 1 s of the hold, the tick before the burst\'s first rising edge (both runs, identically seeded)', () => {
+	it('arrange: the ball is genuinely still on the bat, strictly inside the first 1 s of the MEASUREMENT window, the tick before the burst\'s first rising edge (both runs, identically seeded)', () => {
 		const nudged = runCradle(true);
 		const control = runCradle(false);
 		const arrangeTick = FIRST_NUDGE_TICK - 1;
-		expect(arrangeTick, "the arrange tick must be strictly inside the first 1000 ticks (1 s) of the ball's own hold").toBeLessThan(1000);
+		// Code review 2026-08-31: this bounds the 600-tick MEASUREMENT window
+		// that opens once runCradle() has settled the ball -- not the hold as
+		// a whole, which by then already spans 60 + ARRANGE_TICKS ticks.
+		// BURST_TICKS, FIRST_NUDGE_TICK and OBSERVE_TICK are all offsets into
+		// that same window (runCradle() indexes the burst and the recorded
+		// samples by the window-relative counter, not the absolute tick), so
+		// the message named the wrong clock. Guards a future edit of
+		// FIRST_NUDGE_TICK, not today's constant.
+		//
+		// Code review 2026-08-31 (iteration 4, final pass): the bound was
+		// 1000, which is LOOSER than what the code structurally permits and
+		// so could never be the assertion that reports the problem --
+		// runCradle() records only MEASURE_TICKS samples and driftAt()/
+		// speedAt() index them with a non-null assertion, so any
+		// FIRST_NUDGE_TICK past that window crashes on `undefined` several
+		// lines below before this bound is ever consulted. Re-pointed at the
+		// window it is actually guarding, which is a bound that can fail.
+		expect(arrangeTick, `the arrange tick must fall strictly inside runCradle()'s own ${MEASURE_TICKS}-tick measurement window -- past it, driftAt()/speedAt() read off the end of the recording`).toBeLessThan(MEASURE_TICKS);
 		// "In contact, within tolerance of its placement, and not already
 		// departing" -- both runs are bit-identical up to here (the burst has
 		// not started), so both are checked.

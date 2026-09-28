@@ -146,10 +146,10 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 
 - AR-10 (AD-15, AD-16, licensing): Port `vpdb/vpx-js` at commit `e8a6d6f` — `lib/physics/`, `lib/vpt/ball/`, `lib/vpt/flipper/`, `lib/game/player-physics.ts` — under `src/sim/physics/`, headers checked per file, original copyright retained plus `// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0`; the `ATTRIBUTIONS.md` entry lands first. Solver constants (`PHYS_SKIN 25.0`, `PHYS_TOUCH 0.05`, `C_DISP_GAIN 0.9875`, `STATICTIME 0.005`, ball–ball restitution and peers) live verbatim in `sim/physics/constants.ts`, never tunable; changing one is a physics-version bump.
 - AR-11 (AD-2): Physics emits playfield and cabinet-mechanism `SwitchEvent`s as edges only, with per-switch hysteresis and `settleTicks` by class (rollover 0, standup 8, drop target 20, bumper skirt 2, tilt bob 0); `sim/loop` emits the button switches (`s_start`, `s_flipper_l`, `s_flipper_r`, `s_plunger`) from `InputFrame` transitions; rules never debounce. Physics emits `ContactEvent`s (ball hits with `speed`, `surface`, `pos`, and actuations `coil_fire`, `flipper_eos`, `drop_target_down`, `bank_reset`, `eject`, `spinner_tick`) to presentation only.
-- AR-12 (AD-5): Flippers, the manual plunger, slingshots and pop bumpers are hardware rules inside the physics step behind their coils (`c_flipper_l/r`, `c_sling_l/r`, `c_pop_*`), gated only by `CoilCommand enable | disable`; Tilt, game over and Attract disable them together. `FlipperMover` is ported verbatim (strength, ramp-up, EOS torque and angle, return, inertia ⅓·m·r²); MPF pulse/hold figures are calibration references only. The manual plunge maps `s_plunger` hold ticks through `plungerSpeedByHoldMs`.
+- AR-12 (AD-5): Flippers, the manual plunger, slingshots and pop bumpers are hardware rules inside the physics step behind their coils (`c_flipper_l/r`, `c_sling_l/r`, `c_pop_*`), gated only by `CoilCommand enable | disable`; Tilt, game over and Attract disable the flippers, slingshots and pop bumpers together, while the manual plunger — which shares the autolauncher's serving coil `c_autolaunch`, outside that set by design — stays live `[AMENDED 2026-09-11 — aligned with AD-5 as amended at Story 2.12's spec gate; DW-241 by-design]`. `FlipperMover` is ported verbatim (strength, ramp-up, EOS torque and angle, return, inertia ⅓·m·r²); MPF pulse/hold figures are calibration references only. The manual plunge maps `s_plunger` hold ticks through `plungerSpeedByHoldMs`.
 - AR-13 (AD-5): The cabinet oscillator is ported; the ball coupling is re-derived as table-frame motion and pinned by a golden replay; the tilt bob is a pendulum closing `s_tilt_bob`; the slam detector is a tick-windowed nudge count beside the oscillator with threshold `slamNudgesPerWindow`, closing `s_slam_tilt`.
 - AR-14 (AD-6): The machine carries 4 balls, asserted at boot. `bd_trough` (capacity 4, `s_trough_1..4`, `c_trough_eject`) and `bd_lock` (capacity 3, `s_lock_1..3`, `c_mouth`) are parking devices: park unconditionally into the lowest empty slot, eject the highest filled slot one ball per pulse at the authored pose (the Lock's pose is the Mouth). `bd_shooter` is non-parking: the served ball rests on the plunger tip, entry `s_shooter_lane`, exits by manual plunge or `pulse c_autolaunch`. Device counts are the number of closed slot switches; rules enforce capacity and answer `device_overflow` with an eject.
-- AR-15 (AD-6): Drop targets (`s_dragon_[d,r,a,g,o,n]`) and the spinner keep mechanical state in physics — a dropped target is non-collidable until `pulse c_dragon_bank_reset`; the spinner spins from contact and closes `s_spinner` once per revolution until it decays. `RecoverCommand` is the one command that lets physics despawn every ball outside a device; `step()` returns the `recovered` count.
+- AR-15 (AD-6): Drop targets (`s_dragon_[d,r,a,g,o,n]`) and the spinner keep mechanical state in physics — a dropped target is non-collidable until `pulse c_dragon_bank_reset`; the spinner spins from contact and closes `s_spinner` once per revolution until it decays. `RecoverCommand` is the one command that lets physics clear every ball outside a device; `step()` returns the `recovered` count. A recovered ball is **returned to the trough**, not destroyed -- `recover()` parks each ball it removes into `bd_trough`'s lowest empty slot and closes that slot's switch, so AD-6's four-ball invariant holds across any number of recoveries [AMENDED 2026-09-11, Story 2.13 spec gate -- author decision, DW-257].
 - AR-16 (AD-10): The table frame (playfield-local mm, right-handed, origin bottom-left nearest the player, X right, Y up the playfield, Z toward the glass) is canonical; `TABLE.reference = { playfieldMm: { w: 514.4, h: 1066.8 }, ballMm: 26.99, pitchDeg: 6.5, flipperBatIn: 3.125 }`; physics keeps VP units internally (1 U = 0.53975 mm, ball radius 25 U, y-down); `frames.ts` exports exactly `glbToTable()`, `toPhysics()`, `toScene()`; geometry is authored unpitched and Pitch is applied by physics as the gravity vector and by presentation as a rotation of `playfield_root` about `pivot_pitch`; the Babylon scene uses `useRightHandedSystem = true`.
 - AR-17 (physics-tuning): Table tunables in `sim/table/tuning.ts` each carry `source` and `confidence`; starting values: flipper elasticity 0.88, elasticity falloff 0.15, flipper friction 0.8–0.9, scatter 0, coil ramp-up 2.5, per-object material table `{ elasticity, elasticityFalloff, friction, scatter }` with VPX defaults 0.3/0/0.3/0 referenced by `phys_material`; hop control as one explicit tunable; do-not-invent numbers ship marked `unverified`.
 
@@ -524,7 +524,7 @@ So that I can play the ball rather than watch it.
 **When** the flipper key is held for 5 s
 **Then** the flipper reaches its end-of-stroke angle and holds it, unmoving and without oscillating at the stop, for the whole 5 s `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the ball is held on the bat — at rest, its position on the bat unchanged within tolerance — for at least the first 1 s of that hold, which is what this epic's placeholder geometry can support; the full multi-second cradle is **Story 2.1's** (ledger `DW-72`), once the playfield carries the inlane guides and posts that form the pocket a real cradle needs
-**And** when the key is tapped for 30 ms, the flipper rises partially and returns
+**And** when the key is tapped for 10 ms, the flipper rises partially and returns `[AMENDED 2026-08-31 — see the story change log below]`
 
 **Given** `CoilCommand { coil: 'c_flipper_l', action: 'disable' }` has been issued
 **When** the flipper key is pressed
@@ -536,6 +536,27 @@ So that I can play the ball rather than watch it.
 **And** a full-strength plunge replay shows the ball reaching the top of the placeholder playfield without rebounding back into the lane
 
 **Change log**
+
+- **2026-08-31 — the light-tap figure re-measured from 30 ms to 10 ms after Story 2.1a's flipper
+  reconciliation; the promise itself is unchanged.**
+  Story 2.1a closed `DW-78` by deriving `flipperRadius = lengthMm - baseRadiusMm - endRadiusMm`, so
+  the modelled body finally matches the box `assertReferenceDimensions()` pins as the bat. That
+  shortens the arm, and since `inertia = ⅓·m·flipperRadius²` it drops the bat's inertia to about
+  68% of its former value. The same 30 ms tap therefore now carries the bat all the way to the 90°
+  stop under its own coast: the criterion as written had become **literally false**, and Story 2.1a
+  initially rewrote the assertion to match (`peakAngle` `toBe(endAngle)`) and deleted the comment
+  that named this outcome as a Block If — a Rule 5 ask-first narrowing that went unasked, logged as
+  a `protocol_violation`. FR-5 names light taps as one of six techniques the flipper model must make
+  possible, so the promise is a feel requirement and is kept; only the number moves.
+  The replacement figure is measured, not chosen. Sweeping tap duration against the peak excursion
+  of the left bat (rest 141°, end-of-stroke 90°, so partial travel means a peak above 90°):
+  30 ms → 90.0000° (full stroke), 25 ms → 90.0122°, 20 ms → 90.4009°, 15 ms → 90.3777°,
+  12 ms → 90.1017°, **10 ms → 109.3221°**, 8 ms → 129.0730°, 5 ms → 139.6123°.
+  25 ms is the longest tap that is still technically partial, but only by 0.0122° of a 51° sweep —
+  the same knife-edge margin (`DW-80` pinned 0.0416°) whose fragility let this break silently in the
+  first place. **10 ms** is taken instead because it clears the stop by 19.3°, an excursion a player
+  can actually see, so the criterion now fails loudly if the flipper model changes again rather than
+  flipping sign on a rounding error.
 
 - **2026-08-29 — the 5 s cradle claim split: the bat's half kept in full, the ball's half bounded
   to 1 s, and the real cradle moved to Story 2.1.**
@@ -630,7 +651,7 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 **When** CI runs Vitest in Node
 **Then** goldens for roll-and-drain, **hold-and-release**, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the two-ball golden also asserts the balls' separation never drops below one diameter
-**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Story 2.5** removes the prologue when Start serves through the rules layer, and re-records the goldens
+**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Epic 3** removes the prologue and re-records the goldens, at or after Story 3.7 (Quick multiball), or formally retires the obligation there `[AMENDED 2026-09-06 — see the story change log below]`
 
 **Given** a browser test page or Vitest browser run
 **When** each golden is replayed in Chrome and Safari
@@ -658,6 +679,27 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
   the pocket its breakage would read as "re-record me" rather than "ask why". The hold is kept well inside
   the ~1 s window where behaviour is stable and will not change when the pocket arrives, so this golden
   survives Story 2.1 intact. A golden must not claim behaviour the table cannot produce.
+
+- **2026-09-06 — the prologue's removal moves from Story 2.5 to Epic 3.**
+  *Why it moves.* Story 2.4 built the rules→physics coil channel (`RulesStepResult.coilCommands`), so the
+  premise above — that the rules layer cannot issue a `CoilCommand` — is no longer what blocks removal.
+  Two measurements taken at Story 2.5's plan gate block it instead. **The two-ball golden needs two balls
+  in play**: `two-ball-collision.golden.json` carries `transitions: []` and a prologue of four pulses,
+  including **two** `c_trough_eject` (ticks 1 and 196), so replaying it from the rules layer requires
+  `machine.multiball`, which does not exist until **Story 3.7**. And **removal shifts every serve by one
+  tick**: AD-4 pins a rules-issued command to tick *N+1*, so `c_trough_eject` cannot fire before tick 2,
+  while every prologue fires at tick 1. That shift is survivable for the four single-ball goldens but not
+  for the two-ball one, whose minimum centre separation is **27.181 mm against a 26.99 mm ball — a
+  0.191 mm margin**. Removal is therefore a **trajectory** re-record, not the header-only refresh Story
+  2.4 performed.
+  *Why Epic 3 whole, rather than four now and one later.* Splitting it would leave the goldens in two
+  states across the rest of Epic 2 and foreclose nothing useful. Deferring the whole removal keeps every
+  option open: Epic 3 can complete it once multiball is real, **or formally retire the obligation** — there
+  is a genuine argument that a replay harness serving its own ball is better isolated from rules churn
+  than one that depends on the full rules layer.
+  *What this does not weaken.* **The goldens are physics-determinism pins.** Removing the prologue would
+  make them end-to-end; it is not what covers Start. **Story 2.5 tests the Start path directly, with its
+  own tests**, so the Start path is asserted either way. Tracked as `DW-175`, routed to Story 3.7.
 
 ### Story 1.9: Dev tuning panel and the first feel ritual
 
@@ -790,11 +832,53 @@ A stranger can play a full 1–4 player game with no instructions: the real geom
 
 **FRs covered:** FR-2, FR-3, FR-11, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-31, FR-32, FR-44 · **NFRs:** NFR-5, NFR-8 · **ARs:** AR-14, AR-15, AR-18, AR-19, AR-22, AR-23, AR-28, AR-37
 
-### Story 2.1: The playfield geometry and the full switch set
+### Story 2.0: Epic 1 Deferred Cleanup
 
 As the author,
-I want the whole shot map drawn in the Blender source from the reference dimensions — drain triangle first, then Loops, Ramp, Dragon and Lock lane, pops, slings, DRAGON bank and Top lanes — with every switch zone placed and every shot's miss checked,
-So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are answered, and every later rule lands on real shots.
+I want the provenance gate that ten Epic 1 stories edited and nobody owned to be named for what it actually asserts, given a documented owner, and recorded in AD-16 alongside the two gates it complements rather than duplicates,
+So that the licence-header story a fresh contributor reads is true, no gate can be retired as a redundant copy of another, and the cross-story accretion Epic 1's retrospective measured cannot recur.
+
+**Context.** Epic 1's retrospective (Finding 2) measured `test/sim-boundary.test.ts` as modified by **10 of 10** stories, the only file with that distinction, while carrying the epic's licensing gate. The first proposed remedy — make `pnpm check:headers` the single authority and strip the test — rested on a false premise: the two are not duplicates. `tools/check-licence-headers.mjs` is an OR of three substring **presence** checks and its own comment defers structural checking to the test file; the test file holds the **structural** assertions and contains no import-direction assertions at all (those moved to `tools/boundary-lint.mjs` in Story 1.3). Deleting the upstream VPDB copyright block from a ported file while keeping its one-line port marker leaves `check:headers` green and turns the structural gate red. AD-16 has been corrected accordingly; this story implements the correction.
+
+**Acceptance Criteria:**
+
+**Given** `test/sim-boundary.test.ts`, whose name describes assertions it does not contain
+**When** the file is renamed to `test/port-provenance.test.ts` with `git mv`, so history follows
+**Then** every reference to the old path is updated — the file's own header comment, `tools/check-licence-headers.mjs` (whose comment names the old path as the stricter authority and must name the new one), and every hit from `grep -rn "sim-boundary"` across `src/`, `test/`, `tools/`, `package.json`, `.github/workflows/`, `_bmad-output/planning-artifacts/` and the root docs
+**And** `pnpm test`, `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm build`, `pnpm check:dist` and `pnpm check:size` all pass, and no reference to `sim-boundary` survives except in historical records that describe the past (cycle logs, the ledger, the Epic 1 retrospective)
+
+**Given** the "everybody edits it, nobody owns it" pattern the retrospective measured
+**When** the renamed file's header comment is rewritten
+**Then** it names **Story 2.0** as the file's documented owner, states what the file asserts (structural provenance: the upstream copyright block intact, the authored/ported branches disjoint, `VPINBALL_PORTED_FILES` real and disjoint) and what it deliberately does **not** assert (per-file presence, which is `check:headers`; import direction, which is `tools/boundary-lint.mjs`), so the next contributor cannot re-derive the duplicate-gate confusion
+
+**Given** AD-16 as rewritten on 2026-08-30
+**When** the implementation is checked against it
+**Then** the three gates it names are all present and none has been retired in favour of another: `pnpm check:headers` (presence, discovered from `git ls-files`), `test/port-provenance.test.ts` (structure, plus the AD-15 verbatim solver-constants pin and the DW-79 port-body freeze) and `tools/boundary-lint.mjs` (imports, banned globals, the tick/ms rule, the device-name-literal rule)
+
+**Given** `DW-79` is `resolved-by:1-8-replays-golden-state-hashes-and-ci-parity`, its resolution being the port-body hash manifest this file carries
+**When** the rename lands
+**Then** the manifest still pins all five declared ported bodies across the new filename, `DW-79` stays resolved, and no entry is reopened
+
+**Given** a rename that quietly stopped enforcing would be invisible to every other gate
+**When** the regression bar is applied after the rename
+**Then** deleting the upstream VPDB copyright block from `src/sim/physics/anim-object.ts` while keeping its one-line port marker turns `test/port-provenance.test.ts` **red**, reverting restores a byte-identical tree, and the suite returns to its 950 pass / 21 skip / 76 files baseline — recorded as a `mutation:` line in the spec's `## Verification`
+
+**Change log**
+
+- **2026-08-30 — created at the Epic 2 Story 2.0 gate.** Carries Epic 1's retrospective
+  Finding 2 (the 10-of-10 accretion) and open action item "Give `test/sim-boundary.test.ts`
+  a deliberate owner in Epic 2". The instruction as first written would have stripped the
+  structural provenance suite; the runner's evidence overturned the premise and the author
+  chose the rename-and-record option instead. AD-16 and the Conventions "Licence headers"
+  row were corrected in the same commit as this insertion (Rule 20), superseding the
+  earlier same-day amendment.
+
+
+### Story 2.1a: The drain triangle, the cradle pocket and the flipper's real dimensions
+
+As the author,
+I want the drain triangle drawn in the Blender source from the reference dimensions — the flipper tip gap, both outlane widths, the inlane guides and every post — and the flipper's modelled collision body reconciled with the box the reference-dimension assertion pins,
+So that the pocket a real cradle needs exists, the bat the whole game is played with is the shape the geometry says it is, and Story 2.1b's shot map is drawn on geometry that has been proved rather than assumed.
 
 **Acceptance Criteria:**
 
@@ -807,27 +891,14 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 **Then** the ball stays within the cradle pocket for the whole hold — at rest, its position on the bat unchanged within tolerance — and does not depart the bat
 **And** this closes ledger `DW-72`: it is the half of Story 1.6's cradle criterion deferred to this story because Epic 1's placeholder table had no geometry beside either flipper to form a pocket (see Story 1.6's change log), so `test/flipper-collision.test.ts`'s 1 s ball bound is widened back to the full 5 s here
 
-**Given** the drain triangle is placed
-**When** the shot map is drawn
-**Then** the Left Loop and Right Loop have entries and exits whose exit paths feed straight toward the flippers, one Ramp has an authored height and a decided return inlane (recorded as the OQ-5/FR-27 decision in `docs/decisions.md`), the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, pop bumpers, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
 
-**Given** every device has a switch
-**When** `TABLE.switches` is completed
-**Then** it declares `s_loop_l_in/out`, `s_loop_r_in/out`, `s_spinner`, `s_ramp_enter/made`, `s_dragon_[d,r,a,g,o,n]`, `s_dragon_body`, `s_lock_lane`, `s_lock_1..3`, `s_top_1..3`, `s_inlane_l/r`, `s_outlane_l/r`, `s_sling_l/r`, `s_pop_*`, `s_drain` with the `settleTicks` class per device, plus `bd_lock` (capacity 3, `c_mouth`, `ballSearchOrder`) and the coils `c_sling_l/r`, `c_pop_*`, `c_dragon_bank_reset`, `c_mouth`
-**And** `export.py` validates the `.blend` against the updated `TABLE` dump and both loaders load it
-
-**Given** a replay of the fastest ball a full-strength plunge and flipper hit can produce
-**When** it passes through each rollover, the bank, the Lock lane and the drain
-**Then** every switch closes exactly once per pass because zone tests use the per-tick swept segment, and a test asserts no pass is missed at the maximum speed
-
-**Given** the geometry loads
-**When** the author runs the feel ritual on each shot from the fixed camera
-**Then** `docs/feel-test.md` gains a per-shot Lawlor entry (Left Loop, Right Loop, Ramp, Dragon, Lock lane, bank, Top lanes) recording where the most common miss goes, none is a centre drain, and any shot that fails is re-drawn before the story closes
-**And** the decision whether the Lock lane carries both lock and mode start (OQ-5) is recorded; if not, a separate `sw_scoop` and `bd_scoop` are added with the Mouth as eject only
-
-**Given** the fixed camera from Story 1.4
-**When** the full geometry is in view
-**Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible and the Backglass quad occupies a strip at the top of the view
+- DW-77: the reworked cradle test spawns its ball roughly 9 mm inside the raised bat's modelled body, so the amended ball-half AC measures embedded-ball ejection rather than a resting contact (ledger; routed by decision_sheet 2026-08-30)
+- DW-78: `flipper-config.ts` puts the pivot at the committed box's own end while `FlipperMover` centres `hitCircleBase` of `baseRadius` there, so the collision body runs about 12.5 mm longer than the box `assertReferenceDimensions()` insists IS the bat (ledger; routed by decision_sheet 2026-08-30)
+- DW-105: `no-circular` exempts all of `src/sim/physics/` as a cycle origin, and the honest narrowing exposes a real authored-to-ported cycle `flipper-config` -> `loader` -> `player-physics` -> `flipper-mover` (ledger; routed by decision_sheet 2026-08-30)
+- DW-52: `addWall()`'s vertex-mean centroid orients faces outward only for a convex footprint, so a non-convex wall polygon faces reflex edges inward (ledger; routed by decision_sheet 2026-08-30)
+- DW-55: `applyPitch()` silently overwrites `playfield_root`'s transform; its correction is valid only while `playfield_root` is at identity and `pivot_pitch` is an unparented sibling, both asserted nowhere (ledger; routed by decision_sheet 2026-08-30)
+- DW-59: `addBox()` emits 12 `HitTriangle`s and no edge or vertex primitives, so a box's edges are uncovered exactly the way a wall's corners were in DW-7 (ledger; routed by decision_sheet 2026-08-30)
 
 **Change log**
 
@@ -843,6 +914,290 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
   never tested it, and met `DW-72` at its ledger gate with nothing delivered to close it against.
   The criterion above closes that gap. `DW-72` is deliberately written to close on evidence
   rather than on inspection.
+
+- **2026-08-30 — Story 2.1 split into Stories 2.1a and 2.1b at the Epic 2 Story 2.0 gate.**
+  The single story authored the whole shot map in Blender, declared the ~30-switch `TABLE`
+  surface, pinned switch reliability at maximum ball speed, ran a seven-shot feel ritual and
+  checked camera framing — and carried 15 routed ledger entries against a `routed_story_max`
+  of 6. Three of those entries (`DW-77`, `DW-78`, `DW-105`) are geometry and architecture
+  constraints on the bat itself, which the story's own design depends on rather than work it
+  could bolt on afterwards. The split is a partition, not a change of promise: every acceptance
+  criterion is carried over verbatim and in order, and both halves land before Story 2.2.
+  **2.1a** takes the drain triangle and the cradle — the geometry beside the flippers, the
+  bat's real dimensions, and the 5 s hold that proves the pocket. **2.1b** takes the rest of
+  the shot map, the full switch set, the swept-segment reliability test, the feel ritual and
+  the camera framing, drawn on geometry 2.1a has already proved. Story numbering uses the
+  tracker's split-story key grammar (`2-1a-`, `2-1b-`), so no sibling story is renumbered and
+  every existing cross-reference to "Story 2.1" — all of which concern the cradle and `DW-72` —
+  resolves to 2.1a, which keeps that criterion.
+
+### Story 2.1b: The full shot map and the switch set
+
+As the author,
+I want the rest of the shot map drawn on Story 2.1a's drain triangle — Loops, Ramp, Dragon and Lock lane, pops, slings, DRAGON bank and Top lanes — with every switch zone placed, every switch and coil declared in `TABLE`, and every shot's miss checked,
+So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are answered, and every later rule lands on real shots.
+
+**Acceptance Criteria:**
+
+**Given** the drain triangle placed in Story 2.1a
+**When** the shot map is drawn
+**Then** the Left Loop and Right Loop have entries and exits, and a plunged ball clears the Loop entrance and crosses the top of the playfield rather than falling into the Loop channel `[AMENDED 2026-09-01 — see the story change log below]`, one Ramp has an authored height and a decided return inlane (recorded as the OQ-6/FR-27 decision in `docs/decisions.md`) `[AMENDED 2026-08-31 — see the story change log below]`, the Dragon body is off-centre with the Lock lane between its legs and a Mouth eject pose aimed at the flippers, the six-target DRAGON bank, three Top lanes, two slingshots, **three pop bumpers** `[AMENDED 2026-08-31 — see the story change log below]`, two inlanes, two outlanes and the plunger lane all exist as `col_` and `sw_` nodes following the prefix contract
+
+**Given** every device has a switch
+**When** `TABLE.switches` is completed
+**Then** it declares `s_loop_l_in/out`, `s_loop_r_in/out`, `s_spinner`, `s_ramp_enter/made`, `s_dragon_[d,r,a,g,o,n]`, `s_dragon_body`, `s_lock_lane`, `s_lock_1..3`, `s_top_1..3`, `s_inlane_l/r`, `s_outlane_l/r`, `s_sling_l/r`, `s_pop_1..3` `[AMENDED 2026-08-31 — see the story change log below]`, `s_drain` with the `settleTicks` class per device, plus `bd_lock` (capacity 3, `c_mouth`, `ballSearchOrder`) and the coils `c_sling_l/r`, `c_pop_1..3` `[AMENDED 2026-08-31 — see the story change log below]`, `c_dragon_bank_reset`, `c_mouth`
+**And** `export.py` validates the `.blend` against the updated `TABLE` dump and both loaders load it
+
+**Given** a replay of the fastest ball a full-strength plunge and flipper hit can produce
+**When** it passes through each rollover, the bank, the Lock lane and the drain
+**Then** every switch closes exactly once per pass because zone tests use the per-tick swept segment, and a test asserts no pass is missed at the maximum speed
+
+**Given** the geometry loads
+**When** the author runs the feel ritual on each shot from the fixed camera
+**Then** `docs/feel-test.md` gains a per-shot Lawlor entry (Left Loop, Right Loop, Ramp, Dragon, Lock lane, bank, Top lanes) recording where the most common miss goes, none is a centre drain, and any shot that fails is re-drawn before the story closes
+**And** the decision whether the Lock lane carries both lock and mode start (OQ-5) is recorded; if not, a separate `sw_scoop` and `bd_scoop` are added with the Mouth as eject only
+
+**Given** the fixed camera from Story 1.4
+**When** the full geometry is in view
+**Then** both flippers, the Dragon, both Loops, the Ramp and the DRAGON bank are legible `[AMENDED 2026-08-31 — see the story change log below]`
+
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-58: Story 1.5's placeholder shooter-lane geometry — the relocated `bd_trough` eject pose and the invented lane-top deflector — is authored to make the serve work, not derived from any acceptance criterion, and must be replaced by real table geometry (ledger; routed by decision_sheet 2026-08-30)
+- DW-67: `createSwitchTracker` requires a new raw value to hold for `settleTicks`+1 consecutive ticks, so any zone crossing shorter than the settle window emits no edge at all — debouncing the make instead of the break (ledger; routed by decision_sheet 2026-08-30)
+- DW-68: `export.py`'s convex-hull wall reduction silently replaces a concave wall footprint with its filled hull, with no `fail()` and no diagnostic (ledger; routed by decision_sheet 2026-08-30)
+- DW-46: `resolveBlender()`'s conventional-location step hardcodes the C: drive and English Program Files, and its macOS/Linux candidates are absolute paths no test can inject (ledger; routed by decision_sheet 2026-08-30)
+- DW-65: `machine-serve-drain.test.ts` hardcodes the lane divider's main-field-face x as a bare numeric literal instead of deriving it from the collision document (ledger; routed by decision_sheet 2026-08-30)
+- DW-53: the placeholder table has no vertical containment — walls are 50 mm tall with no top cap, so a ball above that height leaves the field laterally (ledger; routed by decision_sheet 2026-08-30)
+
+**Change log**
+
+- **2026-08-31 — the Backglass clause moved out of AC 8 to Story 2.6, and the pop-bumper count fixed at three.**
+  Two author decisions taken at Story 2.1b's planning halt.
+  **AC 8** required "the Backglass quad occupies a strip at the top of the view", but no backglass or backbox
+  geometry existed anywhere: `cabinet_root` is authored childless, the committed `.glb` holds only the three
+  roots plus `vis_playfield`, `l_insert_left`, `bd_trough` and `bd_shooter`, and the only `backglass` token
+  under `src/` is a `.gitkeep` reading "Filled by Story 2.6". Story 2.6 *presupposed* the quad and authored
+  none, so the obligation was moved there rather than satisfied here — closing a real gap instead of
+  relocating one, and keeping a shot-map story from re-aiming a Story 1.4 camera as a side effect. AC 8 now
+  ends at "…are legible".
+  **The pop-bumper count** was stated in no artifact. FR-31 and PRD §211 say only "pop bumpers" while the same
+  sentence tags Top lanes `[ASSUMPTION: count]` at three and slingshots at two — a conspicuous omission, not an
+  implicit default, and a wildcard cannot be declared in `TABLE`. The author fixed it at **three**
+  (`s_pop_1..3` / `c_pop_1..3`), matching the Top-lane count and the standard arrangement for this shot
+  density. It is recorded in `TABLE` with `source` and `confidence` like the other unverified figures, so the
+  provenance is visible rather than looking like a fact somebody found.
+
+
+- **2026-08-31 — the Ramp return-side decision relabelled OQ-5 -> OQ-6 (cross-reference fix only; no work changes).**
+  This criterion recorded the Ramp's return-inlane choice as "the OQ-5/FR-27 decision", but OQ-5 is a
+  different question. The spine's Deferred note defines **OQ-6** as the playfield geometry itself --
+  "flipper tip gap, outlane widths, post positions, loop entries, **ramp height**, Dragon placement" --
+  while AR-37 and this story's own later criterion use **OQ-5** for whether the Lock lane carries both
+  lock and mode start. FR-27 itself says the return side is "decided in epic 2 geometry", which is OQ-6
+  territory. Both labels could not denote the same decision, and the same conflation had propagated into
+  the compiled `epic-2-context.md`. Caught by Story 2.1b's planning pass; the work described is
+  unchanged either way, so this is a label correction, not an amendment to the promise.
+
+
+- **2026-09-01 — the Loop-return-to-inlane clause moved out to Story 2.1c (author's decision).**
+  The first criterion originally required the Loops' "exit paths feed straight toward the flippers".
+  Two implement iterations established that this is design work rather than map-drawing: every diverter
+  design measured produced under 5 mm of lateral drift where roughly 50 mm is needed, or capped the
+  ball's own ascent (the DW-119 mechanism in reverse), or broke the Ramp's own passing shot — the only
+  other corridor is a 5.4 mm gap, narrower than the ball's 13.495 mm radius — and moving
+  `col_guide_divider_r` wholesale wedged the ball permanently at (446, 429). Satisfying the clause needs
+  permission to move the Story 2.1a bounds or renegotiate the Ramp position, which 2.1b is forbidden to
+  do; Story 2.1c is chartered with those Block Ifs lifted. 2.1b keeps the shot map and switch set it has
+  actually delivered, plus the plunge/Loop path separation above.
+
+- **2026-09-02 — closed on what it delivered; four criteria amended to match, and the rest split out.**
+  Code review left five unresolved HIGH findings after the three-iteration rework cap was exhausted. The author
+  split rather than extended: the Loop-return routing stays with Story 2.1c, and device behaviour plus guide
+  terminations move to the new Story 2.1d. Four of this story's own criteria were amended because they no
+  longer described what it promises: the first criterion's "exit paths feed straight toward the flippers"
+  clause moved to 2.1c; the switch-zone criterion read "exactly one `sw_` zone per zone-requiring switch",
+  which is false of the shipped artifact (`s_dragon_body` legitimately carries one zone per Dragon leg) and was
+  ungated; the feel-ritual criterion asserted a miss-destination judgement that is `pending-author` and
+  unwritten; and the suite criterion forbade the `durationTicks` and `PARITY_INERT` edits the author expressly
+  authorised, so a reader validating the story against it would have flagged sanctioned work as a violation.
+
+- **2026-08-30 — created as the receiving half of the Story 2.1 split.** See Story 2.1a's
+  change log for the rationale and the criterion-by-criterion partition.
+
+### Story 2.1c: The Loop returns and the inlane feed
+
+As a player,
+I want a Loop I hit off a flipper to come back to an inlane so I can shoot it again,
+So that the Loops are combo shots the way they are on a real machine, instead of a one-way trip to an outlane.
+
+**Acceptance Criteria:**
+
+**Given** `test/shot-routing.test.ts` as Story 2.1b left it
+**When** this story starts
+**Then** its pin is repaired **before any geometry work in this story** -- `assertReachesFlipperBandOrLeavesPlay` is `reachedFlipperBand || leftPlay` and `leftPlay` is set when the ball **drained**, so the two outcomes AC 1 exists to distinguish are today indistinguishable; it must assert `reachedFlipperBand` per shot where AC 1 requires it, keep `leftPlay` only as the terminal-outcome guard, and stop `driveShot()` teleporting the ball *inside* the zone it is meant to test (four of ten cases close their primary switch that way today)
+**And** the repaired pin is demonstrated red against the current geometry before it is used to judge any new geometry -- **this ordering is binding and survives a runner change**: if the pin is not repaired first, this story inherits a green test over the exact geometry it is chartered to fix, which is the `DW-119` failure a third time
+
+**Given** the shot map drawn in Story 2.1b
+**When** a ball is driven into the Left Loop or the Right Loop at a plausible flipper-shot speed
+**Then** the completed Loop delivers the ball to an inlane on the corresponding side and it arrives playable at a flipper, rather than descending an outlane
+**And** the plunge path established in Story 2.1b is preserved: a plunged ball still clears the Loop entrance and crosses the top of the playfield
+
+**Given** the Loop return geometry
+**When** the routing is authored
+**Then** it may move the Story 2.1a dimensional bounds and renegotiate the Ramp position if the routing genuinely requires it — these are **not** Block Ifs in this story — provided every change is recorded with its measurement and the drain triangle's own behavioural gates still pass
+
+**Given** the outlane path settles into its final shape
+**When** the switch zones are re-checked
+**Then** `s_drain` still closes for every ball that reaches `bd_trough` (the `DW-121` touch-up: Story 2.1b fixes the bypass against its own geometry, and this story must re-verify it against the routing it lands on)
+
+**Given** the routing change
+**When** the full suite runs
+**Then** every behavioural gate Story 2.1b shipped still passes — `test/shot-routing.test.ts`'s flipper-band and positional-progress assertions, `test/drain-routing.test.ts`, and `test/flipper-sweep-clearance.test.ts`'s throat and drop-bound gates — and any golden whose recorded trajectory the routing genuinely changes is re-recorded with its new trace shown correct, not merely green
+
+**Prerequisites:** Story 2.1b (the shot map, the switch set and the plunge path).
+
+**Story change log**
+
+- **2026-09-01 — chartered out of Story 2.1b (author's decision).** 2.1b's first acceptance criterion
+  required the Loops' "exit paths feed straight toward the flippers". Two implement iterations
+  established that this is genuine design work rather than map-drawing, and that it cannot be satisfied
+  inside 2.1b's Block Ifs. The measured evidence, carried here so it is not rediscovered:
+  every diverter design tried — thin and thick `add_channel_rail()`-style diverters at several angles and
+  heights, with both straight-down and true-perpendicular backing offsets, and a solid triangular wedge —
+  either produced **under 5 mm of net lateral drift** across the whole ~500 mm remaining descent (direct
+  vx/vy telemetry shows the initial deflection decaying to a near-straight fall within 10–30 ticks) where
+  roughly **50 mm** is needed to clear the divider; or, built with enough solid depth for a firmer
+  response, **capped the ball's own unobstructed ascent** well short of its peak (the `DW-119` mechanism
+  in reverse: a wide backing shelf under a steep face); or, routed through the only other physically
+  available corridor, **broke the Ramp's own passing shot** — the gap between `col_ramp_wall_r` and the
+  Loop's lower rail is **5.4 mm**, narrower than the ball's own 13.495 mm radius, so there is no path into
+  the interior there. A crude re-route moving `col_guide_divider_r` and its posts 34 mm right and
+  extending `col_wall_bottom_r` to meet it **wedged the ball permanently at (446, 429)**, never draining
+  in 12 000 ticks. A working fix likely needs a multi-surface funnel proven out empirically, the way the
+  bottom funnel under the drain triangle was, or a Ramp position that opens a genuine >= 27 mm corridor.
+  This story is chartered with the 2.1a bounds and the Ramp position explicitly negotiable.
+
+### Story 2.1d: Device behaviour and guide terminations
+
+As a player,
+I want the Lock to actually hold and release balls, and every guide to end in a rubber post,
+So that the Dragon's Lock is a working device instead of a hole that swallows the ball, and the table has no bare metal guide ends to chew the ball on.
+
+**Acceptance Criteria:**
+
+**Given** `bd_lock` as Story 2.1b declared it
+**When** the machine boots
+**Then** its three slots are **empty**, not full -- `src/sim/physics/devices.ts` fills every device's slots unconditionally at construction, so the machine currently boots seven balls and a Lock-lane shot raises measured `device_overflow` events; a device's boot occupancy is a property of the device, not a constant
+
+**Given** a ball parked in `bd_lock`
+**When** `c_mouth` pulses
+**Then** exactly one ball leaves and stays out (AD-6, "one ball per pulse") -- the Mouth eject pose currently sits **inside** `sw_lock_2`, so `detectEntries()` re-parks the ejected ball on the same tick and the slots never change
+**And** the slot zones are bounded by the Lock lane's own geometry rather than sitting in open field where any passing ball is swallowed
+
+**Given** every guide drawn in Story 2.1b
+**When** the geometry is re-exported
+**Then** every guide's free end terminates at a node whose `surface` is `rubber_post` (FR-31, CAP-31, AD-11) -- Story 2.1b added **zero** `rubber_post` nodes, so its own AC 1 rule is unmet and its named mutation is unperformable
+**And** the gate asserting it selects bodies **structurally** -- by having an unjoined free end -- rather than by the `col_guide_` name prefix, with every exemption carrying a named reason and enforced in both directions so a stale exemption fails too [AMENDED 2026-09-04, Story 2.1d spec gate -- intent-preserving, Rule 5 tier-1]. Measured against the committed documents: `0ae3eed` (2.1a final) 4 guides / 8 posts / 28 nodes; `bba55c7` (2.1b final) **4 guides / 8 posts / 56 nodes** -- 2.1b added 28 nodes and not one `col_guide_*` or `rubber_post`; `59c80d1` (2.1c final, = HEAD) 8 guides / 16 posts / 73 nodes. So 2.1b drew its whole shot map under other prefixes, and under the reading "guide == `col_guide_*`" this AC's own Given is the **empty set** -- a criterion that cannot fail, which contradicts the rationale clause above asserting the rule is unmet. The only non-vacuous reading is the one FR-31 states in words ("ball guides end at rubber posts, never bare metal"), applied to the guide-class bodies 2.1b actually drew, whatever they were named: the prefix is the escape hatch, not the definition. Scope is bounded by the story's Block Ifs -- terminating an end may not move a Story 2.1f body or break Story 2.1c's orbit, and an exemption is for an end no ball can reach, never for one that is inconvenient to terminate.
+**And** a gate asserts it, with a demonstrated mutation: change one guide-end post's `surface` from `rubber_post` to `metal` and re-export, and the gate goes red naming that guide
+
+**Given** the `bd_lock` boot-state fix
+**When** the goldens are re-recorded
+**Then** all five are re-recorded under the author's grant of 2026-09-02, each traced correct **and** each still asserting its own subject
+**And** every golden's `notes` is corrected: all five currently claim `bd_lock` adds an *"empty"*-slots entry, when the real boot value is `[true, true, true]` -- wrong in the one detail the note exists to record. `stateHash()` hashes `machine.deviceSlots`, which is why all five move together.
+**And** `col_spinner_l` is renamed **`vis_spinner_l`** in the same re-export, so the rename rides this story's golden re-record instead of buying a second one -- AD-6 was amended 2026-09-03 to the pass-through model (a spinner is a gate the ball passes through, not a body it strikes), which makes the node intentionally non-colliding, and a node nothing collides with is not `col_` under AD-11's prefix contract. Story 2.1c left it named and commented in place for exactly this reason: the rename moves `assetHash` and breaks all five goldens on its own, and `bd_lock`'s boot-state fix above already breaks the same five, so batching costs one re-record rather than two. Story 2.3 still owns the spin and decay mechanism, driven off the `sw_spinner` zone crossing.
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-67: the switch tracker's MAKE side is correct after Story 2.1b (it latches on the observing tick, per the AD-2 amendment 2.1b wrote), but both trackers BREAK after `settleTicks`+1 outside ticks rather than `settleTicks` — DW-67's own off-by-one carried across to the break side (ledger; routed by adjudication 2026-09-02). No golden moves.
+- DW-125: `export.py`'s DW-68 non-convex-footprint rejection has no automated regression pin — the gate exists at `export.py:420-437` and was demonstrated firing at Story 2.1b's AD gate, but no test goes red if the check is removed (ledger; routed by adjudication 2026-09-02). This story already re-exports and already owes a demonstrated export-gate mutation for the `rubber_post` terminations, so the concave case is one more case in the same Blender-gated `describe` — note that `test/export-py-skip-visibility.test.ts` pins the exact case count and its `expectedSkips` formula, so adding a gated case means updating that pin deliberately.
+
+- DW-128: `test/asset-contract.test.ts`'s `freeEndsMm()` assumes every `col_guide_*` footprint is a quad with two non-adjacent short edges, with no check that the assumption holds (ledger; routed by adjudication 2026-09-03). AC 3's `rubber_post` termination gate is computed **through** this helper, so a differently-shaped guide footprint would derive the wrong free-end points and silently pass or fail that AC's own gate rather than failing loudly. The fix is a shape assertion, not a new derivation.
+
+**Prerequisites:** Story 2.1b (the registry and the geometry). Independent of Story 2.1c; either may run first.
+
+**Story change log**
+
+- **2026-09-02 -- chartered out of Story 2.1b (author's decision).** Story 2.1b's code review surfaced five
+  unresolved HIGH findings, of which the `bd_lock` boot state, the Mouth eject pose, the open-field slot zones
+  and the absent `rubber_post` terminations are device-behaviour and terminations work rather than shot-map
+  drawing. 2.1b had exhausted its three-iteration rework cap, and the author chose a third story over
+  extending the cap or re-scoping into 2.1c. The golden re-record moves here with the `bd_lock` fix, because
+  `bd_lock` reaches all five goldens through `machine.deviceSlots`.
+
+### Story 2.1e: Every shot case proves its own start point is reachable
+
+As the author,
+I want every shot case in the routing harness to prove that a real ball can reach the point it starts from -- off a plunge or off a flipper -- rather than asserting from a ball placed there,
+So that a shot the table cannot actually deliver can never again pass as a working feature.
+
+**Context.** `driveShot()` **teleports** the ball to its release point, so every case in `test/shot-routing.test.ts` proves only what happens *after* that placement, never that the placement is reachable. Story 2.1c's Phase 1 repaired three defects of exactly this family -- most sharply, a release landing *inside* the zone under test, which AD-2 then latched as a make on drive tick 1. `assertReleaseClear()` (2.1c task 2) closed the "not inside a body or a zone" half of the gap. **`DW-137` is the second real defect to slip through the half that remains**: the Ramp channel is unreachable by any shot from below -- 256 swept releases close `s_ramp_enter` zero times -- yet its case passes because the harness teleports the ball into a ~2 mm slot above the slingshot that no shot can reach. Two full code-review passes and the original implementation all missed it, because nothing in the suite asks the question. This story is chartered separately from the corridor geometry so that a cross-cutting guarantee every later geometry story inherits does not compete for budget against one quadrant's re-solve.
+
+**Acceptance Criteria:**
+
+**Given** `driveShot()`'s teleport and a shot case that declares a release point
+**When** the case runs
+**Then** the harness also proves that release point is **reachable** -- a ball originating at a plunge or at either bat, under the real physics pipeline, arrives within a stated tolerance of it -- and a case whose start point no such ball can reach **fails, naming the case and the closest approach achieved**
+**And** the proof is a property of the harness, not of each case, so a new case added later inherits it without opting in
+
+**Given** the reachability check
+**When** it is applied to the committed geometry
+**Then** its verdict for every existing case is recorded -- which cases are genuinely reachable, and which (the Ramp, per `DW-137`) are not -- so the harness's own baseline is a measured fact rather than an assumption
+**And** any case it proves unreachable is marked as such against its owning ledger entry rather than deleted, weakened, or quietly re-pointed at a reachable start
+
+**Given** Rule 19
+**When** the reachability check ships
+**Then** it carries a demonstrated mutation of its own: move one genuinely-reachable case's release point into a region no ball can reach, observe the check go red naming that case and its closest approach, revert, and confirm the tree is byte-identical
+**And** the check cannot pass vacuously -- a run in which zero cases were actually evaluated fails loudly rather than reporting success
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-130: `col_guide_inlane_feed_r` can be shifted 20 mm or deleted outright with all routing cases green -- the behavioural observable cannot distinguish "delivered onto the bat" from "still on the ramp above it". Root cause is the same family as this story's charter: the dimensional gates catch it, the behavioural harness does not (ledger; routed by charter 2026-09-03).
+
+**Prerequisites:** Story 2.1c (the orbit routing and the repaired pin this harness extends).
+**RUN ORDER (set by the coordinator, survives a runner change): this story runs BEFORE Story 2.1f.** The corridor work needs reachability measurement anyway; running it first means 2.1f inherits a working gate instead of building one under geometry pressure. Independent of Story 2.1d; either may run relative to it.
+
+### Story 2.1f: The bottom-right corridor -- the Ramp and the DRAGON bank made reachable
+
+As a player,
+I want to be able to actually hit the Ramp and every target on the DRAGON bank from a flipper,
+So that two of the table's named shots stop being scenery I can see but never shoot.
+
+**Context.** The bottom-right quadrant's approach corridor is too narrow to admit a ball to either feature, and the two defects share one cause and one fix. Measured against the committed document: the corridor from `col_guide_outer_r`'s east face (279.525) to `col_sling_r`'s west face (314.0) is **34.475 mm**, i.e. **7.485 mm of ball-centre freedom**. Entering the Ramp channel needs a ball centre >= 351.495, so the Ramp is **50.990 mm out of reach** (`DW-137`); only DRAGON-bank targets overlapping x ~280.5..314 can be struck directly, so 2 of 6 are reachable (`DW-136`). **Neither is a regression Story 2.1c introduced**: the Ramp was already 21.990 mm short at that story's baseline (`43a9c37`) and has never been reachable in committed geometry. 2.1c deepened it by 29 mm as the direct, explicitly-granted consequence of widening the Loop lanes for the orbit, and moving `col_sling_r` back east re-narrows the very lane the orbit needs -- which is why this is chartered with a budget of its own rather than bolted onto a story whose delivered value it trades against.
+
+**Acceptance Criteria:**
+
+**Given** the bottom-right geometry
+**When** the corridor is re-solved -- the slingshot span, both Ramp walls, the DRAGON bank and the Loop lane budget together, not one body at a time
+**Then** a ball shot from a flipper reaches the Ramp channel and closes `s_ramp_enter`, proven by the Story 2.1e reachability harness rather than by a teleported release
+**And** the Ramp's return then delivers to the **right inlane**, closing `s_inlane_r` (`OQ-6`/FR-27) -- *moved here by amendment from Story 2.1c's AC 3, which could satisfy it only through the teleport*
+
+**Given** the same re-solve
+**When** the DRAGON bank is approached from below
+**Then** **all six** targets are directly strikable, as Story 2.3's own "all six droppable" requirement needs, and a dimensional gate pins the corridor width against its tunable so a later change cannot silently re-narrow it
+
+**Given** Story 2.1c's delivered orbit
+**When** this story moves any body the orbit's lanes depend on
+**Then** every orbit case still passes -- both Loops at all three entry offsets, the single-ball `DW-123` orbit, and the plunge path -- with no assertion weakened; **a re-solve that buys the Ramp by breaking the orbit is a Block If, not a trade to make silently**
+
+**Given** the deliberately-red corridor gate Story 2.1c ships
+**When** this story lands
+**Then** that gate goes **green because the corridor genuinely admits a ball**, and its intended-red documentation is removed in the same change
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-137: the Ramp channel is unreachable by any shot from below -- entering it needs a ball centre >= 351.495 while `col_sling_r`'s band admits only <= 300.505; 256 swept releases close `s_ramp_enter` zero times, and `test/shot-routing.test.ts`'s Ramp case passes only because `driveShot()` repositions the ball at (355, 465), inside a ~2 mm slot no shot can reach. Pre-existing (21.990 mm short at 2.1c's baseline), deepened to 50.990 mm by 2.1c's granted `col_sling_r` move (ledger; routed by charter 2026-09-03).
+- DW-136: the DRAGON bank's reachable approach corridor limits direct-from-below reachability to two of its six targets, against Story 2.3's "all six droppable" requirement. Same 34.475 mm corridor, same fix (ledger; re-owned from Story 2.3 by charter 2026-09-03, because the corridor is one problem and splitting it across two stories would have each re-solving the other's constraint).
+
+- DW-146: `col_loop_top`'s two 9.5 mm end caps at (50.00, 1009.55) and (418.40, 1009.55) are bare, ball-reachable guide free ends that FR-31 requires terminating, and they sit 74.64 / 73.10 mm from the nearest `rubber_post` against a 4.50 mm budget -- the same two coordinates `test/asset-contract.test.ts` uses to bound the Left/Right Loop shot columns, so a ball demonstrably runs past them (ledger; re-owned from `burndown` by the author's decision 2026-09-04).
+  **Story 2.1d attempted termination at the measured coordinates and at every position within and beyond the gate's own post-radius budget; each measurably broke the Left/Right Loop 34 mm entry-offset cases**, isolated to those two posts by A/B testing, and HALTed per its own Block If. What 2.1d never tried is the **other axis**: it swept post *positions* but never `RIDGE_DROP_MM` / `LOOP_TOP_END_X_MM` themselves.
+  **Binding decision rule, pre-authorised by the author 2026-09-04 -- do not halt for it a third time.** Attempt the ridge re-tune (`RIDGE_DROP_MM` / `LOOP_TOP_END_X_MM`): it is untried, it is a different axis from the position sweep that failed, and it is the only option under which **both** FR-31 and Story 2.1c's delivered orbit hold. **If it measurably breaks the Left/Right Loop 34 mm entry-offset cases, fall back to a recorded exemption in `GUIDE_TERMINATION_EXEMPTIONS` naming the measurement** -- that fallback is already authorised, so record it and move on rather than escalating. This story is the owner because it already re-solves the Loop lane budget against the orbit-preservation Block If above, and already budgets the re-export and five-golden re-record the fix needs, so a separate re-export would cost a second re-record for nothing.
+
+- DW-153: `col_post_lock_ceiling_e` is **entirely buried inside `col_dragon_leg_r`'s own footprint** and sits 6.00 mm from the guide end it is meant to terminate, against a 4.50 mm budget -- and its `GUIDE_TERMINATION_EXEMPTIONS` `verify()` can detect neither defect (ledger; routed by harvest 2026-09-04). A census at Story 2.1d's iteration-4 review found **four of the 48 posts buried**. A buried post contributes no collision surface, so the end it nominally terminates is bare in fact while the gate reads green. This story already re-exports and re-records, so moving a post rides along at no extra cost -- and it inherits the widened FR-31 gate, which must not admit a post that satisfies it without contributing surface.
+- DW-154: the FR-31 termination gate's helpers **admit degenerate inputs silently** -- `isJoined()` is a second, unenumerated exemption channel beside the named allowlist; `freeEndsMm()` has no tie-break for a genuine 3-way edge-length tie; the reverse-direction staleness check reports *pass* for a body whose `footprintMm` is missing; and no test asserts a post actually **protrudes** past the body it terminates (ledger; routed by harvest 2026-09-04, filed as one entry per Rule 15 rather than four fragments). Same shape as DW-128, which Story 2.1d fixed for the quad assumption: the fix is uniformly to **fail loudly on a degenerate input** rather than resolve it to a pass. This story is the first consumer whose own new guide geometry these helpers judge.
+
+**Prerequisites:** Story 2.1e (the reachability harness -- this story's own ACs are stated in terms of it), and Story 2.1c (the orbit whose lane budget this re-solve must preserve).
+**RUN ORDER (set by the coordinator, survives a runner change): Story 2.1e runs BEFORE this story.**
 
 ### Story 2.2: Slingshots and pop bumpers as hardware rules
 
@@ -868,6 +1223,21 @@ So that the lower playfield is alive and the pops disturb the ball as on a real 
 **When** slings, posts and rubber bands are assigned `phys_material`
 **Then** each `col_` mesh references a named material with `{ elasticity, elasticityFalloff, friction, scatter }` and `scatter` is 0
 
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-148: a ball can come to **permanent rest against `col_pop_1`**, because the pop bumpers are inert collision
+  bodies until this story gives them their kick (ledger; routed by adjudication 2026-09-04). Measured at Story
+  2.1d's author-mandated whole-playfield strand sweep: 811 clearance-filtered descending releases, of which
+  (130, 850/900/950/980) all come to rest at **(130.00, 833.55)** with 0.002-0.019 mm of trailing-window motion
+  against a 15 mm floor -- 13.55 mm from `col_pop_1`, i.e. in contact. **Not a geometry defect and not introduced
+  by 2.1d**: the body has been inert since it was drawn, and a resting ball is the expected state of a bumper
+  whose kick does not exist yet. This story's own "the pop coil fires on the same tick, the ball is kicked away
+  from the bumper centre" AC resolves it by construction -- the point of recording it here is that the fix must be
+  the **kick**, not a geometry change, and that a strand column over the pop cluster is the observable that proves
+  it. Note the three pop-bumper shot cases currently read `unreachable` (DW-138), so this state may be hard to
+  reach in play today; that is a reason to pin it alongside the kick rather than to dismiss it, since 2.2 and 2.1f
+  between them are expected to make the cluster reachable.
+
 ### Story 2.3: Drop targets, the spinner and the Lock in physics
 
 As a player,
@@ -890,7 +1260,7 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 
 **Given** a ball enters the Lock lane precisely
 **When** it reaches `bd_lock`
-**Then** physics parks it in the lowest empty slot (`s_lock_1` first), removes it from the simulated set and closes the slot switch; a slightly-off shot hits `col_dragon_body` and closes `s_dragon_body` instead
+**Then** physics parks it in the lowest empty slot (`s_lock_1` first), removes it from the simulated set and closes the slot switch; a slightly-off shot hits `col_dragon_leg_l` or `col_dragon_leg_r` and closes `s_dragon_body` (through `sw_dragon_body_l` / `sw_dragon_body_r`) instead [AMENDED 2026-09-05, Story 2.3 spec gate -- DW-122, Rule 5 tier-1: correcting a node name the AC cites that does not exist]. Verified against the committed `public/assets/dragonwar.collision.json`: there is no `col_dragon_body` node -- the Dragon's strikeable bodies are `col_dragon_leg_l` and `col_dragon_leg_r`, and the switch is served by the two zones `sw_dragon_body_l` / `sw_dragon_body_r`. No code or geometry consequence; the AC's intent is unchanged.
 
 **Given** `pulse c_mouth`
 **When** the Lock holds balls
@@ -898,7 +1268,25 @@ So that the stop-and-go shots and the Dragon's physical lock behave like machine
 
 **Given** three balls are parked in `bd_lock`
 **When** a fourth enters the lane
-**Then** physics parks nothing, the ball rests at the lane's entry, and the rules layer (Story 2.4) sees `device_ball_entered` with a slot beyond capacity so it can answer `device_overflow`
+**Then** physics parks nothing, the ball **stays in the simulated set at the lane** and the rules layer (Story 2.4) sees `device_ball_entered` with a slot beyond capacity so it can answer `device_overflow` [AMENDED 2026-09-05, Story 2.3 spec gate -- Rule 5 tier-1: the AC's own wording was measured false]. The original clause said the ball **"rests at the lane's entry"**. Measured with three balls parked and a fourth driven up the lane at 800 mm/s from (170, 440): it is correctly **not parked**, but it does **not rest** -- it sits in the slot band for roughly 315 ticks, rolls back down the corridor and drains. Read against the AC's own purpose clause ("so it can answer `device_overflow`") and AD-6's "rules enforce capacity and answer a slot beyond it with an immediate eject", the physics obligations are: park nothing, keep the ball simulated at the lane, and signal the rejected entry -- and the third is the defect Story 2.3 fixed (315 `device_overflow` events for one ball, corrected to 1). Where the ball ends up afterwards is the rules layer's to decide, not a physics promise.
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-136: **re-owned to Story 2.1f** (the bottom-right corridor) by charter 2026-09-03 -- the DRAGON bank's approach corridor and the Ramp's unreachability (`DW-137`) are one 34.475 mm corridor with one fix, so splitting them across two stories would have each re-solving the other's constraint. This story still depends on the outcome: its own "all six droppable" requirement is only satisfiable once 2.1f lands.
+- DW-135 (context, already closed `by-design`): AD-6 was amended 2026-09-03 to the **pass-through** spinner model -- a ball crossing `sw_spinner`'s zone imparts rotation and closes `s_spinner` once per revolution until it decays (FR-26). **This story owns the spin and decay mechanism**, driven off that zone crossing, not off a collision with a body: thirteen-plus rigid-body variants were measured in Story 2.1c and every one that touched the ball stalled it permanently. `col_spinner_l` is renamed `vis_spinner_l` in Story 2.1d.
+- DW-155: two of Story 2.1d's own recorded Rule 19 mutations **do not demonstrate what its spec says they do** -- AC 1's is throw-based (a construction-time invariant fires first) yet is recorded as proving the behavioural `deviceSlots` assertion, and the Lock-lane-long case's `terminal === 'locked'` is derived from `firstMakes` rather than from an actual capture (ledger; routed by harvest 2026-09-04). Routed here because **this story owns the Lock in physics** and re-touches both observables, so its own gates must distinguish a real capture from a switch-make inference -- fixing it alongside that work costs one test pass rather than a standalone visit. This is the pattern the epic has now hit seven times: a recorded pass whose red was never observed for the stated reason.
+- DW-160: `TUNING.hardware.popKickMmPerS` ships at **200** with a `source` string whose stated floor is **false** and
+  whose stated ceiling mechanism is the **wrong one** (ledger; routed by cr 2026-09-05). Swept by QA across 0-900 and
+  spot-verified by the lead: virtually any positive kick clears DW-148 (down to 0.5 mm/s), so there is no "~180 floor";
+  and the real ceiling is a **221 mm/s cliff** -- only 21 mm/s above the shipped value -- where DW-148 re-strands at a
+  *different* equilibrium near (93, 840), reproduced by the lead at 230 measuring 0.96 mm progress at (93.699, 838.695).
+  The stated Top-lane mechanism is real but starts at 425-600 mm/s. **Both corrected bounds are already pinned as tests**
+  via `resolveTuning()`'s override seam, so this is stale provenance prose plus a narrow margin, not a live defect.
+  **Why it is routed here specifically:** `resolveTuning()`'s entire serialized output -- `source` and `confidence`
+  strings included, not just numeric values -- is hashed into every golden header, so correcting the prose *in place*
+  costs a five-golden header-only re-record. This story owns the spinner and the Lock in physics and will re-record
+  anyway, so the correction rides along free. Widening the 21 mm/s margin is the separate real question to answer with
+  its own sweep.
 
 ### Story 2.4: The devices-and-shots layer
 
@@ -909,8 +1297,20 @@ So that no mode ever parses a raw switch and "what a Loop is" is defined once.
 **Acceptance Criteria:**
 
 **Given** `src/sim/rules/devices/` is the only importer of `SwitchEvent`
-**When** dependency-cruiser runs
+**When** `pnpm lint:boundaries` runs -- the command that runs dependency-cruiser, as its own check (a)
 **Then** any other file under `src/sim/rules/` consuming `SwitchEvent` fails the build
+[AMENDED 2026-09-05, Story 2.4 spec gate -- Rule 5 tier-1: the gate is named accurately; the promise is
+unchanged]. The original wording was **"When dependency-cruiser runs"**, which reads as a promise of a
+dependency-cruiser *module rule*. That rule is not expressible here, measured rather than assumed:
+`SwitchEvent` is re-exported from `src/sim/table/names.ts` alongside `GameState`, `SemanticEvent` and
+`MachineState`, which `src/sim/rules/index.ts` and `src/sim/rules/ball-controller.ts` legitimately import,
+and with `parser: 'swc'` + `tsPreCompilationDeps: false` -- **pinned off because AD-16 forbids a
+compiler-API lint** -- an `import type` edge is indistinguishable from a value import. A module rule would
+therefore fire on two innocent files **and still miss a real leak**. The check is instead **textual**,
+reading the imported identifier, alongside boundary-lint's four existing textual checks (c)-(f) which are
+textual for this same reason; **AD-16's own Rule already assigns the import rules to
+`tools/boundary-lint.mjs`**, so this instantiates that decision rather than departing from it. The build
+still fails on a violating file, which is the whole of what this AC promises.
 
 **Given** `TABLE.shots` declares `shot_left_loop = [s_loop_l_in, s_loop_l_out]`, `shot_right_loop`, `shot_ramp = [s_ramp_enter, s_ramp_made]` each with a `…WindowMs` from `tuning.ts`
 **When** the switches close in order inside the window
@@ -927,6 +1327,35 @@ So that no mode ever parses a raw switch and "what a Loop is" is defined once.
 **Given** a switch-script DSL in Vitest typed by `SwitchName` (`close('s_loop_l_in').at(100).open().at(120)…`)
 **When** the rules tests run headless in Node
 **Then** every event above has at least one scripted test with no physics or rendering loaded
+
+**Ledger entries routed to this story** (Rule 17 (1b))
+
+- DW-133: both Loops' `_in` switch zones span their whole lane mouth, which **also spans that side's outlane
+  column**, so every outlane drain closes `s_loop_l_in` / `s_loop_r_in` -- and so does a **made Ramp** (ledger;
+  routed by cr 2026-09-03). Measured `firstMakes` on a made Ramp: `s_ramp_enter, s_ramp_made, s_loop_r_in,
+  s_inlane_r` -- the return crosses into the Loop lane. Routed here because Story 2.1c's own Never list forbids it
+  from declaring `TABLE.shots`, so the disambiguation belongs with the shot sequences: **this layer must never treat
+  a bare `s_loop_*_in` as a Loop entry.** AD-19's sequence-based detection (`_in` then `_out` in order, inside the
+  window) is what makes that safe -- the raw edge is ambiguous, the ordered pair is not.
+- DW-166: an **under-powered but on-axis** Lock shot closes `s_lock_lane` **without being captured**, so
+  `lock_lane_entered` still over-reports a Lock-lane shot in a narrower band than DW-134 described (ledger; routed by cr
+  2026-09-05). Measured threshold **550-600 mm/s** [AMENDED 2026-09-05, Story 2.4 AD gate -- Rule 5 tier-1: the
+  entry's stated mechanism was measured false; the routed work is unchanged and shipped]. The original clause said the
+  ball **"enters the lane and closes the switch but never reaches a slot"**. Measured by the lead at this tree with the
+  committed `driveLockLane()` setup, released on-axis at (170, 440, 13.5): at **575 mm/s** `s_lock_lane` closes at tick
+  **415** and `s_lock_1` at tick **696** -- the ball **does reach a slot**, and `s_drain` never closes, so it is *held*.
+  At **800 mm/s**, `s_lock_lane@378` and `s_lock_1@512`. The real discriminator is therefore **capture latency**
+  (134 ticks genuine vs 281 ticks after rattling back down the corridor), not capture-versus-no-capture, and
+  `lockCaptureWindowMs = 180` is set inside that gap. The shipped fix is correct on its own terms -- an on-axis shot
+  that rattles for 281 ticks is not a Lock-lane shot made. **But the ball is still physically captured while
+  `lock_lane_entered` is never emitted**, which is a real seam consequence for AD-18's arbiter and is filed as
+  **DW-171, routed to Story 3.2**, the only story that can set that policy.
+  DW-134's own stated failure -- balls wandering in from open field -- was closed by Story 2.1d and is pinned by Story 2.3's
+  absence-pin over 56 driven columns; **this residual is what survives.** Routed here because it is an **arbiter question,
+  not a physics one**: AD-18's Lock arbiter and this devices-and-shots layer are what consume `lock_lane_entered`, so the fix
+  is either a discriminating condition on the event or an arbiter that tolerates a non-capturing entry. **A geometry change
+  is the wrong answer** -- it would undo the wedge fix Story 2.1c's bevel reversal exists for, which is precisely why Story
+  2.1d declined to chase it.
 
 ### Story 2.5: Start, Hot seat and the ball lifecycle
 
@@ -951,6 +1380,15 @@ So that a complete game is playable from Start to the last ball.
 **Given** `ballsInPlay` reaches 0 by a drain outside a save window
 **When** the ball controller processes it
 **Then** every active mode receives `_will_stop` before `ball_ended { player, bonusByCategory, multiplier, total, tilted }` fires, `modes[]` is empty, and the next player (or the same player's next ball) starts with `ball_will_start` resetting `ballSave`, `tilt` and `multiball`
+[AMENDED 2026-09-06, Story 2.5 spec gate -- Rule 5 tier-1: the `_will_stop` half is **narrowed to what this story can
+falsify**; the ordering promise is unchanged and lands in full at Story 3.1]. Measured at this tree: `src/sim/rules/modes/`
+**does not exist**, `modes: []` is the only value ever assigned, and the string `_will_stop` appears **nowhere** under
+`src/` or `test/`. So as worded the clause is **vacuously true here** -- and a vacuous acceptance criterion is this epic's
+single most-repeated defect (nineteen found so far, every one by deliberate falsification and none by a passing run).
+Story 2.5 therefore pins the half it can genuinely falsify: **a stub mode present in `modes[]` before the drain is gone
+after it, and its teardown is observed strictly before `ball_ended`** -- with a mutation that reorders the two. The full
+per-mode `_will_stop` broadcast is asserted by **Story 3.1**, which owns the mode-stack convention and already carries the
+identical assertion in its own block, where modes actually exist. Nothing is dropped; it is asserted where it is real.
 
 **Given** balls per game is an adjustment (default 3)
 **When** the last player's last ball ends
@@ -959,6 +1397,13 @@ So that a complete game is playable from Start to the last ball.
 **Given** two players in Hot seat
 **When** player 1 drops three letters and player 2 starts a ball
 **Then** player 2's letters are empty and player 1's persist, verified by a switch-script test
+
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-70: `GameState.machine.deviceSlots` is written by `sim/loop` after `rules.step()` returns, not derived inside `sim/rules/ball-controller.ts` as AD-7 and this story both require; `pnpm check:ad7` is deliberately red until this story fixes it, and `test/ad7-device-slots.test.ts` (which currently asserts the failure exists) must be updated in the same change (ledger; routed by decision_sheet 2026-08-30)
+- DW-85: the roll-and-drain golden contributes zero unique discriminating signal — its terminal `GameState` equals its own starting state, so a defect that perturbs the trajectory but converges back leaves the hashed final state unchanged (ledger; routed by decision_sheet 2026-08-30)
+- DW-87: `PHYSICS_VERSION` hashes only the 13 AD-15-pinned solver constants, so editing any other integration-affecting constant breaks every golden as a bare hash mismatch instead of a named re-record (ledger; routed by decision_sheet 2026-08-30)
+- DW-113: `tuning.ts`'s `flipperTipGapMm` provenance sentence is missing a connector; the fix is blocked outside this story because TUNING `source` strings are embedded verbatim in every golden's `header.gameStart.tuning`, so correcting it requires refreshing all five golden headers in the same pass (ledger; routed by harvest 2026-08-31)
 
 ### Story 2.6: The DMD Backglass
 
@@ -971,6 +1416,7 @@ So that I can read the game without instructions.
 **Given** `src/presentation/backglass/`
 **When** it renders
 **Then** it draws to a low-resolution dot-matrix canvas mapped onto the backbox quad visible at the top of the fixed view, with a visible dot grid and no smoothing
+**And** that backbox quad is **authored by this story** — no backglass or backbox geometry exists before it: `cabinet_root` is authored childless, and `src/presentation/backglass/` holds only a `.gitkeep` reading "Filled by Story 2.6" — so this story adds the `vis_` quad to the Blender source, re-exports, and, **if the quad does not fall inside the existing fixed view, re-aims the fixed camera**. Re-aiming moves a Story 1.4 deliverable: `createFixedCamera()`'s hand-picked `y=-700`/`z=1300` absolutes and the assertions at `test/scene-smoke.test.ts:311-336`. Both are in scope here; neither is a surprise to be discovered at review `[AMENDED 2026-08-31 — see the story change log below]`
 
 **Given** the snapshot's read-only `GameState`
 **When** a frame is applied
@@ -988,6 +1434,19 @@ So that I can read the game without instructions.
 **When** the display renders
 **Then** it shows the highest-priority mode's name and any `timerTicks`, `value`, `charge` or `strikesRemaining` it publishes, converted to display units in presentation
 
+**Change log**
+
+- **2026-08-31 — this story now authors the backbox quad it had been assuming, and owns any camera re-aim.**
+  AC 1 mapped the dot-matrix canvas "onto the backbox quad visible at the top of the fixed view", but nothing
+  in the project ever created that quad: `cabinet_root` is authored childless, Story 1.4 promised one `vis_`
+  mesh and never mentions a backglass, and Story 5.3 models the backbox only in Epic 5 and is explicitly
+  non-blocking. Story 2.1b carried the same assumption in its own AC 8 and halted on it at planning. The
+  author moved the obligation here, where it is actually needed. AC 1 now states that this story adds the
+  `vis_` quad to the Blender source, re-exports, and re-aims the fixed camera if the quad falls outside the
+  current view — and says plainly that re-aiming moves a Story 1.4 deliverable (`createFixedCamera()`'s
+  `y=-700`/`z=1300` and `test/scene-smoke.test.ts:311-336`), so whoever runs this story knows it at planning
+  rather than discovering it at review.
+
 ### Story 2.7: Plunge, Skill shot and lane change
 
 As a player,
@@ -998,11 +1457,13 @@ So that arming myself on the plunge is a real shot and I can steer which lane is
 
 **Given** `ball_starting` fires
 **When** the skill-shot mode (priority 200) starts on a minimal mode stack (base mode 100 + skill shot)
-**Then** it draws the lit Top lane once from `GameState.rng`, writes it to the player's lane state, and the Backglass shows ARM YOURSELF
+**Then** it lights the game's rotating Top lane -- the starting position drawn once per game from `GameState.rng`, then advanced one position through the declared Top order per the player's own ball number (Story 2.14) -- writes it to the player's lane state, and the Backglass shows ARM YOURSELF [AMENDED 2026-09-12, Story 2.14 spec gate -- author decisions DW-205/DW-214]
 
 **Given** the ball is plunged and enters the lit Top lane before any other playfield switch closes
 **When** `lane_entered` matches the lit lane
 **Then** the player is awarded the skill-shot value from `tuning.ts` plus one DRAGON letter, and the mode stops; when the first closure is any non-Top-lane playfield switch, the mode stops with no award
+
+[AMENDED 2026-09-06, Story 2.7 implement gate -- Rule 5 tier-1, author-decided: **the unlit Top lane case is now stated explicitly**, because this criterion's silence about it let one intent become two different games in two artifacts. The skill shot closes on **the first playfield closure of any kind at or after `ball_launched`, Top lane included** -- an **unlit** Top lane is a **miss, not a skip**: the mode stops and pays nothing. Only the lit Top lane pays. AD-6's parenthetical previously read "closes on the next playfield closure that is *not* a Top lane", which would instead have let the ball rattle through unlit lanes and still pay on the lit one, with lane change live during flight; PRD FR-18 ("the Skill shot is only available until the first other switch closes") and this criterion's own "before any other playfield switch closes" both say otherwise. The author decided the FR-18 reading -- **lane change matters before the plunge, not during** -- and AD-6 was amended to match in the same commit. Nothing is dropped; the ambiguity is removed.]
 
 **Given** the base mode owns lane state
 **When** `lane_change_pressed { side }` arrives
@@ -1038,11 +1499,25 @@ So that I can read the table without instructions and a colour always means the 
 
 **Given** `LampDriver` and the `l_` insert nodes
 **When** a `LampCommand` arrives
-**Then** the insert's emissive material and a dynamic light beneath the lens follow the grammar, latest-wins per lamp within a frame, and the driver stays within the live-light budget from `tuning.ts`
+**Then** the insert's emissive material and a dynamic light beneath the lens follow the grammar, latest-wins per lamp within a frame, and the driver stays within the live-light budget from `tuning.ts` — **and the dynamic light is built, positioned, budgeted and transmissive, but is NOT yet visually load-bearing, which this criterion records as a measured limitation rather than an aspiration** `[AMENDED 2026-09-07 — see the story change log below]`
+
+**And** that limitation is stated as numbers, an instrument and a falsification condition, so a future reader can reproduce it rather than take it on trust:
+- **Measured, in a real browser on the WebGL2 path.** A lit insert's *entire* visible signal is **7.8 luma out of 255 (~3%)** — the top-lane band max reads **194.7 unlit** against **202.5 lit**. Toggling the dynamic light on and off changes the lit pixel by **0.00 luma**. Dropping the emissive to 0.6 of the role colour to make headroom changes nothing either: the lit band max is **202.53**, identical to the saturated value, so the composited pixel is **already at its ceiling at 0.6** and the real ceiling sits near raw emissive **0.12–0.15**.
+- **The instrument, named so the measurement is repeatable.** `window.__dragonwarBoot.setLightBudget(0)` disables the insert *lights* while leaving `emissiveColor` untouched, so an A/B against the default budget isolates the light's own contribution; capture both states and compare the top-lane band. The harness that decodes the frames uses Node built-ins only.
+- **The falsification condition.** This is a limitation of the *scene*, not of the driver: the insert is already near the LDR ceiling before any lamp contributes, because `create-engine.ts` creates a single unparameterised `HemisphericLight` at default intensity and the render path has no exposure or tonemapping at all. **The moment Epic 4 gives the scene headroom, that same A/B goes non-zero — and whoever runs it should expect it to.** If it does not, the driver has regressed and this criterion has been falsified.
+- **The three levers, and who owns them.** Exposure/tonemapping (**Story 4.1**); the hemispheric/GI contribution on inserts (**Story 4.1**'s GI channel); the playfield's alpha dilution over the lens (**Story 4.2**'s translucency mask). None is Epic 2's, and Epic 2 must not pre-empt them.
 
 **Given** a player's lit Top lane, lit inlane/outlane and dropped letters
 **When** the table is viewed
-**Then** the lit lanes show white and the dropped letters and the Lock show orange, and the skill-shot lane blinks at step 2
+**Then** the lit lanes show white and the dropped letters and the Lock show orange, and the skill-shot lane blinks at step 2 — **carried by the insert's emissive material alone**, since the dynamic light beneath the lens contributes 0.00 luma in the current scene (AC 4's measurement) `[AMENDED 2026-09-07 — see the story change log below]`. The colour grammar itself is fully delivered and pinned; what is deferred is only the light's *visible* share of it, and only until Epic 4 gives the scene headroom.
+
+**Story change log**
+
+- **2026-09-07 — AC 4 and AC 5 amended to record a measured limitation (author's decision, tier-2).** The story shipped fourteen inserts, the `(role, step)` colour grammar, `lampsOf()`, the `LampDriver` seam and a genuinely transmissive lens. A code review then found that the fourteen `PointLight`s changed **no rendered pixel** — the light sits beneath the lens and N·L < 0 across its only visible face — and no test in the story could see it, because `NullEngine` rasterises nothing and the suite was green at 1822. The author overruled the proposal to defer the fix to Story 4.2 and directed that the transmissive lens be built here; AD-12 was checked, found not to conflict, and amended. **The lens was built, and a real-browser pixel A/B showed the light still changed nothing.** Root cause, measured: every role colour in `grammar.ts` has each channel at exactly 0 or 1, and the render path carries no exposure or tonemapping, so the emissive alone pins the surface at the LDR ceiling. The author then authorised retuning the emissive to 0.5–0.7 to make headroom — and **that band could not work either**, because the ceiling is reached below it. The measurement in AC 4 is what closed the question.
+- **Why this is a record and not a deferral.** The author refused a title-based deferral three rounds earlier, and rightly. What AC 4 now carries is different in kind: numbers, a named instrument (`setLightBudget(0)` plus the pixel harness), a falsification condition that will fire the moment Epic 4 changes the exposure, and the three levers with their owning stories. A future reader can **reproduce** the limitation rather than read that it once existed. The dormant machinery the author refused to ship blind is now dormant *and measured*, with the test that will wake it already written.
+- **Cost, recorded honestly.** Story 2.8 took five implement iterations and three author decisions. Four of those iterations were consumed by discovery rather than thrash, and the epic's vacuity count reached 42 on this story — the most instructive of the set, because the defect reproduced one layer down from the one being fixed: a story about a light that changed nothing was itself verified by assertions that would pass whether or not the light changed anything.
+
+- DW-47: `l_insert_left`'s lens protrudes 0.5 mm above the playfield surface, against AD-11's "lens and cup geometry below the surface". This story authors fourteen real `l_` inserts with the same tooling, so every insert's lens and cup must sit at or below z = 0 in the table frame, pinned against the **exported** artefact rather than the authoring script's intent (ledger; re-owned from Story 4.2 by spec_gate 2026-09-06)
 
 ### Story 2.9: Ball save
 
@@ -1069,8 +1544,12 @@ So that an early drain is not a lost ball.
 **Then** the longest live window wins; `disarm(source)` of one leaves the other; Tilt disarms all
 
 **Given** a switch-script test
-**When** drains occur at expiry − 1 tick, expiry + grace − 1 tick and expiry + grace + 1 tick
-**Then** the first two save and the third ends the ball
+**When** drains occur at expiry − 1 tick, expiry + grace − 1 tick, **exactly expiry + grace** and expiry + grace + 1 tick `[AMENDED 2026-09-07 — see the story change log below]`
+**Then** the first three save and the fourth ends the ball
+
+**Story change log**
+
+- **2026-09-07 — AC 5 gained a fourth drain probe at exactly `expiry + grace` (spec gate, tier-1, intent-preserving).** The three probes as originally written cannot catch the off-by-one they exist for: `expiry + grace − 1` passes under an inclusive `<=` **and** under an exclusive `<`, and `expiry + grace + 1` fails under both, so the whole set stays green whichever comparison ships. Only a drain at *exactly* `expiry + grace` separates them. The probe set was therefore strengthened rather than the promise changed — the save window, the grace and the observable outcome are all unchanged. The project's only two existing tick windows (`src/sim/rules/devices/shots.ts:67`, `src/sim/rules/devices/index.ts:296-300`) are both inclusive `<=`, which is the reading this criterion now pins. Found by Story 2.9's plan stage while writing the Rule 19 mutation for this AC and confirmed at the source by the lead — an acceptance criterion whose stated probes cannot fail for the reason they exist is precisely the vacuity shape this epic has now found 49 times (43 when this line was first written; Story 2.9's own review passes found four more, two of them inside tests written to prevent earlier ones).
 
 ### Story 2.10: End-of-ball bonus and the multiplier
 
@@ -1096,6 +1575,12 @@ So that every ball has a payoff beyond its live scoring.
 **When** `ball_will_start` fires
 **Then** the bonus categories and multiplier reset while the letters persist
 
+- DW-208: `RulesStepResult.modeEvents` has no production consumer -- `sim/loop` never reads it, so the `lanes_completed { set: 'top' }` event this story's multiplier advances on cannot leave `rules.step()` in the shipped product. Story 2.7 produced the event and declared this story its first consumer; giving it a production consumer is therefore part of this story, not an assumption it may make (ledger; routed by cr 2026-09-06) `[AMENDED 2026-09-08 — see the story change log below]`
+
+**Story change log**
+
+- **2026-09-08 — the DW-208 bullet's *mechanism* corrected to match what shipped (adjudication gate, tier-1, intent-preserving).** This bullet originally said the fix was to wire `modeEvents` *through the loop*. It is not, and the reason is a gate that would have failed it: `test/ad7-device-slots.test.ts` asserts **exactly two** writes to `sim/loop`'s `state` binding — the boot construction and `state = rulesResult.state` — so the loop cannot advance a `GameState` field, and the multiplier is `GameState`. A loop that merely *forwarded* `modeEvents` into `FrameOutput` would have been a fifth channel with no reader — precisely the vacuity the entry exists to prevent. What shipped instead is `modeEvents`' first production consumer **inside `rules.step()`** (`advanceBonusMultiplier`), which closes the entry's canonical summary (*no production consumer*) exactly. Verified two ways before this amendment: the AD-7 constraint read at source by the lead, and a mutation — severing the consumer reddens both multiplier-ladder tests, each named *through the REAL `rules.step()` path*. The promise is unchanged; only the prescribed mechanism was wrong.
+
 ### Story 2.11: Tilt warnings, Tilt and Slam tilt
 
 As a player,
@@ -1110,7 +1595,7 @@ So that nudge danger is real and the machine punishes abuse the way a real one d
 
 **Given** the warning count equals the adjustment (default 1)
 **When** `s_tilt_bob` closes again
-**Then** `tilt { player }` fires, `machine.tilt` is set, flippers, slings, pops and autolaunch are disabled together via `CoilCommand disable`, ball save is disarmed, the Backglass shows TILT, and the ball ends when the last ball in play drains
+**Then** `tilt { player }` fires, `machine.tilt` is set, flippers, slings and pops are disabled together via `CoilCommand disable` while the autolaunch is suppressed by rules (the manual plunger, which shares `c_autolaunch`, stays live — AD-5), ball save is disarmed, the Backglass shows TILT, and the ball ends when the last ball in play drains `[AMENDED 2026-09-11 — see the story change log below]`
 
 **Given** a tilt ended the ball
 **When** the next ball starts
@@ -1124,6 +1609,16 @@ So that nudge danger is real and the machine punishes abuse the way a real one d
 **When** rules process it
 **Then** `slam_tilt` fires, every player's game ends without bonus, hardware is disabled and the machine returns to Attract
 
+**Ledger entries routed to this story** (Rule 17 (1b) — routed at the Epic 1 decision sheet, planned here at the Story 2.0 gate):
+
+- DW-36: FR-14's tilt-warning default of 1 is never transcribed, so `GameAdjustments.tiltWarnings` has no table default even though AD-15 lists `tiltWarnings` among the table tunables (ledger; routed by decision_sheet 2026-08-30)
+- DW-222: a Tilt landing between a ball save's re-serve and the re-served ball's own arrival at `bd_shooter` suppresses the autolaunch **and** consumes the flag, leaving that ball resting in the shooter lane with no `ball_ended` and no automatic recovery until ball search arrives in Story 2.12. Measured at this story's plan gate: the stall is **player-recoverable**, because `plungerMechanics.applyFrame()` gates the manual plunge on `coilEnabled.c_autolaunch` and `HARDWARE_COILS` structurally excludes that coil, so a Tilt's disable batch never disables the plunger. This story pins the whole path end to end — including that the ball save does not re-arm after the Tilt's disarm — and leaves *automatic* recovery to 2.12 (ledger; routed by cr 2026-09-08)
+
+**Change log**
+
+- **2026-09-11 — AC 2's disable set corrected to match AD-5 as amended (DW-241 decided by-design).**
+  AC 2 said the autolaunch is disabled together with the flippers, slings and pops via `CoilCommand disable`. What shipped, and what the author has now ratified, is narrower: the Tilt disable batch covers the flippers, slings and pops (`HARDWARE_COILS`), and the autolaunch is suppressed by rules while tilted rather than coil-disabled, because the manual plunger shares `c_autolaunch` and stays live so a tilted player can always free their own ball. Disabling `c_autolaunch` would swallow ball search's shooter pulse and strand a ball on the plunger tip (measured at Story 2.12's spec gate). Recorded by the Epic 2 runner at Story 2.12's spec gate, after the author's decision; no code changes.
+
 ### Story 2.12: Ball search
 
 As a player,
@@ -1133,16 +1628,14 @@ So that a stuck ball never ends the game.
 **Acceptance Criteria:**
 
 **Given** a ball is in play
-**When** no switch closes for `ballSearchMs`
-**Then** `ball_search_started` fires and the ball controller pulses coils in each device's `ballSearchOrder` on a tick schedule (slings, pops, bank reset, then the Lock and trough ejects)
+**When** no switch closes for `ballSearchMs` — the timer pauses while either flipper button is held and resumes on release `[AMENDED 2026-09-11 — see the story change log below]`
+**Then** `ball_search_started` fires and the ball controller pulses coils in each device's `ballSearchOrder` on a tick schedule (slings, pops, bank reset, then the shooter and trough ejects); the Lock's own steps wait for Story 3.2's Lock arbiter `[AMENDED 2026-09-11 — see the story change log below]`
 
-**Given** any active mode publishes a `timerTicks`
-**When** ball search runs
-**Then** `c_mouth` is skipped so locked balls are not released
+*(The `c_mouth`-skip criterion for an active mode's `timerTicks` moved to Story 3.2 on 2026-09-11 — see the story change log below.)*
 
 **Given** the search completes with no switch closure
 **When** the final stage runs
-**Then** `RecoverCommand` is issued once, physics despawns every ball outside a device and returns the `recovered` count, `ball_missing { count }` fires, `ballsInPlay` is corrected from slot switches and a new ball is served
+**Then** `RecoverCommand` is issued once, physics clears every ball outside a device and returns the `recovered` count, `ball_missing { count }` fires, `ballsInPlay` is corrected from slot switches and a new ball is served -- each cleared ball is **returned to `bd_trough`'s lowest empty slot** rather than destroyed, so the machine keeps its four balls across repeated recoveries [AMENDED 2026-09-11, Story 2.13 spec gate -- author decision, DW-257]. This corrects a latent defect 2.12's own code review found (the ball count shrank 4-3-2 and an emptied trough wedged the machine); the shipped `recovered` count and `ball_missing { count }` are unchanged, so 2.12's delivered behaviour and its tests stand
 
 **Given** a switch closes during the search
 **When** rules process it
@@ -1150,7 +1643,16 @@ So that a stuck ball never ends the game.
 
 **Given** the device failure vocabulary (`eject_failed`, `ball_missing`, `broken`, `device_overflow`)
 **When** any is emitted
-**Then** rules handle it without throwing, and `device_overflow` is answered with an immediate eject from that device
+**Then** rules handle it without throwing, and `device_overflow` is answered with an immediate eject from that device — except `bd_lock`, whose overflow is tolerated without an eject until Story 3.2's Lock arbiter owns the Mouth `[AMENDED 2026-09-11 — see the story change log below]`
+
+- DW-187: `ballsInPlay` desyncs -- a weak manual plunge rolls back onto the plunger tip still counted in play, a second launch of the same ball counts it twice, and after its drain `ballsInPlay` stays 1 with no ball and no `ball_ended`: a hard hang reachable at today's tree; this story's `ball_missing` reconciliation is where `ballsInPlay` is corrected (ledger; routed by spec_gate 2026-09-11)
+
+**Change log**
+
+- **2026-09-11 — the Lock's ball-search steps, the `c_mouth` skip and the Lock-overflow eject moved to Story 3.2 (AD-18 phasing).**
+  AD-18 lets only the Lock arbiter pulse `c_mouth`, and only after `ShowCommand show_dragon_mouth_open` and `mouthOpenLeadMs`; none of the three exists before Story 3.2. A ball parked in the Lock is out of the simulation and counted by its closed slot switch (AD-6), so it is never missing and a search Mouth pulse could never find one. Until 3.2, ball search issues nothing at the Lock and a `bd_lock` overflow is tolerated without an eject. Author decision at this story's spec gate, relayed by the orchestrator; AD-18 amended the same day on AD-8's phasing precedent. The same sitting put DW-187's fix in this story's scope and kept the manual plunger live under Tilt (DW-241 by-design, AD-5 amended).
+- **2026-09-11 — a held flipper suspends the ball-search timer.**
+  The author chose to pause the 15 s timer while either flipper button is held and resume it on release, so a ball held on a flipper is never searched or removed; the other non-playfield closures still never delay a search. PRD FR-23 carries the consequence note, and AD-19 now lists `button_released` so ball search can see the release.
 
 ### Story 2.13: Match, game over and return to Attract
 
@@ -1162,9 +1664,9 @@ So that the game closes the way a real machine does.
 
 **Given** the last ball of the last player ends
 **When** phase becomes `game_over`
-**Then** the Backglass shows final scores by player and `game_ended { scores[] }` fires
+**Then** the Backglass shows final scores by player and `game_ended { scores[] }` fires -- `game_ended` on the drain tick, and the final scores when the last ball's end-of-ball hold releases, so Story 2.10's bonus count-up is not cut
 
-**Given** `matchPercent` (default 8) and `GameState.rng`
+**Given** `matchProbability` (default 0.08, i.e. 8 %) and `GameState.rng`
 **When** the Match runs
 **Then** a multiple-of-ten number from 00 to 90 is drawn with the configured probability of matching at least one player's last two score digits, `match_drawn { number, winners[] }` fires, the Backglass reveals the number paced by `matchRevealMs` step events, and a win shows MATCH — display-only under free play
 
@@ -1175,6 +1677,116 @@ So that the game closes the way a real machine does.
 **Given** Attract
 **When** it runs
 **Then** the Backglass cycles the last scores and shows the flipper, plunge and Start keys once from `ViewConfig.bindings` before cycling; the Walk-up camera sequence is added in Epic 4
+
+- DW-197: the Backglass score screen has no combined line budget, so with several players plus an active mode the mode information silently drops off the display rather than degrading visibly; the author's decision is to give the ball number a shared or shortened line rather than its own (ledger; routed by merge_gate 2026-09-06)
+- DW-198: the DMD never identifies WHICH player a score belongs to -- `DmdRow.emphasis` is set and asserted but no renderer reads it, and the Attract scores screen emits bare unlabelled numbers; the author's decision is to render `emphasis` as the current player's row highlighted or boxed, and its pinning test must assert that the rendered DOTS differ between an emphasised and an unemphasised row, never merely that the field is set (ledger; routed by merge_gate 2026-09-06)
+- DW-235: the bonus count-up schedule's closure state has no reset across a game-over-to-new-game transition, so a stray `bonus_count_step` from a finished game could animate into the next; 2.13 owns that lifecycle boundary (ledger; routed by harvest 2026-09-08)
+- DW-244: a Slam tilt returns to Attract with the voided game's ball still live, and Start has no balls-home handling, so the old ball's drain ends the NEW game's ball 1 and a second serve stacks in the occupied lane; the author's decision is CLEAN UP THE STRAYS, THEN START -- before serving, for Start in Attract and for every new ball, a loose ball is removed through the `RecoverCommand` path Story 2.12 built and a ball already resting in the shooter lane is treated as the ball being served (no trough eject, no stacking); both routes (a voided game's loose ball; a ball left in the lane by a cancelled search pass) need their own pinning test that is red on the pre-fix code, each negative paired with its positive (ledger; routed by spec_gate 2026-09-11)
+- DW-257: recovered balls are never replenished -- `recover()` removes every ball outside a device and opens no trough slot, while the tree's only `spawnBall()` sits inside a parking eject that needs an already-filled slot, so each recovery permanently costs the machine a ball and four empty the trough, after which the serve answers `eject_failed`, no ball can drain and the ball never ends (a hard hang, reachable by a Slam then Start before the old ball drains, four times). Because 2.13 makes the serve path a second `RecoverCommand` issuer, this story owns the fix: the author's decision is RETURN RECOVERED BALLS TO THE TROUGH -- `recover()` parks each ball it removes into the trough's lowest empty slot and closes that slot's switch, so AD-6's four-ball invariant holds across any number of recoveries and ball search's own hang closes with it; its pinning test must pair the negative (the trough never empties across repeated recoveries) with its positive (the recovered ball IS in a trough slot and CAN be ejected again), and be red on the pre-fix code (ledger; routed by spec_gate 2026-09-11)
+
+### Story 2.14: The lit Top lane -- rotation, and when it may move
+
+As a player,
+I want the lit Top lane to advance through the lanes each plunge rather than be drawn at random,
+So that the skill shot is a pattern I can read, and I never face the same lit lane three balls running.
+
+**Acceptance Criteria:**
+
+**Given** `createSkillShotMode().start()` today draws the lit Top lane from `GameState.rng` (`src/sim/rules/modes/skill-shot.ts`, the single `nextRngInt(state.rng, TOP_LANES.length)` call)
+**When** a ball starts
+**Then** the lit Top lane **advances one position** through `TOP_LANES` in its declared order, wrapping, instead of being drawn -- so the same lane is never lit on two consecutive balls and a three-ball repeat is impossible **by construction**, which is what PRD FR-18's "rotating each plunge" describes
+
+**Given** Story 2.7's criterion "the lit lane differs across balls under the seeded PRNG and replays identically for the same seed"
+**When** it is re-pinned here
+**Then** the pinning test asserts the not-all-same property for **every** starting position rather than for one seed the test itself chose -- DW-205's whole finding was that the old assertion could only ever see the seed it picked -- and its Rule 19 mutation (freeze the advance so one lane is always lit) reddens it
+
+**Given** `test/rules-modes-integration.test.ts`'s DW-201 block, today the only mutation-proven evidence anywhere that `GameStart.seed` reaches `GameState.rng` and changes something observable
+**When** the draw is replaced
+**Then** that evidence is either preserved (the seed still decides the starting position, and the block is rewritten rather than deleted) or deliberately retired with its replacement named -- never silently deleted, and never left asserting a lane the rotation now fixes. A change that leaves the shipped seed with no observable effect anywhere has reintroduced DW-201's user-visible symptom in a new costume, and this criterion exists to make that impossible to do by accident
+
+**Given** `epics.md` Story 2.7 **AC 1** and `spec-2-7-*.md` AC 1 and AC 6 describe the superseded random draw [AMENDED 2026-09-12, Story 2.14 spec gate -- author decisions DW-205/DW-214] -- this Given originally cited Story 2.7 AC 5, which is the wrong reference: AC 5 ("the lit lane differs across balls under the seeded PRNG and replays identically for the same seed") stays **true verbatim** under the rotation, and the author's DW-214 decision requires it be left unreworded. AC 1 is the criterion that describes the draw
+**When** this story lands
+**Then** both are amended in the same commit with the reasoning recorded, so no ratified artifact is left describing a game the code no longer plays
+
+- DW-205: the seeded draw repeats the same Top lane on all three balls in 11.2% of games (55.51% on a consecutive pair, measured over 200,000 seeds) while Story 2.7's own criterion forbids it; the author decided the lane advances in sequence each plunge rather than accepting uniform randomness, on PRD FR-18's "rotating each plunge" (ledger; routed by runner 2026-09-07)
+
+**Prerequisites:** Story 2.7 (the skill shot, the lit lane and lane change).
+
+**Story change log**
+
+- **2026-09-07 -- chartered out of Story 2.7 (author's decision).** Story 2.7 shipped the lit Top lane as a
+  seeded uniform draw. DW-205 measured the consequence over 200,000 seeds: **11.20%** of games light one lane
+  on all three balls and **55.51%** repeat on a consecutive pair, while Story 2.7's own AC 5 says the lit lane
+  differs across balls. The reviewer recommended accepting uniform randomness and rewording the criterion.
+  **The author decided the opposite, on evidence the reviewer had not weighed:** PRD FR-18 describes the lit
+  Top lane as *"rotating each plunge"* -- a deterministic advance, not a draw. Rotating makes the criterion
+  hold by construction instead of by luck. The work is chartered here rather than folded into another story
+  because none of Stories 2.9-2.13 owns the skill shot, and because closing DW-205 means amending two ratified
+  artifacts and touching a mutation-proven regression pin -- amendment work that needs its own named record,
+  not in-flight scope on a bonus or tilt story.
+- **Two things the implementer must not rediscover.** (1) `players[p].ballNumber` already exists, is
+  player-scoped (correct for Hot seat), is already inside the hashed `GameState`, and is already correct at the
+  moment the mode stack starts -- a per-ball advance needs no new state field. (2) The lane draw is the **only**
+  consumer of `GameState.rng` in the shipped product today (Match, the planned second consumer, is Story
+  2.13's and is unbuilt), so there is no downstream stream-offset hazard -- but `rng`'s own value **is** hashed,
+  so whether the advance still consumes a step is hash-visible on its own. Measured 2026-09-07: none of the
+  five replay goldens ever starts a game (all five end at `rng = 0`, `phase = attract`), so this change cannot
+  redden a golden **today**. That stops being true once DW-175 re-records the goldens through the rules layer
+  in Epic 3 -- doing this before that re-recording is strictly cheaper.
+- **Coupled to DW-204, which is on the author's decision sheet.** DW-204 asks whether the paying lane freezes
+  at `ball_launched`. Both entries are about which lane is lit and when it may move, both rest on the same
+  FR-18 sentence, and both are load-bearing for the same two DW-202 composition tests. Whoever plans this story
+  should carry DW-204's answer into the same pass rather than edit those tests twice.
+
+### Story 2.15: Epic 2 burn-down
+
+As the author,
+I want the deferred work Epic 2 accumulated closed or consciously retired before Epic 3 starts,
+So that the ledger's open count means something and no finding is carried silently into the next epic.
+
+This story is chartered by the Epic 2 burn-down gate (Rule 17). It holds the ten story-closable
+entries that survived per-story adjudication -- every one already judged real, owned, and not
+closable on existing evidence. It deliberately holds **no** `escalated` and **no**
+`decision-pending` entry: those are product calls on the author's decision sheet, and a burn-down
+story cannot ratify one. Each bullet is closed by evidence or explicitly retired with a probe; an
+entry that turns out to need a product decision is raised, not guessed.
+
+**Acceptance Criteria:**
+
+**Given** the ten ledger entries below
+**When** this story completes
+**Then** each is either resolved with cited evidence (a test, a commit, a measurement) or made terminal with a stated reason, and **`LEDGER slice 2-15-epic-2-burn-down`** reads empty of `routed` and `open` entries [AMENDED 2026-09-12 at this story's own spec gate: this criterion originally named `LEDGER slice burndown`, which the burn-down gate had ALREADY emptied when it re-owned the ten entries from the generic `burndown` owner to this story's real key -- so as written the criterion was satisfied before any work began. A self-satisfying assertion is exactly the vacuity shape this epic has recorded 70 times, and it would have been embarrassing to leave it in the story chartered to close them. The story key is the binding reading]
+
+**Given** the gates this epic leaned on
+**When** an entry names a missing or vacuous check
+**Then** its replacement is falsifiable: the mutation that would break it is named, applied, observed red, and reverted, per Rule 19 -- this epic recorded 70 vacuities, and a burn-down story that adds unfalsifiable checks has made the problem worse
+
+**Given** the five replay goldens
+**When** this story lands
+**Then** any golden change is a **header-only** refresh -- `header.gameStart.tuning` and an appended `notes`, with `tableHash`, `assetHash`, every state and checkpoint hash, `transitions` and `coilPrologue` all unmoved, verified per field by JSON parse and never by grep. A header-only refresh is ROUTINE and needs no author grant (precedents: Stories 2.4, 2.9, 2.10 and 2.13). A **trajectory or state-hash** re-record is the Block-If and needs the author's explicit grant. This distinction matters here: DW-152's cheapest correct fix is a `source`-string correction, and AD-15 records that `resolveTuning()`'s whole serialized output is hashed into every golden header, so a provenance fix necessarily carries a header-only refresh with it
+
+- DW-126: `col_loop_r_lower`'s DW-119 bevel has no test that would catch its removal or reversal (ledger; chartered by burndown 2026-09-12)
+- DW-127: no dimensional gate exists for `col_loop_turn_l`/`_r` or `col_ramp_turn`'s own constants, unlike nearly every other new load-bearing figure Story 2.1c adds (ledger; chartered by burndown 2026-09-12)
+- DW-138: 14 of 39 shot cases have no reachability witness, and the harness cannot yet distinguish "the geometry is genuinely unreachable" from "the witness search is too narrow" (ledger; chartered by burndown 2026-09-12)
+- DW-149: every anti-vacuity floor in the reachability and termination gates is a hand-typed literal that lags its own subject set; three are below it today, so those floors no longer bind (ledger; chartered by burndown 2026-09-12)
+- DW-150: the `descend-dragon-leg-l` strand column no longer touches `col_dragon_leg_l`, so that body's north cap is pinned by nothing in the descending sweep (ledger; chartered by burndown 2026-09-12)
+- DW-151: Story 2.1d's iteration-3 review Fix Pack was bundled into a rework the author then narrowly scoped, so it executed nothing and its items are tracked in no artifact any gate reads (ledger; chartered by burndown 2026-09-12)
+- DW-152: `TUNING.lockEjectExemptionTimeoutMs`'s AD-15 `source` string cites a measurement its own doc comment retracts, and the retracted claim is frozen verbatim in all five committed goldens -- so correcting it costs a header-only golden refresh (ledger; chartered by burndown 2026-09-12)
+- DW-227: `test/export-py-skip-visibility.test.ts` is a load-dependent coin flip -- its nested vitest spawn runs about 103-118 s against its own 120 s `RUN_TIMEOUT_MS` and is killed under full-suite load (ledger; chartered by burndown 2026-09-12)
+- DW-235: the bonus count-up schedule still fires a step due on the exact Start tick, because `step()`'s bonus drain runs before the new-game clear -- the measured residual Story 2.13 could not close, contradicting DW-235's own I/O row. Three occurrences (ledger; chartered by burndown 2026-09-12)
+- DW-270: the epic-wide test convention of authoring millisecond overrides as exactly `1` would throw `resolveTuning()`'s rounds-to-0-ticks guard if the tick rate ever moved; 22 sites across 18 test files. Its filed premise was corrected at the gate -- `TICK_HZ` 1000 is RATIFIED (DW-2), so the live residual is that `src/sim/contracts/time.ts:34-36`'s comment is stale against that ratification (ledger; chartered by burndown 2026-09-12)
+
+**Prerequisites:** Stories 2.0 through 2.14 (this story closes their residue).
+
+**Story change log**
+
+- **2026-09-12 -- chartered by the Epic 2 burn-down gate.** Eleven story-closable entries were
+  owned by `burndown` after every story's own `ledger_adjudicated` gate. One, DW-179, was closed
+  at the gate itself on accumulated non-reproduction (a single unexplained failure against roughly
+  ten clean full-suite runs, with no failing artefact to debug and no hypothesis to test), leaving
+  these ten. Ten is within `burndown_story_max`, so **nothing overflowed** and no entry was
+  re-owned to a next-epic story key. The 12 `escalated` and 10 `decision-pending` entries were set
+  aside for the author's decision sheet and are deliberately absent from this charter.
 
 ## Epic 3: The Campaign and the War
 
@@ -1245,6 +1857,23 @@ So that I can feed the Dragon the balls it will spit back at me.
 **Given** UJ-3's edge case
 **When** player 1 drains with two balls locked and player 2 shoots the Lock lane
 **Then** player 2's credits go 0 → 1, one ball is spat, and player 1's credits remain two — verified by a switch-script test
+
+**Given** ball search (Story 2.12) is running and its schedule reaches the Lock — after the bank reset, before the trough eject
+**When** the `bd_lock` `ballSearchOrder` steps come due
+**Then** each Lock eject goes through the Lock arbiter — `ShowCommand show_dragon_mouth_open`, then `c_mouth` `mouthOpenLeadMs` (in ticks) later — never as a bare pulse `[AMENDED 2026-09-11 — moved from Story 2.12's AC 1; see the story change log below]`
+
+**Given** any active mode publishes a `timerTicks`
+**When** ball search runs
+**Then** `c_mouth` is skipped so locked balls are not released `[AMENDED 2026-09-11 — moved verbatim from Story 2.12's AC 2; see the story change log below]`
+
+**Given** `bd_lock` emits `device_overflow`
+**When** rules process it
+**Then** it is answered with an eject from the Lock through the arbiter, after the Mouth-open lead `[AMENDED 2026-09-11 — moved from Story 2.12's AC 5; see the story change log below]`
+
+**Change log**
+
+- **2026-09-11 — three ball-search clauses received from Story 2.12 (AD-18 phasing).**
+  AD-18 lets only this story's Lock arbiter pulse `c_mouth`, and only after `ShowCommand show_dragon_mouth_open` and `mouthOpenLeadMs`, so the three Story 2.12 clauses that would pulse the Mouth wait here: ball search's Lock steps (from 2.12's AC 1), the `c_mouth` skip while a mode publishes `timerTicks` (2.12's AC 2, verbatim), and the answer to a `bd_lock` `device_overflow` (from 2.12's AC 5). Two wording changes, both forced by AD-18: the Lock steps and the overflow answer go through the arbiter rather than as bare pulses, and the overflow eject drops 2.12's "immediate", because every Mouth eject waits `mouthOpenLeadMs`. Until this story, ball search issues nothing at the Lock and a `bd_lock` overflow is tolerated without an eject. Author decision at Story 2.12's spec gate, relayed by the orchestrator under a one-time grant to amend this block for exactly these clauses; AD-18 amended the same day.
 
 ### Story 3.3: The Dragon's mouth and hit reaction
 
@@ -1528,6 +2157,15 @@ So that the table's light behaves like a real machine's four circuits.
 **When** the phase changes
 **Then** rules emit one `GiCommand` per channel and the architectural channels follow it
 
+**Given** the scene today has **no exposure or tonemapping at all** and a single unparameterised `HemisphericLight` at default intensity (`create-engine.ts`), so every surface sits near the LDR ceiling before any lamp contributes `[AMENDED 2026-09-07 — see the story change log below]`
+**When** this story configures the scene's image processing
+**Then** the render path gains real headroom — an `ImageProcessingConfiguration` with tonemapping and an exposure the table is graded against, and a hemispheric/GI contribution that is a *driven channel* rather than a default — **and Story 2.8's recorded A/B goes non-zero**: `window.__dragonwarBoot.setLightBudget(0)` against the default budget must then separate the lit insert by a measurable margin, where it measures exactly 0.00 luma today
+
+**Story change log**
+
+- **2026-09-07 — chartered the exposure/tonemapping work out of Story 2.8 (author's decision).** Story 2.8 built a correct, AD-conformant transmissive insert lens and then **measured that it changes no pixel**: a lit insert's entire visible signal is 7.8 luma out of 255 (~3%), and toggling its dynamic light moves the lit pixel by 0.00 luma. The cause is not the driver — it is that this scene has no exposure or tonemapping and one default hemispheric light, so the insert is already at the ceiling before the lamp contributes. Retuning the emissive to make headroom was tried under author authorisation and could not work either: the composited ceiling is reached near raw emissive 0.12–0.15, below the whole 0.5–0.7 band tried. **The headroom is this story's to create**, and Story 2.8's AC 4 carries the numbers, the instrument and the falsification condition so this story can verify it rather than re-derive it.
+- **What this inherits, so it is not rediscovered.** The A/B instrument already exists (`setLightBudget(0)` plus a Node-built-ins pixel harness) and is the acceptance test for the criterion above. Two sibling levers sit nearby and should be considered together rather than one at a time: the hemispheric/GI contribution on inserts (this story's own GI channel) and the playfield's alpha dilution over the lens (**Story 4.2**'s translucency mask).
+
 ### Story 4.2: Inserts as lights through cups
 
 As a player,
@@ -1536,9 +2174,9 @@ So that the inserts read as lamps under plastic, not stickers.
 
 **Acceptance Criteria:**
 
-**Given** every `l_` node carries lens and cup geometry and the playfield material has a translucency mask
+**Given** every `l_` node carries lens and cup geometry, and **Story 2.8 already ships the lens transmitting its own `PointLight` from beneath** — `subSurface.isTranslucencyEnabled` on each insert's own `mat_insert` clone — so a lit insert already reads as a lamp under plastic and is already dark when off `[AMENDED 2026-09-07 — see the story change log below]`
 **When** an insert is lit
-**Then** the lens emissive lights, a point light beneath the lens illuminates the cup interior and spills through the mask onto adjacent playfield art, and the insert is dark when off
+**Then** what this story adds is **the spill**: the playfield material carries a translucency mask, each insert's light is admitted to `vis_playfield`'s light list, and the glow reaches the adjacent playfield art — which is precisely what forces the light-list and `maxSimultaneousLights` restructuring Story 2.8 was forbidden to do, and what makes the cup interior itself visible rather than sealed inside an opaque box
 
 **Given** between 50 and 150 inserts in `TABLE.lamps`
 **When** all are lit at once on the WebGL2 path
@@ -1551,6 +2189,33 @@ So that the inserts read as lamps under plastic, not stickers.
 **Given** the future per-group bake
 **When** the driver is reviewed
 **Then** the emissive-plus-dynamic path sits behind the same `LampDriver` interface so the bake can replace it without touching rules, `TABLE` or mesh names
+
+**Story change log**
+
+- **2026-09-07 — narrowed, because Story 2.8 now delivers the lit-from-beneath half (author's decision).**
+  Story 2.8's code review found that its fourteen insert `PointLight`s **changed no rendered pixel**: each
+  sits at table z = -4 mm inside the cup, the lens's only visible face is its top with normal +table-z, and
+  `includedOnlyMeshes` is the insert's own mesh — so N·L < 0 across that whole face. Fourteen lights and the
+  entire live-light-budget machinery governed a path nobody could see, and no test in 2.8 could catch it
+  because `NullEngine` rasterises nothing (the suite was green at 1822).
+  Story 2.8 recommended deferring the real fix to this story, on the reasoning that a transmissive lens is
+  this story's own title. **The author decided otherwise:** a real pinball insert is a translucent lens lit
+  from beneath, this story's AC 1 says "a dynamic light **beneath** the lens" in its own words, and shipping
+  dormant machinery for two epics to protect a title is the wrong trade. Story 2.8 therefore builds the
+  transmissive lens — a material change on its own per-insert clone that adds no light, changes no light
+  list, raises no `maxSimultaneousLights` and touches no `vis_playfield` (AD-12, amended the same day).
+- **What this story keeps, and why it is still a story.** The half 2.8 cannot reach is **the spill**: a light
+  admitted to `vis_playfield`'s list, a translucency mask on the playfield material, and the glow landing on
+  adjacent art. That is not a material tweak — `mat_insert` carries `maxSimultaneousLights = 4`, so adding
+  `vis_playfield` to every insert's light list blows the limit at the fifth lamp and forces the table-wide
+  light-to-material restructuring this story was always the right home for. The scale criterion (50–150
+  inserts at 60 FPS), the step-2/3 intensity-and-spill ramp, and the bake-swap interface check are all
+  untouched by 2.8 and remain this story's.
+- **One measured constraint inherited from 2.8, so it is not rediscovered here.** `mat_insert` uses physical
+  light falloff (1/d²) and the lens sits ~3.7 mm above its light, so the transmitted term arrives with a very
+  large attenuation factor and clips hard unless the intensity is tuned down. An insert whose colour has
+  clipped to yellow-white has lost the `(role, step)` grammar the channel exists for — treat insert intensity
+  as a tuned quantity, not a constant, when the spill is added on top of it.
 
 ### Story 4.3: Flashers on events
 

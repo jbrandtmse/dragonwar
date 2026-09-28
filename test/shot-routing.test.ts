@@ -1,0 +1,1463 @@
+// DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
+//
+// Story 2.1b task 16a -- AC 1's BEHAVIOURAL half, and the single most
+// important test in this story (spec's own words): "when a ball is driven
+// into each shot at a plausible shot speed, then that shot's switches close
+// in their approach order, the shot's exit or its most common miss arrives
+// playable at a flipper rather than draining down the middle or stranding,
+// and no drivable release point inside a shot's own mouth leaves the ball
+// permanently at rest." Dimensional gates (test/asset-contract.test.ts's
+// own Story 2.1b describe block) are the OTHER half -- neither alone closes
+// AC 1 (2.1a shipped a drain triangle that passed every name-and-dimension
+// check while both outlanes dead-ended on solid wall).
+//
+// Harness: the same createMachine() + hand-repositioned-served-ball
+// technique test/switch-max-speed.test.ts's own Integration case uses
+// (reset vel, angularVelocity AND angularMomentum -- residual spin walks
+// the ball sideways under friction, test/machine-serve-drain.test.ts's own
+// recipe). Every start position and switch name is read from the committed
+// collision document via test/util/collision-doc.ts, never a bare literal.
+//
+// Scope, stated honestly rather than silently narrowed: this story's own
+// planning pass (this file's own authoring) measured EVERY shot below by
+// actually driving a ball through the real physics pipeline and reading the
+// result, not by assuming a straight-line approach would work -- and it did
+// not, twice: the pop-bumper switch zones and the DRAGON-bank/Dragon-body
+// switch zones were BOTH physically unreachable as first authored (both
+// closed a zone at or behind the one-ball-radius approach limit a solid
+// col_ body imposes), caught and fixed only by actually driving a ball at
+// them here and in test/switch-max-speed.test.ts. What remains, reported
+// rather than hidden: this story's own tick budgets are bounded well short
+// of every shot's full eventual fate (a loop or a lock-lane near-miss both
+// continue rattling around the open field for thousands more ticks after
+// the window this file checks). The FEEL judgment AC 6 names is
+// `pending-author` for exactly this reason -- no automated check
+// substitutes for the Reference-machine ritual.
+//
+// Story 2.1c, tasks 1-2 (the pin repair -- AC 1, AC 2; this ordering is
+// binding and runs BEFORE any geometry edit in this story). Three separate
+// defects made the OLD `assertReachesFlipperBandOrLeavesPlay` green over
+// exactly the geometry this story exists to fix, all now closed:
+//
+// (1) `leftPlay` used to satisfy the routing clause on its own -- it is set
+// by `physics.removeBall()`, which fires identically for a drain and a
+// park, so "the Loop returned the ball to a flipper" and "the Loop dumped
+// it down the outlane" were indistinguishable. `leftPlay` now survives only
+// as the raw ball-departed-the-simulated-set flag `terminal` is classified
+// from; the routing clause is `assertReachesFlipperBand`, which reads
+// `reachedFlipperBand` alone.
+//
+// (2) The single `FLIPPER_BAND` (x 140..375) contained the centre drain
+// corridor (x 240.875..273.525, between `col_guide_outer_l/r`) -- a
+// dead-centre drain satisfied "reached a flipper". Replaced with
+// `FLIPPER_BAND_L`/`FLIPPER_BAND_R`, each anchored on its OWN bat's x-span
+// read from the committed document (`col_flipper_l`/`col_flipper_r`), y
+// running from the bat's own top edge through 145 mm -- the gap between the
+// two bats is outside BOTH bands by construction, for any y range, because
+// neither bat's x-span reaches it.
+//
+// (3) `driveShot()` TELEPORTS the ball to `startMm` -- unlike a real shot,
+// nothing about that placement is ever verified reachable -- and because
+// `settleTicks` gates only the break, never the make (AD-2), a release
+// point inside a zone closes that switch unconditionally on drive tick 1.
+// Four blocks' own release points landed inside the very zone their own
+// assertion checks (both Loops, the Ramp, both slingshots), and seven more
+// release points across the file landed inside a solid `col_` footprint
+// (DW-77: the solver ejects a ball spawned there, measured z -> -1.8e6 mm,
+// 189 m/s) -- one of them (the Ramp) doubly so. `assertReleaseClear()`,
+// below, makes this self-checking: every `driveCase()` call fails
+// naming the body or zone before `driveShot()` ever runs, if the release
+// point does not clear it. Every release point in this file was moved to
+// pass it (see the Spec Change Log for the individual measurements), and
+// the missing descending-sweep column over `col_ramp_wall_r`'s own
+// dead-flat north cap (x 389..401, task 2's own instruction) is added.
+//
+// A ball whose criterion requires a flipper arrival (both Loops, the Ramp)
+// now asserts `assertReachesFlipperBand` outright; every other shot in this
+// file keeps the liveness-only guard, `assertNotStillInPlay` (the shot's
+// fate must conclude within the tick budget -- a flipper, a lane switch or
+// the drain -- never that it conclude WELL; Lawlor's own "every miss comes
+// back playable" judgement stays the `pending-author` Reference-machine
+// ritual, not something this file can substitute for).
+
+import { describe, expect, it } from 'vitest';
+import { createMachine, type Machine } from '../src/sim/physics/machine';
+import { NO_FRAME } from '../src/sim/loop';
+import { resolveTuning, TUNING } from '../src/sim/table/tuning';
+import { toPhysics, fromPhysics, MM_PER_VU } from '../src/sim/table/frames';
+import { TABLE } from '../src/sim/table/dragonwar';
+import { nodeBboxMm, readCollisionDoc } from './util/collision-doc';
+import { distanceToPolygonMm } from './util/plan-geometry';
+import { SHOT_CASES, shotCase } from './util/shot-cases';
+import type { BallDeviceName, ContactEvent, SwitchName } from '../src/sim/table/names';
+
+/**
+ * Story 2.1c task 1: `terminal` names where the ball's own fate landed,
+ * built from `firstMakes` -- `flipper` takes priority over everything else
+ * (a ball that reached a bat band is the good outcome regardless of
+ * anything it touched first); `locked` and the four lane switches are
+ * checked next (a "half delivery" -- `s_inlane_r` closes but the ball never
+ * reaches a bat, Design Notes' own "two obligations" -- still reports its
+ * lane, not a bare drain); a ball that left play with none of those makes
+ * genuinely fell through the centre; `still_in_play` is the residual bucket
+ * when neither happened inside the tick budget.
+ */
+type Terminal = 'flipper' | 'inlane_l' | 'inlane_r' | 'outlane_l' | 'outlane_r' | 'centre_drain' | 'locked' | 'still_in_play';
+
+const LOCK_SWITCHES: readonly SwitchName[] = ['s_lock_1', 's_lock_2', 's_lock_3'];
+
+function classifyTerminal(firstMakes: readonly SwitchName[], leftPlay: boolean, reachedFlipperBand: boolean): Terminal {
+	if (reachedFlipperBand) {
+		return 'flipper';
+	}
+	if (LOCK_SWITCHES.some((s) => firstMakes.includes(s))) {
+		return 'locked';
+	}
+	if (firstMakes.includes('s_inlane_l')) {
+		return 'inlane_l';
+	}
+	if (firstMakes.includes('s_inlane_r')) {
+		return 'inlane_r';
+	}
+	if (firstMakes.includes('s_outlane_l')) {
+		return 'outlane_l';
+	}
+	if (firstMakes.includes('s_outlane_r')) {
+		return 'outlane_r';
+	}
+	if (leftPlay) {
+		return 'centre_drain';
+	}
+	return 'still_in_play';
+}
+
+interface ShotResult {
+	/** Every switch make, in the tick order it occurred, first occurrence only per switch (a switch re-closing later, e.g. after a full loop, does not appear twice). */
+	readonly firstMakes: readonly SwitchName[];
+	/** True once the ball left the simulated set (drained via the aperture, or parked in a device). */
+	readonly leftPlay: boolean;
+	/** The ball's final table position -- the LAST position observed while still in the simulated set, i.e. at or immediately before the tick it left play (never nulled: Story 2.1c task 1 -- a failure message with no idea where the ball was cannot be acted on). */
+	readonly finalPosMm: { readonly x: number; readonly y: number } | null;
+	readonly finalSpeedMmPerS: number;
+	/** Sampled every `PROGRESS_SAMPLE_TICKS` ticks while still in play: `{tick, x, y}`. A ball bouncing in place (real instantaneous speed, near-zero NET displacement over a trailing window) is what `assertNotStranded` below reads this for -- Rework iteration 2, item (a). */
+	readonly positionSamples: readonly { readonly tick: number; readonly x: number; readonly y: number }[];
+	/** True if the ball's position ever fell within EITHER flipper band while moving toward the flippers (table -y) at more than a genuine floor speed -- the observable AC 1's own Then clause names ("reaches the flipper-reachable band ... with a downward velocity"). Side-agnostic; used only for `terminal`'s own classification below. The routing clause (`assertReachesFlipperBand`) reads the side-specific fields instead -- see this file's own [CORRECTED] note above `FLIPPER_BAND_L`/`_R`. */
+	readonly reachedFlipperBand: boolean;
+	/** Same observable, split by which bat's own band it happened in -- Story 2.1c review fix (MED finding): AC 3's own "arrives playable at THAT SIDE'S bat band" needs to know which side, not just whether either one closed. */
+	readonly reachedFlipperBandL: boolean;
+	readonly reachedFlipperBandR: boolean;
+	/** Story 2.1c task 1 -- see `classifyTerminal()`'s own doc comment. */
+	readonly terminal: Terminal;
+	/**
+	 * Story 2.3, DW-155 (task 12): `machine.deviceSlots` at the tick the drive
+	 * loop ended -- the ONLY state a real park writes (AD-6: device counts
+	 * "are the number of closed slot switches and nothing else"). A switch
+	 * make cannot forge this; `terminal === 'locked'` (derived from
+	 * `firstMakes` alone) could.
+	 */
+	readonly deviceSlots: Readonly<Record<BallDeviceName, readonly boolean[]>>;
+	/** Story 2.3, DW-155 (task 12): every `ContactEvent` produced across the whole drive, in tick order -- e.g. `{ kind: 'hit', device: 'bd_lock', ballId }` on the tick a real park removed the ball from `machine.balls` (`devices.ts:531`, merged at `machine.ts`). */
+	readonly contactEvents: readonly ContactEvent[];
+	/**
+	 * Story 2.3 (task 12): every switch EDGE produced across the whole drive,
+	 * with its own tick and `closed` flag -- not merely the deduped first
+	 * makes `firstMakes` above keeps. A switch that opens and re-closes (a
+	 * bank reset, a spinner's per-revolution pair, a second genuine park
+	 * attempt) is invisible to `firstMakes` but visible here.
+	 */
+	readonly allSwitchEvents: readonly { readonly switch: SwitchName; readonly closed: boolean; readonly tick: number }[];
+	/** Story 2.3, DW-155 (task 12): `machine.balls.length` at the tick the drive loop ended -- distinguishes a park (the ball count drops without `leftPlay`, since the ball is REMOVED via `physics.removeBall`, never merely drained) from an ordinary drain (`leftPlay` alone, `shot-routing.test.ts`'s own header: "leftPlay alone explicitly does not" separate the two). */
+	readonly finalBallCount: number;
+}
+
+const PROGRESS_SAMPLE_TICKS = 25;
+
+/**
+ * Story 2.1c task 1: two bands, each anchored on its OWN bat's x-span, read
+ * from the committed document rather than invented -- replaces the single
+ * `FLIPPER_BAND`, whose x span (140..375) contained the centre drain
+ * corridor (x 240.875..273.525) and so was satisfied by a dead-centre
+ * drain. y runs from the bat's own top edge through the feed's own low
+ * (bat-side) end -- see the [CORRECTED] note below for why 145 mm flat was
+ * wrong -- the region a descending ball must reach to be "playable at a
+ * flipper" per AC 1's own Then clause.
+ *
+ * [CORRECTED 2026-09-03, code review pass 2 MED finding] This used to run
+ * y through a flat 145 mm on both sides, and `assertReachesFlipperBand`
+ * (below) used to OR the two bands together regardless of which side's
+ * shot was under test. Two compounding defects, both closed here:
+ *
+ * (1) Both bands' own y 82.5..145 overlapped col_guide_inlane_feed_l's own
+ * y 103..165 and col_guide_inlane_feed_r's own y 110..165 -- a ball still
+ * RIDING the feed rail, 20+ mm above the bat, already satisfied
+ * "reachedFlipperBand" (this is the root cause behind DW-130: the feed rail
+ * could be shifted 20 mm outboard, or deleted outright, with every routing
+ * case in this file still green, because the behavioural observable could
+ * not tell "delivered onto the bat" from "still on the ramp above it"). The
+ * band's own yMax is now each feed's own low (bat-side) end, read from the
+ * committed document -- a ball inside the band is necessarily BELOW the
+ * feed, no longer merely descending toward it.
+ *
+ * (2) `assertReachesFlipperBand` asserted `reachedFlipperBandL ||
+ * reachedFlipperBandR` -- so the Left Loop orbit case (which asserts
+ * `s_inlane_r` and is supposed to prove the ball reaches the RIGHT bat)
+ * would have passed on a ball that instead reached the LEFT bat, which is
+ * not the shot this case is pinning at all. Each shot's own routing clause
+ * now takes an explicit `side` and checks only that band.
+ */
+const flipperLBox = nodeBboxMm('col_flipper_l');
+const flipperRBox = nodeBboxMm('col_flipper_r');
+const inlaneFeedLLowYMm = nodeBboxMm('col_guide_inlane_feed_l').min.y;
+const inlaneFeedRLowYMm = nodeBboxMm('col_guide_inlane_feed_r').min.y;
+const FLIPPER_BAND_L = { xMin: flipperLBox.min.x, xMax: flipperLBox.max.x, yMin: flipperLBox.max.y, yMax: inlaneFeedLLowYMm };
+const FLIPPER_BAND_R = { xMin: flipperRBox.min.x, xMax: flipperRBox.max.x, yMin: flipperRBox.max.y, yMax: inlaneFeedRLowYMm };
+
+type FlipperSide = 'l' | 'r';
+
+function inFlipperBandSide(x: number, y: number, side: FlipperSide): boolean {
+	const band = side === 'l' ? FLIPPER_BAND_L : FLIPPER_BAND_R;
+	return x >= band.xMin && x <= band.xMax && y >= band.yMin && y <= band.yMax;
+}
+
+function inFlipperBand(x: number, y: number): boolean {
+	return inFlipperBandSide(x, y, 'l') || inFlipperBandSide(x, y, 'r');
+}
+
+// Story 2.1c task 1: the old condition (`vel.y > 0`) admitted 1e-9 -- a ball
+// at the bottom of a bounce, or resting with residual solver jitter, could
+// satisfy it. 20 mm/s is far below every driven shot's own speed in this
+// file (the slowest is 1000 mm/s) and far above solver jitter, so it only
+// ever excludes a ball that is not genuinely travelling toward the
+// flippers.
+const DESCENT_SPEED_FLOOR_MM_PER_S = 20;
+const DESCENT_SPEED_FLOOR_VU_PER_T = DESCENT_SPEED_FLOOR_MM_PER_S / (MM_PER_VU * 100);
+
+/**
+ * Serves a fresh ball (the real trough-eject path, not a hand-built one),
+ * repositions it at `startMm` with a straight-line launch at `speedMmPerS`
+ * toward `dirDeg` (0 = table +y, "up the playfield", positive rotates
+ * toward +x), and drives it for `ticks` real physics steps through the
+ * actual `createMachine()` pipeline (so every hardware rule -- flippers,
+ * the plunger, DW-67's own debounced switch tracker -- is the real one).
+ * `readCollisionDoc()` (Story 2.1c task 2) replaces the old per-call
+ * `JSON.parse` -- confirmed safe: `loadCollision()`/`parseCollisionDoc()`
+ * only ever read from their `doc` argument (building fresh objects via
+ * `.map()`), never assign into it, so handing every call the SAME frozen,
+ * cached document changes nothing about what gets loaded.
+ */
+function driveShot(startMm: { x: number; y: number; z: number }, speedMmPerS: number, dirDeg: number, ticks: number): ShotResult {
+	const tuning = resolveTuning();
+	const machine: Machine = createMachine(readCollisionDoc(), tuning);
+
+	let tick = 0;
+	for (let i = 0; i < 320; i++) {
+		tick += 1;
+		machine.step(tick, NO_FRAME, i === 0 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }] : []);
+	}
+	const ball = machine.balls[0];
+	if (!ball) {
+		throw new Error('driveShot(): no served ball to reposition -- c_trough_eject did not serve one');
+	}
+
+	const startPhysics = toPhysics(startMm);
+	ball.state.pos.set(startPhysics.x, startPhysics.y, startPhysics.z);
+	const speedVuPerT = speedMmPerS / (MM_PER_VU * 100);
+	const rad = (dirDeg * Math.PI) / 180;
+	const vTableX = speedVuPerT * Math.sin(rad);
+	const vTableY = speedVuPerT * Math.cos(rad);
+	// toPhysics() flips table y -> physics -y (this file's own convention,
+	// matching test/switch-max-speed.test.ts's Integration case).
+	ball.hit.vel.set(vTableX, -vTableY, 0);
+	ball.hit.angularVelocity.set(0, 0, 0);
+	ball.hit.angularMomentum.set(0, 0, 0);
+
+	const seen = new Set<SwitchName>();
+	const firstMakes: SwitchName[] = [];
+	let finalPosMm: { x: number; y: number } | null = null;
+	let finalSpeedMmPerS = speedMmPerS;
+	let leftPlay = false;
+	const positionSamples: { tick: number; x: number; y: number }[] = [];
+	let reachedFlipperBandL = false;
+	let reachedFlipperBandR = false;
+	// Story 2.3, DW-155 (task 12): the widened observables -- every switch
+	// edge (not just deduped first makes) and every contact event, across
+	// the whole drive.
+	const allSwitchEvents: ShotResult['allSwitchEvents'][number][] = [];
+	const contactEvents: ContactEvent[] = [];
+
+	for (let i = 0; i < ticks; i++) {
+		tick += 1;
+		const result = machine.step(tick, NO_FRAME, []);
+		allSwitchEvents.push(...result.switchEvents.map((e) => ({ switch: e.switch, closed: e.closed, tick: e.tick })));
+		contactEvents.push(...result.contactEvents);
+		for (const event of result.switchEvents) {
+			if (event.closed && !seen.has(event.switch)) {
+				seen.add(event.switch);
+				firstMakes.push(event.switch);
+			}
+		}
+		const b = machine.balls[0];
+		if (!b) {
+			leftPlay = true;
+			// Story 2.1c task 1: finalPosMm is NOT nulled -- it keeps the last
+			// position recorded below, at (or immediately before) the tick the
+			// ball left play, so a failure message can say where it went.
+			break;
+		}
+		const posMm = fromPhysics({ x: b.state.pos.x, y: b.state.pos.y, z: b.state.pos.z });
+		finalPosMm = { x: posMm.x, y: posMm.y };
+		finalSpeedMmPerS = Math.hypot(b.hit.vel.x, b.hit.vel.y, b.hit.vel.z) * MM_PER_VU * 100;
+		if (i % PROGRESS_SAMPLE_TICKS === 0) {
+			positionSamples.push({ tick, x: posMm.x, y: posMm.y });
+		}
+		// toPhysics() flips table y -> physics -y (this file's own
+		// convention, above): table_vel_y = -physics_vel_y, so a POSITIVE
+		// physics vel.y is a NEGATIVE table vel.y -- moving DOWN the
+		// playfield, toward the flippers -- and now must clear a genuine
+		// speed floor (DESCENT_SPEED_FLOOR_MM_PER_S, above).
+		const descending = b.hit.vel.y > DESCENT_SPEED_FLOOR_VU_PER_T;
+		if (!reachedFlipperBandL && inFlipperBandSide(posMm.x, posMm.y, 'l') && descending) {
+			reachedFlipperBandL = true;
+		}
+		if (!reachedFlipperBandR && inFlipperBandSide(posMm.x, posMm.y, 'r') && descending) {
+			reachedFlipperBandR = true;
+		}
+	}
+
+	const reachedFlipperBand = reachedFlipperBandL || reachedFlipperBandR;
+	const terminal = classifyTerminal(firstMakes, leftPlay, reachedFlipperBand);
+	return {
+		firstMakes,
+		leftPlay,
+		finalPosMm,
+		finalSpeedMmPerS,
+		positionSamples,
+		reachedFlipperBand,
+		reachedFlipperBandL,
+		reachedFlipperBandR,
+		terminal,
+		deviceSlots: machine.deviceSlots,
+		contactEvents,
+		allSwitchEvents,
+		finalBallCount: machine.balls.length,
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Story 2.1c task 2 -- assertReleaseClear(): driveShot() TELEPORTS the ball
+// to startMm, so nothing about that placement is ever verified reachable by
+// a real shot. Two hazards this catches, both found empirically (this
+// story's own planning pass, driving a ball at the measured maximum speed
+// and reading the result, not by inspection): (a) DW-77 -- a release point
+// inside a col_ body's own footprint; the solver ejects it (measured
+// z -> -1.8e6 mm, 189 m/s) rather than resolving a real contact response;
+// (b) a release point inside the very sw_ zone the case's own assertion
+// checks closes -- AD-2 latches a make on the tick it is first observed, so
+// that switch closes unconditionally on drive tick 1 regardless of whatever
+// happens afterward, making the assertion vacuous.
+// ---------------------------------------------------------------------------
+
+/** Half the reference ball's own diameter (TABLE.reference.ballMm) -- the DW-77 clearance margin every release point must exceed. */
+const RELEASE_CLEAR_MARGIN_MM = TABLE.reference.ballMm / 2;
+
+/**
+ * Fails naming the body or zone if `startMm` is within `RELEASE_CLEAR_MARGIN_MM`
+ * of any `col_` footprint, or inside the `sw_` zone of any switch named in
+ * `switchesUnderTest` (the switches THIS case's own assertions require to
+ * close -- not every zone on the table, only the ones a vacuous placement
+ * would corrupt). Every `col_` node is checked: wall-shaped nodes read
+ * their own `footprintMm` polygon; the two box-shaped flippers fall back to
+ * their `bboxMm` rectangle; `plane`-shaped nodes (`col_playfield`,
+ * `col_glass`) are not lateral obstacles and are skipped.
+ */
+function assertReleaseClear(startMm: { readonly x: number; readonly y: number }, switchesUnderTest: readonly SwitchName[] = []): void {
+	const doc = readCollisionDoc();
+	for (const node of doc.nodes) {
+		if (node.shape === 'plane') {
+			continue;
+		}
+		const footprint =
+			node.footprintMm ?? [
+				{ x: node.bboxMm.min.x, y: node.bboxMm.min.y },
+				{ x: node.bboxMm.max.x, y: node.bboxMm.min.y },
+				{ x: node.bboxMm.max.x, y: node.bboxMm.max.y },
+				{ x: node.bboxMm.min.x, y: node.bboxMm.max.y },
+			];
+		const distMm = distanceToPolygonMm(startMm.x, startMm.y, footprint);
+		expect(
+			distMm,
+			`assertReleaseClear(): release point (${startMm.x}, ${startMm.y}) is only ${distMm.toFixed(3)} mm from "${node.name}" -- driveShot() teleports the ball, so every release point must clear every col_ footprint by more than ${RELEASE_CLEAR_MARGIN_MM} mm (DW-77) or the solver ejects it`,
+		).toBeGreaterThan(RELEASE_CLEAR_MARGIN_MM);
+	}
+	for (const switchName of switchesUnderTest) {
+		for (const zone of doc.switchZones) {
+			if (zone.switch !== switchName) {
+				continue;
+			}
+			const inside = startMm.x >= zone.minMm.x && startMm.x <= zone.maxMm.x && startMm.y >= zone.minMm.y && startMm.y <= zone.maxMm.y;
+			expect(
+				inside,
+				`assertReleaseClear(): release point (${startMm.x}, ${startMm.y}) is INSIDE "${zone.name}" (switch "${switchName}") -- driveShot() must not teleport the ball inside the zone this case asserts closes (AD-2 latches a make on the tick it is first observed), or the make is a placement artefact, not a result`,
+			).toBe(false);
+		}
+	}
+}
+
+/**
+ * Story 2.1e task 3 -- the seam the manifest replaces `driveShotChecked()`
+ * with: looks `id` up in `SHOT_CASES` (`test/util/shot-cases.ts`, the sole
+ * source of every release point), runs `assertReleaseClear()` against the
+ * manifest's own `switchesUnderTest`, and drives it via `driveShot()`, which
+ * stays module-private and gains no exported free-coordinate form -- a
+ * release point cannot be driven at all without a manifest entry.
+ *
+ * Deliberately NOT exported: importing a `describe`/`it`-registering
+ * `.test.ts` module from another `.test.ts` file re-runs every top-level
+ * suite it contains under the IMPORTING file's own report (measured this
+ * story's own implementation pass -- Vitest attributes a module's `describe`
+ * calls to whichever file is currently executing, not the file that DEFINED
+ * them). `test/shot-reachability.test.ts`'s DW-130 record drives the same
+ * manifest cases through its OWN small, segment-tracking replica instead
+ * (`driveCaseSwept()`), reading the SAME `SHOT_CASES` entries this function
+ * reads -- never a free coordinate -- so the two can never drift apart on
+ * WHAT they drive, only on how much of the result they keep.
+ */
+function driveCase(id: string): ShotResult {
+	const c = shotCase(id);
+	assertReleaseClear(c.startMm, c.switchesUnderTest);
+	return driveShot(c.startMm, c.speedMmPerS, c.dirDeg, c.ticks);
+}
+
+// Rework iteration 2, item (a): a ball bouncing in place on a flat-topped
+// body (this rework's own measured evidence: parked to within 0.1 mm at
+// 120000 ticks while still reading 33-125 mm/s of real, instantaneous
+// speed -- a resting ball still carries velocity between bounces) passed
+// the old speed-only check every time. NET positional progress over a
+// trailing window is what actually distinguishes "still travelling" from
+// "stuck oscillating": a ball genuinely rolling or falling covers real
+// ground over half a second; one bouncing in a small patch does not,
+// however fast it is at any single instant.
+const PROGRESS_WINDOW_TICKS = 500;
+// Comfortably above the reference ball's own diameter (26.99 mm, so this
+// is a real net move, not a rounding artefact) and comfortably below what
+// even a slow roll covers in PROGRESS_WINDOW_TICKS (500 ms).
+const PROGRESS_MIN_DISPLACEMENT_MM = 15;
+
+/** Net displacement between the earliest sample still inside the trailing `PROGRESS_WINDOW_TICKS` window and the last sample taken. `Infinity` (never fails the stranded check) when there are too few samples to judge -- that is a tick-budget problem for the caller to notice via DW-77's own `lastPosMm`-in-every-message discipline, not something this helper should paper over as a stall. */
+function positionalProgressMm(samples: ShotResult['positionSamples']): number {
+	if (samples.length < 2) {
+		return Infinity;
+	}
+	const last = samples[samples.length - 1]!;
+	let windowStart = samples[0]!;
+	for (const s of samples) {
+		if (last.tick - s.tick <= PROGRESS_WINDOW_TICKS) {
+			windowStart = s;
+			break;
+		}
+	}
+	return Math.hypot(last.x - windowStart.x, last.y - windowStart.y);
+}
+
+/**
+ * Story 2.1c task 1: the old `if (result.leftPlay) return` fully exempted
+ * ANY run that eventually drained or parked, however it got there -- so a
+ * ball that sat dead for 4900 of a 5000-tick budget and only trickled into
+ * the trough over the final ~90 reported no stall at all (Code Map `:219-221`).
+ * The trailing-window check now runs unconditionally: `positionSamples`
+ * already stops recording the instant the ball leaves play, so the window
+ * still ends at its true last-observed position whichever way the run
+ * ended, and `positionalProgressMm()`'s own `< 2 samples -> Infinity`
+ * convention (unchanged) still exempts a run that left play too fast to
+ * ever be "stuck" in the first place.
+ */
+function assertNotStranded(result: ShotResult, label: string): void {
+	const progressMm = positionalProgressMm(result.positionSamples);
+	expect(
+		progressMm,
+		`${label}: the ball must not be permanently at rest -- net positional progress over the final ${PROGRESS_WINDOW_TICKS} ticks was only ${progressMm.toFixed(2)} mm (a ball bouncing in place at real instantaneous speed passes a speed-only check but fails this one -- Rework iteration 2, item (a)); terminal: "${result.terminal}", final pos: ${JSON.stringify(result.finalPosMm)}, final speed: ${result.finalSpeedMmPerS.toFixed(2)} mm/s`,
+	).toBeGreaterThan(PROGRESS_MIN_DISPLACEMENT_MM);
+}
+
+/**
+ * The routing clause (AC 1, AC 3): the ball must genuinely arrive playable
+ * at ITS SHOT'S OWN side's bat -- `leftPlay` (a drain or a park) may never
+ * satisfy this. Story 2.1c review fix (MED finding): this used to check
+ * `result.reachedFlipperBand` (either side, OR'd together), so a shot whose
+ * own criterion names a specific side (e.g. the Left Loop orbit's own
+ * `s_inlane_r` -> right bat) would have passed on a ball that instead
+ * reached the OTHER bat -- not the delivery the case is pinning. `side` is
+ * now required, not inferred or defaulted.
+ */
+function assertReachesFlipperBand(result: ShotResult, label: string, side: FlipperSide): void {
+	const band = side === 'l' ? FLIPPER_BAND_L : FLIPPER_BAND_R;
+	const reached = side === 'l' ? result.reachedFlipperBandL : result.reachedFlipperBandR;
+	expect(
+		reached,
+		`${label}: the ball must reach the ${side === 'l' ? 'LEFT' : 'RIGHT'} flipper-reachable band (x [${band.xMin}, ${band.xMax}], y [top-of-bat, below the feed's own low end at ${band.yMax}]) moving downward at more than ${DESCENT_SPEED_FLOOR_MM_PER_S} mm/s -- terminal: "${result.terminal}", final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}, reached the OTHER side's band instead: ${side === 'l' ? result.reachedFlipperBandR : result.reachedFlipperBandL}`,
+	).toBe(true);
+}
+
+/**
+ * Story 2.1c task 1: the liveness-only half of the old, conflated
+ * `assertReachesFlipperBandOrLeavesPlay` -- checks only that the shot's
+ * fate concluded within the tick budget (a flipper, a lane switch, or the
+ * drain), never that it concluded WELL. `leftPlay` alone may never satisfy
+ * the ROUTING clause (`assertReachesFlipperBand`, above) -- a drain and a
+ * genuine flipper feed both set it identically.
+ */
+function assertNotStillInPlay(result: ShotResult, label: string): void {
+	expect(
+		result.terminal,
+		`${label}: the ball must reach some terminal outcome (a flipper, a lane switch, or the drain) within the tick budget, not remain "still_in_play" -- final pos: ${JSON.stringify(result.finalPosMm)}, left play: ${result.leftPlay}`,
+	).not.toBe('still_in_play');
+}
+
+/**
+ * Story 2.1c: the four Loop switches in orbit order, on ONE ball. Each name
+ * must close, and each must close after the one before it -- which is what
+ * makes the sequence an orbit rather than four unrelated makes.
+ */
+function assertOrbitOrder(result: ShotResult, order: readonly SwitchName[]): void {
+	const idx = order.map((name) => result.firstMakes.indexOf(name));
+	order.forEach((name, k) => {
+		expect(idx[k], `${name} must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
+	});
+	for (let k = 1; k < order.length; k++) {
+		expect(
+			idx[k],
+			`${order[k]} must close AFTER ${order[k - 1]} (orbit approach order) -- makes: ${result.firstMakes.join(',')}`,
+		).toBeGreaterThan(idx[k - 1]!);
+	}
+}
+
+// Story 2.1c -- THE ORBIT. A Loop is an orbit (prd.md's own glossary, and
+// the spine's carried acceptance "orbit exits feed the flippers"): the ball
+// is shot up one lane, crosses the joined top, and descends the OTHER lane.
+// So the Right Loop feeds the LEFT inlane and the Left Loop feeds the RIGHT
+// one -- the opposite side, not the same side. Phase 1 authored these two
+// cases against the same-side reading, which is the reading the geometry
+// could not deliver and which the lead's own re-ordering retires; they are
+// corrected here, with the observable STRENGTHENED rather than relaxed: each
+// case now requires all FOUR Loop switches in approach order on ONE ball
+// (DW-123's own single-ball orbit, AC 7), the far side's inlane switch, and
+// a genuine flipper arrival, across a SWEEP of entry offsets rather than one
+// centreline.
+//
+// The entry band is measured, not assumed: the shot climbs the column
+// between the return rail's own tip and the lane's inner rail (see
+// LOOP_LANE_CLEAR_MM's own derivation in tools/make-placeholder-blend.py).
+// An offset outside that column is a MISS -- the ball never reaches the top
+// turn and comes straight back down its own lane -- which is correct
+// behaviour, not a defect, and is why the sweep samples inside the band
+// rather than across the whole lane.
+const LOOP_ENTRY_OFFSETS_MM = [28, 31, 34] as const;
+const laneX0Mm = nodeBboxMm('col_wall_lane').min.x;
+
+describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Left Loop, the orbit', () => {
+	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, id: `left-loop-orbit-${x}` })))(
+		'$label: one ball closes s_loop_l_in, s_loop_l_out, s_loop_r_out and s_loop_r_in in approach order, the orbit feeds the OPPOSITE (right) inlane, and the ball arrives playable at a bat',
+		({ id }) => {
+			const result = driveCase(id);
+			assertOrbitOrder(result, ['s_loop_l_in', 's_loop_l_out', 's_loop_r_out', 's_loop_r_in']);
+			// Story 2.1c review fix (verification-gap finding): col_spinner_l
+			// moved this story from the loop guide's own inner face to the
+			// perimeter face; no test anywhere (registry-only checks in
+			// test/table.test.ts / test/collision-loader.test.ts aside) ever
+			// drove a ball through its actual physical location, so a
+			// measurement error in the relocation could silently stop the
+			// spinner from counting rollovers with a fully green suite.
+			// Verified empirically (this fix's own diagnostic pass) that
+			// s_spinner closes on the Left Loop's own ascending entry, at
+			// every offset in this sweep.
+			// mutation: narrow sw_spinner's own authored x-span off this
+			// ascending column (5..45 -> 5..20) and re-export -> s_spinner is
+			// absent from firstMakes below.
+			// [CORRECTED 2026-09-03, code review pass 3] This note used to
+			// name "move col_spinner_l's own x/y" as the falsifier. It is
+			// not one, and the generator's own note records the experiment
+			// that proves it: under the AMENDED AD-6 (2026-09-03) a spinner
+			// is a pass-through GATE, col_spinner_l is intentionally
+			// non-colliding, and DELETING it from the committed collision
+			// document leaves all three Left Loop orbit cases green including
+			// this line. What this assertion genuinely pins is the analytic
+			// swept-segment zone (AD-11) against the ascending column -- real
+			// coverage, but of sw_spinner, not of the col_ node's placement.
+			// Story 2.1d renamed that node vis_spinner_l (re-authored as a
+			// presentation mesh, non-colliding, absent from the collision
+			// document) -- this line was never, and still is not, a guard on
+			// it.
+			expect(result.firstMakes, `s_spinner must close on the Left Loop's own ascending entry -- makes: ${result.firstMakes.join(',')}`).toContain('s_spinner');
+			expect(result.firstMakes, `s_inlane_r must close -- the Left Loop is an ORBIT and returns down the RIGHT lane, so it feeds the RIGHT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
+			assertNotStranded(result, 'Left Loop');
+			assertReachesFlipperBand(result, 'Left Loop', 'r');
+		},
+	);
+});
+
+describe('shot routing (AC 1/AC 3/AC 7 behavioural half) -- Right Loop, the orbit', () => {
+	it.each(LOOP_ENTRY_OFFSETS_MM.map((x) => ({ label: `entry offset ${x} mm`, id: `right-loop-orbit-${x}` })))(
+		'$label: one ball closes s_loop_r_in, s_loop_r_out, s_loop_l_out and s_loop_l_in in approach order, the orbit feeds the OPPOSITE (left) inlane, and the ball arrives playable at a bat',
+		({ id }) => {
+			const result = driveCase(id);
+			assertOrbitOrder(result, ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in']);
+			expect(result.firstMakes, `s_inlane_l must close -- the Right Loop is an ORBIT and returns down the LEFT lane, so it feeds the LEFT inlane -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_l');
+			assertNotStranded(result, 'Right Loop');
+			assertReachesFlipperBand(result, 'Right Loop', 'l');
+		},
+	);
+});
+
+// DW-123, stated as its own case so the ledger entry has one assertion to
+// point at: ONE ball, all four Loop switches. Both describes above prove it
+// too, deliberately -- the ledger's own complaint was that no test anywhere
+// showed a single ball closing both Loops' pairs, and once the top connector
+// is re-joined the orbit makes that the ORDINARY case rather than a special
+// one.
+describe('shot routing (AC 7, DW-123) -- the re-joined top connector: ONE ball closes both Loops\' switches', () => {
+	it('a single Right Loop shot closes s_loop_r_in, s_loop_r_out, s_loop_l_out and s_loop_l_in in one run', () => {
+		const result = driveCase('dw123-single-ball-orbit');
+		for (const name of ['s_loop_r_in', 's_loop_r_out', 's_loop_l_out', 's_loop_l_in'] as const) {
+			expect(result.firstMakes, `${name} must close on THIS ball -- makes: ${result.firstMakes.join(',')}`).toContain(name);
+		}
+		// mutation: shorten col_loop_top's left end back to x = 220 in the
+		// seeding script and re-export -> this goes red (the ball drops into open
+		// field partway across instead of reaching the far lane), reproducing
+		// exactly the gap DW-123 records.
+		expect(result.firstMakes.indexOf('s_loop_l_in'), 'the far Loop\'s own entrance switch closes LAST -- the ball leaves the orbit through it').toBeGreaterThan(result.firstMakes.indexOf('s_loop_l_out'));
+	});
+});
+
+// Story 2.1c review fix (MED finding): the orbit's own sweep only ever
+// samples LOOP_ENTRY_OFFSETS_MM (28, 31, 34), all three inside the 9 mm
+// entry column (27.5..36.5); assertReleaseClear() admits ball centres from
+// 13.5 to 52.5 in the same lane, so roughly 30 mm of the admissible band is
+// never driven at all. The file's own prose ("an offset outside that column
+// is a MISS ... which is correct behaviour, not a defect") had no test
+// behind it -- this closes that gap with the liveness contract the file
+// already applies to the DRAGON bank and the pops (assertNotStranded +
+// assertNotStillInPlay), with one genuine discovery this sweep's own first
+// run surfaced (kept, not smoothed over):
+//
+// The offset just past col_loop_top's own end (east of the column on the
+// left, mirrored west of it on the right -- i.e. offset 45, closer to the
+// table's own centre than the 9 mm column) does not fall back into its own
+// lane at all on the RIGHT side. Traced per tick: it enters (`s_loop_r_in`),
+// climbs, and near col_loop_r_deflector's own upper reach (the PLUNGE
+// mechanism's own redirect, not this story's geometry) gets carried into
+// col_wall_lane's own shooter-lane column instead, descends the WHOLE
+// shooter lane, closes `s_shooter_lane`, and settles at its own natural
+// rest point there (x ~ 494..500, y ~ 13.5) -- the same resting behaviour
+// `nudge-coupling.golden.json` already documents as legitimate ("the served
+// ball's final resting x ... ~497.4 mm"). This is a real, EXPLAINED
+// terminal state (a switch genuinely closed, the ball is not embedded or
+// silently frozen) -- a "sneak-back" to the plunger lane on a near-miss
+// orbit shot, not the DW-119 shape (a silent stall with no observable
+// event). The left side's mirror offset does not reproduce it (traced: it
+// falls back cleanly into its own outlane) -- the asymmetry tracks
+// col_loop_r_deflector, which exists only on the right (the plunge enters
+// there). assertLoopMissOutcome() below accepts this explained outcome
+// alongside the ordinary "falls back and drains/parks" case; it still fails
+// on a genuine silent stall (the DW-119 shape this sweep exists to catch).
+function assertLoopMissOutcome(result: ShotResult, label: string): void {
+	if (result.firstMakes.includes('s_shooter_lane')) {
+		// [STRENGTHENED 2026-09-03, code review pass 3] This used to be a
+		// bare `return`, which skipped BOTH liveness assertions below and so
+		// left the fourth row of this sweep -- the only one that actually
+		// takes this branch -- asserting nothing at all beyond
+		// assertReleaseClear(). The sneak-back IS a legitimate outcome, but
+		// it is a legitimate SPECIFIC outcome: the traced ball descends the
+		// whole shooter lane and settles at the plunger's own rest pose
+		// (x ~ 494..500, per this block's own note and nudge-coupling's own
+		// recorded resting x of ~497.4). Pin that, so a future change that
+		// closes s_shooter_lane and then strands the ball somewhere else --
+		// the DW-119 shape this sweep exists to catch -- still fails here.
+		expect(
+			result.finalPosMm,
+			`${label}: the shooter-lane sneak-back must end with a known position, not a null one`,
+		).not.toBeNull();
+		expect(
+			result.finalPosMm!.x,
+			`${label}: s_shooter_lane closed, so the ball must come to rest INSIDE the shooter lane (east of col_wall_lane's own west face at ${laneX0Mm}), not stranded elsewhere on the table -- final pos: ${JSON.stringify(result.finalPosMm)}, terminal: "${result.terminal}"`,
+		).toBeGreaterThan(laneX0Mm);
+		return;
+	}
+	assertNotStranded(result, label);
+	assertNotStillInPlay(result, label);
+}
+
+describe('shot routing (AC 1 behavioural half, review fix) -- entry offsets OUTSIDE the Loop\'s own 9 mm column, both lanes', () => {
+	it.each([
+		{ label: 'Left Loop, west of the column (inside the return rail\'s own reach)', id: 'loop-off-column-left-west-18' },
+		{ label: 'Left Loop, east of the column (past the top connector\'s own end)', id: 'loop-off-column-left-east-45' },
+		{ label: 'Right Loop, west of the column (mirrored)', id: 'loop-off-column-right-west-18' },
+		{ label: 'Right Loop, east of the column (mirrored) -- sneaks back to the shooter lane, see this block\'s own note above', id: 'loop-off-column-right-east-45' },
+	])('$label: a miss does not silently strand the ball -- it either falls back and resolves, or sneaks back to the shooter lane (s_shooter_lane closes)', ({ id }) => {
+		const result = driveCase(id);
+		assertLoopMissOutcome(result, `Loop entry off-column (x=${shotCase(id).startMm.x})`);
+	});
+});
+
+// Story 2.1c review fix (MED finding, continued): "one Loop case below
+// 2200 mm/s" -- every Loop case in this file drives at the same 2200 mm/s,
+// so nothing here shows what a WEAKER flipper shot does. A slower shot
+// missing the crossing (insufficient climb speed for col_loop_turn_l's own
+// 40 deg turn) is an expected miss, not a defect -- liveness only, same
+// contract as the off-column sweep above.
+describe('shot routing (AC 1 behavioural half, review fix) -- a Loop shot below the file\'s own standard 2200 mm/s', () => {
+	it('Left Loop at 1200 mm/s (centred in the entry column) does not strand the ball or leave it "still_in_play"', () => {
+		const result = driveCase('left-loop-1200');
+		expect(result.firstMakes, `s_loop_l_in must still close at this speed -- makes: ${result.firstMakes.join(',')}`).toContain('s_loop_l_in');
+		assertNotStranded(result, 'Left Loop at 1200 mm/s');
+		assertNotStillInPlay(result, 'Left Loop at 1200 mm/s');
+	});
+});
+
+describe('shot routing (AC 1 behavioural half) -- the Ramp, now a shot the table can deliver (DW-137 closed by Story 2.1f)', () => {
+	it('the Ramp, entered from the re-solved bottom-right corridor, closes s_ramp_enter then s_ramp_made in order and its return delivers to the right inlane feed onto the RIGHT flipper', () => {
+		const doc = readCollisionDoc();
+		expect(TABLE.reference.playfieldMm.w / 2, 'sanity: the Ramp entrance must be right of centre').toBeLessThan(
+			doc.nodes.find((n) => n.name === 'col_ramp_wall_l')!.bboxMm.min.x,
+		);
+		// [REWRITTEN, STORY 2.1f] What stood here recorded DW-137: this case's
+		// release point was NOT reachable by any real shot, and the block
+		// existed only to prove the Ramp's own RETURN geometry from a
+		// placement the story had already proven unreachable ("Do not read a
+		// pass here as 'the Ramp is reachable'"). The arithmetic it quoted was
+		// correct and is now history: a ball approaching from below could not
+		// push its centre past x = 300.505 (col_sling_r's west face minus the
+		// ball radius) while entering the Ramp channel needed a centre of at
+		// least x = 351.495 (col_ramp_wall_l's east face plus the ball
+		// radius) -- a 50.990 mm shortfall, and 256 swept releases closed
+		// s_ramp_enter zero times.
+		//
+		// Story 2.1f re-solved the whole bottom-right quadrant as one budget
+		// (tools/make-placeholder-blend.py, "the bottom-right corridor
+		// budget"). Measured on the re-exported document: col_sling_r's west
+		// face is now 332.400 and col_ramp_wall_l's east face 298.400, so the
+		// corridor OVERLAPS the Ramp channel by 34.000 mm against a 26.990 mm
+		// ball -- pnpm check:corridor reads +34.000 where it read -24.000.
+		//
+		// The claim this block now makes is behavioural, not dimensional, and
+		// it is witnessed: test/util/shot-cases.ts declares this case
+		// `reachable` via plunge-then-bat-r-3899, the right-bat witness
+		// Story 2.1f added -- a 285-tick plunge, the Right Loop's own return
+		// onto the RIGHT bat, one flip, closing s_ramp_enter then s_ramp_made
+		// with no teleport anywhere in it. That witness passes 2.153 mm from
+		// this release point. The release itself moved (355, 465) -> (315,
+		// 470), into the re-solved mouth.
+		//
+		// The return half of the assertion is unchanged in kind and in
+		// strength: OQ-6/FR-27's decided right-inlane return, checked
+		// explicitly rather than inferred from reachedFlipperBand, for the
+		// reason the Story 2.1c note below records.
+		const result = driveCase('ramp-return-geometry');
+		const enterIdx = result.firstMakes.indexOf('s_ramp_enter');
+		const madeIdx = result.firstMakes.indexOf('s_ramp_made');
+		expect(enterIdx, `s_ramp_enter must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
+		expect(madeIdx, `s_ramp_made must close -- makes: ${result.firstMakes.join(',')}`).toBeGreaterThanOrEqual(0);
+		expect(madeIdx, 's_ramp_made must close AFTER s_ramp_enter').toBeGreaterThan(enterIdx);
+		// OQ-6/FR-27 (decided): the Ramp's return must deliver to the RIGHT
+		// inlane. Checked explicitly, not inferred from reachedFlipperBand
+		// alone -- Story 2.1c's own planning pass found a fluke path on the
+		// UNFIXED geometry that reaches a flipper band by accident (the ball
+		// sails past the return rail entirely at this shot speed, since
+		// nothing caps the open top of the ramp channel, bounces off
+		// unrelated geometry near the top of the table, and happens to fall
+		// back through the right flipper band on its way to a CENTRE drain)
+		// without ever closing s_inlane_r -- reachedFlipperBand alone would
+		// have missed that this shot is not genuinely routed.
+		expect(result.firstMakes, `s_inlane_r must close -- the Ramp's return must feed the right INLANE (OQ-6/FR-27) -- makes: ${result.firstMakes.join(',')}`).toContain('s_inlane_r');
+		assertNotStranded(result, 'Ramp');
+		assertReachesFlipperBand(result, 'Ramp', 'r');
+	});
+});
+
+// Story 2.1c's own I/O & Edge-Case Matrix, "Centre drain must not read as a
+// flipper feed" row -- the exact vacuity the pin repair (task 1) exists to
+// close: the OLD single FLIPPER_BAND (x 140..375) contained the centre
+// drain corridor (x 240.875..273.525, between col_guide_outer_l/r), so a
+// dead-centre drain satisfied "reached a flipper". FLIPPER_BAND_L/_R
+// (above) exclude that corridor BY CONSTRUCTION -- each band is anchored on
+// its own bat's x-span, and neither bat's x-span reaches the centre -- but
+// that structural guarantee was never exercised behaviourally until this
+// case: a ball genuinely released on the centreline and driven through the
+// real physics pipeline, read via the same ShotResult fields (terminal,
+// reachedFlipperBand) every other case in this file uses.
+describe('shot routing (matrix row: centre drain must not read as a flipper feed) -- dead-centre descent', () => {
+	it('a ball released on the centreline and descending straight through the centre drain corridor leaves play WITHOUT ever reaching a flipper band, classified centre_drain', () => {
+		// 257.2 -- TABLE.reference.playfieldMm.w / 2 -- sits inside the
+		// 240.875..273.525 corridor the matrix row names, symmetric between
+		// col_guide_outer_l/r (test/drain-routing.test.ts's own "centre
+		// channel" describe block already measured this exact release point
+		// clear, with 0.00 mm lateral drift and drainage by tick 911 -- this
+		// solver's gravity has no x-component, so a centred release cannot
+		// drift regardless of geometry). Near-zero initial speed: gravity
+		// alone drives the fall, the same "drop" convention the
+		// descending-release sweep below uses.
+		const result = driveCase('centre-drain-descent');
+		expect(
+			result.leftPlay,
+			`the ball must leave play (drain) within the tick budget for this case to be evidence -- final pos: ${JSON.stringify(result.finalPosMm)}, terminal: "${result.terminal}"`,
+		).toBe(true);
+		expect(
+			result.reachedFlipperBand,
+			`a dead-centre descent must NEVER read as "reached a flipper" -- mutation: widen FLIPPER_BAND_L/_R back to the pre-2.1c span (x 140..375) -> this goes red, which is exactly the vacuity the repair closes; makes: ${result.firstMakes.join(',')}, final pos: ${JSON.stringify(result.finalPosMm)}`,
+		).toBe(false);
+		expect(result.terminal, `terminal must classify as centre_drain, not "flipper" -- makes: ${result.firstMakes.join(',')}`).toBe('centre_drain');
+	});
+});
+
+describe('shot routing (AC 1 behavioural half, task 16a) -- Dragon body', () => {
+	it('a slightly-off Lock-lane shot strikes the body face (s_dragon_body closes), and the ball is not stranded', () => {
+		// x = 140: inside col_dragon_leg_l's own x-span (90..150) but clear of
+		// the left slingshot's own footprint (70..130, y 420..455), which
+		// otherwise sits directly in a straight vertical path to the leg's
+		// face -- found and verified this story's own planning pass.
+		const result = driveCase('dragon-body');
+		expect(result.firstMakes, `s_dragon_body must close -- makes: ${result.firstMakes.join(',')}`).toContain('s_dragon_body');
+		// AC 4's second clause (DW-122, col_dragon_body does not exist): a
+		// slightly-off Lock-lane shot must leave bd_lock entirely untouched.
+		expect(result.deviceSlots.bd_lock, 'a Dragon-body graze must not touch bd_lock at all').toEqual([false, false, false]);
+		assertNotStranded(result, 'Dragon body');
+		assertNotStillInPlay(result, 'Dragon body');
+	});
+});
+
+describe('shot routing (AC 1 behavioural half, task 16a) -- Lock lane', () => {
+	it('a precise shot up the centreline threads the Lock lane (s_lock_lane closes) without striking either leg', () => {
+		// Two separate drives, deliberately: "does THIS shot clip a leg on
+		// its own way through" is a claim about the immediate approach, not
+		// about the ball's whole subsequent life on the table. Found this
+		// rework's own review pass: raising the tick budget to observe the
+		// eventual fate (item (c)) also let a genuinely UNRELATED later
+		// event into `firstMakes` -- past the open lock lane the ball
+		// sails on, clips the pop bumpers (s_pop_3, s_pop_1), ricochets back
+		// down and THEN grazes a leg (s_dragon_body) around tick 2515,
+		// thousands of ticks after clearing the lock lane -- before finally
+		// draining normally (leftPlay). That is ordinary continued
+		// gameplay, not the shot this test is pinning; asserting against it
+		// would make the leg-clip check meaningless (anything that plays
+		// long enough eventually touches something). The short drive below
+		// is bounded to the shot's own immediate approach (500 ticks --
+		// comfortably past DRAGON_LEG_Y1_MM = 620, this file's own original
+		// budget for exactly this reason); the long drive covers the
+		// eventual-fate assertions item (c) actually calls for.
+		const immediate = driveCase('lock-lane-immediate');
+		expect(immediate.firstMakes, `s_lock_lane must close -- makes: ${immediate.firstMakes.join(',')}`).toContain('s_lock_lane');
+		expect(immediate.firstMakes, 'a precise centreline shot must not also strike a leg face on its own way through').not.toContain('s_dragon_body');
+
+		// Story 2.1d task 18: before this story's device-behaviour fix,
+		// bd_lock booted full ([true,true,true]) so the ball this shot sends
+		// up the lane could never be parked -- device_overflow fired
+		// (invisible to GameState) and the ball continued to drain normally
+		// via bd_trough, which is why this case's own assertions used to be
+		// the weak "not stranded, not still in play" (equally true of a
+		// drain). Now that bd_lock boots empty and the eject/zone fixes are
+		// in, the SAME shot is genuinely captured -- assert the strictly
+		// stronger, previously-unreachable outcome: the switch sequence
+		// s_lock_lane then s_lock_1.
+		//
+		// [REPLACED, Story 2.3, DW-155, task 12] `expect(result.terminal).toBe
+		// ('locked')` used to close this case -- but `classifyTerminal()`
+		// decides `'locked'` purely from `firstMakes.includes('s_lock_1')`
+		// (`:113-115` above), which `assertOrbitOrder`'s own `s_lock_1`
+		// membership check one line above ALREADY establishes. `terminal`
+		// therefore added exactly one bit ("did not reach a flipper band")
+		// and zero bits about whether `bd_lock` actually holds a ball -- sound
+		// only because `s_lock_1` happened to be tracker-excluded so
+		// `devices.ts:530` was its sole emitter, an accident of the exclusion
+		// set this story's own bank/spinner ownership widens. The replacement
+		// reads the ONE state a real park actually writes
+		// (`machine.deviceSlots`, AD-6: "the number of closed slot switches
+		// and nothing else") and the ContactEvent that carries the ball's own
+		// id, plus the ball genuinely leaving the simulated set on that same
+		// tick -- none of which a switch make alone can forge.
+		// mutation (this story's own Rule 19, AC 4): in devices.ts:529, set
+		// the slot true but skip physics.removeBall() -> this test goes red
+		// naming finalBallCount as unchanged on the tick the bd_lock hit
+		// contact fired, while s_lock_1 still closes and the old
+		// terminal==='locked' claim would still have passed -- applied by
+		// hand this pass, observed red, and reverted (see this story's
+		// completion report).
+		const result = driveCase('lock-lane-long');
+		assertOrbitOrder(result, ['s_lock_lane', 's_lock_1']);
+		expect(result.deviceSlots.bd_lock, `bd_lock must hold exactly one ball in its lowest slot -- deviceSlots: ${JSON.stringify(result.deviceSlots.bd_lock)}`).toEqual([true, false, false]);
+		const lockHits = result.contactEvents.filter((c) => c.kind === 'hit' && c.device === 'bd_lock');
+		expect(lockHits.length, `exactly one bd_lock hit contact expected -- contacts: ${JSON.stringify(lockHits)}`).toBe(1);
+		expect(lockHits[0]!.ballId, 'the hit contact must carry the captured ball\'s id').toBeDefined();
+		expect(result.finalBallCount, 'the ball must have left machine.balls -- a real park, not a switch make alone').toBe(0);
+		// [RESTORED, code review this pass.] Task 12 said to REPLACE the old
+		// `terminal === 'locked'` claim with the capture observables above,
+		// and the four lines above are that replacement -- but the same task
+		// also said in terms "the point is to add the observable a switch
+		// make cannot forge, NOT to remove one", and deleting this line
+		// outright left `classifyTerminal()`'s own `'locked'` branch
+		// (`:113-115`) asserted by NOTHING anywhere in the suite: a grep for
+		// `toBe('locked')` returned zero hits, so that branch could regress
+		// silently. Kept here deliberately as coverage of the classifier
+		// itself, explicitly NOT as evidence of a capture -- the three
+		// assertions above are what establish that, and they are what AC 4's
+		// "does not rest on `terminal`" clause is satisfied by.
+		expect(result.terminal, `classifyTerminal() must still classify this drive as 'locked' -- this asserts the CLASSIFIER's own branch, not the capture (see the four assertions above for that) -- makes: ${result.firstMakes.join(',')}`).toBe('locked');
+		assertNotStranded(result, 'Lock lane');
+	});
+});
+
+describe('shot routing (AC 7, DW-134) -- a wandering ball does not enter the Lock', () => {
+	// [STORY 2.1d] closed DW-134 structurally: `col_lock_ceiling` (x 146..194,
+	// y 598..642) and `col_lock_ceiling_west_fill` (x 90..150, y 598..672) now
+	// cover the surface the shed-off-the-bevel ball used to land on, and the
+	// corridor's only opening is the south mouth at y = 480. This story's own
+	// planning measurement (2026-09-05, spec Design Notes): the entry's three
+	// named columns' ORIGINAL points now sit inside those bodies (0.000 mm
+	// clearance, DW-77, so they cannot legally be driven at all); their
+	// committed successors and a dense x = 92..232 step 4 sweep at y 680/700
+	// (56 driven columns, 16 skipped as DW-77 violations) both measured
+	// s_lock_lane closed ZERO times and bd_lock captured ZERO times. The
+	// three cases below are the successors' own manifest entries
+	// (`test/util/shot-cases.ts`) -- already declared `unreachable` (DW-138),
+	// driven here anyway (unreachable is a claim about ball TRAJECTORIES
+	// reaching the release point, not about whether the release point itself
+	// may be teleported to and observed).
+	//
+	// mutation (this story's own Rule 19, AC 7): in an ISOLATED COPY of the
+	// committed collision document (never the worktree), widen sw_lock_lane's
+	// own y-span north so these columns re-enter it -> this test goes red
+	// naming the column and the tick s_lock_lane closed, while the
+	// lock-lane-long control still captures -- proving the absence assertion
+	// is genuinely falsifiable and not vacuous on an empty subject set. Not
+	// re-run against the shipped document (`git diff public/assets/` stays
+	// empty, confirmed in this story's own Verification pass) -- see this
+	// story's completion report for the isolated-copy measurement.
+	const wanderingColumns = ['descend-dragon-leg-l', 'descend-ramp-wall-l', 'descend-ramp-turn-cap'] as const;
+
+	it.each(wanderingColumns.map((id) => ({ id })))('$id: s_lock_lane never closes and bd_lock is never touched', ({ id }) => {
+		const result = driveCase(id);
+		expect(result.allSwitchEvents.filter((e) => e.switch === 's_lock_lane'), `s_lock_lane must never close for "${id}" -- edges: ${JSON.stringify(result.allSwitchEvents.filter((e) => e.switch === 's_lock_lane'))}`).toEqual([]);
+		expect(result.deviceSlots.bd_lock, `bd_lock must be untouched by "${id}"`).toEqual([false, false, false]);
+	});
+
+	it('the paired true positive: lock-lane-long DOES close s_lock_lane and DOES capture -- the absence assertion above can observably fail', () => {
+		const result = driveCase('lock-lane-long');
+		expect(result.allSwitchEvents.some((e) => e.switch === 's_lock_lane' && e.closed), 'the control shot must close s_lock_lane').toBe(true);
+		expect(result.deviceSlots.bd_lock, 'the control shot must capture').toEqual([true, false, false]);
+	});
+});
+
+describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => {
+	const bankLetters: readonly SwitchName[] = ['s_dragon_d', 's_dragon_r', 's_dragon_a', 's_dragon_g', 's_dragon_o', 's_dragon_n'];
+
+	// [REPLACED, STORY 2.1f -- task 9] Two cases stood here,
+	// 'dragon-bank-left-column-294' and 'dragon-bank-right-column-300', both
+	// driven straight up the pre-2.1f corridor and both asserting only that
+	// AT LEAST ONE of the six targets closes. That assertion was satisfiable
+	// with two targets out of six, which is precisely the state DW-136
+	// records, so it could never have failed for the reason the AC cares
+	// about. Both are replaced by the six per-letter cases below.
+	//
+	// The measurement that retired them rather than re-siting them, recorded
+	// because it is a real property of the re-solved quadrant: the Ramp's own
+	// west wall (col_ramp_wall_l, x 286.4..298.4, y 485..825) now stands
+	// between the corridor and the bank. A ball rising in the corridor must
+	// have its centre at or east of 311.9 to pass EAST of that wall (which
+	// takes it up the Ramp channel -- the shot the corridor re-solve exists to
+	// create) or at or west of 272.9 to pass WEST of it. From a release inside
+	// the corridor band (x 293.0..318.9) driven straight up-table, every aim
+	// swept from -30 to +4 degrees at 1400/1600/2000/2400 mm/s either enters
+	// the Ramp or strikes the wall; only x = 318 with a steep westward aim
+	// crosses the bank at all. A real ball does reach the bank, and that is
+	// what the per-letter cases below assert: each of their release points
+	// lies on the swept path of plunge-then-bat-r-3906 -- a 285-tick plunge,
+	// the Right Loop return onto the RIGHT bat, one flip -- whose single shot
+	// closes s_dragon_a, s_dragon_g, s_dragon_o and s_dragon_n in one pass
+	// after crossing west of the Ramp wall below its own southern end.
+
+	// [STORY 2.1f, AC 3 -- DW-136] The two cases above assert only that AT
+	// LEAST ONE of the six closes, which the pre-2.1f corridor satisfied with
+	// two targets out of six and which nothing in the suite ever strengthened.
+	// "All six strikable" is the acceptance criterion, so it is asserted here
+	// per target, one case per letter, each from its own witnessed release
+	// point (see test/util/shot-cases.ts for the measured clearance, witness
+	// and closest approach behind each).
+	//
+	// The subject list is DERIVED from `bankLetters` above rather than typed
+	// again, so a seventh target -- or a renamed one -- cannot silently escape
+	// the sweep, and the non-vacuity check below pins the count to the
+	// document's own switch set rather than to a literal.
+	// The ids are written out rather than templated so that
+	// test/shot-reachability.test.ts's "every manifest entry is actually
+	// driven" scan can see each one; the list is checked against bankLetters
+	// immediately below, so it cannot drift from the switch set.
+	const perLetterCases: readonly { sw: SwitchName; id: string }[] = [
+		{ sw: 's_dragon_d', id: 'dragon-target-d' },
+		{ sw: 's_dragon_r', id: 'dragon-target-r' },
+		{ sw: 's_dragon_a', id: 'dragon-target-a' },
+		{ sw: 's_dragon_g', id: 'dragon-target-g' },
+		{ sw: 's_dragon_o', id: 'dragon-target-o' },
+		{ sw: 's_dragon_n', id: 'dragon-target-n' },
+	];
+
+	it.each(perLetterCases)(
+		'$sw: its OWN target closes on a shot up its own column, and the ball is not stranded',
+		({ sw, id }) => {
+			const result = driveCase(id);
+			expect(
+				result.firstMakes,
+				`${sw} must close on case "${id}" -- this is the per-target half of DW-136 ("all six strikable"), which the old "at least one of the six" assertion could satisfy with two. makes: ${result.firstMakes.join(',')}`,
+			).toContain(sw);
+			assertNotStranded(result, `DRAGON target ${sw}`);
+			assertNotStillInPlay(result, `DRAGON target ${sw}`);
+		},
+	);
+
+	it('the six per-letter cases cover every DRAGON target the committed document declares -- the sweep is derived from the switch set, never a hand list', () => {
+		const doc = readCollisionDoc();
+		const declared = new Set(
+			doc.switchZones
+				.map((z) => z.switch)
+				.filter((sw): sw is SwitchName => typeof sw === 'string' && /^s_dragon_[a-z]+$/.test(sw) && sw !== 's_dragon_body'),
+		);
+		expect(declared.size, 'sanity: the committed document must declare DRAGON target switch zones, or the per-letter sweep above is vacuous').toBeGreaterThan(0);
+		expect(
+			[...declared].sort(),
+			'every s_dragon_<letter> zone in the committed document must have its own per-letter routing case -- a target added to the bank without one would be untested',
+		).toEqual([...bankLetters].sort());
+		expect(
+			perLetterCases.map((c) => c.sw).sort(),
+			'the per-letter case list above must cover exactly bankLetters -- a case list that drifts from the switch set silently stops testing a target',
+		).toEqual([...bankLetters].sort());
+	});
+});
+
+describe('shot routing (AC 1 behavioural half, task 16a) -- Top lanes', () => {
+	it.each([
+		// Story 2.1c task 2: lane 1's release moved 145 -> 110. 145 sat inside
+		// sw_pop_3's own zone (x 142..218, y 832..908) -- a switch-zone
+		// contamination this file's own Code Map flagged, though not a col_
+		// footprint embed. The obvious replacement, x = 130, is col_pop_1's
+		// own centre x -- the ball descends dead onto that octagon's single
+		// apex vertex after bouncing off the top wall and settles into a
+		// perfectly balanced, permanently stranded equilibrium (measured:
+		// pinned to y = 833.5 +/- 0.05 mm for the remaining ~5600 ticks) --
+		// this solver's own version of the DW-119 flat-face trap, but for a
+		// single symmetric vertex under x-free gravity rather than a flat
+		// face. x = 110 (verified this story's own diagnostic pass) makes a
+		// genuinely off-centre, asymmetric graze instead and drains cleanly.
+		{ label: 'lane 1', id: 'top-lane-1', expected: 's_top_1' as SwitchName },
+		{ label: 'lane 2', id: 'top-lane-2', expected: 's_top_2' as SwitchName },
+		{ label: 'lane 3', id: 'top-lane-3', expected: 's_top_3' as SwitchName },
+	])('$label: its own top-lane switch closes on a ball entering from below, and the ball is not stranded', ({ id, expected }) => {
+		const result = driveCase(id);
+		expect(result.firstMakes, `${expected} must close -- makes: ${result.firstMakes.join(',')}`).toContain(expected);
+		assertNotStranded(result, `Top lane (${expected})`);
+		assertNotStillInPlay(result, `Top lane (${expected})`);
+	});
+});
+
+describe('shot routing (AC 1 behavioural half, task 16a) -- both slingshots', () => {
+	it.each([
+		// Story 2.1c: both slingshots moved inboard (the corridor between each
+		// divider guide and its own sling measured 23.1 mm on the left and
+		// 11.5 mm on the right against a 26.99 mm ball -- the inlanes were not
+		// merely unfed, they were physically unreachable). Both releases move
+		// with them, and both now clear the new col_guide_inlane_l/_r too.
+		{ label: 'left slingshot', id: 'slingshot-left', switchName: 's_sling_l' as SwitchName },
+		{ label: 'right slingshot', id: 'slingshot-right', switchName: 's_sling_r' as SwitchName },
+	])('$label: its own switch closes, and the miss reaches an inlane or drains rather than stranding', ({ id, switchName }) => {
+		const result = driveCase(id);
+		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
+		assertNotStranded(result, `Slingshot (${switchName})`);
+		assertNotStillInPlay(result, `Slingshot (${switchName})`);
+	});
+});
+
+describe('shot routing (AC 1 behavioural half, task 16a) -- the three pop bumpers', () => {
+	it.each([
+		{ label: 'pop 1', id: 'pop-bumper-1', switchName: 's_pop_1' as SwitchName },
+		// Story 2.1c task 2: y moved from targetY-100 (700, unchanged) is fine
+		// here, but x moved 230 -> 220 -- (230, 700) sat 0.69 mm inside
+		// col_dragon_bank_backstop's own sloped corner (Code Map). Then
+		// 220 -> 200 in Phase 2, when the DRAGON bank moved west
+		// (DRAGON_BANK_X0_MM 255 -> 235, shipped 240) to clear the widened Right Loop
+		// lane and carried its backstop with it (x 240..341 -> 220..321),
+		// putting 220 back inside the same corner. [The "230 -> 220" half of
+		// this comment stood alone against a shipped 200 until 2026-09-03;
+		// completed at code review, no release point moved.]
+		{ label: 'pop 2', id: 'pop-bumper-2', switchName: 's_pop_2' as SwitchName },
+		{ label: 'pop 3', id: 'pop-bumper-3', switchName: 's_pop_3' as SwitchName },
+	])('$label: its own switch closes on a ball rolled toward it, and the ball is not stranded', ({ id, switchName }) => {
+		const result = driveCase(id);
+		expect(result.firstMakes, `${switchName} must close -- makes: ${result.firstMakes.join(',')}`).toContain(switchName);
+		assertNotStranded(result, `Pop bumper (${switchName})`);
+		assertNotStillInPlay(result, `Pop bumper (${switchName})`);
+	});
+});
+
+// Rework iteration 2, item (e): every case above shoots the ball UPWARD
+// from y >= 380, so nothing ever descended onto the new bodies from above
+// -- the only direction that produced the eleven measured stalls (this
+// rework's own investigation: a plain axis-aligned rectangle's north edge
+// is exactly perpendicular to this solver's gravity, so a ball landing on
+// it from above has zero tangential force and parks). This sweep drops a
+// ball (near-zero initial speed, so gravity alone drives it) from directly
+// above each body the rework's own bevel fix (tools/make-placeholder-
+// blend.py's add_box_wall_sloped()) addressed, and asserts genuine
+// positional progress -- the exact mutation this rework's own review
+// demands: reverting one body's bevel back to add_box_wall() (a flat north
+// face) must turn its own case here red.
+//
+// Story 2.1c task 2: two columns were mislabelled and landed inside a
+// DIFFERENT body than the one named -- "left slingshot (col_sling_l)" at
+// (100, 500) was fully inside col_dragon_leg_l (y 500 is past the sling's
+// own north face at 455, already inside the leg's own y-span starting at
+// 480), and "right slingshot" at (385, 500) was 9.50 mm inside
+// col_ramp_wall_r AND inside sw_ramp_enter -- neither actually swept
+// col_sling_l/_r's own rebevelled face at all. Both moved to sit directly
+// above their OWN named body's own north face instead. "DRAGON bank,
+// col_dragon_n" moved 330.5 -> 326 (1.00 mm short of col_ramp_wall_l).
+// A new column, "Ramp right wall cap (col_ramp_wall_r)", covers the
+// dead-flat north cap at y = 825, x 389..401 -- ungated before this task
+// (Code Map: "the descending sweep has no column there").
+describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- descending release onto the rebevelled flat-topped bodies', () => {
+	it.each([
+		// Story 2.1c: every column below is re-sited over the body it names,
+		// because this story moved most of them (both slingshots inboard, the
+		// Ramp west and up, the DRAGON bank west). Two NEW flat-topped bodies
+		// join the sweep as well -- col_ramp_turn's own cap and
+		// col_loop_r_lower's -- both authored by this story and both bevelled
+		// for the same DW-119 reason as the rest.
+		{ label: 'left slingshot (col_sling_l)', id: 'descend-sling-l' },
+		{ label: 'right slingshot (col_sling_r)', id: 'descend-sling-r' },
+		{ label: 'left Dragon leg (col_dragon_leg_l)', id: 'descend-dragon-leg-l' },
+		{ label: 'right Dragon leg (col_dragon_leg_r)', id: 'descend-dragon-leg-r' },
+		{ label: 'Ramp left wall (col_ramp_wall_l)', id: 'descend-ramp-wall-l' },
+		{ label: 'Ramp right wall cap (col_ramp_wall_r)', id: 'descend-ramp-wall-r-cap' },
+		{ label: 'Ramp top turn cap (col_ramp_turn)', id: 'descend-ramp-turn-cap' },
+		// col_loop_r_lower's own cap has no column of its own: the gap between
+		// it and col_ramp_return_1 above measures 13 mm, under the reference
+		// ball, so nothing can be dropped onto it from directly above. It is
+		// exercised instead by the Ramp case, whose return lands on it and
+		// slides east off it on every made shot (traced).
+		{ label: 'Ramp return rail (col_ramp_return_1)', id: 'descend-ramp-return-rail' },
+		{ label: 'DRAGON bank, col_dragon_d (leftmost target)', id: 'descend-dragon-d' },
+		{ label: 'DRAGON bank, col_dragon_n (rightmost target)', id: 'descend-dragon-n' },
+		// [STORY 2.1f, code review] col_wall_lane's own north cap: the DW-119
+		// swallow this story's AC 9 generator found and this story bevelled
+		// to 26.565 deg. Pinned by a ball because the "steep enough" branch
+		// that now exempts it is the inference this same change measured
+		// UNRELIABLE 25 mm away (PLUNGE_DEFLECTOR_CAP_RISE_MM's own comment:
+		// 26.57 deg still stranded on col_loop_r_deflector). See the case's
+		// own note in test/util/shot-cases.ts for the measurements.
+		{ label: 'shooter-lane divider cap (col_wall_lane)', id: 'descend-wall-lane-cap' },
+		// Story 2.1c review fix (MED finding): col_loop_top's own north face
+		// (the re-joined DW-123 connector) is 368.4 mm wide (x 50..418.4) --
+		// by far the largest north face on the table. It USED to be dead
+		// flat, argued safe in the generator's own comment ("the plunged ball
+		// is already travelling west well before it reaches this height")
+		// rather than tested; these two columns are what tested it, and they
+		// found the genuine DW-119 stall that flatness caused. It sits
+		// directly under the 50 mm channel a plunged ball (and an orbiting
+		// ball crossing col_loop_turn_l/_r) rides through, so a ball CAN
+		// genuinely be above it. Two columns, away from both turns and away
+		// from the off-column sweep's own shooter-lane finding above.
+		// [CORRECTED 2026-09-03, code review pass 3] The face is NO LONGER
+		// flat: the same rework that added these columns replaced it with a
+		// RIDGE_DROP_MM = 2.5 mm ridge peaking at x = 234.2, and these two
+		// columns are its pin. Re-verified at code review by mutating the
+		// committed collision document: flattening the ridge back to a quad
+		// turns exactly these two cases red and nothing else in this file,
+		// while test/asset-contract.test.ts stays 44/44 green (no dimensional
+		// gate reads the ridge). Steepening it to 5.0 mm instead turns the
+		// Left Loop's own 34 mm entry-offset case red, matching the sweep the
+		// generator records. Document reverted, SHA-256 byte-identical.
+		// Note the peak itself (x = 234.2) is an unstable equilibrium and is
+		// deliberately NOT sampled here: measured at code review, a ball set
+		// at rest exactly on it makes 0.05 mm of progress in 500 ticks, while
+		// 1 mm either side of it rolls off normally (26 mm). That is the
+		// knife-edge the generator's own note calls out, not a defect these
+		// columns should chase.
+		{ label: 'col_loop_top, west of centre', id: 'descend-loop-top-west' },
+		{ label: 'col_loop_top, east of centre', id: 'descend-loop-top-east' },
+		// Rework iteration 3 (code review 2026-09-04, HIGH finding): the
+		// Lock lane's own corridor seal (col_lock_ceiling,
+		// col_lock_ceiling_west_fill, rework iteration 2) had no column in
+		// this sweep -- the exact discipline that already found col_loop_
+		// top's own strand above -- and a ball came to PERMANENT rest on
+		// col_lock_ceiling's own east flank (182.6, 631.3) as a result.
+		// LOCK_CEILING_RIDGE_MM raised 10.0 -> 28.0 (peak 624 -> 642) and a
+		// new LOCK_CEILING_EAST_SHOULDER_MM (626) added to clear
+		// col_dragon_leg_r's own cap corner (620) with real margin -- the
+		// west shoulder (614) and the peak's own x-position
+		// (LOCK_CEILING_RIDGE_PEAK_FRACTION, unchanged) were not moved, so
+		// the west flank stays safe too. Both flanks now clear the table's
+		// own 18.43 deg static-friction threshold with real margin; these
+		// three columns are its own permanent regression pin.
+		{ label: 'col_lock_ceiling, west flank', id: 'descend-lock-ceiling-west' },
+		{ label: 'col_lock_ceiling, east flank (the strand location)', id: 'descend-lock-ceiling-east' },
+		{ label: 'col_lock_ceiling_west_fill', id: 'descend-lock-ceiling-west-fill' },
+		// Rework iteration 4 (code review 2026-09-04, HIGH finding): the new
+		// FR-31 terminator col_post_dragon_leg_r stranded a ball against
+		// col_dragon_leg_r's own sloped cap -- this sweep's own
+		// one-column-per-body discipline had a column for the LEG (above,
+		// x = 220, outside the strand's own x = 210..212 band) but none for
+		// the POST itself. Fixed with a 3.0 mm SOUTH offset on the post
+		// (tools/make-placeholder-blend.py); this column is its own
+		// permanent regression pin.
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand location', id: 'descend-dragon-leg-r-post' },
+		// Rework iteration 4 code review (2026-09-04, blind-hunter/edge-case-
+		// hunter build-auto review pass): the post-fix sweep verified the
+		// WHOLE neighbourhood clear, but only the band's own centre (above)
+		// was pinned as a permanent column. Widened to the two edges the
+		// ORIGINAL pre-fix HIGH finding reproduced exactly.
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- west edge', id: 'descend-dragon-leg-r-post-200' },
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r strand band -- east edge', id: 'descend-dragon-leg-r-post-203' },
+		// Rework iteration 4 code review (2026-09-04, verification-gap layer,
+		// independently reproduced by the reviewer): the three columns above
+		// share y = 680 and all stay GREEN when the fix's own offset is
+		// trimmed 3.0 -> 2.0 mm -- the value the generator records as
+		// leaving a residual strand at (212, 660). This column releases
+		// inside that band, so the pin now covers the fix's measured margin
+		// and not merely its direction. See test/util/shot-cases.ts's own
+		// note on this case for the measurement.
+		{ label: 'col_dragon_leg_r, the col_post_dragon_leg_r residual band a 1 mm offset trim reopens', id: 'descend-dragon-leg-r-post-660' },
+		// Story 2.2, DW-148: the same discipline applied to a VERTEX rather
+		// than a flat face -- a ball released dead-centre over col_pop_1's
+		// own apex settles into a permanent equilibrium exactly like every
+		// other body in this sweep, closed here by the pop-bumper kick
+		// (sim/physics/pops.ts) rather than by a geometry change (no col_
+		// coordinate moved this story).
+		{ label: 'col_pop_1, the DW-148 apex-vertex strand', id: 'descend-pop-1' },
+	])('$label: a ball dropped from directly above makes genuine positional progress rather than parking on the flat-topped body\'s own north face', ({ id }) => {
+		const result = driveCase(id);
+		const { x, y } = shotCase(id).startMm;
+		assertNotStranded(result, `Descending release (${x}, ${y})`);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Story 2.1f, AC 9 (DW-119's discipline, generalised): the DESCENDING-STRAND
+// SUBJECT SET, derived from the committed document rather than hand-listed.
+//
+// The `it.each` list above is a hand list, and a hand list cannot see a hazard
+// beside a body nobody wrote down. That is exactly how Story 2.1d shipped a
+// swallow, then a strand on col_lock_ceiling_west_fill's own flank, then a
+// strand beside col_post_dragon_leg_r in the x = 210..212 band the x = 220
+// column stepped over -- three misses in a row, each found only after the
+// fact. This gate closes the class: it derives every EXPOSED north-facing
+// footprint edge in the committed document and requires each one to be either
+//
+//   (a) STEEP ENOUGH that a resting ball must slide off it -- the edge's own
+//       grade at or above the real slide threshold,
+//       atan(TUNING.materials.default.friction) = atan(0.3) = 16.699 deg (not
+//       the 18.43 deg several comments in this repository still quote), or
+//   (b) PROBED BEHAVIOURALLY by a descending column in the manifest, or
+//   (c) DECLARED, with its reason, as a place a ball is MEANT to come to rest.
+//
+// Every body this story adds or moves is covered without anyone listing it,
+// which is the point. It found two hazards on its first run that no hand list
+// had ever covered, both of them pre-existing and neither introduced here:
+// col_wall_lane's own flat 12 mm north cap at y = 950 (a ball released at
+// (474.40, 979.0) parked permanently at (474.40, 963.49)) and
+// col_loop_r_deflector's own flat 34 mm ledge at y = 1016.8, with 50 mm of
+// closed pocket above it (parked at (497.40, 1030.30)). Both are fixed in
+// tools/make-placeholder-blend.py in this same change; see their own node
+// comments for the measurements.
+//
+// mutation: re-bevel any moved body's north-facing flank to a grade below
+// 16.699 deg and re-export -> that body appears in the derived set below and,
+// with no column for it in the manifest, this gate goes red naming the body,
+// the edge and the measured grade, with nobody having added a column for it.
+describe('shot routing (AC 1 behavioural half, Story 2.1f AC 9) -- the descending-strand subject set is DERIVED from the committed document', () => {
+	/** The real slide threshold, from the tuning the solver itself reads. */
+	const SLIDE_THRESHOLD_DEG = (Math.atan(TUNING.materials.default.friction.value) * 180) / Math.PI;
+	const BOUNDARY_EPSILON_MM = 0.05;
+
+	interface ExposedFace {
+		readonly body: string;
+		readonly gradeDeg: number;
+		readonly midMm: { readonly x: number; readonly y: number };
+		readonly releaseMm: { readonly x: number; readonly y: number };
+	}
+
+	function pointInPolygonMm(poly: readonly { readonly x: number; readonly y: number }[], p: { readonly x: number; readonly y: number }): boolean {
+		let inside = false;
+		for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+			const vi = poly[i]!;
+			const vj = poly[j]!;
+			const crosses = vi.y > p.y !== vj.y > p.y;
+			if (crosses && p.x < ((vj.x - vi.x) * (p.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+				inside = !inside;
+			}
+		}
+		return inside;
+	}
+
+	/** Every north-facing footprint edge a descending ball can actually reach, with its own grade from horizontal. */
+	function deriveExposedNorthFaces(): ExposedFace[] {
+		const doc = readCollisionDoc();
+		const bodies = doc.nodes.filter((n) => n.name.startsWith('col_') && n.shape === 'wall' && n.footprintMm !== undefined);
+		const playfield = TABLE.reference.playfieldMm;
+		const faces: ExposedFace[] = [];
+		function clearanceMm(p: { readonly x: number; readonly y: number }): number {
+			let nearest = Infinity;
+			for (const body of bodies) {
+				const poly = body.footprintMm!;
+				nearest = Math.min(nearest, pointInPolygonMm(poly, p) ? 0 : distanceToPolygonMm(p.x, p.y, poly));
+			}
+			return nearest;
+		}
+		for (const body of bodies) {
+			const poly = body.footprintMm!;
+			const centroid = {
+				x: poly.reduce((sum, v) => sum + v.x, 0) / poly.length,
+				y: poly.reduce((sum, v) => sum + v.y, 0) / poly.length,
+			};
+			for (let i = 0; i < poly.length; i++) {
+				const a = poly[i]!;
+				const b = poly[(i + 1) % poly.length]!;
+				const dx = b.x - a.x;
+				const dy = b.y - a.y;
+				const len = Math.hypot(dx, dy);
+				if (len < 1e-9) {
+					continue;
+				}
+				let normal = { x: dy / len, y: -dx / len };
+				const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+				if ((mid.x - centroid.x) * normal.x + (mid.y - centroid.y) * normal.y < 0) {
+					normal = { x: -normal.x, y: -normal.y };
+				}
+				// North-facing: its outward normal has an up-table component, so
+				// a ball descending the playfield meets THIS face.
+				if (normal.y <= 0.02) {
+					continue;
+				}
+				// Off the playfield entirely (the perimeter walls' own outward
+				// faces, the below-deck return channel) -- no ball is ever there.
+				if (mid.x < 0 || mid.x > playfield.w || mid.y < 0 || mid.y > playfield.h) {
+					continue;
+				}
+				// Joined into, or buried inside, another body's material: not an
+				// exposed face at all (col_loop_l's own north end meeting
+				// col_loop_top, every Top-lane divider's own upper tip, ...).
+				const joined = bodies.some(
+					(other) =>
+						other.name !== body.name &&
+						(pointInPolygonMm(other.footprintMm!, mid) || distanceToPolygonMm(mid.x, mid.y, other.footprintMm!) <= BOUNDARY_EPSILON_MM),
+				);
+				if (joined) {
+					continue;
+				}
+				// Unreachable from above: no release point directly over the
+				// edge's own midpoint clears every footprint by DW-77's margin,
+				// so no ball can be dropped onto it and none can rest on it.
+				let release: { x: number; y: number } | undefined;
+				for (let above = TABLE.reference.ballMm + 2; above <= 120; above += 2) {
+					const candidate = { x: mid.x, y: mid.y + above };
+					if (clearanceMm(candidate) > RELEASE_CLEAR_MARGIN_MM + 1) {
+						release = candidate;
+						break;
+					}
+				}
+				if (release === undefined) {
+					continue;
+				}
+				const gradeDeg = (Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI;
+				faces.push({ body: body.name, gradeDeg, midMm: mid, releaseMm: release });
+			}
+		}
+		return faces;
+	}
+
+	/**
+	 * Places a ball is MEANT to come to rest, so a sub-threshold north face
+	 * there is the design, not a defect. Two-directional like every other
+	 * allowlist in this repository: an entry naming a body with no
+	 * sub-threshold exposed face fails as stale.
+	 */
+	const RESTING_PLACE_EXEMPTIONS: readonly { body: string; reason: string }[] = [
+		{
+			body: 'col_wall_lane_bottom',
+			reason:
+				'The shooter lane floor. A served ball rests on this face by design, waiting for the plunger -- it is where bd_trough serves into '
+				+ '(TABLE bd_trough.servesInto = s_shooter_lane) and where every witness in test/util/reachability.ts begins. Story 2.1d\'s own '
+				+ 'whole-playfield sweep recorded 20 of its 26 rests here and classed every one of them legitimate for this reason.',
+		},
+	];
+
+	it('every exposed north-facing face in the committed document is either steeper than the slide threshold, probed by a descending column, or a declared resting place', () => {
+		const faces = deriveExposedNorthFaces();
+		expect(
+			faces.length,
+			'sanity: the derived subject set is EMPTY -- every assertion below would then be vacuously true, which is the exact failure mode this gate exists to prevent',
+		).toBeGreaterThan(0);
+
+		const exempt = new Set(RESTING_PLACE_EXEMPTIONS.map((e) => e.body));
+		// A descending column is a manifest case released essentially at rest
+		// (speedMmPerS <= 1) from directly above the face -- derived from
+		// SHOT_CASES, never a second hand list.
+		const columns = SHOT_CASES.filter((c) => c.speedMmPerS <= 1);
+		expect(columns.length, 'sanity: the manifest must declare at least one descending column, or the coverage test below is vacuous').toBeGreaterThan(0);
+
+		const uncovered: string[] = [];
+		let steepEnough = 0;
+		let probed = 0;
+		for (const face of faces) {
+			if (face.gradeDeg >= SLIDE_THRESHOLD_DEG) {
+				steepEnough++;
+				continue;
+			}
+			if (exempt.has(face.body)) {
+				continue;
+			}
+			// A column covers a face only if it is directly above it AND close
+			// enough above it to be a probe OF it: within one ball diameter in
+			// x, and no more than COLUMN_REACH_MM up-table. Without the second
+			// bound a column 300 mm higher up the playfield "covers" a face it
+			// has nothing to do with, which is how a coverage gate becomes a
+			// coverage claim. 150 mm is a little over five ball diameters --
+			// comfortably more than every real column's own offset (the widest
+			// is 34.5 mm, descend-dragon-d over the backstop) and far less than
+			// the distance to any unrelated body.
+			const COLUMN_REACH_MM = 150;
+			const covered = columns.some(
+				(c) =>
+					Math.abs(c.startMm.x - face.midMm.x) <= TABLE.reference.ballMm &&
+					c.startMm.y > face.midMm.y &&
+					c.startMm.y - face.midMm.y <= COLUMN_REACH_MM,
+			);
+			if (covered) {
+				probed++;
+				continue;
+			}
+			uncovered.push(
+				`${face.body} (north face at (${face.midMm.x.toFixed(2)}, ${face.midMm.y.toFixed(2)}), grade ${face.gradeDeg.toFixed(2)} deg, `
+				+ `below the ${SLIDE_THRESHOLD_DEG.toFixed(3)} deg slide threshold; a clear release sits directly above it at `
+				+ `(${face.releaseMm.x.toFixed(2)}, ${face.releaseMm.y.toFixed(2)}))`,
+			);
+		}
+		expect(
+			uncovered,
+			'these exposed north faces are shallower than the real slide threshold and NOTHING drops a ball on them: '
+			+ `${uncovered.join('; ')}. Either bevel the body above ${SLIDE_THRESHOLD_DEG.toFixed(3)} deg, add a descending column to `
+			+ 'test/util/shot-cases.ts (and drive it above), or declare it a resting place with its reason.',
+		).toEqual([]);
+		// Anti-vacuity, DERIVED from the subject set: the two branches must
+		// both be exercised by real faces, or one of them is dead code that
+		// could absorb everything.
+		expect(steepEnough, 'no exposed face is steeper than the slide threshold -- the "steep enough" branch is never taken, so it proves nothing').toBeGreaterThan(0);
+		expect(probed, 'no exposed sub-threshold face is covered by a descending column -- the coverage branch is never taken, so it proves nothing').toBeGreaterThan(0);
+	});
+
+	it('every RESTING_PLACE_EXEMPTIONS entry still names a body with a sub-threshold exposed north face -- a stale entry fails', () => {
+		const faces = deriveExposedNorthFaces();
+		for (const exemption of RESTING_PLACE_EXEMPTIONS) {
+			const matching = faces.filter((f) => f.body === exemption.body && f.gradeDeg < SLIDE_THRESHOLD_DEG);
+			expect(
+				matching.length,
+				`the resting-place exemption for "${exemption.body}" is stale: the committed document no longer gives it an exposed north face `
+				+ `shallower than ${SLIDE_THRESHOLD_DEG.toFixed(3)} deg, so the exemption is exempting nothing and should be removed`,
+			).toBeGreaterThan(0);
+		}
+	});
+});

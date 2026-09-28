@@ -77,6 +77,19 @@ export function syncBalls(scene: Scene, playfieldRoot: TransformNode, snapshot: 
 		}
 		const scenePos = toScene(ball.pos);
 		mesh.position.set(scenePos.x, scenePos.y, scenePos.z);
+		// DW-120: a ball below the playfield's front edge (table y < 0) is
+		// inside the below-deck return channel -- a real subway this
+		// collision model cannot express (col_playfield is a single plane
+		// node; punching a hole in it is an AD-11 primitive-set change well
+		// beyond a presentation fix). Culling here, rather than a real Z
+		// drop, is contained to this one file, is a rendering decision
+		// derived from position rather than new game state (AD-1, AD-2 both
+		// intact), and does not disturb the drain routing 2.1a took four
+		// iterations to prove. `isVisible`, not disposal: the mesh (and its
+		// per-tick position update above) still exists so it resumes
+		// rendering instantly the moment a device serves the ball back,
+		// with no re-creation cost.
+		mesh.isVisible = ball.pos.y >= 0;
 	}
 
 	for (const [id, mesh] of meshes) {

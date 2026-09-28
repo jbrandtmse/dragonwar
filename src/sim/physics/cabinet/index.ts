@@ -135,29 +135,59 @@ function switchNameForSettleClass(settleClass: SettleClass): SwitchName {
  * `settleTicks` 0 (both `tilt_bob` and `slam`'s classes) this reduces to a
  * plain state-change test -- correct, not a reason to omit it.
  */
-interface LevelTracker {
+export interface LevelTracker {
 	reported: boolean;
 	pendingSince: number | null;
 	pendingValue: boolean | null;
 	readonly settleTicks: number;
 }
 
-function stepLevel(tracked: LevelTracker, tick: number, raw: boolean): boolean | null {
+/**
+ * Story 2.1b task 14 (DW-67): identical semantics to
+ * `switches.ts`'s `createSwitchTracker()` step -- settleTicks gates the
+ * BREAK only, never the MAKE (AD-2, AMENDED 2026-09-01). Kept as a byte-for-
+ * byte parallel implementation (this file's own header already explains why
+ * it is not a shared import: the bob and the slam counter have neither ball
+ * nor zone, so `switches.ts`'s zone machinery does not apply) -- any future
+ * change to one MUST be mirrored in the other, and
+ * `test/cabinet-switch-tracker-agreement.test.ts` pins the two against an
+ * identical raw sequence so they cannot silently diverge.
+ */
+// Exported (test-only consumer: test/cabinet-switch-tracker-agreement.test.ts)
+// so that suite can pin this function's own edges directly against
+// switches.ts's createSwitchTracker() for an identical raw sequence -- the
+// two implementations must never diverge (this function's own doc comment
+// above).
+export function stepLevel(tracked: LevelTracker, tick: number, raw: boolean): boolean | null {
 	if (raw === tracked.reported) {
 		tracked.pendingSince = null;
 		tracked.pendingValue = null;
 		return null;
 	}
+	if (raw) {
+		tracked.reported = true;
+		tracked.pendingSince = null;
+		tracked.pendingValue = null;
+		return true;
+	}
 	if (tracked.pendingValue !== raw) {
 		tracked.pendingSince = tick;
 		tracked.pendingValue = raw;
 	}
+	// Story 2.1d (DW-67 residual): identical correction to switches.ts's own
+	// createSwitchTracker() step -- see that file's DW-67 comment block for
+	// the full derivation. `pendingSince` latches on the first tick read
+	// outside; requiring `elapsedTicks >= settleTicks` only becomes true on
+	// the `settleTicks + 1`-th outside tick. Corrected to `settleTicks - 1`
+	// so the break fires on the `settleTicks`-th consecutive outside tick,
+	// per AD-2's amended text. `settleTicks = 0` (both `tilt_bob` and `slam`
+	// today) is a fixed point of both formulations.
 	const elapsedTicks = tick - (tracked.pendingSince as number);
-	if (elapsedTicks >= tracked.settleTicks) {
-		tracked.reported = raw;
+	if (elapsedTicks >= tracked.settleTicks - 1) {
+		tracked.reported = false;
 		tracked.pendingSince = null;
 		tracked.pendingValue = null;
-		return raw;
+		return false;
 	}
 	return null;
 }

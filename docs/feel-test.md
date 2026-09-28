@@ -28,9 +28,9 @@ in CI rather than silent.
 
 | Item | Measured build-side number | Golden | First entry |
 |---|---|---|---|
-| Cradling | Ball-on-bat drift ≤ 35 mm through the first simulated second (measured 27.5 mm); measurably departed by 5 s (measured ~4292 mm) — DW-72's 1 s bound, owed to Story 2.1 for the real 5 s pocket | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
-| Flipper snap | 30 ms tap: release 104.3998°, true peak 90.0416° — a margin of 0.0416° short of the 90° stop (DW-80, closed) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
-| Rejection/rebound | Rebound-to-impact ratio at 1000/3000/5000 mm/s: 0.7584 / 0.7150 / 0.6886 (strictly decreasing, default `elasticityFalloff` 0.15); flat control at `elasticityFalloff` 0: 0.7819 / 0.7777 / 0.7776. Hop: `hopControl` 0 → max ball height 13.53 mm (no hop); default 0.35 → 25.41 mm, an 11.88 mm margin, nothing above the glass (400 mm) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Cradling | The real 5 s cradle, DW-72 closed: a ball the physics settles (never placed) into the drain triangle's tip-side pocket drifts under 0.2 mm over the full 5000-tick held hold (measured 0.172 mm), then reaches `bd_trough` within a generous window when released instead (measured tick 591) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Flipper snap | 10 ms tap (DW-118; 30 ms is no longer usable — DW-78's reconciliation now carries its coast to the stop EXACTLY, and 25 ms clears it by only 0.0122°, the same knife-edge that let 30 ms break silently): still mid-stroke at the exact release tick (measured 139.1871°, between rest 141° and end 90°); its own momentum carries it to a peak of 109.3221°, a real ~19.3° clear of the end-of-stroke stop — DW-78's reconciliation shortened `flipperRadius`, so `inertia = (1/3) m flipperRadius²` fell to ~68% of its old value | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
+| Rejection/rebound | Rebound-to-impact ratio at 1000/2000/3000 mm/s (re-measured this story at these three speeds — 5000 mm/s now lands too close to the reconciled bat's own tapered tip for a consistent face hit): 0.7560 / 0.7347 / 0.7183 (strictly decreasing, default `elasticityFalloff` 0.15); flat control at `elasticityFalloff` 0: 0.7789 / 0.7777 / 0.7775. Hop: `hopControl` 0 → max ball height 13.53 mm (no hop); default 0.35 → 24.53 mm, an 11.00 mm margin, nothing above the glass (400 mm) | [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json) | `pending-author` |
 
 ## Environment
 
@@ -43,20 +43,52 @@ in CI rather than silent.
   (`?renderer=webgl2` and the default path) is recorded as `pending-author`
   under "Both renderer paths" below, and its own machine/OS/browser row
   belongs with that dated entry when it is run.
-- Date: 2026-08-29 (UTC).
-- Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic1`.
+- Date: 2026-08-29 (UTC); re-measured 2026-08-30 (Story 2.1a, the drain
+  triangle and the flipper reconciliation) and again 2026-08-31 (Story 2.1a
+  rework iteration 3 — the `DW-119` outlane routing fix and `DW-118`'s
+  re-measured light tap), both on the same host. Story 2.1a rework iteration
+  4 regenerated the `.blend` and re-exported both artifacts again the same
+  day (`BOTTOM_WALL_DRAIN_DROP_MM`, the `DW-119` bottom-wall slope): every
+  figure below was re-verified green against that document and none of them
+  moved, because that change touches only `col_wall_bottom_l/_r`'s top edge
+  and neither the cradle pocket nor the flipper is anywhere near it.
+  Re-measured again 2026-09-03 (Story 2.1c, the orbit routing and the inlane
+  feed) on the same host: the drain triangle, the cradle pocket and both
+  flipper boxes are untouched by that change and every figure below was
+  re-verified green against the regenerated document, with the Loop, Ramp
+  and plunge entries updated where the routing genuinely moved them. The
+  plunge was re-measured under ONE named harness -- `runReplay()` over
+  `test/replays/roll-and-drain.golden.json`'s own header and coilPrologue
+  with its transitions removed, i.e. the real conductor and a real
+  autolaunch, never a hand-placed ball: it clears the Loop entrance (mouth
+  x 428.4-480.4) at tick 5595, crosses the top at max y 1053.19 mm, is in
+  the LEFT bat band for 326 ticks from tick 8639, and its closest approach
+  to the left bat's own box is 0.00 mm (it genuinely contacts the bat).
+  Neither of the two conflicting figures previously on record (574+ band
+  ticks / 7.9-20.4 mm, and 438 / 3.66 mm) is carried forward; this
+  measurement supersedes both.
+- Repository: `jbrandtmse/dragonwar`, branch `DW-1-epic2`.
 
 ## Items
 
-**Cradling.** A ball resting on a raised, held flipper bat. This epic's
-placeholder table has no pocket geometry beside either flipper (no inlane
-guide or post — Epic 1 context), so a real, multi-second cradle does not
-exist here; the machinable claim is bounded to the first simulated second
-(DW-72), and the full 5 s claim is Story 2.1's, against the real playfield.
+**Cradling.** A ball the physics settles, by itself, into the cradle pocket
+beside a raised, held flipper bat. Story 2.1a authors the drain-triangle
+geometry that closes that pocket (the outlanes, inlanes, divider and outer
+guides, and a rubber post at the bat's own tip) and proves the full 5 s hold
+`DW-72` names — closed this story, on evidence against the real playfield
+rather than Epic 1's bounded 1 s claim.
 
-**Flipper snap.** The ported `FlipperMover`'s response to a light, 30 ms tap
-— rises strictly between rest and the end-of-stroke angle, never completing
-the stroke, then returns fully to rest (`DW-80`).
+**Flipper snap.** The ported `FlipperMover`'s response to a light, 10 ms tap
+(`DW-118`) — still mid-stroke at the exact tick the key comes up, then its own
+momentum carries it partway toward the end-of-stroke stop under
+`updateDisplacements()`'s own clamp, clearing it by a real, comfortable
+margin. Story 2.1a's flipper reconciliation (`DW-78`) lowered
+`flipperRadius`, and therefore the ported mover's own
+`inertia = (1/3) m flipperRadius²`, so a 30 ms tap's coast now reaches the
+true end-of-stroke stop EXACTLY rather than falling 0.0416° short — FR-5's
+light-tap promise survives, but only a shorter tap still demonstrates it, so
+the example duration moved to 10 ms (`epics.md`'s Story 1.6 AC amended
+accordingly, under a one-time scoped grant).
 
 **Rejection/rebound.** How a ball leaves the flipper rubber on contact:
 `materials.flipper_rubber.elasticityFalloff` (AC 3, "the primary feel knob")
@@ -79,44 +111,71 @@ rather than fabricated.
 
 ### Cradling
 
-`pending-author`. Build-side measurement: with the left flipper held raised
-and a ball placed against its face (`test/flipper-collision.test.ts`'s own
-"(b)" case), drift stays ≤ 35 mm (measured 27.5 mm) through the first
-simulated second, then measurably exceeds 500 mm (measured ~4292 mm) by 5 s
-— the ball departs because this epic's placeholder table has no pocket
-geometry (the 1 s bound is DW-72's, owed to Story 2.1 for the real 5 s
-pocket), not because of a defect in the ported flipper (the bat is provably
-static while held: `test/flipper-collision.test.ts`'s own "(a)" case,
-unmoving within 0.01° for the full 5 s hold). Golden:
+`pending-author`. Build-side measurement, re-measured 2026-08-30 (Story
+2.1a, DW-72 closed): a ball is never placed on the raised bat — it is
+DROPPED, clear of the modelled body, and the physics settles it into the
+drain triangle's tip-side pocket by itself (`test/flipper-collision.test.ts`'s
+`arrangeCradleBall()`). Held for the full 5000-tick (5 s) hold, drift from
+the settled position stays under 0.2 mm (measured 0.172 mm, against a
+one-ball-radius bound of 13.495 mm) and speed stays at rest (measured
+0.139 VU/T) throughout — the pocket closes at the bat's own TIP, not its
+pivot (the pivot's own `hitCircleBase` is a full circle, angle-invariant
+regardless of stroke, so a pocket that closed there would trap a ball
+permanently and could never pass the discriminating negative below). The
+SAME arrangement, released instead of held, reaches `bd_trough` within a
+generous window (measured tick 591 after release) — proving the 5 s hold is
+produced by the guide AND the flipper together, not by the static guide
+alone. Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json)
 (`fs.existsSync`-checked by `test/feel-test-docs.test.ts`).
 
 ### Flipper snap
 
-`pending-author`. Build-side measurement (DW-80, closed this story): a 30 ms
-tap releases the bat at 104.3998°, which coasts under its own momentum to a
-true peak of 90.0416° — a margin of 0.0416° short of the 90° end-of-stroke
-stop, then returns fully to rest. Re-measured on this story's final tuning
-(the rebuild seam, pitch, hop control and elasticity falloff all land in this
-story) and found numerically identical to Story 1.6's own baseline, because
-none of this story's tunables touch `TUNING.flipper.*` or the ported mover.
+`pending-author`. Build-side measurement (`DW-80`, closed Story 1.6/1.9;
+re-measured 2026-08-30, Story 2.1a's `DW-78` reconciliation; re-measured
+again 2026-08-31, Story 2.1a rework iteration 3, `DW-118`): `DW-78`
+shortened the modelled body's own `flipperRadius` from 71.8169 mm to
+59.3169 mm to match the authored box exactly, and the ported
+`FlipperMover`'s own (frozen, DW-79) `inertia = (1/3) mass * flipperRadius²`
+falls with the square of that, to ~68% of its old value — the same torque
+now accelerates the bat harder. A 30 ms tap's own post-release coast no
+longer merely nears the 90° stop (Story 1.6/1.9's own 0.0416° margin); it
+reaches it EXACTLY, and 25 ms only narrowly avoids the same fate (0.0122°
+short of a full stroke) — so the light-tap example moved to a duration whose
+margin is real, not a knife-edge: a 10 ms tap is STILL mid-stroke at the
+exact release tick (measured 139.1871°, strictly between rest 141° and end
+90°) — a light press has not instantly completed the stroke while the key is
+still down. Its own momentum then carries it, under the ported mover's own
+end-of-stroke clamp, to a peak of 109.3221° — a comfortable ~19.3° clear of
+the 90° stop, never reaching it. `epics.md`'s Story 1.6 AC was amended
+30 ms → 10 ms by the lead under a one-time scoped grant, with the full
+measured sweep (30/25/20/15/12/10/8/5 ms) recorded in that story's change
+log; FR-5's light-tap promise is unchanged, only the demonstrating duration
+moved. Neither `TUNING.flipper.*` nor the ported mover itself changed.
 Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json).
 
 ### Rejection/rebound
 
-`pending-author`. Build-side measurement: three impact speeds
-(1000/3000/5000 mm/s) driven into the flipper rubber at the shipped default
-falloff (0.15) give a strictly decreasing rebound-to-impact ratio — 0.7584,
-0.7150, 0.6886 — while a falloff-0 control over the identical three speeds
-gives a flat ratio (0.7819, 0.7777, 0.7776), the discriminator that makes
-"decreases with speed" falsifiable rather than an artifact of the solver's
-ordinary velocity-dependent contact response (AC 3). Separately, the paired
-`hopControl = 0` vs. default (0.35) stress replay of hard flipper hits: at
+`pending-author`. Build-side measurement, re-measured 2026-08-30 (Story
+2.1a): three impact speeds — 1000/2000/3000 mm/s, not the superseded
+1000/3000/5000 mm/s (`DW-78`'s reconciliation shortened the rest bat's own
+reach, and 5000 mm/s now lands too close to the tapered tip for a consistent
+face hit across all three speeds; the spawn also moved from table x = 210 to
+x = 195 for the same reason) — driven into the flipper rubber at the shipped
+default falloff (0.15) give a strictly decreasing rebound-to-impact ratio —
+0.7560, 0.7347, 0.7183 — while a falloff-0 control over the identical three
+speeds gives a flat ratio (0.7789, 0.7777, 0.7775), the discriminator that
+makes "decreases with speed" falsifiable rather than an artifact of the
+solver's ordinary velocity-dependent contact response (AC 3). Separately, the
+paired `hopControl = 0` vs. default (0.35) stress replay of hard flipper
+hits (unaffected by the spawn-point change, still at table (210, 85)): at
 `hopControl = 0`, max observed ball height 13.53 mm (the resting height,
 13.495 mm, within a small contact epsilon — exactly zero hops); at the
-shipped default, 25.41 mm — an 11.88 mm margin, comfortably clear of the
-glass at 400 mm (AC 2). Golden:
+shipped default, 24.53 mm — an 11.00 mm margin (was 11.88 mm against the
+pre-reconciliation geometry — the harder-accelerating bat above changes
+strike dynamics slightly), comfortably clear of the glass at 400 mm (AC 2).
+Golden:
 [`test/replays/hold-and-release.golden.json`](../test/replays/hold-and-release.golden.json).
 
 ## Both renderer paths (build side, the lead's own per-story smoke)
@@ -140,3 +199,186 @@ Both runs, and the three Reference-machine verdicts above, are the author's
 to record as dated entries once performed; this document's own dated-entry
 format is what that later run appends to, never rewriting the entries above
 it.
+
+## 2026-09-01 -- Story 2.1b: the shot map (AC 6, the seven-shot Lawlor ritual)
+
+`pending-author`. Story 2.1b draws the rest of the shot map and completes
+the switch/coil registry -- this pipeline cannot close AC 6, the Lawlor
+"every miss returns playable" ritual (FR-32), which is judged against the
+physical Reference machine (Stern *Dungeons & Dragons*) exactly as
+Cradling/Flipper snap/Rejection above are. The seven entries below land the
+build-side geometry they will be judged against. [AMENDED 2026-09-02, matching
+the spec's own AC 6 amendment: the miss-destination judgement itself --
+where each shot's most common miss goes, and that none may be a centre
+drain, per the epic's own requirement -- cannot be derived from geometry
+alone and is part of what stays `pending-author` until the Reference-machine
+ritual runs; this preamble states that rather than asserting a judgement
+nobody has made.] The `sprint-status.yaml` action item `epic-2-retro-item-10`
+tracks this as an open author task.
+
+### Left Loop
+
+`pending-author`. Geometry: a chain of convex prisms from
+`col_post_divider_l_hi` (the existing 2.1a post at table y = 420) up the
+left side of the table (`col_loop_l_funnel`, `col_loop_l`) toward
+`col_loop_top`. [CORRECTED 2026-09-02: rework iteration 3 shortened
+`col_loop_top`'s own left end (x 40 -> 220) for the plunge-routing fix, so
+it no longer met `col_loop_l` and a full orbit did not pass both Loops --
+`DW-123`, routed to Story 2.1c.] [RE-JOINED 2026-09-03 (Story 2.1c): the
+connector spans x 50 to 418.4 again and each Loop is a true ORBIT -- up one
+lane, across the joined top, down the OTHER lane into the OPPOSITE inlane.
+One ball now closes all four Loop switches in a single run. The lane widened
+50 -> 66 mm to carry a ball in both directions -- and note which direction is
+whose, because the two are easy to transpose: a LEFT Loop **shot** climbs
+this lane and exits at the RIGHT inlane onto the RIGHT bat, while the
+hardware at the bottom of this lane (`col_loop_l_return`, the left inlane
+channel, `col_guide_inlane_feed_l`) serves the RIGHT Loop's own return. That
+descending ball leaves `col_loop_top` at the connector's own end (x = 50)
+and falls into the left inlane channel, where `col_guide_inlane_feed_l`
+carries it onto the left bat. [CORRECTED 2026-09-03, code review: this
+sentence described the left lane's return hardware as the Left Loop's own
+outcome, inside the Left Loop entry, one line after stating that each Loop
+feeds the OPPOSITE inlane.]
+`vis_spinner_l` moved from the loop guide's inner face to the perimeter
+face, clear of the widened lane. [CORRECTED 2026-09-03, review fix: this
+note previously claimed the spinner "closes on every orbit" -- measured
+false. `s_spinner` closes on the Left Loop's own ascending entry (verified,
+`test/shot-routing.test.ts`, every offset in the sweep), but does NOT close
+when the Left lane instead carries the Right Loop's own RETURN descent
+(verified false at every offset in that sweep too).] [CORRECTED AGAIN
+2026-09-03, code review: the *reason* recorded for that asymmetry was also
+wrong. It read "`col_loop_l_return` hands the descending ball inboard,
+past `vis_spinner_l`'s own column, before it reaches the spinner's
+y-position" -- impossible in the direction of travel, since that rail sits
+at y 470-530 and the spinner at y 645-651, some 120 mm further UP the
+ball's path. Traced per tick through the real pipeline at every offset in
+the Right Loop sweep: the descending ball crosses the spinner's own y-band
+at x = 52.2-52.3 mm, about 7 mm outside `sw_spinner`'s own x-span (5-45),
+because it leaves `col_loop_top` at x = 50 and this solver's gravity has no
+x-component to carry it to the wall before it gets there. The same trace
+shows it never touches `col_loop_l_return` (x 0-14) either -- hence the
+correction to the sentence above. So the spinner counts a direct Left-Loop
+shot but not a Right-Loop orbit passing down the same lane -- asymmetric,
+not "every orbit".]
+`s_loop_l_in`/`s_loop_l_out` mark entry and exit; the spinner
+(`vis_spinner_l`/`s_spinner`) sits partway up the straight run. Build-side
+routing verified in `test/shot-routing.test.ts`. Golden:
+[`test/replays/roll-and-drain.golden.json`](../test/replays/roll-and-drain.golden.json).
+
+### Right Loop
+
+`pending-author`. Mirrors the Left Loop from `col_post_divider_r_hi`, and
+its own upper arc (`col_loop_r`, `col_loop_r_deflector`) is what turns a
+launched ball into the field now that `col_lane_deflector` is retired
+(DW-58) -- verified directly: a full-strength plunge crosses
+`LANE_WALL_TOP_Y_MM = 950` and is deflected off the plunger lane into the
+open field (`test/plunger.test.ts`, `test/machine-serve-drain.test.ts`).
+`s_loop_r_in`/`s_loop_r_out` mark entry and exit. Golden:
+[`test/replays/full-plunge.golden.json`](../test/replays/full-plunge.golden.json).
+
+### Ramp
+
+`pending-author`. Entrance right of centre (`RAMP_ENTER_X_MM = 355`, moved
+2026-09-03 from 372 to free the widened Right Loop lane, still >
+`PLAYFIELD_W_MM / 2 = 257.2`) so the LEFT flipper shoots it; a return rail
+carries the ball back down into the RIGHT inlane (`docs/decisions.md`
+records the OQ-6 choice and why). **DELIVERED 2026-09-03 (Story 2.1c)**,
+replacing the 2026-09-02 code-review note that it was not: the old return
+rail's channel measured 11.5-26.0 mm over y 480-750, all under the 26.99 mm
+ball, and it interpenetrated `col_loop_r` by 144.000 mm2 besides. It is
+redrawn as a CROSSING, which is what a real ramp return is: `col_ramp_turn`
+(a 45 deg angled prism at the top of the Ramp's own channel) turns the climb
+into an eastward crossing, `col_ramp_wall_r` stops below it so the turned
+ball has somewhere to go, and `col_loop_r` is split into `col_loop_r` /
+`col_loop_r_lower` to leave a gap at the crossing's height. Measured:
+`s_ramp_enter -> s_ramp_made -> s_inlane_r`, then the right bat band, at
+every in-channel entry offset from 350 to 359 mm.
+**[SUPERSEDED 2026-09-05, Story 2.1f code review: the coordinates above are
+pre-2.1f. `RAMP_ENTER_X_MM = 355` no longer sites the channel — Story 2.1f
+re-solved the bottom-right quadrant and moved both Ramp walls west
+(`col_ramp_wall_l` 326..338 -> 286.4..298.4, `col_ramp_wall_r` 372..384 ->
+354.4..366.4), so the `350 to 359 mm` offsets name x values outside the
+channel they describe. What is NEW and worth recording here: until 2.1f the
+Ramp could not be reached from below at all (DW-137 — the corridor was
+50.990 mm too narrow, and the 2.1c delivery above was driven from a
+teleported release). It is now reachable by a real, never-teleported shot —
+a 285-tick plunge, the Right Loop return onto the RIGHT bat, one flip —
+and the ball still lands in the right inlane. Read the live constants and
+`test/util/shot-cases.ts` for figures.]**
+`s_ramp_enter`/`s_ramp_made` mark entry and
+completion. No sloped-plane primitive exists in this collision model (see
+`tools/make-placeholder-blend.py`'s own constants-block note), so the bed is
+authored at deck height with `surface = 'ramp'`; `RAMP_HEIGHT_MM`/
+`RAMP_GRADIENT` are recorded, unverified figures for a future visual mesh.
+
+### Dragon
+
+`pending-author`. Off-centre, left of `PLAYFIELD_W_MM / 2 = 257.2`
+(`DRAGON_CENTER_X_MM = 170`) so a rejection deflects to a flipper -- the
+right flipper takes it straight, the left flipper backhands it
+(`decisions-rejected.md:14`, `machine-behaviour.md:9`). Two legs
+(`col_dragon_leg_l/r`) flank the Lock lane; `s_dragon_body` (standup class)
+catches a slightly-off shot against either leg's face.
+
+### Lock lane
+
+`pending-author`. The narrow gap between the Dragon's legs
+(`LOCK_LANE_CLEAR_MM = 40`), `s_lock_lane` confirming a clean pass-through,
+`bd_lock` (the Mouth) parking up to 3 balls BETWEEN the legs (corrected
+2026-09-03 at code review: "above the legs" described the pre-2.1d slot
+band at y 630-678; the slots now sit inside the legs' own 480-620 span) and
+ejecting through `c_mouth` aimed down-table at the flippers (AD-6). OQ-5
+(the Lock lane carries both the lock and the mode start) is recorded in
+`docs/decisions.md`. **Story 2.1d (2026-09-03):** `bd_lock` now boots empty
+(`[false, false, false]`) rather than the pre-existing `fill(true)` defect
+that booted it full.
+
+**[CORRECTED 2026-09-04, rework iteration 2 code review]** The paragraph
+that stood here (and this file's own prior wording) described the slot
+band's first re-siting (y 564-612, "above `sw_lock_lane`'s own top face")
+as closing the 230 mm open-field swallow. It did not: that re-siting
+measured the corridor's own bound against `col_dragon_leg_l`/`_r`'s
+BOUNDING BOX, which cannot see the left leg's own sloped-cap recession
+(2.1c's own bevel reversal toward the lane leaves its TRUE solid material
+short of the bounding box above y = 600) -- re-measured, 15 of 15 probes
+descending from open field at x in [150, 190] still parked in `bd_lock`,
+an 11-case regression over the original 7. The genuine fix adds a new
+sealing body above the slot band (`col_lock_ceiling` / `col_lock_ceiling_
+west_fill`, `tools/make-placeholder-blend.py`), so the corridor is now
+truly closed at or below the left leg's own recession point rather than
+its bounding box; the slot band itself sits lower still to fit beneath
+that seal (y 544-592). The Mouth's own eject pose also moved, south of the
+whole corridor (y 460, was 650 north of it) rather than trying to clear
+the sealed corridor from above it -- the ejected ball now starts already
+past every slot zone along its own eject axis, so the shared
+`troughEjectSpeedMmPerS` (300 mm/s) is sufficient and the per-device
+override this paragraph previously described is no longer authored.
+Build-side routing verified in `test/lock-device-behaviour.test.ts`
+(including a descending-drop sweep reproducing the review's own
+falsifier) and `test/shot-routing.test.ts`'s own Lock lane case.
+
+**[CORRECTED 2026-09-04, rework iteration 3 code review]** `col_lock_ceiling`'s
+own east flank (above `col_dragon_leg_r`) traded the swallow this section
+already describes for a STRAND: a ball descending near that leg's own cap
+corner came to permanent rest on the ridge's shallow east slope instead of
+sliding clear. Fixed by raising the east shoulder and the ridge peak alone
+(the west side, and the slot band's own siting described above, are
+unchanged) -- see `docs/decisions.md`'s own Lock-lane row for the full
+seven-round account. Re-verified with a wide descending-drop sweep across
+the whole corridor width; a narrow, pre-existing, low-severity residual is
+recorded in the story's own frontmatter `deferred:` rather than chased
+further.
+
+### DRAGON bank
+
+`pending-author`. Six standup faces spelling D-R-A-G-O-N
+(`col_dragon_d/r/a/g/o/n`, `s_dragon_d/r/a/g/o/n`, `settleClass:
+'drop_target'`), left of the Ramp's own channel so neither crosses the
+other. Drop/reset mechanics are Story 2.3's; this story authors the bodies,
+zones and registry entries only.
+
+### Top lanes
+
+`pending-author`. Three lanes (`col_top_divider_1..4`, `s_top_1..3`) in the
+upper field, on a launched ball's own path -- above the Ramp and the pop
+nest, below the loop's own top connector.

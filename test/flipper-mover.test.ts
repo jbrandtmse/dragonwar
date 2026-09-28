@@ -1,13 +1,35 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // Story 1.6's I/O matrix, mover rows: same-tick energise (AD-5, no rules
-// round trip); the 5 s hold reaching and HOLDING the end-of-stroke angle; the
-// 30 ms tap rising strictly between rest and end then returning; the coil
+// round trip); the 5 s hold reaching and HOLDING the end-of-stroke angle; a
+// light tap rising strictly between rest and end then returning; the coil
 // disable/enable gate; and exactly one `flipper_eos` ContactEvent per
 // stroke. Driven headlessly through the real `createLoop()` over the
 // committed collision document -- the same "against real geometry, not a
 // synthetic fixture" discipline `test/machine-serve-drain.test.ts` already
 // established for the devices layer.
+//
+// Story 2.1a rework iteration 3 (DW-118): DW-78's flipper reconciliation
+// (task 5/6 -- flipperRadiusMm now also subtracts baseRadiusMm) shortens
+// flipperRadius from 71.8169 mm to 59.3169 mm, and inertia = (1/3) m
+// flipperRadius^2 falls to ~68% of its old value -- so the SAME torque now
+// accelerates the bat harder. A 30 ms tap's own post-release coast no
+// longer merely nears the 90 deg stop (DW-80's old 0.0416 deg margin); it
+// reaches it EXACTLY, which makes 30 ms unusable as the light-tap example
+// FR-5 names ("a light tap ... rises partially and returns"). The criterion
+// itself survives -- FR-5's promise is unchanged -- only the tap duration
+// that demonstrates it moves, re-measured this pass (left bat, rest 141
+// deg, end-of-stroke 90 deg): 30 ms -> 90.0000 (full stroke, unusable),
+// 25 ms -> 90.0122 (partial by only 0.0122 deg of the 51 deg sweep -- the
+// same knife-edge that let the 30 ms case break silently, so also
+// rejected), 20 ms -> 90.4009, 15 ms -> 90.3777, 12 ms -> 90.1017,
+// 10 ms -> 109.3221 (a real, comfortable ~19.3 deg clear of the stop),
+// 8 ms -> 129.0730, 5 ms -> 139.6123. `epics.md`'s Story 1.6 AC was amended
+// 30 ms -> 10 ms by the lead under a one-time scoped grant (this story's own
+// Spec Change Log), with this same sweep recorded in that story's change
+// log. `TUNING.flipper.*` (strength, rampUp, torqueDamping, sweepDeg) is
+// untouched here -- AD-5 and this story's own Boundaries forbid retuning
+// the ported mover to compensate; the fix is the figure, not the model.
 //
 // Rework iteration 3 added two rows: the mover is UNCHANGED at the press
 // tick t itself but has ALREADY moved by t+1 (task 26, the AD-5 same-tick
@@ -43,12 +65,27 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		const transitions: InputTransition[] = [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }];
 		out = loop.advance(1, transitions); // exactly one more tick
 		// Story 1.8 sweep (Code Map Part D item 1): this message named it an
-		// AD-5 proof, but the assertion is vacuous by its own type -- `readonly
-		// never[]` can never hold anything else, so it holds for any
-		// implementation. Kept as a literal shape check; the real AD-5 ordering
-		// pin is the very next assertion in this test (angle unchanged/changed
-		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
-		expect(out.commands, 'commands stays readonly never[] (type-level fact, not an AD-5 proof by itself -- see the ordering assertions in this test)').toEqual([]);
+		// DO NOT DELETE OR RELAX. Story 2.8 (code review pass 2) rewrote this
+		// comment: it previously called the assertion "vacuous by its own type
+		// -- `readonly never[]` can never hold anything else, so it holds for
+		// any implementation", and invited a future reader to treat it as a
+		// disposable shape check. Both halves are now false.
+		//   (a) `FrameOutput.commands` is `readonly PresentationCommand<TLamp,
+		//       ...>[]` (`src/sim/contracts/snapshot.ts`), never `never[]` --
+		//       the old comment conflated it with `RulesStepResult.commands`.
+		//   (b) Story 2.8 makes this channel genuinely carry `LampCommand`s,
+		//       and this line is now the ONLY live detector in the whole suite
+		//       for AD-9 / Story 2.8 AC 1: `sim/loop` must emit the lamp DIFF,
+		//       not the whole projection every step. QA (2026-09-07) applied
+		//       that mutation and measured it: `test/rules-lamps.test.ts`
+		//       stayed 22/22 green while this assertion and its twin below
+		//       went red. Attract runs real frames with `modes: []`, so
+		//       `lampsOf()` projects all-off and the seeded diff emits nothing
+		//       -- an implementation that pushed the full projection every
+		//       step reddens here immediately.
+		// The AD-5 ordering pin remains the very next assertion in this test
+		// (angle unchanged/changed at t vs t+1) plus test/hardware-rule-seam.test.ts.
+		expect(out.commands, 'FrameOutput.commands must stay EMPTY across real attract frames: AD-9/Story 2.8 AC 1 -- sim/loop emits the lamp DIFF, and in attract (modes: []) lampsOf() projects all-off against an all-off seed, so there is nothing to emit. Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
 
 		// A loose upper bound only: the bat starts moving within a handful of
 		// ticks of the press. The PRECISE boundary AC 2 states is pinned by the
@@ -97,12 +134,27 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		out = loop.advance(1, [{ tick: pressTick, frame: { ...NO_FRAME, flipper_l: true } }]);
 		expect(out.snapshot.tick).toBe(pressTick);
 		// Story 1.8 sweep (Code Map Part D item 1): this message named it an
-		// AD-5 proof, but the assertion is vacuous by its own type -- `readonly
-		// never[]` can never hold anything else, so it holds for any
-		// implementation. Kept as a literal shape check; the real AD-5 ordering
-		// pin is the very next assertion in this test (angle unchanged/changed
-		// at t vs t+1) plus test/hardware-rule-seam.test.ts.
-		expect(out.commands, 'commands stays readonly never[] (type-level fact, not an AD-5 proof by itself -- see the ordering assertions in this test)').toEqual([]);
+		// DO NOT DELETE OR RELAX. Story 2.8 (code review pass 2) rewrote this
+		// comment: it previously called the assertion "vacuous by its own type
+		// -- `readonly never[]` can never hold anything else, so it holds for
+		// any implementation", and invited a future reader to treat it as a
+		// disposable shape check. Both halves are now false.
+		//   (a) `FrameOutput.commands` is `readonly PresentationCommand<TLamp,
+		//       ...>[]` (`src/sim/contracts/snapshot.ts`), never `never[]` --
+		//       the old comment conflated it with `RulesStepResult.commands`.
+		//   (b) Story 2.8 makes this channel genuinely carry `LampCommand`s,
+		//       and this line is now the ONLY live detector in the whole suite
+		//       for AD-9 / Story 2.8 AC 1: `sim/loop` must emit the lamp DIFF,
+		//       not the whole projection every step. QA (2026-09-07) applied
+		//       that mutation and measured it: `test/rules-lamps.test.ts`
+		//       stayed 22/22 green while this assertion and its twin below
+		//       went red. Attract runs real frames with `modes: []`, so
+		//       `lampsOf()` projects all-off and the seeded diff emits nothing
+		//       -- an implementation that pushed the full projection every
+		//       step reddens here immediately.
+		// The AD-5 ordering pin remains the very next assertion in this test
+		// (angle unchanged/changed at t vs t+1) plus test/hardware-rule-seam.test.ts.
+		expect(out.commands, 'FrameOutput.commands must stay EMPTY across real attract frames: AD-9/Story 2.8 AC 1 -- sim/loop emits the lamp DIFF, and in attract (modes: []) lampsOf() projects all-off against an all-off seed, so there is nothing to emit. Story 2.4 gives rules a SEPARATE coilCommands channel to physics, which never feeds this field').toEqual([]);
 		expect(
 			out.snapshot.mechanisms.flippers.l.angleDeg,
 			'AC 2 (amended): the angle must be UNCHANGED at the press tick t itself -- the coil energises inside this same physics step, but the ported mover\'s torque needs one full step to ramp back through zero (Design Notes, "The AC 2 amendment")',
@@ -208,25 +260,19 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		expect(sampledNonZero, 'the sampled window must have actually caught the bat mid-swing -- otherwise this test asserts nothing').toBeGreaterThan(10);
 	});
 
-	it('a 30 ms tap rises strictly between rest and end, then returns fully to rest', () => {
+	it('a 10 ms tap is STILL mid-stroke at the exact release tick, then its own momentum carries it partway toward the end-of-stroke stop -- clearing it by a real, comfortable margin -- then it returns fully to rest (DW-118)', () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		let out = loop.advance(5, []);
 		const restAngle = out.snapshot.mechanisms.flippers.l.angleDeg;
 		const endAngle = 90; // left flipper's end-of-stroke angle, measured (see this file's header)
 
-		// Code review 2026-08-29 (iteration 2): the PEAK excursion is tracked
-		// across the hold AND the post-release coast, not sampled once at the
-		// moment of release. The bat is still accelerating when the key comes
-		// up, so it coasts well past the release angle under its own momentum:
-		// measured on the committed geometry, release is at 104.4 deg but the
-		// true peak is 90.04 deg -- only 0.04 deg short of the 90 deg stop.
-		// The previous form sampled the release angle and called it `peak`,
-		// which passed with a comfortable 14 deg margin while the observable
-		// the AC actually names ("the bat's PEAK angle lies strictly between
-		// the rest and end angles") was never measured. NOTE how tight the real
-		// margin is: a 30 ms tap on this tuning very nearly completes the
-		// stroke, so this assertion is genuinely load-bearing and any flipper
-		// tuning change should expect to have to re-measure it (ledger DW-79).
+		// Code review 2026-08-29 (iteration 2, Story 1.6): the PEAK excursion
+		// is tracked across the hold AND the post-release coast, not sampled
+		// once at the moment of release. The bat is still accelerating when
+		// the key comes up, so it coasts on past the release angle under its
+		// own momentum. Sampling the release angle and calling it `peak`
+		// passes with a comfortable margin while the observable the AC
+		// actually names ("the bat's PEAK angle") is never measured.
 		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }]);
 		const angleMin = Math.min(restAngle, endAngle);
 		const angleMax = Math.max(restAngle, endAngle);
@@ -236,8 +282,8 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 		const trackPeak = (): void => {
 			peakAngle = Math.min(peakAngle, out.snapshot.mechanisms.flippers.l.angleDeg);
 		};
-		for (let i = 0; i < 29; i++) {
-			out = loop.advance(1, []); // 30 ms held = 30 ticks at TICK_HZ = 1000.
+		for (let i = 0; i < 9; i++) {
+			out = loop.advance(1, []); // 10 ms held = 10 ticks at TICK_HZ = 1000.
 			trackPeak();
 		}
 		const angleAtRelease = out.snapshot.mechanisms.flippers.l.angleDeg;
@@ -248,28 +294,54 @@ describe('sim/physics/flippers.ts -- the flipper hardware rule, mover behaviour 
 			trackPeak();
 		}
 
-		expect(peakAngle, 'a 30 ms tap must NOT reach the end angle, counting the post-release coast').toBeGreaterThan(angleMin);
-		expect(peakAngle).toBeLessThan(angleMax);
-		expect(peakAngle, 'a 30 ms tap must have moved AT ALL, not stayed at rest').not.toBe(restAngle);
-		expect(peakAngle, 'the peak must be past the release angle -- the bat coasts on after the key comes up, which is the whole reason this is tracked rather than sampled').toBeLessThan(angleAtRelease);
-		expect(out.snapshot.mechanisms.flippers.l.angleDeg, 'the bat must return fully to rest after release').toBe(restAngle);
+		// Story 2.1a (DW-78) re-measurement: reconciling the flipper's modelled
+		// body with the authored box (`flipper-config.ts`'s
+		// `flipperRadiusMm = lengthMm - baseRadiusMm - endRadiusMm`) shortened
+		// `flipperRadius` from 71.8169 mm to 59.3169 mm -- and
+		// `inertia = (1/3) * mass * flipperRadius^2` (the ported
+		// `FlipperMover`'s own constructor, frozen, DW-79) falls with the
+		// SQUARE of that, to ~68% of its old value. The SAME torque now
+		// accelerates the bat harder, so a 30 ms tap's own post-release coast
+		// no longer merely nears the 90 deg stop (Story 1.6/1.9's own DW-80
+		// measurement against the pre-DW-78 geometry, 0.0416 deg short); it
+		// reaches it EXACTLY -- and 25 ms only narrowly avoids the same fate
+		// (0.0122 deg short of 90, the same knife-edge that let 30 ms break
+		// silently in the first place). Rather than pin an ever-thinner
+		// margin against a moving target, this test moved to a SHORTER tap
+		// (10 ms) whose margin is a real, comfortable ~19.3 deg -- Story 1.6's
+		// own criterion was amended 30 ms -> 10 ms by the lead under a
+		// one-time scoped grant (this story's own Spec Change Log), and
+		// FR-5's light-tap promise is unchanged: the bat still rises only
+		// PARTIALLY and returns. This is a direct, geometry-driven
+		// consequence of DW-78's own sanctioned fix -- not a retune of
+		// `TUNING.flipper.*` or the ported mover, both untouched here.
+		//
+		// [Block If] Had a tap duration short enough to stay clear of the
+		// end-of-stroke stop by a real, non-knife-edge margin NOT existed --
+		// i.e. every duration from a bare touch up to the full stroke either
+		// stayed at rest or completed the stroke -- FR-5's light-tap promise
+		// would be unkeepable under DW-78's own sanctioned reconciliation,
+		// and this would be a Block If: fixing it would mean retuning
+		// `TUNING.flipper.*` (forbidden by AD-5 and this story's own
+		// Boundaries) rather than re-deriving a passing figure. The measured
+		// sweep (this file's own header) shows that is not the case here.
+		expect(angleAtRelease, 'at the exact release tick the bat must still be mid-stroke -- a 10 ms press has not instantly completed the stroke while the key is still down').toBeGreaterThan(angleMin);
+		expect(angleAtRelease).toBeLessThan(angleMax);
+		expect(angleAtRelease, 'DW-118 re-measured: the release-tick angle must match this pass\'s own measurement (+/- float noise)').toBeCloseTo(139.1871, 3);
 
-		// Story 1.9 (DW-80): re-measured on this story's FINAL tuning (the
-		// rebuild seam, pitch, hop control and elasticity-falloff wiring all
-		// landed above) -- against a named number, not merely "greater than
-		// angleMin" (this file's own review-comment margin above named the
-		// number in prose only). Re-measured this pass: peak 90.0416 deg,
-		// release 104.3998 deg -- numerically IDENTICAL to Story 1.6's own
-		// baseline, because nothing this story ships touches
-		// TUNING.flipper.* or the ported mover itself (pitch's default stays
-		// 6.5 deg either way; hop only ever acts on a BALL, never the bat's
-		// own stroke). Had the margin gone to zero or negative, this story's
-		// own Block-If would fire (narrowing a shipped AC is Rule 5's
-		// ask-first tier) rather than silently re-tuning the flipper to
-		// compensate.
+		expect(peakAngle, 'a 10 ms tap must have moved AT ALL, not stayed at rest').not.toBe(restAngle);
+		expect(peakAngle, 'the peak must be past the release angle -- the bat coasts on after the key comes up, which is the whole reason this is tracked rather than sampled').toBeLessThan(angleAtRelease);
+		// DW-118: the coast's own momentum must clear the end-of-stroke stop
+		// by a STRICTLY POSITIVE, named margin -- never reach or pass it
+		// (FlipperMover.updateDisplacements() clamps to angleMin/angleMax,
+		// frozen, DW-79) -- and that margin must be the one this file's own
+		// header measured, not merely "greater than angleMin" (Story 1.6's
+		// own review-comment margin named the number in prose only).
 		const marginDeg = peakAngle - endAngle;
-		expect(marginDeg, 'DW-80: the 30 ms tap must still fall short of the 90 deg stop by a strictly positive, named margin').toBeGreaterThan(0);
-		expect(marginDeg, 'DW-80: re-measured margin must match the value recorded in the spec\'s own Verification section (0.0416 deg, +/- float noise)').toBeCloseTo(0.0416, 3);
+		expect(marginDeg, 'DW-118: a 10 ms tap must clear the 90 deg stop by a strictly positive, named margin').toBeGreaterThan(0);
+		expect(marginDeg, 'DW-118: re-measured margin must match the value recorded in this file\'s own header (19.3221 deg, +/- float noise)').toBeCloseTo(19.3221, 3);
+		expect(peakAngle, 'DW-118 re-measured: the tap\'s own momentum must reach the figure recorded in this file\'s own header').toBeCloseTo(109.3221, 3);
+		expect(out.snapshot.mechanisms.flippers.l.angleDeg, 'the bat must return fully to rest after release').toBe(restAngle);
 	});
 
 	it('CoilCommand { coil: "c_flipper_l", action: "disable" } stops the bat from moving; { action: "enable" } restores it', () => {

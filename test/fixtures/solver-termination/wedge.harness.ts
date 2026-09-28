@@ -33,6 +33,19 @@ import type { BallHitTableData } from '../../../src/sim/physics/ball/ball-hit';
 const COLLISION_PATH = path.resolve(__dirname, '..', '..', '..', 'public', 'assets', 'dragonwar.collision.json');
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
 
+// DW-194: the `it()` below measured ~3.3s in isolation and ~5.4s under
+// full-suite contention -- comfortably inside the 30s HARD_TIMEOUT_MS that
+// the spawning test/solver-termination.test.ts wall-clock-kills this whole
+// nested process with, but tight against Vitest's own 5000ms per-test
+// default, which this file's `include`-scoped harness config (unlike the
+// default suite's vitest.config.ts, which sets `testTimeout: 60_000`) never
+// overrides. That default -- not a solver regression -- is what made this
+// test flake as the suite grew (DW-179's third occurrence), so the fix is
+// this test's own explicit, generous timeout below, comfortably under the
+// outer guard. HARD_TIMEOUT_MS itself is untouched and still the meaningful
+// backstop: a solver that genuinely fails to terminate still blows it.
+const TEST_TIMEOUT_MS = 15_000;
+
 /** Adds two thin parallel walls in open main-field space (table x ~ 240-249, y 480-520 -- clear of every wall, flipper, lane, drain and switch zone in the committed geometry) forming a 5 mm gap, narrower than the 26.99 mm reference ball. */
 function withAdversarialSlot(doc: unknown): unknown {
 	const parsed = doc as { nodes: Array<Record<string, unknown>> };
@@ -68,34 +81,38 @@ function withAdversarialSlot(doc: unknown): unknown {
 }
 
 describe('solver termination (DW-8), out-of-process', () => {
-	it('every step terminates by forced advance (STATICTIME) against a genuinely non-convergent input', () => {
-		const raw = JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
-		const doc = withAdversarialSlot(raw);
-		const { physics } = loadCollision(doc);
+	it(
+		'every step terminates by forced advance (STATICTIME) against a genuinely non-convergent input',
+		() => {
+			const raw = JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
+			const doc = withAdversarialSlot(raw);
+			const { physics } = loadCollision(doc);
 
-		const radiusVu = 26.99 / 2 / 0.53975;
-		const data = new BallData(radiusVu, 1, 1);
-		const startPhysics = toPhysics({ x: 200, y: 500, z: 13.495 });
-		const state = new BallState('WedgeBall', new Vertex3D(startPhysics.x, startPhysics.y, startPhysics.z));
-		// Table +x -> physics +x (no flip): 9000 mm/s toward the slot at x = 245.
-		const originPhysics = toPhysics({ x: 0, y: 0, z: 0 });
-		const tipPhysics = toPhysics({ x: 9000, y: 0, z: 0 });
-		const vx = (tipPhysics.x - originPhysics.x) / 100;
-		const ball = new Ball(0, data, state, new Vertex3D(vx, 0, 0), TABLE_DATA);
-		physics.addBall(ball);
+			const radiusVu = 26.99 / 2 / 0.53975;
+			const data = new BallData(radiusVu, 1, 1);
+			const startPhysics = toPhysics({ x: 200, y: 500, z: 13.495 });
+			const state = new BallState('WedgeBall', new Vertex3D(startPhysics.x, startPhysics.y, startPhysics.z));
+			// Table +x -> physics +x (no flip): 9000 mm/s toward the slot at x = 245.
+			const originPhysics = toPhysics({ x: 0, y: 0, z: 0 });
+			const tipPhysics = toPhysics({ x: 9000, y: 0, z: 0 });
+			const vx = (tipPhysics.x - originPhysics.x) / 100;
+			const ball = new Ball(0, data, state, new Vertex3D(vx, 0, 0), TABLE_DATA);
+			physics.addBall(ball);
 
-		// Bounded step count (matches the Code Map's verified figure: 4000 steps
-		// completed in 77.2 ms with a worst single step of 2.591 ms). If
-		// STATICTIME's forced-advance guarantee ever regressed, this call
-		// itself would hang synchronously -- which is exactly why
-		// test/solver-termination.test.ts runs this file in a SEPARATE process
-		// with a hard wall-clock kill, rather than trusting Vitest's own
-		// testTimeout to interrupt it.
-		for (let i = 0; i < 4000; i++) {
-			physics.step();
-		}
+			// Bounded step count (matches the Code Map's verified figure: 4000 steps
+			// completed in 77.2 ms with a worst single step of 2.591 ms). If
+			// STATICTIME's forced-advance guarantee ever regressed, this call
+			// itself would hang synchronously -- which is exactly why
+			// test/solver-termination.test.ts runs this file in a SEPARATE process
+			// with a hard wall-clock kill, rather than trusting Vitest's own
+			// testTimeout to interrupt it.
+			for (let i = 0; i < 4000; i++) {
+				physics.step();
+			}
 
-		expect(Number.isFinite(ball.state.pos.x)).toBe(true);
-		expect(Number.isFinite(ball.state.pos.y)).toBe(true);
-	});
+			expect(Number.isFinite(ball.state.pos.x)).toBe(true);
+			expect(Number.isFinite(ball.state.pos.y)).toBe(true);
+		},
+		TEST_TIMEOUT_MS,
+	);
 });

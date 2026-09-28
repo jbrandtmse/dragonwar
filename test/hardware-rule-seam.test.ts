@@ -1,22 +1,28 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 1.8's sweep, Part A: the user-directed hardware-rule registry
-// (`src/sim/physics/machine.ts`'s `PRE_STEP_HARDWARE_RULES`), verified as a
-// MANIFEST against the real source text -- never executed (see the spec's
-// Design Notes, "The hardware-rule registry is a manifest, not an executable
-// array", for why an executable loop would silently collapse `step()`'s
-// three differently-ordered return-channel spreads into one order).
+// Story 1.8's sweep, Part A: the hardware-rule registries in
+// `src/sim/physics/machine.ts` -- `PRE_STEP_HARDWARE_RULES` (the
+// user-directed ones) and, since Story 2.2, `SWITCH_EDGE_HARDWARE_RULES`
+// (the pop bumper, whose trigger is produced BY the solve and so cannot run
+// before it) -- verified as MANIFESTS against the real source text, never
+// executed (see the spec's Design Notes, "The hardware-rule registry is a
+// manifest, not an executable array", for why an executable loop would
+// silently collapse `step()`'s three differently-ordered return-channel
+// spreads into one order).
 //
-// Two independent checks, both table-driven over the manifest so a fifth
-// hardware rule added later gets the same coverage automatically:
-//   1. Ordering: every `receiver.method(` call site the manifest names must
-//      appear in `step()`'s source TEXT before the `physics.step();`
-//      statement, and never after it.
-//   2. Completeness: every `const X = create…(...)` `createMachine()`
-//      constructs must be either a manifest `receiver` or on the explicit
-//      `NOT_A_HARDWARE_RULE` allowlist below -- so a sixth mechanics object
-//      added without a manifest row fails loudly instead of silently
-//      escaping both this test and AD-5.
+// Three independent checks, all table-driven over the manifests so a later
+// hardware rule gets the same coverage automatically:
+//   1. Pre-step ordering: every `receiver.method(` call site
+//      `PRE_STEP_HARDWARE_RULES` names must appear in `step()`'s source TEXT
+//      before the `physics.step();` statement, and never after it.
+//   2. Switch-edge ordering (Story 2.2): every `receiver.method(` call site
+//      `SWITCH_EDGE_HARDWARE_RULES` names must appear AFTER
+//      `switchTracker.step(` and BEFORE `step()`'s own `return {`.
+//   3. Completeness: every `const X = create…(...)` `createMachine()`
+//      constructs must be a receiver in EITHER manifest (the two are
+//      unioned) or on the explicit `NOT_A_HARDWARE_RULE` allowlist below --
+//      so a mechanics object added without a manifest row fails loudly
+//      instead of silently escaping both this test and AD-5.
 //
 // What this does NOT guarantee (state honestly, per the spec's Design
 // Notes): (a) it only catches a participant built as a `const X =
@@ -24,10 +30,16 @@
 // escapes the scan, and the allowlist (not a regex) is where a developer
 // would have to lie to hide one; (b) it is a source-text check on
 // machine.ts ONLY -- a participant that keeps its call site but buffers its
-// effect for the next tick passes this test, which is exactly why the four
+// effect for the next tick passes this test, which is exactly why the five
 // BEHAVIOURAL pins (flipper-mover.test.ts, plunger.test.ts,
 // cabinet-integration.test.ts, machine-serve-drain.test.ts's eject-pose
-// test) are not optional decoration; (c) a sub-rule added inside an
+// test, and pop-bumper.test.ts for the switch-edge manifest) are not
+// optional decoration; (b2) the SLINGSHOT is in neither manifest and is
+// pinned by neither ordering check -- its kick fires inside
+// `physics.step()` itself via the `KickReportingSlingshot` instances
+// `loadCollision()` builds, so there is no `receiver.method(` call site for
+// a manifest to name; `test/slingshot.test.ts` is its only pin; (c) a
+// sub-rule added inside an
 // existing participant is invisible to both checks; (d) the check is
 // formatting-sensitive -- it splits on the literal statement
 // `physics.step();` after stripping comments (line and block), so a
@@ -37,7 +49,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PRE_STEP_HARDWARE_RULES } from '../src/sim/physics/machine';
+import { PRE_STEP_HARDWARE_RULES, SWITCH_EDGE_HARDWARE_RULES } from '../src/sim/physics/machine';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const MACHINE_TS_PATH = path.resolve(REPO_ROOT, 'src', 'sim', 'physics', 'machine.ts');
@@ -88,6 +100,36 @@ function splitAtPhysicsStep(codeOnly: string): { pre: string; post: string } {
 	return { pre: codeOnly.slice(0, idx), post: codeOnly.slice(idx + marker.length) };
 }
 
+/**
+ * Story 2.2: `SWITCH_EDGE_HARDWARE_RULES`'s own ordering window --
+ * `switchTracker.step(` through `step()`'s own `return {` (never
+ * `createMachine()`'s own OUTER `return { step, ... }`, which is a textually
+ * later but unrelated statement; the FIRST `return {` after
+ * `switchTracker.step(` is always `step()`'s own, since nothing else in the
+ * function returns). Same formatting-sensitivity discipline
+ * `splitAtPhysicsStep()` above already accepts -- a reformat that changes
+ * either literal marker surfaces as a clear failure here, not a silent pass.
+ */
+function splitAtSwitchTrackerStep(codeOnly: string): { between: string; before: string } {
+	const marker = 'switchTracker.step(';
+	const startIdx = codeOnly.indexOf(marker);
+	if (startIdx === -1) {
+		throw new Error(
+			`hardware-rule-seam.test.ts: could not find "${marker}" in machine.ts's stripped source -- ` +
+			'this check splits on it literally; if step() was reformatted, update this test\'s marker to match.',
+		);
+	}
+	const returnMarker = 'return {';
+	const returnIdx = codeOnly.indexOf(returnMarker, startIdx);
+	if (returnIdx === -1) {
+		throw new Error(
+			`hardware-rule-seam.test.ts: found "${marker}" but no subsequent "${returnMarker}" in machine.ts's stripped source -- ` +
+			'this check assumes step() returns via that exact literal; if it was reformatted, update this test\'s marker to match.',
+		);
+	}
+	return { before: codeOnly.slice(0, startIdx), between: codeOnly.slice(startIdx, returnIdx) };
+}
+
 describe('src/sim/physics/machine.ts -- PRE_STEP_HARDWARE_RULES is a real (never executed) manifest, checked against the source text', () => {
 	it('the manifest is non-empty, or every check below would vacuously pass', () => {
 		expect(PRE_STEP_HARDWARE_RULES.length).toBeGreaterThan(0);
@@ -121,6 +163,23 @@ describe('src/sim/physics/machine.ts -- PRE_STEP_HARDWARE_RULES is a real (never
 		},
 	);
 
+	it('the SWITCH_EDGE_HARDWARE_RULES manifest is non-empty, or the check below would vacuously pass', () => {
+		expect(SWITCH_EDGE_HARDWARE_RULES.length).toBeGreaterThan(0);
+	});
+
+	it.each(SWITCH_EDGE_HARDWARE_RULES.map((rule) => [rule.receiver, rule.method, rule.pinnedBy] as const))(
+		'%s.%s(...) is called AFTER switchTracker.step( and BEFORE step()\'s own return (pinned behaviourally by %s)',
+		(receiver, method, pinnedBy) => {
+			const { before, between } = splitAtSwitchTrackerStep(stripComments(loadMachineSource()));
+			const callSite = `${receiver}.${method}(`;
+			expect(before, `"${callSite}" must NOT appear before "switchTracker.step(" in machine.ts's step() -- the skirt edge this participant reacts to does not exist until the tracker has run`).not.toContain(callSite);
+			expect(between, `"${callSite}" must appear between "switchTracker.step(" and step()'s own return in machine.ts`).toContain(callSite);
+
+			const pinnedByPath = path.resolve(REPO_ROOT, pinnedBy);
+			expect(existsSync(pinnedByPath), `SWITCH_EDGE_HARDWARE_RULES names "${pinnedBy}" as ${receiver}'s behavioural pin, but that file does not exist -- a stale manifest row advertising coverage that is gone`).toBe(true);
+		},
+	);
+
 	it('set-equality: every `const X = create…(...)` createMachine() constructs is either a manifest receiver or on NOT_A_HARDWARE_RULE, and every manifest receiver is really constructed', () => {
 		const codeOnly = stripComments(loadMachineSource());
 		const constructed = new Set<string>();
@@ -131,12 +190,19 @@ describe('src/sim/physics/machine.ts -- PRE_STEP_HARDWARE_RULES is a real (never
 		}
 		expect(constructed.size, 'sanity: this scan must actually find createMachine()\'s own const declarations, or this check is vacuous').toBeGreaterThan(0);
 
-		const manifestReceivers: Set<string> = new Set(PRE_STEP_HARDWARE_RULES.map((r): string => r.receiver));
+		// Story 2.2: the union of BOTH manifests -- a receiver may be pinned
+		// either as a PRE_STEP participant or as a SWITCH_EDGE one; this check
+		// does not care which, only that every constructed `…Mechanics` is
+		// pinned SOMEWHERE (or explicitly not a hardware rule at all).
+		const manifestReceivers: Set<string> = new Set([
+			...PRE_STEP_HARDWARE_RULES.map((r): string => r.receiver),
+			...SWITCH_EDGE_HARDWARE_RULES.map((r): string => r.receiver),
+		]);
 
 		for (const name of constructed) {
 			expect(
 				manifestReceivers.has(name) || NOT_A_HARDWARE_RULE.has(name),
-				`"${name}" is constructed by createMachine() but is neither a PRE_STEP_HARDWARE_RULES receiver nor on the explicit NOT_A_HARDWARE_RULE allowlist -- ` +
+				`"${name}" is constructed by createMachine() but is neither a PRE_STEP_HARDWARE_RULES/SWITCH_EDGE_HARDWARE_RULES receiver nor on the explicit NOT_A_HARDWARE_RULE allowlist -- ` +
 				'either it is a hardware rule missing a manifest row (AD-5 is now unpinned for it), or it genuinely is not one and belongs on the allowlist (a deliberate, reviewable edit, never a silent omission)',
 			).toBe(true);
 		}

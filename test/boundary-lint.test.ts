@@ -17,9 +17,12 @@ const FIXTURES_ROOT = path.join(REPO_ROOT, 'test', 'fixtures', 'boundary');
 const COVERAGE_GAP_ROOT = path.join(FIXTURES_ROOT, 'coverage-gap');
 const SIM_CYCLE_ROOT = path.join(FIXTURES_ROOT, 'sim-cycle');
 const TABLE_REACHES_PHYSICS_ROOT = path.join(FIXTURES_ROOT, 'table-reaches-physics');
+const PHYSICS_AUTHORED_CYCLE_ROOT = path.join(FIXTURES_ROOT, 'physics-authored-cycle');
 const SUPPRESSION_ROOT = path.join(FIXTURES_ROOT, 'suppression');
 const EXEMPTION_EXACT_ROOT = path.join(FIXTURES_ROOT, 'exemption-exact');
 const EXEMPTION_NEAR_MISS_ROOT = path.join(FIXTURES_ROOT, 'exemption-near-miss');
+const SWITCH_EVENT_LEAK_ROOT = path.join(FIXTURES_ROOT, 'switch-event-leak');
+const COLOUR_ROOT = path.join(FIXTURES_ROOT, 'colour');
 const RUN_TIMEOUT_MS = 30_000;
 
 interface RunResult {
@@ -198,6 +201,27 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/sim-cycle (DW-37: no
 	});
 });
 
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/physics-authored-cycle (DW-105: the narrowed no-circular rule)', () => {
+	it('exits 2 and reports no-circular for a cycle spanning an AUTHORED physics module and a frozen port', () => {
+		// Code review 2026-08-31: Story 2.1a narrowed `no-circular` from a
+		// directory-wide `from: { pathNot: "^src/sim/physics/" }` ORIGIN
+		// exemption to a `to: { pathNot: PORTED_PHYSICS_FILE_PATTERN }`
+		// TARGET exemption (DW-105), and the same diff broke the one real
+		// cycle that narrowing exposed. That left the rule change itself
+		// unpinned: the only no-circular fixture in the repo (`sim-cycle`)
+		// lives under `src/sim/contracts/`, which the SUPERSEDED rule caught
+		// just as well, so restoring the old exemption failed nothing and
+		// the suite stayed green. Verified: under
+		// `from: { pathNot: "^src/sim/physics/" }` this fixture reports "OK
+		// -- no violations"; under the shipped rule it reports the cycle.
+		const { status, stderr } = run([PHYSICS_AUTHORED_CYCLE_ROOT]);
+		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
+		expect(stderr).toContain('[no-circular]');
+		expect(stderr).toContain('src/sim/physics/loader/index.ts');
+		expect(stderr).toContain('src/sim/physics/ball/ball-hit.ts');
+	});
+});
+
 describe('tools/boundary-lint.mjs -- test/fixtures/boundary/table-reaches-physics (DW-37: sim-table-no-physics-rules-loop)', () => {
 	it('exits 2 and reports sim-table-no-physics-rules-loop for a sim/table -> sim/physics import', () => {
 		const { status, stderr } = run([TABLE_REACHES_PHYSICS_ROOT]);
@@ -228,6 +252,31 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/suppression (DW-38: 
 	it('a suppression naming an UNRECOGNISED rule does not suppress the real violation', () => {
 		expect(lines(12), `expected exactly one violation on line 12, got:\n${lines(12).join('\n')}`).toHaveLength(1);
 		expect(lines(12)[0]).toContain('[no-device-name-literal]');
+	});
+
+	// Story 2.8 (code review pass 3, Rule 19): `checkSimNoColour()` wires
+	// `collectLineSuppressions` and returns early on
+	// `suppressions.get(line) === 'sim-no-colour'`, and nothing exercised
+	// that branch -- the presentation fixture above lives under
+	// `src/presentation/**`, which this rule (scoped to `src/sim/**`) never
+	// scans. Same "an unfalsified patch is not evidence" class the review
+	// pass itself corrected for the hex matchers, one function over.
+	// `mutation: delete the `if (suppressions.get(line) === 'sim-no-colour')
+	// return;` guard in tools/boundary-lint.mjs -> the first case below red.`
+	const colourLines = (n: number) => stderr.split('\n').filter((line) => line.includes(`src/sim/suppressed-colour.ts:${n}`));
+
+	it('sim-no-colour honours its own "// boundary-lint-disable-next-line sim-no-colour"', () => {
+		expect(colourLines(9), `expected no violation on line 9, got: ${colourLines(9).join(' | ')}`).toHaveLength(0);
+	});
+
+	it('sim-no-colour still flags the line after the suppressed one', () => {
+		expect(colourLines(10), `expected exactly one violation on line 10, got: ${colourLines(10).join(' | ')}`).toHaveLength(1);
+		expect(colourLines(10)[0]).toContain('[sim-no-colour]');
+	});
+
+	it('a suppression naming a DIFFERENT rule does not suppress a sim-no-colour violation', () => {
+		expect(colourLines(13), `expected exactly one violation on line 13, got: ${colourLines(13).join(' | ')}`).toHaveLength(1);
+		expect(colourLines(13)[0]).toContain('[sim-no-colour]');
 	});
 });
 
@@ -261,6 +310,153 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/exemption-near-miss 
 		// violation ever having fired.
 		const lines = stderr.split('\n').filter((line) => line.includes('src/sim/table/nested/dragonwar.ts'));
 		expect(lines.join('\n'), `expected a violation naming src/sim/table/nested/dragonwar.ts, got:\n${stderr}`).toContain('[no-device-name-literal]');
+	});
+});
+
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/switch-event-leak (Story 2.4, AC 1: rules-no-switch-event-outside-devices)', () => {
+	const { status, stderr } = run([SWITCH_EVENT_LEAK_ROOT]);
+
+	it('exits 1 (a textual violation, not an import-graph one)', () => {
+		expect(status).toBe(1);
+	});
+
+	it('names the rule and the violating file (src/sim/rules/leaks-switch-event.ts)', () => {
+		expect(stderr).toContain('[rules-no-switch-event-outside-devices]');
+		expect(stderr).toContain('src/sim/rules/leaks-switch-event.ts');
+	});
+
+	// DW-169: the check originally matched only a `{ ... }` binding list, and
+	// both shapes below were measured to produce ZERO violations against the
+	// shipped tool. They are separate cases rather than one combined fixture so
+	// a regression names which shape stopped being caught.
+	it('fires on the namespace-import bypass (import * as Names ... Names.SwitchEvent) -- DW-169', () => {
+		expect(stderr).toContain('src/sim/rules/leaks-via-namespace.ts');
+	});
+
+	it("fires on the inline type-import bypass (import('...').SwitchEvent, no import statement at all) -- DW-169", () => {
+		expect(stderr).toContain('src/sim/rules/leaks-via-inline-type.ts');
+	});
+
+	it('fires on the no-whitespace binding-list bypasses (import{X}from and import type{X}from) -- both lines', () => {
+		expect(stderr).toContain('src/sim/rules/leaks-no-space.ts:6');
+		expect(stderr).toContain('src/sim/rules/leaks-no-space.ts:7');
+	});
+
+	it('fires on the default-binding bypass (import Names, { SwitchEvent } from ...)', () => {
+		expect(stderr).toContain('src/sim/rules/leaks-default-binding.ts');
+	});
+
+	it('does NOT fire on the identical import inside src/sim/rules/devices/ -- the exclusion is proved, not merely asserted', () => {
+		expect(stderr).not.toContain('src/sim/rules/devices/index.ts');
+	});
+
+	it('does NOT fire on ANY of the bypass forms inside src/sim/rules/devices/ -- the exclusion covers every widened shape', () => {
+		expect(stderr).not.toContain('src/sim/rules/devices/bypass-forms.ts');
+	});
+
+	// The file SET, not a raw count: this is what makes the two `not.toContain`
+	// assertions above non-vacuous (a rule that fired on nothing at all would
+	// satisfy them both), and it reddens if a future widening starts
+	// over-firing on a file that is not a deliberate fixture violation.
+	it('reports exactly the five deliberate violating files and no others', () => {
+		const violatingFiles = new Set(
+			stderr
+				.split('\n')
+				.filter((line) => line.includes('[rules-no-switch-event-outside-devices]'))
+				.map((line) => line.trim().split(' ')[1].split(':')[0]),
+		);
+		expect([...violatingFiles].sort()).toEqual([
+			'src/sim/rules/leaks-default-binding.ts',
+			'src/sim/rules/leaks-no-space.ts',
+			'src/sim/rules/leaks-switch-event.ts',
+			'src/sim/rules/leaks-via-inline-type.ts',
+			'src/sim/rules/leaks-via-namespace.ts',
+		]);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- real tree, rules-no-switch-event-outside-devices exits 0', () => {
+	it('pnpm lint:boundaries over the real repository names no rules-no-switch-event-outside-devices violation', () => {
+		const { stderr } = run([]);
+		expect(stderr).not.toContain('rules-no-switch-event-outside-devices');
+	});
+});
+
+// Story 2.8 (AC 2, AD-9): sim-no-colour -- the Story 2.4 four-part
+// non-vacuity contract copied exactly: positive fixtures flagged, negative
+// fixtures explicitly not.toContain, the exact violating-file SET asserted
+// (so the not.toContain assertions cannot be satisfied by a rule that fires
+// on nothing), and the real tree stays green.
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/colour (Story 2.8, AC 2: sim-no-colour)', () => {
+	const { status, stderr } = run([COLOUR_ROOT]);
+
+	it('exits 1 (a textual violation, not an import-graph one)', () => {
+		expect(status).toBe(1);
+	});
+
+	it.each([
+		['src/sim/identifier-red.ts', '"RED"'],
+		['src/sim/identifier-colour.ts', '"colour"'],
+		['src/sim/literal-white.ts', '"white"'],
+		// Code review pass 2: the anchored string-literal matcher (h2) was
+		// case-SENSITIVE while the identifier matcher (h1) was not, so this
+		// file passed the whole gate. AC 2 says "no ... bare colour name",
+		// and a bare colour name is one in any casing.
+		['src/sim/literal-white-uppercase.ts', '"White"'],
+		['src/sim/literal-hex.ts', '"#ff8800"'],
+		// Code review pass 2: every entry in SIM_NO_COLOUR_HEX_PATTERN_SOURCES
+		// now has a fixture. Three of the five shipped unfalsified, including
+		// the 4-digit #rgba form an EARLIER review pass added with no fixture
+		// at all -- an unfalsified patch is not evidence (Rule 19).
+		['src/sim/literal-hex.ts', '"#f80"'],
+		['src/sim/literal-hex.ts', '"#f80c"'],
+		['src/sim/literal-hex.ts', '"#ff8800cc"'],
+		['src/sim/literal-rgba.ts', 'rgba('],
+		['src/sim/literal-rgba.ts', 'hsl('],
+		// Code review pass 2: AC 2 names "no RGB" first, and no matcher saw
+		// the numeric-triple form at all until now.
+		['src/sim/rgb-triple.ts', '{ r: 1, g: 1, b: 1 }'],
+		['src/sim/rgb-triple.ts', '{ r: 1, g: 0.5, b: 0 }'],
+	])('fires on the positive fixture %s, naming %s', (file, needle) => {
+		const lines = stderr.split('\n').filter((line) => line.includes(file));
+		expect(lines.join('\n'), `expected a [sim-no-colour] violation naming ${file}, got:\n${stderr}`).toContain('[sim-no-colour]');
+		expect(lines.join('\n')).toContain(needle);
+	});
+
+	it.each([
+		'src/sim/negative-comment-colour-words.ts',
+		'src/sim/negative-prose-literal-red.ts',
+		'src/sim/negative-hex-like-constant.ts',
+		'src/sim/negative-identifier-redistribute.ts',
+	])('does NOT fire on the negative fixture %s', (file) => {
+		expect(stderr).not.toContain(file);
+	});
+
+	// The file SET, not a raw count (Story 2.4's own non-vacuity idiom): this
+	// is what makes the four `not.toContain` assertions above non-vacuous.
+	it('reports exactly the seven deliberate violating files and no others', () => {
+		const violatingFiles = new Set(
+			stderr
+				.split('\n')
+				.filter((line) => line.includes('[sim-no-colour]'))
+				.map((line) => line.trim().split(' ')[1].split(':')[0]),
+		);
+		expect([...violatingFiles].sort()).toEqual([
+			'src/sim/identifier-colour.ts',
+			'src/sim/identifier-red.ts',
+			'src/sim/literal-hex.ts',
+			'src/sim/literal-rgba.ts',
+			'src/sim/literal-white-uppercase.ts',
+			'src/sim/literal-white.ts',
+			'src/sim/rgb-triple.ts',
+		]);
+	});
+});
+
+describe('tools/boundary-lint.mjs -- real tree, sim-no-colour exits 0', () => {
+	it('pnpm lint:boundaries over the real repository names no sim-no-colour violation', () => {
+		const { stderr } = run([]);
+		expect(stderr).not.toContain('sim-no-colour');
 	});
 });
 

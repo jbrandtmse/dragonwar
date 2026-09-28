@@ -122,4 +122,79 @@ describe('tools/blender.mjs -- resolveBlender()', () => {
 		const resolved = resolveBlender(env);
 		expect(resolved).toBe(path.resolve(stubPath));
 	});
+
+	// DW-46: a non-English or non-C:-drive Windows install reports its own
+	// Program Files directory through env.ProgramFiles (and the x86 sibling)
+	// -- these are injected through `env`, not the real filesystem, so this
+	// case is reachable on any host, with or without Blender installed at
+	// the hardcoded 'C:\Program Files\Blender Foundation' literal.
+	it.skipIf(process.platform !== 'win32')('DW-46: env.ProgramFiles naming a LOCALIZED (non-"Program Files") directory is honoured -- a Blender install there resolves even though the hardcoded literal does not name it', () => {
+		const dir = freshTmpDir(); // stands in for e.g. "C:\Programme" on German Windows
+		const stubPath = path.join(dir, 'Blender Foundation', 'Blender 5.2', 'blender.exe');
+		writeStubExecutable(stubPath);
+		const env = { PATH: '', ProgramFiles: dir };
+		const resolved = resolveBlender(env);
+		expect(resolved).toBe(path.resolve(stubPath));
+	});
+
+	it.skipIf(process.platform !== 'win32')('DW-46: env["ProgramFiles(x86)"] is honoured the same way, independently of env.ProgramFiles', () => {
+		const dir = freshTmpDir();
+		const stubPath = path.join(dir, 'Blender Foundation', 'Blender 5.2', 'blender.exe');
+		writeStubExecutable(stubPath);
+		const env = { PATH: '', 'ProgramFiles(x86)': dir };
+		const resolved = resolveBlender(env);
+		expect(resolved).toBe(path.resolve(stubPath));
+	});
+
+	// DW-46: the `platform` parameter (defaulting to `process.platform`) is
+	// what makes the darwin and Linux branches reachable UNCONDITIONALLY --
+	// on whatever host actually runs this suite, not only when that host
+	// happens to BE darwin or Linux. Neither branch's candidates exist on
+	// this (or any CI) host, so resolution still throws; the assertion is on
+	// the THROWN candidate list, proving the right branch executed and built
+	// the right literal paths, not merely that "something threw".
+	it('DW-46: the darwin branch is reachable via the injectable platform parameter, on any host', () => {
+		const env = { PATH: '' };
+		expect(() => resolveBlender(env, 'darwin')).toThrow(BlenderNotFoundError);
+		try {
+			resolveBlender(env, 'darwin');
+			expect.fail('resolveBlender() should have thrown');
+		} catch (err) {
+			const candidates = (err as InstanceType<typeof BlenderNotFoundError>).candidates;
+			// tools/blender.mjs's darwin/Linux branches author these as literal
+			// POSIX (forward-slash) strings, joined via `path.join()` only for
+			// the FILENAME components -- asserted against the same literal
+			// forward-slash form here rather than `path.join()`'d locally,
+			// which would silently normalise to backslashes on a win32 test
+			// host and never match.
+			expect(candidates).toContain('/Applications/Blender.app/Contents/MacOS/Blender');
+		}
+	});
+
+	it('DW-46: the Linux (and every other POSIX) branch is reachable via the injectable platform parameter, on any host', () => {
+		const env = { PATH: '' };
+		expect(() => resolveBlender(env, 'linux')).toThrow(BlenderNotFoundError);
+		try {
+			resolveBlender(env, 'linux');
+			expect.fail('resolveBlender() should have thrown');
+		} catch (err) {
+			const candidates = (err as InstanceType<typeof BlenderNotFoundError>).candidates;
+			expect(candidates).toContain('/usr/bin/blender');
+			expect(candidates).toContain('/usr/local/bin/blender');
+			expect(candidates).toContain('/snap/bin/blender');
+			expect(candidates).toContain('/var/lib/flatpak/exports/bin/org.blender.Blender');
+		}
+	});
+
+	it('DW-46: pathCandidates() (PATH lookup, resolution step 2) also honours the injectable platform parameter -- a "blender" (no .exe) PATH hit resolves under a non-win32 platform even on a win32 host', () => {
+		const dir = freshTmpDir();
+		const stubPath = path.join(dir, 'blender'); // no .exe -- the POSIX exe name
+		writeStubExecutable(stubPath);
+		const env = { PATH: dir };
+		// On this test's OWN real host (win32), pathCandidates() would look
+		// for "blender.exe" and miss this stub entirely -- forcing platform
+		// 'linux' is what makes it look for the bare "blender" name instead.
+		const resolved = resolveBlender(env, 'linux');
+		expect(resolved).toBe(path.resolve(stubPath));
+	});
 });

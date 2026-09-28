@@ -9,17 +9,18 @@
 // the `settleTicks` `resolveTuning()` computes for that switch's
 // `settleClass`, and emits one `SwitchEvent` per genuine edge.
 //
-// Excludes every zone whose switch belongs to a PARKING device's slots
-// (AD-6: "physics parks an entering ball ... closes that slot's switch" --
-// those switches have exactly one owner, the device, and `sim/physics/
-// devices.ts` opens/closes them itself). The exclusion is derived from
-// `TABLE.ballDevices`, never from a switch-name literal (Design Notes, "How a
-// draining ball enters bd_trough": AD-2 forbids two sources for one switch
-// class).
+// Excludes every switch owned end to end by a device module -- a PARKING
+// device's slots (AD-6: "physics parks an entering ball ... closes that
+// slot's switch"), the DRAGON drop-bank's six letters and the spinner's own
+// switch (Story 2.3, AD-2/AD-6's amendment) -- those switches have exactly
+// one owner apiece, and `sim/physics/devices.ts` / `drop-targets.ts` /
+// `spinner.ts` open and close them itself. The exclusion is derived from
+// `TABLE`, never from a switch-name literal (Design Notes, "How a draining
+// ball enters bd_trough": AD-2 forbids two sources for one switch class).
 //
 // This file is authored, not ported -- it sits beside the vpx-js primitive
 // set and carries the GPL-3.0 header rather than the port marker (AD-16,
-// declared in `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// declared in `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import { TABLE } from '../table/dragonwar';
 import type { ResolvedTuning } from '../table/tuning';
@@ -43,12 +44,22 @@ export interface SwitchEdge {
 }
 
 /**
- * Every switch name owned by a PARKING device's slots (AD-6) -- excluded
- * from this module's own zone tests. Derived from `TABLE.ballDevices`, never
- * a name literal: a future ball device added to `TABLE` is covered
- * automatically.
+ * Every switch name owned end to end by a DEVICE MODULE -- excluded from
+ * this module's own zone tests (AD-2: one source per switch). Three
+ * sources, all derived from `TABLE`, never a name literal, so a future
+ * device added to any of them is covered automatically:
+ * - a PARKING device's slots (AD-6) -- `sim/physics/devices.ts`.
+ * - the DRAGON drop-bank's six letters (Story 2.3) --
+ *   `sim/physics/drop-targets.ts`, from `TABLE.dropBankWiring`.
+ * - the spinner's own switch (Story 2.3) -- `sim/physics/spinner.ts`, from
+ *   `TABLE.spinnerWiring`.
+ *
+ * [WIDENED, Story 2.3] Previously named `parkingDeviceOwnedSwitches()` and
+ * covered only the first of the three -- the bank and the spinner are new
+ * device-owned switches this story adds, and AD-2 forbids two emitters for
+ * one switch just as much for them as for a parking slot.
  */
-function parkingDeviceOwnedSwitches(): ReadonlySet<SwitchName> {
+function deviceModuleOwnedSwitches(): ReadonlySet<SwitchName> {
 	const owned = new Set<SwitchName>();
 	for (const device of Object.values(TABLE.ballDevices)) {
 		if (device.kind === 'parking') {
@@ -56,6 +67,12 @@ function parkingDeviceOwnedSwitches(): ReadonlySet<SwitchName> {
 				owned.add(slot as SwitchName);
 			}
 		}
+	}
+	for (const wiring of Object.values(TABLE.dropBankWiring)) {
+		owned.add(wiring.switch as SwitchName);
+	}
+	for (const wiring of Object.values(TABLE.spinnerWiring)) {
+		owned.add(wiring.switch as SwitchName);
 	}
 	return owned;
 }
@@ -84,7 +101,7 @@ export interface SwitchTracker {
  * zone, with per-switch settle behaviour from `resolvedTuning`.
  */
 export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolvedTuning: ResolvedTuning): SwitchTracker {
-	const excluded = parkingDeviceOwnedSwitches();
+	const excluded = deviceModuleOwnedSwitches();
 
 	const bySwitch = new Map<SwitchName, TrackedSwitch>();
 	for (const zone of zones) {
@@ -119,17 +136,55 @@ export function createSwitchTracker(zones: readonly LoadedSwitchZone[], resolved
 					continue;
 				}
 
+				// DW-67 (AD-2, AMENDED 2026-09-01): "settleTicks gates the BREAK,
+				// never the MAKE." A raw closure LATCHES immediately, on the very
+				// tick it is first observed -- no debounce at all. Debouncing the
+				// make instead is exactly the defect this fix closes: a zone
+				// crossing shorter than settleTicks + 1 ticks (a fast ball through
+				// an 8 ms standup or a 20 ms drop target) would settle its
+				// "pending" window only after the ball had already left, so no
+				// `closed: true` edge -- and therefore no `closed: false` either --
+				// would ever be emitted at all, falsifying FR-11 ("no ball is ever
+				// lost by a missed switch at any ball speed the Physics core can
+				// produce") the moment the first such switch existed. Only the
+				// OPENING (raw === false) still runs the settle window below, so a
+				// contact bounce on the way OUT (a flicker back to raw === true
+				// inside the break window) still cancels it via the reported-value
+				// branch above, restarting the window rather than emitting a
+				// premature break.
+				//
+				// Story 2.1d (DW-67 residual, AD-2 amended text re-quoted above):
+				// the break-side COUNTING itself still carried a one-tick residual
+				// of this same historical off-by-one. `pendingSince` latches on the
+				// FIRST tick read outside; the guard below used to require
+				// `elapsedTicks >= settleTicks`, which only becomes true on the
+				// `settleTicks + 1`-th outside tick (pendingSince's own tick counts
+				// as the first). Corrected to `elapsedTicks >= settleTicks - 1`, so
+				// the break fires on the `settleTicks`-th CONSECUTIVE outside tick --
+				// AD-2's amended text exactly ("the number of ticks the zone test
+				// must read outside before closed: false is emitted"). `settleTicks
+				// = 0` is a fixed point of both formulations (`-1 >= -1` is as true
+				// as `0 >= 0`), which is why no switch could ever expose this until
+				// Story 2.1b gave the table its first non-zero settle classes.
+				if (raw) {
+					tracked.reported = true;
+					tracked.pendingSince = null;
+					tracked.pendingValue = null;
+					events.push({ type: 'switch', switch: name, closed: true, tick });
+					continue;
+				}
+
 				if (tracked.pendingValue !== raw) {
 					tracked.pendingSince = tick;
 					tracked.pendingValue = raw;
 				}
 
 				const elapsedTicks = tick - (tracked.pendingSince as number);
-				if (elapsedTicks >= tracked.settleTicks) {
-					tracked.reported = raw;
+				if (elapsedTicks >= tracked.settleTicks - 1) {
+					tracked.reported = false;
 					tracked.pendingSince = null;
 					tracked.pendingValue = null;
-					events.push({ type: 'switch', switch: name, closed: raw, tick });
+					events.push({ type: 'switch', switch: name, closed: false, tick });
 				}
 			}
 			return events;

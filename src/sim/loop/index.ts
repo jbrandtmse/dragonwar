@@ -9,10 +9,18 @@
 // as the frame's FIRST event, and per step: resolves the `InputFrame` in
 // force at that tick, emits button-switch edges from consecutive frames,
 // calls `machine.step(tick, frame, commandsFromPreviousTick)`, then
-// `rules.step(state, switchEvents, tick)` -- every step, even with no
-// events. Assembles the `Snapshot` and returns a `FrameOutput` carrying
-// every event, contact event and command of all N steps in tick order, with
-// empty arrays and the UNCHANGED previous snapshot when N = 0.
+// `rules.step(state, switchEvents, tick, machineReport)` -- every step, even
+// with no events. Story 2.12 (AD-4, amended): `machineReport` is the fourth,
+// OPTIONAL argument this file now always supplies -- `{ recovered,
+// failures }`, forwarded whole from `machine.step()`'s own return, and
+// physics' own failures keep reaching `FrameOutput.events` exactly as
+// before, never re-emitted by rules. A `RecoverCommand` rules issues (its
+// own `coilCommands`-sibling channel, `recoverCommands`) lands in the SAME
+// next-tick `pendingCommands` queue a coil command already does (AD-4: a
+// command issued at tick N is consumed at N+1). Assembles the `Snapshot` and
+// returns a `FrameOutput` carrying every event, contact event and command of
+// all N steps in tick order, with empty arrays and the UNCHANGED previous
+// snapshot when N = 0.
 //
 // This file never names `TICK_HZ` (AD-3): every tick-rate arithmetic site
 // lives in `sim/contracts/time.ts`, imported directly (not through the
@@ -20,25 +28,56 @@
 // cap is `MAX_OWED_TICKS`, already expressed in ticks there.
 //
 // `pulseCoil(coil)` is a DEV-ONLY escape hatch (Design Notes, "Why the dev
-// pulse exists"): the story's own acceptance criteria drive `bd_trough`'s
-// eject and the autolauncher from a "dev action" because `advance()`'s
-// signature (fixed by AD-4) carries no room for one. It enqueues into
+// pulse exists"): kept for general dev/test use (any coil, not only the
+// trough) after Story 2.5, which replaces it as the PRODUCTION serve path --
+// the ball controller (`sim/rules/ball-controller.ts`) is now the only thing
+// that pulses `c_trough_eject` in real play (AD-18); this hatch enqueues into
 // EXACTLY the same next-tick command queue a rules-issued `CoilCommand`
-// would use, so physics cannot tell the difference. Story 2.5 ("Start, hot
-// seat and the ball lifecycle") replaces it with the real serve path.
+// would use, so physics cannot tell the difference.
+//
+// Story 2.5, task 5/6 (AD-14, AD-7, DW-70): `gameStart?: GameStart` seeds the
+// initial `GameState` (`rng` from `gameStart.seed`, `machine.highscores` from
+// `gameStart.highscores`) and its `adjustments` ride `createRules()`'s SECOND
+// constructor argument -- never `step()`'s three-argument signature, which
+// stays AD-4's pin. `initialMachineState()`'s `deviceSlots` is now seeded from
+// `bootDeviceSlots()` (`sim/rules`, TABLE-derived) rather than the physics
+// machine's own `deviceSlots` getter -- the boot seed is construction, not
+// the DW-70 violation itself (Design Notes, "the boot seed is construction,
+// not mutation"), but this removes even that one physics read, so
+// `initialMachineState()` no longer needs a physics-shaped argument at all.
+// `hardwareEnabled` now boots `false` (was hardcoded `true`): AD-7 says
+// "ball_starting enables hardware", which is vacuous if the boot value is
+// already `true` (Design Notes, "why hardwareEnabled must start false").
+//
+// DW-70's own live violation -- `state = { ...rulesResult.state, machine: {
+// ...rulesResult.state.machine, deviceSlots: machine.deviceSlots } }`,
+// overwriting `GameState.machine.deviceSlots` from the physics machine's own
+// live view AFTER `rules.step()` returns -- is DELETED in this story:
+// `state = rulesResult.state` is now the whole assignment. `deviceSlots` is
+// derived entirely inside `rules.step()` (`sim/rules/index.ts`,
+// `sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`) from this tick's
+// device events, never copied from physics. `buildSnapshot()` below is
+// UNCHANGED -- it still reads `machine.deviceSlots` directly for the
+// snapshot's own `mechanisms.devices` view, which is now the INDEPENDENT
+// second derivation the AD-7 gate (`test/fixtures/dw70-ad7/`) cross-checks
+// against.
 
 import { createMachine } from '../physics/machine';
-import { step as rulesStep } from '../rules';
+import { createRules, bootDeviceSlots, lampsOf } from '../rules';
 import { msToTicksExact, ticksToMs, MAX_OWED_TICKS } from '../contracts/time';
-import { resolveTuning, type ResolvedTuning } from '../table/tuning';
+import { resolveTuning, shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import { TABLE } from '../table/dragonwar';
 import { fromPhysics, type Vec3 } from '../table/frames';
 import type {
 	BallDeviceName,
-	CoilCommand,
 	CoilName,
 	FrameOutput,
+	GameStart,
 	GameState,
+	LampName,
+	LampState,
+	MachineCommand,
+	MachineReport,
 	MachineState,
 	SemanticEvent,
 	Snapshot,
@@ -171,15 +210,24 @@ function physicsVelocityToTableMmPerS(vel: Vec3): Vec3 {
 	return { x: (tip.x - origin.x) * 100, y: (tip.y - origin.y) * 100, z: (tip.z - origin.z) * 100 };
 }
 
-function initialMachineState(deviceSlots: Readonly<Record<BallDeviceName, readonly boolean[]>>): MachineState {
+/**
+ * Story 2.5, task 6: `deviceSlots` is now TABLE-derived (`bootDeviceSlots()`,
+ * `sim/rules`), never a physics read -- `initialMachineState()` no longer
+ * takes the physics machine's `deviceSlots` getter as an argument at all.
+ * `hardwareEnabled` now boots `false` (was hardcoded `true`) -- see this
+ * file's header. `highscores` is seeded from `gameStart?.highscores` (AD-14:
+ * "highscores (read-only, from GameStart)"), defaulting to `[]` exactly as
+ * before this story when no `GameStart` is supplied.
+ */
+function initialMachineState(gameStart: GameStart | undefined): MachineState {
 	return {
 		ballsInPlay: 0,
-		hardwareEnabled: true,
+		hardwareEnabled: false,
 		ballSave: { untilTick: null, sources: [] },
 		tilt: { tilted: false, slamTilted: false },
 		multiball: null,
-		highscores: [],
-		deviceSlots,
+		highscores: gameStart?.highscores ?? [],
+		deviceSlots: bootDeviceSlots(),
 	};
 }
 
@@ -201,11 +249,35 @@ export interface CreateLoopOptions {
 	 * `src/host/loop.ts`'s `reset()`.
 	 */
 	readonly tuning?: ResolvedTuning;
+	/**
+	 * Story 2.5, task 5 (AD-14): the one bundle a caller hands the sim at game
+	 * start. Seeds the initial `GameState` (`rng` from `.seed`,
+	 * `machine.highscores` from `.highscores`) and its `.adjustments` ride
+	 * `createRules()`'s second constructor argument -- never `step()`'s
+	 * three-argument signature (AD-4's pin). Omitted, behaviour is
+	 * byte-identical to before this story: `rng: 0`, `highscores: []`, and
+	 * `createRules()`'s own default adjustments (`ballsPerGame: 3`).
+	 */
+	readonly gameStart?: GameStart;
 }
 
 export function createLoop(options: CreateLoopOptions): Loop {
 	const tuning = options.tuning ?? resolveTuning();
 	const machine = createMachine(options.collisionDoc, tuning);
+	// Story 2.4: one devices-and-shots layer instance for the life of this
+	// loop (mirrors createMachine() above) -- it holds cross-tick state
+	// (in-flight shot sequences, the bank's own latch, bd_lock's tracked
+	// occupancy, the pending Lock-lane closure), so a module-level instance
+	// would leak between two loops in one process (Story 2.3's own spinner
+	// defect, repeated).
+	// Story 2.5, task 5: `options.gameStart?.adjustments` rides this SECOND
+	// constructor argument (AD-4: never step()'s call signature).
+	const rules = createRules(tuning, options.gameStart?.adjustments);
+	// Story 2.9: `l_ball_save`'s own hurry-up window, resolved ONCE here
+	// (mirrors `tuning` itself) and threaded into every `lampsOf()` call
+	// below -- `sim/rules/lamps.ts` never reaches for `TUNING`/`TICK_HZ`
+	// itself (AD-3/AD-15).
+	const ballSaveHurryUpTicks = shotWindowTicks('ballSaveHurryUpMs', tuning);
 
 	let tick = 0;
 	let owedRemainderTicks = 0;
@@ -215,18 +287,37 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	// Generalised (Story 1.6) from `pendingPulses: CoilName[]` to carry
 	// `enable`/`disable` alongside `pulse` -- both `pulseCoil()` and
 	// `setCoilEnabled()` below queue into this ONE array, exactly the same
-	// "commands land next tick" semantics either action already had.
-	let pendingCommands: Array<{ readonly coil: CoilName; readonly action: CoilAction }> = [];
+	// "commands land next tick" semantics either action already had. Story
+	// 2.12 (AD-4, amended): widened again to also carry a bare recover marker
+	// (`{ kind: 'recover' }`) -- `rulesResult.recoverCommands` (below) queues
+	// into the SAME array, so a `RecoverCommand` rules issues at tick N is
+	// consumed by physics at tick N+1, exactly like a coil command.
+	type PendingCommand = { readonly kind: 'coil'; readonly coil: CoilName; readonly action: CoilAction } | { readonly kind: 'recover' };
+	let pendingCommands: PendingCommand[] = [];
 
 	let state: GameState = {
 		tick: 0,
 		phase: 'attract',
-		machine: initialMachineState(machine.deviceSlots),
+		machine: initialMachineState(options.gameStart),
 		players: [],
 		currentPlayer: 0,
 		modes: [],
-		rng: 0,
+		// Story 2.5, task 5 (AD-14, AD-3): seeded from GameStart's own seed when
+		// supplied -- rules randomness (Match, the skill-shot lane) draws from
+		// this field. Omitted, `0` exactly as before this story.
+		rng: options.gameStart?.seed ?? 0,
 	};
+
+	// Story 2.8 (AD-9): seeded from the BOOT state above, so the first tick's
+	// projection diffs to nothing -- `lampsOf(bootState)` is all-off (`modes`
+	// is empty), and this is what keeps `test/flipper-mover.test.ts:73,127`
+	// (real attract frames, `commands` asserted `[]`) green: an
+	// implementation that pushed the whole projection every step instead of
+	// the diff would redden them immediately (Design Notes, "Why the attract
+	// case is load-bearing"). Never reassigned via a binding spelled
+	// `state` (lower-case) -- `test/ad7-device-slots.test.ts`'s source-text
+	// ratchet counts exactly two `state =` assignments under `src/sim/loop/`.
+	let previousLamps: LampState = lampsOf(state, ballSaveHurryUpTicks);
 
 	function buildSnapshot(): Snapshot {
 		const balls: BallSnapshot[] = machine.balls.map((ball) => {
@@ -245,11 +336,22 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			devices[name] = { slots: machine.deviceSlots[name] };
 		}
 
+		// Story 2.3, task 10: the machine's real dropTargets/spinner state --
+		// DELIBERATELY read straight from `machine.mechanisms`, never through
+		// `GameState`. Story 2.5 removed the post-`rules.step()` `deviceSlots`
+		// overwrite this comment used to warn about (DW-70), so the warning is
+		// retired; the deliberate part SURVIVES and is now load-bearing for a
+		// different reason. `devices` above reads the physics machine's own
+		// `deviceSlots` getter directly, which makes `buildSnapshot()` the
+		// INDEPENDENT second derivation the AD-7 gate
+		// (`test/fixtures/dw70-ad7/`) cross-checks `GameState`'s rules-derived
+		// slots against -- routing either through the other would collapse the
+		// two views into one and make that gate vacuous.
 		const mechanisms: MechanismsSnapshot<BallDeviceName> = {
 			flippers: machine.mechanisms.flippers,
 			plunger: machine.mechanisms.plunger,
-			dropTargets: {},
-			spinner: {},
+			dropTargets: machine.mechanisms.dropTargets,
+			spinner: machine.mechanisms.spinner,
 			devices: devices as Readonly<Record<BallDeviceName, { slots: readonly boolean[] }>>,
 		};
 
@@ -326,26 +428,65 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			const edges = buttonSwitchEdges(previousFrame, currentFrame, tick);
 			previousFrame = currentFrame;
 
-			const commandsForThisTick: CoilCommand[] = pendingCommands.map((c) => ({
-				type: 'coil',
-				coil: c.coil,
-				action: c.action,
-				tick,
-			}));
+			// Story 2.12 (AD-4, amended): a recover marker becomes a bare
+			// `{ type: 'recover', tick }`, no `coil`/`action` -- distinct from
+			// every `PendingCommand` a coil pulse/enable/disable builds.
+			const commandsForThisTick: MachineCommand[] = pendingCommands.map((c): MachineCommand =>
+				c.kind === 'recover' ? { type: 'recover', tick } : { type: 'coil', coil: c.coil, action: c.action, tick },
+			);
 			pendingCommands = [];
 
 			const machineResult = machine.step(tick, currentFrame, commandsForThisTick);
 			const switchEvents: SwitchEvent[] = [...edges, ...machineResult.switchEvents];
 
-			const rulesResult = rulesStep(state, switchEvents, tick);
-			state = {
-				...rulesResult.state,
-				machine: { ...rulesResult.state.machine, deviceSlots: machine.deviceSlots },
-			};
+			// Story 2.12 (AD-4, amended): physics' own per-step report, forwarded
+			// whole as rules.step()'s optional fourth argument -- `failures` keeps
+			// reaching `events` below exactly as before (machineResult.semanticEvents),
+			// never re-emitted by rules.
+			const machineReport: MachineReport = { recovered: machineResult.recovered, failures: machineResult.semanticEvents };
+			const rulesResult = rules.step(state, switchEvents, tick, machineReport);
+			// DW-70 (AD-7): `machine.deviceSlots` is derived entirely INSIDE
+			// rules.step() now (sim/rules/index.ts, ball-controller.ts's
+			// deriveDeviceSlots()) -- no longer overwritten here from the
+			// physics machine's own live view. This is the whole assignment.
+			state = rulesResult.state;
 
 			events.push(...machineResult.semanticEvents, ...rulesResult.events);
 			contactEvents.push(...machineResult.contactEvents);
 			commands.push(...rulesResult.commands);
+			// Story 2.8 (AD-9, AC 1): the lamp DIFF, computed here -- never in
+			// rules (`RulesStepResult.commands` stays `readonly never[]`).
+			// `lampsOf(state, ballSaveHurryUpTicks)` is a pure, whole-projection
+			// recompute every tick;
+			// only a lamp whose `role` OR `step` changed since the previous
+			// tick's projection gets a `LampCommand` this tick (the
+			// `previousFrame`/`currentFrame` diff idiom above, mirrored).
+			const currentLamps = lampsOf(state, ballSaveHurryUpTicks);
+			for (const lampName of Object.keys(TABLE.lamps) as LampName[]) {
+				const previous = previousLamps[lampName];
+				const current = currentLamps[lampName];
+				if (previous.role !== current.role || previous.step !== current.step) {
+					commands.push({ type: 'lamp', lamp: lampName, role: current.role, step: current.step, tick });
+				}
+			}
+			previousLamps = currentLamps;
+			// Story 2.4: the rules -> physics coil channel. Queued into
+			// pendingCommands exactly like a dev pulseCoil()/setCoilEnabled()
+			// call, so a command rules issues at tick N is consumed by physics
+			// at tick N+1 (AD-4) -- the tick field is reassigned fresh at
+			// consumption time above, exactly as a dev-queued command's already is.
+			for (const coilCommand of rulesResult.coilCommands) {
+				pendingCommands.push({ kind: 'coil', coil: coilCommand.coil, action: coilCommand.action });
+			}
+			// Story 2.12 (AD-4): ball search's own final-stage command, queued
+			// into the SAME next-tick channel, so a RecoverCommand rules issues
+			// at tick N is consumed by physics at tick N+1. AD-7's Boundaries
+			// clause bounds a pass to "exactly one RecoverCommand", so this is
+			// never more than a single push in practice -- the loop still
+			// forwards every entry, rather than assuming the count.
+			for (let i = 0; i < rulesResult.recoverCommands.length; i++) {
+				pendingCommands.push({ kind: 'recover' });
+			}
 		}
 
 		snapshot = buildSnapshot();
@@ -353,11 +494,11 @@ export function createLoop(options: CreateLoopOptions): Loop {
 	}
 
 	function pulseCoil(coil: CoilName): void {
-		pendingCommands.push({ coil, action: 'pulse' });
+		pendingCommands.push({ kind: 'coil', coil, action: 'pulse' });
 	}
 
 	function setCoilEnabled(coil: CoilName, enabled: boolean): void {
-		pendingCommands.push({ coil, action: enabled ? 'enable' : 'disable' });
+		pendingCommands.push({ kind: 'coil', coil, action: enabled ? 'enable' : 'disable' });
 	}
 
 	return { advance, pulseCoil, setCoilEnabled };

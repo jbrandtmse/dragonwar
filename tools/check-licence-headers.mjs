@@ -44,7 +44,7 @@ const PORT_MARKER = 'Ported from vpdb/vpx-js';
 // Story 1.7: the vpinball/vpinball port's own marker substring (the third
 // class, `src/sim/physics/cabinet/**`) -- a flat third disjunct, exactly the
 // same shape as PORT_MARKER above, no structural check (that belongs to
-// test/sim-boundary.test.ts's own, stricter third branch).
+// test/port-provenance.test.ts's own, stricter third branch).
 const VPINBALL_PORT_MARKER = 'Ported from vpinball/vpinball';
 
 export class CheckHeadersError extends Error {}

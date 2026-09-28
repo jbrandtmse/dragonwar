@@ -15,7 +15,7 @@
 // simulated set (AD-6's own text: "the served ball stays simulated").
 //
 // This file is authored, not ported (AD-16, declared in
-// `test/sim-boundary.test.ts`'s `AUTHORED_FILES`).
+// `test/port-provenance.test.ts`'s `AUTHORED_FILES`).
 
 import { Ball } from './ball/ball';
 import { BallData } from './ball/ball-data';
@@ -107,6 +107,44 @@ export interface DeviceMechanics {
 	 * `tuning.autolaunchSpeedMmPerS.value`.
 	 */
 	launch(tick: number, device: BallDeviceName, speedMmPerS: number): DeviceMechanicsResult;
+	/**
+	 * Story 2.12 (AD-6): ball search's final stage. Physics' one licence to
+	 * despawn a ball -- removes every ball whose centre lies outside every
+	 * non-parking device's own entry zone (this table has one, `bd_shooter`'s
+	 * `s_shooter_lane`), returning the count removed. A ball already parked
+	 * inside a PARKING device is never a candidate at all: parking already
+	 * removed it from `physics.balls` the moment it entered, so this never
+	 * sees it. Runs pre-step (`machine.ts`'s `PRE_STEP_HARDWARE_RULES`),
+	 * before `applyCommands()` and before that tick's `before` position map,
+	 * so a ball a same-tick serve spawns is never despawned by the very
+	 * recover that landed alongside it (AD-6, AC 8).
+	 */
+	recover(tick: number): number;
+	/**
+	 * Story 2.13 rework iteration 1 (CR-1, AD-6 amended, DW-269): the switch
+	 * edge(s) `recover()`'s most recent call(s) queued for the slot(s) it
+	 * closed -- a SEPARATE channel from `recover()`'s own `number` return
+	 * (frozen by the spec's Block-If: it still means "how many balls were
+	 * taken out of the simulated set", never widened to carry these), drained
+	 * by `machine.ts`'s `step()` immediately after calling `recover()` and
+	 * BEFORE `applyCommands()` -- the ORDERING REQUIREMENT (spec Boundaries &
+	 * Constraints): on a bottom-filled contiguous trough (AD-6's own
+	 * invariant), `recover()`'s own park (`indexOf(false)`, the lowest empty
+	 * slot) and a same-tick `c_trough_eject` pulse's own eject
+	 * (`lastIndexOf(true)`, the highest filled slot) always converge on the
+	 * SAME slot the instant `recover()` parks anything, so the CLOSE edge
+	 * queued here must reach `sim/rules/ball-controller.ts`'s
+	 * `deriveDeviceSlots()` strictly BEFORE that eject's own OPEN edge
+	 * (`commandResult.switchEvents`) -- never through `detectEntries()`
+	 * (which runs AFTER `commandResult` is assembled), which would emit
+	 * open-then-close and leave rules believing the slot is still closed (a
+	 * silent off-by-one against physics; `deriveDeviceSlots()`'s own
+	 * same-value identity guard swallows an out-of-order edge instead of
+	 * merely reordering it). Returns (and clears) whatever is pending;
+	 * ordinarily empty (a step that consumed no `RecoverCommand`, or one that
+	 * found nothing loose, queues nothing).
+	 */
+	drainRecoverSwitchEvents(): readonly SwitchEdgeLike[];
 }
 
 type BallDevice = (typeof TABLE.ballDevices)[BallDeviceName];
@@ -137,8 +175,14 @@ function primaryPulseCoil(device: BallDevice): CoilName | undefined {
  * VP TIME-UNIT convention (1 T = 10 ms, `constants.ts`'s documented unit
  * block) -- a time-domain scaling, not a table/physics FRAME conversion, so
  * it is not part of `frames.ts`'s contract.
+ *
+ * Exported (Story 2.2): `sim/physics/pops.ts` reuses this SAME function for
+ * the pop bumper's own radial kick (a direction -- the ball's position minus
+ * `col_pop_N`'s centroid, normalised -- and a speed,
+ * `tuning.hardware.popKickMmPerS`) rather than re-deriving the identical
+ * mm/s -> VU/T arithmetic a second time.
  */
-function tableSpeedToPhysicsVelocity(dir: Vec3, speedMmPerS: number): Vertex3D {
+export function tableSpeedToPhysicsVelocity(dir: Vec3, speedMmPerS: number): Vertex3D {
 	const origin = toPhysics({ x: 0, y: 0, z: 0 });
 	const tip = toPhysics({ x: dir.x * speedMmPerS, y: dir.y * speedMmPerS, z: dir.z * speedMmPerS });
 	const vuPerSecond: Vec3 = { x: tip.x - origin.x, y: tip.y - origin.y, z: tip.z - origin.z };
@@ -147,6 +191,24 @@ function tableSpeedToPhysicsVelocity(dir: Vec3, speedMmPerS: number): Vertex3D {
 
 function ballRadiusVu(): number {
 	return TABLE.reference.ballMm / 2 / MM_PER_VU;
+}
+
+/**
+ * Story 2.3, DW-155 (the epic's own second finding): the per-device boot
+ * derivation, extracted so it is directly unit-testable. `createDeviceMechanics()`
+ * below accumulates every parking device's derived boot-full count into
+ * `totalBootFull` and throws by name if the sum is not 4 (AD-6) BEFORE
+ * `deviceSlots` is ever read -- which shadows every single-field mutation of
+ * `startsFullAtBoot` on `TABLE.ballDevices` (the two declared parking
+ * devices' capacities, 4 and 3, admit no OTHER boolean combination that also
+ * sums to 4, so no mutation of `startsFullAtBoot` alone can dodge that
+ * throw and still reach the behavioural assertion at
+ * `test/lock-device-behaviour.test.ts:99` -- this story's own spec records
+ * the finding). Exported so that assertion can be pinned directly against
+ * THIS function instead, decoupled from the whole-registry sum check.
+ */
+export function deriveBootSlots(slotCount: number, startsFullAtBoot: boolean): boolean[] {
+	return new Array<boolean>(slotCount).fill(startsFullAtBoot);
 }
 
 /**
@@ -170,8 +232,111 @@ export function createDeviceMechanics(options: {
 		eject.set(device.name, { ...device.ejectPose.posMm, dir: device.ejectPose.dir });
 	}
 
+	/**
+	 * Story 2.1d (AD-6, "one ball per pulse"): per PARKING device, the balls
+	 * THAT DEVICE most recently ejected and has not yet travelled PAST its
+	 * own slot-zone union (see `buildClearBeyond()`, below, for what "past"
+	 * means and why it is not simply "the swept segment currently misses
+	 * every zone"), each mapped to the tick it was ejected on (Phase 5
+	 * review finding: `tuning.lockEjectExemptionTimeoutTicks`
+	 * (`src/sim/table/tuning.ts`, AD-15 -- rework iteration 2 moved this out
+	 * of a bare tick constant here) is the backstop that reads this).
+	 * `detectEntries()` below never parks a ball
+	 * while it is a key of its own ejecting device's map here -- scoped
+	 * narrowly to "the ball this device just ejected, while it is still
+	 * leaving" (the Block If's own wording), never a blanket park
+	 * suppression: any OTHER ball, and this same ball once it is confirmed
+	 * clear (or once it enters a DIFFERENT device's zone, or once the
+	 * timeout backstop above fires), is still parked unconditionally,
+	 * exactly as AD-6 requires. Originally diagnosed cause (this story's
+	 * Intent, as first authored): `bd_lock`'s own eject pose sat inside
+	 * `sw_lock_2`'s zone, so the ejected ball was captured on the very tick
+	 * it spawned without this guard. **[CORRECTED, rework iteration 3, MED
+	 * review finding: that pose no longer exists.** Rework iteration 2's
+	 * corridor-seal redesign moved `DRAGON_MOUTH_Y_MM` south of the whole
+	 * Lock-lane corridor (460, versus every `sw_lock_*` zone's own y >= 544),
+	 * so `buildClearBeyond()`'s one-directional threshold for `bd_lock` is
+	 * satisfied by the ball's own spawn position on the very first tick this
+	 * guard is ever consulted -- confirmed against the committed document by
+	 * `test/lock-device-behaviour.test.ts`'s own "buildClearBeyond() is
+	 * already satisfied at every parking device's committed eject pose"
+	 * case. The identical arithmetic already held for `bd_trough` before this
+	 * story (its own eject pose at y = 20 clears its own zones' shared
+	 * boundary at y = 0 immediately). This guard is therefore currently an
+	 * inert defensive backstop on BOTH parking devices' real production eject
+	 * paths, not an active guard against a reachable capture -- kept rather
+	 * than deleted because it remains the correct, AD-6-scoped mechanism for
+	 * any FUTURE device or geometry whose eject pose again lands short of its
+	 * own zone union (a stall, a deflection, a reversal, or simply a closer
+	 * pose), and ripping it out would also require re-deriving AC 2's own
+	 * "one ball per pulse" guarantee from scratch rather than by construction
+	 * of the corridor seal alone.]
+	 *
+	 * Phase 5 review finding, the adjacent lower-severity leak: a `Ball`
+	 * removed from `physics` by any path OTHER than `clearBeyond()`/the
+	 * timeout backstop clearing its own entry here (**corrected at code
+	 * review 2026-09-03: this parenthetical used to claim "there is no such
+	 * path today", on the grounds that `detectEntries()` below always clears
+	 * the entry it parks. It does not. The maps are PER DEVICE, and a ball
+	 * `bd_lock` ejected can be parked by `bd_trough` -- ordinary play, the
+	 * ejected ball drains and is served again -- which calls
+	 * `physics.removeBall()` with `bd_lock`'s own entry for that ball
+	 * untouched. So the stale entry is reachable today; only its
+	 * CONSEQUENCES, argued below, are unchanged.**)
+	 * would leave a stale entry keyed by a ball no `movements` array can
+	 * ever name again, since a removed ball is never advanced or re-passed
+	 * to `detectEntries()`. `PlayerPhysics` (`sim/physics/game/
+	 * player-physics.ts`) exposes no removal hook/callback reachable from
+	 * here to prune against, only the throwing `removeBall()` itself, so
+	 * this is deliberately left rather than instrumented: harmless (the
+	 * entry can never again suppress a real park, since its ball can never
+	 * again appear in `movements`) but technically unbounded per-entry
+	 * memory, bounded in practice by how many balls a game ever ejects.
+	 */
+	const justEjected = new Map<BallDeviceName, Map<Ball, number>>();
+	/**
+	 * Story 2.3, AC 6: per PARKING device, the balls currently latched as
+	 * "already reported overflow" for that device -- so a ball parked at the
+	 * slot band while every slot is full emits exactly ONE `device_overflow`
+	 * per rejected ENTRY, not one per tick of zone contact (measured before
+	 * this fix: 315 events for one ball sitting in the band for ~315 ticks).
+	 * Cleared the moment the ball's own swept segment no longer intersects
+	 * ANY of this device's zones (see `detectEntries()` below) -- a genuinely
+	 * later re-approach is a fresh rejected entry and gets its own event,
+	 * exactly the same "cleared once genuinely outside" shape `justEjected`
+	 * above already uses for the eject-exemption latch, applied here to the
+	 * overflow latch instead.
+	 */
+	const overflowReported = new Map<BallDeviceName, Set<Ball>>();
+	/**
+	 * Story 2.13 rework iteration 1 (CR-1): `recover()`'s own queued switch
+	 * edges, drained by `drainRecoverSwitchEvents()` -- see both functions'
+	 * own doc comments (below, and on the `DeviceMechanics` interface above)
+	 * for why this is a channel separate from `recover()`'s `number` return.
+	 * Module-instance-scoped (this closure, mirroring `justEjected`/
+	 * `overflowReported` above), never module-level -- a module-level array
+	 * would leak between two loops in one process, the exact defect this
+	 * file's own header already names for `createDeviceMechanics()`'s other
+	 * per-instance state.
+	 */
+	const pendingRecoverSwitchEvents: SwitchEdgeLike[] = [];
+	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, BallDevice]>) {
+		if (device.kind === 'parking') {
+			justEjected.set(name, new Map<Ball, number>());
+			overflowReported.set(name, new Set<Ball>());
+		}
+	}
+
 	const parkingSlots: Partial<Record<BallDeviceName, boolean[]>> = {};
 	const slotZonesByDevice = new Map<BallDeviceName, LoadedSwitchZone[]>();
+	// Story 2.1d (AD-6): "the machine carries 4 balls, asserted at boot" --
+	// checked BY NAME below, across every parking device's declared boot
+	// occupancy, rather than assumed from a comment. Accumulated in the same
+	// loop that derives each device's own boot slots, since that is the one
+	// place both `startsFullAtBoot` and `capacity` are already in scope
+	// together.
+	let totalBootFull = 0;
+	const bootFullByDevice: Partial<Record<BallDeviceName, number>> = {};
 	for (const [name, device] of Object.entries(TABLE.ballDevices) as Array<[BallDeviceName, BallDevice]>) {
 		if (device.kind !== 'parking') {
 			continue;
@@ -182,11 +347,113 @@ export function createDeviceMechanics(options: {
 				`${device.capacity} -- these must match (AD-6: "4 balls, asserted at boot").`,
 			);
 		}
-		parkingSlots[name] = new Array<boolean>(device.slots.length).fill(true);
+		// Story 2.1d (AD-6): boot occupancy is a DECLARED property of the
+		// device (dragonwar.ts's `startsFullAtBoot`), not the unconditional
+		// `fill(true)` this line used to carry -- that booted every parking
+		// device full regardless of what it actually holds at rest, which is
+		// how `bd_lock` (staged empty at boot) used to boot SEVEN balls
+		// against AD-6's "the machine carries 4 balls, asserted at boot".
+		const bootSlots = deriveBootSlots(device.slots.length, device.startsFullAtBoot);
+		// Construction-time consistency check, distinct from the
+		// slots/capacity throw above: the boot occupancy this device declares
+		// must resolve to either fully-empty (0 filled slots) or fully-full
+		// (exactly `capacity` filled slots) -- there is no partial boot
+		// occupancy in this registry's vocabulary. `fill()` above can never
+		// actually violate this by construction, but a later refactor of how
+		// boot occupancy is derived (a per-slot array, say) could silently
+		// drift from `capacity` without this guard.
+		const bootFullCount = bootSlots.filter(Boolean).length;
+		const expectedBootFullCount = device.startsFullAtBoot ? device.capacity : 0;
+		if (bootFullCount !== expectedBootFullCount) {
+			throw new Error(
+				`createDeviceMechanics(): device "${name}" declares startsFullAtBoot=${String(device.startsFullAtBoot)} but its derived boot ` +
+				`occupancy fills ${bootFullCount} of ${device.capacity} slot(s), expected ${expectedBootFullCount} -- boot occupancy must be ` +
+				`either fully empty or fully full, consistent with the device's own capacity.`,
+			);
+		}
+		parkingSlots[name] = bootSlots;
+		totalBootFull += bootFullCount;
+		bootFullByDevice[name] = bootFullCount;
 		slotZonesByDevice.set(
 			name,
 			switchZones.filter((zone) => (device.slots as readonly string[]).includes(zone.switch)),
 		);
+	}
+	if (totalBootFull !== 4) {
+		const perDevice = (Object.entries(bootFullByDevice) as Array<[BallDeviceName, number]>)
+			.map(([deviceName, count]) => `${deviceName}=${count}`)
+			.join(', ');
+		throw new Error(
+			`createDeviceMechanics(): AD-6 requires exactly 4 balls in the machine at boot, but the parking devices' declared boot ` +
+			`occupancy sums to ${totalBootFull} (${perDevice}).`,
+		);
+	}
+
+	/**
+	 * Story 2.1d (AD-6, "one ball per pulse"): per PARKING device, whether a
+	 * position is genuinely CLEAR of that device's own slot-zone union, in
+	 * the direction the device ejects. Not "the swept segment does not
+	 * currently intersect a zone" -- a device's zones can sit apart from its
+	 * own eject pose (`bd_lock`'s three slots now sit well below the Mouth's
+	 * pose, Story 2.1d task 8's re-siting), so the ejected ball reads
+	 * "outside every zone" for many ticks of open-field travel BEFORE it
+	 * ever reaches the zone band it must still cross -- clearing the
+	 * exemption on that first false reading would un-exempt the ball well
+	 * before it has actually passed the slots, re-arming exactly the capture
+	 * this mechanism exists to prevent. Instead: projects onto the eject
+	 * direction's DOMINANT axis and compares against the union of every
+	 * zone's own boundary on the far side, in the direction of travel -- a
+	 * ONE-DIRECTIONAL threshold a ball can only cross once, immune to the
+	 * gaps this file's own switch-zone block leaves between adjacent slots.
+	 */
+	function buildClearBeyond(dir: Vec3, zones: readonly LoadedSwitchZone[], marginMm = 0): ((posMm: Vec3) => boolean) | undefined {
+		if (zones.length === 0) {
+			return undefined;
+		}
+		const axis: 'x' | 'y' | 'z' = Math.abs(dir.x) >= Math.abs(dir.y) && Math.abs(dir.x) >= Math.abs(dir.z)
+			? 'x'
+			: Math.abs(dir.z) >= Math.abs(dir.y)
+				? 'z'
+				: 'y';
+		const travelsNegative = dir[axis] < 0;
+		let boundary = travelsNegative ? Infinity : -Infinity;
+		for (const zone of zones) {
+			boundary = travelsNegative ? Math.min(boundary, zone.minMm[axis]) : Math.max(boundary, zone.maxMm[axis]);
+		}
+		// Story 2.3, AC 6: `marginMm` (0 for `justEjected`'s own use below,
+		// unchanged) widens the threshold AWAY from the union, so a ball
+		// resting almost exactly ON the boundary -- measured this pass, a
+		// rejected ball settling at the slot band's own entrance jitters by
+		// well under 1 mm either side of it -- does not toggle "cleared" on
+		// sub-mm solver noise.
+		const marginedBoundary = travelsNegative ? boundary - marginMm : boundary + marginMm;
+		return (posMm) => (travelsNegative ? posMm[axis] < marginedBoundary : posMm[axis] > marginedBoundary);
+	}
+
+	const clearBeyondByDevice = new Map<BallDeviceName, (posMm: Vec3) => boolean>();
+	// Story 2.3, AC 6: a SEPARATE, wider-margin threshold for clearing the
+	// overflow latch (below) -- deliberately not the same map `justEjected`
+	// reads, so that mechanism's own already-verified "clears at spawn"
+	// behaviour (Phase 5 review finding, this file's own doc comments above)
+	// is untouched by a margin it never needed.
+	const overflowClearBeyondByDevice = new Map<BallDeviceName, (posMm: Vec3) => boolean>();
+	// Millimetres. An AUTHORED constant, the same non-tunable class
+	// `sim/physics/hop.ts`'s own detector constants document for themselves:
+	// comfortably clear of the measured sub-1 mm settling jitter at the slot
+	// band's own entrance, comfortably short of the ball's own diameter
+	// (26.99 mm) so a genuine re-approach after actually leaving still
+	// re-triggers promptly.
+	const OVERFLOW_CLEAR_MARGIN_MM = 10;
+	for (const [name, zones] of slotZonesByDevice) {
+		const pose = eject.get(name);
+		const clearBeyond = pose ? buildClearBeyond(pose.dir, zones) : undefined;
+		if (clearBeyond) {
+			clearBeyondByDevice.set(name, clearBeyond);
+		}
+		const overflowClearBeyond = pose ? buildClearBeyond(pose.dir, zones, OVERFLOW_CLEAR_MARGIN_MM) : undefined;
+		if (overflowClearBeyond) {
+			overflowClearBeyondByDevice.set(name, overflowClearBeyond);
+		}
 	}
 
 	function spawnBall(posMm: Vec3, velocity: Vertex3D): Ball {
@@ -229,8 +496,24 @@ export function createDeviceMechanics(options: {
 					slots[highestFilled] = false;
 					const slotSwitch = device.slots[highestFilled] as SwitchName;
 					switchEvents.push({ type: 'switch', switch: slotSwitch, closed: false, tick });
-					const velocity = tableSpeedToPhysicsVelocity(pose.dir, tuning.troughEjectSpeedMmPerS.value);
+					// Story 2.1d (task 6, AD-15): a device's own declared
+					// `ejectSpeedMmPerS` overrides the shared trough speed --
+					// dragonwar.ts's own doc comment on bd_lock's entry has the
+					// measurement. Structural (every parking device carries the
+					// key, `null` where there is no override -- never
+					// `undefined`, which `tableHash()`'s own `canonicalize()`
+					// rejects anywhere in `TABLE`), never a device-name literal.
+					const speedMmPerS = device.ejectSpeedMmPerS?.value ?? tuning.troughEjectSpeedMmPerS.value;
+					const velocity = tableSpeedToPhysicsVelocity(pose.dir, speedMmPerS);
 					const ball = spawnBall(pose, velocity);
+					// AD-6, "one ball per pulse": this device must not immediately
+					// re-park the ball it just ejected (see justEjected's own doc
+					// comment above) -- registered before this tick's detectEntries()
+					// runs, so the very first tick (the spawn tick itself, whose
+					// swept segment starts AT the eject pose) is covered too. Recorded
+					// against THIS tick so the timeout backstop above has a start
+					// point to measure from.
+					justEjected.get(name)?.set(ball, tick);
 					// DW-63: pos is a plain {x,y,z}, never `pose` itself -- `pose`'s
 					// own type is `Vec3 & { dir: Vec3 }`, so pushing it directly would
 					// structurally carry an extra `dir` property `ContactEventLike.pos`
@@ -304,18 +587,84 @@ export function createDeviceMechanics(options: {
 		for (const [name, zones] of slotZonesByDevice) {
 			const slots = parkingSlots[name]!;
 			const slotSwitchNames = (TABLE.ballDevices[name] as { slots: readonly string[] }).slots as readonly SwitchName[];
+			const ejectedFromThisDevice = justEjected.get(name);
+			const clearBeyond = clearBeyondByDevice.get(name);
+			const overflowClearBeyond = overflowClearBeyondByDevice.get(name);
 
 			for (const movement of movements) {
 				if (parked.has(movement.ball)) {
 					continue;
 				}
+				if (ejectedFromThisDevice?.has(movement.ball)) {
+					// Checked against `beforeMm` -- this tick's STARTING position --
+					// not `afterMm`: if the ball had ALREADY travelled past every
+					// zone by the time this tick began, the exemption is understood
+					// to have lifted before this tick's own crossing, so that
+					// crossing (a genuine, later re-entry -- e.g. the ball drains
+					// back around into this same device through ordinary play) is
+					// evaluated as an ORDINARY entry below, in the SAME tick, rather
+					// than deferred to a tick that may never come. AD-6, "one ball
+					// per pulse": the ball this device ejected stops needing
+					// protection once it has genuinely left; a real re-approach from
+					// the far side is not that ball "still leaving".
+					const ejectedAtTick = ejectedFromThisDevice.get(movement.ball)!;
+					// Phase 5 review finding: the timeout backstop. A ball that has
+					// never satisfied clearBeyond() (deflected, stalled, reversed --
+					// see tuning.lockEjectExemptionTimeoutMs's own doc comment,
+					// src/sim/table/tuning.ts) would otherwise stay exempt from this
+					// device forever; once it has sat in the exemption longer than
+					// the backstop allows, the exemption is lifted unconditionally,
+					// exactly as if it had cleared, so AD-6's "unconditional" parking
+					// resumes for it.
+					if (clearBeyond?.(movement.beforeMm) || tick - ejectedAtTick > tuning.lockEjectExemptionTimeoutTicks.value) {
+						ejectedFromThisDevice.delete(movement.ball);
+					} else {
+						// Still short of both the clearBeyond threshold and the timeout
+						// backstop as of this tick's own start -- never re-park the
+						// ball THIS device just ejected while it is still leaving.
+						continue;
+					}
+				}
 				const entered = zones.some((zone) => segmentIntersectsBox(movement.beforeMm, movement.afterMm, zone.minMm, zone.maxMm));
+				const overflowReportedForDevice = overflowReported.get(name)!;
+				// Story 2.3, AC 6: the overflow latch clears once the ball has
+				// genuinely retreated back across the WHOLE zone union's own
+				// far (entry-side) boundary, with a margin -- the same
+				// one-directional-threshold SHAPE `clearBeyond()` above uses
+				// for the `justEjected` exemption, but built with its own
+				// `OVERFLOW_CLEAR_MARGIN_MM` rather than sharing that map
+				// directly. Two measured defects a bare "!entered" (a per-tick
+				// boolean against the zone union) or a zero-margin threshold
+				// each produced, in order: (1) 5 events instead of 1, from a
+				// ball settling near the slot band's own entrance crossing the
+				// (up to 3 mm) SEAM between adjacent slot zones --
+				// `s_lock_1`/`_2`/`_3` are separate boxes, and "outside zone 1,
+				// not yet inside zone 2" reads as `!entered` even though the
+				// ball never left the band as a whole; (2) 2 events instead of
+				// 1, from the SAME ball settling to rest close enough to the
+				// union's own outer boundary that sub-1-mm solver jitter
+				// crossed the zero-margin line itself. The margin absorbs
+				// both: a single boundary on the union's own far edge is
+				// immune to inter-zone seams by construction, and widening it
+				// past the measured jitter absorbs the boundary-straddling
+				// case too.
+				if (overflowClearBeyond ? overflowClearBeyond(movement.afterMm) : !entered) {
+					overflowReportedForDevice.delete(movement.ball);
+				}
 				if (!entered) {
 					continue;
 				}
 				const lowestEmpty = slots.indexOf(false);
 				if (lowestEmpty === -1) {
-					failures.push({ type: 'device_overflow', device: name, tick });
+					// Story 2.3, AC 6: one `device_overflow` per REJECTED
+					// ENTRY, not one per tick of zone contact -- measured
+					// before this fix, 315 events for one ball sitting in
+					// the band. Latched per ball, cleared above once the
+					// ball's swept segment genuinely leaves the zone union.
+					if (!overflowReportedForDevice.has(movement.ball)) {
+						overflowReportedForDevice.add(movement.ball);
+						failures.push({ type: 'device_overflow', device: name, tick });
+					}
 					continue;
 				}
 				slots[lowestEmpty] = true;
@@ -329,12 +678,161 @@ export function createDeviceMechanics(options: {
 		return { switchEvents, contactEvents, failures };
 	}
 
+	// Story 2.12 (AD-6): every non-parking device's own entry zone -- the
+	// "inside a device" test recover() below applies. `launch()`'s own
+	// `isBallInsideZoneNow()` (above) is the shared point-in-box test; this is
+	// just the subject SET it is applied over, derived from TABLE rather than
+	// hand-listed (DW-149) -- `bd_shooter`/`s_shooter_lane` at this tree, but a
+	// future second non-parking device is covered automatically.
+	const nonParkingEntryZones: LoadedSwitchZone[] = [];
+	for (const device of Object.values(TABLE.ballDevices) as BallDevice[]) {
+		if (device.kind !== 'non-parking') {
+			continue;
+		}
+		const zone = switchZones.find((z) => z.switch === device.entry);
+		if (zone) {
+			nonParkingEntryZones.push(zone);
+		}
+	}
+
+	/**
+	 * Story 2.13 (DW-257, AD-6 amended, author decision 2026-09-11, AC 14):
+	 * `recover()` now RETURNS every ball it removes to `bd_trough`'s lowest
+	 * empty slot, closing that slot, instead of only despawning it -- the
+	 * same parking operation an entering ball already gets (AD-6), reusing
+	 * the EXISTING park state `applyCommands()`'s own (unmodified) eject
+	 * branch already reads via `slots.lastIndexOf(true)` a few lines above.
+	 * Because the trough is a bottom-filled contiguous stack, the slot this
+	 * parks into (`indexOf(false)`, the lowest empty) is the same slot that
+	 * branch ejects from (`lastIndexOf(true)`, the highest occupied) whenever
+	 * the trough is contiguous -- which it always is while AD-6's four-ball
+	 * invariant holds -- so a later `c_trough_eject` pulse ejects this exact
+	 * ball at the trough's authored eject pose and speed, opening that same
+	 * slot, with NO change to that eject path at all. This is the whole of
+	 * the sanctioned physics edit (spec Block-If): `recover()`'s own
+	 * signature and its `recovered` return value are UNCHANGED -- still a
+	 * plain `number`, still "how many balls were taken out of the simulated
+	 * set" (Story 2.12's `ball_missing { count }` and this story's
+	 * stray-clear report both read it that way, unaffected by where the ball
+	 * ends up).
+	 *
+	 * FIXED, Story 2.13 rework iteration 1 (CR-1, code review 2026-09-12) --
+	 * the paragraph this replaces (filed as the review's one HIGH, against
+	 * DW-257's own unfulfilled half) named a real gap: no `SwitchEvent` was
+	 * emitted here for the newly-closed slot, so `GameState.machine
+	 * .deviceSlots.bd_trough` (`rules/ball-controller.ts`'s
+	 * `deriveDeviceSlots()`, driven exclusively by `device_ball_entered`/
+	 * `_left` -- `sim/loop` deliberately never re-seeds it from physics)
+	 * under-reported physics by the number of parked-but-not-yet-ejected
+	 * balls, reachable for hundreds of ticks (`test/ball-search-integration
+	 * .test.ts`'s own recover, unpaired with any same-tick eject). Fixed by
+	 * queuing the identical switch edge a real parking entry gets --
+	 * `{ type: 'switch', switch: <the parked slot>, closed: true, tick }` --
+	 * onto `pendingRecoverSwitchEvents` (below), a SEPARATE channel
+	 * `drainRecoverSwitchEvents()` (this file's own exported method, see the
+	 * `DeviceMechanics` interface above) exposes to `machine.ts`'s `step()`,
+	 * which drains it immediately after calling `recover()` and BEFORE
+	 * `applyCommands()` -- never `recover()`'s own `number` return, which the
+	 * spec's Block-If keeps meaning exactly what it always meant ("how many
+	 * balls were taken out of the simulated set"), and never folded into
+	 * `detectEntries()`'s own post-step output either: see
+	 * `drainRecoverSwitchEvents()`'s own doc comment for the ORDERING
+	 * REQUIREMENT this split exists to satisfy (a same-tick `c_trough_eject`
+	 * ejects from the SAME slot `recover()` just parked into, on a
+	 * bottom-filled contiguous trough, AD-6 -- the close edge must reach
+	 * rules before that eject's own open edge, or `deriveDeviceSlots()`'s
+	 * identity guard leaves the slot stuck reading closed). DW-269 (the
+	 * sibling hazard this fix's own close edge activates -- a spurious
+	 * `ball_ended` on a brand-new ball 1, since that edge is itself a
+	 * `device_ball_entered` on a parking device landing at `ballsInPlay ===
+	 * 0`) is closed in `sim/rules/ball-controller.ts`'s drain-branch guard,
+	 * not here.
+	 */
+	function recover(tick: number): number {
+		let count = 0;
+		const troughSlots = parkingSlots.bd_trough!;
+		const troughSlotSwitches = TABLE.ballDevices.bd_trough.slots as readonly SwitchName[];
+		// A COPY: physics.removeBall() below mutates the live array this
+		// closure otherwise shares with detectEntries()'s own `physics.balls`
+		// reads elsewhere in the same tick.
+		for (const ball of [...physics.balls]) {
+			const insideADevice = nonParkingEntryZones.some((zone) => isBallInsideZoneNow(ball, zone));
+			if (insideADevice) {
+				continue;
+			}
+			physics.removeBall(ball);
+			count += 1;
+			// A recovered ball can never again appear in a later tick's
+			// `movements` -- prune it from both per-device latches (the same
+			// "removed by any path other than clearBeyond()" leak this file's
+			// own `justEjected` doc comment already names and accepts for a
+			// parked ball; recover() is a second such path, closed here rather
+			// than left to accumulate a second stale entry class).
+			for (const ejected of justEjected.values()) {
+				ejected.delete(ball);
+			}
+			for (const reported of overflowReported.values()) {
+				reported.delete(ball);
+			}
+
+			// DW-257: park it, rather than let it vanish. `lowestEmpty === -1`
+			// (the trough is somehow already full) is unreachable while the
+			// four-ball invariant holds (bd_trough's own capacity, 4, equals
+			// the machine's total ball count) -- AD-18's phasing forbids
+			// inventing an overflow eject here (nothing may pulse `c_mouth`,
+			// and doing so would re-enter the very loop this fix exists to
+			// close), so this asserts the invariant rather than building a
+			// path for its violation. Correction, code review second pass: a
+			// throw here does NOT merely skip the park. It aborts `recover()`
+			// entirely -- any remaining loose ball is never processed, `count`
+			// is never returned, and the exception propagates out of
+			// `machine.step()` and `loop.advance()`, ending the frame with the
+			// balls removed so far already gone. That is deliberate fail-fast
+			// on a branch AD-6's four-ball invariant makes unreachable (a full
+			// trough means all four balls are parked in it, so no ball can be
+			// outside a device and this loop body never runs), not a graceful
+			// degradation.
+			const lowestEmpty = troughSlots.indexOf(false);
+			if (lowestEmpty === -1) {
+				throw new Error(
+					'recover(): bd_trough has no empty slot to park a recovered ball into at tick ' +
+						String(tick) +
+						' -- the four-ball invariant (AD-6) has been violated',
+				);
+			}
+			troughSlots[lowestEmpty] = true;
+			// CR-1: the real parking-entry branch above (`detectEntries()`) pushes
+			// BOTH a switch edge and a contact event for the identical
+			// `slots[lowestEmpty] = true` write; this recover path stays scoped
+			// to the switch edge alone (AD-9's `contact` vocabulary is about a
+			// ball's own collision-level arrival, and a recovered ball's own
+			// disappearance already has its semantic-level event, `ball_missing`,
+			// from the rules layer -- inventing a second, physics-level contact
+			// event for the same occurrence would be new vocabulary this fix
+			// does not need).
+			pendingRecoverSwitchEvents.push({ type: 'switch', switch: troughSlotSwitches[lowestEmpty]!, closed: true, tick });
+		}
+		return count;
+	}
+
+	/** See `DeviceMechanics.drainRecoverSwitchEvents()`'s own doc comment. */
+	function drainRecoverSwitchEvents(): readonly SwitchEdgeLike[] {
+		if (pendingRecoverSwitchEvents.length === 0) {
+			return [];
+		}
+		const drained = pendingRecoverSwitchEvents.slice();
+		pendingRecoverSwitchEvents.length = 0;
+		return drained;
+	}
+
 	return {
 		get parkingSlots() {
 			return parkingSlots as Readonly<Record<BallDeviceName, readonly boolean[]>>;
 		},
 		applyCommands,
 		detectEntries,
+		recover,
+		drainRecoverSwitchEvents,
 		launch,
 	};
 }

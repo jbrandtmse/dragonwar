@@ -17,14 +17,22 @@
 import { bootScene } from '../presentation/scene/create-engine';
 import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
-import { createHostLoop } from './loop';
+import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presentation/backglass/frame';
+import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
+import { syncBackglass } from '../presentation/backglass/backglass';
+import { FONT_5X7 } from '../presentation/backglass/font';
+import { advanceLamps, INITIAL_LAMP_VIEW, type LampView } from '../presentation/lighting/lamp-view';
+import { syncLamps } from '../presentation/lighting/lamp-driver';
+import { createHostLoop, type HostLoop, type ResetOptions } from './loop';
+import { viewConfigFromKeyMap } from './input';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
 import { createReplayPlayer, type PlayableRecording } from './dev/replay-player';
 import { createTuningPanel, buildOverriddenTuning, type TuningPanel } from './dev/tuning-panel';
 import { BUILD_SHA } from './build-info';
-import { resolveTuning } from '../sim/table/tuning';
+import { deriveGameSeed } from './game-seed';
+import { resolveTuning, TUNING } from '../sim/table/tuning';
 import { TABLE } from '../sim/table/dragonwar';
-import type { CoilName, Snapshot } from '../sim/table/names';
+import type { CoilName, GameStart, Snapshot } from '../sim/table/names';
 
 const GLB_URL = './assets/dragonwar.glb';
 const COLLISION_URL = './assets/dragonwar.collision.json';
@@ -104,6 +112,29 @@ declare global {
 			 * as a side effect). Dev-only/console-only, same terms as above.
 			 */
 			reset: () => void;
+			/**
+			 * Story 2.8 (code review, HIGH 2a): the lead's own lever for the
+			 * HIGH-2 rework's browser A/B, same dev-only/console-only terms as
+			 * every hatch above. Overrides the `{ budget }` option
+			 * `syncLamps()` is called with on every subsequent render frame --
+			 * `null` restores the production default
+			 * (`TUNING.liveLightBudget.value`). `setLightBudget(0)` is exactly
+			 * "every lit insert still shows its own emissive colour, no
+			 * dynamic light is enabled" (already pinned by
+			 * `test/lighting-scene.test.ts`'s `{ budget: 2 }` trap-4 case at a
+			 * non-zero budget), which turns the insert LIGHTS off while
+			 * leaving their emissive material untouched -- the isolation this
+			 * hatch exists to give the transmissive-lens pixel proof, since
+			 * nothing else under `src/host/**` can turn only one of the two
+			 * halves off. e.g.
+			 * `window.__dragonwarBoot.setLightBudget(0)` /
+			 * `window.__dragonwarBoot.setLightBudget(null)`.
+			 * A non-`null` value that is not a finite number >= 0 is rejected
+			 * with a console error and otherwise ignored (the override is left
+			 * unchanged); the override is also cleared back to `null` by
+			 * `reset()`, so a stale A/B setting never survives a reset.
+			 */
+			setLightBudget: (budget: number | null) => void;
 		};
 	}
 }
@@ -187,6 +218,32 @@ async function onBegin(): Promise<void> {
 		const collisionDoc: unknown = await collisionResponse.json();
 
 		let latestSnapshot: Snapshot | undefined;
+		// Story 2.6: the Backglass's own view state, folded forward every SIM
+		// frame (never the Babylon render frame -- the two rAF chains are
+		// independent, and driving BackglassView from the render chain would
+		// let one `ball_ended` be seen zero, one or several times depending on
+		// how the chains happen to interleave). `latestRaster` is the one thing
+		// the render hook below actually blits -- it never touches
+		// `backglassView` or `advanceBackglass()` itself.
+		let backglassView = INITIAL_BACKGLASS_VIEW;
+		let latestRaster: DmdRaster | undefined;
+		// Story 2.13 (AD-1, AD-14): built ONCE from the real `KEY_MAP` --
+		// `renderFrame()`'s own `ViewConfig` argument for the Attract keys
+		// screen. `host/input`'s `KEY_MAP` never changes at runtime, so this
+		// never needs rebuilding per frame.
+		const viewConfig = viewConfigFromKeyMap();
+		// Story 2.8 -- the lamp channel's own view state, folded forward every
+		// SIM frame exactly like `backglassView` above (never the Babylon
+		// render frame, for the same reason: the two rAF chains are
+		// independent). `syncLamps()` below reads this on every render frame.
+		let lampView: LampView = INITIAL_LAMP_VIEW;
+		// Story 2.8 (code review, HIGH 2a): the lead's console-only override
+		// for `syncLamps()`'s own `{ budget }` option, driven by
+		// `window.__dragonwarBoot.setLightBudget()` below. `null` (the
+		// default) means "no override" -- `syncLamps()` resolves its own
+		// production default (`TUNING.liveLightBudget.value`) exactly as it
+		// did before this hatch existed.
+		let lightBudgetOverride: number | null = null;
 		// Story 1.8 (AC 3): the recorder is constructed once per boot and
 		// tapped via createHostLoop()'s third argument -- never wired into
 		// sim/ itself (AD-1). start()/save()/invalidate() are exposed on
@@ -210,15 +267,55 @@ async function onBegin(): Promise<void> {
 		// this story's own hardcoded dev GameStart with "the panel's current
 		// set" once the panel exists.
 		let tuningPanel: TuningPanel | undefined;
+		// DW-201: a real, non-constant seed for the game the player is about to
+		// actually play -- see game-seed.ts's own header for why the previous
+		// hardcoded literal-zero seed was a defect (every real machine lit the
+		// same Top lane on every ball of every game) and why deriving it here,
+		// host-side, is the fix AD-3 allows (sim/ still only ever reads
+		// GameState.rng).
+		// `tuning`/`adjustments`/`highscores` mirror this loop's own PRE-EXISTING
+		// implicit defaults exactly -- createLoop()'s own `options.tuning ??
+		// resolveTuning()` and createRules()'s own DEFAULT_ADJUSTMENTS
+		// (`src/sim/rules/index.ts`) -- so this is a seed-only fix, never a
+		// behaviour change to the tuning or sim adjustments a real game boots
+		// with.
+		const gameStart: GameStart = {
+			seed: deriveGameSeed(),
+			tuning: resolveTuning(),
+			// Story 2.11 (DW-36): tiltWarnings reads TUNING.tiltWarnings.value --
+			// the same table-tunable entry sim/rules/index.ts's own
+			// DEFAULT_ADJUSTMENTS reads -- rather than a second, hand-typed
+			// literal. host/** may not import sim/rules/** directly (AD-1/AD-16),
+			// but sim/table/** is fine (TABLE.reference.pitchDeg on this same
+			// line is the existing precedent for reading the table layer here).
+			// Story 2.13 (AD-14, AD-15): matchProbability reads TUNING.matchProbability.value,
+			// mirroring tiltWarnings' own precedent exactly (the one place AD-15's
+			// Rule names it, sim/table/tuning.ts) -- the dev replay recorder's own
+			// SEPARATE GameStart (below) keeps its deliberate literal 0 (DW-185,
+			// routed to Story 3.7).
+			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: TUNING.tiltWarnings.value, ballsPerGame: 3, matchProbability: TUNING.matchProbability.value },
+			highscores: [],
+		};
 		hostLoop = createHostLoop(
 			collisionDoc,
 			(output) => {
 				latestSnapshot = output.snapshot;
 				replayPlayer.onFrame(output.snapshot);
+				// Story 2.6: fold this frame's events into the Backglass view
+				// (`ball_ended` reads output.events -- the ONE place FrameOutput.events
+				// reaches anything today) and rasterise it against this same frame's
+				// snapshot -- state from the sim chain, blit from the render chain.
+				backglassView = advanceBackglass(backglassView, output);
+				latestRaster = rasterise(renderFrame(backglassView, output.snapshot, viewConfig), FONT_5X7);
+				// Story 2.8 (AD-9): fold this frame's LampCommands (if any) into the
+				// held view -- the render hook below is what actually drives the
+				// Babylon driver from it.
+				lampView = advanceLamps(lampView, output);
 			},
 			(_elapsedMs, transitions, tick) => {
 				replayRecorder.recordTransitions(transitions, tick);
 			},
+			gameStart,
 		);
 		hostLoop.start();
 
@@ -238,9 +335,53 @@ async function onBegin(): Promise<void> {
 			}
 			syncBalls(scene, nodes.playfieldRoot, latestSnapshot);
 			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
+			if (latestRaster) {
+				syncBackglass(scene, latestRaster);
+			}
+			// Story 2.8 (AD-12): drives every insert's emissive material and its
+			// own dynamic light from the latest folded lamp view -- the render
+			// chain's own wall clock (`performance.now()`) is what times the
+			// blink cadence `presentation/lighting/grammar.ts` declares.
+			// HIGH 2a: null means no override -- syncLamps() resolves its own
+			// production default (TUNING.liveLightBudget.value) exactly as before
+			// this hatch existed.
+			syncLamps(
+				scene,
+				nodes.playfieldRoot,
+				lampView,
+				performance.now(),
+				lightBudgetOverride === null ? undefined : { budget: lightBudgetOverride },
+			);
 		});
 
-		const hostLoopRef = hostLoop;
+		// Story 2.8 (code review pass 3). `lampView` is purely command-driven
+		// -- unlike `backglassView`, which self-corrects every frame because
+		// `renderFrame()` re-derives it from the live snapshot -- and a rebuilt
+		// loop re-seeds its own `previousLamps` all-off, so it emits NO "off"
+		// command for a lamp that was lit before the reset. Code review pass 2
+		// found that and fixed it at the two reset-shaped hatches INSIDE this
+		// file. It is now fixed at the seam instead, because `hostLoop.reset()`
+		// has TWO MORE call sites that reach this same live loop from other
+		// modules and were missed: `dev/replay-player.ts`'s reset-before-play
+		// (reached from `replayRecorder.play()`) and `dev/tuning-panel.ts`'s
+		// hot-apply. Both left every insert lit before the reset lit forever,
+		// with no state behind it. `HostLoop.reset()`'s own doc comment names
+		// those exact two as "the ONE seam" it exists for, so everything
+		// downstream of this line receives a wrapper whose `reset()` clears the
+		// view state the rebuilt loop can no longer restate. `lightBudgetOverride`
+		// rides along for the same reason `setLightBudget`'s own JSDoc already
+		// claims ("the override is also cleared back to `null` by `reset()`, so a
+		// stale A/B setting never survives a reset") -- true of one hatch before
+		// this, true of every reset path now.
+		const liveHostLoop = hostLoop;
+		const hostLoopRef: HostLoop = {
+			...liveHostLoop,
+			reset: (resetOptions?: ResetOptions): void => {
+				liveHostLoop.reset(resetOptions);
+				lampView = INITIAL_LAMP_VIEW;
+				lightBudgetOverride = null;
+			},
+		};
 		window.__dragonwarBoot = {
 			gestureMs,
 			firstFrameMs,
@@ -273,6 +414,8 @@ async function onBegin(): Promise<void> {
 					// then start()") and the Design Notes say the same ("the
 					// panel's Record resets first"). The fresh loop really is at
 					// tick 0, so 0 is what is passed, not a stale snapshot tick.
+					// Story 2.8: `hostLoopRef.reset()` also clears `lampView` and
+					// `lightBudgetOverride` -- see its wrapper above.
 					hostLoopRef.reset();
 					replayRecorder.start(
 						{
@@ -308,7 +451,24 @@ async function onBegin(): Promise<void> {
 				},
 			},
 			reset: () => {
+				// Story 2.8: clears `lampView` and `lightBudgetOverride` too --
+				// see `hostLoopRef`'s wrapper above for why that lives on the
+				// seam rather than here.
 				hostLoopRef.reset();
+			},
+			setLightBudget: (budget: number | null) => {
+				// Story 2.8 (code review, rework iteration 3 follow-up): reject
+				// NaN/Infinity/negative rather than passing them straight into
+				// syncLamps()'s own `{ budget }` option, where a NaN or negative
+				// budget silently disables every dynamic light with no console
+				// signal at all -- console-hatch input is exactly where a typo
+				// (a stray minus sign, a divide-by-zero) reaches this unchecked.
+				if (budget !== null && !(Number.isFinite(budget) && budget >= 0)) {
+					// eslint-disable-next-line no-console
+					console.error(`[dragonwar] setLightBudget(${String(budget)}): budget must be a finite number >= 0, or null to restore the default -- ignored.`);
+					return;
+				}
+				lightBudgetOverride = budget;
 			},
 			openTuningPanel: () => {
 				if (tuningPanel) {

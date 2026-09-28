@@ -8,7 +8,7 @@
 // primitive set (`HitPlane`, `LineSeg`, `HitLineZ`, `HitTriangle`,
 // `PlayerPhysics`) and instantiates them from data, carrying the GPL-3.0
 // header rather than the port marker (AD-16 -- the clause task 15 of this
-// story's spec aligns `test/sim-boundary.test.ts` with).
+// story's spec aligns `test/port-provenance.test.ts` with).
 //
 // Three responsibilities:
 //   1. Assert `col_playfield`'s bounds and both flipper nodes' lengths
@@ -44,15 +44,46 @@
 
 import { PlayerPhysics } from '../game/player-physics';
 import { HitLineZ } from '../hit-line-z';
+import { HitLine3D } from '../hit-line-3d';
 import { HitPlane } from '../hit-plane';
 import { HitTriangle } from '../hit-triangle';
 import { LineSeg } from '../line-seg';
+import { createSlingshotMechanics, type SlingKick, type SlingSurfaceDataByCoil, type SlingshotSegmentBuilder } from '../slings';
+import {
+	createDropTargetStrikeWiring,
+	type DropTargetHitObjectsByLetter,
+	type DropTargetLetter,
+	type DropTargetPointBuilder,
+	type DropTargetSegmentBuilder,
+	type DropTargetStrike,
+} from '../drop-targets';
 import { Vertex2D } from '../math/vertex2d';
 import { Vertex3D } from '../math/vertex3d';
 import { TABLE } from '../../table/dragonwar';
-import { MM_PER_IN, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
+import { MM_PER_IN, MM_PER_VU, toPhysics, toPhysicsPlane, type Vec3 } from '../../table/frames';
 import { TUNING, resolveTuning, type ResolvedTuning } from '../../table/tuning';
-import type { BallDeviceName, SwitchName } from '../../table/names';
+import type { BallDeviceName, CoilName, SwitchName } from '../../table/names';
+import type { LoadedFlipper } from './loaded-flipper';
+
+// Declared independently of `sim/physics/pops.ts`'s own identical one-liners
+// (never imported from there): `pops.ts` already imports `LoadedSwitchZone`
+// FROM this file, so an import the other way would close a cycle
+// `tools/dependency-cruiser.config.mjs`'s `no-circular` rule forbids between
+// two authored (non-ported) physics files. Both derive from the SAME
+// canonical source (`TABLE.popWiring`), and TypeScript's structural typing
+// means `LoadedCollision.popCentroidsMm` below and `pops.ts`'s own
+// `PopCentroidsByCoil` parameter type are interchangeable at every call site
+// despite being two nominally separate declarations, so the two can never
+// silently drift apart in practice either.
+type PopCoilName = keyof typeof TABLE.popWiring;
+/** Each pop bumper's own collision-node centroid, table-frame millimetres, DERIVED below from the committed document's own `footprintMm` -- never hand-typed (this story's spec, "Anti-vacuity"). */
+export type PopCentroidsByCoil = Readonly<Record<PopCoilName, { readonly x: number; readonly y: number }>>;
+
+// Story 2.1a (DW-105): `LoadedFlipper` itself is declared in the leaf module
+// `./loaded-flipper` and re-exported here so every existing `from '../loader'`
+// import keeps working -- see that module's own header for why it was
+// hoisted out of this file.
+export type { LoadedFlipper } from './loaded-flipper';
 
 const TOLERANCE_MM = 0.1;
 
@@ -122,29 +153,6 @@ export interface LoadedDevice {
 	readonly ejectPose: { readonly posMm: Vec3; readonly dir: Vec3 };
 }
 
-/**
- * A flipper node's derived pivot/tip/length/half-width/z-range (Story 1.6,
- * task 8b): `col_flipper_l`/`col_flipper_r` are surfaced here instead of
- * being dispatched to `addBox()` -- a moving bat must not ALSO exist as 24
- * static `HitTriangle`s (that static box is ledger `DW-60`). See this file's
- * header, "How the bat is derived from the committed box" in this story's
- * Design Notes, and `sim/physics/flipper/flipper-config.ts`, which turns this
- * into the ported mover's `FlipperConfig`.
- */
-export interface LoadedFlipper {
-	readonly name: string;
-	readonly side: 'l' | 'r';
-	/** The end FARTHER from the playfield x-centre -- the bat's fixed rotation axis. */
-	readonly pivotMm: Vec3;
-	/** The opposite end -- the bat's free (moving) tip. */
-	readonly tipMm: Vec3;
-	readonly lengthMm: number;
-	readonly halfWidthMm: number;
-	readonly zLowMm: number;
-	readonly zHighMm: number;
-	readonly physMaterial?: string;
-}
-
 export interface LoadedCollision {
 	/** A fully populated `PlayerPhysics` -- playfield/glass planes set, every static hit object added, `finalizeStatics()` already called. The caller only needs to `addBall()` (and, for the two flipper nodes below, `addFlipper()`). */
 	readonly physics: PlayerPhysics;
@@ -153,6 +161,18 @@ export interface LoadedCollision {
 	readonly devices: readonly LoadedDevice[];
 	/** `col_flipper_l` and `col_flipper_r`, derived rather than registered as static geometry (Story 1.6). Always exactly the two, in no particular order. */
 	readonly flippers: readonly LoadedFlipper[];
+	/** Story 2.2, AD-5: per-coil slingshot surface-data handles, held by reference inside the `KickReportingSlingshot` instances `addWall()` built below -- `machine.ts` mutates `.isDisabled` on these SAME objects every tick from its own `coilEnabled` map, so a flip takes effect on the very next contact with no re-load. */
+	readonly slingSurfaceData: SlingSurfaceDataByCoil;
+	/** Story 2.2, AD-2: drains every sling kick recorded since the last call, in firing order, with no `tick` set yet -- the kick fires DURING `physics.step()`, which receives no tick of its own, so `machine.ts` stamps it once it drains this immediately after `physics.step()` returns. */
+	drainSlingKicks(): readonly SlingKick[];
+	/** Story 2.2, DW-148: each pop bumper's own collision-node centroid, DERIVED from the committed document's own footprint (never hand-typed) -- `sim/physics/pops.ts`'s kick direction. */
+	readonly popCentroidsMm: PopCentroidsByCoil;
+	/** Story 2.3, task 5: every DRAGON target's own retained hit-object handles (`LineSeg` x4 + `HitLineZ` x4), held by reference inside the `StrikeReportingLineSeg`/`StrikeReportingHitLineZ` instances `addWall()` built below -- `sim/physics/drop-targets.ts`'s own `createDropTargetMechanics()` calls `setEnabled()` on these SAME objects on a bank reset. */
+	readonly dropTargetHitObjectsByLetter: DropTargetHitObjectsByLetter;
+	/** Story 2.3, AD-2: drains every genuine strike recorded since the last call, in firing order, with no `tick` set yet -- the strike is detected DURING `physics.step()` (mirrors `drainSlingKicks()` above for the identical reason). */
+	drainDropTargetStrikes(): readonly DropTargetStrike[];
+	/** Story 2.3, task 5: each DRAGON target's own authored footprint polygon, table-frame millimetres, DERIVED from the committed document (never hand-typed). */
+	readonly dropTargetFootprintsMm: Readonly<Record<DropTargetLetter, readonly Vec2Mm[]>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -473,8 +493,80 @@ function orientedEdge(p1: Vec2Mm, p2: Vec2Mm, centroid: Vec2Mm): [Vec2Mm, Vec2Mm
 	return dot >= 0 ? [p1, p2] : [p2, p1];
 }
 
-function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
+/**
+ * DW-52: `addWall()`'s centroid orientation (`orientedEdge()` below) is only
+ * correct for a CONVEX footprint -- a reflex vertex puts the polygon's
+ * vertex-mean centroid outside the shape near that vertex, which flips the
+ * "away from centroid" outward test for the edges nearest it. `tools/
+ * export.py`'s `wall_footprint_mm()` always emits a convex, counter-clockwise
+ * hull, so this only ever fires against a hand-edited or corrupted document
+ * (AD-16 Conventions: load-time paths throw) -- Story 2.1a authors the
+ * FIRST non-rectangular footprints beyond the one pinned deflector, so this
+ * guard is no longer merely theoretical. Checked over the TABLE-frame
+ * `footprintMm` (never `physicsPoints`): `toPhysics()` reverses winding
+ * (this file's header), so a footprint that is convex and CCW in the table
+ * frame is convex but CLOCKWISE after conversion -- testing convexity in the
+ * frame the document actually authors it in is what makes "the offending
+ * vertex index" mean the same thing to a human reading the source document.
+ */
+function assertConvexCcwFootprint(nodeName: string, footprint: readonly Vec2Mm[]): void {
+	const n = footprint.length;
+	for (let i = 0; i < n; i++) {
+		const a = footprint[i];
+		const b = footprint[(i + 1) % n];
+		const c = footprint[(i + 2) % n];
+		const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+		if (cross <= 0) {
+			const offendingIndex = (i + 1) % n;
+			throw new Error(
+				`loadCollision(): wall node "${nodeName}" has a non-convex footprint at vertex ${offendingIndex} ` +
+				`(${JSON.stringify(b)}) -- footprintMm must be a strictly convex, counter-clockwise ring (DW-52)`,
+			);
+		}
+	}
+}
+
+/**
+ * `slingBuilder`, when given (Story 2.2): called once per footprint edge
+ * INSTEAD of `new LineSeg(...)` -- the literal drop-in the spec's Code Map
+ * names for `col_sling_l`/`col_sling_r`. Every edge of a sling node becomes a
+ * `KickReportingSlingshot`, not only the one rubber-facing face: the ported
+ * model's own per-edge `dot <= -threshold` test already gates the kick to
+ * real high-speed contact, so no special-casing which edge is the "real"
+ * rubber face is needed, and every OTHER wall node is entirely unaffected
+ * (`slingBuilder` is `undefined` for all 101+ of them).
+ *
+ * Two limits of "every edge", recorded rather than left implied (code
+ * review, this pass): (a) the per-vertex `HitLineZ` objects built below are
+ * NOT wrapped, so a contact resolved against a sling's corner rather than
+ * one of its edges rebounds passively and emits no `coil_fire`; (b) the
+ * `dot <= -threshold` gate is about SPEED, not about which face was struck,
+ * so every face of a sling body kicks -- which is correct for the rubber
+ * face and is what makes the sling a real device, but means the DW-119
+ * north slope kicks too. Both are consequences of the spec's own task 5
+ * ("one `LineSegSlingshot` per footprint edge") and are measured, not
+ * incidental: `check:reachability` moved exactly one verdict as a result.
+ */
+function addWall(
+	physics: PlayerPhysics,
+	node: CollisionNodeDoc,
+	materialsSource: (typeof TUNING)['materials'],
+	slingBuilder?: SlingshotSegmentBuilder,
+	// Story 2.3, task 5: the DRAGON-bank precedent alongside the sling one
+	// above -- `dropTargetSegmentBuilder`/`dropTargetPointBuilder` are called
+	// INSTEAD of `new LineSeg(...)` / `new HitLineZ(...)` for exactly the six
+	// `col_dragon_<letter>` nodes, retaining a handle to every one of a
+	// target's 8 hit objects on the wiring object that built them
+	// (`sim/physics/drop-targets.ts`'s `createDropTargetStrikeWiring()`),
+	// never on `LoadedCollision` itself -- `setEnabled()` is the only way to
+	// make a body non-collidable mid-flight (`PlayerPhysics` cannot rebuild
+	// its statics tree), and there is no other call site that constructs
+	// these 8 objects to retain a handle from.
+	dropTargetSegmentBuilder?: DropTargetSegmentBuilder,
+	dropTargetPointBuilder?: DropTargetPointBuilder,
+): void {
 	const footprint = node.footprintMm!;
+	assertConvexCcwFootprint(node.name, footprint);
 	const zLowVu = toPhysics({ x: 0, y: 0, z: node.zLowMm! }).z;
 	const zHighVu = toPhysics({ x: 0, y: 0, z: node.zHighMm! }).z;
 
@@ -499,7 +591,13 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource
 		const p1 = physicsPoints[i];
 		const p2 = physicsPoints[(i + 1) % physicsPoints.length];
 		const [a, b] = orientedEdge(p1, p2, centroid);
-		const lineSeg = new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
+		const zMin = Math.min(zLowVu, zHighVu);
+		const zMax = Math.max(zLowVu, zHighVu);
+		const lineSeg: LineSeg = slingBuilder
+			? slingBuilder(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax)
+			: dropTargetSegmentBuilder
+				? dropTargetSegmentBuilder(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax)
+				: new LineSeg(new Vertex2D(a.x, a.y), new Vertex2D(b.x, b.y), zMin, zMax);
 		applyMaterial(materialsSource, lineSeg, node.physMaterial, node.name);
 		physics.addStaticHitObject(lineSeg);
 	}
@@ -515,7 +613,9 @@ function addWall(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource
 	// caller until now -- spans the wall's own zLow..zHigh instead of sitting
 	// at a single z, so a rolling ball's surface actually reaches it.
 	for (const point of physicsPoints) {
-		const hitLineZ = new HitLineZ(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
+		const hitLineZ = dropTargetPointBuilder
+			? dropTargetPointBuilder(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu))
+			: new HitLineZ(new Vertex2D(point.x, point.y), Math.min(zLowVu, zHighVu), Math.max(zLowVu, zHighVu));
 		applyMaterial(materialsSource, hitLineZ, node.physMaterial, node.name);
 		physics.addStaticHitObject(hitLineZ);
 	}
@@ -536,6 +636,39 @@ function outwardTriangle(a: Vertex3D, b: Vertex3D, c: Vertex3D, hint: Vec3): [Ve
 	const nz = e0x * e1y - e0y * e1x;
 	const dot = nx * hint.x + ny * hint.y + nz * hint.z;
 	return dot >= 0 ? [a, b, c] : [a, c, b];
+}
+
+/**
+ * Story 2.2: mm/s -> physics VU/T, the SCALAR half of `devices.ts`'s own
+ * `tableSpeedToPhysicsVelocity()` (re-derived here rather than imported,
+ * exactly as that function's own header keeps its `/100` T-scaling local --
+ * "not part of `frames.ts`'s contract"). `MM_PER_VU` is the one frame
+ * constant (AD-10, `frames.ts`); the `/100` is physics's own VP TIME-UNIT
+ * convention. Used only for `SlingshotSurfaceData.slingshotThreshold`, which
+ * is compared directly against a physics-internal `dot` product inside the
+ * frozen port (`line-seg-slingshot.ts`), so it must arrive already converted.
+ */
+function mmPerSToVuPerTick(speedMmPerS: number): number {
+	return speedMmPerS / MM_PER_VU / 100;
+}
+
+/** Story 2.2, DW-148: the three pop nodes' collision-node names, keyed by coil -- object KEYS, never a quoted string literal (`pnpm lint:boundaries`'s device-name-literal rule), the same reasoning `flippers.ts`'s own `SIDE_BY_COIL` states for itself. The VALUE side is a plain `col_`-prefixed literal, which that rule does not restrict. (The two SLING nodes' own equivalent lives in `sim/physics/slings.ts` and is read back via `slingMechanics.nodeNameByCoil` below -- never duplicated here.) */
+const POP_NODE_BY_COIL: Readonly<Record<PopCoilName, string>> = {
+	c_pop_1: 'col_pop_1',
+	c_pop_2: 'col_pop_2',
+	c_pop_3: 'col_pop_3',
+};
+
+/** The vertex-average of a wall node's own footprint, in TABLE-frame millimetres (never physics space -- `pops.ts` compares it against `movements`' own table-frame ball positions). Derived from `footprintMm`, never hand-typed (DW-149). Coincides with the true geometric centre only for a REGULAR polygon (code review finding, this pass) -- correct for this story's three regular-octagon pop nodes, but not a general-purpose centroid: an irregular footprint would silently skew this toward its denser vertex cluster. */
+function footprintCentroidMm(node: CollisionNodeDoc): { x: number; y: number } {
+	const footprint = node.footprintMm;
+	if (!footprint || footprint.length === 0) {
+		throw new Error(`loadCollision(): node "${node.name}" has no footprintMm to derive a centroid from`);
+	}
+	return {
+		x: footprint.reduce((sum, p) => sum + p.x, 0) / footprint.length,
+		y: footprint.reduce((sum, p) => sum + p.y, 0) / footprint.length,
+	};
 }
 
 function addBox(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource: (typeof TUNING)['materials']): void {
@@ -573,13 +706,41 @@ function addBox(physics: PlayerPhysics, node: CollisionNodeDoc, materialsSource:
 			physics.addStaticHitObject(triangle);
 		}
 	}
+
+	// DW-59: the same corner gap DW-7 already closed for walls (this file's
+	// header) -- 12 HitTriangles alone cover every FACE but leave every EDGE
+	// uncovered, and a ball rolling at deck height reaches an edge exactly
+	// the way it reaches a wall corner. Four VERTICAL edges (fixed x/y, z
+	// spanning zLow..zHigh) as HitLineZ, the identical primitive addWall()
+	// already uses for its own corners; eight HORIZONTAL edges (four per z
+	// level) as HitLine3D, the arbitrary-orientation primitive a
+	// vertical-only HitLineZ cannot represent.
+	const zLowVu = Math.min(c000.z, c001.z);
+	const zHighVu = Math.max(c000.z, c001.z);
+	for (const corner of [c000, c100, c010, c110]) {
+		const hitLineZ = new HitLineZ(new Vertex2D(corner.x, corner.y), zLowVu, zHighVu);
+		applyMaterial(materialsSource, hitLineZ, node.physMaterial, node.name);
+		physics.addStaticHitObject(hitLineZ);
+	}
+	const horizontalEdges: ReadonlyArray<readonly [Vertex3D, Vertex3D]> = [
+		[c000, c100], [c100, c110], [c110, c010], [c010, c000], // bottom face (z = min)
+		[c001, c101], [c101, c111], [c111, c011], [c011, c001], // top face (z = max)
+	];
+	for (const [a, b] of horizontalEdges) {
+		const hitLine3D = new HitLine3D(a, b);
+		applyMaterial(materialsSource, hitLine3D, node.physMaterial, node.name);
+		physics.addStaticHitObject(hitLine3D);
+	}
 }
 
 // ---------------------------------------------------------------------------
-// Flipper extraction (Story 1.6): derives a LoadedFlipper from the committed
-// box's own bboxMm -- see this file's header and LoadedFlipper's own doc
-// comment. No figure is invented: pivot/tip/length/half-width/z-range are all
-// direct reads of the committed geometry.
+// Flipper extraction (Story 1.6; reconciled by Story 2.1a, DW-78): derives a
+// LoadedFlipper from the committed box's own bboxMm -- see this file's header
+// and LoadedFlipper's own doc comment. No figure is invented:
+// pivot/tip/length/half-width/z-range are all direct reads of the committed
+// geometry (`lengthMm` and `halfWidthMm` are direct box measurements;
+// `pivotMm` is the box's own outer end INSET by `halfWidthMm`, itself a
+// direct box measurement -- never a second, independently authored figure).
 // ---------------------------------------------------------------------------
 
 function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): LoadedFlipper {
@@ -596,17 +757,31 @@ function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): Load
 	// and material").
 	resolveMaterial(TUNING.materials, node.physMaterial, node.name);
 
-	// The pivot is the end FARTHER from the playfield x-centre (this file's
-	// own header: "x = 170 for the left bat, x = 344.4 for the right --
-	// equivalently the left bat's min.x and the right bat's max.x"), computed
-	// from the actual measured distances rather than hard-coded per side, so
-	// a re-authored (but still axis-aligned) box is still read correctly.
+	// The box's own OUTER end is the one FARTHER from the playfield
+	// x-centre (this file's own header: "x = 170 for the left bat, x = 344.4
+	// for the right -- equivalently the left bat's min.x and the right bat's
+	// max.x"), computed from the actual measured distances rather than
+	// hard-coded per side, so a re-authored (but still axis-aligned) box is
+	// still read correctly. The INNER end is the bat's free tip.
 	const centreX = TABLE.reference.playfieldMm.w / 2;
 	const distMin = Math.abs(b.min.x - centreX);
 	const distMax = Math.abs(b.max.x - centreX);
-	const pivotX = distMin >= distMax ? b.min.x : b.max.x;
-	const tipX = distMin >= distMax ? b.max.x : b.min.x;
+	const outerIsMin = distMin >= distMax;
+	const outerX = outerIsMin ? b.min.x : b.max.x;
+	const tipX = outerIsMin ? b.max.x : b.min.x;
 	const centreY = (b.min.y + b.max.y) / 2;
+
+	// DW-78: the authored box is the WHOLE rubbered bat (FR-4, "3.125 in
+	// rubbered"), so the pivot -- the mover's actual, fixed rotation axis --
+	// sits one baseRadius (the box's own half-width) IN from the box's
+	// outer end, never AT it (which is what let the modelled body's base
+	// circle protrude 12.5 mm behind authored geometry before this story).
+	// The inset moves TOWARD the tip, so it lands at the pivot's own
+	// unchanged table-frame position (left 170.0 mm, right 344.4 mm) exactly
+	// because `tools/make-placeholder-blend.py` authored the box to extend
+	// that same baseRadius beyond it in the first place.
+	const halfWidthMm = (b.max.y - b.min.y) / 2;
+	const pivotX = outerIsMin ? outerX + halfWidthMm : outerX - halfWidthMm;
 
 	return {
 		name: node.name,
@@ -614,7 +789,7 @@ function loadFlipper(doc: CollisionDoc, nodeName: string, side: 'l' | 'r'): Load
 		pivotMm: { x: pivotX, y: centreY, z: b.min.z },
 		tipMm: { x: tipX, y: centreY, z: b.min.z },
 		lengthMm: b.max.x - b.min.x,
-		halfWidthMm: (b.max.y - b.min.y) / 2,
+		halfWidthMm,
 		zLowMm: b.min.z,
 		zHighMm: b.max.z,
 		physMaterial: node.physMaterial,
@@ -662,6 +837,48 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 	const materialsSource = tuning.materials;
 	const physics = new PlayerPhysics();
 
+	// Story 2.2 (AD-5): built before the node loop so its segment builders
+	// are ready for addWall()'s dispatch below.
+	const slingMechanics = createSlingshotMechanics({
+		physics,
+		thresholdVuPerTick: mmPerSToVuPerTick(tuning.hardware.slingshotThresholdMmPerS.value),
+		force: tuning.hardware.slingshotForce.value,
+	});
+	// Reverse-lookup built from slingMechanics' OWN nodeNameByCoil (never a
+	// second local copy of the coil<->node pairing) -- `CoilName`, not a
+	// hand-written literal union, is the map's value type.
+	const slingCoilByNodeName = new Map<string, CoilName>();
+	for (const [coil, nodeName] of Object.entries(slingMechanics.nodeNameByCoil)) {
+		// Code review finding, this pass: symmetric with the pop-bumper
+		// node check below (":859-864") -- a renamed or removed sling node
+		// must fail loudly at load time, the same "fail loudly rather than
+		// silently doing nothing" principle this story's I/O matrix states
+		// for a degenerate input, never silently fall through the node loop
+		// below as an ordinary, un-kicked wall.
+		if (!parsed.nodes.some((n) => n.name === nodeName)) {
+			throw new Error(`loadCollision(): expected a slingshot node named "${nodeName}" for coil "${coil}", but the document has none`);
+		}
+		slingCoilByNodeName.set(nodeName, coil as CoilName);
+	}
+
+	// Story 2.3 (task 5), the same "built before the node loop" shape as the
+	// sling mechanics above: `createDropTargetStrikeWiring()` builds one
+	// segment/point builder pair per DRAGON-bank letter, ready for
+	// `addWall()`'s dispatch below, and retains a handle to every hit object
+	// they construct.
+	const dropTargetWiring = createDropTargetStrikeWiring();
+	const dropTargetLetterByNodeName = new Map<string, DropTargetLetter>();
+	for (const [letter, nodeName] of Object.entries(dropTargetWiring.nodeNameByLetter) as Array<[DropTargetLetter, string]>) {
+		// Same "fail loudly at load time" discipline as the sling check above
+		// (and the pop-bumper node check below): a renamed or removed DRAGON
+		// target node must not silently fall through the node loop as an
+		// ordinary, un-droppable wall.
+		if (!parsed.nodes.some((n) => n.name === nodeName)) {
+			throw new Error(`loadCollision(): expected a drop-target node named "${nodeName}" for letter "${letter}", but the document has none`);
+		}
+		dropTargetLetterByNodeName.set(nodeName, letter);
+	}
+
 	const playfieldNode = findNode(parsed, TABLE.nodes.colPlayfield);
 	const glassNode = findNode(parsed, TABLE.nodes.colGlass);
 	assertPlaneShaped(playfieldNode);
@@ -694,13 +911,52 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 			throw new Error(`loadCollision(): node "${node.name}" is an unexpected plane-shaped node -- only col_playfield and col_glass may be plane-shaped`);
 		}
 		if (node.shape === 'wall') {
-			addWall(physics, node, materialsSource);
+			const slingCoil = slingCoilByNodeName.get(node.name);
+			const slingBuilder = slingCoil && slingCoil in slingMechanics.segmentBuilderByCoil
+				? slingMechanics.segmentBuilderByCoil[slingCoil as keyof typeof slingMechanics.segmentBuilderByCoil]
+				: undefined;
+			const dropTargetLetter = dropTargetLetterByNodeName.get(node.name);
+			const dropTargetSegmentBuilder = dropTargetLetter ? dropTargetWiring.segmentBuilderByLetter[dropTargetLetter] : undefined;
+			const dropTargetPointBuilder = dropTargetLetter ? dropTargetWiring.pointBuilderByLetter[dropTargetLetter] : undefined;
+			addWall(physics, node, materialsSource, slingBuilder, dropTargetSegmentBuilder, dropTargetPointBuilder);
 		} else {
 			addBox(physics, node, materialsSource);
 		}
 	}
 
 	physics.finalizeStatics();
+
+	// Story 2.2, DW-148: each pop bumper's centroid, derived from its OWN
+	// node's footprint -- a separate pass over `parsed.nodes` (not
+	// interleaved with the hit-object construction above, which needs no
+	// special-casing for the three pop nodes at all: their collision
+	// response is ordinary `addWall()` output, driven entirely by their
+	// `bumper` material).
+	const popCentroidsMm = {} as { -readonly [K in PopCoilName]: { x: number; y: number } };
+	for (const [coil, nodeName] of Object.entries(POP_NODE_BY_COIL) as Array<[PopCoilName, string]>) {
+		const popNode = parsed.nodes.find((n) => n.name === nodeName);
+		if (!popNode) {
+			throw new Error(`loadCollision(): expected a pop-bumper node named "${nodeName}" for coil "${coil}", but the document has none`);
+		}
+		popCentroidsMm[coil] = footprintCentroidMm(popNode);
+	}
+
+	// Story 2.3 (task 5): each DRAGON target's own authored footprint
+	// polygon, table-frame millimetres, DERIVED from the committed document
+	// -- the same "never hand-typed" discipline `popCentroidsMm` above
+	// follows, exposed on `LoadedCollision` even though this story's own
+	// design (genuine `collide()` strikes via the retained hit objects
+	// below) does not itself consume it -- the spec's own Design Notes leave
+	// a per-tick swept-segment proximity witness against this footprint as
+	// the other, equally acceptable seam, so it is retained either way.
+	const dropTargetFootprintsMm = {} as { -readonly [K in DropTargetLetter]: readonly Vec2Mm[] };
+	for (const [letter, nodeName] of Object.entries(dropTargetWiring.nodeNameByLetter) as Array<[DropTargetLetter, string]>) {
+		const targetNode = parsed.nodes.find((n) => n.name === nodeName);
+		if (!targetNode || !targetNode.footprintMm) {
+			throw new Error(`loadCollision(): expected a drop-target node named "${nodeName}" for letter "${letter}" with a footprintMm, but the document has none`);
+		}
+		dropTargetFootprintsMm[letter] = targetNode.footprintMm;
+	}
 
 	const flippers: LoadedFlipper[] = [
 		loadFlipper(parsed, TABLE.nodes.colFlipperL, 'l'),
@@ -735,5 +991,35 @@ export function loadCollision(doc: unknown, tuning: ResolvedTuning = resolveTuni
 		};
 	});
 
-	return { physics, switchZones, devices, flippers };
+	// DW-69: the REVERSE of the check just above -- every TABLE.ballDevices
+	// entry must have a matching document.devices entry, not merely every
+	// document entry a known TABLE name. Before this check, a `TABLE`
+	// registry entry with no `.blend` object behind it (a typo'd node name,
+	// or a device declared in TypeScript before its Blender counterpart was
+	// drawn) loaded successfully with a silently short `devices` array --
+	// the wiring only failed later, at the first `pulse` of that device's
+	// eject coil, as a permanent runtime `eject_failed` with no load-time
+	// signal at all. AD-17 requires load-time faults to reach the boot error
+	// panel instead.
+	const loadedDeviceNames = new Set(devices.map((device) => device.name));
+	for (const deviceName of Object.keys(TABLE.ballDevices) as BallDeviceName[]) {
+		if (!loadedDeviceNames.has(deviceName)) {
+			throw new Error(
+				`loadCollision(): TABLE.ballDevices declares "${deviceName}", but the collision document has no matching devices[] entry (DW-69) -- add a "${deviceName}" empty to assets/src/dragonwar.blend and re-export`,
+			);
+		}
+	}
+
+	return {
+		physics,
+		switchZones,
+		devices,
+		flippers,
+		slingSurfaceData: slingMechanics.surfaceData,
+		drainSlingKicks: () => slingMechanics.drainKicks(),
+		popCentroidsMm,
+		dropTargetHitObjectsByLetter: dropTargetWiring.hitObjectsByLetter,
+		drainDropTargetStrikes: () => dropTargetWiring.drainStrikes(),
+		dropTargetFootprintsMm,
+	};
 }

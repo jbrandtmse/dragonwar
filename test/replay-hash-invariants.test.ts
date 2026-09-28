@@ -43,7 +43,7 @@ function machine(overrides: Partial<MachineState> = {}): MachineState {
 		tilt: { tilted: false, slamTilted: false },
 		multiball: null,
 		highscores: [],
-		deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false] },
+		deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
 		...overrides,
 	};
 }
@@ -83,7 +83,7 @@ describe('src/sim/loop/replay.ts -- canonicalize() is genuinely order-independen
 				tilt: { tilted: false, slamTilted: false },
 				multiball: null,
 				highscores: [],
-				deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false] },
+				deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false], bd_lock: [false, false, false] },
 			},
 			players: [],
 			modes: [],
@@ -94,7 +94,7 @@ describe('src/sim/loop/replay.ts -- canonicalize() is genuinely order-independen
 			modes: [],
 			players: [],
 			machine: {
-				deviceSlots: { bd_shooter: [false], bd_trough: [true, true, true, false] },
+				deviceSlots: { bd_shooter: [false], bd_trough: [true, true, true, false], bd_lock: [false, false, false] },
 				highscores: [],
 				multiball: null,
 				tilt: { slamTilted: false, tilted: false },
@@ -167,8 +167,8 @@ describe('src/sim/loop/replay.ts -- stateHash()/gameStateHash() have genuine dis
 	});
 
 	it('a one-field difference deep inside machine.deviceSlots changes the hash', () => {
-		const s1 = state({ machine: machine({ deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false] } }) });
-		const s2 = state({ machine: machine({ deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false] } }) });
+		const s1 = state({ machine: machine({ deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] } }) });
+		const s2 = state({ machine: machine({ deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false], bd_lock: [false, false, false] } }) });
 		expect(stateHash(s1, [])).not.toBe(stateHash(s2, []));
 	});
 

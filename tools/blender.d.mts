@@ -9,4 +9,4 @@ export declare class BlenderNotFoundError extends Error {
 	constructor(candidates: readonly string[]);
 }
 
-export declare function resolveBlender(env?: NodeJS.ProcessEnv): string;
+export declare function resolveBlender(env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform): string;

@@ -60,8 +60,17 @@ const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragon
 const TABLE_DATA: BallHitTableData = { tableHeight: 0, globalDifficulty: 1 };
 const RADIUS_VU = TABLE.reference.ballMm / 2 / 0.53975;
 
-/** Three well-separated impact speeds (table mm/s), each measured this pass to produce a genuine flipper-face contact (a maxDelta well above ordinary settling noise) rather than a near-miss. */
-const IMPACT_SPEEDS_MM_PER_S = [1000, 3000, 5000] as const;
+/**
+ * Three well-separated impact speeds (table mm/s), each measured this pass
+ * to produce a genuine flipper-face contact (a maxDelta well above ordinary
+ * settling noise) rather than a near-miss. Story 2.1a re-measured this
+ * triple: DW-78's reconciliation shortened the rest bat's own modelled
+ * reach (91.875 -> 79.375 mm), and the superseded 5000 mm/s upper speed now
+ * lands a qualitatively different (near-tip) contact that is NOT flat even
+ * at `elasticityFalloff = 0` -- a solver behaviour at that speed against
+ * this bat, not a falloff effect. 3000 mm/s stays comfortably clean.
+ */
+const IMPACT_SPEEDS_MM_PER_S = [1000, 2000, 3000] as const;
 
 function loadDoc(): unknown {
 	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8'));
@@ -107,7 +116,11 @@ function reboundRatio(tuning: ResolvedTuning, impactSpeedMmPerS: number): number
 	// /100 VP time-unit scaling), mirrored here rather than shared (the same
 	// "mirrored, not shared" pattern `sim/loop/index.ts`'s own
 	// physicsVelocityToTableMmPerS() documents).
-	const startMm = { x: 210, y: 110, z: RADIUS_VU * 0.53975 };
+	// Story 2.1a: x = 195 (was 210) -- DW-78's reconciliation shortened the
+	// rest bat's own reach, and 210 now lands too close to the tapered tip
+	// for a consistent face hit across all three speeds; 195 lands solidly
+	// on the flatter part of the capsule, re-measured this pass.
+	const startMm = { x: 195, y: 110, z: RADIUS_VU * 0.53975 };
 	const posPhysics = toPhysics(startMm);
 	const dir = { x: 0, y: -1, z: 0 };
 	const speedOrigin = toPhysics({ x: 0, y: 0, z: 0 });

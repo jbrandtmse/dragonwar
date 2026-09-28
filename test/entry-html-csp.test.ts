@@ -53,7 +53,7 @@ describe('the two real HTML entry points -- CSP meta tag, byte-for-byte (Tasks &
 // green while breaking the shipped page -- in the id case fatally, because
 // byId() throws at module scope before showError() can ever run, so the error
 // panel that exists to prevent a dead page is itself disabled. These are
-// source-level pins in the established test/sim-boundary.test.ts /
+// source-level pins in the established test/port-provenance.test.ts /
 // test/spike-1-harness-boundary.test.ts style: no DOM environment needed.
 
 const BOOT_TS = path.resolve(REPO_ROOT, 'src', 'host', 'boot.ts');

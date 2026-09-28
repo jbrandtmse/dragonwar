@@ -372,3 +372,72 @@ describe('src/presentation/scene/create-engine.ts -- the real scene-construction
 		}
 	});
 });
+
+describe('src/presentation/scene/playfield.ts -- applyPitch() precondition (DW-55)', () => {
+	it('throws naming playfield_root when it does not carry an identity transform on its first pitch application', () => {
+		const engine = new NullEngine();
+		try {
+			const scene = new Scene(engine);
+			try {
+				const playfieldRoot = new TransformNode(TABLE.nodes.playfieldRoot, scene);
+				const cabinetRoot = new TransformNode(TABLE.nodes.cabinetRoot, scene);
+				const pivotPitch = new TransformNode(TABLE.nodes.pivotPitch, scene);
+				// A non-identity authored transform -- true today only by
+				// authoring accident (this story's spec, task 9's own rationale).
+				playfieldRoot.position = new Vector3(1, 0, 0);
+				expect(() => applyPitch({ playfieldRoot, cabinetRoot, pivotPitch }, TABLE.reference.pitchDeg))
+					.toThrow(new RegExp(TABLE.nodes.playfieldRoot));
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+
+	it('the existing pitch behaviour is unchanged: a SECOND call against the same (now deliberately non-identity) playfield_root does not re-trip the guard', () => {
+		const engine = new NullEngine();
+		try {
+			const scene = new Scene(engine);
+			try {
+				const playfieldRoot = new TransformNode(TABLE.nodes.playfieldRoot, scene);
+				const cabinetRoot = new TransformNode(TABLE.nodes.cabinetRoot, scene);
+				const pivotPitch = new TransformNode(TABLE.nodes.pivotPitch, scene);
+				const nodes = { playfieldRoot, cabinetRoot, pivotPitch };
+				expect(() => applyPitch(nodes, TABLE.reference.pitchDeg)).not.toThrow();
+				// playfieldRoot is now deliberately non-identity -- that IS the
+				// pitch this function just applied. A second call, exactly what
+				// src/host/boot.ts makes every frame, must not re-trip the
+				// first-application guard.
+				expect(() => applyPitch(nodes, TABLE.reference.pitchDeg + 1)).not.toThrow();
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+
+	it('throws naming pivot_pitch when it does not share playfield_root\'s own parent (code review, 2026-08-30: the guard\'s second branch had no coverage)', () => {
+		const engine = new NullEngine();
+		try {
+			const scene = new Scene(engine);
+			try {
+				const playfieldRoot = new TransformNode(TABLE.nodes.playfieldRoot, scene);
+				const cabinetRoot = new TransformNode(TABLE.nodes.cabinetRoot, scene);
+				// A parent playfieldRoot does NOT share -- pivotPitch.position
+				// would then be read in the wrong space for the P - R*P
+				// correction below to be valid (this function's own doc comment).
+				const otherParent = new TransformNode('otherParent', scene);
+				const pivotPitch = new TransformNode(TABLE.nodes.pivotPitch, scene);
+				pivotPitch.parent = otherParent;
+				expect(() => applyPitch({ playfieldRoot, cabinetRoot, pivotPitch }, TABLE.reference.pitchDeg))
+					.toThrow(new RegExp(TABLE.nodes.pivotPitch));
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+});

@@ -57,19 +57,19 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 	});
 
 	it('the cradling entry carries its OWN measured numbers, not merely "some number followed by mm"', () => {
-		// Review finding, this pass: flipper snap pins 90.0416/104.3998 and
-		// rejection/rebound pins 0.7584/0.6886, but cradling was pinned only by
-		// /\d+(\.\d+)?\s*mm/ -- so 27.5 mm and ~4292 mm could drift out of
-		// truth silently while this file stayed green.
+		// Review finding, this pass: flipper snap pins 109.3221/139.1871 and
+		// rejection/rebound pins 0.7560/0.7183, but cradling was pinned only by
+		// /\d+(\.\d+)?\s*mm/ -- so the 5 s drift and release-drain figures could
+		// drift out of truth silently while this file stayed green.
 		//
 		// mutation: change the cradling drift figure in docs/feel-test.md ->
 		// this test goes red.
 		const section = raw.slice(raw.indexOf('### Cradling'), raw.indexOf('### Flipper snap'));
 		expect(section.length, 'the cradling section must exist and be non-empty').toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n, 'the first-second drift figure (mm)').toMatch(/27\.5/);
-		expect(n, 'the 5 s departure figure (mm)').toMatch(/4292/);
-		expect(n.toLowerCase(), 'cradling is bounded by DW-72, which the entry must name').toContain('dw-72');
+		expect(n, 'the 5 s held-hold drift figure (mm)').toMatch(/0\.172/);
+		expect(n, 'the released-drain tick figure').toMatch(/591/);
+		expect(n.toLowerCase(), 'cradling is closed by DW-72, which the entry must name').toContain('dw-72');
 	});
 
 	it('the cradling entry carries a measured build-side number (drift in mm)', () => {
@@ -78,21 +78,28 @@ describe('docs/feel-test.md -- one ISO-dated entry per item, with measured build
 		expect(normalize(section)).toMatch(/\d+(\.\d+)?\s*mm/);
 	});
 
-	it('the flipper-snap entry carries the DW-80 measured numbers (release/peak angles in degrees)', () => {
+	it('the flipper-snap entry carries the DW-118 measured numbers (release/peak angles in degrees)', () => {
+		// Story 2.1a rework iteration 3 (DW-118): the 30 ms tap's own coast
+		// now reaches the end-of-stroke stop EXACTLY under DW-78's
+		// reconciliation, so it no longer demonstrates FR-5's light-tap
+		// promise -- the example duration moved to 10 ms, and the pinned
+		// figures below moved with it (139.1871 deg release, 109.3221 deg
+		// peak). See test/flipper-mover.test.ts's own header for the full
+		// measured sweep across every duration tried.
 		const section = raw.slice(raw.indexOf('### Flipper snap'), raw.indexOf('### Rejection/rebound'));
 		expect(section.length).toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n).toMatch(/90\.0416/);
-		expect(n).toMatch(/104\.3998/);
-		expect(n.toLowerCase()).toContain('dw-80');
+		expect(n).toMatch(/109\.3221/);
+		expect(n).toMatch(/139\.1871/);
+		expect(n.toLowerCase()).toContain('dw-118');
 	});
 
 	it('the rejection/rebound entry carries the elasticity-falloff ratios and the hop-control margin', () => {
 		const section = raw.slice(raw.indexOf('### Rejection/rebound'), raw.indexOf('## Both renderer paths'));
 		expect(section.length).toBeGreaterThan(0);
 		const n = normalize(section);
-		expect(n).toMatch(/0\.7584/);
-		expect(n).toMatch(/0\.6886/);
+		expect(n).toMatch(/0\.7560/);
+		expect(n).toMatch(/0\.7183/);
 		expect(n.toLowerCase()).toContain('mm');
 	});
 });
@@ -220,6 +227,35 @@ describe('docs/feel-test.md -- the Reference-machine verdict is the author\'s ow
 			// someone claimed to have played the Reference machine, which no
 			// agent can do -- this half of the assertion is the actual gate).
 			expect(section, `${name}'s first entry must read "pending-author" until the author plays the Reference machine`).toContain('pending-author');
+		}
+	});
+});
+
+// Story 2.1b, AC 6: "docs/feel-test.md gains a per-shot Lawlor entry (Left
+// Loop, Right Loop, Ramp, Dragon, Lock lane, DRAGON bank, Top lanes)."
+//
+// Falsifiability (spec ## Verification, AC 6): "mutation: remove one shot's
+// section from docs/feel-test.md -> the per-shot presence assertion goes red
+// naming that shot."
+describe('docs/feel-test.md -- Story 2.1b: the seven-shot Lawlor entry (AC 6)', () => {
+	const raw = readFileSync(DOC_PATH, 'utf8');
+
+	const SHOTS = ['Left Loop', 'Right Loop', 'Ramp', 'Dragon', 'Lock lane', 'DRAGON bank', 'Top lanes'] as const;
+
+	it.each(SHOTS)('has a "### %s" section', (shot) => {
+		expect(raw, `docs/feel-test.md is missing the "### ${shot}" section`).toContain(`### ${shot}`);
+	});
+
+	it('every shot section reads pending-author -- the ritual is author-owned (FR-32), the pipeline cannot close it', () => {
+		const headings = SHOTS.map((shot) => `### ${shot}`);
+		for (let i = 0; i < headings.length; i++) {
+			const start = raw.indexOf(headings[i]!);
+			expect(start, `heading "${headings[i]}" must exist`).toBeGreaterThanOrEqual(0);
+			// The next heading of any level (### or ##) bounds this section.
+			const rest = raw.slice(start + headings[i]!.length);
+			const nextHashIdx = rest.search(/\n#{2,3}\s/);
+			const section = nextHashIdx === -1 ? rest : rest.slice(0, nextHashIdx);
+			expect(section, `"${headings[i]}" must read pending-author`).toContain('pending-author');
 		}
 	});
 });

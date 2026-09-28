@@ -31,13 +31,19 @@ import {
 	C_CONTACTVEL,
 	C_DISP_GAIN,
 	C_DISP_LIMIT,
+	C_EMBEDSHOT,
+	C_EMBEDVELLIMIT,
 	C_INTERATIONS,
 	C_LOWNORMVEL,
 	C_PRECISION,
+	C_TOL_RADIUS,
+	DEFAULT_TABLE_GRAVITY,
+	GRAVITYCONST,
 	PHYS_FACTOR,
 	PHYS_SKIN,
 	PHYS_TOUCH,
 	PHYSICS_STEPTIME,
+	STATICCNTS,
 	STATICTIME,
 	VELOCITY_EPSILON,
 } from '../physics/constants';
@@ -150,7 +156,7 @@ export function assetHash(doc: unknown): string {
  * re-records every golden" -- and the same is true of `TICK_HZ` (AD-3: "if
  * spike 1 forces 480 Hz, that constant changes and golden replays are
  * re-recorded"). Derived, never hand-written, so the re-record obligation
- * enforces itself: this hashes every constant `test/sim-boundary.test.ts`'s
+ * enforces itself: this hashes every constant `test/port-provenance.test.ts`'s
  * own AD-15 pin asserts by name, plus the live tick rate. `physicsStepTimeUs`
  * duplicates `PHYSICS_STEPTIME` under a table-safe key name only (never
  * `…Ms`) -- it is MICROSECONDS (the constant's own unit, `constants.ts`'s
@@ -158,25 +164,54 @@ export function assetHash(doc: unknown): string {
  * duration this file converts, so it does not trip `pnpm lint:boundaries`'
  * tick/ms rule.
  */
-export const PHYSICS_VERSION: string = (() => {
-	const payload = canonicalize({
-		tickHz: LIVE_TICK_HZ,
-		physicsStepTimeUs: PHYSICS_STEPTIME,
-		physFactor: PHYS_FACTOR,
-		physSkin: PHYS_SKIN,
-		physTouch: PHYS_TOUCH,
-		cPrecision: C_PRECISION,
-		cLowNormVel: C_LOWNORMVEL,
-		cContactVel: C_CONTACTVEL,
-		cDispGain: C_DISP_GAIN,
-		cDispLimit: C_DISP_LIMIT,
-		staticTime: STATICTIME,
-		velocityEpsilon: VELOCITY_EPSILON,
-		ballBallRestitution: BALL_BALL_RESTITUTION,
-		cInterations: C_INTERATIONS,
-	});
-	return `v1-${fnv1aHex(JSON.stringify(payload))}`;
-})();
+// Story 2.5, task 15 (DW-87): widened from the 13 AD-15-pinned solver
+// constants to also cover the five integration-affecting constants the
+// ledger named as absent from both this hash and the AD-15 pin -- plus
+// `DEFAULT_TABLE_GRAVITY`, a sixth candidate of the same class (both it and
+// `GRAVITYCONST` feed `machine.ts:201`'s gravity vector together). Widening
+// this alone moves ONE header field (`physicsVersion`, a pure identity
+// string -- its only readers are this file's own write below and
+// `assertHeaderMatchesLiveEnvironment()`'s comparison) and no expected hash.
+// `PHYSICS_VERSION_PAYLOAD_KEYS` below is the completeness ratchet:
+// `test/port-provenance.test.ts`'s AD-15 pin asserts its own key set is
+// IDENTICAL to this one, so the two can never silently drift apart again.
+//
+// Review finding 2026-09-06 (code-review, verification-gap + blind-hunter,
+// two independent hits): the ratchet was previously a SECOND hand-written
+// key list sitting beside the payload literal, so it compared one hand-typed
+// list against another and was blind to the only drift that matters -- a
+// constant added to the hashed payload and to NEITHER list left both lists
+// equal, the ratchet green, and every golden failing as the bare hash
+// mismatch DW-87 exists to prevent (confirmed by mutation). The payload is
+// therefore declared ONCE below and the exported key set is DERIVED from it,
+// so the ratchet's subject is now the object actually hashed.
+const PHYSICS_VERSION_PAYLOAD = {
+	tickHz: LIVE_TICK_HZ,
+	physicsStepTimeUs: PHYSICS_STEPTIME,
+	physFactor: PHYS_FACTOR,
+	physSkin: PHYS_SKIN,
+	physTouch: PHYS_TOUCH,
+	cPrecision: C_PRECISION,
+	cLowNormVel: C_LOWNORMVEL,
+	cContactVel: C_CONTACTVEL,
+	cDispGain: C_DISP_GAIN,
+	cDispLimit: C_DISP_LIMIT,
+	staticTime: STATICTIME,
+	velocityEpsilon: VELOCITY_EPSILON,
+	ballBallRestitution: BALL_BALL_RESTITUTION,
+	cInterations: C_INTERATIONS,
+	gravityConst: GRAVITYCONST,
+	defaultTableGravity: DEFAULT_TABLE_GRAVITY,
+	staticCnts: STATICCNTS,
+	cEmbedVelLimit: C_EMBEDVELLIMIT,
+	cTolRadius: C_TOL_RADIUS,
+	cEmbedShot: C_EMBEDSHOT,
+} as const;
+
+/** Every key of the object `PHYSICS_VERSION` actually hashes -- derived, never re-typed (see the note above). */
+export const PHYSICS_VERSION_PAYLOAD_KEYS: readonly string[] = Object.keys(PHYSICS_VERSION_PAYLOAD);
+
+export const PHYSICS_VERSION: string = `v1-${fnv1aHex(JSON.stringify(canonicalize(PHYSICS_VERSION_PAYLOAD)))}`;
 
 // ---------------------------------------------------------------------------
 // buildHeader() / runReplay() -- AC 1 and AC 2.
@@ -194,7 +229,7 @@ export function buildHeader(options: BuildHeaderOptions): ReplayHeader {
 	return {
 		gameStart: options.gameStart,
 		physicsSeed: options.physicsSeed,
-		tickHz: LIVE_TICK_HZ,
+	tickHz: LIVE_TICK_HZ,
 		tableHash: tableHash(),
 		assetHash: assetHash(options.collisionDoc),
 		physicsVersion: PHYSICS_VERSION,

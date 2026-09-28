@@ -1,22 +1,35 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// Story 1.1's textual boundary stand-in (banned-global/`@babylonjs` scan over
-// src/sim/**, and the hand-maintained GPL-header `roots` list that review had
-// to widen twice) is superseded by Story 1.3's real tooling, each with its
-// own test suite:
-//   - tools/boundary-lint.mjs (test/boundary-lint.test.ts) -- the import
-//     rules (dependency-cruiser + @swc/core), the banned-global textual scan,
-//     the tick/ms rule and the device-name-literal rule, all over src/**,
-//     discovered from real file listings rather than this file's old
-//     hand-maintained `roots` array.
-//   - tools/check-licence-headers.mjs (test/licence-headers.test.ts) -- the
-//     per-file GPL-3.0-header check, discovered from `git ls-files`.
+// Structural provenance gate. Owned by Story 2.0, which renamed this file
+// (it was "sim-boundary.test.ts", its name since Story 1.1) and gave it this
+// header so ownership and scope stop having to be re-derived by whichever
+// story next needs to touch it -- Epic 1's ten stories all did. AD-16
+// (rewritten 2026-08-30) names three complementary provenance gates and none
+// may be retired in favour of another:
 //
-// What remains here is NOT superseded by either tool: the vpx-js
-// port-header describe below asserts the exact upstream VPDB copyright block
-// text is intact (stronger than "carries some header or other"), and the
-// AD-15 solver-constants pin asserts values nothing else in this suite reads
-// by name -- both stay owned by this file.
+//   - tools/check-licence-headers.mjs (test/licence-headers.test.ts) --
+//     per-file header PRESENCE, over every tracked file.
+//   - test/port-provenance.test.ts (this file) -- STRUCTURE: see below.
+//   - tools/boundary-lint.mjs (test/boundary-lint.test.ts) -- import
+//     DIRECTION, banned globals, the tick/ms rule, device-name literals.
+//
+// This file asserts four things:
+//   1. Every file under src/sim/physics/** carries either an intact upstream
+//      copyright block + port marker (vpx-js or vpinball/vpinball), or the
+//      plain DragonWar GPL-3.0 header -- never a mix, never neither.
+//   2. The authored, vpx-js-ported and vpinball-ported provenance classes are
+//      declared (never inferred from a file's own text) and mutually
+//      disjoint, and every declared entry names a real file.
+//   3. AD-15's solver constants, transcribed verbatim from the pinned
+//      upstream source (the constants pin, below).
+//   4. DW-79's port-body freeze: every declared ported file's content hash
+//      (normalised line endings) matches its pinned entry (below).
+//
+// This file deliberately does NOT assert:
+//   - Per-file header presence across all tracked files -- that is
+//     `pnpm check:headers` (tools/check-licence-headers.mjs)'s job.
+//   - Import direction -- that is `pnpm lint:boundaries`
+//     (tools/boundary-lint.mjs)'s job.
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -27,20 +40,58 @@ import {
 	C_CONTACTVEL,
 	C_DISP_GAIN,
 	C_DISP_LIMIT,
+	C_EMBEDSHOT,
+	C_EMBEDVELLIMIT,
 	C_INTERATIONS,
 	C_LOWNORMVEL,
 	C_PRECISION,
+	C_TOL_RADIUS,
+	DEFAULT_TABLE_GRAVITY,
+	GRAVITYCONST,
 	PHYS_FACTOR,
 	PHYS_SKIN,
 	PHYS_TOUCH,
 	PHYSICS_STEPTIME,
+	STATICCNTS,
 	STATICTIME,
 	VELOCITY_EPSILON,
 } from '../src/sim/physics/constants';
+import { PHYSICS_VERSION_PAYLOAD_KEYS } from '../src/sim/loop/replay';
+import { AUTHORED_PHYSICS_FILES as AUTHORED_PHYSICS_FILES_NO_EXT } from '../tools/dependency-cruiser.config.mjs';
 import { listFilesRecursive } from './util/list-files';
 
 const SIM_ROOT = path.resolve(__dirname, '..', 'src', 'sim');
 const PHYSICS_ROOT = path.resolve(SIM_ROOT, 'physics');
+
+// The ONE canonical list of authored (never-ported) files under
+// src/sim/physics/**, relative to PHYSICS_ROOT, POSIX-separated. Both
+// describe blocks below (`AUTHORED_FILES`, `AUTHORED_FILES_LOCAL`) derive
+// their own `Set` from this single array instead of hand-copying it a
+// second time -- the two previously WERE independent hand-copies with
+// nothing asserting they agreed (task 29, review finding, rework iteration
+// 4). `tools/dependency-cruiser.config.mjs`'s own `AUTHORED_PHYSICS_FILES`
+// is a THIRD, necessarily separate copy (extension-stripped, and that file
+// must stay import-free per its own header) -- the
+// "agrees with dependency-cruiser's list" describe block below asserts that
+// one against this one directly, closing the gap the drift could hide in.
+const AUTHORED_PHYSICS_FILE_RELATIVE_PATHS: readonly string[] = [
+	'loader/index.ts',
+	'loader/loaded-flipper.ts',
+	'switches.ts',
+	'devices.ts',
+	'machine.ts',
+	'flipper/flipper-config.ts',
+	'flippers.ts',
+	'plunger.ts',
+	'cabinet/slam.ts',
+	'cabinet/index.ts',
+	'hop.ts',
+	'geometry.ts',
+	'slings.ts',
+	'pops.ts',
+	'drop-targets.ts',
+	'spinner.ts',
+];
 
 describe('src/sim/physics/** header provenance (AD-16)', () => {
 	const PORT_MARKER = '// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0';
@@ -81,19 +132,7 @@ describe('src/sim/physics/** header provenance (AD-16)', () => {
 	// header at the TOP and must NOT carry either port signal (asserted, not
 	// returned past, so the authored branch can never report as a pass while
 	// checking nothing).
-	const AUTHORED_FILES = new Set([
-		'loader/index.ts',
-		'switches.ts',
-		'devices.ts',
-		'machine.ts',
-		'flipper/flipper-config.ts',
-		'flippers.ts',
-		'plunger.ts',
-		'cabinet/slam.ts',
-		'cabinet/index.ts',
-		'hop.ts',
-		'geometry.ts',
-	]);
+	const AUTHORED_FILES = new Set(AUTHORED_PHYSICS_FILE_RELATIVE_PATHS);
 
 	const toPosix = (relative: string): string => relative.split(path.sep).join('/');
 	const isDeclaredAuthored = (relative: string): boolean => AUTHORED_FILES.has(toPosix(relative));
@@ -283,11 +322,61 @@ describe('src/sim/physics/constants.ts — AD-15 verbatim solver constants pin',
 		// Story 1.6: the flipper port (flipper-hit.ts's MFP root search) relies
 		// on this one -- added to the pin per this story's own task list.
 		expect(C_INTERATIONS, 'C_INTERATIONS (lib/physics/constants.ts, Flippers)').toBe(20);
+		// Story 2.5, task 15 (DW-87): five integration-affecting constants the
+		// ledger named as absent from both this pin and `PHYSICS_VERSION`'s own
+		// hashed payload, plus `DEFAULT_TABLE_GRAVITY` (a sixth candidate of the
+		// same class -- both it and GRAVITYCONST feed `machine.ts:201`'s gravity
+		// vector together). Widened here in the SAME change `replay.ts` widens
+		// the hash, per the completeness assertion immediately below.
+		expect(GRAVITYCONST, 'GRAVITYCONST (machine.ts:201)').toBe(1.81751);
+		expect(DEFAULT_TABLE_GRAVITY, 'DEFAULT_TABLE_GRAVITY (machine.ts:201)').toBe(0.97);
+		expect(STATICCNTS, 'STATICCNTS (game/player-physics.ts:266,:345)').toBe(10);
+		expect(C_EMBEDVELLIMIT, 'C_EMBEDVELLIMIT (ball/ball-hit.ts:459)').toBe(5);
+		expect(C_TOL_RADIUS, 'C_TOL_RADIUS (line-seg.ts:97)').toBe(0.005);
+		expect(C_EMBEDSHOT, 'C_EMBEDSHOT (ball/ball-hit.ts:282,:341, flipper/flipper-hit.ts:270)').toBe(0.05);
+	});
+
+	// DW-87's own remedy: a completeness assertion ALONE is not the fix (it
+	// would have been green on the day it was written while GRAVITYCONST still
+	// broke every golden as a bare hash mismatch) -- it is the RATCHET that
+	// keeps this pin and `PHYSICS_VERSION`'s hashed payload from silently
+	// drifting apart again. `PINNED_PAYLOAD_KEYS` below is this test's OWN
+	// declared list of every constant the `it()` above asserts a value for,
+	// spelled the same way `replay.ts`'s own `canonicalize()` payload keys
+	// them -- compared, sorted, for set equality against
+	// `PHYSICS_VERSION_PAYLOAD_KEYS` (exported alongside `PHYSICS_VERSION`
+	// for exactly this purpose). A future constant added to one list and not
+	// the other reddens here, by name, before it can become a bare hash
+	// mismatch on some later golden.
+	it('DW-87: this pin\'s own constant set is identical to PHYSICS_VERSION\'s hashed payload key set (the ratchet, not the fix)', () => {
+		const PINNED_PAYLOAD_KEYS = [
+			'tickHz',
+			'physicsStepTimeUs',
+			'physFactor',
+			'physSkin',
+			'physTouch',
+			'cPrecision',
+			'cLowNormVel',
+			'cContactVel',
+			'cDispGain',
+			'cDispLimit',
+			'staticTime',
+			'velocityEpsilon',
+			'ballBallRestitution',
+			'cInterations',
+			'gravityConst',
+			'defaultTableGravity',
+			'staticCnts',
+			'cEmbedVelLimit',
+			'cTolRadius',
+			'cEmbedShot',
+		];
+		expect([...PINNED_PAYLOAD_KEYS].sort()).toEqual([...PHYSICS_VERSION_PAYLOAD_KEYS].sort());
 	});
 });
 
 // Story 1.8's sweep (DW-79, ledger; Code Map "Verified environment facts" --
-// "test/sim-boundary.test.ts checks headers only, never bodies ... No
+// "test/port-provenance.test.ts checks headers only, never bodies ... No
 // vendored upstream copy and no checksum exists anywhere in the repo").
 //
 // RESIDUAL, STATED HONESTLY (per this file's own header discipline and the
@@ -373,19 +462,7 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 	};
 
 	const toPosixLocal = (relative: string): string => relative.split(path.sep).join('/');
-	const AUTHORED_FILES_LOCAL = new Set([
-		'loader/index.ts',
-		'switches.ts',
-		'devices.ts',
-		'machine.ts',
-		'flipper/flipper-config.ts',
-		'flippers.ts',
-		'plunger.ts',
-		'cabinet/slam.ts',
-		'cabinet/index.ts',
-		'hop.ts',
-		'geometry.ts',
-	]);
+	const AUTHORED_FILES_LOCAL = new Set(AUTHORED_PHYSICS_FILE_RELATIVE_PATHS);
 	const physicsFilesLocal = listFilesRecursive(PHYSICS_ROOT).filter((f) => /\.(ts|tsx|js|mjs|cjs)$/.test(f));
 	const declaredPorts = physicsFilesLocal
 		.map((f) => toPosixLocal(path.relative(PHYSICS_ROOT, f)))
@@ -420,8 +497,38 @@ describe('src/sim/physics/** port-body freeze (DW-79): every declared ported fil
 				`"${relative}" no longer matches its pinned port-body hash. This does NOT by itself mean the port is wrong -- ` +
 				`it means the file changed since this manifest was last verified. Re-verify the new content against the ` +
 				`upstream pin named in the file's own header comment, then deliberately update PORT_BODY_HASHES in ` +
-				`test/sim-boundary.test.ts to the new hash (never routine, never silent).`,
+				`test/port-provenance.test.ts to the new hash (never routine, never silent).`,
 			).toBe(expectedHash);
 		});
 	}
+});
+
+// Task 29 (review finding, rework iteration 4): tools/dependency-cruiser.config.mjs
+// carries its own AUTHORED_PHYSICS_FILES list (used to exempt authored physics
+// files from the DW-105 no-circular rule's ported-target carve-out), extension-
+// stripped and necessarily separate from this file's own AUTHORED_FILES /
+// AUTHORED_FILES_LOCAL (that config must stay import-free -- see its own header
+// comment). That config's own comment used to claim this drift "is caught by
+// that test", which was never true: nothing here compared the two lists. This
+// closes the gap directly, against the SAME canonical array AUTHORED_FILES and
+// AUTHORED_FILES_LOCAL both derive from above, so a new authored physics file
+// added to one list and forgotten in the other fails loudly here instead of
+// silently leaving a real cycle's target un-exempted (or over-exempted).
+describe('AUTHORED_PHYSICS_FILES (tools/dependency-cruiser.config.mjs) agrees with AUTHORED_FILES (this file)', () => {
+	it('sanity: both lists are non-empty, or the comparison below is vacuous', () => {
+		expect(AUTHORED_PHYSICS_FILE_RELATIVE_PATHS.length).toBeGreaterThan(0);
+		expect(AUTHORED_PHYSICS_FILES_NO_EXT.length).toBeGreaterThan(0);
+	});
+
+	it('every dependency-cruiser AUTHORED_PHYSICS_FILES entry, with its .ts extension restored, names a file declared in AUTHORED_FILES here', () => {
+		const withExt = AUTHORED_PHYSICS_FILES_NO_EXT.map((f: string) => `${f}.ts`);
+		const missing = withExt.filter((f: string) => !AUTHORED_PHYSICS_FILE_RELATIVE_PATHS.includes(f));
+		expect(missing, `dependency-cruiser declares these as authored, but AUTHORED_PHYSICS_FILE_RELATIVE_PATHS here does not: ${missing.join(', ')}`).toEqual([]);
+	});
+
+	it('every AUTHORED_FILES entry here, extension-stripped, is declared in dependency-cruiser\'s AUTHORED_PHYSICS_FILES', () => {
+		const stripped = AUTHORED_PHYSICS_FILE_RELATIVE_PATHS.map((f) => f.replace(/\.ts$/, ''));
+		const missing = stripped.filter((f) => !AUTHORED_PHYSICS_FILES_NO_EXT.includes(f));
+		expect(missing, `this file declares these as authored, but tools/dependency-cruiser.config.mjs's AUTHORED_PHYSICS_FILES does not: ${missing.join(', ')}`).toEqual([]);
+	});
 });
