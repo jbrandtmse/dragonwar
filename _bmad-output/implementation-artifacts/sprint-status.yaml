@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-12-2026 16:30
+last_updated: 09-28-2026 07:06
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -183,6 +183,16 @@ action_items:
     epic: 2
     action: "Run the seven-shot feel ritual for Story 2.1b AC 6 against the Reference
       machine and record the Lawlor judgments in docs/feel-test.md"
+    owner: "user"
+    status: open
+    ref: ""
+  - id: "epic-2-retro-item-11-settle-slamnudgesperwindow-currently-3-i"
+    epic: 2
+    action: "Settle slamNudgesPerWindow (currently 3 in 500 ms, marked unverified)
+      against the Reference machine at the feel ritual. Three quick nudge taps slam-tilt
+      every game today, and Story 2.11 had to cut its own burstFrames() to two edges
+      to avoid it. Decided at the Epic 2 decision sheet: this is a feel value, not
+      a desk value (DW-245)"
     owner: "user"
     status: open
     ref: ""

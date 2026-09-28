@@ -1463,7 +1463,7 @@ So that arming myself on the plunge is a real shot and I can steer which lane is
 **When** `lane_entered` matches the lit lane
 **Then** the player is awarded the skill-shot value from `tuning.ts` plus one DRAGON letter, and the mode stops; when the first closure is any non-Top-lane playfield switch, the mode stops with no award
 
-[AMENDED 2026-09-06, Story 2.7 implement gate -- Rule 5 tier-1, author-decided: **the unlit Top lane case is now stated explicitly**, because this criterion's silence about it let one intent become two different games in two artifacts. The skill shot closes on **the first playfield closure of any kind at or after `ball_launched`, Top lane included** -- an **unlit** Top lane is a **miss, not a skip**: the mode stops and pays nothing. Only the lit Top lane pays. AD-6's parenthetical previously read "closes on the next playfield closure that is *not* a Top lane", which would instead have let the ball rattle through unlit lanes and still pay on the lit one, with lane change live during flight; PRD FR-18 ("the Skill shot is only available until the first other switch closes") and this criterion's own "before any other playfield switch closes" both say otherwise. The author decided the FR-18 reading -- **lane change matters before the plunge, not during** -- and AD-6 was amended to match in the same commit. Nothing is dropped; the ambiguity is removed.]
+[AMENDED 2026-09-06, Story 2.7 implement gate -- Rule 5 tier-1, author-decided: **the unlit Top lane case is now stated explicitly**, because this criterion's silence about it let one intent become two different games in two artifacts. The skill shot closes on **the first playfield closure of any kind at or after `ball_launched`, Top lane included** -- an **unlit** Top lane is a **miss, not a skip**: the mode stops and pays nothing. Only the lit Top lane pays. AD-6's parenthetical previously read "closes on the next playfield closure that is *not* a Top lane", which would instead have let the ball rattle through unlit lanes and still pay on the lit one, with lane change live during flight; PRD FR-18 ("the Skill shot is only available until the first other switch closes") and this criterion's own "before any other playfield switch closes" both say otherwise. The author decided the FR-18 reading -- **lane change matters before the plunge, not during** -- and AD-6 was amended to match in the same commit. Nothing is dropped; the ambiguity is removed.] [CORRECTED 2026-09-28, Epic 2 decision sheet — author decision, DW-204: the rationale above overstated the rule. Lane change stays live during flight; what the author decided is that the first Top lane the ball enters decides hit or miss, and an unlit one is a miss. AD-6 carries the same correction.]
 
 **Given** the base mode owns lane state
 **When** `lane_change_pressed { side }` arrives
@@ -1664,9 +1664,9 @@ So that the game closes the way a real machine does.
 
 **Given** the last ball of the last player ends
 **When** phase becomes `game_over`
-**Then** the Backglass shows final scores by player and `game_ended { scores[] }` fires -- `game_ended` on the drain tick, and the final scores when the last ball's end-of-ball hold releases, so Story 2.10's bonus count-up is not cut
+**Then** the Backglass shows final scores by player and `game_ended { scores[] }` fires -- `game_ended` on the drain tick, and the final scores when the last ball's end-of-ball hold releases, so Story 2.10's bonus count-up is not cut [AMENDED 2026-09-11, Story 2.13 spec gate -- Rule 5 tier-1: the timing made explicit, `game_ended` on the drain tick and the final scores when the end-of-ball hold releases, because the literal reading would cut Story 2.10's shipped bonus count-up. Marker backfilled 2026-09-28 at the Epic 2 merge gate; see the story change log.]
 
-**Given** `matchProbability` (default 0.08, i.e. 8 %) and `GameState.rng`
+**Given** `matchProbability` (default 0.08, i.e. 8 %) and `GameState.rng` [AMENDED 2026-09-11, Story 2.13 spec gate -- Rule 5 tier-1: renamed from `matchPercent` (default 8). The shipped contract is `GameAdjustments.matchProbability`, a fraction, and no reader treats it as a percent; 0.08 and 8 % are the same odds. AD-15 carries the full reasoning. Marker backfilled 2026-09-28 at the Epic 2 merge gate.]
 **When** the Match runs
 **Then** a multiple-of-ten number from 00 to 90 is drawn with the configured probability of matching at least one player's last two score digits, `match_drawn { number, winners[] }` fires, the Backglass reveals the number paced by `matchRevealMs` step events, and a win shows MATCH — display-only under free play
 
@@ -1683,6 +1683,11 @@ So that the game closes the way a real machine does.
 - DW-235: the bonus count-up schedule's closure state has no reset across a game-over-to-new-game transition, so a stray `bonus_count_step` from a finished game could animate into the next; 2.13 owns that lifecycle boundary (ledger; routed by harvest 2026-09-08)
 - DW-244: a Slam tilt returns to Attract with the voided game's ball still live, and Start has no balls-home handling, so the old ball's drain ends the NEW game's ball 1 and a second serve stacks in the occupied lane; the author's decision is CLEAN UP THE STRAYS, THEN START -- before serving, for Start in Attract and for every new ball, a loose ball is removed through the `RecoverCommand` path Story 2.12 built and a ball already resting in the shooter lane is treated as the ball being served (no trough eject, no stacking); both routes (a voided game's loose ball; a ball left in the lane by a cancelled search pass) need their own pinning test that is red on the pre-fix code, each negative paired with its positive (ledger; routed by spec_gate 2026-09-11)
 - DW-257: recovered balls are never replenished -- `recover()` removes every ball outside a device and opens no trough slot, while the tree's only `spawnBall()` sits inside a parking eject that needs an already-filled slot, so each recovery permanently costs the machine a ball and four empty the trough, after which the serve answers `eject_failed`, no ball can drain and the ball never ends (a hard hang, reachable by a Slam then Start before the old ball drains, four times). Because 2.13 makes the serve path a second `RecoverCommand` issuer, this story owns the fix: the author's decision is RETURN RECOVERED BALLS TO THE TROUGH -- `recover()` parks each ball it removes into the trough's lowest empty slot and closes that slot's switch, so AD-6's four-ball invariant holds across any number of recoveries and ball search's own hang closes with it; its pinning test must pair the negative (the trough never empties across repeated recoveries) with its positive (the recovered ball IS in a trough slot and CAN be ejected again), and be red on the pre-fix code (ledger; routed by spec_gate 2026-09-11)
+
+**Story change log**
+
+- **2026-09-11 -- spec gate, Rule 5 tier-1 (epic-runner-2m).** AC 1's final-scores timing was made explicit and AC 2's tunable was renamed `matchPercent` (default 8) to `matchProbability` (default 0.08); both preserve the promise. The `DW-257:` bullet was added on the author's decision to return recovered balls to the trough. The author kept the story whole at 14 ACs rather than splitting it.
+- **2026-09-28 -- Epic 2 merge gate (orchestrator).** The two AC edits above had been applied with no `[AMENDED]` marker and no change-log entry, so a reader could not tell them from original text; the markers and this log were backfilled. Logged as `runner_report_error field=amendments`.
 
 ### Story 2.14: The lit Top lane -- rotation, and when it may move
 
@@ -1826,6 +1831,9 @@ So that every mode in this epic drops into one framework and two modes can never
 **When** it is inspected
 **Then** it never emits a `CoilCommand`; a test wraps each mode's outputs and asserts
 
+- DW-206: DW-200's fix generalises past the author's decision: any unlabelled mode now suppresses its published fields too, and a higher-priority unlabelled mode blanks a labelled lower-priority one (ledger; routed by merge_gate 2026-09-28)
+- DW-209: The mode stack's arming decision is closure state outside GameState, has no cancel path, and its fan-out is mode-major while AD-8's rule text does not say which shape the contract is (ledger; routed by cr 2026-09-07)
+
 ### Story 3.2: Locking balls and the Lock arbiter
 
 As a player,
@@ -1874,6 +1882,11 @@ So that I can feed the Dragon the balls it will spit back at me.
 
 - **2026-09-11 — three ball-search clauses received from Story 2.12 (AD-18 phasing).**
   AD-18 lets only this story's Lock arbiter pulse `c_mouth`, and only after `ShowCommand show_dragon_mouth_open` and `mouthOpenLeadMs`, so the three Story 2.12 clauses that would pulse the Mouth wait here: ball search's Lock steps (from 2.12's AC 1), the `c_mouth` skip while a mode publishes `timerTicks` (2.12's AC 2, verbatim), and the answer to a `bd_lock` `device_overflow` (from 2.12's AC 5). Two wording changes, both forced by AD-18: the Lock steps and the overflow answer go through the arbiter rather than as bare pulses, and the overflow eject drops 2.12's "immediate", because every Mouth eject waits `mouthOpenLeadMs`. Until this story, ball search issues nothing at the Lock and a `bd_lock` overflow is tolerated without an eject. Author decision at Story 2.12's spec gate, relayed by the orchestrator under a one-time grant to amend this block for exactly these clauses; AD-18 amended the same day.
+
+- DW-171: A Lock-lane shot slow enough to miss lockCaptureWindowTicks still PARKS in bd_lock, so a slot is silently occupied with device_ball_entered emitted but lock_lane_entered never emitted -- and AD-18 makes the arbiter the sole consumer of lock_lane_entered and the only thing that pulses c_mouth (ledger; routed by adjudication 2026-09-05)
+- DW-221: A bd_lock capture that takes ballsInPlay to 0 is treated as a drain, so a live ball save now emits ball_saved and re-serves from the trough for a ball that was merely locked (ledger; routed by cr 2026-09-08)
+- DW-212: lampsOf() lights l_lock with an empty modes stack, contradicting the spec's frozen intent contract in three places, with no Spec Change Log entry recording the deviation (ledger; routed by merge_gate 2026-09-28)
+- DW-174: AD-6's device_overflow obligation, routed to Story 2.4 by name in epic-2-context.md, is neither implemented nor declared deferred anywhere (ledger; routed by spec_gate 2026-09-06)
 
 ### Story 3.3: The Dragon's mouth and hit reaction
 
@@ -2011,6 +2024,13 @@ So that fighting the monster is a two-ball scrap.
 **When** a Lock-lane Mode start or a War start would otherwise apply
 **Then** neither happens; a switch-script test covers Quick multiball → Lock lane → no lock, no War
 
+- DW-268: Ball search's own autolaunch step can launch a ball resting in the shooter lane into play, and the same pass's RecoverCommand despawns it about 750 ms later unless it closes a playfield switch first (ledger; routed by smoke 2026-09-11)
+- DW-141: The DW-130 feed-rail record runs on driveCaseSwept(), a hand-copied third implementation of driveShot() with no equality check against it, and measures partly from a release point this same story proves unreachable (ledger; routed by merge_gate 2026-09-28)
+- DW-226: A ball loses ball-save eligibility for the rest of that ball once its window's grace fully lapses, because hasGraceLapsed() clears sources and the new arming gate reads sources (ledger; routed by merge_gate 2026-09-28)
+- DW-185: runReplay discards the replay header's own GameStart: it builds createLoop({ collisionDoc }) with no gameStart, so a golden's declared adjustments are stamped into the file and ignored on playback (ledger; routed by cr 2026-09-06)
+- DW-219: disarm() of the source that set the maximum leaves untilTick at the departed source's deadline, so AD-18's 'the longest LIVE window wins' stops holding after any disarm (ledger; routed by adjudication 2026-09-08)
+- DW-228: awaitingSaveRelaunch's bounded-lifetime fix is a TIMEOUT, not a per-pulse causal binding: any ball_launched arriving inside the bounded window is still consumed as the deferred pulse's own, so a genuinely concurrent second launch would be misclassified (ledger; routed by cr 2026-09-08)
+
 ### Story 3.8: The War starts — dragon fire
 
 As a player,
@@ -2122,6 +2142,12 @@ So that the numbers stop being starting values and SM-2 — the dragon-fire mome
 **Given** the tuning file
 **When** CI runs after the freeze
 **Then** a test asserts every scoring tunable carries `confidence: playtested`
+
+- DW-236: The end-of-ball bonus counts UP on the Backglass while FR-20 and AD-3 both name a count-DOWN, and nothing records the departure (ledger; routed by merge_gate 2026-09-28)
+- DW-237: The end-of-ball screen's score line already contains the bonus from its first frame, so the BONUS row counts up to a total the line above has already shown (ledger; routed by merge_gate 2026-09-28)
+- DW-246: A tilted ball still earns: DRAGON letters from bank targets, bonus credit, and a skill-shot award on a DW-222 manual plunge; FR-15 is silent on whether scoring stops under Tilt (ledger; routed by merge_gate 2026-09-28)
+- DW-173: Two consecutive Loop orbits on the SAME side emit a spurious shot_<other>_loop_made: every made Loop ends by closing the opposite Loop's entry switch, arming it, and the next orbit's opposite _out completes that stale flight (ledger; routed by merge_gate 2026-09-28)
+- DW-232: The skill shot survives a ball save, so a ball saved from a no-switch centre drain gets a second skill-shot attempt - this time from an automatic launch with no player aim (ledger; routed by merge_gate 2026-09-28)
 
 ## Epic 4: Lights, Sound and the Walk-up
 
@@ -2273,6 +2299,9 @@ So that the table sounds like a machine and not a video game.
 **When** it is added
 **Then** `ATTRIBUTIONS.md` records it as generated with the tool and date; `.wav` masters live in `assets/src/` and any shipped sample is `.mp3` in `public/assets/`
 
+- DW-49: The collision loader parses each node's surface property and then discards it, so AD-13's contact-sound selection has no carrier (ledger; routed by burndown 2026-08-30)
+- DW-76: The flipper_eos ContactEvent discards the ported mover's own end-of-stroke angular speed and is stamped one tick after the stop was reached, so Story 4.4 has nothing to modulate gain and pitch with and the sound lands a tick late (ledger; routed by cr 2026-08-29)
+
 ### Story 4.5: Mode and Backglass cues
 
 As a player,
@@ -2296,6 +2325,8 @@ So that the big beats are heard as well as seen.
 **Given** v1 scope
 **When** the audio set is reviewed
 **Then** there is no music and no speech
+
+- DW-251: A Tilt that begins and ends inside a ball_ended hold never shows TILT: the next ball tilts and drains before the previous ball's 3 s end screen expires, the hold branch outranks the TILT branch, and ball_will_start clears machine.tilt before the hold ends (ledger; routed by merge_gate 2026-09-28)
 
 ### Story 4.6: The Walk-up and the Attract show
 
@@ -2344,6 +2375,9 @@ So that the bake is a known-size job behind a fixed contract and never a sink on
 **Given** the vpx_lightmapper technique
 **When** it is consulted
 **Then** no code from it enters the repository until its licence is verified — technique only
+
+- DW-17: This automated-cycle host has no display actively attached, so headed Chrome paces requestAnimationFrame to a stale 29 Hz and every first-frame timing figure taken here is a lower bound, not a consumer figure (ledger; routed by harvest 2026-08-28)
+- DW-211: TUNING.liveLightBudget is a presentation-only knob living inside the sim's hashed determinism contract, read from the module rather than from the loop's resolved tuning, and enforced per-channel while AD-12 states it per-frame (ledger; routed by merge_gate 2026-09-28)
 
 ### Story 4.8: Per-group baked lighting behind the same driver
 
@@ -2395,6 +2429,8 @@ So that the thing I am at war with looks like a dragon.
 **When** the model is reviewed
 **Then** it is within the single-LOD triangle budget (≤ 2,000), hand-painted textures, and its `ATTRIBUTIONS.md` entry exists before the file is committed
 
+- DW-165: Story 5.1 'The Dragon' names a col_dragon_body node in its acceptance criteria that does not exist in the committed geometry (ledger; routed by adjudication 2026-09-05)
+
 ### Story 5.2: Playfield art and materials
 
 As a player,
@@ -2414,6 +2450,11 @@ So that realism lives in the light and the proportions while the art tells the w
 **Given** the art files
 **When** they are added
 **Then** each is in `ATTRIBUTIONS.md` as author-made or generated with the tool and date, and the compressed build stays within the CI size budget
+
+- DW-271: No playfield insert is rendered, so a player cannot see WHICH Top lane is lit: the skill shot's entire premise (aim at the lit lane) and Story 2.14's rotation are both invisible in the shipped game (ledger; routed by smoke 2026-09-12)
+- DW-4: Author-owned: hand-authored art assets (Epic 5) (ledger; routed by burndown 2026-08-30)
+- DW-159: The new FR-31 post-protrusion gate passes any post showing more than ZERO exposure, so DW-154 (d) is narrowed rather than closed: a post buried to within a sub-ball sliver still certifies the guide end it nominally terminates (ledger; routed by merge_gate 2026-09-28)
+- DW-161: sw_pop_1/sw_pop_3 and sw_pop_2/sw_pop_3 skirt zones overlap in the committed geometry, so one ball crossing into an overlap makes two pop switches on one tick and pops.ts fires BOTH coils, applying two near-opposite radial impulses that largely cancel (ledger; routed by merge_gate 2026-09-28)
 
 ### Story 5.3: Cabinet, backbox and glass
 
@@ -2454,6 +2495,10 @@ So that the playfield reads as hardware, not scaffolding.
 **Given** `pinball-parts` or any other external asset is used
 **When** it is added
 **Then** its CC BY-SA licence is verified at source, the NC-SA node group is excluded, and the `ATTRIBUTIONS.md` entry precedes the file
+
+- DW-249: No flipper or plunger is rendered in the shipped game: src/presentation/mechanisms/ holds only Story 1.6's .gitkeep, so a player cannot see the flippers they are pressing (ledger; routed by smoke 2026-09-11)
+- DW-142: col_wall_lane, the shooter-lane divider a ball runs the full 950 mm of on every plunge, has a bare free end at (474.40, 950.00) 98.40 mm from the nearest rubber_post, and Story 2.1d's widened guide gate excludes it by surface rather than exempting it on the record (ledger; routed by merge_gate 2026-09-28)
+- DW-258: A ball at rest at the Ramp entrance (near x 377-380, y 508) rattles without settling or sinks through the playfield deck and falls below the table, closing no switch and never draining (ledger; routed by merge_gate 2026-09-28)
 
 ### Story 5.5: Backglass art and DMD frames
 
@@ -2508,6 +2553,13 @@ So that the link never dead-ends.
 **Given** Firefox
 **When** it loads the page
 **Then** it is allowed through as best-effort with no gate message and no dedicated fixes
+
+- DW-62: create-engine.ts's render loop wraps onFrame in try/catch only on the FIRST frame, so a later presentation throw stops Babylon's render loop silently with nothing surfaced to the user (ledger; routed by harvest 2026-08-28)
+- DW-20: The minimal boot surface has no load timeout and no error path for failures that happen before onBegin, so several AD-17 boot-stage failures leave a dead page instead of the error panel, and the canvas is never resized (ledger; routed by cr 2026-08-28)
+- DW-21: The Babylon engine bundle is fetched during page load, before the WebGL2 check runs, so AD-17's before-any-asset-loads gate holds for the glb but not for the engine itself (ledger; routed by cr 2026-08-28)
+- DW-19: create-engine.ts's WebGPU-verification failure handling arms its error listeners only through a short post-first-frame grace window and does not scope captured failures to WebGPU-originated errors (ledger; routed by harvest 2026-08-28)
+- DW-43: The shipped page declares no favicon, so every load of the deployed site emits a 404 for /favicon.ico in the browser console (ledger; routed by smoke 2026-08-28)
+- DW-54: The new resolvePlayfieldNodes() throw between Scene creation and the render loop is neither ordering-verified nor leak-safe (ledger; routed by cr 2026-08-28)
 
 ### Story 6.2: The local save with migrations
 
@@ -2564,6 +2616,9 @@ So that the machine is mine to adjust.
 **Given** the build
 **When** the panel is open
 **Then** the commit SHA stamped at build time is shown
+
+- DW-210: hostLoop.reset() drops the boot-derived seed, so any tuning-panel hot-apply or dev reset silently restores DW-201's fixed-seed defect (ledger; routed by merge_gate 2026-09-28)
+- DW-99: The tuning panel gives no visible indication when an out-of-range but finite pitch edit is silently clamped: the I/O matrix's 'the panel shows the clamp' row has no implementation and no test (ledger; routed by merge_gate 2026-08-30)
 
 ### Story 6.4: Rebindable keys shown in Attract
 
@@ -2637,6 +2692,13 @@ So that "supported" is a checked claim and the WebGL2 floor is equal in feel, no
 **When** a full game is played on a mid-range 2022 laptop GPU
 **Then** the frame rate stays at 60 FPS in the supported browsers, recorded with the machine's spec
 
+- DW-140: check:reachability -- the only instrument that can falsify an 'unreachable' verdict -- is in no CI job, has no in-suite wrapper and is excluded from typecheck, so it can break or rot with every gate green (ledger; routed by merge_gate 2026-09-28)
+- DW-57: The WebGPU engine now fails to render the scene with 'setAlphaMode is not a function' and silently falls back to WebGL2, so on hardware where WebGPU works it is never actually used (ledger; routed by smoke 2026-08-28)
+- DW-93: No cross-seam contract between the tuning panel, replay player and replay recorder: three interaction gaps with one root cause (ledger; routed by adjudication 2026-08-30)
+- DW-100: No real-runtime DOM test host exists for any host/** UI: vitest runs environment node and the tuning panel is tested only through a hand-rolled document stub (ledger; routed by merge_gate 2026-08-30)
+- DW-277: Story 1.1's TICK_HZ assertion is over-permissive now that 1000 is ratified: expect([1000, 480]).toContain(TICK_HZ) would still pass if the tick rate silently became 480 (ledger; routed by merge_gate 2026-09-28)
+- DW-12: measure.mjs non-Windows paths are untested and the macOS legs are its next caller (ledger; routed by burndown 2026-08-30)
+
 ### Story 6.7: Release — the ledger audit, licence headers and v1.0.0
 
 As the author,
@@ -2660,4 +2722,11 @@ So that the repository is public, free to distribute and infringes nobody.
 **Given** `main` passes CI
 **When** `v1.0.0` is tagged
 **Then** the tag's build is the one deployed to Pages, the Settings panel shows its SHA, and the size budget and CSP checks passed on that build
+
+- DW-82: The distributed bundle now contains vpinball/vpinball GPLv3+ cabinet-physics code but public/THIRD-PARTY-NOTICES.txt carries no vpinball block, and NOTICE still lists vpinball as not yet present -- so a build would ship that code without the notice that file exists to carry (ledger; routed by adjudication 2026-08-29)
+- DW-27: CI applies pnpm install --frozen-lockfile --ignore-scripts to the whole dependency tree on the strength of a one-time check that @swc/core is the only package needing an install script; nothing re-validates that when a dependency is added (ledger; routed by harvest 2026-08-28)
+- DW-131: The machine-specific Blender executable path is committed in four tracked _bmad-output artifacts, so the DW-46 Manual check 'no tracked file contains a Blender executable path' has never held, and DW-46's own terminal note asserts the opposite (ledger; routed by cr 2026-09-03)
+- DW-193: The BLENDER host-tool convention is documented nowhere a fresh agent reads: AGENTS.md contains zero occurrences of BLENDER although DW-132's closure cites it as documented there, so every new runner re-discovers the portable Blender path or wrongly concludes Blender is not installed (ledger; routed by lead 2026-09-06)
+- DW-18: The github-pages repository Environment still admits DW-1-epic1 as a deployment branch, a GitHub setting outside version control that no diff or workflow grep will ever surface (ledger; routed by burndown 2026-08-30)
+- DW-28: ATTRIBUTIONS.md and check:attributions cover only package.json's direct dependencies and devDependencies, not the roughly 40 transitive packages pnpm-lock.yaml adds, and no line states that scope decision explicitly (ledger; routed by harvest 2026-08-28)
 

@@ -8,11 +8,19 @@
 # DragonWar has no submodules (.gitmodules absent; parallel.yaml submodule_mode: none),
 # so every `submodules:` list is empty.
 
-epics_md_hash: "2b39592f05a1f6ae85b076edb30361ec442c2bf1395caf42f18be6017635342b"
+epics_md_hash: "0da03a9c018b9190aa9d00995e0ce9533b31e97e54a3f3f92ef80c057382bd5f"
 analyzed_by: claude-opus-5
 approved: true
 approved_date: 2026-08-27
-hash_rerecorded: 2026-08-30  # Re-recorded twice today: (1) Epic 1 close, Story 1.10 inserted;
+hash_rerecorded: 2026-09-28  # Epic 2 merge gate. STRUCTURE diff vs the prior recorded version (972ffcc):
+                            # epic headings IDENTICAL; no story moved between epics; epic-level dependency
+                            # statements identical (none in either). All changes inside Epic 2: 2.1 split into
+                            # 2.0 + 2.1a-2.1f, and 2.14 + 2.15 added. 2.0 (X.0) and 2.15 (burn-down) are enumerated
+                            # exempt classes; the 2.1a-f split and 2.14 are NOT -- they pass the kit's trigger test
+                            # instead (no change to epic boundaries, cross-epic assignment or dependencies), so
+                            # depends_on, footprints and waves are unaffected. Also carries 50 ledger DW-n bullets
+                            # (ledger_routed) and Rule 5 markers. Re-recorded without re-approval.
+# previously: hash_rerecorded: 2026-08-30  # Re-recorded twice today: (1) Epic 1 close, Story 1.10 inserted;
                             # (2) after the LF renormalisation changed epics.md bytes on disk with
                             # ZERO content change (identical once CR is stripped; headings identical).
                             # Structural diff vs approval: ONE added story heading under Epic 1.
