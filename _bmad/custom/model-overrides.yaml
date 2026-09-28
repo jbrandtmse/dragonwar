@@ -1,0 +1,34 @@
+# Project-local model policy for /epic-cycle. Read at every stage spawn; overrides win over SKILL.md
+# frontmatter and the command's stage map. Survives BMAD upgrades (the installer never touches _bmad/custom/).
+# Keys are STAGES (plan | implement | qa | code-review), not skills: bmad-build-auto serves plan and implement.
+
+stack_risk: uncommon      # A TypeScript port of VPX's C++ physics with byte-exact deterministic replay,
+                          # hashed goldens and a Blender asset pipeline. Two consecutive epics met the
+                          # escalation threshold on this stack, which is the condition this key exists to mark.
+review_tier: full-opus    # unchanged: every review layer runs at the reviewer's Opus tier
+
+overrides:
+  implement: opus         # bmad-build-auto's implement stage (its plan stage is Opus already)
+  qa: opus                # bmad-qa-generate-e2e-tests
+
+history:                  # append-only; every change records its evidence
+  - date: 2026-09-28
+    action: escalate-implement-and-qa-to-opus
+    decided_at: Epic 2 merge gate, model-tier checkpoint
+    evidence: >-
+      Epic 2, 21 stories, implement=claude-sonnet-5 throughout (34 dev passes). Kit-procedure mean
+      4.48 per story against a threshold of 2 -- but metric=gross: 18 of 21 stories predate
+      unresolved_high_med and fall back to gross high+med (first-review totals high=17 med=92),
+      which the kit's own field report calls non-discriminating. On the valid metric the three
+      new-kit stories (2.13, 2.14, 2.15) read 0.67 on first review and 1.00 summing all reviews.
+      Rework: 11 of 21 stories took more than one dev pass (2.8 reached cycle_iteration 6, 2.1c 5,
+      2.1a/2.1d/2.9 4), nearly all under kit 2026-08-30.2, whose logs record no rework trigger, so
+      implementer quality cannot be separated from review process. review_loop_iteration >= 3: zero.
+      Epic 1's checkpoint also recommended escalation; the author declined it then and chose to
+      re-evaluate here.
+    orchestrator_recommendation: hold and re-evaluate at Epic 3 (first full epic on the valid metric)
+    approved_by: user
+    note: >-
+      The author weighed the recommendation and escalated. Epic 3 is therefore the first epic with
+      an Opus implementer; its unresolved_high_med and rework counts are the comparison point for
+      whether this change paid for its roughly doubled implement-stage cost.
