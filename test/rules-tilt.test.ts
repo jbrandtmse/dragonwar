@@ -1046,7 +1046,7 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 	// mark updated only by counted closures stayed green. adjustments(1) puts
 	// the player on the tilting path at their second eligible closure, which
 	// skips settle, so only spacing decides.
-	it('an IGNORED in-game closure still moves the spacing mark: 100 warns, 400 is ignored, 800 (only 400 after it) does not tilt; at 900 (500 after it) it tilts', () => {
+	it('an IGNORED in-game closure still moves the spacing mark: 100 warns, 400 is ignored, 800 (only 400 after it) does not tilt; at 1000 (600 after it) it tilts', () => {
 		const inGame = gameState({ players: [emptyPlayer({ ballNumber: 2 }), emptyPlayer()] });
 		const bob = (tick: number) => [{ type: 'tilt_bob_closed' as const, tick }];
 
@@ -1063,7 +1063,7 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 		const past = createTiltController(adjustments(1), PRODUCTION_TUNING);
 		const pastWarned = past.step(inGame, bob(100), 100);
 		const pastIgnored = past.step(pastWarned.state, bob(400), 400);
-		expect(past.step(pastIgnored.state, bob(900), 900).events, 'positive: 500 after the ignored closure it tilts').toEqual([{ type: 'tilt', player: 0, tick: 900 }]);
+		expect(past.step(pastIgnored.state, bob(1000), 1000).events, 'positive: 600 after the ignored closure (off the inclusive 500-tick boundary) it tilts').toEqual([{ type: 'tilt', player: 0, tick: 1000 }]);
 	});
 
 	it('a closure while TILTED still moves the spacing mark: the next ball\'s closure 200 later is ignored; 600 later it warns', () => {
@@ -1101,11 +1101,15 @@ describe('Story 3.0 AC 8 (DW-284) -- Hot seat: spacing is one physical mark whoe
 
 	function run(secondClosureTick: number, withDrain: boolean, withFirstClosure = true) {
 		const initial = gameState({ players: [emptyPlayer({ ballNumber: 1 }), emptyPlayer({ ballNumber: 0 })] });
-		let builder = withFirstClosure ? close('s_tilt_bob').at(T) : close(TROUGH_SLOT).at(DRAIN_TICK);
-		if (withDrain && withFirstClosure) {
+		// Each flag adds its own edge independently (`build()` sorts by tick).
+		let builder = close('s_tilt_bob').at(secondClosureTick);
+		if (withFirstClosure) {
+			builder = builder.close('s_tilt_bob').at(T);
+		}
+		if (withDrain) {
 			builder = builder.close(TROUGH_SLOT).at(DRAIN_TICK);
 		}
-		const script = builder.close('s_tilt_bob').at(secondClosureTick).build();
+		const script = builder.build();
 		return runRulesScript(script, { durationTicks: secondClosureTick + 10, initialState: initial, adjustments: adjustments(3), tuning: NO_BALL_SAVE_TUNING });
 	}
 

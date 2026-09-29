@@ -1529,6 +1529,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-08T09:49:29Z status=decision-pending owner=burndown by=cr note=Rule 15: a genuine product call for the epic decision sheet - is a saved ball entitled to a second skill shot, and does an AUTOMATIC launch qualify for an award whose whole point is player aim? Neither PRD FR-18 nor FR-19 nor AD-6's skill-shot clause reaches the composition. Not a defect either way until decided; recorded so it is not rediscovered in Story 3.1's mode stack
 - 2026-09-28T14:07:24Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=merge_gate note=Epic 2 decision sheet 2026-09-28: AUTHOR: fix. A skill shot is a reward for player aim and must not pay on an automatic re-launch after a save. Routed to 3.11 as a scoring defect to close before scoring freezes
 - 2026-09-29T10:22:56Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- author decided fix (a skill shot rewards aim; no award on an automatic re-launch); no later Epic 3 story touches skill-shot x ball-save
+- 2026-09-29T12:33:20Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb skill-shot.ts closes a launched skill shot with no award on entry into a parking device (TABLE.ballDevices kind), AD-6 amended; AC9 pinned in test/rules-modes.test.ts (saved no-switch drain unpaid vs manual plunge paid)
 
 ### DW-233: The spec's golden hash-identity HALT gate is a substring grep that this story's own appended notes prose now trips permanently, so it can no longer distinguish a real body-field move from bookkeeping
 - source: spec-2-9-ball-save.md | severity: med | fix-risk: low | footprint: in-story
@@ -1559,6 +1560,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-08T13:19:12Z status=decision-pending owner=burndown by=cr note=Product call for the decision sheet: either FR-20/AD-3's wording is corrected to count-up, or the display is inverted to a remaining-bonus countdown. AD-3's normative clauses (authored in ms, converted once, step events, presentation never reports completion) are all satisfied either way, so this is not an AD-6 Rule violation. Decide together with DW-237, the same screen.
 - 2026-09-28T14:07:24Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=merge_gate note=Epic 2 decision sheet 2026-09-28: AUTHOR: the bonus counts DOWN, matching FR-20 and AD-3 as written, with DW-237's pre-bonus freeze. Change bonusCountUpSteps and the DMD row; budget a golden re-record
 - 2026-09-29T10:22:54Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- author decided count DOWN with DW-237's pre-bonus freeze; low fix-risk; 3.11's playtest gate does not exercise it, so it moves to the cleanup
+- 2026-09-29T12:33:20Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb bonus.ts bonusCountDownSteps(): one step per nonzero category, last remaining 0; BonusCountStepEvent.running renamed remaining; frame.ts BONUS row counts down; AC1/AC2/AC10 in test/rules-bonus.test.ts, backglass-frame, backglass-integration
 
 ### DW-237: The end-of-ball screen's score line already contains the bonus from its first frame, so the BONUS row counts up to a total the line above has already shown
 - source: spec-2-10-end-of-ball-bonus-and-the-multiplier.md | severity: med | fix-risk: med | footprint: in-story
@@ -1566,6 +1568,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-08T13:19:20Z status=decision-pending owner=burndown by=cr note=Product call for the decision sheet: real machines count the score UP as the bonus pays. Freezing the PRE-bonus score (ballEndedEvent.total is on the event, so score minus total is available with no new field) and advancing it with each step would do that. No AC constrains the score row during the count-up, so nothing is blocked. Decide with DW-236, the same screen.
 - 2026-09-28T14:07:25Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=merge_gate note=Epic 2 decision sheet 2026-09-28: AUTHOR: freeze the score line PRE-bonus so the bonus visibly pays into it while it counts down (pairs with DW-236). advanceBackglass's arming freeze currently reads the post-bonus snapshot
 - 2026-09-29T10:22:54Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- same screen as DW-236, decided together by the author
+- 2026-09-29T12:33:20Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb frame.ts arms the score line at score - ball_ended.total and rises by each step's payment to the final score at BONUS 0 (author's DW-237 decision); QA's real-rules integration test reads it from rasterised DMD rows
 
 ### DW-238: advanceBonusMultiplier's off-ladder recovery LOWERS an unrecognised multiplier instead of advancing it
 - source: spec-2-10-end-of-ball-bonus-and-the-multiplier.md | severity: low | fix-risk: low | footprint: in-story
@@ -1844,24 +1847,28 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: tilt.ts:84-85,162-206
 - 2026-09-29T10:12:37Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=with the tilt-window origins the author ratified (DW-240)
 - 2026-09-29T10:22:56Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- no Epic 3 story reworks tilt; per-player marks belong in the cleanup before modes add hot-seat state
+- 2026-09-29T12:33:21Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=e7c7cb6 tilt.ts: the SETTLE mark (lastWarningTick) is per player and cleared outside a game, so the next player's nudge is never judged by the previous player's counted warning; the SPACING mark stays ONE machine-wide physical debounce per AD-2 (DW-240) and FR-14 -- the defect as titled was only half real; AC8 amended and pinned in test/rules-tilt.test.ts
 
 ### DW-285: A Slam leaves the previous ball's bonus count-up emitting bonus_count_step in Attract
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: tilt.ts:141-150's Slam path does not clear pendingBonusCountSteps (ball-controller.ts:779-785)
 - 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=with the bonus count-down rework (DW-236, DW-237)
 - 2026-09-29T10:22:54Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- trivial and low fix-risk (default-include); same bonus schedule as DW-236
+- 2026-09-29T12:33:21Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb ball-controller.ts clears the bonus schedule and emits no bonus_count_step once phase is attract; AC3 Slam test paired with its no-Slam positive in test/rules-bonus.test.ts
 
 ### DW-286: bonusCountTicks is not clamped to at least one tick like its three neighbours, so bonusCountMs 0 never renders the count
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: ball-controller.ts:425
 - 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=a trivial clamp; with the bonus rework
 - 2026-09-29T10:22:55Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- trivial clamp, low fix-risk (default-include)
+- 2026-09-29T12:33:21Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb bonusCountTicks = Math.max(1, ...) at its single derivation site; AC4 zero-ms test (rules and Backglass arming frame)
 
 ### DW-287: Nothing enforces that the bonus count fits inside the Backglass end-of-ball hold, and the hold reads only the first step event per frame
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: frame.ts:219,431; the timing rule lives only in tuning.ts prose
 - 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=with the bonus count-down rework
 - 2026-09-29T10:22:55Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- low fix-risk (default-include); the count-down rework touches the same hold
+- 2026-09-29T12:33:21Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb+a336152 BONUS_COUNT_MAX_MS (933 after code review: 3 steps + one MAX_OWED_TICKS frame inside the 3000-tick hold) enforced by resolveTuning() and the dev panel; frame.ts folds every step in a frame; AC5/AC6 pinned incl. fractional-ms sweep
 
 ### DW-288: Loops can never emit _broken, yet Story 2.4's and Story 3.6's criteria depend on a Loop being started and broken
 - source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: low | footprint: out-of-footprint
@@ -1874,6 +1881,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: tuning.ts:684-686; prd.md:173-174
 - 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=fix with the DW-236 count-down rework, which re-records golden headers anyway
 - 2026-09-29T10:22:55Z status=routed owner=3-0-epic-2-deferred-cleanup by=x0 note=own:x0 -- a false quotation in a hashed provenance string; corrected with the count-down rework it describes
+- 2026-09-29T12:33:22Z status=resolved-by:3-0-epic-2-deferred-cleanup by=adjudication note=f3c89cb tuning.ts bonusCountMs source quotes FR-20 verbatim ('the Backglass counts the bonus down'); AC7 test checks every quoted phrase against prd.md; goldens header-only re-record (4 .source leaves)
 
 ### DW-290: ball-controller.ts became a god-module: it grew from 43 to 1,316 lines over 8 stories, and its inner step() spans 555 lines handling Start, drain, letters, ball save, bonus, ball search, the stray clear, game over and Match
 - source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: med | footprint: out-of-footprint
@@ -1887,6 +1895,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-29T10:12:39Z status=routed owner=3-1-the-mode-stack by=retro note=refresh the inventory when the mode stack is restructured
 - 2026-09-29T10:22:59Z status=routed owner=3-1-the-mode-stack by=x0 note=own -- kept (low fix-risk, but the inventory is refreshed when 3.1 restructures closure state; excluded from x0 so it is written once, after the split)
 - 2026-09-29T11:53:10Z occurrence=3-0-epic-2-deferred-cleanup
+- 2026-09-29T12:22:45Z occurrence=3-0-epic-2-deferred-cleanup note=after Story 3.0 rework 1 the tilt marks are: lastBobClosureTick a machine-wide scalar (spacing; updated by every closure), lastWarningTick a per-player Map cleared outside a game (settle), idleBobClosureTick removed; pendingBonusCountSteps is now the bonus COUNT-DOWN schedule
 
 ### DW-292: TUNING.matchDelayMs.source (hashed into all five golden headers) still describes the end-of-ball bonus as a count-up after Story 3.0's count-down
 - source: spec-3-0-epic-2-deferred-cleanup.md | severity: low | fix-risk: low | footprint: in-story
