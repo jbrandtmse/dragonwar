@@ -56,7 +56,7 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 **Standard game flow (§4.4)**
 
 - FR-17: Start begins a game; Start again before the first ball ends adds a player, up to four; letters, Lock credits, Modes played, Tilt warnings and bonus are per player; Backglass shows player-up; balls per game is a Setting (default 3).
-- FR-18: The player plunges manually with a variable-strength key hold on a launcher that is not bouncy; the Skill shot is the lit Top lane, rotating each plunge, awarding a fixed value plus a letter; "plunged" is the opening of `s_shooter_lane`; the Skill shot closes on the next playfield closure that is not a Top lane; Backglass shows ARM YOURSELF at plunge.
+- FR-18: The player plunges manually with a variable-strength key hold on a launcher that is not bouncy; the Skill shot is the lit Top lane, rotating each plunge, awarding a fixed value plus a letter; "plunged" is the opening of `s_shooter_lane`; the Skill shot closes on the next playfield closure that is not a Top lane; [AMENDED 2026-09-29, Epic 2 retrospective -- two clauses above are superseded by author decisions this summary never recorded: the lit lane advances one position **per ball** through the declared Top order, drawn once per game (DW-205, DW-214; Story 2.14), and the **first** playfield closure of any kind resolves the shot, an unlit Top lane being a miss, with lane change live until then (AD-6; Story 2.7; DW-204)]; Backglass shows ARM YOURSELF at plunge.
 - FR-19: Ball save is enabled at launch, its timer starts on `ball_launched` (not on enable), shows a hurry-up state before expiry, and keeps a Grace period (default 2 s) past displayed expiry during which drains still save; saved balls auto-launch; multiball Modes arm their own windows, the longest live window wins, Tilt disarms all.
 - FR-20: Each ball accumulates bonus by category (letters, Loops, Strikes) multiplied by the Bonus multiplier, paid at ball end unless tilted; completing the Top lanes advances the multiplier 2×→3×→5× (cap), reset each ball; Backglass counts the bonus down; Tilt pays nothing.
 - FR-21: Extra balls are lit by at least three long-horizon achievements (win a War, complete a Joust at full Charge, play every Mode once) and collected at the Right Loop; Extra-ball Inserts are purple.
@@ -954,7 +954,7 @@ So that the geometry the whole game balances around exists, OQ-5 and OQ-6 are an
 
 **Given** the geometry loads
 **When** the author runs the feel ritual on each shot from the fixed camera
-**Then** `docs/feel-test.md` gains a per-shot Lawlor entry (Left Loop, Right Loop, Ramp, Dragon, Lock lane, bank, Top lanes) recording where the most common miss goes, none is a centre drain, and any shot that fails is re-drawn before the story closes
+**Then** `docs/feel-test.md` gains a per-shot Lawlor entry (Left Loop, Right Loop, Ramp, Dragon, Lock lane, bank, Top lanes) recording where the most common miss goes, none is a centre drain, and any shot that fails is re-drawn before the story closes [AMENDED 2026-09-29, Epic 2 retrospective -- this criterion was not met when the story closed. `docs/feel-test.md` carries the seven shot entries as `pending-author`; the ritual needs the author at the Reference machine and is tracked as action item `epic-2-retro-item-10`. The story change log below already named the gap; this marker records it where the criterion is read.]
 **And** the decision whether the Lock lane carries both lock and mode start (OQ-5) is recorded; if not, a separate `sw_scoop` and `bd_scoop` are added with the Mouth as eject only
 
 **Given** the fixed camera from Story 1.4
@@ -1797,7 +1797,36 @@ entry that turns out to need a product decision is raised, not guessed.
 
 The five modes and the moment: lock two balls under the Dragon, spell DRAGON in either order, the Mouth opens and fires them back as fire, ten Strikes win the Jackpot. Hurry-up, Quick multiball, Joust, the Lock arbiter, the War, Strikes and the progressive Jackpot, re-qualification, stacking by priority, the extra-ball achievement menu, and the Dragon's mouth and hit-reaction shows. Scoring values freeze after this epic's first full playtest.
 
-**FRs covered:** FR-21, FR-30, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41 · **ARs:** AR-20, AR-21 · **Judges:** SM-2
+**FRs covered:** FR-21, FR-30, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41 · **ARs:** AR-20, AR-21 · **Judges:** SM-2 · [AMENDED 2026-09-29, Epic 2 retrospective -- author decision: Story 3.0a takes the **scoring** halves of FR-26 (the Spinner awards per rotation), FR-28 (the DRAGON award) and FR-31 (pops and slings score). Epic 2 listed them and never built them, and every mode below builds on base scoring.]
+
+### Story 3.0a: Playfield scoring
+
+As a player,
+I want the pop bumpers, slingshots, Spinner and DRAGON bank to score,
+So that hitting the playfield is worth something, and every mode that follows has a base score to build on.
+
+*Inserted by the author at the Epic 2 retrospective (2026-09-29).* Epic 2 listed FR-26, FR-28 and FR-31 as covered, but the rules never consume `spinner_spin`, `bank_completed` or any pop or slingshot event: the only writes to a score are the end-of-ball bonus (`ball-controller.ts:1130`) and the skill-shot award (`skill-shot.ts:202`). Story 2.4's spec handed scoring to Epic 3, yet no Epic 3 story carried it, while Stories 3.6 and 3.11 assume it exists. A browser playthrough scored 0 points across four balls.
+
+**Acceptance Criteria:**
+
+**Given** a pop bumper's or slingshot's switch closes during `phase: 'game'`
+**When** the rules consume it
+**Then** the current player scores that device's value (`popScore`, `slingScore`, authored in `tuning.ts` and marked `unverified`), and nothing scores under Tilt or outside a game (FR-31; FR-15 as the author decided for DW-246)
+
+**Given** the Spinner turns on the Left Loop
+**When** `spinner_spin` fires once per revolution
+**Then** the current player scores `spinnerScore` per revolution (FR-26)
+
+**Given** all six DRAGON targets are down
+**When** `bank_completed` fires
+**Then** the current player receives the DRAGON award (`dragonBankAward`) exactly once per completion, and the bank resets as it does today (FR-28)
+
+**Given** any of the scoring above
+**When** the next frame renders
+**Then** the Backglass score row shows the new total; a switch-script test and a browser smoke that reads the DMD from inside the page both observe it (Integration AC: the score screen is this story's consumer)
+
+- DW-278: Playfield scoring was never built: pop bumpers, slingshots, the Spinner and a completed DRAGON bank score nothing, so the scoring halves of FR-26, FR-28 and FR-31 are undelivered (ledger; routed by retro 2026-09-29)
+- DW-283: DRAGON letters accumulate duplicates: each bank_target_down appends its letter with no de-duplication, so a reset bank yields DRD and the string grows in hashed state (ledger; routed by retro 2026-09-29)
 
 ### Story 3.1: The mode stack
 
@@ -1833,6 +1862,8 @@ So that every mode in this epic drops into one framework and two modes can never
 
 - DW-206: DW-200's fix generalises past the author's decision: any unlabelled mode now suppresses its published fields too, and a higher-priority unlabelled mode blanks a labelled lower-priority one (ledger; routed by merge_gate 2026-09-28)
 - DW-209: The mode stack's arming decision is closure state outside GameState, has no cancel path, and its fan-out is mode-major while AD-8's rule text does not say which shape the contract is (ledger; routed by cr 2026-09-07)
+- DW-290: ball-controller.ts became a god-module: it grew from 43 to 1,316 lines over 8 stories, and its inner step() spans 555 lines handling Start, drain, letters, ball save, bonus, ball search, the stray clear, game over and Match (ledger; routed by retro 2026-09-29)
+- DW-291: AD-7's closure-state inventory is stale: gameOverSequence, pendingStrayClear, ball search's pass, heldSince and wasInPlay, drop-bank's completed and gameLaneStart are unlisted (ledger; routed by retro 2026-09-29)
 
 ### Story 3.2: Locking balls and the Lock arbiter
 
@@ -1887,6 +1918,8 @@ So that I can feed the Dragon the balls it will spit back at me.
 - DW-221: A bd_lock capture that takes ballsInPlay to 0 is treated as a drain, so a live ball save now emits ball_saved and re-serves from the trough for a ball that was merely locked (ledger; routed by cr 2026-09-08)
 - DW-212: lampsOf() lights l_lock with an empty modes stack, contradicting the spec's frozen intent contract in three places, with no Spec Change Log entry recording the deviation (ledger; routed by merge_gate 2026-09-28)
 - DW-174: AD-6's device_overflow obligation, routed to Story 2.4 by name in epic-2-context.md, is neither implemented nor declared deferred anywhere (ledger; routed by spec_gate 2026-09-06)
+- DW-281: Ball search under Tilt serves a replacement ball instead of ending the tilted ball: only the non-parking stage carries the tilt guard, not the trough stage, and recover emits ball_missing without ball_ended (ledger; routed by retro 2026-09-29)
+- DW-282: A playfield closure between ball search's trough stage and its recover stage cancels the pass after it has served, leaving a second ball in the lane with no multiball (ledger; routed by retro 2026-09-29)
 
 ### Story 3.3: The Dragon's mouth and hit reaction
 
@@ -1996,6 +2029,8 @@ So that the joust is charge, pass, wheel around, charge again.
 **When** it elapses or the ball ends
 **Then** the Mode stops; the spinner continues to award per rotation independently of Joust
 
+- DW-288: Loops can never emit _broken, yet Story 2.4's and Story 3.6's criteria depend on a Loop being started and broken (ledger; routed by retro 2026-09-29)
+
 ### Story 3.7: Quick multiball — fight the monster
 
 As a player,
@@ -2029,7 +2064,7 @@ So that fighting the monster is a two-ball scrap.
 - DW-226: A ball loses ball-save eligibility for the rest of that ball once its window's grace fully lapses, because hasGraceLapsed() clears sources and the new arming gate reads sources (ledger; routed by merge_gate 2026-09-28)
 - DW-185: runReplay discards the replay header's own GameStart: it builds createLoop({ collisionDoc }) with no gameStart, so a golden's declared adjustments are stamped into the file and ignored on playback (ledger; routed by cr 2026-09-06)
 - DW-219: disarm() of the source that set the maximum leaves untilTick at the departed source's deadline, so AD-18's 'the longest LIVE window wins' stops holding after any disarm (ledger; routed by adjudication 2026-09-08)
-- DW-228: awaitingSaveRelaunch's bounded-lifetime fix is a TIMEOUT, not a per-pulse causal binding: any ball_launched arriving inside the bounded window is still consumed as the deferred pulse's own, so a genuinely concurrent second launch would be misclassified (ledger; routed by cr 2026-09-08)
+- DW-280: tick is never reset at game start, against AD-3: since Story 2.13 made a second game possible, it inherits game 1's tick and rng and cannot be replayed or hashed standalone (ledger; routed by retro 2026-09-29)
 
 ### Story 3.8: The War starts — dragon fire
 
@@ -2148,6 +2183,7 @@ So that the numbers stop being starting values and SM-2 — the dragon-fire mome
 - DW-246: A tilted ball still earns: DRAGON letters from bank targets, bonus credit, and a skill-shot award on a DW-222 manual plunge; FR-15 is silent on whether scoring stops under Tilt (ledger; routed by merge_gate 2026-09-28)
 - DW-173: Two consecutive Loop orbits on the SAME side emit a spurious shot_<other>_loop_made: every made Loop ends by closing the opposite Loop's entry switch, arming it, and the next orbit's opposite _out completes that stale flight (ledger; routed by merge_gate 2026-09-28)
 - DW-232: The skill shot survives a ball save, so a ball saved from a no-switch centre drain gets a second skill-shot attempt - this time from an automatic launch with no player aim (ledger; routed by merge_gate 2026-09-28)
+- DW-285: A Slam leaves the previous ball's bonus count-up emitting bonus_count_step in Attract (ledger; routed by retro 2026-09-29)
 
 ## Epic 4: Lights, Sound and the Walk-up
 
@@ -2407,7 +2443,35 @@ So that the light looks like a real machine's while the grammar and the rules st
 
 Phased, allowed to trail, never blocking epics 1–4: the Dragon model and rig, playfield art and materials in the rustic register, cabinet and backbox at real scale for the Walk-up silhouette, insert lenses and the translucency mask, the DMD Backglass art. Each pass replaces placeholder primitives behind the fixed node contract and lands with its `ATTRIBUTIONS.md` entries.
 
-**FRs covered:** none primary — delivers PRD §6.1 "stylized art at real dimensions"; deepens FR-2, FR-4, FR-29, FR-30, FR-43 · **ARs:** AR-26
+**FRs covered:** none primary — delivers PRD §6.1 "stylized art at real dimensions"; deepens FR-2, FR-4, FR-29, FR-30, FR-43 · **ARs:** AR-26 · [AMENDED 2026-09-29, Epic 2 retrospective -- author decision: Story 5.0a makes the table **visible** in placeholder form first. The exported model held only the playfield slab, the backbox, a Spinner box and 15 inserts, while this epic's stories were written to replace placeholder primitives that were never made.]
+
+### Story 5.0a: Visible placeholder geometry
+
+As a player,
+I want to see the walls, lanes, Loops, Ramp, Dragon, drop targets, pop bumpers, slingshots, flippers and plunger,
+So that I am playing a table, not watching a ball cross a bare board.
+
+*Inserted by the author at the Epic 2 retrospective (2026-09-29).* `public/assets/dragonwar.glb` holds 18 meshes: 15 inserts, `vis_playfield`, `vis_backbox` and `vis_spinner_l`. Collision geometry never reaches the `.glb` (`test/shot-map-legibility.test.ts:18-19`). A browser playthrough on 2026-09-28 found the ball to be the only moving thing drawn.
+
+**Acceptance Criteria:**
+
+**Given** the exported model
+**When** it loads
+**Then** every collision body a player can see (walls, guides, posts, Loops, Ramp, Dragon, drop targets, pop bumpers, slingshots, lanes) has a flat-shaded placeholder mesh at the same pose, generated from the same authoring source so the two cannot drift
+
+**Given** the flippers, plunger and drop targets move in physics
+**When** a frame renders
+**Then** their placeholder meshes follow that tick's pose, and a dropped target is shown down (the visible half of DW-249)
+
+**Given** the placeholder meshes are presentation only
+**When** the golden replays run
+**Then** no physics or rules state hash moves; a header-only re-record of the asset hash is expected and budgeted
+
+**Given** a stranger's first look at Attract
+**When** the scene renders
+**Then** each of the bodies above is distinguishable, confirmed by a browser smoke that captures what a player sees rather than only the DMD (Integration AC)
+
+- DW-279: The shot map is never drawn: the exported model holds 18 meshes (15 inserts, vis_playfield, vis_backbox, vis_spinner_l), so no wall, Loop, Ramp, Dragon, target, bumper, slingshot, flipper or plunger is visible to a player (ledger; routed by retro 2026-09-29)
 
 ### Story 5.1: The Dragon
 

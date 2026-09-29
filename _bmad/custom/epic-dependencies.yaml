@@ -8,11 +8,17 @@
 # DragonWar has no submodules (.gitmodules absent; parallel.yaml submodule_mode: none),
 # so every `submodules:` list is empty.
 
-epics_md_hash: "0da03a9c018b9190aa9d00995e0ce9533b31e97e54a3f3f92ef80c057382bd5f"
+epics_md_hash: "40e14256357cd64998555c6abd5719ae243136acab5f7b6c8202829dd160b3fd"
 analyzed_by: claude-opus-5
 approved: true
 approved_date: 2026-08-27
-hash_rerecorded: 2026-09-28  # Epic 2 merge gate. STRUCTURE diff vs the prior recorded version (972ffcc):
+hash_rerecorded: 2026-09-29  # Epic 2 retrospective. STRUCTURE diff vs the 2026-09-28 record (0da03a9c): epic headings
+                            # and dependency statements identical; one story added inside each of two epics -- Story 3.0a
+                            # (playfield scoring) and Story 5.0a (visible placeholder geometry), both author decisions. No story
+                            # crossed an epic, so depends_on and waves stand; re-recorded without re-approval. FOOTPRINT NOTE for
+                            # the next dispatch: 3.0a reaches src/sim/rules/** and 5.0a regenerates public/assets/** and the
+                            # golden replays' asset hash, so test/replays/** and public/assets/** are contended between 3 and 5.
+# previously: hash_rerecorded: 2026-09-28  # Epic 2 merge gate. STRUCTURE diff vs the prior recorded version (972ffcc):
                             # epic headings IDENTICAL; no story moved between epics; epic-level dependency
                             # statements identical (none in either). All changes inside Epic 2: 2.1 split into
                             # 2.0 + 2.1a-2.1f, and 2.14 + 2.15 added. 2.0 (X.0) and 2.15 (burn-down) are enumerated

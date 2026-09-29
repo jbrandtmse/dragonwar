@@ -32,3 +32,32 @@ history:                  # append-only; every change records its evidence
       The author weighed the recommendation and escalated. Epic 3 is therefore the first epic with
       an Opus implementer; its unresolved_high_med and rework counts are the comparison point for
       whether this change paid for its roughly doubled implement-stage cost.
+  - date: 2026-09-28
+    action: keep-implement-and-qa-on-opus-as-an-explicit-epic-3-experiment
+    decided_at: Epic 2 retrospective, after the rework-cause analysis
+    corrects: >-
+      The 2026-09-28 escalation entry above says "Rework: 11 of 21 stories took more than one
+      dev pass". That figure was wrong: it counted cycle_iteration > 1, which also increments on a
+      clarification re-spawn. The correct figure is 9 of 21 (2.1a, 2.1c, 2.1d, 2.5, 2.6, 2.8, 2.9,
+      2.11, 2.13), in 19 rework iterations. Logged as report_error field=rework_stories.
+    evidence: >-
+      Rework causes, from each spec's review record: 12 of 19 iterations were SPEC defects (several
+      in the lead's own spec-gate text: 2.8's z-wording, 2.13's Block-If, 2.11's task-10 display
+      precedence), 3 IMPLEMENTER misses (2.1d x2, 2.5), 3 VERIFICATION (vacuous or missing tests),
+      1 ENVIRONMENT. Zero language-semantics defects. On valid metrics none of the kit's three
+      escalation criteria is met: unresolved_high_med 0.67-1.00 (3 stories, threshold 2);
+      language-semantics reworks 0 (threshold 2); review_loop_iteration >= 3 in 0 stories
+      (threshold 2). Only the gross-fallback reading crossed the threshold.
+    orchestrator_recommendation: revert to sonnet and fix the spec gate instead
+    decision: >-
+      The author weighed the corrected evidence and kept Opus for Epic 3 as a deliberate test,
+      knowing the kit's criteria do not support the escalation.
+    success_criterion: >-
+      Judge at Epic 3's model-tier checkpoint on (a) mean unresolved_high_med per story and
+      (b) the number of rework iterations whose primary cause is the implementer, against Epic 2's
+      Sonnet baseline (0.67-1.00; 3 of 19 iterations). Classify Epic 3's rework causes the same
+      way, from each spec's review record, so the two epics compare like for like.
+    confound: >-
+      Epic 3 also runs kit 2026-09-11.1 throughout, whose rework rules changed. An improvement
+      cannot be attributed to the model alone; compare implementer-caused iterations specifically.
+    approved_by: user

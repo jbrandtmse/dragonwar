@@ -948,6 +948,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-05T04:08:43Z occurrence=2-1d-device-behaviour-and-guide-terminations note=harvest: same duplication class, new instance - the anti-strand net-displacement discipline (assertNotStranded/positionalProgressMm) is now implemented TWICE, module-private in test/shot-routing.test.ts and again independently in test/lock-device-behaviour.test.ts, with no equality check between them. DW-141 is the hand-copied-driver root cause; this is the third copy of a measurement primitive in the suite
 - 2026-09-05T08:36:54Z occurrence=2-1f-the-bottom-right-corridor-the-ramp-and-the-dragon-bank-made note=FOURTH copy of a measurement primitive, filed by the lead at 2.1f's QA gate. test/right-bat-witness-precision.test.ts duplicates replayWitness()'s serve/settle/plunge/flip mechanics locally rather than exporting it from test/util/reachability.ts, so a witness recipe can now be replayed by four independent implementations with no equality check between any of them. QA justified it by the project's own precedent - reachability-sweep.harness.ts made the identical choice for the identical reason - and that precedent IS this entry's root cause rather than a defence of it. Not blocking 2.1f: the new file's own tests pass and were mutation-verified, and exporting the primitive mid-story would touch the harness 2.1f's ACs are stated in terms of
 - 2026-09-28T14:07:21Z status=routed owner=3-7-quick-multiball-fight-the-monster by=merge_gate note=Epic 2 decision sheet 2026-09-28: route to 3.7, which rebuilds the feed-rail record anyway; replace the hand-copied third driveShot() with the shared one
+- 2026-09-29T10:12:39Z occurrence=epic-2-retro by=retro note=the duplication is wider than one driver: about ten shot-driving helpers, 51 local collision-doc loaders (26 new in Epic 2) against a shared util with 15 importers, 13 local gameStart fixtures with 9 distinct bodies, and bootMachine byte-identical in three files
 
 ### DW-142: col_wall_lane, the shooter-lane divider a ball runs the full 950 mm of on every plunge, has a bare free end at (474.40, 950.00) 98.40 mm from the nearest rubber_post, and Story 2.1d's widened guide gate excludes it by surface rather than exempting it on the record
 - source: spec-2-1d-device-behaviour-and-guide-terminations.md | severity: med | fix-risk: high | footprint: in-epic
@@ -1366,6 +1367,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-7-plunge-skill-shot-and-lane-change.md | severity: med | fix-risk: med | footprint: in-epic
 - evidence: createModeStack holds pendingStartPlayer in a closure, so two states that hash identically under gameStateHash() step differently and a caller handing a mid-game initialState to a fresh createRules() silently drops a pending arm. Nothing cancels it if the ball ends in the one-tick window the deferred start opens. The fan-out hands each mode the whole batch in turn rather than each event to every mode highest-first; the two differ observably on a tick carrying both lane_change_pressed and the resolving closure. ModeEvent also has no exhaustiveness guard.
 - 2026-09-07T04:48:32Z status=routed owner=3-1-the-mode-stack by=cr note=3.1 is chartered to generalise this stack -- the priority table, the lifecycle as the only start/stop path, and the event fan-out contract -- so it is where all four are settled.
+- 2026-09-29T10:12:39Z occurrence=epic-2-retro by=retro note=HIGH shape the entry did not describe: a Slam on the tick after ball_starting. tilt runs before the mode stack (rules/index.ts:305,329), so the Slam's enterAttract empties modes and the deferred start then pushes base and skill_shot back into Attract. A voided player scored 25,000 in Attract in the review's probe; the next Start carries duplicate modes and draws rng twice. The only test on this path never inspects modes
 
 ### DW-210: hostLoop.reset() drops the boot-derived seed, so any tuning-panel hot-apply or dev reset silently restores DW-201's fixed-seed defect
 - source: spec-2-7-plunge-skill-shot-and-lane-change.md | severity: med | fix-risk: med | footprint: in-story
@@ -1655,6 +1657,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-11T02:46:23Z status=escalated owner=burndown by=cr note=spine text only, a lead write under Rule 20's light path: name all ten or restate the clause as a class. No code change
 - 2026-09-11T03:01:42Z note=Runner corrected the spine text 2026-09-11 (Rule 20 light path, lint clean): AD-7's clause is now a CLASS with the ten-field inventory, re-derivable, and the named-in-this-clause requirement removed. Status deliberately left escalated for the decision sheet; the recommended disposition is resolved-by:2-11-tilt-warnings-tilt-and-slam-tilt.
 - 2026-09-28T14:07:27Z status=resolved-by:2-11-tilt-warnings-tilt-and-slam-tilt by=merge_gate note=Epic 2 decision sheet 2026-09-28: verified at the merge gate that AD-7 now carries the closure fields as a class with the full inventory, including all five this entry named: pendingLifecycleEvents, pendingStartPlayer, pendingLockLaneClosure, occupancy and inFlight. The runner made that Rule 20 write on 2026-09-11
+- 2026-09-29T10:12:39Z by=retro note=CORRECTION to the 2026-09-28 merge-gate close note, which said AD-7 carries the full inventory. It carries the five fields this entry named, but closure state added in Stories 2.12-2.14 is unlisted (filed separately). Since the runner's rewrite AD-7 is a class definition that no longer requires every field to be named, so this is a stale inventory, not a violation; the resolved-by status stands
 
 ### DW-256: Ball search's two sling pulses are physically inert: physics has no commanded-pulse response for a slingshot, whose switch zone sits downhill of its kick face
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: med | footprint: in-story
@@ -1781,3 +1784,73 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Raised by Story 2.15's code review. DW-2 records TICK_HZ 1000 as RATIFIED by the author at the Epic 1 decision sheet (by-design), with only the macOS measurement legs outstanding as action item epic-1-retro-item-1. The assertion accepts either value, so it no longer pins the ratified one - the same 'a floor that does not bind' shape as DW-149, in an Epic 1 acceptance criterion
 - 2026-09-12T15:14:18Z status=decision-pending owner=burndown by=cr note=AUTHOR CALL, not the lead's: narrowing this to expect(TICK_HZ).toBe(1000) tightens a Story 1.1 acceptance criterion the author ratified, and the two macOS measurement legs are still open, so the author may deliberately want the assertion to keep accepting 480 until those land. Story 2.15's reviewer flagged it as ask-first and I agree - it goes to the decision sheet rather than being narrowed by a burn-down story. Recommended disposition: narrow it to 1000 and let the macOS legs re-open it if they force 480, since a ratified constant that no test pins is exactly what DW-149 was about
 - 2026-09-28T14:07:26Z status=routed owner=6-6-the-browser-matrix-and-the-feel-ritual-on-both-paths by=merge_gate note=Epic 2 decision sheet 2026-09-28: narrow Story 1.1's expect([1000, 480]).toContain(TICK_HZ) to 1000, the value the author ratified (DW-2). Owned by 6.6 because its macOS legs are the only thing that can re-open TICK_HZ; a trivial two-way door that Epic 3's X.0 may pull forward
+
+### DW-278: Playfield scoring was never built: pop bumpers, slingshots, the Spinner and a completed DRAGON bank score nothing, so the scoring halves of FR-26, FR-28 and FR-31 are undelivered
+- source: epic-2-retro-2026-09-28.md | severity: high | fix-risk: med | footprint: out-of-footprint
+- evidence: the only score writes are ball-controller.ts:1130 (bonus) and skill-shot.ts:202 (skill shot); spinner_spin, bank_completed and dragon_hit are unread outside sim/rules/devices; pops and slings emit no rules event; a browser playthrough scored 0 in 4 balls
+- 2026-09-29T10:12:36Z status=routed owner=3-0a-playfield-scoring by=retro note=author decision at the Epic 2 retrospective: a new story at the head of Epic 3
+
+### DW-279: The shot map is never drawn: the exported model holds 18 meshes (15 inserts, vis_playfield, vis_backbox, vis_spinner_l), so no wall, Loop, Ramp, Dragon, target, bumper, slingshot, flipper or plunger is visible to a player
+- source: epic-2-retro-2026-09-28.md | severity: high | fix-risk: med | footprint: out-of-footprint
+- evidence: public/assets/dragonwar.glb node list; test/shot-map-legibility.test.ts:18-19; browser screenshots 2026-09-28
+- 2026-09-29T10:12:36Z status=routed owner=5-0a-visible-placeholder-geometry by=retro note=author decision: a placeholder-geometry story at the head of Epic 5; its visible flipper and plunger half overlaps DW-249 (5.4)
+
+### DW-280: tick is never reset at game start, against AD-3: since Story 2.13 made a second game possible, it inherits game 1's tick and rng and cannot be replayed or hashed standalone
+- source: epic-2-retro-2026-09-28.md | severity: high | fix-risk: med | footprint: out-of-footprint
+- evidence: AD-3 says tick (uint32, reset at game start); loop/index.ts:282 sets it once and :425 only increments it; ball-controller.ts:922-941 Start builds a fresh GameState without touching the clock
+- 2026-09-29T10:12:37Z status=routed owner=3-7-quick-multiball-fight-the-monster by=retro note=author decision: fix the loop, so each Start begins a fresh game at tick 0 with a fresh GameStart; 3.7 already owns replay coverage (DW-175, DW-185)
+
+### DW-281: Ball search under Tilt serves a replacement ball instead of ending the tilted ball: only the non-parking stage carries the tilt guard, not the trough stage, and recover emits ball_missing without ball_ended
+- source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: ball-search.ts:119-134 guardFor gives kind tilt only to non-parking devices; :253; FR-15 says every tilted ball drains
+- 2026-09-29T10:12:37Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=retro note=found by the Epic 2 retrospective's cross-story review; 3.2 owns ball search's Lock stages
+
+### DW-282: A playfield closure between ball search's trough stage and its recover stage cancels the pass after it has served, leaving a second ball in the lane with no multiball
+- source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: ball-search.ts:286-288 observe() re-origins the pass on any closure; plausible, physics timing not measured
+- 2026-09-29T10:12:37Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=retro note=verify with a replay before fixing
+
+### DW-283: DRAGON letters accumulate duplicates: each bank_target_down appends its letter with no de-duplication, so a reset bank yields DRD and the string grows in hashed state
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: ball-controller.ts:894-906 letters: player.letters + lettersDelta
+- 2026-09-29T10:12:37Z status=routed owner=3-0a-playfield-scoring by=retro note=the scoring story is the first reader of letters (the DRAGON award)
+
+### DW-284: Tilt spacing and settle marks are machine-wide while tilt warnings are per player, so player 2's nudge inside player 1's window is swallowed
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: med | footprint: out-of-footprint
+- evidence: tilt.ts:84-85,162-206
+- 2026-09-29T10:12:37Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=with the tilt-window origins the author ratified (DW-240)
+
+### DW-285: A Slam leaves the previous ball's bonus count-up emitting bonus_count_step in Attract
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: tilt.ts:141-150's Slam path does not clear pendingBonusCountSteps (ball-controller.ts:779-785)
+- 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=with the bonus count-down rework (DW-236, DW-237)
+
+### DW-286: bonusCountTicks is not clamped to at least one tick like its three neighbours, so bonusCountMs 0 never renders the count
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: ball-controller.ts:425
+- 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=a trivial clamp; with the bonus rework
+
+### DW-287: Nothing enforces that the bonus count fits inside the Backglass end-of-ball hold, and the hold reads only the first step event per frame
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: frame.ts:219,431; the timing rule lives only in tuning.ts prose
+- 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=with the bonus count-down rework
+
+### DW-288: Loops can never emit _broken, yet Story 2.4's and Story 3.6's criteria depend on a Loop being started and broken
+- source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: low | footprint: out-of-footprint
+- evidence: shots.ts:60-71; by design in spec-2-4-the-devices-and-shots-layer.md:234; the epics.md criteria were never amended
+- 2026-09-29T10:12:38Z status=routed owner=3-6-joust-the-charge by=retro note=decide at 3.6's spec gate: build _broken, or amend both criteria
+
+### DW-289: The bonusCountMs provenance note quotes PRD FR-20 as saying categories count up, but the PRD says the bonus counts down and the quoted phrase exists nowhere: a false quotation inside a hashed provenance string
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: med | footprint: out-of-footprint
+- evidence: tuning.ts:684-686; prd.md:173-174
+- 2026-09-29T10:12:38Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=retro note=fix with the DW-236 count-down rework, which re-records golden headers anyway
+
+### DW-290: ball-controller.ts became a god-module: it grew from 43 to 1,316 lines over 8 stories, and its inner step() spans 555 lines handling Start, drain, letters, ball save, bonus, ball search, the stray clear, game over and Match
+- source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: swc AST metrics at the Epic 2 retrospective; createBallController spans 903 lines
+- 2026-09-29T10:12:39Z status=routed owner=3-1-the-mode-stack by=retro note=split before Epic 3's modes add to it
+
+### DW-291: AD-7's closure-state inventory is stale: gameOverSequence, pendingStrayClear, ball search's pass, heldSince and wasInPlay, drop-bank's completed and gameLaneStart are unlisted
+- source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
+- evidence: ball-controller.ts:606,619; ball-search.ts:229-231; drop-bank.ts:64; skill-shot.ts:136; spine AD-7
+- 2026-09-29T10:12:39Z status=routed owner=3-1-the-mode-stack by=retro note=refresh the inventory when the mode stack is restructured
