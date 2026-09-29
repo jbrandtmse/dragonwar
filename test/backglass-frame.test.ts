@@ -21,7 +21,7 @@ import {
 } from '../src/presentation/backglass/frame';
 import { rasterise } from '../src/presentation/backglass/raster';
 import { FONT_5X7, GLYPH_H } from '../src/presentation/backglass/font';
-import { TICK_HZ } from '../src/sim/contracts/time';
+import { MAX_OWED_TICKS, TICK_HZ } from '../src/sim/contracts/time';
 import { close, open, runRulesScript } from './util/switch-script';
 import { BASE_GAME_STATE, buildPlayer, buildSnapshot } from './util/snapshot-factory';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -1107,6 +1107,14 @@ describe('AC 8 (Story 2.10) / Story 3.0 AC 1 -- the end-of-ball BONUS row counts
 			const view = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 50, game }), events: [ended] }));
 			expect(ballEndedLines(view), `tilted: ${String(tilted)}`).toEqual({ score: '4,321', bonus: undefined });
 		}
+		// Code review (verification-gap, Rule 19): both passes above carry
+		// `total: 0`, so the zero-total conjunct alone decides them and the
+		// `tilted` conjunct is never the discriminator. A tilted payload with
+		// a nonzero `total` (the sim forces 0, so this is the defensive case)
+		// isolates it: the flag alone must suppress the count.
+		const tiltedWithTotal = { type: 'ball_ended' as const, player: 0, bonusByCategory: { letters: 3, loops: 0, strikes: 0 }, multiplier: 1, total: 15_000, tilted: true, tick: 50 };
+		const tiltedView = advanceBackglass(INITIAL_BACKGLASS_VIEW, frameOutput({ snapshot: buildSnapshot({ tick: 50, game }), events: [tiltedWithTotal] }));
+		expect(ballEndedLines(tiltedView), 'tilted with a nonzero total: still no BONUS row, score unchanged').toEqual({ score: '4,321', bonus: undefined });
 	});
 });
 
@@ -1157,6 +1165,23 @@ describe('Story 3.0 AC 6 (DW-287) -- every bonus_count_step in one FrameOutput i
 		}
 		const counting = advanceBackglass(advanceBackglass(INITIAL_BACKGLASS_VIEW, at(100, [ended])), at(150, [step(1, 20_000, 150)]));
 		expect(ballEndedLines(counting), 'control: the same step into a counting hold is shown').toEqual({ score: '130,000', bonus: 'BONUS 20,000' });
+	});
+
+	// Code review (blind-hunter): the I/O row "Last ball (game over)" was
+	// pinned on the rules side only (`test/rules-bonus.test.ts`: the steps
+	// emit in game_over). This is its Backglass half: the last ball's drain
+	// moves the phase to game_over on the same tick, and the hold must still
+	// fold the count down to BONUS 0 and the final score from those snapshots.
+	it('the I/O row "Last ball (game over)": with game_over snapshots the hold still counts down to BONUS 0 and the final score', () => {
+		const overGame: GameState = { ...game, phase: 'game_over' };
+		const atOver = (tick: number, events: FrameOutput['events']): FrameOutput => frameOutput({ snapshot: buildSnapshot({ tick, game: overGame }), events });
+		const armed = advanceBackglass(INITIAL_BACKGLASS_VIEW, atOver(100, [ended]));
+		expect(armed.screen, 'the last ball arms its hold in game_over').toBe('ball_ended');
+		const stepped = advanceBackglass(armed, atOver(150, [step(1, 20_000, 150)]));
+		expect(ballEndedLines(stepped)).toEqual({ score: '130,000', bonus: 'BONUS 20,000' });
+		const done = advanceBackglass(stepped, atOver(200, [step(2, 0, 200)]));
+		expect(done.screen).toBe('ball_ended');
+		expect(ballEndedLines(done), 'the count completes inside the hold').toEqual({ score: '150,000', bonus: 'BONUS 0' });
 	});
 });
 
@@ -1217,17 +1242,53 @@ describe('Story 3.0 AC 5 (DW-287) -- the count-down always fits inside the ball_
 	const PRODUCTION_TUNING = resolveTuning();
 	const ticksAt = (ms: number): number => resolveTuning({ ...RAW_TUNING, bonusCountMs: { ...RAW_TUNING.bonusCountMs, value: ms } }).bonusCountTicks.value;
 
-	it('at bonusCountMs = BONUS_COUNT_MAX_MS, BONUS_CATEGORIES.length steps end strictly inside BALL_ENDED_HOLD_TICKS', () => {
-		expect(BONUS_CATEGORIES.length * ticksAt(BONUS_COUNT_MAX_MS)).toBeLessThan(BALL_ENDED_HOLD_TICKS);
+	// Code review (Story 3.0, lead observation (b)): "fits" means the last
+	// step is DRAWN, not merely emitted before the release. One FrameOutput
+	// carries up to MAX_OWED_TICKS owed ticks and the hold branch folds a
+	// frame only while its snapshot tick is inside the hold, so the last step
+	// must land at least one frame cap before the release. Without that
+	// margin (the first derivation, 999 ms: 3 x 999 = 2997), a batched frame
+	// carrying the last step could arrive after the release and BONUS 0 and
+	// the final score were never shown.
+	it('at bonusCountMs = BONUS_COUNT_MAX_MS, BONUS_CATEGORIES.length steps plus one MAX_OWED_TICKS frame end strictly inside BALL_ENDED_HOLD_TICKS', () => {
+		expect(BONUS_CATEGORIES.length * ticksAt(BONUS_COUNT_MAX_MS) + MAX_OWED_TICKS).toBeLessThan(BALL_ENDED_HOLD_TICKS);
 	});
 
 	it('and BONUS_COUNT_MAX_MS is the LARGEST such whole ms: one more would not fit (so it is derived, not merely safe)', () => {
 		const ticksOneMore = Math.round(((BONUS_COUNT_MAX_MS + 1) * TICK_HZ) / 1000);
-		expect(BONUS_CATEGORIES.length * ticksOneMore).toBeGreaterThanOrEqual(BALL_ENDED_HOLD_TICKS);
+		expect(BONUS_CATEGORIES.length * ticksOneMore + MAX_OWED_TICKS).toBeGreaterThanOrEqual(BALL_ENDED_HOLD_TICKS);
 	});
 
 	it('the shipped pace fits too', () => {
-		expect(BONUS_CATEGORIES.length * PRODUCTION_TUNING.bonusCountTicks.value).toBeLessThan(BALL_ENDED_HOLD_TICKS);
+		expect(BONUS_CATEGORIES.length * PRODUCTION_TUNING.bonusCountTicks.value + MAX_OWED_TICKS).toBeLessThan(BALL_ENDED_HOLD_TICKS);
+	});
+
+	// Story 3.0 QA (AC 5, the ceiling's boundary). The two tests above check
+	// the whole-ms points MAX and MAX + 1 only, but the dev panel accepts any
+	// number and `resolveTuning()` rounds ms to ticks: 933.5 ms rounds to 934
+	// ticks, and 3 x 934 + 200 = 3002 does not fit. The property the ceiling exists
+	// for is "every pace `resolveTuning()` ADMITS fits the hold", so sweep
+	// the neighbourhood in 0.1 ms steps, reading the ticks the ball controller
+	// actually derives. Both sides are pinned: some paces must resolve (MAX
+	// itself) and some must be rejected, or the sweep proves nothing.
+	it('every bonusCountMs resolveTuning() ADMITS near the ceiling, fractional ms included, fits the hold; everything past the ceiling is rejected', () => {
+		const admitted: number[] = [];
+		const rejected: number[] = [];
+		for (let tenths = (BONUS_COUNT_MAX_MS - 2) * 10; tenths <= (BONUS_COUNT_MAX_MS + 2) * 10; tenths++) {
+			const ms = tenths / 10;
+			let ticks: number;
+			try {
+				ticks = ticksAt(ms);
+			} catch {
+				rejected.push(ms);
+				continue;
+			}
+			admitted.push(ms);
+			expect(BONUS_CATEGORIES.length * ticks + MAX_OWED_TICKS, `bonusCountMs ${ms} resolves to ${ticks} ticks, so its worst-case count must end at least one frame cap inside the hold`).toBeLessThan(BALL_ENDED_HOLD_TICKS);
+		}
+		expect(admitted, 'the ceiling itself is admitted').toContain(BONUS_COUNT_MAX_MS);
+		expect(rejected, 'the first fractional step past the ceiling is rejected').toContain(BONUS_COUNT_MAX_MS + 0.5);
+		expect(Math.max(...admitted), 'nothing past the ceiling is admitted').toBe(BONUS_COUNT_MAX_MS);
 	});
 
 	// Story 2.13, AC 12 -- kept from Story 2.10's coupling block. Code review

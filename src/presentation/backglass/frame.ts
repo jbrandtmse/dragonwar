@@ -268,7 +268,9 @@ const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
  * inside it. The count has at most `BONUS_CATEGORIES.length` (3) steps, and
  * `resolveTuning()` rejects any `bonusCountMs` above `BONUS_COUNT_MAX_MS`
  * (`sim/table/tuning.ts`), the largest pace whose 3 steps still end before
- * this hold does. `sim/` cannot import this constant (AD-1), so
+ * this hold does with one frame cap (`MAX_OWED_TICKS`) to spare, so the
+ * frame carrying the last step is always folded inside the hold and BONUS 0
+ * is drawn. `sim/` cannot import this constant (AD-1), so
  * `test/backglass-frame.test.ts` pins the ceiling against it symbol to
  * symbol: retuning either side past the other is a red test rather than a
  * silently truncated count.

@@ -1831,8 +1831,8 @@ So that the Epic 2 defects the author has already decided, and that no later Epi
 **Then** it quotes FR-20 accurately (the bonus counts down) and no longer attributes to the PRD a phrase the PRD does not contain (DW-289)
 
 **Given** a Hot-seat game
-**When** the next player nudges within the spacing or settle window that the previous player's nudge opened
-**Then** the nudge is judged against that player's own marks, never the previous player's, and a switch-script test pins it (DW-284; the tilt-window origins ratified at DW-240 are unchanged)
+**When** the next player nudges after the spacing window of the last bob closure but inside the settle window that the previous player's counted warning opened
+**Then** the nudge is judged against that player's own settle mark, never the previous player's, while the spacing window stays one machine-wide physical debounce -- a closure inside it is ignored whoever is up (AD-2 as ratified at DW-240: spacing runs from the last bob closure of any kind; FR-14's continued swing) -- and a switch-script test pins both (DW-284) [AMENDED 2026-09-29, Story 3.0 code review -- the runner's insertion wording made the spacing mark per player too, which contradicts AD-2's ratified DW-240 origin and FR-14; the reviewer raised it as a Rule 6 HIGH. Narrowed to conform to the AD: only the settle mark is per player. DW-284's own routing note already asked for the fix "with the tilt-window origins the author ratified".]
 
 **Given** a ball that drains without closing a playfield switch and is saved by ball save
 **When** it is re-launched automatically

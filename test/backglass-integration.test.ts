@@ -29,8 +29,9 @@ import { FONT_5X7 } from '../src/presentation/backglass/font';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { close, runRulesScript } from './util/switch-script';
-import { buildSnapshot } from './util/snapshot-factory';
-import type { CoilName, FrameOutput, GameStart } from '../src/sim/table/names';
+import { BASE_GAME_STATE, buildPlayer, buildSnapshot } from './util/snapshot-factory';
+import { MAX_OWED_TICKS } from '../src/sim/contracts/time';
+import type { CoilName, FrameOutput, GameStart, GameState } from '../src/sim/table/names';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -367,4 +368,183 @@ describe('Story 2.11, task 12 (AC 9) -- a real createLoop folds a tilted ball\'s
 		expect(sawTiltRow, 'a second real burst past the spacing window must tilt the machine and show the TILT row').toBe(true);
 		expect(out.snapshot.game.machine.tilt.tilted, 'sanity: the machine must genuinely be tilted').toBe(true);
 	}, 30000);
+});
+
+// Story 3.0 QA (AC 1, AC 4, AC 6, AC 10). The AC 10 test above counts a
+// two-step, x1 bonus and folds one tick per FrameOutput. These tests close
+// the gaps it leaves, all through a real createRules() (inside
+// runRulesScript) and the same advanceBackglass()/renderFrame()/rasterise()
+// calls src/host/boot.ts's onFrame body makes:
+// - a THREE-step count (every category) with a multiplier the player EARNS
+//   on real Top-lane switches, so each step pays `category value x
+//   multiplier` into the rendered score line;
+// - the real loop's batching: sim/loop/index.ts's advance() hands one
+//   FrameOutput per rendered frame, carrying every owed tick's events in
+//   order and the LAST tick's snapshot (up to MAX_OWED_TICKS). foldFrames()
+//   below reproduces exactly that shape from the per-tick run.
+describe('Story 3.0 QA -- a real createRules() run folded like the real loop: three steps at an earned multiplier, and batched frames', () => {
+	interface Shown {
+		readonly tick: number;
+		readonly player: string | undefined;
+		readonly score: string | undefined;
+		readonly bonus: string | undefined;
+		readonly dots: string;
+	}
+
+	const commas = (value: number): string => value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+	const parseScore = (text: string | undefined): number => Number((text ?? '').replace(/,/g, ''));
+
+	/**
+	 * Folds `result` through the Backglass in frames of `frameTicks` ticks,
+	 * each FrameOutput carrying every tick's events in tick order and the
+	 * snapshot of its LAST tick (sim/loop/index.ts advance()'s own shape).
+	 * Returns every DISTINCT end-of-ball screen state, rasterised to lit dots
+	 * so the change is observed on the DMD itself, not only in row text.
+	 */
+	function foldFrames(result: ReturnType<typeof runRulesScript>, durationTicks: number, frameTicks: number): Shown[] {
+		let view = INITIAL_BACKGLASS_VIEW;
+		const shown: Shown[] = [];
+		for (let start = 1; start <= durationTicks; start += frameTicks) {
+			const end = Math.min(durationTicks, start + frameTicks - 1);
+			const output: FrameOutput = {
+				snapshot: buildSnapshot({ tick: end, game: result.statesByTick.get(end)! }),
+				events: result.events.filter((e) => e.tick >= start && e.tick <= end),
+				contactEvents: [],
+				commands: [],
+			};
+			view = advanceBackglass(view, output);
+			const frame = renderFrame(view, output.snapshot);
+			if (frame.screen !== 'ball_ended') {
+				continue;
+			}
+			const entry: Shown = {
+				tick: end,
+				player: frame.rows[0]?.text,
+				score: frame.rows[1]?.text,
+				bonus: frame.rows.find((r) => r.text.startsWith('BONUS '))?.text,
+				dots: rasterise(frame, FONT_5X7).dots.join(''),
+			};
+			const last = shown[shown.length - 1];
+			if (!last || last.score !== entry.score || last.bonus !== entry.bonus || last.player !== entry.player) {
+				shown.push(entry);
+			}
+		}
+		return shown;
+	}
+
+	/** Hot seat, player 2 (index 1) up, base mode only, 1 strike seeded (nothing credits a strike before Story 3.9's Strikes; the arithmetic still counts it). */
+	function midGame(preScore: number): GameState {
+		const strikeSeeded = buildPlayer({ score: preScore, ballNumber: 1, bonus: { byCategory: { letters: 0, loops: 0, strikes: 1 }, multiplier: 1 } });
+		return {
+			...BASE_GAME_STATE,
+			phase: 'game',
+			machine: { ...BASE_GAME_STATE.machine, ballsInPlay: 1, deviceSlots: { bd_trough: [true, true, true, false], bd_shooter: [false], bd_lock: [false, false, false] } },
+			players: [buildPlayer({ score: 500, ballNumber: 1 }), strikeSeeded],
+			currentPlayer: 1,
+			modes: [{ mode: 'base', priority: 100, player: 1 }],
+		};
+	}
+
+	/** The real switch script: one Top-lane set (x2, EARNED), D/R/A (3 letters), one Left Loop, then the trough drain. */
+	function earnedBonusScript(drainTick: number) {
+		return close('s_top_1').at(3).close('s_top_2').at(4).close('s_top_3').at(5)
+			.close(TABLE.dropBankWiring.d.switch).at(10)
+			.close(TABLE.dropBankWiring.r.switch).at(11)
+			.close(TABLE.dropBankWiring.a.switch).at(12)
+			.close('s_loop_l_in').at(20)
+			.close('s_loop_l_out').at(30)
+			.close('s_trough_1').at(drainTick)
+			.build();
+	}
+
+	function tuningAtPace(bonusCountMs: number) {
+		return resolveTuning({ ...RAW_TUNING, ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 }, ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 }, bonusCountMs: { ...RAW_TUNING.bonusCountMs, value: bonusCountMs } });
+	}
+
+	it('three steps at an earned x2: BONUS 100,000 -> 70,000 -> 50,000 -> 0 on the DMD, the score line paying 30,000 / 20,000 / 50,000 (each category x the multiplier) into the final score', () => {
+		const drainTick = 60;
+		const bonusCountTicks = NO_BALL_SAVE_TUNING.bonusCountTicks.value;
+		const durationTicks = drainTick + bonusCountTicks * 3 + 50;
+		const result = runRulesScript(earnedBonusScript(drainTick), { durationTicks, initialState: midGame(1234), tuning: NO_BALL_SAVE_TUNING });
+
+		expect(result.statesByTick.get(drainTick - 1)!.players[1]!.bonus, 'sanity: 3 letters and 1 loop credited by real switches, x2 EARNED on the Top lanes, the seeded strike kept').toEqual({ byCategory: { letters: 3, loops: 1, strikes: 1 }, multiplier: 2 });
+		const ended = result.events.find((e) => e.type === 'ball_ended');
+		expect(ended && ended.type === 'ball_ended' ? [ended.tick, ended.player, ended.total] : undefined, 'sanity: (3 x 5,000 + 10,000 + 25,000) x 2, paid by player 2 at the drain').toEqual([drainTick, 1, 100_000]);
+		const pre = result.statesByTick.get(drainTick - 1)!.players[1]!.score;
+		const final = result.statesByTick.get(drainTick)!.players[1]!.score;
+		expect(final, 'sanity: the sim pays the whole bonus on the drain tick').toBe(pre + 100_000);
+
+		const shown = foldFrames(result, durationTicks, 1);
+		expect(shown.map(({ tick, player, score, bonus }) => ({ tick, player, score, bonus }))).toEqual([
+			{ tick: drainTick, player: 'PLAYER 2', score: commas(pre), bonus: 'BONUS 100,000' },
+			{ tick: drainTick + bonusCountTicks, player: 'PLAYER 2', score: commas(pre + 30_000), bonus: 'BONUS 70,000' },
+			{ tick: drainTick + bonusCountTicks * 2, player: 'PLAYER 2', score: commas(pre + 50_000), bonus: 'BONUS 50,000' },
+			{ tick: drainTick + bonusCountTicks * 3, player: 'PLAYER 2', score: commas(final), bonus: 'BONUS 0' },
+		]);
+
+		// Read back from the RENDERED rows, not from this test's own arithmetic:
+		// the score line strictly rises, each rise is exactly what that step's
+		// BONUS row fell by, and the two always sum to the final score.
+		const scores = shown.map((s) => parseScore(s.score));
+		const bonuses = shown.map((s) => parseScore(s.bonus?.slice('BONUS '.length)));
+		for (let i = 1; i < shown.length; i++) {
+			expect(scores[i]!, `step ${i}: the rendered score line strictly rises`).toBeGreaterThan(scores[i - 1]!);
+			expect(scores[i]! - scores[i - 1]!, `step ${i}: the score line rises by exactly what BONUS fell by`).toBe(bonuses[i - 1]! - bonuses[i]!);
+		}
+		for (const [i, s] of shown.entries()) {
+			expect(scores[i]! + bonuses[i]!, `frame ${s.tick}: score line + BONUS is always the final score`).toBe(final);
+		}
+		// Each state reaches the DMD itself: every consecutive pair of rasters differs.
+		for (let i = 1; i < shown.length; i++) {
+			expect(shown[i]!.dots, `step ${i}: the rasterised DMD changes`).not.toBe(shown[i - 1]!.dots);
+		}
+	});
+
+	it('batched like the real loop (17-tick frames, about 60 Hz, and MAX_OWED_TICKS stalls) at the production pace: the SAME screen states, in the same order, ending on BONUS 0 and the final score', () => {
+		const drainTick = 60;
+		const bonusCountTicks = NO_BALL_SAVE_TUNING.bonusCountTicks.value;
+		const durationTicks = drainTick + bonusCountTicks * 3 + 50;
+		const result = runRulesScript(earnedBonusScript(drainTick), { durationTicks, initialState: midGame(1234), tuning: NO_BALL_SAVE_TUNING });
+		const final = result.statesByTick.get(drainTick)!.players[1]!.score;
+
+		const perTick = foldFrames(result, durationTicks, 1).map(({ score, bonus }) => ({ score, bonus }));
+		expect(perTick, 'sanity: the per-tick fold shows the four count states').toHaveLength(4);
+		for (const frameTicks of [17, MAX_OWED_TICKS]) {
+			const batched = foldFrames(result, durationTicks, frameTicks);
+			expect(batched.map(({ score, bonus }) => ({ score, bonus })), `${frameTicks}-tick frames`).toEqual(perTick);
+			expect(batched[batched.length - 1]!.score, `${frameTicks}-tick frames end on the final score`).toBe(commas(final));
+		}
+	});
+
+	it('AC 4 through the real rules: at bonusCountMs 0 the whole count shares the drain\'s own frame, and that ARMING frame already shows BONUS 0 and the final score', () => {
+		const drainTick = 60;
+		const durationTicks = drainTick + 40;
+		const result = runRulesScript(earnedBonusScript(drainTick), { durationTicks, initialState: midGame(1234), tuning: tuningAtPace(0) });
+		const steps = result.events.filter((e) => e.type === 'bonus_count_step');
+		expect(steps.map((e) => e.tick), 'sanity: the clamp puts the three steps one tick apart, right after the drain').toEqual([drainTick + 1, drainTick + 2, drainTick + 3]);
+		const final = result.statesByTick.get(drainTick)!.players[1]!.score;
+
+		// Frames of 17 from tick 1: ticks 52..68 form one frame, holding the
+		// drain (60) and all three steps (61..63) -- the arming branch's fold.
+		const shown = foldFrames(result, durationTicks, 17);
+		expect(shown[0]!.tick, 'sanity: the arming frame holds the drain and every step').toBe(68);
+		expect(shown.map(({ score, bonus }) => ({ score, bonus })), 'one screen state only: the arming frame is already at the end of the count').toEqual([{ score: commas(final), bonus: 'BONUS 0' }]);
+	});
+
+	it('AC 6 through the real rules: a frame carrying ONLY the three steps (the drain ended the previous frame) shows the LAST one -- BONUS 0 and the final score; the one-tick-per-frame fold is the control', () => {
+		const drainTick = 51; // frames of 17 from tick 1: 35..51, then 52..68
+		const durationTicks = drainTick + 40;
+		const result = runRulesScript(earnedBonusScript(drainTick), { durationTicks, initialState: midGame(1234), tuning: tuningAtPace(0) });
+		const pre = result.statesByTick.get(drainTick - 1)!.players[1]!.score;
+		const final = result.statesByTick.get(drainTick)!.players[1]!.score;
+
+		const batched = foldFrames(result, durationTicks, 17);
+		expect(batched.map(({ tick, score, bonus }) => ({ tick, score, bonus }))).toEqual([
+			{ tick: drainTick, score: commas(pre), bonus: 'BONUS 100,000' },
+			{ tick: drainTick + 17, score: commas(final), bonus: 'BONUS 0' },
+		]);
+
+		const control = foldFrames(result, durationTicks, 1);
+		expect(control.map(({ bonus }) => bonus), 'control: one tick per frame shows every step in turn').toEqual(['BONUS 100,000', 'BONUS 70,000', 'BONUS 50,000', 'BONUS 0']);
+	});
 });

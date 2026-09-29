@@ -689,7 +689,7 @@ export const TUNING = deepFreeze({
 	 */
 	bonusCountMs: entry(
 		400,
-		'authored: PRD FR-20 states the mechanism ("the Backglass counts the bonus down") but no pace for it. Constrained, not guessed: the count-down emits one step per nonzero bonus category, so at most BONUS_CATEGORIES.length (3) steps: 3 steps x 400 ms = 1200 ms < 3000 ms, the Backglass\'s ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts), which never waits for the count. resolveTuning() rejects any value above BONUS_COUNT_MAX_MS (999 ms, the largest whole ms whose 3 steps still end inside that hold) -- adjustable within that ceiling until Epic 3\'s playtest freeze (Story 3.11)',
+		'authored: PRD FR-20 states the mechanism ("the Backglass counts the bonus down") but no pace for it. Constrained, not guessed: the count-down emits one step per nonzero bonus category, so at most BONUS_CATEGORIES.length (3) steps: 3 steps x 400 ms = 1200 ms < 3000 ms, the Backglass\'s ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts), which never waits for the count. resolveTuning() rejects any value above BONUS_COUNT_MAX_MS (933 ms, the largest whole ms whose 3 steps still end inside that hold with one 200 ms frame cap, MAX_OWED_TICKS, to spare, so the last step is always drawn) -- adjustable within that ceiling until Epic 3\'s playtest freeze (Story 3.11)',
 		'unverified',
 	),
 
@@ -757,7 +757,7 @@ export const TUNING = deepFreeze({
 	 */
 	matchDelayMs: entry(
 		5000,
-		"authored: AD-3 names the game-over scores and the Match reveal as display-paced sequences (reconcile-prd S-8); no artifact states a duration. It must exceed the Backglass's 3000 ms ball_ended hold, so the last ball's end-of-ball screen and bonus count-up are never cut and the final scores show for 2 s before the Match",
+		"authored: AD-3 names the game-over scores and the Match reveal as display-paced sequences (reconcile-prd S-8); no artifact states a duration. It must exceed the Backglass's 3000 ms ball_ended hold, so the last ball's end-of-ball screen and bonus count-down are never cut and the final scores show for 2 s before the Match",
 		'unverified',
 	),
 	matchRevealMs: entry(
@@ -796,16 +796,24 @@ export type ResolvedTuning = typeof TUNING &
  * shown as a dev-panel row.
  *
  * Derived, not chosen: the largest whole number of ms `v` for which
- * `BONUS_CATEGORIES.length x ticks(v) < BALL_ENDED_HOLD_TICKS`, i.e. the
- * longest pace at which a worst-case count-down (one step per category)
- * still ends before the Backglass releases its end-of-ball screen, which
- * never waits for the count. At 1000 Hz with 3 categories and a 3000-tick
- * hold that is 999 (3 x 999 = 2997 < 3000; 3 x 1000 = 3000 is not). Neither
- * operand is importable here (AD-1: `sim/table` never imports `sim/rules`
- * or `presentation`), so `test/backglass-frame.test.ts` pins this value
- * against both symbols directly, in both directions.
+ * `BONUS_CATEGORIES.length x ticks(v) + MAX_OWED_TICKS < BALL_ENDED_HOLD_TICKS`,
+ * i.e. the longest pace at which a worst-case count-down (one step per
+ * category) still ends before the Backglass releases its end-of-ball
+ * screen, which never waits for the count, with one whole frame cap
+ * (`MAX_OWED_TICKS`, `sim/contracts/time.ts`) to spare. The margin is what
+ * makes the last step DRAWN, not merely emitted: one `FrameOutput` carries
+ * up to `MAX_OWED_TICKS` owed ticks, and the hold branch folds a frame only
+ * while its snapshot tick is still inside the hold, so a last step landing
+ * closer than one frame cap to the release can ride a frame that arrives
+ * after it, and BONUS 0 and the final score are never shown (Story 3.0 code
+ * review, lead observation (b)). At 1000 Hz with 3 categories, a 200-tick
+ * cap and a 3000-tick hold that is 933 (3 x 933 + 200 = 2999 < 3000;
+ * 3 x 934 + 200 = 3002 is not). The hold is not importable here (AD-1:
+ * `sim/table` never imports `sim/rules` or `presentation`), so
+ * `test/backglass-frame.test.ts` pins this value against all three symbols
+ * directly, in both directions.
  */
-export const BONUS_COUNT_MAX_MS = 999;
+export const BONUS_COUNT_MAX_MS = 933;
 
 function msToTicks(ms: number, label: string, tickHz: number): number {
 	if (!Number.isFinite(ms)) {

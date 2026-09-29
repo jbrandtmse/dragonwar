@@ -1886,3 +1886,10 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: ball-controller.ts:606,619; ball-search.ts:229-231; drop-bank.ts:64; skill-shot.ts:136; spine AD-7
 - 2026-09-29T10:12:39Z status=routed owner=3-1-the-mode-stack by=retro note=refresh the inventory when the mode stack is restructured
 - 2026-09-29T10:22:59Z status=routed owner=3-1-the-mode-stack by=x0 note=own -- kept (low fix-risk, but the inventory is refreshed when 3.1 restructures closure state; excluded from x0 so it is written once, after the split)
+- 2026-09-29T11:53:10Z occurrence=3-0-epic-2-deferred-cleanup
+
+### DW-292: TUNING.matchDelayMs.source (hashed into all five golden headers) still describes the end-of-ball bonus as a count-up after Story 3.0's count-down
+- source: spec-3-0-epic-2-deferred-cleanup.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: src/sim/table/tuning.ts matchDelayMs source reads '... bonus count-up are never cut ...'; a header-only golden re-record (pre-authorised) fixes it
+- 2026-09-29T11:19:52Z status=open owner=3-0-epic-2-deferred-cleanup by=harvest note=in-story LOW, two-way door: fix at code review (header-only golden re-record is pre-authorised for this epic)
+- 2026-09-29T11:52:22Z status=resolved-by:3-0-epic-2-deferred-cleanup by=cr note=matchDelayMs.source now says count-down; 5 goldens header-only re-record, JSON leaf diff: only .source leaves moved
