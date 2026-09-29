@@ -1355,6 +1355,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-07T04:48:08Z status=escalated owner=burndown by=cr note=Needs either an epics 2.6 AC 5 amendment or a narrower fix scoped to the base mode; AD-6 and AD-8 got spine amendments the same day, 2.6 AC 5 did not.
 - 2026-09-28T14:07:22Z status=routed owner=3-1-the-mode-stack by=merge_gate note=Epic 2 decision sheet 2026-09-28: AUTHOR: fix BOTH symptoms per Story 2.6 AC 5. An unlabelled mode still publishes its timerTicks/value/charge/strikesRemaining, and it never blanks a labelled lower-priority mode. Restores DW-200's decision to its intended scope
 - 2026-09-29T10:22:58Z status=routed owner=3-1-the-mode-stack by=x0 note=own -- kept: 3.1's 'Backglass shows the highest-priority ModeView' criterion fails while unlabelled modes blank labelled ones
+- 2026-09-29T16:21:20Z status=resolved-by:3-1-the-mode-stack by=adjudication note=14ff9d4 frame.ts: the Backglass shows the highest-priority mode that has a label or a published field; an unlabelled mode publishing fields shows them and never blanks a labelled lower-priority mode (author decision, Story 2.6 AC 5); QA pinned both symptoms on the rasterised DMD
 
 ### DW-207: AD-19's enumerated device-event vocabulary was not amended for the new playfield_switch_closed event, so the spine's seam contract is stale for the layer later stories plan from
 - source: spec-2-7-plunge-skill-shot-and-lane-change.md | severity: med | fix-risk: low | footprint: out-of-footprint
@@ -1376,6 +1377,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-07T04:48:32Z status=routed owner=3-1-the-mode-stack by=cr note=3.1 is chartered to generalise this stack -- the priority table, the lifecycle as the only start/stop path, and the event fan-out contract -- so it is where all four are settled.
 - 2026-09-29T10:12:39Z occurrence=epic-2-retro by=retro note=HIGH shape the entry did not describe: a Slam on the tick after ball_starting. tilt runs before the mode stack (rules/index.ts:305,329), so the Slam's enterAttract empties modes and the deferred start then pushes base and skill_shot back into Attract. A voided player scored 25,000 in Attract in the review's probe; the next Start carries duplicate modes and draws rng twice. The only test on this path never inspects modes
 - 2026-09-29T10:22:58Z status=routed owner=3-1-the-mode-stack by=x0 note=own -- kept: 3.1 generalises the stack; the Slam-into-Attract HIGH occurrence breaks its 'no mode survives' criterion
+- 2026-09-29T16:21:20Z status=resolved-by:3-1-the-mode-stack by=adjudication note=14ff9d4 modes start in the same rules.step that emits ball_starting (pendingStartPlayer removed, no arming state outside GameState); lifecycle.ts is the only start/stop path, stop phases run in place on ball end and Slam; fan-out is event-major (AD-8 amended); the Slam-after-ball_starting and Slam+Start rows pin phase, modes, lifecycle events, scores and rng draws with positives; runRulesScript now asserts every modes change is matched by lifecycle events
 
 ### DW-210: hostLoop.reset() drops the boot-derived seed, so any tuning-panel hot-apply or dev reset silently restores DW-201's fixed-seed defect
 - source: spec-2-7-plunge-skill-shot-and-lane-change.md | severity: med | fix-risk: med | footprint: in-story
@@ -1891,6 +1893,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: swc AST metrics at the Epic 2 retrospective; createBallController spans 903 lines
 - 2026-09-29T10:12:39Z status=routed owner=3-1-the-mode-stack by=retro note=split before Epic 3's modes add to it
 - 2026-09-29T10:22:58Z status=routed owner=3-1-the-mode-stack by=x0 note=own -- kept: the retro asked for the split before Epic 3 adds modes; 3.1 is where modes join the ball controller
+- 2026-09-29T16:21:20Z status=resolved-by:3-1-the-mode-stack by=adjudication note=14ff9d4 ball-controller.ts (1,340 lines) split behaviour-preserving into src/sim/rules/ball-controller/{index,start,accounting,ball-end,save-serve,serve-recovery,game-over,shared}.ts; step() ~55 lines; goldens byte-identical; QA pinned the save early return the pre-split suite never covered
 
 ### DW-291: AD-7's closure-state inventory is stale: gameOverSequence, pendingStrayClear, ball search's pass, heldSince and wasInPlay, drop-bank's completed and gameLaneStart are unlisted
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
@@ -1899,9 +1902,20 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-29T10:22:59Z status=routed owner=3-1-the-mode-stack by=x0 note=own -- kept (low fix-risk, but the inventory is refreshed when 3.1 restructures closure state; excluded from x0 so it is written once, after the split)
 - 2026-09-29T11:53:10Z occurrence=3-0-epic-2-deferred-cleanup
 - 2026-09-29T12:22:45Z occurrence=3-0-epic-2-deferred-cleanup note=after Story 3.0 rework 1 the tilt marks are: lastBobClosureTick a machine-wide scalar (spacing; updated by every closure), lastWarningTick a per-player Map cleared outside a game (settle), idleBobClosureTick removed; pendingBonusCountSteps is now the bonus COUNT-DOWN schedule
+- 2026-09-29T16:21:20Z status=resolved-by:3-1-the-mode-stack by=adjudication note=AD-7 closure inventory re-derived from the delivered code and written into the spine (ControllerState fields, tilt marks, ball search, drop bank, skill shot gameLaneStart, pendingStartPlayer removed; resume-point paragraph updated)
 
 ### DW-292: TUNING.matchDelayMs.source (hashed into all five golden headers) still describes the end-of-ball bonus as a count-up after Story 3.0's count-down
 - source: spec-3-0-epic-2-deferred-cleanup.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: src/sim/table/tuning.ts matchDelayMs source reads '... bonus count-up are never cut ...'; a header-only golden re-record (pre-authorised) fixes it
 - 2026-09-29T11:19:52Z status=open owner=3-0-epic-2-deferred-cleanup by=harvest note=in-story LOW, two-way door: fix at code review (header-only golden re-record is pre-authorised for this epic)
 - 2026-09-29T11:52:22Z status=resolved-by:3-0-epic-2-deferred-cleanup by=cr note=matchDelayMs.source now says count-down; 5 goldens header-only re-record, JSON leaf diff: only .source leaves moved
+
+### DW-293: modesPlayed is credited with every mode name at each ball end, so base and skill_shot enter players[].modesPlayed on every ball; Story 3.4 credits modesPlayed at mode_<name>_started for campaign Modes only
+- source: spec-3-1-the-mode-stack.md | severity: med | fix-risk: low | footprint: in-epic
+- evidence: src/sim/rules/ball-controller/ball-end.ts copies nextState.modes names into the ending player's modesPlayed; test/rules-lifecycle.test.ts pins it with a stub mode; Story 3.10 reads modesPlayed containing all three Modes
+- 2026-09-29T15:43:06Z status=routed owner=3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=harvest note=in-epic MED: Story 3.4 owns modesPlayed (its AC: added to modesPlayed at mode_<name>_started); remove the ball-end credit there
+
+### DW-294: lampsOf()'s machine-lamp guard (no mode may override l_lock or l_ball_save) has no pinning test: deleting !isMachineLamp() keeps the suite green, because no production lamps hook names a machine lamp
+- source: spec-3-1-the-mode-stack.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: src/sim/rules/lamps.ts:141 guards mode roles against machine lamps; baseModeLamps and skillShotLamps return only letter/lane/Top roles, so no test reaches the guard. Pinning it needs a vi.mock of ./modes in a new test file (~40 lines), past the two-way-door size.
+- 2026-09-29T16:18:49Z status=wontfix-accepted owner=3-1-the-mode-stack by=cr note=reopen_if=a ModeLampHook returns a key whose TABLE.lamps subject kind is lock or ball_save (3.2 Lock arbiter, 3.4 lit Modes)

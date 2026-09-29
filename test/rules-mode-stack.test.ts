@@ -205,6 +205,20 @@ describe('AC2 -- startModes()/stopModes(): three events per mode, ascending to s
 		expect(result.state.modes).toEqual([]);
 	});
 
+	it('stop: an onStopping hook that replaces its own entry with an updated copy -- the copy is what gets removed, and onStopped sees it gone', () => {
+		const seen: string[] = [];
+		const replacing: ModeDefinition = {
+			...probe('hurryup', seen),
+			onStopping: (state, active) => ({ ...state, modes: state.modes.map((m) => (m === active ? { ...m, timerTicks: 0 } : m)) }),
+		};
+		const state = gameState([entry('hurryup', 0, { timerTicks: 5 })]);
+		const result = stopModes(state, state.modes, 9, createModeRegistry([replacing]));
+
+		expect(types(result.events)).toEqual(triple('hurryup', 'stop'));
+		expect(result.state.modes, 'the replaced copy is removed too').toEqual([]);
+		expect(seen).toEqual(['hurryup.onStopped present=false']);
+	});
+
 	it('starting a mode already active for that player is a no-op (same state reference, no events); the same name for ANOTHER player still starts', () => {
 		const seen: string[] = [];
 		const hurryup = probe('hurryup', seen);
@@ -345,10 +359,10 @@ describe('AC3 -- two stub modes and the base mode: highest priority first, event
 		for (const definition of withLamps) {
 			expect(MODE_LAMP_ROLES[definition.name], `${definition.name}: the table entry is the definition's own hook`).toBe(definition.lamps);
 		}
-		const names: readonly string[] = production.map((definition) => definition.name);
-		for (const key of Object.keys(MODE_LAMP_ROLES)) {
-			expect(names, `MODE_LAMP_ROLES.${key} names a production definition`).toContain(key);
-		}
+		expect(
+			Object.keys(MODE_LAMP_ROLES).sort(),
+			'the table names exactly the production definitions that carry a lamps hook -- no extra key, none missing',
+		).toEqual(withLamps.map((definition) => definition.name).sort());
 	});
 
 	it('lamps: a lit Top lane is lit/2 with the skill shot on the stack (higher priority wins over base\'s lit/1); base alone gives lit/1', () => {
@@ -430,6 +444,20 @@ describe('AC4 -- a mode\'s per-tick hook runs under a higher-priority mode', () 
 		expect(log).toEqual(['tick:quickmb', 'tick:hurryup', 'hurryup']);
 		expect(result.state.modes.map((active) => active.mode)).toEqual(['hurryup']);
 		expect(result.state.players[0]!.score, 'only hurryup paid').toBe(STUB_AWARD);
+	});
+
+	it('a timer running out: the tick hook replaces its own entry (timerTicks 1 -> 0) AND returns stop: true -- the stack finds the replaced copy, stops it through the lifecycle, and it receives no device event', () => {
+		const log: string[] = [];
+		const expire: NonNullable<ModeDefinition['tick']> = (state, active) => ({
+			state: { ...state, modes: state.modes.map((m) => (m === active ? { ...m, timerTicks: 0 } : m)) },
+			stop: true,
+		});
+		const stack = createModeStack(TUNING, [stubMode('hurryup', log, { tick: expire })]);
+		const result = stack.step(gameState([entry('hurryup', 0, { timerTicks: 1 })]), [{ type: 'spinner_spin', count: 1, tick: 1 }], [], 1);
+
+		expect(types(result.events)).toEqual(triple('hurryup', 'stop'));
+		expect(result.state.modes).toEqual([]);
+		expect(log, 'stopped before the event, so it receives none').toEqual([]);
 	});
 });
 

@@ -100,17 +100,18 @@ describe('lampsOf -- Attract / no base mode: every lamp is off/0, never a player
 	//     return every lamp off/0", and the frozen I/O matrix says the same
 	//     twice ("Attract, no modes" -> every lamp off; "Active player is not
 	//     index 0" -> "If modes[] is empty, all lamps are off");
-	//   - `src/sim/rules/lamps.ts` resolves `subject.kind === 'lock'` BEFORE
-	//     the `if (!player)` guard, so an occupied bd_lock projects dragon/1
-	//     with no base mode on the stack. Its own comment argues this is
-	//     RIGHT (the Lock is machine-scoped, AD-7) -- but `## Spec Change Log`
+	//   - `src/sim/rules/lamps.ts` projects `subject.kind === 'lock'` from
+	//     `machine` alone (no mode may override a machine lamp since Story
+	//     3.1), so an occupied bd_lock projects dragon/1 with no base mode on
+	//     the stack. Its own comment argues this is RIGHT (the Lock is
+	//     machine-scoped, AD-7) -- but `## Spec Change Log`
 	//     is empty, so the deviation is undocumented.
 	// It is reachable in a real game: modes are stopped at the ball end and,
 	// since Story 3.1 (DW-209), restarted in the same tick as
 	// `ball_starting` -- but after the last ball's drain (game over, then
 	// Attract) `modes[]` stays empty, and Epic 2 has no Lock arbiter to eject
-	// a parked ball, so the slot stays true across that window. It does NOT threaten the golden/attract argument the loop leans
-	// on -- `bootDeviceSlots()` leaves bd_lock empty, and `previousLamps` is
+	// a parked ball, so the slot stays true across that window. It does NOT
+	// threaten the golden/attract argument the loop leans on --`bootDeviceSlots()` leaves bd_lock empty, and `previousLamps` is
 	// seeded from the same state either way -- but that precondition was
 	// unstated. Whether the code or the contract is wrong is the lead's call
 	// (ledgered as a decision-pending finding); this test exists so the next

@@ -133,7 +133,7 @@ export interface DeviceMechanics {
 	 * slot) and a same-tick `c_trough_eject` pulse's own eject
 	 * (`lastIndexOf(true)`, the highest filled slot) always converge on the
 	 * SAME slot the instant `recover()` parks anything, so the CLOSE edge
-	 * queued here must reach `sim/rules/ball-controller.ts`'s
+	 * queued here must reach `sim/rules/ball-controller/accounting.ts`'s
 	 * `deriveDeviceSlots()` strictly BEFORE that eject's own OPEN edge
 	 * (`commandResult.switchEvents`) -- never through `detectEntries()`
 	 * (which runs AFTER `commandResult` is assembled), which would emit
@@ -720,7 +720,7 @@ export function createDeviceMechanics(options: {
 	 * the paragraph this replaces (filed as the review's one HIGH, against
 	 * DW-257's own unfulfilled half) named a real gap: no `SwitchEvent` was
 	 * emitted here for the newly-closed slot, so `GameState.machine
-	 * .deviceSlots.bd_trough` (`rules/ball-controller.ts`'s
+	 * .deviceSlots.bd_trough` (`rules/ball-controller/accounting.ts`'s
 	 * `deriveDeviceSlots()`, driven exclusively by `device_ball_entered`/
 	 * `_left` -- `sim/loop` deliberately never re-seeds it from physics)
 	 * under-reported physics by the number of parked-but-not-yet-ejected
@@ -745,7 +745,7 @@ export function createDeviceMechanics(options: {
 	 * sibling hazard this fix's own close edge activates -- a spurious
 	 * `ball_ended` on a brand-new ball 1, since that edge is itself a
 	 * `device_ball_entered` on a parking device landing at `ballsInPlay ===
-	 * 0`) is closed in `sim/rules/ball-controller.ts`'s drain-branch guard,
+	 * 0`) is closed in `sim/rules/ball-controller/ball-end.ts`'s drain-branch guard,
 	 * not here.
 	 */
 	function recover(tick: number): number {

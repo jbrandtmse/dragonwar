@@ -223,6 +223,9 @@ const ENTRY_FILES = [
 	// end to end, but it drives no `createLoop()` and no physics, so the
 	// suffix's exemption does not apply and it is gated here explicitly.
 	path.join(__dirname, 'rules-mode-stack-integration.test.ts'),
+	// Story 3.1 QA: same reasoning -- `-integration` for the rules layers and
+	// the Backglass fold it composes, but no loop and no physics.
+	path.join(__dirname, 'rules-mode-stack-qa-integration.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

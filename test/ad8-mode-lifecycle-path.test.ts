@@ -17,6 +17,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { assertModesChangedOnlyByLifecycle } from './util/switch-script';
+import { BASE_GAME_STATE } from './util/snapshot-factory';
+import type { ModeEvent, ModeLifecyclePhase } from '../src/sim/rules/modes';
+import type { GameState } from '../src/sim/table/names';
 
 describe('AD-8 (Story 3.1): no file under src/sim/rules/** adds or removes a modes[] entry except modes/lifecycle.ts', () => {
 	const RULES_DIR = path.resolve(__dirname, '..', 'src', 'sim', 'rules');
@@ -55,5 +59,33 @@ describe('AD-8 (Story 3.1): no file under src/sim/rules/** adds or removes a mod
 		expect(count('if (modes === [] || modes == []) {'), 'a comparison is not an assignment').toBe(0);
 		expect(count('const modes = state.modes.map((mode) => (mode === entry ? { ...mode, launched: true } : mode));'), 'a mode updating its own entry').toBe(0);
 		expect(count('const active = state.modes.find((mode) => mode.mode === name);'), 'a read').toBe(0);
+	});
+});
+
+// The line scan above cannot see a destructured write-back, a helper, or a
+// write split across lines. The behavioural half of AC2 is the invariant
+// `runRulesScript()` checks on every tick of every test that drives it
+// (`assertModesChangedOnlyByLifecycle()`, `test/util/switch-script.ts`).
+// These rows are its own controls.
+describe('AD-8 (Story 3.1): runRulesScript() rejects any tick whose modes[] change is not explained by lifecycle events', () => {
+	const hurryup = { mode: 'hurryup', priority: 300, player: 0 };
+	const withModes = (modes: GameState['modes']): GameState => ({ ...BASE_GAME_STATE, modes });
+	const event = (phase: ModeLifecyclePhase, mode = 'hurryup', player = 0): ModeEvent => ({ type: `mode_${mode}_${phase}`, mode, player, tick: 1 });
+	const stopTriple = [event('will_stop'), event('stopping'), event('stopped')];
+	const startTriple = [event('will_start'), event('starting'), event('started')];
+
+	it('a removal with no stop triple throws, and so does an add with no start triple', () => {
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([]), [], 1)).toThrow(/hurryup\/p0 removed x1/);
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([]), withModes([hurryup]), [], 1)).toThrow(/hurryup\/p0 added x1/);
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([]), [event('will_stop'), event('stopping')], 1), 'no _stopped').toThrow();
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([]), [event('will_stop', 'hurryup', 1), event('stopping', 'hurryup', 1), event('stopped', 'hurryup', 1)], 1), 'another player\'s stop').toThrow();
+	});
+
+	it('control: the lifecycle\'s own add and removal, a field update, and no change all pass', () => {
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([]), stopTriple, 1)).not.toThrow();
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([]), withModes([hurryup]), startTriple, 1)).not.toThrow();
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([hurryup]), [...stopTriple, ...startTriple], 1), 'a same-tick stop and restart').not.toThrow();
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([{ ...hurryup, timerTicks: 5 }]), [], 1), 'a field update').not.toThrow();
+		expect(() => assertModesChangedOnlyByLifecycle(withModes([hurryup]), withModes([hurryup]), [{ type: 'lanes_completed', set: 'top', tick: 1 }], 1)).not.toThrow();
 	});
 });

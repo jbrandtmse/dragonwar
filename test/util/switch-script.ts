@@ -229,6 +229,45 @@ const DEFAULT_INITIAL_STATE: GameState = {
 };
 
 /**
+ * Story 3.1 code review (AD-8, AC2): every change to `modes[]` across one
+ * `rules.step()` must be accounted for by that step's own lifecycle events --
+ * one `mode_<name>_starting` per entry added and one `mode_<name>_stopped`
+ * per entry removed, counted by (mode, player). An entry added or removed any
+ * other way (a destructured write-back, a helper, a write split across lines:
+ * shapes the line scan in `test/ad8-mode-lifecycle-path.test.ts` cannot see)
+ * throws here, in every test that drives `runRulesScript()`. A mode updating
+ * its own entry's fields changes no count and passes.
+ */
+export function assertModesChangedOnlyByLifecycle(before: GameState, after: GameState, modeEvents: readonly ModeEvent[], tick: number): void {
+	const balance = new Map<string, number>();
+	const add = (mode: string, player: number, by: number): void => {
+		const key = `${mode}/p${player}`;
+		balance.set(key, (balance.get(key) ?? 0) + by);
+	};
+	for (const entry of before.modes) {
+		add(entry.mode, entry.player, 1);
+	}
+	for (const event of modeEvents) {
+		if (event.type === 'lanes_completed') {
+			continue;
+		}
+		if (event.type.endsWith('_starting')) {
+			add(event.mode, event.player, 1);
+		} else if (event.type.endsWith('_stopped')) {
+			add(event.mode, event.player, -1);
+		}
+	}
+	for (const entry of after.modes) {
+		add(entry.mode, entry.player, -1);
+	}
+	const unexplained = [...balance].filter(([, count]) => count !== 0);
+	if (unexplained.length > 0) {
+		const detail = unexplained.map(([key, count]) => `${key} ${count > 0 ? 'removed' : 'added'} x${Math.abs(count)}`).join(', ');
+		throw new Error(`runRulesScript(): tick ${tick}: modes[] changed outside the mode lifecycle (AD-8) -- ${detail} with no matching _starting/_stopped event`);
+	}
+}
+
+/**
  * Drives a FRESH `createRules()` instance, tick by tick from 1 through
  * `options.durationTicks`, threading `GameState` through exactly as
  * `sim/loop/index.ts`'s own `advance()` does (`state = rulesResult.state`,
@@ -252,6 +291,7 @@ export function runRulesScript(script: readonly SwitchEvent[], options: RunRules
 	for (let tick = 1; tick <= options.durationTicks; tick++) {
 		const machineReport = options.machineReports?.get(tick);
 		const result = machineReport === undefined ? rules.step(state, switchEventsByTick.get(tick) ?? [], tick) : rules.step(state, switchEventsByTick.get(tick) ?? [], tick, machineReport);
+		assertModesChangedOnlyByLifecycle(state, result.state, result.modeEvents, tick);
 		state = result.state;
 		statesByTick.set(tick, state);
 		events.push(...result.events);

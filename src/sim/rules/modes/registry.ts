@@ -34,7 +34,7 @@ export interface ModeHookResult {
 	readonly stop?: true;
 }
 
-/** A mode's lamp contribution (AD-9): `{ role, step }` per lamp it has an opinion on. `lampsOf()` (`sim/rules/lamps.ts`) applies every active mode's roles in ascending priority, so a higher mode overwrites per lamp. */
+/** A mode's lamp contribution (AD-9): `{ role, step }` per lamp it has an opinion on. `lampsOf()` (`sim/rules/lamps.ts`) applies every active mode's roles in ascending priority, so a higher mode overwrites per lamp. It finds each hook in `MODE_LAMP_ROLES` (`./index.ts`), not in the registry: a production mode's hook is registered there too, and a stub definition's `lamps` is never composed. */
 export type ModeLampRoles = Readonly<Partial<Record<LampName, LampProjectionEntry>>>;
 
 /** `lamps(state, entry)` -- pure and tuning-free, so `lampsOf()` can call it with no mode instance in hand. */
@@ -62,7 +62,7 @@ export interface ModeDefinition {
 	readonly onStopping?: (state: GameState, entry: ActiveModeState, tick: number) => GameState;
 	/** `_stopped`: the entry has just been removed. Pure and tuning-free, like `onStopping`. */
 	readonly onStopped?: (state: GameState, entry: ActiveModeState, tick: number) => GameState;
-	/** The mode's lamp roles -- see `ModeLampHook`. */
+	/** The mode's lamp roles -- see `ModeLampHook`. A production mode also lists this same function in `MODE_LAMP_ROLES` (`./index.ts`), which is what `lampsOf()` reads; `test/rules-mode-stack.test.ts` fails if the two disagree. */
 	readonly lamps?: ModeLampHook;
 }
 

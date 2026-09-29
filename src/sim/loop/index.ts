@@ -30,7 +30,7 @@
 // `pulseCoil(coil)` is a DEV-ONLY escape hatch (Design Notes, "Why the dev
 // pulse exists"): kept for general dev/test use (any coil, not only the
 // trough) after Story 2.5, which replaces it as the PRODUCTION serve path --
-// the ball controller (`sim/rules/ball-controller.ts`) is now the only thing
+// the ball controller (`sim/rules/ball-controller/`) is now the only thing
 // that pulses `c_trough_eject` in real play (AD-18); this hatch enqueues into
 // EXACTLY the same next-tick command queue a rules-issued `CoilCommand`
 // would use, so physics cannot tell the difference.
@@ -55,7 +55,7 @@
 // live view AFTER `rules.step()` returns -- is DELETED in this story:
 // `state = rulesResult.state` is now the whole assignment. `deviceSlots` is
 // derived entirely inside `rules.step()` (`sim/rules/index.ts`,
-// `sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`) from this tick's
+// `sim/rules/ball-controller/accounting.ts`'s `deriveDeviceSlots()`) from this tick's
 // device events, never copied from physics. `buildSnapshot()` below is
 // UNCHANGED -- it still reads `machine.deviceSlots` directly for the
 // snapshot's own `mechanisms.devices` view, which is now the INDEPENDENT
@@ -446,7 +446,7 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			const machineReport: MachineReport = { recovered: machineResult.recovered, failures: machineResult.semanticEvents };
 			const rulesResult = rules.step(state, switchEvents, tick, machineReport);
 			// DW-70 (AD-7): `machine.deviceSlots` is derived entirely INSIDE
-			// rules.step() now (sim/rules/index.ts, ball-controller.ts's
+			// rules.step() now (sim/rules/index.ts, ball-controller/accounting.ts's
 			// deriveDeviceSlots()) -- no longer overwritten here from the
 			// physics machine's own live view. This is the whole assignment.
 			state = rulesResult.state;

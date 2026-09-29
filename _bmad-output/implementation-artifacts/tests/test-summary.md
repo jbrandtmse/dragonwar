@@ -43,3 +43,30 @@ Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). What the player sees is th
 
 ### Next Steps
 - The lead's browser smoke (spec `## Verification`).
+
+## Story 3.1
+
+Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). Every row drives a whole `createRules()` through `runRulesScript()`: the devices layer, the tilt controller, the split ball controller and the mode stack. The DW-206 rows fold a real run through `advanceBackglass()` and `renderFrame()`, then compare `rasterise()` dot buffers.
+
+### Generated Tests (integration, real runtime)
+- [x] `test/rules-mode-stack-qa-integration.test.ts` (11 tests; gated as headless in `test/rules-devices-headless.test.ts`'s `ENTRY_FILES`)
+  - AC8 (DW-209): a Slam during hot-seat player 1's ball. Its stop triples carry player 1, Attract holds `modes []` with no draw, and the next Start runs player 0's one fresh pair on one draw. Also Slam + Start on one tick with the Start edge listed first.
+  - AC3: the event-major pair mirrored with the left flipper and the lane its rotation wraps onto, with a control.
+  - AC5 / DW-290, the split under the real stack:
+    - a saved drain closes only the launched skill shot and re-arms nothing;
+    - the S8a early return still skips the overflow answer;
+    - a ball-search recover is never a ball end;
+    - a full game over, then the Match, Attract and a restart.
+  - DW-206 on the rasterised DMD: a fieldless unlabelled mode leaves the panel dot-for-dot identical, and an unlabelled field publisher lights exactly the base panel plus a labelled field's dots.
+
+### Coverage
+- 10 new mutations were demonstrated, and each is recorded in the spec's `## Verification` (QA stage). Three of them turn only a QA row red, so no earlier test covered them:
+  - the S8a early return removed (no pre-split test pinned it);
+  - stop events stamped with the wrong player;
+  - modes started during the game-over sequence.
+- 11 pins from the implement stage and the patch subagent (P1, P2, P3, P5, P6, P7 x2, P8, P16, the deferred start, mode-major) were re-applied by QA. Each went red on its named test.
+- AC1, AC2, AC4, AC6, AC7: already pinned. They were audited and no gap was found.
+- AC9: gates green. 136 files / 2249 tests; `test/replays` is unchanged.
+
+### Next Steps
+- The lead's browser smoke (spec Design Notes).

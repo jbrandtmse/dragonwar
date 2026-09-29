@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-29'
 status: 'done'
 baseline_revision: '0437b3e9c3a74c1adc2a3597c34d8a1be1e91d23'
+baseline_commit: '0437b3e9c3a74c1adc2a3597c34d8a1be1e91d23'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -205,6 +206,88 @@ The Backglass then shows the highest-priority mode that has something to show.
 - AC8 (DW-209): Given the three Slam rows of the Matrix, when their scripts run through `runRulesScript`, then `phase`, `modes`, `modeEvents`, every player's score and `rng` (checked against `nextRngInt` draws from the seed) match each row on every tick, and each row's control holds.
 - AC9: Given the story, when the gates run, then `pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all pass, and `test/replays/**` is byte-identical.
 
+### Review Findings
+
+_Code review 2026-09-29 (`bmad-code-review`, full mode, first review of this story). Scope: `git diff 0437b3e` (build commit `14ff9d4`) plus QA's untracked `test/rules-mode-stack-qa-integration.test.ts`, run from `C:/git/dragonwar/.worktrees/epic-3` (verified with `git rev-parse --show-toplevel`). The DW-290 split was compared against `git show 0437b3e:src/sim/rules/ball-controller.ts`, not re-reviewed as new code. Two layers checked the split line by line and found no drift: the seam order, the S8a early return, `pendingStrayClear`'s `===`, the S12 filter and the nine exports are unchanged. Review tier: `full-opus`. All four layers ran with no model override: blind-hunter, edge-case-hunter, verification-gap and acceptance-auditor. None failed, and no layer edited a file. Raw rows: 32 (blind 12, edge 3, verification 9, acceptance 8), grouped into 12 entries (13 rows patched, 5 closed at emission, 14 rejected): high 0, medium 3, low 9. After the patches: `pnpm test` passes 136 files / 2255 tests (2249 + 6 added by this review). `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` each exit 0. `git diff --stat -- test/replays` is empty. No review edit adds a non-ASCII byte. Rule 3: the real-runtime evidence is AC7 and QA's rows, which fold a real `createRules()` run through `advanceBackglass()`, `renderFrame()` and `rasterise()`, per the Story 2.11 precedent. Panel pixels are left to the lead's browser smoke._
+
+**Lead observations:**
+
+- **(a) `by-design`, with the gaps around it patched.** Lamp hooks are registered twice: in each mode's `ModeDefinition.lamps` and in `MODE_LAMP_ROLES`.
+  - This is acceptable for Stories 3.4 to 3.10. A single registry is spec-bound: `lampsOf(state, hurryUpTicks)` keeps AD-9's pinned signature and has no registry in hand, and task 5 names `lamps?` in the `ModeDefinition` shape.
+  - The table is a static, pure lookup, so AD-9's "pure projection, modes contribute roles by priority" holds.
+  - Patched now:
+    - The consistency test now requires the table's keys to equal *exactly* the production definitions that carry a hook. Before, a table entry for a definition with no hook passed.
+    - `registry.ts` now tells a mode author about the second registration point. A later mode that fills in only one of the two turns that test red.
+  - The constraint later stories inherit: a hook must be module-level and tuning-free, so a tuning threshold has to be published on the mode's own entry.
+  - reopen_if: a mode's lamp step needs `ResolvedTuning`, or a test needs a stub definition's `lamps` composed by `lampsOf()`.
+- **(b) The line scan could NOT fail for the realistic regression. MED under Rule 19, patched.** I checked `MODE_LIST_WRITE` against realistic write shapes. None of these is flagged:
+  - a destructured write-back (`const { modes } = state; ... modes: modes.filter(...)`);
+  - a helper (`modes: without(state.modes, e)`);
+  - a spread copy;
+  - a write split across lines.
+
+  Planting the first shape in the skill shot's parking branch left `ad8-mode-lifecycle-path` green. AC2's behavioural half is now an invariant that `runRulesScript()` checks on every tick: `assertModesChangedOnlyByLifecycle()` in `test/util/switch-script.ts`. Across a step, the change in the (mode, player) multiset must equal that step's `_starting` adds minus its `_stopped` removals.
+  - About 20 test files drive `runRulesScript()`, and every future mode story's rules-script tests will too. A direct write is therefore caught however it is spelled.
+  - The line scan stays as a cheap second check.
+  - The invariant held on all 2255 tests, so no hidden writer exists today.
+  - Its controls are in `test/ad8-mode-lifecycle-path.test.ts`.
+- **(c) Patched, as a mechanical LOW two-way door.** Six stale `ball-controller.ts` path mentions in comments are corrected:
+  - three in `src/sim/loop/index.ts` (:33, :58, :449);
+  - three in `src/sim/physics/devices.ts` (:136, :723, :748), which is authored, not ported.
+
+  Each now names `ball-controller/`, `ball-controller/accounting.ts` or `ball-controller/ball-end.ts`. Neither path is contended with Epic 5. **Footprint extension to report:** `src/sim/loop/index.ts`, `src/sim/physics/devices.ts` and `test/util/switch-script.ts`.
+
+**Patch (applied):**
+- [x] [Review][Patch] (medium, Rule 19; lead observation (b)) **AC2's source scan could not fail for a destructured, helper-based or split-line write to `modes`.** A per-tick lifecycle-accounting invariant in `runRulesScript()` now catches it, with a control row per shape. [test/util/switch-script.ts `assertModesChangedOnlyByLifecycle`; test/ad8-mode-lifecycle-path.test.ts] fix-risk low: test harness only, and the full suite stays green under it. (verification-gap + blind-hunter + edge-case-hunter, 4 rows)
+- [x] [Review][Patch] (medium) **`locateEntry()`'s fallback was untested.** It finds the same mode and player after a hook replaces its own entry, and it is the path a Hurry-up timer expiry (3.5) and any `onStopping` field write will take. Deleting it left the suite green. Added two rows:
+  - a `tick` hook that decrements `timerTicks` to 0 and returns `stop: true` in the same result;
+  - an `onStopping` that replaces its entry. The copy is removed, and `onStopped` sees it gone.
+
+  [test/rules-mode-stack.test.ts, AC2 and AC4 describes] fix-risk low: test only. (blind-hunter)
+- [x] [Review][Patch] (medium) **The spec's "the ball controller and the tilt controller run the stop hooks in place" had no test.** No production mode has a stop hook, so passing an empty lookup at the ball end or the Slam stayed green. Story 3.7's `_stopped` hook for `machine.multiball` depends on this. Added two rows:
+  - `createBallController(…, lookup)` with logging stop hooks: each hook fires at its phase before the controller returns `ball_ended`;
+  - `createTiltController(…, lookup)` on a Slam: the same order, and Attract is reached.
+
+  [test/rules-mode-stack-integration.test.ts, AC5 describe] fix-risk low: test only. (blind-hunter)
+- [x] [Review][Patch] (low; lead observation (a)) **The lamp-table consistency test passed a table entry for a definition with no hook, and `registry.ts` never mentioned `MODE_LAMP_ROLES`.** The test now checks exact key-set equality, and both doc comments are corrected. [test/rules-mode-stack.test.ts "MODE_LAMP_ROLES ..."; src/sim/rules/modes/registry.ts `ModeLampRoles`, `lamps`] fix-risk low: a doc comment and a test. (acceptance-auditor + blind-hunter + verification-gap, 3 rows)
+- [x] [Review][Patch] (low) **`test/rules-lamps.test.ts` still cited the `if (!player)` guard in `lamps.ts`.** This story removed it. The comment is rewritten and the over-long re-flowed line is wrapped. [test/rules-lamps.test.ts:103-114] fix-risk low: comment only. (blind-hunter)
+- [x] [Review][Patch] (low; lead observation (c)) **Six stale `ball-controller.ts` paths in `sim/loop` and `sim/physics` comments.** See (c) above. [src/sim/loop/index.ts; src/sim/physics/devices.ts] fix-risk low: comment only.
+- [x] [Review][Patch] (low, Rule 19) **AC2's event-order half and AC9 had no `mutation:` line.** Three mutations were demonstrated and recorded under `## Verification` (Code review):
+  - `_will_stop` and `_stopping` swapped;
+  - `onStarting` run before the entry is pushed;
+  - an import cycle planted in the split, for AC9's gate.
+
+  (verification-gap + acceptance-auditor, 3 rows)
+
+**Closed at emission:**
+- [x] [Review][Dismiss] (low, `by-design`) **The published state at a player rotation already holds the next player's `[base, skill_shot]`, so "`modes[]` is empty between balls" is not visible between two published states.**
+  - This is the Matrix row "Ball end, rotation" ("End state = p1's entries only") and AD-8's 2026-09-29 amendment (modes start in the same `rules.step` that emits `ball_starting`).
+  - AD-7's clause is defined by its own colon: every mode gets `_will_stop` before `ball_ended`. AC5 pins that at the controller level, where `modes` is `[]` beside `ball_ended`.
+  - Reopens only via an AD-7/AD-8 amendment. (blind-hunter)
+- [x] [Review][Dismiss] (low, `wontfix-theoretical`) **`createRules()` handing `modeStack.registry` to both controllers is unpinned.**
+  - The controllers' default is a fresh production registry holding the same definitions, and stop hooks are pure and tuning-free. So no observable outcome differs.
+  - This would become real if `createRules()` accepted custom definitions, or a production stop hook closed over per-instance state. (blind-hunter)
+- [x] [Review][Dismiss] (low, `wontfix-theoretical`) **A handler that stops a mode and restarts the same name for the same player on event k would deliver event k to the new entry.** The cause is `locateEntry()`'s (mode, player) fallback.
+  - No mode restarts itself, and the Epic 3 plan has none.
+  - This would become real if a mode's handler called `stopModes` then `startModes` for its own name on one event. (edge-case-hunter, 2 rows)
+- [x] [Review][Dismiss] (low, `wontfix-accepted`, DW-294) **Nothing pins `lampsOf()`'s machine-lamp guard.** No production hook names a machine lamp, and a pin needs a `vi.mock` of `./modes` in a new file, which is past the two-way-door size. reopen_if: a `ModeLampHook` returns a key whose `TABLE.lamps` subject kind is `lock` or `ball_save` (3.2, 3.4). (verification-gap)
+- [x] [Review][Dismiss] (low, `wontfix-theoretical`) **A ball start silently skips a `BALL_START_MODES` name the registry lacks.** The production registry always holds both. Only a test's stub-definition stack omits them, and it does so on purpose. This would become real if a production definition set could omit `base` or `skill_shot`. (blind-hunter)
+
+**Rejected (14 rows):**
+- `false` (blind-hunter): the P8 test "proves started-by-event-k through an illegitimate channel". `startModes()` IS the lifecycle, and `ModeEvent` includes `ModeLifecycleEvent` by the spec. Which registry Story 3.4's arbiter resolves from is 3.4's design question, not a defect here.
+- `low` reject (blind-hunter): the spec's frontmatter says `status: done` while review runs. That is `bmad-build-auto`'s contract, and the reviewer does not change it.
+- `low` reject (blind-hunter): the Finalize breakdown miscounts the patched rows. That is historical tracking text, and no behaviour depends on it.
+- `low` reject (blind-hunter): `ModeLifecycleEvent` does not tie `type` to `mode`. `lifecycleEvent()` is the only production constructor, and tying the two needs generic template types.
+- `low` reject (blind-hunter): `game-over.ts` re-exports `GameOverSequence` and nothing imports it. The re-export keeps task 1's file map, where the type lives in `game-over.ts`. It is harmless.
+- `false` (verification-gap): QA's saved-drain score clause "checks two zeros". If the skill shot survived the save, the tick-12 lit-lane closure would pay the award and `withShot` would equal `control + award`. The clause fails for exactly that regression.
+- `false` (verification-gap + acceptance-auditor, 2 rows): the QA file is uncommitted. That is the pipeline's normal state: QA may not commit, and the lead commits it (Rule 16).
+- `low` reject (verification-gap): the "Slam control" `hasDuplicate` and the Attract-score assertions cannot fail alone. They are controls, not pins, and each row's pin is elsewhere, as the build review recorded.
+- `low` reject (acceptance-auditor): `ball-controller/shared.ts` is 411 lines. The target is approximate, and the build review closed it (B20).
+- `low` reject (acceptance-auditor): two Story 2.14 rows shifted one tick. Task 13's defer clause permits it, and the Auto Run Result lists it.
+- `low` reject (acceptance-auditor): a second `backglass-frame` row flipped. The same DW-206 author decision drives it, and it is listed under "Unplanned".
+- `false` (acceptance-auditor): the file-map deviations. The headless gate forbids `node:fs` in `rules-*` tests, and `no-circular` forbids the planned `GameOverSequence` placement. Both are recorded, and neither changes behaviour.
+- `false` (acceptance-auditor): `src/sim/table/tuning.ts` is missing from the footprint-extension list. `src/sim/table/**` is inside Epic 3's footprint.
+
 ## Spec Change Log
 
 - 2026-09-29, lead spec gate: the "AD-8 sentence" under Design Notes was written into the spine's AD-8 verbatim (Rule 20, DW-209). The AD-7 inventory is written by the lead at adjudication, from the code as delivered. Kept as one story (split first, green checkpoint), per the planner's recommendation. No spec text changed.
@@ -395,7 +478,7 @@ None is declined.
   - mutation: `startModes()` orders by descending priority → "Matrix row "Slam after start"" red first on its new tick-20 `modeEvents` assertion ("the next Start: the base start triple, then the skill_shot one, and nothing else"), plus five other rows (P5).
   - mutation: a new player's `score: 0` set to 1 in `ball-controller/start.ts` → "Matrix row "Slam and Start on one tick"" red on "tick 6: every player's score is 0" (P5).
   - The P5 assertion that `modeEvents` is empty on ticks 7-19 has no mutant of its own: every mutant tried that leaks a lifecycle event into Attract also moves tick 6's `modes`, `rng` or stop triple, which the row asserts first.
-- AC9: pinned by the gate commands above (`pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`, and the empty `git diff --stat -- test/replays`). There is no mutation line.
+- AC9: pinned by the gate commands above (`pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`, and the empty `git diff --stat -- test/replays`). Its mutation line is under "Code review (2026-09-29)" below.
 - DW-206:
   - mutation: the `modeName` gate on the fields line restored → `backglass-frame` "an unmapped mode id that ALSO publishes a ModeView field (timerTicks) shows the field (1.0) ...", "Matrix row "Unlabelled field publisher"", the "control: a HIGHER unlabelled mode that publishes a field owns both lines ..." row, "DW-206: an unlabelled mode publishing timerTicks shows its field and no name, even with the 2x2 grid engaged", and `rules-mode-stack` AC4 "Matrix row "Timer under a higher mode"".
   - mutation: "highest priority regardless" restored in `selectTopMode()` → `backglass-frame` "Matrix row "Transparent unlabelled"".
@@ -403,6 +486,45 @@ None is declined.
   - mutation: `mode.strikesRemaining !== undefined` deleted from `hasSomethingToShow()` → `backglass-frame` "an unlabelled mode above the skill shot publishing ONLY strikesRemaining owns the fields line, and ARM YOURSELF is absent" (P7).
 - Headless gate (P16):
   - mutation: `import { readFileSync } from 'node:fs'` added to `test/rules-mode-stack-integration.test.ts` → `rules-devices-headless` "no module anywhere in the closure names a forbidden specifier".
+
+**QA stage (2026-09-29).** Each mutation below was applied, red observed, reverted, and `git status --short -- src test` plus `git diff -- src test` confirmed byte-identical afterwards (the untracked QA file by sha256). One suite per call, `BLENDER` exported.
+
+*Files (QA):*
+- `test/rules-mode-stack-qa-integration.test.ts` (QA, new): 11 real-runtime rows through `runRulesScript()` / `createRules()`, plus the Backglass fold and `rasterise()`.
+- `test/rules-devices-headless.test.ts` (QA, edited): the new file is added to `ENTRY_FILES`. It drives no loop or physics, so it is gated as headless like `rules-mode-stack-integration.test.ts`.
+
+*Independent re-verification of the implement stage's and the patch subagent's pins.* Each recorded mutation was re-applied by QA and went red on the named test: the one-tick deferred start restored as a `pendingStartPlayer` closure (AC8 rows, AC5 rules level, AC7), mode-major fan-out (the Event-major pair), P1 (`MODE_LAMP_ROLES.skill_shot` wrapper), P2 (tick hooks ascending: three AC4 rows), P3 (the regex narrowed: the control row), P5 (new player `score: 1`), P6 (a coil in the parking branch: the P6 row only), P7 (`charge` and `strikesRemaining` each deleted: its own row only), P8 (recipients taken once: the P8 row only) and P16 (a `node:fs` plant in `rules-mode-stack-integration.test.ts`). P16's ratchet change is sound: it only stops an explicitly listed `-integration` file from failing the ratchet. A stale listed path still fails loudly, because `importClosure()` reads every entry with `readFileSync`.
+
+*QA mutations* (`rules-mode-stack-qa-integration` = RMSQ):
+- DW-290 / the split (Always: "keep its early return"):
+  - mutation: the S8a early return removed, so a saved drain still re-serves but then falls through to S9-S12 → RMSQ "the save's early return (S8a) still skips S9-S12: a trough overflow reported on the saved drain's tick gets no answer ...", **alone**. Every pre-existing suite stayed green under it (`rules-ball-save`, `rules-ball-save-integration`, `rules-bonus`, `rules-stray-clear`, `rules-ball-search`, and the whole `test/rules-*` / `ball-search*` / `stray-clear*` / `game-over*` / `backglass-integration` subset of 31 files). No test pinned the early return before this.
+  - mutation (probe, already pinned): `pendingStrayClear === pendingStrayClearAtStart` replaced by `true` → `rules-stray-clear` DW-269 "the FIRST clear's own report at t+1 stays silent ...". No new test was needed.
+- AC8:
+  - mutation: the tilt controller's `modeEvents` dropped from the root concatenation (`rules/index.ts`) → RMSQ "a Slam during hot-seat player 1's ball ..." and "Slam + Start on one tick with the Start edge listed BEFORE the Slam ...".
+  - mutation: `stopModes()` stamps `_will_stop` with player `0` instead of the entry's player → RMSQ "a Slam during hot-seat player 1's ball ...", **alone**. No earlier test read a stop event's `player`.
+- AC3:
+  - mutation: mode-major fan-out → RMSQ "the first Top lane lit, then the left flipper and the lane it rotates onto ..." and its control, plus the two existing Event-major rows.
+- AC5 (the split's save / search / game-over paths under the real stack):
+  - mutation: the stack also starts the ball-start modes on `ball_saved` → RMSQ "a saved drain re-serves the SAME ball ...", plus `rules-ball-save` "drain inside the window ...".
+  - mutation: `machineReport.recovered === null` dropped from `ballEndGateOpen()` → RMSQ "a ball-search recover whose park lands in the trough is never a ball end ...", alone in the suites run.
+  - mutation: the stack also starts the ball-start modes on `match_drawn` → RMSQ "a whole game over -> Match -> Attract -> Start ...", **alone**. The existing "Last ball" row runs only 2 ticks. A `game_ended` variant turns both red.
+- DW-206 on the rasterised DMD:
+  - mutation: `selectTopMode()` ignores `hasSomethingToShow()` → RMSQ "symptom 1 ("Transparent unlabelled") ... dot-for-dot identical".
+  - mutation: the fields line gated on `modeName !== undefined` again → RMSQ "symptom 2 ("Unlabelled field publisher") ... exactly the base panel plus the fields-line dots ...".
+
+*After QA:* `pnpm test` 136 files / 2249 tests green; `typecheck`, `lint:boundaries` and `check:headers` exit 0; `git diff --stat -- test/replays` is empty; both QA-touched test files are pure ASCII. `mutations_demonstrated=10` new, plus 11 re-verified.
+
+**Code review (2026-09-29).** Each mutation below was applied, red observed, reverted, and `git status --short` plus a sha256 of `git diff` and the untracked QA file confirmed byte-identical afterwards. One test file set per call, `BLENDER` exported.
+- AC2:
+  - mutation: the skill shot's parking branch removes its own entry by a destructured write-back (`const { modes } = state; ... modes: modes.filter((m) => m !== entry)`) instead of returning `stop: true` → `ad8-mode-lifecycle-path` stays green (the line scan cannot see it). `rules-mode-stack-qa-integration` goes red through `runRulesScript()`'s `assertModesChangedOnlyByLifecycle()`: "a saved drain re-serves the SAME ball ..." ("tick 1: ... skill_shot/p0 removed x1") and "a ball-search recover whose park lands in the trough ...".
+  - mutation: `_will_stop` and `_stopping` swapped in `stopModes()` → `rules-mode-stack` AC2 "stop: will_stop (entry present), stopping ..." plus 6 other stop-triple rows.
+  - mutation: `onStarting` run before the entry is pushed in `startModes()` → `rules-mode-stack` AC2 "start: will_start (no entry yet), starting (entry pushed, onStarting runs), started ...", alone.
+  - mutation: `locateEntry()`'s (mode, player) fallback replaced by `return undefined` → `rules-mode-stack` "stop: an onStopping hook that replaces its own entry ..." and AC4 "a timer running out: the tick hook replaces its own entry ...", alone in that file.
+  - The invariant's own controls (`ad8-mode-lifecycle-path` "runRulesScript() rejects any tick ...") pin each shape directly: a removal with no stop triple, an add with no start triple, a missing `_stopped`, and another player's triple.
+- AC5 / the stop hooks run in place:
+  - mutation: `stopAllModes(nextState, tick, { get: () => undefined })` in `ball-controller/ball-end.ts` together with the same empty lookup passed to `enterAttract()` in `tilt.ts` → `rules-mode-stack-integration` "the ball end runs the registry's stop hooks in place ..." and "the Slam runs the registry's stop hooks in place ...". With `tilt.ts` alone mutated, only the Slam row goes red.
+- AC9:
+  - mutation: `import type { GameOverSequence as CycleProbe } from './game-over';` added to `ball-controller/shared.ts` → `pnpm lint:boundaries` exits 2 (`[no-circular] src/sim/rules/ball-controller/game-over.ts → src/sim/rules/ball-controller/shared.ts`). AC9's pin is the gate commands, and this shows the gate can fail on the split's own structure.
 
 ## Auto Run Result
 

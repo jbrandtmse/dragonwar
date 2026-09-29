@@ -2026,6 +2026,8 @@ So that the campaign has a qualifier and a start shot without any gating.
 **When** the Ramp is made three times and the Lock lane entered after each
 **Then** Hurry-up, then Quick multiball, then Joust start in that order across balls, with letters and credits per player unaffected by the Mode starts
 
+- DW-293: modesPlayed is credited with every mode name at each ball end, so base and skill_shot enter players[].modesPlayed on every ball; this story credits modesPlayed at mode_<name>_started for campaign Modes only (ledger; routed by harvest 2026-09-29)
+
 ### Story 3.5: Hurry-up — answer the call
 
 As a player,

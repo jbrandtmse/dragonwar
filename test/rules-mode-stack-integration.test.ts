@@ -13,7 +13,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { createBallController } from '../src/sim/rules/ball-controller';
-import { MODE_PRIORITIES, type ModeEvent } from '../src/sim/rules/modes';
+import { createProductionModeRegistry, MODE_PRIORITIES, type ModeDefinition, type ModeEvent, type ModeLookup } from '../src/sim/rules/modes';
+import { createTiltController } from '../src/sim/rules/tilt';
 import { nextRngInt } from '../src/sim/rules/rng';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../src/presentation/backglass/frame';
 import { TABLE } from '../src/sim/table/dragonwar';
@@ -283,6 +284,59 @@ describe('AC5 -- the ball end: every active mode gets its stop triple, the contr
 		expect(after.modes).toEqual([]);
 		expect(typesAt(result.modeEvents, 1)).toEqual([...triple('skill_shot', 'stop'), ...triple('base', 'stop')]);
 		expect(result.statesByTick.get(2)!.modes).toEqual([]);
+	});
+
+	/** The production registry, each definition wrapped with logging stop hooks -- what a later mode's `_stopping` / `_stopped` work looks like to the controllers. */
+	function loggingStopLookup(seen: string[]): ModeLookup {
+		const production = createProductionModeRegistry(NO_BALL_SAVE_TUNING);
+		const present = (state: GameState, name: string): boolean => state.modes.some((m) => m.mode === name);
+		return {
+			get: (name): ModeDefinition | undefined => {
+				const definition = production.get(name);
+				return (
+					definition && {
+						...definition,
+						onStopping: (state) => {
+							seen.push(`${name}.onStopping present=${present(state, name)}`);
+							return state;
+						},
+						onStopped: (state) => {
+							seen.push(`${name}.onStopped present=${present(state, name)}`);
+							return state;
+						},
+					}
+				);
+			},
+		};
+	}
+
+	const HOOKS_IN_ORDER = [
+		'skill_shot.onStopping present=true',
+		'skill_shot.onStopped present=false',
+		'base.onStopping present=true',
+		'base.onStopped present=false',
+	];
+
+	it('the ball end runs the registry\'s stop hooks in place: the controller given a registry calls each hook at its phase before it returns ball_ended', () => {
+		const seen: string[] = [];
+		const controller = createBallController(ADJUSTMENTS, NO_BALL_SAVE_TUNING, loggingStopLookup(seen));
+		const state: GameState = { ...midBall([player(1), player(0)]), machine: { ...midBall([player(1), player(0)]).machine, ballsInPlay: 0 } };
+		const result = controller.step(state, [{ type: 'device_ball_entered', device: 'bd_trough', slot: 3, tick: 1 }], 1, { recovered: null, failures: [] });
+
+		expect(result.events.map((event) => event.type)).toContain('ball_ended');
+		expect(seen).toEqual(HOOKS_IN_ORDER);
+		expect(result.state.modes).toEqual([]);
+	});
+
+	it('the Slam runs the registry\'s stop hooks in place: the tilt controller given a registry calls each hook at its phase as it enters Attract', () => {
+		const seen: string[] = [];
+		const controller = createTiltController(ADJUSTMENTS, NO_BALL_SAVE_TUNING, loggingStopLookup(seen));
+		const result = controller.step(midBall([player(1)]), [{ type: 'slam_tilt_closed', tick: 1 }], 1);
+
+		expect(result.state.phase).toBe('attract');
+		expect(seen).toEqual(HOOKS_IN_ORDER);
+		expect(result.modeEvents.map((event) => event.type)).toEqual([...triple('skill_shot', 'stop'), ...triple('base', 'stop')]);
+		expect(result.state.modes).toEqual([]);
 	});
 });
 
