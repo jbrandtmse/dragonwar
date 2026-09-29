@@ -2,8 +2,8 @@
 title: 'Story 3.0: Epic 2 Deferred Cleanup'
 type: 'bugfix'
 created: '2026-09-29'
-status: 'in-progress'
-baseline_revision: '56ac0b91233329c07a977c016651c3bb46853431'
+status: 'done'
+baseline_revision: '2ac0ae746c58267a47b62bf46abf551ca0bfe017'
 baseline_commit: '56ac0b91233329c07a977c016651c3bb46853431'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -101,7 +101,7 @@ deferred:
 - `test/backglass-integration.test.ts` -- AC10.
 - `test/contracts.test.ts`, `test/rules-match.test.ts` -- update them for the `remaining` rename.
 
-- [ ] [Review] (high, Rule 6 / AD-2 DW-240, FR-14) Per-player tilt SPACING contradicts the ratified origin -- `src/sim/rules/tilt.ts` (the marks, reset-safety, bob loop, header prose) -- collapse the spacing mark to ONE machine-wide physical mark updated by every bob closure whoever is up and whatever the phase (it replaces `idleBobClosureTick`); keep the settle mark per player and cleared outside a game; rewrite the AC8 tests to the amended AC8 (run A ignored, run B warns P1, run-B control ignored for P0), adapt the idle-mark tests (including the review's "stale IDLE mark" reset-safety test) and QA's settle-survives test to the single spacing mark, and write fresh `mutation:` lines for AC8 in `## Verification` (spacing made per player -> run A red; settle made machine-wide -> run B red; spacing reset-safety discard disabled -> its test red).
+- [x] [Review] (high, Rule 6 / AD-2 DW-240, FR-14) Per-player tilt SPACING contradicts the ratified origin -- `src/sim/rules/tilt.ts` (the marks, reset-safety, bob loop, header prose) -- collapse the spacing mark to ONE machine-wide physical mark updated by every bob closure whoever is up and whatever the phase (it replaces `idleBobClosureTick`); keep the settle mark per player and cleared outside a game; rewrite the AC8 tests to the amended AC8 (run A ignored, run B warns P1, run-B control ignored for P0), adapt the idle-mark tests (including the review's "stale IDLE mark" reset-safety test) and QA's settle-survives test to the single spacing mark, and write fresh `mutation:` lines for AC8 in `## Verification` (spacing made per player -> run A red; settle made machine-wide -> run B red; spacing reset-safety discard disabled -> its test red).
 
 **Acceptance Criteria:**
 - AC1 (DW-236, DW-237): Given an untilted ball end with total > 0, when the Backglass folds its frames, then the BONUS row shows `total` at arming and each step's `remaining`, down to 0, and the score line shows the pre-bonus score at arming, `pre + (total - remaining)` after each step (strictly rising across a multi-step count), and the final score exactly when `remaining` is 0.
@@ -199,6 +199,36 @@ _Code review 2026-09-29 (`bmad-code-review`, full mode, first review of this sto
   - `[low]` `[patch]` (intent-alignment) Several new pinning tests have no mutation line. — Same root cause as the arming-fold finding. Per-AC lines added.
   - `[false]` `[reject]` (intent-alignment) The DW-235 tests were re-staged off the Slam route. — Not a defect: the Slam route can no longer carry a pending count (DW-285, pinned by AC3), and the re-staged tests still exercise the DW-235 same-tick filter through the one route that can.
 
+### 2026-09-29 — Review pass (rework 1, follow-up)
+- verdicts: 26 findings — high 0, medium 3, low 21, false 2, maybe-false 0
+- findings:
+  - `[low]` `[patch]` (blind-hunter) The QA settle test's "past spacing" return at T+1100 is exactly 500 ticks after player 2's closure, so its control leans on the inclusive boundary. — Patched: player 1's return moved to T+1200 (grouped with the game-boundary test, 600 → 700). Mutation lines re-run and updated.
+  - `[medium]` `[patch]` (blind-hunter) Nothing pins that a closure while tilted moves the spacing mark ("tilted or not"). — Patched: added "a closure while TILTED still moves the spacing mark ..." with its positive past spacing. The counted-only-update mutation turned it red.
+  - `[low]` `[patch]` (blind-hunter) Run A's no-drain half cannot fail on spacing (player 1 is inside their own settle too), so run A has no real control. — Patched: the no-drain half was replaced by the same drain and closure at T+200 with no earlier closure at T, which warns player 2. Mutation re-run and recorded.
+  - `[low]` `[reject]` (blind-hunter) The positive half of "the spacing mark survives a game boundary" also depends on the settle clear. — The coupling is recorded in the Verification mutation line. A regression that fails two tests is not a defect, and decoupling it means restaging a working test.
+  - `[low]` `[patch]` (blind-hunter) The new tilt.ts header and a test comment put in quotes AD-7 text ("its own history is physical and updates whatever the phase") that the spine does not contain. — Patched: the header now quotes AD-7's real "The bob is never reset by command" and paraphrases the rest outside the quote marks. The test comment was unquoted the same way.
+  - `[low]` `[reject]` (blind-hunter) The Attract-closure I/O row still says "(idle mark)". — The row is inside the read-only intent contract, and its expected behaviour ("still ineligible") still holds. The fix is a spec edit, which is the lead's to make.
+  - `[low]` `[reject]` (blind-hunter) The Execution task for tilt.ts still says "per-player marks plus the idle mark". — The fix is a spec edit. The [Review] task and the amended Always clause supersede it. Raised to the lead under residual risks.
+  - `[low]` `[reject]` (blind-hunter) The Design Notes still describe the idle mark and the 999 ms ceiling. — The fix is a spec edit, which is the lead's to make.
+  - `[low]` `[reject]` (blind-hunter) The Auto Run Result was not updated for code review or rework 1. — The fix is a spec edit, and finalize rewrites that section in this pass anyway.
+  - `[low]` `[reject]` (blind-hunter) The [Review] rework task is still unchecked. — The fix is a spec edit. The task is ticked at finalize as completion bookkeeping, not as a review patch.
+  - `[low]` `[reject]` (blind-hunter) The Spec Change Log does not record the rework's execution. — The fix is a spec edit. The Change Log records intent amendments. The execution is recorded under Verification (Rework 1) and in this log.
+  - `[low]` `[reject]` (blind-hunter) The Defer entry about AD-7's inventory is out of date after the rework. — The fix is a spec or spine edit. The spine text is owned by 3-1 (DW-291 occurrence). The now-accurate gap is noted under residual risks for that owner.
+  - `[false]` `[reject]` (blind-hunter) Rework 1 did not re-run check:attributions, build, check:dist or check:size. — This run ran all eight gates after implement and again after the review patches, and each exited 0 (recorded under Verification).
+  - `[low]` `[patch]` (blind-hunter) The settle map's reset-safety discard has no mutation after rework 1 reordered it. — Patched: `discardFutureMarks(lastWarningTick, tick)` was deleted, "a stale mark from a DIFFERENT (higher) timeline ..." went red, and the line is recorded.
+  - `[low]` `[reject]` (blind-hunter) The settle-machine-wide mutation line gives no "other N stayed green" total. — Cosmetic. The line names every test that went red.
+  - `[false]` `[reject]` (blind-hunter) The frontmatter is inconsistent: review_loop_iteration is 0, followup_review_recommended is false, and baseline_revision differs from baseline_commit. — `review_loop_iteration` counts this skill's bad_spec loopbacks, not the lead's reworks. `baseline_revision` is re-captured by step-03 on every implement pass by design, and `baseline_commit` is the story's original baseline.
+  - `[low]` `[reject]` (edge-case-hunter) The Intent ("Keep the tilt marks per player") and the Execution list contradict the machine-wide spacing mark. — The lead's rework-1 amendment (Always clause, Hot-seat row, AC8, Spec Change Log) governs, and settle is still per player. Rewording the intent is a spec edit for the lead. Raised under residual risks.
+  - `[medium]` `[patch]` (verification-gap) Ignored and tilted in-game closures must move the one spacing mark, and no test checks it. The pre-rework update shape stayed green. — Patched: added "an IGNORED in-game closure still moves the spacing mark ..." (at adjustments(1), so the tilt path skips settle and only spacing decides) and the TILTED test, each with a positive. Mutation: the counted-only update turned both red; the other 44 stayed green.
+  - `[low]` `[patch]` (verification-gap) Run A's no-drain half checks nothing about spacing. — Same root cause as the blind-hunter run-A finding. Patched with the positive control.
+  - `[low]` `[patch]` (verification-gap) The run-B control has no mutation line. — Patched: `settled` forced true turned it red. Recorded.
+  - `[low]` `[patch]` (verification-gap) The QA settle test and the game-boundary test say "past spacing" but sit on the 500-tick boundary. — Same root cause as the first blind-hunter finding. Patched: moved to T+1200 and 700.
+  - `[low]` `[reject]` (verification-gap) The Execution list and the Attract-closure I/O row still describe the idle mark. — Same as the blind-hunter spec-text rows. Spec edit.
+  - `[low]` `[reject]` (verification-gap) The [Review] task is unticked. — Same as the blind-hunter row. It is ticked at finalize.
+  - `[low]` `[reject]` (intent-alignment) The diff implements the amended reading (R1) and contradicts the intent's unamended Problem (7), Approach and stale R2 prose. — The lead ruled R1 (Spec Change Log, rework 1), and the fix is a spec edit. Raised under residual risks.
+  - `[low]` `[reject]` (intent-alignment) The cross-game and settle-survival tests drive `createTiltController()` directly, not the real game-start path. — `runRulesScript` builds a fresh controller per run and cannot carry a mark across games. A real-path version needs new multi-game script infrastructure, which is more than a direct correction. The Hot-seat row itself runs through the real rules.
+  - `[medium]` `[patch]` (intent-alignment) The "every closure" subcases (tilted, ignored, no current player, same tick as a Slam) are implemented but unpinned. — Same root cause as the verification-gap finding. The tilted and ignored cases are patched. The no-player path is the Attract test's branch, and a Slam flips the phase so the loop sees no player.
+
 ## Design Notes
 
 **Measured at this tree (lead guidance: measure before you prescribe).**
@@ -295,10 +325,13 @@ None is declined.
   - mutation (review 2026-09-29): `foldBonusCountSteps()`'s `bonusRemaining === null` guard disabled → `test/backglass-frame.test.ts`:"a hold with no count (zero bonus or tilted) ignores a same-player step ..." went red; its counting-hold control stayed green.
 - AC7: the old "categories count up, then the multiplier is applied" is restored → the provenance test goes red.
   - mutation: the old quote restored in `TUNING.bonusCountMs.source` → `test/tuning.test.ts`:"every double-quoted phrase appears verbatim in FR-20, ..." went red; the audit's own control stayed green.
-- AC8 [stale -- superseded by rework 1; the implement stage rewrites it]: the marks are made machine-wide again → the Hot-seat test goes red. Separately, the idle mark is dropped → `rules-tilt.test.ts:950` goes red.
-  - mutation: every player's marks keyed to 0 (machine-wide) → `test/rules-tilt.test.ts`:"run A: inside player 1's SPACING window ..." and "run B: ... SETTLE window ..." went red; both no-drain controls stayed green.
-  - mutation: `spacedFromIdle` forced true (idle mark dropped) → `test/rules-tilt.test.ts`:"the Attract-time closure's spacing mark is genuinely recorded -- ..." went red.
-  - mutation (review 2026-09-29): the `state.phase !== 'game'` clear of the per-player maps disabled → `test/rules-tilt.test.ts`:"a new game's player 1 is never judged against the previous game's marks; ..." went red; its same-game control is the other half of that test.
+- AC8 (rework 1, 2026-09-29; the spacing mark is ONE machine-wide physical mark `lastBobClosureTick`, updated by every closure in any phase; the settle mark `lastWarningTick` is a per-player `Map`, cleared on any step outside `phase: 'game'`): spacing made per player → run A goes red. Separately, settle made machine-wide → run B goes red. Separately, the spacing mark's reset-safety discard disabled → its test goes red. Each mutation below was applied to `src/sim/rules/tilt.ts` from a scratchpad copy, `test/rules-tilt.test.ts` was run (44 tests), the file was restored, and `git status --short`, `git diff --stat` and `git diff | sha1sum` were compared with their pre-mutation values: identical after every restore.
+  - mutation: the spacing mark keyed by `currentPlayer` (a per-player `Map`, with its own reset-safety discard, so only the per-player property differs) → `test/rules-tilt.test.ts`:"run A: after a real drain rotates to player 2, their first closure at T+200 -- inside the SPACING window of player 1's closure at T -- is ignored ..." went red; the other 43 stayed green (run B, its control and every Attract/restart test). [Re-run at the rework-1 review, after that test's no-drain half was replaced by a positive control (the same drain and closure at T+200 with no earlier closure at T, which warns player 2): it went red again, and was the only one of 46.]
+  - mutation: `lastWarningTick` keyed to 0 for every player (settle machine-wide) → "run B: after a real drain rotates to player 2, their first closure at T+600 -- past spacing, inside player 1's SETTLE window -- warns player 2 ..." went red, and so did the QA test "player 1's own settle mark survives player 2's turn: ..." (on its step where player 2's closure at T+600 must warn); run A and the run-B no-drain control stayed green.
+  - mutation: the `lastBobClosureTick` reset-safety discard (`tick < lastBobClosureTick` → `null`) deleted → "a stale SPACING mark set in Attract from a higher timeline is discarded too -- ..." went red, and so did "a stale mark from a DIFFERENT (higher) timeline is discarded when tick restarts lower -- ..." (that test sets both marks in a game); the other 42 stayed green.
+  - mutation: the spacing mark set only after the no-player gate (so an Attract closure is not recorded: the Attract-closure I/O row) → "the Attract-time closure's spacing mark is genuinely recorded -- a later closure in phase \"game\", inside the spacing window, is still gated by it" went red; the other 43 stayed green.
+  - mutation: the `state.phase !== 'game'` clear of the settle map deleted → "a new game's player 1 is never judged against the previous game's SETTLE mark; ..." went red (its same-game control is the other half of that test). "the spacing mark survives a game boundary: ..." also went red, on its positive half: its closure (now at 700) is past spacing but inside game 1's uncleared settle.
+  - mutation: `lastBobClosureTick = null` added to the outside-a-game clear (the spacing mark cleared by a phase change) → "the spacing mark survives a game boundary: a game-1 closure at 100, an Attract step, then the new game's closure at 300 is ignored; at 700 (past spacing) it warns" went red; the other 43 stayed green. [Re-run at the rework-1 review after its positive moved from 600 to 700, off the inclusive 500-tick boundary: red again, the only one of 46.] The Attract-closure test above cannot catch this: its closure is itself in Attract, so the clear runs before the closure re-sets the mark.
 - AC9: the parking-entry close is deleted → the saved-drain test goes red.
   - mutation: the `device_ball_entered`/`parking` branch in `skill-shot.ts` disabled → `test/rules-modes.test.ts`:"saved no-switch drain: plunge, trough entry inside the save window, autolaunch, then the lit Top lane -- ball_saved, and no award, no letter" went red (plus the two moved `s_trough_2`/`s_lock_1` cases); the manual-plunge control stayed green.
 - AC10: `renderFrame` shows `total` instead of `remaining` → the integration test goes red.
@@ -307,22 +340,31 @@ None is declined.
 **QA stage (2026-09-29).** The tests below are added to existing files, all of which the default `pnpm test` discovers. Each mutation was applied from a scratchpad backup, observed red and restored. `git diff -- src test | sha1sum` matched its pre-mutation value after every restore (`8e7dd31…`), and `git diff --stat -- src` was empty.
 - (QA) `test/backglass-integration.test.ts`: describe "Story 3.0 QA -- a real createRules() run folded like the real loop: three steps at an earned multiplier, and batched frames" (4 tests). It uses a real `createRules()` via `runRulesScript`, with an x2 earned on the real Top lanes, 3 letters and 1 loop from real switches, and 1 seeded strike, paid by player 2 in Hot seat. Frames are folded through `advanceBackglass()`/`renderFrame()`/`rasterise()` in the real loop's shape: every owed tick's events and the last tick's snapshot, at 1, 17 and `MAX_OWED_TICKS` ticks per frame.
 - (QA) `test/backglass-frame.test.ts`: in the AC 5 describe, "every bonusCountMs resolveTuning() ADMITS near the ceiling, fractional ms included, fits the hold; ...". It sweeps MAX-2 to MAX+2 in 0.1 ms steps.
-- (QA) `test/rules-tilt.test.ts`: in the AC 8 describe, "player 1's own settle mark survives player 2's turn: ...", with a control.
+- (QA) `test/rules-tilt.test.ts`: in the AC 8 describe, "player 1's own settle mark survives player 2's turn: ...", with a control. [Adapted at rework 1 to the single spacing mark: player 2's closure moved to T+600 and player 1's return to T+1200 (T+1100 at rework 1, moved at its review off the inclusive 500-tick spacing boundary), so every closure is past the spacing window of the one before it and only settle decides.]
 - AC1 / AC10 (QA): mutation: `bonusCountDownSteps()` applies the multiplier to the FIRST step's `remaining` only → `test/backglass-integration.test.ts`:"three steps at an earned x2: BONUS 100,000 -> 70,000 -> 50,000 -> 0 on the DMD, ..." went red (and "AC 6 through the real rules: ..."). Every pre-existing `rules-bonus`/`backglass-frame` test stayed green, because no earlier test counted three steps.
 - AC4 (QA, real rules): mutation: the arming-branch fold given `[]` → `test/backglass-integration.test.ts`:"AC 4 through the real rules: at bonusCountMs 0 the whole count shares the drain's own frame, ..." went red; the other three QA tests stayed green.
 - AC5 (QA, boundary): mutation: the `resolveTuning()` check changed to `bonusCountMs >= BONUS_COUNT_MAX_MS + 1` (a whole-ms bound that admits 999.5 ms, which rounds to 1000 ticks, and 3 x 1000 = 3000 does not fit) → `test/backglass-frame.test.ts`:"every bonusCountMs resolveTuning() ADMITS near the ceiling, ..." went red. Every pre-existing AC 5 test in `backglass-frame`, `tuning` and `tuning-panel` stayed green.
 - AC6 (QA, real rules): mutation: the hold branch folds only the frame's FIRST `bonus_count_step` → `test/backglass-integration.test.ts`:"AC 6 through the real rules: a frame carrying ONLY the three steps ..." went red; its one-tick-per-frame control half and the other QA tests stayed green.
-- AC8 (QA): mutation: both per-player maps are cleared whenever `state.currentPlayer` changes → `test/rules-tilt.test.ts`:"player 1's own settle mark survives player 2's turn: ..." went red. The existing run A/B tests and their controls stayed green.
+- AC8 (QA; re-run at rework 1 against the per-player settle map, the only per-player mark now): mutation: the settle map `lastWarningTick` cleared whenever `state.currentPlayer` changes → `test/rules-tilt.test.ts`:"player 1's own settle mark survives player 2's turn: back up at T+1200 (inside their settle window) they are ignored, at T+3000 they warn; ..." went red. Run A, run B, the run-B control and the other tilt tests stayed green (43 of 44). [Re-run at the rework-1 review with the test at T+1200: red again, the only one of 46.]
 - AC3, AC9 (QA re-check, no new test): both recorded mutations were re-applied and went red again. The Attract clear disabled → "with the Slam at E+200: ..." (its control stayed green). The parking branch disabled → "saved no-switch drain: ..." plus the `s_trough_2`/`s_lock_1` cases (the manual-plunge control stayed green).
 - Suite after QA: `pnpm test` 129 files / 2124 tests green (was 2118); `pnpm typecheck` and `pnpm lint:boundaries` exit 0.
 
 **Code review (2026-09-29).** Each mutation was applied from a scratchpad backup, observed red and restored. `git diff | sha1sum` matched its pre-mutation value after every restore.
 - AC5 (review, the ceiling now keeps one frame cap of margin, `BONUS_COUNT_MAX_MS` = 933): mutation: `BONUS_COUNT_MAX_MS = 999` (the first derivation) → `test/backglass-frame.test.ts`:"at bonusCountMs = BONUS_COUNT_MAX_MS, BONUS_CATEGORIES.length steps plus one MAX_OWED_TICKS frame end strictly inside BALL_ENDED_HOLD_TICKS" went red, and so did the QA sweep "every bonusCountMs resolveTuning() ADMITS near the ceiling, ...". The same two went red at `= 934`.
   - mutation: `BONUS_COUNT_MAX_MS = 932` → "and BONUS_COUNT_MAX_MS is the LARGEST such whole ms: ..." went red; the other AC 5 tests stayed green.
-- AC8 (review, idle-mark reset safety): mutation: the `idleBobClosureTick` discard branch in `tilt.ts` disabled → `test/rules-tilt.test.ts`:"a stale IDLE mark from a higher timeline is discarded too -- ..." went red; the other 43 tilt tests stayed green.
+- AC8 (review, reset safety of an Attract-set mark; corrected at rework 1, which replaced `idleBobClosureTick` with the one machine-wide spacing mark `lastBobClosureTick`): the review's test is now "a stale SPACING mark set in Attract from a higher timeline is discarded too -- ...". mutation (re-run at rework 1): the `lastBobClosureTick` discard branch in `tilt.ts` deleted → that test went red, together with "a stale mark from a DIFFERENT (higher) timeline is discarded ..."; the other 42 tilt tests stayed green.
 - AC1 (review, the tilted conjunct): mutation: `hasCount = ballEndedEvent.total > 0` (the `!tilted` conjunct dropped) → `test/backglass-frame.test.ts`:"the I/O row \"Zero bonus / tilted\": ..." went red.
 - I/O row "Last ball (game over)" (review, Backglass half): mutation: the `ball_ended` hold branch gated on `game.phase === 'game'` instead of `!== 'attract'` → `test/backglass-frame.test.ts`:"the I/O row \"Last ball (game over)\": with game_over snapshots the hold still counts down to BONUS 0 and the final score" went red (together with Story 2.11's game-over warning-drop test).
 - Suite after review: `pnpm test` 129 files / 2126 tests green; `pnpm typecheck`, `pnpm lint:boundaries` and `pnpm check:headers` exit 0.
+
+**Rework 1 (2026-09-29).** `src/sim/rules/tilt.ts`: one machine-wide spacing mark, a per-player settle map cleared outside a game. `test/rules-tilt.test.ts`: the AC 8 describe rewritten (run A, run B, run-B control, the settle cross-game pair, a new spacing-survives-a-game-boundary pair, and the adapted QA settle test), and the review's reset-safety test adapted. The file still has 44 tests. The AC8 mutations are recorded above. Suite after rework 1: `pnpm test` 129 files / 2126 tests green; `pnpm typecheck`, `pnpm lint:boundaries` and `pnpm check:headers` exit 0. No added `src`/`test` line has a non-ASCII byte, and both files are LF.
+
+**Rework 1 review (2026-09-29).** Each mutation was applied to `src/sim/rules/tilt.ts` from a scratchpad backup, `test/rules-tilt.test.ts` was run (46 tests), and the file was restored; `git diff | sha1sum` (`0d37903...`), `git status --short` and `git diff --stat` matched their pre-mutation values after every restore.
+- AC8 (review, every closure moves the one spacing mark -- ignored and tilted closures included; two tests added to the I/O matrix describe, each with a positive past spacing): mutation: the pre-rework shape -- the mark set in the no-player branch and, in a game, only after the `tilted` and `spaced` gates (counted closures only) → `test/rules-tilt.test.ts`:"an IGNORED in-game closure still moves the spacing mark: 100 warns, 400 is ignored, 800 (only 400 after it) does not tilt; ..." and "a closure while TILTED still moves the spacing mark: the next ball's closure 200 later is ignored; ..." went red; the other 44 stayed green.
+- AC8 (review, settle-map reset safety after rework 1 reordered the discards): mutation: `discardFutureMarks(lastWarningTick, tick)` deleted → "a stale mark from a DIFFERENT (higher) timeline is discarded when tick restarts lower -- ..." went red; the other 45 stayed green.
+- AC8 (review, the run-B control): mutation: `settled` forced true (the settle check disabled) → "run B, control: the same closures with no drain are ignored -- player 1 is still up and inside their OWN settle window" went red, with the four AC 2 settle tests, the cross-game settle test and the QA settle-survives test (7 of 46).
+- AC8 (review, run A's positive control): mutation: `lastBobClosureTick` initialised to 0 instead of `null` (a phantom closure at tick 0) → "run A: ... the control without player 1's closure at T warns player 2" went red on its control half (27 of 46 red in all: every test with a first closure inside 500 ticks of tick 0).
+- Suite after the rework-1 review: `pnpm test` 129 files / 2128 tests green (`test/rules-tilt.test.ts` 46); `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm build`, `pnpm check:dist` and `pnpm check:size` exit 0.
 
 **Browser smoke (the lead runs it; the DMD is observed through an in-page rAF sampler cropping `#render-canvas`, because each screen lasts under 2 s):** Start a game, hit at least one DRAGON target, and drain. Expected:
 - The end-of-ball screen shows PLAYER 1, the pre-bonus score, and `BONUS <total>`.
@@ -335,66 +377,53 @@ None is declined.
 Status: done
 Blocking condition: none
 
-**Summary.** The eight Epic 2 defects are closed.
-- The end-of-ball bonus now counts DOWN: one step per nonzero category, and the last `remaining` is exactly 0.
-- The Backglass shows `BONUS <total>` at arming, with the pre-bonus score (`score - total`). The score line then rises by what each step pays and lands on the final score exactly at BONUS 0.
-- The sim's payment is untouched: the same `bonusTotal()`, the same `ball_ended`, and the same drain-tick write.
-- Attract clears the count (DW-285). `bonusCountTicks` is clamped to at least 1 (DW-286). `resolveTuning()` rejects `bonusCountMs > BONUS_COUNT_MAX_MS` (999) (DW-287). Every step in a frame is folded, in the hold and in the arming frame (DW-287).
-- The `bonusCountMs` provenance now quotes FR-20 verbatim, re-recorded header-only in the goldens (DW-289).
-- The tilt marks are per player, with a shared idle mark (DW-284).
-- A launched skill shot closes with no award on any parking-device entry (DW-232).
+**Summary (rework 1, 2026-09-29).** The one open `[Review]` item is closed. The tilt SPACING mark `lastBobClosureTick` is now ONE machine-wide physical mark. Every bob closure updates it, whoever is up and whatever the phase, tilted or ignored, and a phase change never clears it. It replaces `idleBobClosureTick`, so spacing runs from the last closure of any kind (AD-2/DW-240, FR-14). The SETTLE mark `lastWarningTick` stays a per-player `Map`: only that player's counted warning sets it, and it is cleared on any step outside `phase: 'game'`. Both marks are discarded when greater than `tick`. In Hot seat, run A (player 2's closure at T+200) is ignored, run B (T+600) warns player 2, and the run-B control is ignored for player 1. The rest of the story (bonus count-down, DW-285/286/287/289, skill-shot close) was delivered by `f3c89cb` and `a336152` and was not re-derived in this pass.
 
-baseline_revision: 56ac0b91233329c07a977c016651c3bb46853431
+baseline_revision: 2ac0ae746c58267a47b62bf46abf551ca0bfe017 (the story's original baseline is `56ac0b9`, frontmatter `baseline_commit`)
 
-**Files changed.**
-- `src/sim/rules/bonus.ts`: `bonusCountDownSteps()` replaces the count-up helper, sharing `bonusSubtotal()` with `bonusTotal()`.
-- `src/sim/contracts/events.ts`: `BonusCountStepEvent.running` is renamed to `remaining`, with a count-down doc.
-- `src/sim/rules/ball-controller.ts`: arms from the count-down, clamps `bonusCountTicks` with `Math.max(1, ...)`, and clears the schedule in Attract.
-- `src/sim/table/tuning.ts`: corrected `bonusCountMs.source`; `BONUS_COUNT_MAX_MS` and its `resolveTuning()` rejection.
-- `src/presentation/backglass/frame.ts`: `HeldBallEnded` (pre-bonus score, final score, remaining, complete), `foldBonusCountSteps()` (last step wins), and `ballEndedScoreLine()`.
-- `src/sim/rules/tilt.ts`: per-player `Map` marks plus the idle mark, cleared outside a game, reset-safe.
-- `src/sim/rules/modes/skill-shot.ts`: the parking-entry close.
-- `test/replays/*.golden.json` (5): only the two `.source` leaves changed, confirmed by a per-leaf JSON diff. Still LF.
-- Tests: `test/rules-bonus.test.ts`, `test/backglass-frame.test.ts`, `test/backglass-integration.test.ts`, `test/tuning.test.ts`, `test/tuning-panel.test.ts`, `test/rules-tilt.test.ts`, `test/rules-modes.test.ts`, `test/contracts.test.ts` and `test/rules-match.test.ts` cover AC1–AC10, the `remaining` rename, and the re-staged DW-235 pair.
+**Files changed in this pass.**
+- `src/sim/rules/tilt.ts`: one machine-wide spacing mark updated before every gate, a per-player settle map cleared outside a game, reset-safe discards, and the header prose. The AD-7 quote was corrected at review.
+- `test/rules-tilt.test.ts` (46 tests, was 44):
+  - The AC 8 describe was rewritten: run A with a positive control, run B, the run-B control, the settle cross-game pair, a spacing-survives-a-game-boundary pair, and the adapted QA settle test.
+  - The review's reset-safety test was adapted to the spacing mark.
+  - Two tests were added at review: an ignored closure and a tilted closure each move the spacing mark.
+- `_bmad-output/implementation-artifacts/spec-3-0-epic-2-deferred-cleanup.md`: the `[Review]` task was ticked, the stale AC8 `mutation:` lines were replaced, the QA and review AC8 lines were corrected, the Rework 1 and Rework 1 review Verification notes were added, and this triage log and result were written.
 
-**Footprint extensions (uncontended):** `src/sim/contracts/events.ts`, `src/presentation/backglass/frame.ts`, `src/sim/rules/modes/skill-shot.ts` (under `src/sim/rules/**`, so in footprint), and `test/*.test.ts`. No contended path was touched.
+**Review findings (follow-up pass).** Four layers returned 26 findings: high 0, medium 3, low 21, false 2.
+- **Patched (3 medium rows, 1 root cause; 7 low rows, 5 root causes):**
+  - ignored and tilted closures now pinned as moving the spacing mark;
+  - run A's control replaced by a genuine positive;
+  - the two "past spacing" tests moved off the inclusive 500-tick boundary;
+  - the AD-7 misquote corrected;
+  - the settle discard and run-B control mutations applied and recorded.
+- **Deferred:** none new. The existing `deferred:` item, `matchDelayMs.source`, was already resolved at code review as DW-292 and is untouched.
+- **Rejected (16 rows, 2 of them false),** each with its reason in the Review Triage Log:
+  - stale spec prose outside Verification, which only the lead may edit: the Attract-closure row's "(idle mark)", the Execution list, the Design Notes, the Change Log, the Intent's Approach, and the AD-7 Defer entry;
+  - the old Auto Run Result, rewritten here;
+  - the unticked task, ticked here;
+  - the settle-coupled positive of the game-boundary test;
+  - a cosmetic mutation-line count;
+  - the direct-controller cross-game tests;
+  - two false rows: the gate set was not re-run, and the frontmatter is inconsistent.
 
-**Review findings.** 4 layers returned 33 findings: high 0, medium 2, low 26, false 5.
-- **Patches applied (2 medium, 13 low rows, 9 root causes):**
-  - a cross-game tilt-mark test;
-  - a no-count fold-guard test;
-  - arming-fold, slice and jump-shape mutations applied and recorded;
-  - the "strictly rising" check now reads the rendered score;
-  - a redundant assertion deleted;
-  - the AC10 comment corrected;
-  - the skill-shot docs now say "the trough drain, or the Lock";
-  - three stale "count-up" test messages fixed.
-- **Deferred (1, low):** `TUNING.matchDelayMs.source` still says "count-up". This is hashed provenance, and fixing it needs its own header-only golden re-record.
-- **Rejected (18 rows),** each with its reason in the Review Triage Log:
-  - the ceiling's 3-tick display margin (spec-prescribed formula);
-  - per-player spacing (as specified);
-  - `complete` unread (the Code Map asks for it);
-  - the weak outside-TUNING test;
-  - the copied ms-to-ticks formula;
-  - a two-`ball_ended` frame (theoretical);
-  - the pre-bonus score from the frame-end snapshot;
-  - a 0-valued category;
-  - the spec status placeholder;
-  - the golden helper not being a test;
-  - the DW-235 re-staging.
-
-**Follow-up review recommended: false.** This first pass patched 1 medium root cause (two rows) and no high, and no specific unverified risk remains.
+**Follow-up review recommended: false.** This is a follow-up pass (`followup_pass` = true), and it patched no `high`. The work has converged. Patched counts by entry verdict: high 0, medium 1, low 5.
 
 **Verification.**
-- `pnpm test`: 129 files and 2118 tests, all passing (baseline 2089).
-- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all exit 0.
-- Golden per-leaf JSON diff, re-run after the patches: only `header.gameStart.tuning.bonusCountMs.source` and `.bonusCountTicks.source` change in each of the five goldens. No hash, trajectory, transition or checkpoint moved, and line endings are LF.
-- No non-ASCII bytes in added source or test lines.
-- Matrix Test Audit: all 12 I/O rows are covered by tests that ran green.
-- Every AC's pinning mutation is recorded under `## Verification`, each applied, observed red and reverted to a byte-identical tree.
-- The browser smoke is left to the lead, per the spec.
+- `pnpm test`: 129 files, 2128 tests, all passing. It was 2126 at entry; the review added 2 tilt tests.
+- `pnpm typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all exit 0. They were run after implement and again after the review patches.
+- No golden was touched in this pass. No added `src`/`test` line has a non-ASCII byte, and both changed files are LF.
+- Matrix Test Audit: the Hot-seat row is covered by run A, run B and the run-B control (real `runRulesScript` drain and rotation). The Attract-closure row is covered by the test at `test/rules-tilt.test.ts` "the Attract-time closure's spacing mark is genuinely recorded". Every other row's tests are unchanged and ran green.
+- Rule 19: every AC8 pinning test touched in this pass has a fresh `mutation:` line under `## Verification`. Each was applied, observed red and reverted, and the tree was byte-identical after every restore.
+- Rule 13 containment: the handoff and review subagents made no commit; `git log` HEAD was unchanged until finalize.
 
-**Residual risks.**
-- (1) At a dev-panel `bonusCountMs` near the 999 ms ceiling, the last step lands 3 ticks before the hold releases. With multi-tick frames, BONUS 0 and the final score may not draw before the screen moves on. The shipped 400 ms leaves 1800 ms of margin. Widening the margin means changing the spec's derivation formula (for example, subtracting `MAX_OWED_TICKS` or a display allowance), which is a lead decision.
-- (2) With the per-player marks (as specified), a bob still swinging from player 1's nudge after a quick drain can warn player 2.
-- (3) The AC10 integration test folds one tick per frame. The real loop's batching is covered only by the AC4/AC6 unit-level fold tests and the lead's browser smoke.
+**Residual risks (for the lead).**
+1. Stale pre-amendment prose remains in parts of the spec that this skill may not edit:
+   - Intent Problem (7) and Approach ("Keep the tilt marks per player");
+   - the Attract-closure I/O row's "(idle mark)";
+   - the Execution line for `tilt.ts`;
+   - the Design Notes' idle-mark and 999 ms bullets;
+   - the AD-7 Defer entry's "idleBobClosureTick is missing".
+
+   The behaviour matches the amended Always clause, the Hot-seat row and AC8.
+2. The spine's AD-7 closure-state inventory (owned by 3-1 via DW-291) should now read: `lastBobClosureTick` is one machine-wide scalar, never cleared by phase; `lastWarningTick` is a per-player `Map`, cleared outside a game. `idleBobClosureTick` no longer exists.
+3. The cross-game settle clear is pinned only against a directly driven controller. `runRulesScript` cannot carry a controller across games.

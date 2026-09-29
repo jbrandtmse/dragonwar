@@ -15,22 +15,28 @@
 // is measured from the last COUNTED warning and gates only the next
 // warning, never the tilting closure itself.
 //
-// Story 3.0 (DW-284): the marks are PER PLAYER. `lastBobClosureTick` and
-// `lastWarningTick` (AD-7's names, kept) are `Map<playerIndex, tick>`: a
-// closure in `phase: 'game'` with a current player updates only THAT
-// player's marks, so in Hot seat player 2's first nudge is never judged
-// against player 1's spacing or settle window. A closure in any other state
-// (Attract, `game_over`, or a game with no current player) updates one
-// shared idle mark, `idleBobClosureTick`, which gates the SPACING check of
-// every player -- AD-7: "the bob ... its own history is physical and updates
-// whatever the phase", so a bob still swinging from an Attract nudge must
-// still debounce the first closure of the game that follows. Both maps are
-// cleared on any step whose `phase` is not 'game', so no player's marks
-// outlive their game. The DW-240 origins are unchanged: spacing runs from
-// the last closure of any kind (the player's own, or the idle mark), and
-// settle from the player's last counted warning.
+// Story 3.0 (DW-284; amended at its code review, rework 1 -- AD-2/DW-240,
+// FR-14): the two marks have different owners.
+// - The SPACING mark, `lastBobClosureTick`, is ONE machine-wide physical
+//   mark. EVERY `tilt_bob_closed` updates it -- whoever is up, whatever the
+//   phase (Attract, `game_over`, a game with no current player), tilted or
+//   not. The bob is one pendulum: the rules cannot tell a second nudge from
+//   the same bob still swinging, so FR-14's "the bob's continued swing cannot
+//   produce two warnings inside the debounce window" binds across a Hot-seat
+//   rotation too -- player 2's closure inside the window of player 1's is
+//   ignored. AD-7: "The bob is never reset by command" -- its history is
+//   physical and updates whatever the phase, so an Attract nudge still
+//   debounces the first closure of the game that follows. It is never
+//   cleared by a phase change.
+// - The SETTLE mark, `lastWarningTick`, is PER PLAYER (`Map<playerIndex,
+//   tick>`): warnings are player-scoped (AD-7, FR-14/FR-17), so only that
+//   player's own counted warning sets it, and in Hot seat player 2 is never
+//   judged against player 1's settle window. The map is cleared on any step
+//   whose `phase` is not 'game', so no player's settle outlives their game.
+// The DW-240 origins are unchanged: spacing runs from the last closure of
+// any kind, and settle from the player's own last counted warning.
 //
-// Every mark (both maps and the idle mark) is closure state,
+// Every mark (the spacing mark and the settle map) is closure state,
 // deliberately never `GameState` -- `machine` is present in all five
 // goldens' `attract` snapshots, so a new machine-scoped field would move
 // `expectedGameStateHash` on every one (Block If). They are monotone tick
@@ -96,12 +102,11 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 	const tiltWarningSpacingTicks = shotWindowTicks('tiltWarningSpacingMs', tuning);
 	const tiltSettleTicks = shotWindowTicks('tiltSettleMs', tuning);
 
-	// Story 3.0 (DW-284): per player, keyed by player index (this file's
-	// own header). The idle mark is the one shared mark, for closures outside
-	// a live player's game.
-	const lastBobClosureTick = new Map<number, number>();
+	// Story 3.0 (DW-284, rework 1; this file's own header): the spacing mark
+	// is one machine-wide physical mark; the settle mark is per player, keyed
+	// by player index.
+	let lastBobClosureTick: number | null = null;
 	const lastWarningTick = new Map<number, number>();
-	let idleBobClosureTick: number | null = null;
 
 	/** Reset-safety (this file's own header): drops every mark strictly greater than `tick` -- a mark from a different timeline. */
 	function discardFutureMarks(marks: Map<number, number>, tick: number): void {
@@ -116,15 +121,14 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 		// Reset-safety against a restarted timeline (this file's own header):
 		// a mark strictly greater than the current tick is from a different
 		// timeline and must be discarded, not compared against.
-		discardFutureMarks(lastBobClosureTick, tick);
-		discardFutureMarks(lastWarningTick, tick);
-		if (idleBobClosureTick !== null && tick < idleBobClosureTick) {
-			idleBobClosureTick = null;
+		if (lastBobClosureTick !== null && tick < lastBobClosureTick) {
+			lastBobClosureTick = null;
 		}
-		// DW-284: outside a game no player's marks survive -- a new game's
-		// player 1 starts with none, whoever played before.
+		discardFutureMarks(lastWarningTick, tick);
+		// DW-284: outside a game no player's SETTLE mark survives -- a new
+		// game's player 1 starts with none, whoever played before. The spacing
+		// mark is physical and is never cleared here (this file's own header).
 		if (state.phase !== 'game') {
-			lastBobClosureTick.clear();
 			lastWarningTick.clear();
 		}
 
@@ -190,29 +194,28 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 
 			// AD-7: "the bob is never reset by command" -- its own history is
 			// physical and updates whatever the phase, spec I/O matrix "Bob
-			// closure in Attract". Outside a live player's game that history is
-			// the shared idle mark (DW-284, this file's own header); inside one
-			// it is the current player's own mark. Captured BEFORE the update so
-			// eligibility below is judged against the marks' values before THIS
-			// closure.
+			// closure in Attract". The ONE machine-wide spacing mark (DW-284
+			// rework 1, AD-2/DW-240, this file's own header) is updated by every
+			// closure, whoever is up and whatever the phase, BEFORE any gate
+			// below. The previous value is captured first so eligibility is
+			// judged against the mark as it stood before THIS closure.
+			const previousBobClosureTick = lastBobClosureTick;
+			lastBobClosureTick = tick;
+
 			const playerIndex = nextState.currentPlayer;
 			const player = nextState.phase === 'game' ? nextState.players[playerIndex] : undefined;
 			if (!player) {
-				idleBobClosureTick = tick;
 				continue;
 			}
-			const previousBobClosureTick = lastBobClosureTick.get(playerIndex) ?? null;
-			lastBobClosureTick.set(playerIndex, tick);
 
 			if (nextState.machine.tilt.tilted) {
 				continue;
 			}
 
-			// DW-240: spacing runs from the last closure of ANY kind -- this
-			// player's own, or an idle-time closure (the bob is one pendulum).
-			const spacedFromOwn = previousBobClosureTick === null || tick - previousBobClosureTick >= tiltWarningSpacingTicks;
-			const spacedFromIdle = idleBobClosureTick === null || tick - idleBobClosureTick >= tiltWarningSpacingTicks;
-			if (!spacedFromOwn || !spacedFromIdle) {
+			// DW-240: spacing runs from the last closure of ANY kind, by any
+			// player or in any phase (the bob is one pendulum; FR-14).
+			const spaced = previousBobClosureTick === null || tick - previousBobClosureTick >= tiltWarningSpacingTicks;
+			if (!spaced) {
 				continue;
 			}
 

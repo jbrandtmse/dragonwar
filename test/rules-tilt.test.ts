@@ -1020,12 +1020,13 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 3, tick: 1 }]);
 	});
 
-	// Story 3.0 code review (verification-gap, Rule 19): the idle mark
-	// (`idleBobClosureTick`) has its OWN reset-safety branch, and the test
-	// above never reaches it -- its high-tick closure is in a game, so it
-	// sets only the per-player marks. An idle-state closure at a high tick
-	// is the only way to leave the idle mark above a later tick.
-	it('a stale IDLE mark from a higher timeline is discarded too -- an Attract closure at 9000, then a game closure at tick 1 on the SAME controller, warns', () => {
+	// Story 3.0 code review (verification-gap, Rule 19), adapted at rework 1
+	// to the ONE machine-wide spacing mark (AD-2/DW-240): the test above sets
+	// BOTH marks in a game, so there the settle discard and the spacing
+	// discard each turn it red. An Attract closure at a high tick sets ONLY
+	// the spacing mark (no warning is counted, and the settle map is cleared
+	// outside a game), so this test isolates the spacing mark's own discard.
+	it('a stale SPACING mark set in Attract from a higher timeline is discarded too -- an Attract closure at 9000, then a game closure at tick 1 on the SAME controller, warns', () => {
 		const controller = createTiltController(adjustments(5), PRODUCTION_TUNING);
 		const attractClosure = controller.step(gameState({ phase: 'attract', players: [], modes: [] }), [{ type: 'tilt_bob_closed', tick: 9000 }], 9000);
 		expect(attractClosure.events, 'sanity: Attract emits nothing').toEqual([]);
@@ -1034,63 +1035,129 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 		const restarted = controller.step(inGame, [{ type: 'tilt_bob_closed', tick: 1 }], 1);
 		expect(
 			restarted.events,
-			'the stale idle mark (9000) must be discarded, not compared against -- otherwise tick 1 - 9000 is never >= tiltWarningSpacingTicks and the new session never warns',
+			'the stale spacing mark (9000) must be discarded, not compared against -- otherwise tick 1 - 9000 is never >= tiltWarningSpacingTicks and the new session never warns',
 		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 1 }]);
+	});
+
+	// Story 3.0 rework 1 review (verification-gap, Rule 19): the Always
+	// clause says EVERY closure moves the one spacing mark -- an ignored one
+	// and a tilted one included (DW-240: "of any kind, counted or not").
+	// Every other test here judges a closure against one that COUNTED, so a
+	// mark updated only by counted closures stayed green. adjustments(1) puts
+	// the player on the tilting path at their second eligible closure, which
+	// skips settle, so only spacing decides.
+	it('an IGNORED in-game closure still moves the spacing mark: 100 warns, 400 is ignored, 800 (only 400 after it) does not tilt; at 900 (500 after it) it tilts', () => {
+		const inGame = gameState({ players: [emptyPlayer({ ballNumber: 2 }), emptyPlayer()] });
+		const bob = (tick: number) => [{ type: 'tilt_bob_closed' as const, tick }];
+
+		const inside = createTiltController(adjustments(1), PRODUCTION_TUNING);
+		const warned = inside.step(inGame, bob(100), 100);
+		expect(warned.events, 'sanity: the first closure warns').toEqual([{ type: 'tilt_warning', player: 0, remaining: 0, tick: 100 }]);
+		const ignored = inside.step(warned.state, bob(400), 400);
+		expect(ignored.events, 'sanity: 300 after the warning, inside spacing').toEqual([]);
+		expect(
+			inside.step(ignored.state, bob(800), 800).events,
+			'800 is 700 after the COUNTED closure but only 400 after the ignored one at 400 -- the bob is still swinging, so no tilt',
+		).toEqual([]);
+
+		const past = createTiltController(adjustments(1), PRODUCTION_TUNING);
+		const pastWarned = past.step(inGame, bob(100), 100);
+		const pastIgnored = past.step(pastWarned.state, bob(400), 400);
+		expect(past.step(pastIgnored.state, bob(900), 900).events, 'positive: 500 after the ignored closure it tilts').toEqual([{ type: 'tilt', player: 0, tick: 900 }]);
+	});
+
+	it('a closure while TILTED still moves the spacing mark: the next ball\'s closure 200 later is ignored; 600 later it warns', () => {
+		const tilted = gameState({ players: [emptyPlayer({ ballNumber: 2 }), emptyPlayer()], machine: { tilt: { tilted: true, slamTilted: false } } });
+		const nextBall = gameState({ players: [emptyPlayer({ ballNumber: 3 }), emptyPlayer()] });
+		const bob = (tick: number) => [{ type: 'tilt_bob_closed' as const, tick }];
+
+		const inside = createTiltController(adjustments(3), PRODUCTION_TUNING);
+		expect(inside.step(tilted, bob(100), 100).events, 'sanity: a tilted ball counts nothing').toEqual([]);
+		expect(inside.step(nextBall, bob(300), 300).events, 'inside spacing of the TILTED closure at 100: ignored').toEqual([]);
+
+		const past = createTiltController(adjustments(3), PRODUCTION_TUNING);
+		past.step(tilted, bob(100), 100);
+		expect(past.step(nextBall, bob(700), 700).events, 'positive: past spacing, and no settle mark (nothing was counted while tilted)').toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: 700 }]);
 	});
 });
 
-// Story 3.0 AC 8 (DW-284): the tilt marks are per player. Before, both marks
-// were machine-wide, so in Hot seat player 2's first nudge was judged
-// against player 1's spacing window (run A) or settle window (run B) and
-// silently ignored. Each run is paired with a control: the SAME closures
-// with no drain, so player 0 is still up and the closure IS inside their own
-// window -- proving the windows still bind a player against themself.
-describe('Story 3.0 AC 8 (DW-284) -- Hot seat: player 2\'s first closure is never judged against player 1\'s tilt windows', () => {
+// Story 3.0 AC 8 (DW-284; amended at code review, rework 1 -- AD-2/DW-240,
+// FR-14). Before this story both marks were machine-wide, so in Hot seat
+// player 2's first nudge was judged against player 1's SETTLE window and
+// silently ignored. The fix splits the two marks by owner: the SPACING mark
+// stays ONE machine-wide physical mark (the bob is one pendulum -- a closure
+// inside the window of the last closure is ignored whoever is up, run A),
+// while the SETTLE mark is per player (player 2 is never judged against
+// player 1's counted warning, run B). Run A's control is the same drain and
+// closure with no earlier closure at T, which warns player 2. Run B's
+// control is the same closure with no drain: player 1 is still up and
+// inside their own settle window.
+describe('Story 3.0 AC 8 (DW-284) -- Hot seat: spacing is one physical mark whoever is up; settle is judged against each player\'s own warning', () => {
 	const T = 100;
 	const DRAIN_TICK = T + 100;
 	const TROUGH_SLOT = TABLE.ballDevices.bd_trough.slots[3];
+	const RUN_A_TICK = T + 200; // inside tiltWarningSpacingTicks (500) of the closure at T
+	const RUN_B_TICK = T + 600; // past spacing (500), inside tiltSettleTicks (3000) of the warning at T
 
-	function run(secondClosureTick: number, withDrain: boolean) {
+	function run(secondClosureTick: number, withDrain: boolean, withFirstClosure = true) {
 		const initial = gameState({ players: [emptyPlayer({ ballNumber: 1 }), emptyPlayer({ ballNumber: 0 })] });
-		let builder = close('s_tilt_bob').at(T);
-		if (withDrain) {
+		let builder = withFirstClosure ? close('s_tilt_bob').at(T) : close(TROUGH_SLOT).at(DRAIN_TICK);
+		if (withDrain && withFirstClosure) {
 			builder = builder.close(TROUGH_SLOT).at(DRAIN_TICK);
 		}
 		const script = builder.close('s_tilt_bob').at(secondClosureTick).build();
 		return runRulesScript(script, { durationTicks: secondClosureTick + 10, initialState: initial, adjustments: adjustments(3), tuning: NO_BALL_SAVE_TUNING });
 	}
 
-	for (const [label, secondClosureTick] of [
-		['run A: inside player 1\'s SPACING window (T+200 < T+500)', T + 200],
-		['run B: past player 1\'s spacing window but inside their SETTLE window (T+600 < T+3000)', T + 600],
-	] as const) {
-		it(`${label}: after a real drain rotates to player 2, their first closure warns them`, () => {
-			const result = run(secondClosureTick, true);
-			expect(result.events.some((e) => e.type === 'ball_ended' && e.tick === DRAIN_TICK), 'sanity: the drain genuinely ends player 1\'s ball').toBe(true);
-			expect(result.statesByTick.get(DRAIN_TICK)!.currentPlayer, 'sanity: the drain rotated to player 2 (index 1)').toBe(1);
-			expect(result.events.filter((e) => e.type === 'tilt_warning')).toEqual([
-				{ type: 'tilt_warning', player: 0, remaining: 2, tick: T },
-				{ type: 'tilt_warning', player: 1, remaining: 2, tick: secondClosureTick },
-			]);
-			expect(result.finalState.players[1]!.tiltWarnings).toBe(1);
-		});
-
-		it(`${label}, control: the same closures with no drain are ignored -- player 1 is still up and inside their own window`, () => {
-			const result = run(secondClosureTick, false);
-			expect(result.finalState.currentPlayer, 'sanity: no rotation without the drain').toBe(0);
-			expect(result.events.filter((e) => e.type === 'tilt_warning')).toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T }]);
-			expect(result.finalState.players[0]!.tiltWarnings).toBe(1);
-		});
+	function expectRotatedToPlayer2(result: ReturnType<typeof run>): void {
+		expect(result.events.some((e) => e.type === 'ball_ended' && e.tick === DRAIN_TICK), 'sanity: the drain genuinely ends player 1\'s ball').toBe(true);
+		expect(result.statesByTick.get(DRAIN_TICK)!.currentPlayer, 'sanity: the drain rotated to player 2 (index 1)').toBe(1);
 	}
 
-	// Review (verification-gap / blind-hunter): the per-player maps are
-	// cleared on any step outside `phase: 'game'`, so no player's marks
-	// outlive their game. Driven directly against ONE `createTiltController()`
-	// (runRulesScript builds a fresh controller per call, so it can never
-	// carry a mark across games). Tick 300 sits inside BOTH the spacing (500)
-	// and settle (3000) windows of the game-1 warning at 100, so the pair pins
-	// the clearing of both maps.
-	it('a new game\'s player 1 is never judged against the previous game\'s marks; the control, with no step outside the game between them, is', () => {
+	it('run A: after a real drain rotates to player 2, their first closure at T+200 -- inside the SPACING window of player 1\'s closure at T -- is ignored (physical debounce, whoever is up); the control without player 1\'s closure at T warns player 2', () => {
+		const rotated = run(RUN_A_TICK, true);
+		expectRotatedToPlayer2(rotated);
+		expect(
+			rotated.events.filter((e) => e.type === 'tilt_warning'),
+			'player 2 is up, but the bob is one pendulum: a closure 200 ticks after the last one cannot warn anyone (AD-2 DW-240, FR-14)',
+		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T }]);
+		expect(rotated.finalState.players[1]!.tiltWarnings, 'player 2 collected no warning').toBe(0);
+
+		// Positive control (rework 1 review): the same drain and the same
+		// closure at T+200, with no earlier closure to swing from, warns
+		// player 2 -- so it is the spacing mark, not the rotation, that
+		// ignores run A.
+		const noEarlierClosure = run(RUN_A_TICK, true, false);
+		expectRotatedToPlayer2(noEarlierClosure);
+		expect(noEarlierClosure.events.filter((e) => e.type === 'tilt_warning')).toEqual([{ type: 'tilt_warning', player: 1, remaining: 2, tick: RUN_A_TICK }]);
+	});
+
+	it('run B: after a real drain rotates to player 2, their first closure at T+600 -- past spacing, inside player 1\'s SETTLE window -- warns player 2 (they have no settle mark of their own yet)', () => {
+		const result = run(RUN_B_TICK, true);
+		expectRotatedToPlayer2(result);
+		expect(result.events.filter((e) => e.type === 'tilt_warning')).toEqual([
+			{ type: 'tilt_warning', player: 0, remaining: 2, tick: T },
+			{ type: 'tilt_warning', player: 1, remaining: 2, tick: RUN_B_TICK },
+		]);
+		expect(result.finalState.players[1]!.tiltWarnings).toBe(1);
+	});
+
+	it('run B, control: the same closures with no drain are ignored -- player 1 is still up and inside their OWN settle window', () => {
+		const result = run(RUN_B_TICK, false);
+		expect(result.finalState.currentPlayer, 'sanity: no rotation without the drain').toBe(0);
+		expect(result.events.filter((e) => e.type === 'tilt_warning')).toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T }]);
+		expect(result.finalState.players[0]!.tiltWarnings).toBe(1);
+	});
+
+	// Review (verification-gap / blind-hunter), adapted at rework 1: the
+	// per-player SETTLE map is cleared on any step outside `phase: 'game'`,
+	// so no player's settle outlives their game. Driven directly against ONE
+	// `createTiltController()` (runRulesScript builds a fresh controller per
+	// call, so it can never carry a mark across games). Tick 700 sits past
+	// the spacing window (500) of the game-1 closure at 100, so spacing
+	// cannot decide it, and inside the settle window (3000) of the game-1
+	// warning at 100, so only the settle clear can.
+	it('a new game\'s player 1 is never judged against the previous game\'s SETTLE mark; the control, with no step outside the game between them, is', () => {
 		const firstGame = gameState({ players: [emptyPlayer({ ballNumber: 2 })] });
 		const nextGame = gameState({ players: [emptyPlayer({ ballNumber: 1 })] });
 		const attract = gameState({ phase: 'attract', players: [], modes: [] });
@@ -1099,24 +1166,48 @@ describe('Story 3.0 AC 8 (DW-284) -- Hot seat: player 2\'s first closure is neve
 		expect(acrossGames.step(firstGame, [{ type: 'tilt_bob_closed', tick: 100 }], 100).events, 'sanity: game 1 warns at 100').toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 100 }]);
 		expect(acrossGames.step(attract, [], 200).events, 'sanity: an Attract step with no closure emits nothing').toEqual([]);
 		expect(
-			acrossGames.step(nextGame, [{ type: 'tilt_bob_closed', tick: 300 }], 300).events,
-			'the new game\'s first closure is eligible -- game 1\'s marks were cleared in Attract',
-		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 300 }]);
+			acrossGames.step(nextGame, [{ type: 'tilt_bob_closed', tick: 700 }], 700).events,
+			'the new game\'s first closure warns -- game 1\'s settle mark was cleared in Attract',
+		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 700 }]);
 
 		const sameGame = createTiltController(adjustments(5), PRODUCTION_TUNING);
 		sameGame.step(firstGame, [{ type: 'tilt_bob_closed', tick: 100 }], 100);
-		expect(sameGame.step(nextGame, [{ type: 'tilt_bob_closed', tick: 300 }], 300).events, 'control: with no step outside a game, the marks still bind').toEqual([]);
+		expect(sameGame.step(nextGame, [{ type: 'tilt_bob_closed', tick: 700 }], 700).events, 'control: with no step outside a game, the settle mark still binds').toEqual([]);
 	});
 
-	// Story 3.0 QA (AC 8, the other half of "per player"). The runs above
-	// prove player 2 is not judged by player 1's marks. Nothing yet proves the
-	// converse: player 1's OWN marks survive player 2's turn, and player 2's
-	// closures never touch them. An implementation that wiped every mark on a
-	// player rotation would pass every test above. Driven against ONE
+	// Rework 1 (AD-2/DW-240; AD-7: the bob is never reset by command): the SPACING
+	// mark is physical, so unlike the settle map it is NEVER cleared by a
+	// phase change. The Attract-closure test above cannot see such a clear:
+	// its closure is itself in Attract, so a clear at the top of that step
+	// runs before the closure re-sets the mark. Here the closure is in game 1
+	// and the step in between is an Attract step with no closure.
+	it('the spacing mark survives a game boundary: a game-1 closure at 100, an Attract step, then the new game\'s closure at 300 is ignored; at 700 (past spacing) it warns', () => {
+		const firstGame = gameState({ players: [emptyPlayer({ ballNumber: 2 })] });
+		const nextGame = gameState({ players: [emptyPlayer({ ballNumber: 1 })] });
+		const attract = gameState({ phase: 'attract', players: [], modes: [] });
+
+		const inside = createTiltController(adjustments(5), PRODUCTION_TUNING);
+		inside.step(firstGame, [{ type: 'tilt_bob_closed', tick: 100 }], 100);
+		inside.step(attract, [], 200);
+		expect(inside.step(nextGame, [{ type: 'tilt_bob_closed', tick: 300 }], 300).events, 'inside the spacing window of the game-1 closure: ignored, even across the Attract step').toEqual([]);
+
+		const past = createTiltController(adjustments(5), PRODUCTION_TUNING);
+		past.step(firstGame, [{ type: 'tilt_bob_closed', tick: 100 }], 100);
+		past.step(attract, [], 200);
+		expect(past.step(nextGame, [{ type: 'tilt_bob_closed', tick: 700 }], 700).events, 'positive: past the spacing window the same closure warns').toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 700 }]);
+	});
+
+	// Story 3.0 QA (AC 8, the other half of "per player"), adapted at rework
+	// 1: only the SETTLE mark is per player now. The runs above prove player
+	// 2 is not judged by player 1's settle mark. This proves the converse:
+	// player 1's OWN settle mark survives player 2's turn, and player 2's
+	// warning never touches it. An implementation that wiped the settle map
+	// on a player rotation would pass every test above. Driven against ONE
 	// controller (runRulesScript cannot script a second real drain), with
 	// the rotation expressed as `currentPlayer` changing between steps,
-	// exactly as the ball controller changes it.
-	it('player 1\'s own settle mark survives player 2\'s turn: back up at T+600 (inside their settle window) they are ignored, at T+3000 they warn; the control with no earlier warning of their own warns at T+600', () => {
+	// exactly as the ball controller changes it. Every closure below is past
+	// the spacing window of the one before it, so only settle decides.
+	it('player 1\'s own settle mark survives player 2\'s turn: back up at T+1200 (inside their settle window) they are ignored, at T+3000 they warn; the control with no earlier warning of their own warns at T+1200', () => {
 		const T = 100;
 		const both = [emptyPlayer({ ballNumber: 2 }), emptyPlayer({ ballNumber: 1 })];
 		const p1Up = gameState({ players: both, currentPlayer: 0 });
@@ -1126,20 +1217,20 @@ describe('Story 3.0 AC 8 (DW-284) -- Hot seat: player 2\'s first closure is neve
 		const controller = createTiltController(adjustments(3), PRODUCTION_TUNING);
 		expect(controller.step(p1Up, bob(T), T).events, 'sanity: player 1 warns at T').toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T }]);
 		expect(controller.step(p2Up, [], T + 100).events, 'sanity: the rotation step emits nothing').toEqual([]);
-		expect(controller.step(p2Up, bob(T + 200), T + 200).events, 'sanity: player 2 warns on their own first closure').toEqual([{ type: 'tilt_warning', player: 1, remaining: 2, tick: T + 200 }]);
+		expect(controller.step(p2Up, bob(T + 600), T + 600).events, 'sanity: player 2 warns on their own first closure, past spacing').toEqual([{ type: 'tilt_warning', player: 1, remaining: 2, tick: T + 600 }]);
 		expect(
-			controller.step(p1Up, bob(T + 600), T + 600).events,
-			'player 1 is back up, past their own spacing (500) but inside their own settle (3000) from T: ignored -- their mark survived player 2\'s turn',
+			controller.step(p1Up, bob(T + 1200), T + 1200).events,
+			'player 1 is back up, past spacing (500) from player 2\'s closure but inside their own settle (3000) from T: ignored -- their mark survived player 2\'s turn',
 		).toEqual([]);
 		expect(controller.step(p1Up, bob(T + 3000), T + 3000).events, 'positive: once their own settle window has passed, player 1 warns again').toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T + 3000 }]);
 
 		const control = createTiltController(adjustments(3), PRODUCTION_TUNING);
 		control.step(p1Up, [], T);
 		control.step(p2Up, [], T + 100);
-		control.step(p2Up, bob(T + 200), T + 200);
+		control.step(p2Up, bob(T + 600), T + 600);
 		expect(
-			control.step(p1Up, bob(T + 600), T + 600).events,
-			'control: without a warning of their own at T, the same closure warns player 1 -- player 2\'s closure at T+200 never gates them',
-		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T + 600 }]);
+			control.step(p1Up, bob(T + 1200), T + 1200).events,
+			'control: without a warning of their own at T, the same closure warns player 1 -- player 2\'s warning at T+600 never gates their settle',
+		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T + 1200 }]);
 	});
 });
