@@ -28,7 +28,7 @@
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
-import { close, runRulesScript } from './util/switch-script';
+import { close, open, runRulesScript } from './util/switch-script';
 import { createSkillShotMode } from '../src/sim/rules/modes/skill-shot';
 import type { GameState, SwitchName } from '../src/sim/table/names';
 
@@ -324,7 +324,14 @@ describe('Matrix row -- non-playfield closures are inert: the skill shot stays a
 	// single closure here only WARNS (this player's `tiltWarnings` starts at
 	// 0, below the default `adjustments.tiltWarnings` of 1), which touches
 	// only `players[0].tiltWarnings`, never `modes[]`.
-	const inert: readonly SwitchName[] = ['s_shooter_lane', 's_trough_2', 's_lock_1', 's_flipper_l', 's_start', 's_tilt_bob'];
+	//
+	// Story 3.0 (DW-232): `s_trough_2` and `s_lock_1` moved OUT of this set
+	// too. Neither produces a `playfield_switch_closed` (unchanged), but each
+	// is a `parking` device's slot, and a parking entry now closes a LAUNCHED
+	// skill shot with no award (AD-6 amended, PRD FR-18) -- pinned by the
+	// "Story 3.0 AC 9" describe below, with this same ballsInPlay: 2 fixture.
+	// `s_shooter_lane` stays: its device is `non-parking`.
+	const inert: readonly SwitchName[] = ['s_shooter_lane', 's_flipper_l', 's_start', 's_tilt_bob'];
 
 	for (const switchName of inert) {
 		it(`${switchName} closing: no playfield_switch_closed is produced, so the skill shot stays armed`, () => {
@@ -338,6 +345,73 @@ describe('Matrix row -- non-playfield closures are inert: the skill shot stays a
 
 			expect(after.modes.map((m) => m.mode).sort()).toEqual(['base', 'skill_shot']);
 			expect(after.players[0]!.score).toBe(0);
+		});
+	}
+});
+
+describe('Story 3.0 AC 9 (DW-232) -- a save\'s automatic re-launch gets no second skill shot: the drain closes it', () => {
+	const TROUGH_SLOT = TABLE.ballDevices.bd_trough.slots[3];
+
+	/** Ball on the plunger tip, skill shot armed but not launched, top_2 lit, ball save ENABLED (the controller's own source, timer not yet started) so the plunge arms the production 8 s window. */
+	function onThePlungerTip(): GameState {
+		const base = gameState({
+			players: [player({ lit: { top_2: true } })],
+			modes: [
+				{ mode: 'base', priority: 100, player: 0 },
+				{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+			],
+			ballsInPlay: 0,
+		});
+		return { ...base, machine: { ...base.machine, ballSave: { untilTick: null, sources: ['ball-controller'] } } };
+	}
+
+	it('saved no-switch drain: plunge, trough entry inside the save window, autolaunch, then the lit Top lane -- ball_saved, and no award, no letter', () => {
+		const script = open('s_shooter_lane').at(5) // the player's plunge
+			.close(TROUGH_SLOT).at(50) // no playfield switch closed first: straight down the drain
+			.close('s_shooter_lane').at(250) // the re-served ball arrives in the shooter lane
+			.open('s_shooter_lane').at(260) // the save's own automatic re-launch
+			.close('s_top_2').at(300) // ... straight into the lit Top lane
+			.build();
+		const result = runRulesScript(script, { durationTicks: 310, initialState: onThePlungerTip() });
+
+		expect(result.events.some((e) => e.type === 'ball_save_timer_started' && e.tick === 5), 'sanity: the player plunge arms ball save').toBe(true);
+		expect(result.events.filter((e) => e.type === 'ball_saved'), 'sanity: the drain is saved, not ended').toEqual([{ type: 'ball_saved', player: 0, tick: 50 }]);
+		expect(result.events.some((e) => e.type === 'ball_launched' && e.tick === 260), 'sanity: the automatic re-launch genuinely launches').toBe(true);
+		expect(result.statesByTick.get(49)!.modes.map((m) => m.mode).sort(), 'sanity: the skill shot is live until the drain').toEqual(['base', 'skill_shot']);
+		expect(result.statesByTick.get(50)!.modes.map((m) => m.mode), 'the drain closes the launched skill shot').toEqual(['base']);
+
+		expect(result.finalState.players[0]!.score, 'no skill-shot award on the automatic re-launch').toBe(0);
+		expect(result.finalState.players[0]!.letters, 'and no letter').toBe('');
+		expect(litLanesInSet(result.finalState, 'top'), 'the lit Top lane stays lit, exactly as after a miss').toEqual(['top_2']);
+	});
+
+	it('manual plunge (control): the same ball with no drain -- plunge, then the lit Top lane -- is paid the award and a letter', () => {
+		const script = open('s_shooter_lane').at(5).close('s_top_2').at(300).build();
+		const result = runRulesScript(script, { durationTicks: 310, initialState: onThePlungerTip() });
+
+		expect(result.finalState.players[0]!.score).toBe(TUNING.skillShotAward.value);
+		expect(result.finalState.players[0]!.letters).toBe('D');
+		expect(result.finalState.modes.map((m) => m.mode)).toEqual(['base']);
+	});
+
+	// Moved here from the "non-playfield closures are inert" block above.
+	for (const switchName of ['s_trough_2', 's_lock_1'] as const) {
+		it(`${switchName} (a parking device's slot) closes a LAUNCHED skill shot with no award, and leaves an unlaunched one armed`, () => {
+			const launched = gameState({ players: [player({ lit: { top_1: true }, ballNumber: 2 })], modes: armedAfterLaunch(), ballsInPlay: 2 });
+			const afterLaunched = runRulesScript(close(switchName).at(1).build(), { durationTicks: 1, initialState: launched }).finalState;
+			expect(afterLaunched.modes.map((m) => m.mode)).toEqual(['base']);
+			expect(afterLaunched.players[0]!.score).toBe(0);
+
+			const unlaunched = gameState({
+				players: [player({ lit: { top_1: true }, ballNumber: 2 })],
+				modes: [
+					{ mode: 'base', priority: 100, player: 0 },
+					{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+				],
+				ballsInPlay: 2,
+			});
+			const afterUnlaunched = runRulesScript(close(switchName).at(1).build(), { durationTicks: 1, initialState: unlaunched }).finalState;
+			expect(afterUnlaunched.modes.map((m) => m.mode).sort(), 'control: before the plunge, a parking entry does not close it').toEqual(['base', 'skill_shot']);
 		});
 	}
 });

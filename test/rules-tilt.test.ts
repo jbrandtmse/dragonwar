@@ -525,7 +525,7 @@ describe('AC 4 -- a tilted ball ends, pays nothing, and the next ball starts cle
 		expect(ballEnded.bonusByCategory.letters, 'the REAL earned letters must still be carried on the payload, beside total: 0').toBe(2);
 		expect(
 			result.events.some((e) => e.type === 'bonus_count_step'),
-			`a tilted end must never arm the count-up, over a ${durationTicks}-tick window long enough for one to genuinely have appeared`,
+			`a tilted end must never arm the bonus count, over a ${durationTicks}-tick window long enough for one to genuinely have appeared`,
 		).toBe(false);
 		expect(result.statesByTick.get(tiltAndDrainTick)!.players[0]!.score, 'score must be byte-identical to its pre-drain value').toBe(0);
 
@@ -583,7 +583,7 @@ describe('AC 4 -- a tilted ball ends, pays nothing, and the next ball starts cle
 		expect(ballEnded.total, 'sanity: the SAME earned bonus pays a real, nonzero total when untilted').toBeGreaterThan(0);
 		expect(
 			result.events.some((e) => e.type === 'bonus_count_step'),
-			'untilted, the SAME earned bonus DOES arm and emit the count-up -- proving the tilted case\'s own silence is a real suppression, not an accident of the window',
+			'untilted, the SAME earned bonus DOES arm and emit the bonus count -- proving the tilted case\'s own silence is a real suppression, not an accident of the window',
 		).toBe(true);
 	});
 
@@ -623,7 +623,7 @@ describe('AC 4 -- a tilted ball ends, pays nothing, and the next ball starts cle
 		expect(ballEnded.bonusByCategory.letters, 'the REAL earned letters must still be carried on the payload, beside total: 0').toBe(2);
 		expect(
 			result.events.some((e) => e.type === 'bonus_count_step'),
-			'a tilted end must never arm the count-up',
+			'a tilted end must never arm the bonus count',
 		).toBe(false);
 
 		const afterDrain = result.statesByTick.get(tiltAndDrainTick)!;
@@ -1018,5 +1018,75 @@ describe('I/O matrix -- Attract/no-player/restarted-timeline edge cases', () => 
 			second.events,
 			'the stale marks must be discarded, not compared against -- this closure must be eligible immediately in the new session',
 		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 3, tick: 1 }]);
+	});
+});
+
+// Story 3.0 AC 8 (DW-284): the tilt marks are per player. Before, both marks
+// were machine-wide, so in Hot seat player 2's first nudge was judged
+// against player 1's spacing window (run A) or settle window (run B) and
+// silently ignored. Each run is paired with a control: the SAME closures
+// with no drain, so player 0 is still up and the closure IS inside their own
+// window -- proving the windows still bind a player against themself.
+describe('Story 3.0 AC 8 (DW-284) -- Hot seat: player 2\'s first closure is never judged against player 1\'s tilt windows', () => {
+	const T = 100;
+	const DRAIN_TICK = T + 100;
+	const TROUGH_SLOT = TABLE.ballDevices.bd_trough.slots[3];
+
+	function run(secondClosureTick: number, withDrain: boolean) {
+		const initial = gameState({ players: [emptyPlayer({ ballNumber: 1 }), emptyPlayer({ ballNumber: 0 })] });
+		let builder = close('s_tilt_bob').at(T);
+		if (withDrain) {
+			builder = builder.close(TROUGH_SLOT).at(DRAIN_TICK);
+		}
+		const script = builder.close('s_tilt_bob').at(secondClosureTick).build();
+		return runRulesScript(script, { durationTicks: secondClosureTick + 10, initialState: initial, adjustments: adjustments(3), tuning: NO_BALL_SAVE_TUNING });
+	}
+
+	for (const [label, secondClosureTick] of [
+		['run A: inside player 1\'s SPACING window (T+200 < T+500)', T + 200],
+		['run B: past player 1\'s spacing window but inside their SETTLE window (T+600 < T+3000)', T + 600],
+	] as const) {
+		it(`${label}: after a real drain rotates to player 2, their first closure warns them`, () => {
+			const result = run(secondClosureTick, true);
+			expect(result.events.some((e) => e.type === 'ball_ended' && e.tick === DRAIN_TICK), 'sanity: the drain genuinely ends player 1\'s ball').toBe(true);
+			expect(result.statesByTick.get(DRAIN_TICK)!.currentPlayer, 'sanity: the drain rotated to player 2 (index 1)').toBe(1);
+			expect(result.events.filter((e) => e.type === 'tilt_warning')).toEqual([
+				{ type: 'tilt_warning', player: 0, remaining: 2, tick: T },
+				{ type: 'tilt_warning', player: 1, remaining: 2, tick: secondClosureTick },
+			]);
+			expect(result.finalState.players[1]!.tiltWarnings).toBe(1);
+		});
+
+		it(`${label}, control: the same closures with no drain are ignored -- player 1 is still up and inside their own window`, () => {
+			const result = run(secondClosureTick, false);
+			expect(result.finalState.currentPlayer, 'sanity: no rotation without the drain').toBe(0);
+			expect(result.events.filter((e) => e.type === 'tilt_warning')).toEqual([{ type: 'tilt_warning', player: 0, remaining: 2, tick: T }]);
+			expect(result.finalState.players[0]!.tiltWarnings).toBe(1);
+		});
+	}
+
+	// Review (verification-gap / blind-hunter): the per-player maps are
+	// cleared on any step outside `phase: 'game'`, so no player's marks
+	// outlive their game. Driven directly against ONE `createTiltController()`
+	// (runRulesScript builds a fresh controller per call, so it can never
+	// carry a mark across games). Tick 300 sits inside BOTH the spacing (500)
+	// and settle (3000) windows of the game-1 warning at 100, so the pair pins
+	// the clearing of both maps.
+	it('a new game\'s player 1 is never judged against the previous game\'s marks; the control, with no step outside the game between them, is', () => {
+		const firstGame = gameState({ players: [emptyPlayer({ ballNumber: 2 })] });
+		const nextGame = gameState({ players: [emptyPlayer({ ballNumber: 1 })] });
+		const attract = gameState({ phase: 'attract', players: [], modes: [] });
+
+		const acrossGames = createTiltController(adjustments(5), PRODUCTION_TUNING);
+		expect(acrossGames.step(firstGame, [{ type: 'tilt_bob_closed', tick: 100 }], 100).events, 'sanity: game 1 warns at 100').toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 100 }]);
+		expect(acrossGames.step(attract, [], 200).events, 'sanity: an Attract step with no closure emits nothing').toEqual([]);
+		expect(
+			acrossGames.step(nextGame, [{ type: 'tilt_bob_closed', tick: 300 }], 300).events,
+			'the new game\'s first closure is eligible -- game 1\'s marks were cleared in Attract',
+		).toEqual([{ type: 'tilt_warning', player: 0, remaining: 4, tick: 300 }]);
+
+		const sameGame = createTiltController(adjustments(5), PRODUCTION_TUNING);
+		sameGame.step(firstGame, [{ type: 'tilt_bob_closed', tick: 100 }], 100);
+		expect(sameGame.step(nextGame, [{ type: 'tilt_bob_closed', tick: 300 }], 300).events, 'control: with no step outside a game, the marks still bind').toEqual([]);
 	});
 });

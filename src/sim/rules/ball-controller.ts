@@ -65,7 +65,7 @@
 
 import { TABLE } from '../table/dragonwar';
 import { armBallSave, EMPTY_BALL_SAVE, enableBallSave, hasGraceLapsed, isRunning, isWithinGrace } from './ball-save';
-import { bonusCountUpSteps, bonusTotal, BONUS_EMPTY } from './bonus';
+import { bonusCountDownSteps, bonusTotal, BONUS_EMPTY } from './bonus';
 import { createBallSearch, servesIntoOf } from './ball-search';
 import { drawMatch, MATCH_REVEAL_STEPS, revealShown } from './match';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
@@ -419,10 +419,18 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	// (`ballSaveGraceTicks`).
 	const ballSaveTicks = shotWindowTicks('ballSaveMs', tuning);
 	const ballSaveGraceTicks = shotWindowTicks('ballSaveGraceMs', tuning);
-	// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count-up's own pace,
+	// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count-down's own pace,
 	// resolved once here exactly like the two ball-save windows above --
 	// `armBonusCountSchedule()` below is the one reader.
-	const bonusCountTicks = shotWindowTicks('bonusCountMs', tuning);
+	//
+	// Story 3.0 (DW-286): clamped to at least 1 tick at this ONE derivation
+	// site, exactly like its three game-over neighbours below and for the same
+	// reason. `bonusCountMs: 0` resolves (DW-35 admits an authored 0) and the
+	// dev tuning panel hot-applies it; unclamped, every step fell due ON the
+	// arming tick, whose top-of-step() drain had already run before the
+	// schedule existed, so no step was ever emitted and the Backglass never
+	// reached BONUS 0. Clamped, the steps land one tick apart from t+1.
+	const bonusCountTicks = Math.max(1, shotWindowTicks('bonusCountMs', tuning));
 	// Story 2.13 (AD-3/AD-15): the game-over sequence's own three paced
 	// durations, resolved once here exactly like the ball-save/bonus windows
 	// above -- the game-over block and the top-of-step() drain below are the
@@ -558,7 +566,8 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	let awaitingSaveRelaunch: AwaitingSaveRelaunch | null = null;
 
 	/**
-	 * Story 2.10, task 7(e): the end-of-ball bonus count-up's own schedule --
+	 * Story 2.10, task 7(e): the end-of-ball bonus count-down's own schedule
+	 * (a count-up until Story 3.0, DW-236) --
 	 * closure state, deliberately NOT a `GameState` field (Design Notes, "Why
 	 * the count-up schedule is closure state": a `machine`-scoped field would
 	 * move `expectedGameStateHash` on all five goldens, a Block-If; a
@@ -619,11 +628,14 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	let pendingStrayClear: PendingStrayClear | null = null;
 
 	/**
-	 * Turns `bonusCountUpSteps()`'s arithmetic (`sim/rules/bonus.ts`) into a
+	 * Turns `bonusCountDownSteps()`'s arithmetic (`sim/rules/bonus.ts`) into a
 	 * timed schedule for `player`, the first step landing `bonusCountTicks`
 	 * after `endedTick` (the `ball_ended` tick) and each later one
 	 * `bonusCountTicks` after the previous -- leaving the schedule EMPTY when
-	 * `bonus`'s own total is 0.
+	 * `bonus`'s own total is 0. Story 3.0 (DW-236): the steps count DOWN, one
+	 * per nonzero category, each carrying the bonus still `remaining`, the
+	 * last at exactly 0. `total` is `bonusTotal()`, the SAME call the drain
+	 * branch's `ball_ended` payload reads.
 	 *
 	 * Code review 2026-09-08 (blind-hunter, edge-case-hunter, acceptance
 	 * auditor, independently): the clear happens FIRST, before the zero-total
@@ -642,9 +654,9 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 	 */
 	function armBonusCountSchedule(player: number, bonus: PlayerBonusState, endedTick: number): void {
 		pendingBonusCountSteps = [];
-		const steps = bonusCountUpSteps(bonus, tuning);
-		const total = steps[steps.length - 1]!.running;
-		if (total <= 0) {
+		const total = bonusTotal(bonus, tuning);
+		const steps = bonusCountDownSteps(bonus, tuning);
+		if (total <= 0 || steps.length === 0) {
 			return;
 		}
 		pendingBonusCountSteps = steps.map((step, index) => {
@@ -655,7 +667,7 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 				player,
 				step: stepNumber,
 				steps: steps.length,
-				running: step.running,
+				remaining: step.remaining,
 				total,
 				tick: dueTick,
 			};
@@ -776,6 +788,18 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		// ball_ended's own payment, never this tick's own drain), so its
 		// position relative to the ball-save expiries just below is arbitrary;
 		// kept first for visibility, mirroring the schedule's own doc comment.
+		//
+		// Story 3.0 (DW-285): never in Attract. A Slam tilt ends the game
+		// straight to Attract (`tiltController.step()` runs BEFORE this
+		// controller in `sim/rules/index.ts`, so `phase` has already flipped by
+		// the time this reads it), and a count still running from the previous
+		// drain used to keep emitting into Attract. The first time this
+		// controller sees Attract the schedule is cleared, so nothing is
+		// emitted on that tick or any later one. `game_over` is NOT gated: the
+		// last ball's own count runs there, inside the end-of-ball hold.
+		if (pendingBonusCountSteps.length > 0 && nextState.phase === 'attract') {
+			pendingBonusCountSteps = [];
+		}
 		if (pendingBonusCountSteps.length > 0) {
 			const due = pendingBonusCountSteps.filter((scheduled) => scheduled.tick === tick);
 			if (due.length > 0) {
@@ -1197,12 +1221,12 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 			// protecting the schedule from being wiped. Never armed for a tilted
 			// ball (`total` is already forced 0 above, but `player.bonus` itself
 			// is NOT -- passing it through unconditionally would compute a
-			// nonzero count-up from the forfeited categories).
+			// nonzero count-down from the forfeited categories).
 			if (tilted) {
 				// Code review 2026-09-08: a tilted end arms nothing, but it must
 				// still CANCEL whatever the previous ball armed -- see
 				// `armBonusCountSchedule()`'s own note. A ball end always ends the
-				// previous ball's count-up, armed or not.
+				// previous ball's count-down, armed or not.
 				pendingBonusCountSteps = [];
 			} else {
 				armBonusCountSchedule(endingPlayer, player.bonus, tick);

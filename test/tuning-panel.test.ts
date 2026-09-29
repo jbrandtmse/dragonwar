@@ -32,7 +32,7 @@ import { createTuningPanel, enumerateTuningRows, buildOverriddenTuning } from '.
 import { createHostLoop } from '../src/host/loop';
 import { createReplayRecorder } from '../src/host/dev/replay-recorder';
 import { serialiseTuning } from '../src/host/dev/tuning-source';
-import { resolveTuning, TUNING } from '../src/sim/table/tuning';
+import { BONUS_COUNT_MAX_MS, resolveTuning, TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { FrameOutput } from '../src/sim/table/names';
 
@@ -525,5 +525,40 @@ describe('src/host/dev/tuning-panel.ts -- createTuningPanel() (hand-rolled DOM s
 		pitchInput.value = '7.25';
 		fireEvent(pitchInput, 'change');
 		expect(resetCalls, 'a later valid edit must still hot-apply -- the panel must not be wedged').toBe(1);
+	});
+
+	// Story 3.0 AC 5 (DW-287): the dev-panel surface of the bonusCountMs
+	// ceiling. resolveTuning() rejects a value above BONUS_COUNT_MAX_MS, and
+	// the panel's existing hotApply() rejection path must revert it with the
+	// reason shown -- paired with the ceiling itself, which must still apply.
+	it('Story 3.0 AC 5: a bonusCountMs edit to BONUS_COUNT_MAX_MS + 1 is reverted with a status naming bonusCountMs; BONUS_COUNT_MAX_MS itself hot-applies', () => {
+		let resetCalls = 0;
+		const realHostLoop = createHostLoop(loadDoc(), () => {});
+		const hostLoop: typeof realHostLoop = {
+			...realHostLoop,
+			reset: (options) => {
+				resetCalls += 1;
+				realHostLoop.reset(options);
+			},
+		};
+		const panel = createTuningPanel({ hostLoop, replayRecorder: createReplayRecorder() });
+		const elements = [...walk(panel.element as unknown as FakeElement)];
+		const input = elements.find((el) => el.tagName === 'input' && el.dataset.path === 'bonusCountMs')!;
+		expect(input, 'sanity: bonusCountMs is a panel row').toBeDefined();
+		const shippedValue = input.value;
+		const statusEl = elements.find((el) => el.className === 'dw-tuning-panel__status')!;
+
+		input.value = String(BONUS_COUNT_MAX_MS + 1);
+		expect(() => fireEvent(input, 'change'), 'a rejected edit must not throw out of the change listener').not.toThrow();
+		expect(resetCalls, 'the over-ceiling edit must never reach hostLoop.reset()').toBe(0);
+		expect(input.value, 'the input reverts to the last known-good value').toBe(shippedValue);
+		expect(panel.overrides.has('bonusCountMs'), 'the rejected value is not retained').toBe(false);
+		expect(statusEl.textContent, 'the reason is surfaced, naming the tunable').toContain('bonusCountMs');
+
+		input.value = String(BONUS_COUNT_MAX_MS);
+		fireEvent(input, 'change');
+		expect(resetCalls, 'control: the ceiling itself hot-applies').toBe(1);
+		expect(panel.overrides.get('bonusCountMs')).toBe(BONUS_COUNT_MAX_MS);
+		expect(statusEl.textContent, 'and a clean apply clears the status').toBe('');
 	});
 });

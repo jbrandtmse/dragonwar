@@ -383,7 +383,7 @@ describe('zero-valued …Ms tunables cannot silently break the game-over timelin
 	});
 });
 
-describe('AC 11 (DW-235) -- a new game drops the previous game\'s count-up', () => {
+describe('AC 11 (DW-235) -- a new game drops the previous game\'s count', () => {
 	const D = 10;
 
 	function midGameState(): GameState {
@@ -420,8 +420,21 @@ describe('AC 11 (DW-235) -- a new game drops the previous game\'s count-up', () 
 		};
 	}
 
+	// Story 3.0 (DW-285) re-staged this pair. It used to reach the new game
+	// through a Slam at D+100; the Slam's own Attract now clears the count
+	// outright, so the D+400 positive below could no longer fire and the pair
+	// would prove nothing. A RESOLVED game over still carries a live count (it
+	// runs in `game_over`), so a one-ball game with the Match sequence retuned
+	// to resolve at D+11 lets Start at D+200 create a new game mid-count --
+	// the scenario DW-235 is about, reached the one way it still can be.
+	const SHORT_MATCH_TUNING = resolveTuning({
+		...RAW_TUNING,
+		matchDelayMs: { ...RAW_TUNING.matchDelayMs, value: 1 },
+		matchRevealMs: { ...RAW_TUNING.matchRevealMs, value: 1 },
+	});
+
 	function script(withStart: boolean) {
-		let s = close('s_trough_1').at(D).close('s_slam_tilt').at(D + 100).open().at(D + 101);
+		let s = close('s_trough_1').at(D);
 		if (withStart) {
 			s = s.close('s_start').at(D + 200);
 		}
@@ -431,19 +444,21 @@ describe('AC 11 (DW-235) -- a new game drops the previous game\'s count-up', () 
 	it('with the Start press at D+200: no bonus_count_step arrives at or after D+200 (the control below proves one otherwise would, at D+400)', () => {
 		const result = runRulesScript(script(true), {
 			durationTicks: D + 450,
-			tuning: PRODUCTION_TUNING,
-			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0 },
+			tuning: SHORT_MATCH_TUNING,
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 0 },
 			initialState: midGameState(),
 		});
+		expect(result.statesByTick.get(D + 199)!.phase, 'sanity: the count is still running in a resolved game_over just before Start').toBe('game_over');
+		expect(result.statesByTick.get(D + 200)!.phase, 'sanity: Start genuinely created a new game').toBe('game');
 		const late = result.events.filter((e) => e.type === 'bonus_count_step' && e.tick >= D + 200);
-		expect(late, 'DW-235: a new game must clear the previous game\'s pending count-up').toEqual([]);
+		expect(late, 'DW-235: a new game must clear the previous game\'s pending count').toEqual([]);
 	});
 
 	it('the IDENTICAL script WITHOUT the Start press emits bonus_count_step at D+400 -- the positive proving the schedule was genuinely armed', () => {
 		const result = runRulesScript(script(false), {
 			durationTicks: D + 450,
-			tuning: PRODUCTION_TUNING,
-			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0 },
+			tuning: SHORT_MATCH_TUNING,
+			adjustments: { pitchDeg: 0, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 0 },
 			initialState: midGameState(),
 		});
 		const stepAt400 = result.events.find((e) => e.type === 'bonus_count_step' && e.tick === D + 400);

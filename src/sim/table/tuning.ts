@@ -675,15 +675,21 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
-	 * Story 2.10 (AD-3, AD-15): how often the end-of-ball bonus count-up
+	 * Story 2.10 (AD-3, AD-15): how often the end-of-ball bonus count-down
 	 * emits its next `bonus_count_step` -- a top-level scalar (never nested,
 	 * `assertNoNestedMsKeys()`/DW-34), converted once by `resolveTuning()`
 	 * to `bonusCountTicks` (`shotWindowTicks('bonusCountMs', tuning)`, the
 	 * `ballSaveMs` precedent).
+	 *
+	 * Story 3.0 (DW-289): the `source` used to put a phrase in quotes that
+	 * PRD FR-20 does not contain, and described a count in the wrong
+	 * direction. It now quotes FR-20 verbatim (`test/tuning.test.ts` checks
+	 * every quoted phrase against the PRD). Capped above by
+	 * `BONUS_COUNT_MAX_MS` (below, DW-287), which `resolveTuning()` enforces.
 	 */
 	bonusCountMs: entry(
 		400,
-		'authored: PRD FR-20 states the count-up mechanism ("categories count up, then the multiplier is applied") but no pace for it. Constrained, not guessed: at most BONUS_CATEGORIES.length (3) nonzero-category steps plus one final step means at most 4 steps x 400 ms = 1600 ms, comfortably inside the Backglass\'s existing 3000 ms ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts) with room for the screen to settle before the hold releases -- adjustable until Epic 3\'s playtest freeze (Story 3.11)',
+		'authored: PRD FR-20 states the mechanism ("the Backglass counts the bonus down") but no pace for it. Constrained, not guessed: the count-down emits one step per nonzero bonus category, so at most BONUS_CATEGORIES.length (3) steps: 3 steps x 400 ms = 1200 ms < 3000 ms, the Backglass\'s ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts), which never waits for the count. resolveTuning() rejects any value above BONUS_COUNT_MAX_MS (999 ms, the largest whole ms whose 3 steps still end inside that hold) -- adjustable within that ceiling until Epic 3\'s playtest freeze (Story 3.11)',
 		'unverified',
 	),
 
@@ -783,6 +789,24 @@ export type ResolvedTuning = typeof TUNING &
 		readonly switchSettleTicksByClass: Readonly<Record<SettleClass, TuningEntry<number>>>;
 	};
 
+/**
+ * Story 3.0 (DW-287): the ceiling on `TUNING.bonusCountMs`, enforced by
+ * `resolveTuning()` below. Deliberately OUTSIDE `TUNING`: it is a bound on a
+ * tunable, not a tunable, so it is neither hashed into a replay header nor
+ * shown as a dev-panel row.
+ *
+ * Derived, not chosen: the largest whole number of ms `v` for which
+ * `BONUS_CATEGORIES.length x ticks(v) < BALL_ENDED_HOLD_TICKS`, i.e. the
+ * longest pace at which a worst-case count-down (one step per category)
+ * still ends before the Backglass releases its end-of-ball screen, which
+ * never waits for the count. At 1000 Hz with 3 categories and a 3000-tick
+ * hold that is 999 (3 x 999 = 2997 < 3000; 3 x 1000 = 3000 is not). Neither
+ * operand is importable here (AD-1: `sim/table` never imports `sim/rules`
+ * or `presentation`), so `test/backglass-frame.test.ts` pins this value
+ * against both symbols directly, in both directions.
+ */
+export const BONUS_COUNT_MAX_MS = 999;
+
 function msToTicks(ms: number, label: string, tickHz: number): number {
 	if (!Number.isFinite(ms)) {
 		throw new Error(`resolveTuning(): "${label}" is not a finite number (got ${String(ms)})`);
@@ -867,6 +891,21 @@ function assertNoNestedMsKeys(node: unknown, path: string, depth: number): void 
 
 export function resolveTuning(tuning: typeof TUNING = TUNING, tickHz: number = TICK_HZ): ResolvedTuning {
 	assertNoNestedMsKeys(tuning, '', 0);
+
+	// Story 3.0 (DW-287), in DW-35's throw style: a bonus count paced so
+	// slowly that its worst case outlives the Backglass's end-of-ball hold
+	// would be cut off mid-count, and the hold never waits for it. Throws
+	// naming the tunable; the dev tuning panel's `hotApply()` catches exactly
+	// this kind of throw, reverts the edit and shows the message. Read
+	// defensively: a caller may pass a minimal fixture with no `bonusCountMs`
+	// at all (`test/tuning.test.ts`'s DW-35 cases), which has nothing to cap.
+	const bonusCountMs = (tuning as Partial<typeof TUNING>).bonusCountMs?.value;
+	if (bonusCountMs !== undefined && bonusCountMs > BONUS_COUNT_MAX_MS) {
+		throw new Error(
+			`resolveTuning(): "bonusCountMs" (ms=${bonusCountMs}) exceeds BONUS_COUNT_MAX_MS (${BONUS_COUNT_MAX_MS}) -- a ` +
+			`worst-case bonus count-down would outlive the Backglass's end-of-ball hold (DW-287).`,
+		);
+	}
 
 	const scalarTicks: Record<string, TuningEntry<number>> = {};
 	for (const [key, value] of Object.entries(tuning)) {

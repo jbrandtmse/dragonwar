@@ -9,7 +9,7 @@
 // `rules.step()` path -- the multiplier ladder (AC 2/AC 7's own mutation:
 // "delete the advanceBonusMultiplier call ... every AC 2 assertion reddens
 // through the real rules.step() path") and every ball-controller row (AC
-// 3/AC 4/AC 5/AC 6, the drain/payment/count-up/reset, none of which lives in
+// 3/AC 4/AC 5/AC 6, the drain/payment/count/reset, none of which lives in
 // `bonus.ts`). Every scenario runs at BOTH `currentPlayer` 0 and 1 (Rule 8's
 // own "Second player" row), never `sim/loop`/`sim/physics` (AC 9, pinned
 // transitively by `test/rules-devices-headless.test.ts`'s ENTRY_FILES gate,
@@ -34,6 +34,7 @@ import {
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, runRulesScript } from './util/switch-script';
+import type { BonusCountStepEvent } from '../src/sim/contracts/events';
 import type { PlayerBonusState, PlayerState } from '../src/sim/contracts/state';
 import type { GameState } from '../src/sim/table/names';
 
@@ -305,8 +306,19 @@ describe('The arithmetic covers strikes exhaustively even though nothing credits
 	});
 });
 
-describe('AC 4 -- the count-up stream is paced by bonusCountMs at its PRODUCTION value', () => {
-	it.each([0, 1] as const)('three bonus_count_step at E+400/E+800/E+1200 (literal offsets, never read back from tuning), step 1..3/steps 3, the last carrying running === total === 60000 (currentPlayer %i)', (currentPlayer) => {
+// Story 3.0 (DW-236): Story 2.10's count-UP stream (a rising un-multiplied
+// subtotal per category, then a separate multiplier step) is now a
+// count-DOWN -- one step per nonzero category, in BONUS_CATEGORIES order,
+// each carrying the multiplier-applied bonus still `remaining`, the last at
+// exactly 0 (PRD FR-20: "the Backglass counts the bonus down"). The pace is
+// unchanged: every offset below is still a literal 400-tick multiple at the
+// PRODUCTION `bonusCountMs`, never read back from tuning.
+function bonusStepsOf(result: ReturnType<typeof runRulesScript>): BonusCountStepEvent[] {
+	return result.events.filter((e): e is BonusCountStepEvent => e.type === 'bonus_count_step');
+}
+
+describe('AC 4 (Story 2.10) / Story 3.0 AC 1 -- the count-DOWN stream is paced by bonusCountMs at its PRODUCTION value', () => {
+	it.each([0, 1] as const)('letters 2, loops 1, x3: two bonus_count_step at E+400/E+800 (literal offsets), step 1..2/steps 2, remaining 30000 then 0, each carrying total 60000 (currentPlayer %i)', (currentPlayer) => {
 		const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
 		const initial = gameState({ currentPlayer, players: twoPlayers(currentPlayer, { bonus: seededBonus }), ballsInPlay: 1 });
 		const drainTick = 5;
@@ -316,24 +328,38 @@ describe('AC 4 -- the count-up stream is paced by bonusCountMs at its PRODUCTION
 			tuning: NO_BALL_SAVE_TUNING,
 		});
 
-		const steps = result.events.filter((e) => e.type === 'bonus_count_step');
-		expect(steps).toHaveLength(3);
-		expect(steps.map((e) => e.tick)).toEqual([drainTick + 400, drainTick + 800, drainTick + 1200]);
-		// Un-multiplied running subtotal per nonzero category (BONUS_CATEGORIES
-		// order: letters, then loops), then the final multiplier-applied step --
-		// authored from THIS test's own fixture (2 letters, 1 loop, x3), never
-		// read back from tuning.ts.
-		const expectedRunning = [2 * 5000, 2 * 5000 + 1 * 10000, 60000];
+		const steps = bonusStepsOf(result);
+		expect(steps.map((e) => e.tick), 'one step per NONZERO category (letters, loops) and no separate multiplier step').toEqual([drainTick + 400, drainTick + 800]);
+		// Authored from THIS test's own fixture, never read back from tuning.ts:
+		// subtotal 2 * 5000 + 1 * 10000 = 20000, x3. After letters,
+		// (20000 - 10000) * 3 = 30000 is left; after loops, nothing.
+		expect(steps.map((e) => e.remaining), 'the count falls to exactly 0 -- a rising subtotal here is the count-up this story removed').toEqual([30000, 0]);
 		for (const [index, event] of steps.entries()) {
-			if (event.type !== 'bonus_count_step') {
-				throw new Error('unreachable: filtered on type bonus_count_step above');
-			}
 			expect(event.player).toBe(currentPlayer);
 			expect(event.step).toBe(index + 1);
-			expect(event.steps).toBe(3);
+			expect(event.steps).toBe(2);
 			expect(event.total).toBe(60000);
-			expect(event.running).toBe(expectedRunning[index]);
 		}
+	});
+
+	it('the I/O row "Count-down, multiplier": letters 3, loops 1, x2 -> remaining 20000 then 0 against total 50000', () => {
+		const seededBonus: PlayerBonusState = { byCategory: { letters: 3, loops: 1, strikes: 0 }, multiplier: 2 };
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus, score: 7000 })], ballsInPlay: 1 });
+		const result = runRulesScript(close('s_trough_1').at(5).build(), { durationTicks: 5 + 1300, initialState: initial, tuning: NO_BALL_SAVE_TUNING });
+
+		const ended = result.events.find((e) => e.type === 'ball_ended');
+		expect(ended && ended.type === 'ball_ended' ? ended.total : undefined, 'sanity: (3 * 5000 + 10000) * 2').toBe(50000);
+		const steps = bonusStepsOf(result);
+		expect(steps.map((e) => [e.step, e.steps, e.remaining])).toEqual([[1, 2, 20000], [2, 2, 0]]);
+	});
+
+	it('the I/O row "One category": loops 2 only, x1 -> exactly one step, 1/1, remaining 0', () => {
+		const seededBonus: PlayerBonusState = { byCategory: { letters: 0, loops: 2, strikes: 0 }, multiplier: 1 };
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+		const result = runRulesScript(close('s_trough_1').at(5).build(), { durationTicks: 5 + 1300, initialState: initial, tuning: NO_BALL_SAVE_TUNING });
+
+		const steps = bonusStepsOf(result);
+		expect(steps.map((e) => [e.tick, e.step, e.steps, e.remaining, e.total])).toEqual([[5 + 400, 1, 1, 0, 20000]]);
 	});
 
 	it('a zero-total (all-categories-empty) ball end emits no bonus_count_step at all', () => {
@@ -346,58 +372,145 @@ describe('AC 4 -- the count-up stream is paced by bonusCountMs at its PRODUCTION
 		expect(result.events.some((e) => e.type === 'bonus_count_step')).toBe(false);
 	});
 
-	// Story 2.15 (DW-235). Reproduces the measured scenario exactly: ball 1
-	// drains at tick D with a nonzero bonus (arming the 400/800/1200 count-up
-	// schedule), a Slam tilt one tick later ends the game (phase -> 'attract')
-	// WITHOUT touching that schedule -- `pendingBonusCountSteps` is
-	// ball-controller closure state (AD-7), armed once on drain and cleared
-	// only by a new game's own Start, never by a slam -- and Start is pressed
-	// on EXACTLY the tick the second step (E+800) is due. `pendingBonusCount
-	// Steps` IS cleared when the new game is created, but the drain that
-	// reports a step due THIS tick runs before Start-handling in the SAME
-	// `step()` call, so without the guard the stale step still fires. A
-	// negative with no positive proves nothing (Anti-vacuity plan): this
-	// pins BOTH that the schedule genuinely was armed (E+400 still fires,
-	// well before the slam/Start) AND that nothing fires at or after E+800.
-	describe('DW-235 -- Start on the exact tick a count-up step is due, after a Slam-tilt game-over, emits no stale bonus_count_step', () => {
+	// Story 2.15 (DW-235), re-staged by Story 3.0. The original scenario
+	// reached a new game through a Slam tilt one tick after the drain; since
+	// DW-285 the Slam's own Attract clears the schedule outright (see the
+	// "Slam mid-count" describe below), so that route can no longer carry a
+	// pending step to a Start at all. The one route that still can is a
+	// RESOLVED game over -- the count runs in `game_over` -- with a Match
+	// sequence retuned short enough to resolve inside the count. Start is
+	// pressed on EXACTLY the tick the second step (E+800) is due: the
+	// top-of-step() drain would emit it before Start-handling clears the
+	// schedule, and the DW-235 filter is what drops it. A negative with no
+	// positive proves nothing (Anti-vacuity plan): this pins BOTH that the
+	// schedule genuinely was armed (E+400 still fires, in game_over, before
+	// the Start) AND that nothing fires at or after E+800.
+	describe('DW-235 -- Start on the exact tick a count step is due, after a resolved game over, emits no stale bonus_count_step', () => {
 		it('E+400 still fires (the schedule was genuinely armed); nothing fires at or after the new game\'s own Start tick (E+800)', () => {
 			const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
-			const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+			const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus, ballNumber: 1 })], ballsInPlay: 1 });
 			const drainTick = 5;
-			const slamTick = drainTick + 1;
 			const startTick = drainTick + 800; // exactly the schedule's own second step
-			const script = close('s_trough_1')
-				.at(drainTick)
-				.close('s_slam_tilt')
-				.at(slamTick)
-				.close('s_start')
-				.at(startTick)
-				.build();
+			const shortMatchTuning = resolveTuning({
+				...RAW_TUNING,
+				ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+				ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+				matchDelayMs: { ...RAW_TUNING.matchDelayMs, value: 1 },
+				matchRevealMs: { ...RAW_TUNING.matchRevealMs, value: 1 },
+			});
+			const script = close('s_trough_1').at(drainTick).close('s_start').at(startTick).build();
 			const result = runRulesScript(script, {
 				durationTicks: drainTick + 1300,
 				initialState: initial,
-				tuning: NO_BALL_SAVE_TUNING,
+				tuning: shortMatchTuning,
+				adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 0 },
 			});
 
-			// Sanity: the slam genuinely ended the game, and Start genuinely
-			// started a new one on the tick this test is about.
-			expect(result.events, 'sanity: the slam must fire as scripted').toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: slamTick }]));
-			expect(result.finalState.phase, 'sanity: Start must have created a new game').toBe('game');
+			// Sanity: the drain genuinely ended the game, the count ran in
+			// game_over, and Start genuinely started a new one on the tick this
+			// test is about.
+			expect(result.statesByTick.get(drainTick)!.phase, 'sanity: the one-ball game is over at the drain').toBe('game_over');
+			expect(result.statesByTick.get(startTick - 1)!.phase, 'sanity: still game_over (resolved) just before Start').toBe('game_over');
+			expect(result.statesByTick.get(startTick)!.phase, 'sanity: Start must have created a new game').toBe('game');
 
-			const steps = result.events.filter((e) => e.type === 'bonus_count_step');
-			// Positive first (Anti-vacuity plan, "a negative with no
-			// positive"): the schedule genuinely was armed and would have
-			// gone on to fire every step, undisturbed by the slam alone.
-			expect(steps.some((e) => e.tick === drainTick + 400), 'sanity: the count-up schedule must genuinely have been armed by the drain').toBe(true);
-			// The negative this story's own guard exists for: nothing at or
-			// after the tick the new game's own Start created it -- neither
-			// the exact due tick (E+800) nor the still-later E+1200.
+			const steps = bonusStepsOf(result);
+			expect(steps.some((e) => e.tick === drainTick + 400), 'sanity: the count schedule must genuinely have been armed by the drain').toBe(true);
 			const leaked = steps.filter((e) => e.tick >= startTick);
 			expect(
 				leaked,
 				`bonus_count_step emitted at or after the new game's own Start tick (${startTick}): ${JSON.stringify(leaked)} -- reverting the DW-235 guard in ball-controller.ts reproduces this at tick ${startTick}`,
 			).toEqual([]);
 		});
+	});
+});
+
+describe('Story 3.0 AC 2 -- the count only paces the display: the payment itself is unchanged', () => {
+	it.each([0, 1] as const)('the bonus-inclusive score is ALREADY in statesByTick.get(drainTick), the tick before holds the pre-bonus score, and no step moves it again (currentPlayer %i)', (currentPlayer) => {
+		const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
+		const initial = gameState({ currentPlayer, players: twoPlayers(currentPlayer, { bonus: seededBonus, score: 1000 }, { score: 500 }), ballsInPlay: 1 });
+		const drainTick = 5;
+		const result = runRulesScript(close('s_trough_1').at(drainTick).build(), { durationTicks: drainTick + 1300, initialState: initial, tuning: NO_BALL_SAVE_TUNING });
+
+		const ended = result.events.find((e) => e.type === 'ball_ended');
+		expect(ended && ended.type === 'ball_ended' ? [ended.tick, ended.total, ended.multiplier] : undefined).toEqual([drainTick, 60000, 3]);
+		// Positive and negative from the same run: pre-bonus the tick before,
+		// bonus-inclusive ON the drain tick.
+		expect(result.statesByTick.get(drainTick - 1)!.players[currentPlayer]!.score, 'the tick before the drain still holds the pre-bonus score').toBe(1000);
+		expect(result.statesByTick.get(drainTick)!.players[currentPlayer]!.score, 'the drain tick itself already holds the bonus-inclusive score').toBe(1000 + 60000);
+		const stepTicks = bonusStepsOf(result).map((e) => e.tick);
+		expect(stepTicks, 'sanity: the count genuinely ran after the drain').toEqual([drainTick + 400, drainTick + 800]);
+		for (const tick of stepTicks) {
+			expect(result.statesByTick.get(tick)!.players[currentPlayer]!.score, `the step at ${tick} moves no score -- it only paces the display`).toBe(1000 + 60000);
+		}
+		expect(result.finalState.players[currentPlayer === 0 ? 1 : 0]!.score, 'the other player is untouched').toBe(500);
+	});
+});
+
+describe('Story 3.0 AC 3 (DW-285) -- a Slam mid-count stops the count; the last ball\'s count still runs in game_over', () => {
+	const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
+	const drainTick = 5;
+	const slamTick = drainTick + 200; // the count is due at +400/+800
+
+	function run(withSlam: boolean) {
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+		const builder = close('s_trough_1').at(drainTick);
+		const script = (withSlam ? builder.close('s_slam_tilt').at(slamTick) : builder).build();
+		return runRulesScript(script, { durationTicks: drainTick + 1300, initialState: initial, tuning: NO_BALL_SAVE_TUNING });
+	}
+
+	it('with the Slam at E+200: no bonus_count_step at or after the Slam tick', () => {
+		const result = run(true);
+		expect(result.events, 'sanity: the Slam must fire as scripted').toEqual(expect.arrayContaining([{ type: 'slam_tilt', tick: slamTick }]));
+		expect(result.statesByTick.get(slamTick)!.phase, 'sanity: the Slam ends the game straight to Attract').toBe('attract');
+		const late = bonusStepsOf(result).filter((e) => e.tick >= slamTick);
+		expect(late, 'DW-285: a count must never keep emitting into Attract').toEqual([]);
+	});
+
+	it('control: the IDENTICAL script without the Slam emits every step', () => {
+		const result = run(false);
+		expect(bonusStepsOf(result).map((e) => e.tick)).toEqual([drainTick + 400, drainTick + 800]);
+	});
+
+	it('the I/O row "Last ball (game over)": the steps still emit in game_over, and the count completes', () => {
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus, ballNumber: 1 })], ballsInPlay: 1 });
+		const result = runRulesScript(close('s_trough_1').at(drainTick).build(), {
+			durationTicks: drainTick + 1300,
+			initialState: initial,
+			tuning: NO_BALL_SAVE_TUNING,
+			adjustments: { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 1, matchProbability: 0 },
+		});
+		const steps = bonusStepsOf(result);
+		expect(steps.map((e) => e.tick)).toEqual([drainTick + 400, drainTick + 800]);
+		for (const event of steps) {
+			expect(result.statesByTick.get(event.tick)!.phase, `the step at ${event.tick} is emitted in game_over`).toBe('game_over');
+		}
+		expect(steps[steps.length - 1]!.remaining, 'the last ball\'s count reaches 0').toBe(0);
+	});
+});
+
+describe('Story 3.0 AC 4 (DW-286) -- bonusCountMs: 0 still emits every step, one tick apart', () => {
+	function tuningAt(bonusCountMs: number) {
+		return resolveTuning({
+			...RAW_TUNING,
+			ballSaveMs: { ...RAW_TUNING.ballSaveMs, value: 1 },
+			ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
+			bonusCountMs: { ...RAW_TUNING.bonusCountMs, value: bonusCountMs },
+		});
+	}
+	const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
+
+	it('at 0 ms: steps at E+1 and E+2, the last remaining 0', () => {
+		expect(tuningAt(0).bonusCountTicks.value, 'premise: 0 ms genuinely resolves to 0 ticks (DW-35 admits an authored 0)').toBe(0);
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+		const result = runRulesScript(close('s_trough_1').at(5).build(), { durationTicks: 5 + 50, initialState: initial, tuning: tuningAt(0) });
+		const steps = bonusStepsOf(result);
+		expect(steps.map((e) => [e.tick, e.step, e.remaining])).toEqual([[6, 1, 30000], [7, 2, 0]]);
+	});
+
+	it('control: at 1 ms the identical run lands on the identical ticks -- the clamp makes 0 behave as the smallest real pace', () => {
+		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
+		const result = runRulesScript(close('s_trough_1').at(5).build(), { durationTicks: 5 + 50, initialState: initial, tuning: tuningAt(1) });
+		expect(bonusStepsOf(result).map((e) => [e.tick, e.step, e.remaining])).toEqual([[6, 1, 30000], [7, 2, 0]]);
 	});
 });
 
@@ -424,7 +537,7 @@ describe('AC 5 -- a tilted ball forfeits the bonus and keeps the score', () => {
 		expect(ended!.total).toBe(0);
 		expect(ended!.tilted).toBe(true);
 		expect(result.finalState.players[currentPlayer]!.score, 'a tilted ball forfeits the bonus -- score is unchanged').toBe(1000);
-		expect(result.events.some((e) => e.type === 'bonus_count_step'), 'no count-up for a tilted ball').toBe(false);
+		expect(result.events.some((e) => e.type === 'bonus_count_step'), 'no count for a tilted ball').toBe(false);
 	});
 });
 
@@ -444,7 +557,7 @@ describe('Ball saved instead of ended', () => {
 		expect(result.events.some((e) => e.type === 'ball_saved')).toBe(true);
 		expect(result.finalState.players[0]!.score, 'no score write on a save').toBe(1000);
 		expect(result.finalState.players[0]!.bonus, 'no reset on a save -- same ball, bonus untouched').toEqual(seededBonus);
-		expect(result.events.some((e) => e.type === 'bonus_count_step'), 'no count-up on a save').toBe(false);
+		expect(result.events.some((e) => e.type === 'bonus_count_step'), 'no count on a save').toBe(false);
 	});
 });
 
@@ -508,8 +621,8 @@ describe('AC 6 -- the per-ball reset, and what survives it', () => {
 // rendered a BONUS row over ball 2's own `ball_ended` screen. This also means
 // AC 5's and the "Zero bonus" row's "no `bonus_count_step` is emitted" held
 // only by the accident that nothing had been armed earlier in those runs.
-describe('A ball end always ends the PREVIOUS ball\'s count-up, armed or not', () => {
-	it('a zero-bonus ball ending inside the previous ball\'s count-up window cancels it: no bonus_count_step survives the second ball_ended', () => {
+describe('A ball end always ends the PREVIOUS ball\'s count, armed or not', () => {
+	it('a zero-bonus ball ending inside the previous ball\'s count window cancels it: no bonus_count_step survives the second ball_ended', () => {
 		const seededBonus: PlayerBonusState = { byCategory: { letters: 2, loops: 1, strikes: 0 }, multiplier: 3 };
 		const initial = gameState({ currentPlayer: 0, players: [player({ bonus: seededBonus })], ballsInPlay: 1 });
 		// Ball 1 drains at tick 1 and arms three steps (401 / 801 / 1201). Ball 2
@@ -520,7 +633,7 @@ describe('A ball end always ends the PREVIOUS ball\'s count-up, armed or not', (
 
 		const ends = result.events.filter((e) => e.type === 'ball_ended');
 		expect(ends, 'sanity: both drains must genuinely end a ball, or this scenario never happened').toHaveLength(2);
-		expect(ends[1]!.tick, 'sanity: the second end must land INSIDE ball 1\'s own count-up window').toBeLessThan(1 + 400);
+		expect(ends[1]!.tick, 'sanity: the second end must land INSIDE ball 1\'s own count window').toBeLessThan(1 + 400);
 
 		const leaked = result.events.filter((e) => e.type === 'bonus_count_step' && e.tick > ends[1]!.tick);
 		expect(leaked, 'ball 1\'s schedule must be cancelled by ball 2\'s own end, never keep draining over it').toEqual([]);
@@ -568,12 +681,12 @@ describe('AC 2 x AC 3 -- the multiplier a player EARNS is the multiplier that pa
 // `readonly BonusCategory[]`, not a tuple over the union, so adding a fourth
 // category to `BonusCategory` would be caught at `BONUS_EMPTY` (a TOTAL
 // record) and at `valueOf()`'s switch, but omitting it HERE would make
-// `bonusTotal()`'s Sigma and the count-up silently skip it, with no compile
+// `bonusTotal()`'s Sigma and the count-down silently skip it, with no compile
 // error and no test failure.
 describe('The bonus vocabulary is complete, and its iteration order is pinned', () => {
 	it('BONUS_CATEGORIES carries every category BONUS_EMPTY declares, in the documented order', () => {
 		// The literal is authored here as an INDEPENDENT anchor on the order the
-		// count-up's running subtotals depend on (AC 4), not read back from the
+		// count-down's remaining values depend on (AC 4), not read back from the
 		// module under test.
 		expect([...BONUS_CATEGORIES]).toEqual(['letters', 'loops', 'strikes']);
 		// ... and this half is what a fourth union member would trip:

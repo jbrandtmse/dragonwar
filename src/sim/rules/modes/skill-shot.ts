@@ -21,6 +21,20 @@
 // unchanged -- it changes which lane is lit at `start()`, nothing about how
 // or when `step()` resolves.
 //
+// Story 3.0 (DW-232, AD-6 amended 2026-09-29): a launched skill shot ALSO
+// closes, with no award, on the first `device_ball_entered` into a
+// `parking` device -- the trough drain, or the Lock. PRD FR-18: "the Skill shot is only
+// available until the first other switch closes", and the trough switch is
+// such a switch. It matters for a no-switch drain inside the ball-save
+// window: the ball never closed a playfield switch, so the shot stayed armed
+// through the save, and the save's AUTOMATIC re-launch then got a second
+// attempt at the lit lane with no player aim behind it. Now the drain
+// closes it, so the re-launch finds nothing to arm. The device kind is read
+// from `TABLE.ballDevices`, never a device-name literal; the shooter lane is
+// `non-parking`, so a weak plunge that rolls back onto the plunger does not
+// close it. A ball-search recover of a launched ball closes it the same way.
+// The lit Top lane stays lit, exactly as it does after a miss.
+//
 // Story 2.14 (DW-205, DW-214): the lit Top lane is no longer drawn fresh from
 // `GameState.rng` at every ball start. Measured over 200,000 seeds, that
 // per-ball draw put the SAME lane on all three balls 11.20% of the time and
@@ -124,7 +138,7 @@ export interface SkillShotMode {
 	readonly priority: number;
 	/** `ball_starting`, called AFTER the base mode's own `start()` (the orchestrator's own ordering): lights the game's rotating Top lane -- drawn from `state.rng` once at the game's first ball, advanced one position per the player's own `ballNumber` on every other ball (Story 2.14) -- and pushes this mode's `ActiveModeState` entry (`launched: false`). */
 	start(state: GameState, player: number): GameState;
-	/** Tracks `ball_launched` and resolves on the first `playfield_switch_closed` after it -- award and a letter if that closure is the lit Top lane's own switch, no award otherwise, removed from `modes[]` either way. A no-op if no `skill_shot` entry is active. */
+	/** Tracks `ball_launched` and resolves on the first `playfield_switch_closed` after it -- award and a letter if that closure is the lit Top lane's own switch, no award otherwise, removed from `modes[]` either way. Story 3.0 (DW-232): a `device_ball_entered` into a `parking` device after `ball_launched` (the trough drain, or the Lock) also resolves it, with no award. A no-op if no `skill_shot` entry is active. */
 	step(state: GameState, deviceEvents: readonly DeviceEvent[], tick: number): SkillShotModeStepResult;
 }
 
@@ -175,6 +189,16 @@ export function createSkillShotMode(tuning: ResolvedTuning): SkillShotMode {
 			if (event.type === 'ball_launched') {
 				const modes = nextState.modes.map((mode, index) => (index === activeIndex ? { ...mode, launched: true } : mode));
 				nextState = { ...nextState, modes };
+				continue;
+			}
+
+			// Story 3.0 (DW-232): a parking entry (the drain, or the Lock) closes a launched skill shot with no
+			// award, exactly as a missed playfield closure does (this file's own
+			// header). Kind read from `TABLE.ballDevices`, never a name literal.
+			if (event.type === 'device_ball_entered' && TABLE.ballDevices[event.device].kind === 'parking') {
+				if (active.launched === true) {
+					nextState = { ...nextState, modes: nextState.modes.filter((_mode, index) => index !== activeIndex) };
+				}
 				continue;
 			}
 

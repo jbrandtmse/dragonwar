@@ -15,7 +15,22 @@
 // is measured from the last COUNTED warning and gates only the next
 // warning, never the tilting closure itself.
 //
-// Both marks (`lastBobClosureTick`, `lastWarningTick`) are closure state,
+// Story 3.0 (DW-284): the marks are PER PLAYER. `lastBobClosureTick` and
+// `lastWarningTick` (AD-7's names, kept) are `Map<playerIndex, tick>`: a
+// closure in `phase: 'game'` with a current player updates only THAT
+// player's marks, so in Hot seat player 2's first nudge is never judged
+// against player 1's spacing or settle window. A closure in any other state
+// (Attract, `game_over`, or a game with no current player) updates one
+// shared idle mark, `idleBobClosureTick`, which gates the SPACING check of
+// every player -- AD-7: "the bob ... its own history is physical and updates
+// whatever the phase", so a bob still swinging from an Attract nudge must
+// still debounce the first closure of the game that follows. Both maps are
+// cleared on any step whose `phase` is not 'game', so no player's marks
+// outlive their game. The DW-240 origins are unchanged: spacing runs from
+// the last closure of any kind (the player's own, or the idle mark), and
+// settle from the player's last counted warning.
+//
+// Every mark (both maps and the idle mark) is closure state,
 // deliberately never `GameState` -- `machine` is present in all five
 // goldens' `attract` snapshots, so a new machine-scoped field would move
 // `expectedGameStateHash` on every one (Block If). They are monotone tick
@@ -81,18 +96,36 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 	const tiltWarningSpacingTicks = shotWindowTicks('tiltWarningSpacingMs', tuning);
 	const tiltSettleTicks = shotWindowTicks('tiltSettleMs', tuning);
 
-	let lastBobClosureTick: number | null = null;
-	let lastWarningTick: number | null = null;
+	// Story 3.0 (DW-284): per player, keyed by player index (this file's
+	// own header). The idle mark is the one shared mark, for closures outside
+	// a live player's game.
+	const lastBobClosureTick = new Map<number, number>();
+	const lastWarningTick = new Map<number, number>();
+	let idleBobClosureTick: number | null = null;
+
+	/** Reset-safety (this file's own header): drops every mark strictly greater than `tick` -- a mark from a different timeline. */
+	function discardFutureMarks(marks: Map<number, number>, tick: number): void {
+		for (const [playerIndex, markTick] of marks) {
+			if (tick < markTick) {
+				marks.delete(playerIndex);
+			}
+		}
+	}
 
 	function step(state: GameState, deviceEvents: readonly DeviceEvent[], tick: number): TiltControllerStepResult {
 		// Reset-safety against a restarted timeline (this file's own header):
 		// a mark strictly greater than the current tick is from a different
 		// timeline and must be discarded, not compared against.
-		if (lastBobClosureTick !== null && tick < lastBobClosureTick) {
-			lastBobClosureTick = null;
+		discardFutureMarks(lastBobClosureTick, tick);
+		discardFutureMarks(lastWarningTick, tick);
+		if (idleBobClosureTick !== null && tick < idleBobClosureTick) {
+			idleBobClosureTick = null;
 		}
-		if (lastWarningTick !== null && tick < lastWarningTick) {
-			lastWarningTick = null;
+		// DW-284: outside a game no player's marks survive -- a new game's
+		// player 1 starts with none, whoever played before.
+		if (state.phase !== 'game') {
+			lastBobClosureTick.clear();
+			lastWarningTick.clear();
 		}
 
 		let nextState = state;
@@ -157,26 +190,33 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 
 			// AD-7: "the bob is never reset by command" -- its own history is
 			// physical and updates whatever the phase, spec I/O matrix "Bob
-			// closure in Attract". Captured BEFORE the update so eligibility
-			// below is judged against the mark's value before THIS closure.
-			const previousBobClosureTick = lastBobClosureTick;
-			lastBobClosureTick = tick;
-
-			if (nextState.phase !== 'game') {
+			// closure in Attract". Outside a live player's game that history is
+			// the shared idle mark (DW-284, this file's own header); inside one
+			// it is the current player's own mark. Captured BEFORE the update so
+			// eligibility below is judged against the marks' values before THIS
+			// closure.
+			const playerIndex = nextState.currentPlayer;
+			const player = nextState.phase === 'game' ? nextState.players[playerIndex] : undefined;
+			if (!player) {
+				idleBobClosureTick = tick;
 				continue;
 			}
-			const player = nextState.players[nextState.currentPlayer];
-			if (!player || nextState.machine.tilt.tilted) {
+			const previousBobClosureTick = lastBobClosureTick.get(playerIndex) ?? null;
+			lastBobClosureTick.set(playerIndex, tick);
+
+			if (nextState.machine.tilt.tilted) {
 				continue;
 			}
 
-			const eligible = previousBobClosureTick === null || tick - previousBobClosureTick >= tiltWarningSpacingTicks;
-			if (!eligible) {
+			// DW-240: spacing runs from the last closure of ANY kind -- this
+			// player's own, or an idle-time closure (the bob is one pendulum).
+			const spacedFromOwn = previousBobClosureTick === null || tick - previousBobClosureTick >= tiltWarningSpacingTicks;
+			const spacedFromIdle = idleBobClosureTick === null || tick - idleBobClosureTick >= tiltWarningSpacingTicks;
+			if (!spacedFromOwn || !spacedFromIdle) {
 				continue;
 			}
 
 			if (player.tiltWarnings >= adjustments.tiltWarnings) {
-				const playerIndex = nextState.currentPlayer;
 				events.push({ type: 'tilt', player: playerIndex, tick });
 				coilCommands.push(...disableHardwareCoils(tick));
 				const ballSave = disarmAllBallSave(nextState.machine.ballSave);
@@ -192,14 +232,15 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 				continue;
 			}
 
-			const settled = lastWarningTick === null || tick - lastWarningTick >= tiltSettleTicks;
+			// DW-240: settle runs from THIS player's last counted warning only.
+			const previousWarningTick = lastWarningTick.get(playerIndex) ?? null;
+			const settled = previousWarningTick === null || tick - previousWarningTick >= tiltSettleTicks;
 			if (!settled) {
 				continue;
 			}
 
-			const playerIndex = nextState.currentPlayer;
 			const newCount = player.tiltWarnings + 1;
-			lastWarningTick = tick;
+			lastWarningTick.set(playerIndex, tick);
 			const players = nextState.players.map((existing, index) => (index === playerIndex ? { ...existing, tiltWarnings: newCount } : existing));
 			events.push({ type: 'tilt_warning', player: playerIndex, remaining: Math.max(0, adjustments.tiltWarnings - newCount), tick });
 			nextState = { ...nextState, players };

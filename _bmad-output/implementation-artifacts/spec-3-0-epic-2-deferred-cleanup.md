@@ -2,13 +2,21 @@
 title: 'Story 3.0: Epic 2 Deferred Cleanup'
 type: 'bugfix'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '56ac0b91233329c07a977c016651c3bb46853431'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
 warnings: [multiple-goals, oversized]
-deferred: []
+deferred:
+  - summary: >-
+      TUNING.matchDelayMs.source (hashed into all five golden headers) still describes the end-of-ball bonus as a "count-up".
+    evidence: |-
+      src/sim/table/tuning.ts matchDelayMs source string reads "... bonus count-up are never cut ..."; since Story 3.0 (DW-236) the bonus counts down. Story 3.0 was authorised to re-record only the two bonusCountMs/bonusCountTicks .source leaves, so correcting it needs its own header-only golden re-record (the spec-2-15 task 12 hand-edit precedent).
+    location: >-
+      src/sim/table/tuning.ts (TUNING.matchDelayMs.source)
+    severity: low
 ---
 
 <intent-contract>
@@ -111,6 +119,43 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 33 findings — high 0, medium 2, low 26, false 5, maybe-false 0
+- findings:
+  - `[low]` `[reject]` (blind-hunter) BONUS_COUNT_MAX_MS = 999 leaves only 3 ticks between the last step and the hold release, so a batched frame can land past `holdUntilTick` and BONUS 0 never draws. — Real only near the ceiling. The ceiling is a dev-panel-only bound; the shipped 400 ms leaves 1800 ms of margin. The formula and the value 999 are prescribed verbatim by the intent contract's Always clause, so changing them is a spec change (by-design). Recorded as a residual risk.
+  - `[false]` `[reject]` (blind-hunter) Hot-seat spacing ignores the other player's bob swing (run A warns player 2 inside player 1's spacing window). — This is the specified behaviour: the Always clause makes the marks per player and the Hot-seat I/O row requires run A to warn player 2. The code comments ("the player's own, or the idle mark") match it.
+  - `[medium]` `[patch]` (blind-hunter) No test pins the clearing of the per-player tilt maps outside `phase: 'game'`. — Patched: added a one-controller pair to `test/rules-tilt.test.ts` (warning in game 1, Attract step, new game's closure at 300 warns; control with no Attract step is ignored). Mutation recorded under AC8.
+  - `[low]` `[reject]` (blind-hunter) `HeldBallEnded.complete` is written but never read by production code. — The Code Map explicitly asks for `complete` on the widened view. It is presentation state only, costs nothing, and gives Epic 4's count cues a flag. By-design.
+  - `[low]` `[patch]` (blind-hunter) The `bonusRemaining === null` guard in `foldBonusCountSteps()` is untested. — Patched: added a no-count hold test (zero and tilted, in the hold and in the arming frame, with a counting-hold control) to the AC 6 describe. Mutation recorded under AC6.
+  - `[low]` `[patch]` (blind-hunter) The arming-branch fold has no recorded mutation, and many new tests lack `mutation:` lines. — Patched: the fold removal and the dropped `slice` were applied and observed red, and recorded under AC4 and AC6. The per-test list is rejected: Rule 19 asks for one demonstrated mutation per AC, not per test.
+  - `[low]` `[patch]` (blind-hunter) The AC10 test claims to fold "exactly as boot.ts" folds, but the real loop batches ticks. — Patched: the comment now says it uses the same calls one tick per frame, and points to the AC 4 and AC 6 fold tests for batching. The test itself matches AC10 as worded (a `runRulesScript`-driven `createRules()`).
+  - `[low]` `[patch]` (blind-hunter) The skill-shot docs say "the drain", but any parking device, including the Lock, closes it. — Patched: the header, the `step` doc and the inline comment now say "the trough drain, or the Lock". The behaviour follows the spec ("a `parking` device") and FR-18. The ball-search recover claim was checked: `recover()` queues the same trough-slot switch edge as a real entry.
+  - `[low]` `[patch]` (blind-hunter) Stale "count-up" wording remains. — Patched: the three `test/rules-tilt.test.ts` assertion messages. `ball-controller.ts:572` is kept: it quotes Story 2.10's Design Notes heading, and the line above it records the change. `TUNING.matchDelayMs.source` is hashed provenance that the spec forbids re-recording here, so that part went to `deferred`.
+  - `[false]` `[reject]` (blind-hunter) The spec's status contradicts itself, and it records no verification results. — Finalize writes `## Auto Run Result` with status and results. The interim `ready-for-dev` text was the pre-run placeholder.
+  - `[low]` `[reject]` (blind-hunter) The "ceiling lives outside TUNING" test only catches that exact key name. — The property is structural: `BONUS_COUNT_MAX_MS` is an exported `const` beside `TUNING`, not inside its literal, and AC5's pinning tests are the ceiling-vs-hold and throw tests. Hardening the test would add complexity for a regression nobody is likely to write.
+  - `[low]` `[reject]` (blind-hunter) The "LARGEST such ms" test copies the ms-to-ticks formula, and the source prose hard-codes 999. — `msToTicks()` is private and `resolveTuning()` throws above the ceiling, so the test has to compute it. The prose is hashed provenance that cannot reference a symbol. Drift needs a rounding change.
+  - `[low]` `[reject]` (edge-case-hunter) The ceiling does not account for multi-tick frames; the last step can be dropped at the hold edge. — Same root cause as the first BONUS_COUNT_MAX_MS finding. Rejected on the same grounds.
+  - `[low]` `[reject]` (edge-case-hunter) Two `ball_ended` events for the same player in one FrameOutput would mismatch total and steps. — Theoretical: it needs a stalled frame (up to 200 ticks) holding two drains, and a second ball cannot be served, launched and drained that fast. The first-`ball_ended` `find` is pre-existing.
+  - `[low]` `[reject]` (edge-case-hunter) A missing `players[player]` or a later batched snapshot score makes the pre-bonus score wrong. — Arming is skipped in Attract, and players persist through `game_over`. A score change inside the arming frame needs the next ball served and scoring within one frame of the drain. The intent specifies "read at arming".
+  - `[false]` `[reject]` (edge-case-hunter) One nudge's swing warns player 2 after a drain, bypassing spacing. — Specified behaviour (see the Hot-seat finding above).
+  - `[low]` `[reject]` (edge-case-hunter) A category with count > 0 but a tuned value of 0 emits a step with an unchanged remaining. — The spec defines steps per nonzero category count, and a 0-valued scoring tunable is dev-only. By-design.
+  - `[low]` `[reject]` (edge-case-hunter) Claim: the ceiling guarantees the count always fits the hold. — Same root cause as the first BONUS_COUNT_MAX_MS finding.
+  - `[low]` `[patch]` (edge-case-hunter) Claim: AC10 folds "exactly as boot.ts". — Same root cause as the AC10 finding. Comment corrected.
+  - `[medium]` `[patch]` (verification-gap) The per-player-map clear outside a game is not pinned. — Same root cause as the matching blind-hunter finding. Patched with the new tilt test and its mutation line.
+  - `[low]` `[patch]` (verification-gap) The no-count guard in `foldBonusCountSteps()` is never exercised. — Same root cause as the matching blind-hunter finding. Patched.
+  - `[low]` `[patch]` (verification-gap) The arming-frame half of AC6 and the Backglass half of AC4 have no `mutation:` line. — Same root cause as the matching blind-hunter finding. Mutations applied, observed red, recorded.
+  - `[low]` `[patch]` (verification-gap) The "strictly rising" loop compares the test's own computed values. — Patched: it now pushes the parsed RENDERED score line. The jump-shape mutation was re-run and observed red.
+  - `[low]` `[patch]` (verification-gap) `expect(armed.score).not.toBe(commas(finalScore))` can only fail if an earlier assertion fails. — Patched: the redundant assertion was deleted.
+  - `[low]` `[reject]` (verification-gap) The "outside TUNING" test checks only the literal key. — Same root cause as the blind-hunter finding. Rejected on the same grounds.
+  - `[false]` `[reject]` (verification-gap) The AC2 golden leaf diff is a scratchpad helper, not a test. — The spec's `## Verification` prescribes exactly that helper. It was run at implement and again after the patches: only the two `.source` leaves change in each golden, still LF. `test/replay-goldens.test.ts` also guards the hashes.
+  - `[low]` `[reject]` (verification-gap, other) `complete` is never read. — Same root cause as the blind-hunter finding. By-design.
+  - `[low]` `[reject]` (intent-alignment) Hold fit is checked as tick arithmetic, not display. — Same root cause as the first BONUS_COUNT_MAX_MS finding. The auditor notes that the diff follows the contract's own formula.
+  - `[low]` `[patch]` (intent-alignment) The integration surface is not the real loop. — Same root cause as the AC10 finding. Comment corrected; the test matches AC10's wording.
+  - `[low]` `[reject]` (intent-alignment) The pre-bonus score comes from the frame-end snapshot. — Same root cause as the edge-case-hunter finding. Matches "read at arming".
+  - `[low]` `[patch]` (intent-alignment) The skill-shot scope is wider than "the drain" (it includes the Lock). — Same root cause as the blind-hunter finding. Docs corrected; the behaviour follows the spec's "parking device".
+  - `[low]` `[patch]` (intent-alignment) Several new pinning tests have no mutation line. — Same root cause as the arming-fold finding. Per-AC lines added.
+  - `[false]` `[reject]` (intent-alignment) The DW-235 tests were re-staged off the Slam route. — Not a defect: the Slam route can no longer carry a pending count (DW-285, pinned by AC3), and the re-staged tests still exercise the DW-235 same-tick filter through the one route that can.
+
 ## Design Notes
 
 **Measured at this tree (lead guidance: measure before you prescribe).**
@@ -186,15 +231,35 @@ None is declined.
 
 **Mutations (Rule 19).** Each one is applied, observed red, reverted, and followed by a check that `git status --short` and `git diff --stat` are unchanged.
 - AC1: arming reads the post-bonus snapshot score → the backglass-frame pre-bonus test goes red. Separately, the score line is held at `pre` until the last step (the jump shape) → the rising-score-line test goes red. Separately, the steps return a rising subtotal → the rules-bonus count-down test goes red.
+  - mutation (applied 2026-09-29, reverted, tree byte-identical): `ballEndedScoreLine()` returns `finalScore` (the snapshot score) on every frame → `test/backglass-frame.test.ts`:"arming shows BONUS <total> and the PRE-bonus score; each step shows its remaining and a strictly rising score line; ..." went red.
+  - mutation: `ballEndedScoreLine()` returns `complete ? finalScore : preBonusScore` (the jump shape) → the same `test/backglass-frame.test.ts` test went red (step 1 shows `pre`, not `pre + 20,000`).
+  - mutation (re-run at review 2026-09-29, after the test was changed to push the RENDERED score into its rising check): the same jump shape → the AC 1 test went red again ("step 1: the score line is pre + (total - remaining)"), with the AC 6 fold tests.
+  - mutation: `bonusCountDownSteps()` returns `remaining: running` (a rising subtotal) → `test/rules-bonus.test.ts`:"letters 2, loops 1, x3: two bonus_count_step ... remaining 30000 then 0" (both players), "the I/O row \"Count-down, multiplier\"" and "the I/O row \"One category\"" went red.
 - AC2: the score is paid on the last step's tick instead of the drain tick → the rules-bonus drain-tick test goes red.
+  - mutation: the drain-tick `score + total` write removed and the total paid when the `step === steps` event is emitted → `test/rules-bonus.test.ts`:"Story 3.0 AC 2 ... the bonus-inclusive score is ALREADY in statesByTick.get(drainTick) ..." (both players) went red.
 - AC3: the Attract gate is deleted → the Slam test goes red.
+  - mutation: the `phase === 'attract'` clear in `ball-controller.ts` disabled → `test/rules-bonus.test.ts`:"with the Slam at E+200: no bonus_count_step at or after the Slam tick" went red; its no-Slam control and the game_over positive stayed green.
 - AC4: `Math.max(1, …)` is removed → the zero-ms test goes red.
+  - mutation: `bonusCountTicks` unclamped → `test/rules-bonus.test.ts`:"at 0 ms: steps at E+1 and E+2, the last remaining 0" went red; the 1 ms control stayed green.
+  - mutation (review 2026-09-29, Backglass half): the arming-branch fold removed (`heldBallEnded = armedHeld`) → `test/backglass-frame.test.ts`:"one FrameOutput carrying the drain tick and the two one-tick-apart steps ... arms straight to BONUS 0 and the final score" went red.
 - AC5: `BONUS_COUNT_MAX_MS` is set to 1000 → the ceiling-vs-hold test goes red. Separately, the `resolveTuning` check is removed → the +1-rejected test and the panel test go red.
+  - mutation: `BONUS_COUNT_MAX_MS = 1000` → `test/backglass-frame.test.ts`:"at bonusCountMs = BONUS_COUNT_MAX_MS, BONUS_CATEGORIES.length steps end strictly inside BALL_ENDED_HOLD_TICKS" went red.
+  - mutation: the `resolveTuning()` ceiling check disabled → `test/tuning.test.ts`:"bonusCountMs = BONUS_COUNT_MAX_MS resolves; BONUS_COUNT_MAX_MS + 1 throws, naming bonusCountMs" went red, and (separate run) `test/tuning-panel.test.ts`:"Story 3.0 AC 5: a bonusCountMs edit to BONUS_COUNT_MAX_MS + 1 is reverted ..." went red.
 - AC6: the fold is reverted to `find` → the multi-step frame test goes red.
+  - mutation: the hold branch folds only `input.events.find(isBonusCountStepEvent)` → `test/backglass-frame.test.ts`:"in the hold: a frame carrying BOTH steps shows BONUS 0 and the final score; ..." went red; the arming-frame case stayed green (it has its own fold).
+  - mutation (review 2026-09-29, arming frame): the arming-branch fold removed (`heldBallEnded = armedHeld`) → `test/backglass-frame.test.ts`:"in the arming frame: steps AFTER the ball_ended are folded in ..." went red (and the AC 4 Backglass test).
+  - mutation (review 2026-09-29): the arming fold given every event, not only those after the `ball_ended` (the `slice` dropped) → the same arming-frame test went red on its `staleBefore` case.
+  - mutation (review 2026-09-29): `foldBonusCountSteps()`'s `bonusRemaining === null` guard disabled → `test/backglass-frame.test.ts`:"a hold with no count (zero bonus or tilted) ignores a same-player step ..." went red; its counting-hold control stayed green.
 - AC7: the old "categories count up, then the multiplier is applied" is restored → the provenance test goes red.
+  - mutation: the old quote restored in `TUNING.bonusCountMs.source` → `test/tuning.test.ts`:"every double-quoted phrase appears verbatim in FR-20, ..." went red; the audit's own control stayed green.
 - AC8: the marks are made machine-wide again → the Hot-seat test goes red. Separately, the idle mark is dropped → `rules-tilt.test.ts:950` goes red.
+  - mutation: every player's marks keyed to 0 (machine-wide) → `test/rules-tilt.test.ts`:"run A: inside player 1's SPACING window ..." and "run B: ... SETTLE window ..." went red; both no-drain controls stayed green.
+  - mutation: `spacedFromIdle` forced true (idle mark dropped) → `test/rules-tilt.test.ts`:"the Attract-time closure's spacing mark is genuinely recorded -- ..." went red.
+  - mutation (review 2026-09-29): the `state.phase !== 'game'` clear of the per-player maps disabled → `test/rules-tilt.test.ts`:"a new game's player 1 is never judged against the previous game's marks; ..." went red; its same-game control is the other half of that test.
 - AC9: the parking-entry close is deleted → the saved-drain test goes red.
+  - mutation: the `device_ball_entered`/`parking` branch in `skill-shot.ts` disabled → `test/rules-modes.test.ts`:"saved no-switch drain: plunge, trough entry inside the save window, autolaunch, then the lit Top lane -- ball_saved, and no award, no letter" went red (plus the two moved `s_trough_2`/`s_lock_1` cases); the manual-plunge control stayed green.
 - AC10: `renderFrame` shows `total` instead of `remaining` → the integration test goes red.
+  - mutation: the BONUS row renders `finalScore - preBonusScore` (the total) → `test/backglass-integration.test.ts`:"the ball_ended screen reads (pre, BONUS total) -> (pre + 15,000, BONUS 10,000) -> (final, BONUS 0), ..." went red.
 
 **Browser smoke (the lead runs it; the DMD is observed through an in-page rAF sampler cropping `#render-canvas`, because each screen lasts under 2 s):** Start a game, hit at least one DRAGON target, and drain. Expected:
 - The end-of-ball screen shows PLAYER 1, the pre-bonus score, and `BONUS <total>`.
@@ -204,5 +269,69 @@ None is declined.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Summary.** The eight Epic 2 defects are closed.
+- The end-of-ball bonus now counts DOWN: one step per nonzero category, and the last `remaining` is exactly 0.
+- The Backglass shows `BONUS <total>` at arming, with the pre-bonus score (`score - total`). The score line then rises by what each step pays and lands on the final score exactly at BONUS 0.
+- The sim's payment is untouched: the same `bonusTotal()`, the same `ball_ended`, and the same drain-tick write.
+- Attract clears the count (DW-285). `bonusCountTicks` is clamped to at least 1 (DW-286). `resolveTuning()` rejects `bonusCountMs > BONUS_COUNT_MAX_MS` (999) (DW-287). Every step in a frame is folded, in the hold and in the arming frame (DW-287).
+- The `bonusCountMs` provenance now quotes FR-20 verbatim, re-recorded header-only in the goldens (DW-289).
+- The tilt marks are per player, with a shared idle mark (DW-284).
+- A launched skill shot closes with no award on any parking-device entry (DW-232).
+
+baseline_revision: 56ac0b91233329c07a977c016651c3bb46853431
+
+**Files changed.**
+- `src/sim/rules/bonus.ts`: `bonusCountDownSteps()` replaces the count-up helper, sharing `bonusSubtotal()` with `bonusTotal()`.
+- `src/sim/contracts/events.ts`: `BonusCountStepEvent.running` is renamed to `remaining`, with a count-down doc.
+- `src/sim/rules/ball-controller.ts`: arms from the count-down, clamps `bonusCountTicks` with `Math.max(1, ...)`, and clears the schedule in Attract.
+- `src/sim/table/tuning.ts`: corrected `bonusCountMs.source`; `BONUS_COUNT_MAX_MS` and its `resolveTuning()` rejection.
+- `src/presentation/backglass/frame.ts`: `HeldBallEnded` (pre-bonus score, final score, remaining, complete), `foldBonusCountSteps()` (last step wins), and `ballEndedScoreLine()`.
+- `src/sim/rules/tilt.ts`: per-player `Map` marks plus the idle mark, cleared outside a game, reset-safe.
+- `src/sim/rules/modes/skill-shot.ts`: the parking-entry close.
+- `test/replays/*.golden.json` (5): only the two `.source` leaves changed, confirmed by a per-leaf JSON diff. Still LF.
+- Tests: `test/rules-bonus.test.ts`, `test/backglass-frame.test.ts`, `test/backglass-integration.test.ts`, `test/tuning.test.ts`, `test/tuning-panel.test.ts`, `test/rules-tilt.test.ts`, `test/rules-modes.test.ts`, `test/contracts.test.ts` and `test/rules-match.test.ts` cover AC1–AC10, the `remaining` rename, and the re-staged DW-235 pair.
+
+**Footprint extensions (uncontended):** `src/sim/contracts/events.ts`, `src/presentation/backglass/frame.ts`, `src/sim/rules/modes/skill-shot.ts` (under `src/sim/rules/**`, so in footprint), and `test/*.test.ts`. No contended path was touched.
+
+**Review findings.** 4 layers returned 33 findings: high 0, medium 2, low 26, false 5.
+- **Patches applied (2 medium, 13 low rows, 9 root causes):**
+  - a cross-game tilt-mark test;
+  - a no-count fold-guard test;
+  - arming-fold, slice and jump-shape mutations applied and recorded;
+  - the "strictly rising" check now reads the rendered score;
+  - a redundant assertion deleted;
+  - the AC10 comment corrected;
+  - the skill-shot docs now say "the trough drain, or the Lock";
+  - three stale "count-up" test messages fixed.
+- **Deferred (1, low):** `TUNING.matchDelayMs.source` still says "count-up". This is hashed provenance, and fixing it needs its own header-only golden re-record.
+- **Rejected (18 rows),** each with its reason in the Review Triage Log:
+  - the ceiling's 3-tick display margin (spec-prescribed formula);
+  - per-player spacing (as specified);
+  - `complete` unread (the Code Map asks for it);
+  - the weak outside-TUNING test;
+  - the copied ms-to-ticks formula;
+  - a two-`ball_ended` frame (theoretical);
+  - the pre-bonus score from the frame-end snapshot;
+  - a 0-valued category;
+  - the spec status placeholder;
+  - the golden helper not being a test;
+  - the DW-235 re-staging.
+
+**Follow-up review recommended: false.** This first pass patched 1 medium root cause (two rows) and no high, and no specific unverified risk remains.
+
+**Verification.**
+- `pnpm test`: 129 files and 2118 tests, all passing (baseline 2089).
+- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all exit 0.
+- Golden per-leaf JSON diff, re-run after the patches: only `header.gameStart.tuning.bonusCountMs.source` and `.bonusCountTicks.source` change in each of the five goldens. No hash, trajectory, transition or checkpoint moved, and line endings are LF.
+- No non-ASCII bytes in added source or test lines.
+- Matrix Test Audit: all 12 I/O rows are covered by tests that ran green.
+- Every AC's pinning mutation is recorded under `## Verification`, each applied, observed red and reverted to a byte-identical tree.
+- The browser smoke is left to the lead, per the spec.
+
+**Residual risks.**
+- (1) At a dev-panel `bonusCountMs` near the 999 ms ceiling, the last step lands 3 ticks before the hold releases. With multi-tick frames, BONUS 0 and the final score may not draw before the screen moves on. The shipped 400 ms leaves 1800 ms of margin. Widening the margin means changing the spec's derivation formula (for example, subtracting `MAX_OWED_TICKS` or a display allowance), which is a lead decision.
+- (2) With the per-player marks (as specified), a bob still swinging from player 1's nudge after a quick drain can warn player 2.
+- (3) The AC10 integration test folds one tick per frame. The real loop's batching is covered only by the AC4/AC6 unit-level fold tests and the lead's browser smoke.

@@ -71,34 +71,45 @@ function valueOf(category: BonusCategory, tuning: ResolvedTuning): number {
 
 /** AC 3: `Σ byCategory[c] × value(c)`, then the WHOLE subtotal scaled by `multiplier` once -- never per category. `strikes` sums like any other category even though nothing credits it this epic (Design Notes, "the arithmetic covers it"). */
 export function bonusTotal(bonus: PlayerBonusState, tuning: ResolvedTuning): number {
+	return bonusSubtotal(bonus, tuning) * bonus.multiplier;
+}
+
+/** The un-multiplied sum of `byCategory[c] x value(c)` -- the one sum `bonusTotal()` and `bonusCountDownSteps()` both scale, so the count-down can never start from a different figure than the payload's `total`. */
+function bonusSubtotal(bonus: PlayerBonusState, tuning: ResolvedTuning): number {
 	let subtotal = 0;
 	for (const category of BONUS_CATEGORIES) {
 		subtotal += bonus.byCategory[category] * valueOf(category, tuning);
 	}
-	return subtotal * bonus.multiplier;
+	return subtotal;
 }
 
-/** One entry of `bonusCountUpSteps()` below: `category` names which category this step just added (the FINAL entry, the multiplier-applied grand total, carries `null`). */
-export interface BonusCountUpStep {
-	readonly category: BonusCategory | null;
-	readonly running: number;
+/** One entry of `bonusCountDownSteps()` below: `category` names the category this step just paid out, and `remaining` is what is still left to count once it has. */
+export interface BonusCountDownStep {
+	readonly category: BonusCategory;
+	readonly remaining: number;
 }
 
 /**
- * Task 7(e): the end-of-ball count-up's own arithmetic, laid out as an
- * ordered list so `sim/rules/ball-controller.ts` (the sole owner of the
- * count-up's TIMING -- it alone holds the pre-rotation `endingPlayer` and
- * the tick clock) only has to stamp each entry with a tick and a
- * `player`/`step`/`steps` field. One entry per NONZERO category, in
- * `BONUS_CATEGORIES` order, each `running` the UN-multiplied subtotal
- * through that category; then one final entry (`category: null`) whose
- * `running` is `bonusTotal()`'s own result, called directly so this list's
- * last entry can never drift from the `total` the controller separately
- * computes for the `ball_ended` payload (task 7(d)) -- one arithmetic path,
- * read twice, never two.
+ * Story 3.0 (DW-236, PRD FR-20 "the Backglass counts the bonus down", AD-3):
+ * the end-of-ball count-DOWN's own arithmetic, laid out as an ordered list
+ * so `sim/rules/ball-controller.ts` (the sole owner of the count's TIMING --
+ * it alone holds the pre-rotation `endingPlayer` and the tick clock) only
+ * has to stamp each entry with a tick and a `player`/`step`/`steps` field.
+ *
+ * One entry per NONZERO category, in `BONUS_CATEGORIES` order. Each entry's
+ * `remaining` is `(subtotal - running subtotal through that category) x
+ * multiplier`, so the multiplier is applied to the whole of what is left at
+ * every step and no separate multiplier step exists. The first displayed
+ * value -- the full total, before any step -- is the `ball_ended` payload's
+ * own `total`, never an entry here. The last entry's `remaining` is exactly
+ * 0 by construction (its running subtotal IS the subtotal), and the list is
+ * empty when every category is 0. The subtotal is `bonusSubtotal()`, the
+ * same sum `bonusTotal()` scales, so the count starts from the same `total`
+ * the `ball_ended` payload carries -- one arithmetic path, never two.
  */
-export function bonusCountUpSteps(bonus: PlayerBonusState, tuning: ResolvedTuning): readonly BonusCountUpStep[] {
-	const steps: BonusCountUpStep[] = [];
+export function bonusCountDownSteps(bonus: PlayerBonusState, tuning: ResolvedTuning): readonly BonusCountDownStep[] {
+	const subtotal = bonusSubtotal(bonus, tuning);
+	const steps: BonusCountDownStep[] = [];
 	let running = 0;
 	for (const category of BONUS_CATEGORIES) {
 		const count = bonus.byCategory[category];
@@ -106,9 +117,8 @@ export function bonusCountUpSteps(bonus: PlayerBonusState, tuning: ResolvedTunin
 			continue;
 		}
 		running += count * valueOf(category, tuning);
-		steps.push({ category, running });
+		steps.push({ category, remaining: (subtotal - running) * bonus.multiplier });
 	}
-	steps.push({ category: null, running: bonusTotal(bonus, tuning) });
 	return steps;
 }
 

@@ -8,9 +8,11 @@
 // produces a `…Ticks` counterpart for every `…Ms` entry using TICK_HZ,
 // preserving source/confidence.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TICK_HZ } from '../src/sim/contracts/time';
-import { plungerSpeedByHoldMs, resolveTuning, TUNING, type Confidence, type TuningEntry } from '../src/sim/table/tuning';
+import { BONUS_COUNT_MAX_MS, plungerSpeedByHoldMs, resolveTuning, TUNING, type Confidence, type TuningEntry } from '../src/sim/table/tuning';
 
 function isTuningEntry(value: unknown): value is TuningEntry<unknown> {
 	return (
@@ -79,7 +81,7 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'ballSaveMs',
 			'ballSaveHurryUpMs',
 			'ballSaveGraceMs',
-			// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count-up's pace and
+			// Story 2.10 (AD-3/AD-15): the end-of-ball bonus count's pace and
 			// the three per-category scoring values.
 			'bonusCountMs',
 			'bonusLetterValue',
@@ -329,7 +331,7 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 
 	// Story 2.13 (AC 12): production `matchDelayTicks` must exceed the
 	// Backglass's `BALL_ENDED_HOLD_TICKS` (3000), so the last ball's own
-	// end-of-ball hold and bonus count-up (Story 2.10) are never cut by the
+	// end-of-ball hold and bonus count (Story 2.10) are never cut by the
 	// Match sequence starting underneath them.
 	it('AC 12: production matchDelayTicks (5000) exceeds BALL_ENDED_HOLD_TICKS (3000)', () => {
 		expect(resolved.matchDelayTicks.value).toBeGreaterThan(3000);
@@ -742,5 +744,51 @@ describe('TUNING.tiltBob -- the ported plumb-bob tilt pendulum parameters (Story
 		expect(TUNING.tiltBob.thresholdDeg.confidence).toBe('unverified');
 		expect(TUNING.tiltBob.dampingScale.source).toMatch(/authored/);
 		expect(TUNING.tiltBob.thresholdDeg.source).toMatch(/authored/);
+	});
+});
+
+describe('Story 3.0 AC 5 (DW-287) -- resolveTuning() enforces the bonusCountMs ceiling', () => {
+	const withBonusCountMs = (ms: number) => ({ ...TUNING, bonusCountMs: { ...TUNING.bonusCountMs, value: ms } });
+
+	it('bonusCountMs = BONUS_COUNT_MAX_MS resolves; BONUS_COUNT_MAX_MS + 1 throws, naming bonusCountMs', () => {
+		expect(resolveTuning(withBonusCountMs(BONUS_COUNT_MAX_MS)).bonusCountMs.value).toBe(BONUS_COUNT_MAX_MS);
+		expect(() => resolveTuning(withBonusCountMs(BONUS_COUNT_MAX_MS + 1))).toThrow(/"bonusCountMs"/);
+	});
+
+	it('the ceiling lives outside TUNING, so it is neither hashed into a replay header nor a panel row', () => {
+		expect(Object.keys(TUNING)).not.toContain('BONUS_COUNT_MAX_MS');
+		expect(JSON.stringify(resolveTuning())).not.toContain('BONUS_COUNT_MAX_MS"');
+	});
+});
+
+describe('Story 3.0 AC 7 (DW-289) -- TUNING.bonusCountMs.source quotes PRD FR-20 verbatim', () => {
+	const PRD_PATH = path.resolve(__dirname, '..', '_bmad-output', 'planning-artifacts', 'prds', 'prd-dragonwar-2026-08-26', 'prd.md');
+
+	/** The FR-20 section of prd.md: from its own heading to the next `####` heading. */
+	function fr20Section(): string {
+		const prd = readFileSync(PRD_PATH, 'utf8');
+		const match = prd.match(/#### FR-20:[\s\S]*?(?=\n#### |$)/);
+		expect(match, 'FR-20 must exist in prd.md').not.toBeNull();
+		return match![0];
+	}
+
+	/** Every double-quoted phrase in `source` that does NOT appear verbatim in `section`, plus whether it quotes anything and mentions a count-up. */
+	function audit(source: string, section: string): { quotes: string[]; missing: string[]; countUp: boolean } {
+		const quotes = [...source.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+		return { quotes, missing: quotes.filter((q) => !section.includes(q)), countUp: /count[ -]up/i.test(source) };
+	}
+
+	it('every double-quoted phrase appears verbatim in FR-20, at least one exists, and "count up"/"count-up" appears nowhere', () => {
+		const result = audit(TUNING.bonusCountMs.source, fr20Section());
+		expect(result.quotes.length, 'the source must quote FR-20 at least once').toBeGreaterThan(0);
+		expect(result.missing, 'every quoted phrase must be FR-20\'s own words').toEqual([]);
+		expect(result.countUp, 'FR-20 describes a count DOWN').toBe(false);
+	});
+
+	it('control: the audit flags the pre-Story-3.0 source, whose quote FR-20 does not contain', () => {
+		const old = 'authored: PRD FR-20 states the count-up mechanism ("categories count up, then the multiplier is applied") but no pace for it.';
+		const result = audit(old, fr20Section());
+		expect(result.missing).toEqual(['categories count up, then the multiplier is applied']);
+		expect(result.countUp).toBe(true);
 	});
 });

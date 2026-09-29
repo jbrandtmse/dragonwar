@@ -209,13 +209,13 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(event.type).toBe('ball_ended');
 	});
 
-	it('bonus_count_step (Story 2.10, AD-3/AD-9): the end-of-ball count-up\'s own step event', () => {
+	it('bonus_count_step (Story 2.10, AD-3/AD-9; a count-down since Story 3.0, DW-236): the end-of-ball bonus count\'s own step event', () => {
 		const event: SemanticEvent = {
 			type: 'bonus_count_step',
 			player: 1,
 			step: 2,
 			steps: 3,
-			running: 40000,
+			remaining: 20000,
 			total: 60000,
 			tick: 820,
 		};
@@ -262,7 +262,7 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 				case 'ball_ended':
 					return `ended ${event.player} ${event.total}`;
 				case 'bonus_count_step':
-					return `bonus step ${event.step}/${event.steps} running ${event.running}`;
+					return `bonus step ${event.step}/${event.steps} remaining ${event.remaining}`;
 				case 'tilt_warning':
 					return `tilt warning ${event.player} remaining ${event.remaining}`;
 				case 'tilt':
@@ -318,8 +318,8 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 			}),
 		).toBe('ended 2 777');
 		expect(
-			describeEvent({ type: 'bonus_count_step', player: 1, step: 2, steps: 3, running: 40000, total: 60000, tick: 820 }),
-		).toBe('bonus step 2/3 running 40000');
+			describeEvent({ type: 'bonus_count_step', player: 1, step: 2, steps: 3, remaining: 20000, total: 60000, tick: 820 }),
+		).toBe('bonus step 2/3 remaining 20000');
 
 		// Story 2.11: this story's own three new arms, each with an
 		// executing assertion from the moment it ships (never joining the

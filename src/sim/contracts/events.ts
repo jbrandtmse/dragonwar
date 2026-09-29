@@ -206,23 +206,30 @@ export interface BallEndedEvent {
 }
 
 /**
- * Story 2.10 (AD-3, AD-9): one tick of the end-of-ball bonus count-up,
- * paced by `bonusCountMs` (`sim/table/tuning.ts`) -- the first
- * implementation of AD-3's "every display-paced sequence ... emits step
- * events; presentation animates to them and never reports completion".
+ * Story 2.10 (AD-3, AD-9), reshaped by Story 3.0 (DW-236, PRD FR-20 "the
+ * Backglass counts the bonus down"): one tick of the end-of-ball bonus
+ * count-DOWN, paced by `bonusCountMs` (`sim/table/tuning.ts`) -- AD-3's
+ * "every display-paced sequence ... emits step events; presentation
+ * animates to them and never reports completion". One step per nonzero
+ * bonus category, in `BONUS_CATEGORIES` order (`sim/rules/bonus.ts`).
  * Payload-complete (AD-9): `step`/`steps` let a consumer know it is on the
- * LAST step without joining to a later snapshot, and `running` is the
- * un-multiplied subtotal through this step -- the final step's `running`
- * always equals `total`. Emitted only for an UNTILTED ball whose `total` is
- * greater than 0 (`ball-controller.ts`'s own drain branch); a tilted or
- * zero-bonus ball end emits none.
+ * LAST step without joining to a later snapshot, and `remaining` is the
+ * multiplier-applied bonus still left to count after this step --
+ * `(subtotal - running subtotal through this category) x multiplier`. It
+ * falls with every step and is exactly 0 on the last one (`step === steps`).
+ * The value shown before the first step is `total` itself, which the
+ * `ball_ended` payload already carries. The bonus is paid into
+ * `GameState` on the drain tick, not by these steps: this event only paces
+ * the display. Emitted only for an UNTILTED ball whose `total` is greater
+ * than 0 (`ball-controller.ts`'s own drain branch), and never while
+ * `phase === 'attract'` (DW-285); a tilted or zero-bonus ball end emits none.
  */
 export interface BonusCountStepEvent {
 	readonly type: 'bonus_count_step';
 	readonly player: number;
 	readonly step: number;
 	readonly steps: number;
-	readonly running: number;
+	readonly remaining: number;
 	readonly total: number;
 	readonly tick: number;
 }

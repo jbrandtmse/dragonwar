@@ -439,7 +439,7 @@
         },
         "bonusCountMs": {
           "value": 400,
-          "source": "authored: PRD FR-20 states the count-up mechanism (\"categories count up, then the multiplier is applied\") but no pace for it. Constrained, not guessed: at most BONUS_CATEGORIES.length (3) nonzero-category steps plus one final step means at most 4 steps x 400 ms = 1600 ms, comfortably inside the Backglass's existing 3000 ms ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts) with room for the screen to settle before the hold releases -- adjustable until Epic 3's playtest freeze (Story 3.11)",
+          "source": "authored: PRD FR-20 states the mechanism (\"the Backglass counts the bonus down\") but no pace for it. Constrained, not guessed: the count-down emits one step per nonzero bonus category, so at most BONUS_CATEGORIES.length (3) steps: 3 steps x 400 ms = 1200 ms < 3000 ms, the Backglass's ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts), which never waits for the count. resolveTuning() rejects any value above BONUS_COUNT_MAX_MS (999 ms, the largest whole ms whose 3 steps still end inside that hold) -- adjustable within that ceiling until Epic 3's playtest freeze (Story 3.11)",
           "confidence": "unverified"
         },
         "bonusLetterValue": {
@@ -559,7 +559,7 @@
         },
         "bonusCountTicks": {
           "value": 400,
-          "source": "authored: PRD FR-20 states the count-up mechanism (\"categories count up, then the multiplier is applied\") but no pace for it. Constrained, not guessed: at most BONUS_CATEGORIES.length (3) nonzero-category steps plus one final step means at most 4 steps x 400 ms = 1600 ms, comfortably inside the Backglass's existing 3000 ms ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts) with room for the screen to settle before the hold releases -- adjustable until Epic 3's playtest freeze (Story 3.11)",
+          "source": "authored: PRD FR-20 states the mechanism (\"the Backglass counts the bonus down\") but no pace for it. Constrained, not guessed: the count-down emits one step per nonzero bonus category, so at most BONUS_CATEGORIES.length (3) steps: 3 steps x 400 ms = 1200 ms < 3000 ms, the Backglass's ball_ended hold (BALL_ENDED_HOLD_TICKS, presentation/backglass/frame.ts), which never waits for the count. resolveTuning() rejects any value above BONUS_COUNT_MAX_MS (999 ms, the largest whole ms whose 3 steps still end inside that hold) -- adjustable within that ceiling until Epic 3's playtest freeze (Story 3.11)",
           "confidence": "unverified"
         },
         "matchDelayTicks": {

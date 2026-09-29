@@ -28,7 +28,9 @@ import { rasterise } from '../src/presentation/backglass/raster';
 import { FONT_5X7 } from '../src/presentation/backglass/font';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
-import type { CoilName, GameStart } from '../src/sim/table/names';
+import { close, runRulesScript } from './util/switch-script';
+import { buildSnapshot } from './util/snapshot-factory';
+import type { CoilName, FrameOutput, GameStart } from '../src/sim/table/names';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -166,16 +168,15 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 		expect(ballEndedScreen!.rows.some((r) => r.text.startsWith('BONUS ')), 'this drain never credits a bonus category, so no BONUS row is expected').toBe(false);
 
 		// Code review 2026-09-08 (verification-gap, Rule 19): the assertion just
-		// above is evaluated on the ARMING frame, and `advanceBackglass()` sets
-		// `bonusRunning: null` unconditionally on that frame for EVERY ball --
-		// so on its own it returns `false` whether the bonus was 0 or 60,000 and
-		// cannot fail for the property its own message names. The first
-		// `bonus_count_step` is `bonusCountTicks` ticks later. Keep folding
-		// through the whole window in which one could arrive, so the "Zero
-		// bonus" I/O row is asserted where a step COULD have landed. The window
-		// (4 steps) is well inside the 3000-tick end-of-ball hold, so the screen
-		// is still `ball_ended` throughout.
-		const bonusWindowTicks = resolveTuning().bonusCountTicks.value * 4 + 10;
+		// above is evaluated on the ARMING frame. Story 3.0 (DW-236) made that
+		// frame discriminating on its own -- a nonzero bonus now shows `BONUS
+		// <total>` from the arming frame -- but a stray step could still land
+		// later. Keep folding through the whole window in which one could
+		// arrive, so the "Zero bonus" I/O row is asserted where a step COULD
+		// have landed. The window (at most 3 steps, one per category, since
+		// Story 3.0) is well inside the 3000-tick end-of-ball hold, so the
+		// screen is still `ball_ended` throughout.
+		const bonusWindowTicks = resolveTuning().bonusCountTicks.value * 3 + 10;
 		let bonusRowTick = -1;
 		for (let i = 0; i < bonusWindowTicks; i++) {
 			const output = loop.advance(1, []);
@@ -185,7 +186,7 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 				break;
 			}
 		}
-		expect(view.screen, 'sanity: the end-of-ball hold must still be up across the whole count-up window, or this scan looked at the wrong screen').toBe('ball_ended');
+		expect(view.screen, 'sanity: the end-of-ball hold must still be up across the whole count window, or this scan looked at the wrong screen').toBe('ball_ended');
 		expect(
 			bonusRowTick,
 			'a genuinely zero-bonus ball emits no bonus_count_step, so no BONUS row may appear anywhere in the window one could have arrived in',
@@ -218,6 +219,72 @@ describe('Integration AC -- a real createLoop, Hot seat with two players, a genu
 
 		expect(sawBallEndedEvent, 'sanity: the real run must still have produced the event this control strips').toBe(true);
 		expect(view.screen, 'with events emptied, the ball_ended screen must never be selected').not.toBe('ball_ended');
+	});
+});
+
+// Story 3.0 AC 10 (Integration, Rule 1): the count-DOWN end to end. A real
+// createRules() (inside runRulesScript), driven through bank targets, a Left
+// Loop and a trough drain, and every tick's own events and state folded
+// through the same advanceBackglass()/renderFrame() calls src/host/boot.ts's
+// onFrame body makes -- one tick per FrameOutput here, whereas the real loop
+// batches several ticks per frame (that batching is pinned separately, by
+// the AC 4 and AC 6 fold tests in test/backglass-frame.test.ts). The drain is
+// scripted rather than physical: forcing a real physics ball through a bank
+// target and a Loop is not tractable here (see the zero-bonus note above),
+// and the fold under test only reads events and snapshots.
+describe('Story 3.0 AC 10 -- a real createRules() run, folded tick by tick through advanceBackglass()/renderFrame(), counts BONUS down to 0 while the score line pays into the final score', () => {
+	it('the ball_ended screen reads (pre, BONUS total) -> (pre + 15,000, BONUS 10,000) -> (final, BONUS 0), the final score landing exactly on the last step', () => {
+		const loopOutTick = 30;
+		const drainTick = 60;
+		// Hot seat (two Start presses) so the ending player's own score is not
+		// touched again by the same-tick rotation.
+		const script = close('s_start').at(5).at(8)
+			.open('s_shooter_lane').at(10)
+			.close(TABLE.dropBankWiring.d.switch).at(15)
+			.close(TABLE.dropBankWiring.r.switch).at(16)
+			.close(TABLE.dropBankWiring.a.switch).at(17)
+			.close('s_loop_l_in').at(20)
+			.close('s_loop_l_out').at(loopOutTick)
+			.close('s_trough_1').at(drainTick);
+		const bonusCountTicks = NO_BALL_SAVE_TUNING.bonusCountTicks.value;
+		const durationTicks = drainTick + bonusCountTicks * 2 + 50;
+		const result = runRulesScript(script.build(), { durationTicks, tuning: NO_BALL_SAVE_TUNING });
+
+		const ended = result.events.find((e) => e.type === 'ball_ended');
+		expect(ended && ended.type === 'ball_ended' ? [ended.tick, ended.player, ended.total] : undefined, 'sanity: 3 letters (15,000) + 1 loop (10,000) at x1, paid by player 0 at the drain').toEqual([drainTick, 0, 25_000]);
+		const pre = result.statesByTick.get(drainTick - 1)!.players[0]!.score;
+		const final = result.statesByTick.get(drainTick)!.players[0]!.score;
+		expect(final, 'sanity: the sim pays the whole bonus on the drain tick').toBe(pre + 25_000);
+
+		// The boot.ts fold, one tick per FrameOutput.
+		let view = INITIAL_BACKGLASS_VIEW;
+		const shown: Array<{ tick: number; score: string | undefined; bonus: string | undefined }> = [];
+		for (let tick = 1; tick <= durationTicks; tick++) {
+			const output: FrameOutput = {
+				snapshot: buildSnapshot({ tick, game: result.statesByTick.get(tick)! }),
+				events: result.events.filter((e) => e.tick === tick),
+				contactEvents: [],
+				commands: [],
+			};
+			view = advanceBackglass(view, output);
+			const frame = renderFrame(view, output.snapshot);
+			if (frame.screen === 'ball_ended') {
+				const last = shown[shown.length - 1];
+				const score = frame.rows[1]?.text;
+				const bonus = frame.rows.find((r) => r.text.startsWith('BONUS '))?.text;
+				if (!last || last.score !== score || last.bonus !== bonus) {
+					shown.push({ tick, score, bonus });
+				}
+			}
+		}
+
+		const commas = (value: number): string => value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		expect(shown).toEqual([
+			{ tick: drainTick, score: commas(pre), bonus: 'BONUS 25,000' },
+			{ tick: drainTick + bonusCountTicks, score: commas(pre + 15_000), bonus: 'BONUS 10,000' },
+			{ tick: drainTick + bonusCountTicks * 2, score: commas(final), bonus: 'BONUS 0' },
+		]);
+		expect(view.screen, 'sanity: the hold is still up at the end of the window, so every step landed inside it').toBe('ball_ended');
 	});
 });
 

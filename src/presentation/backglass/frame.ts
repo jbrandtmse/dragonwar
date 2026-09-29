@@ -33,7 +33,7 @@ function isBallEndedEvent(event: { readonly type: string }): event is BallEndedE
 	return event.type === 'ball_ended';
 }
 
-/** Story 2.10 (AD-9): the end-of-ball count-up's own step event -- `advanceBackglass()`'s hold branch folds these into `heldBallEnded.bonusRunning`, never joining to a later snapshot. */
+/** Story 2.10 (AD-9), a count-down since Story 3.0: the end-of-ball bonus count's own step event -- `foldBonusCountSteps()` folds these into `heldBallEnded.bonusRemaining`, never joining to a later snapshot. */
 function isBonusCountStepEvent(event: { readonly type: string }): event is BonusCountStepEvent {
 	return event.type === 'bonus_count_step';
 }
@@ -101,7 +101,7 @@ export interface DmdFrame {
 /**
  * Story 2.13 (AD-9): the game-over sequence's own held payload -- folded
  * incrementally from `match_drawn`/`match_reveal_step` events, exactly the
- * pattern `heldBallEnded`'s own `bonusRunning` already uses for the count-up
+ * pattern `heldBallEnded`'s own `bonusRemaining` already uses for the bonus count
  * (never re-derived from a later snapshot). `shown` is `null` until the
  * first reveal step arrives (I/O Matrix: "the status line shows no number"
  * before then) -- `number` itself is deliberately NOT carried here at all,
@@ -139,6 +139,59 @@ function foldMatchEvents(current: HeldMatch | null, events: FrameOutput['events'
 }
 
 /**
+ * Story 3.0 (DW-236, DW-237): the end-of-ball payload frozen at arming and
+ * folded forward by the bonus count-down. Presentation state only, never
+ * `GameState` -- no golden moves.
+ *
+ * - `preBonusScore` is `players[player].score - ball_ended.total`, read at
+ *   arming from the snapshot that accompanies the `ball_ended` (the sim has
+ *   already paid the bonus into that score on the drain tick).
+ * - `finalScore` is that same bonus-inclusive score.
+ * - `bonusRemaining` is `null` for a tilted or zero-bonus ball end (no BONUS
+ *   row, DW-200's "no entry means no row"); otherwise it starts at the
+ *   payload's `total` and takes each matching step's `remaining`, down to 0.
+ * - `complete` is true once the last step (`step === steps`) has arrived, or
+ *   from the start when there is no count at all.
+ *
+ * The score line is `preBonusScore + (total - bonusRemaining)` where
+ * `total = finalScore - preBonusScore`: it rises by what each step pays and
+ * equals `finalScore` exactly when `bonusRemaining` reaches 0
+ * (`ballEndedScoreLine()` below).
+ */
+export interface HeldBallEnded {
+	readonly player: number;
+	readonly preBonusScore: number;
+	readonly finalScore: number;
+	readonly bonusRemaining: number | null;
+	readonly complete: boolean;
+}
+
+/**
+ * Story 3.0 (DW-287): folds EVERY `bonus_count_step` in `events` that
+ * belongs to `held.player` into `held`, in order, so the LAST one wins. One
+ * `FrameOutput` carries every owed tick's events (up to `MAX_OWED_TICKS`),
+ * and a count paced below that cap -- `bonusCountMs: 0` clamps to one tick
+ * per step -- puts several steps in one frame; folding only the first (the
+ * old `find`) left the row stuck on a stale step and never at 0. Matched on
+ * `player` (AD-9: never trust "the only one running" by convention), and
+ * never applied to a hold with no count (`bonusRemaining === null`): a
+ * tilted or zero-bonus ball end shows no BONUS row whatever arrives. Returns
+ * `held` itself when nothing matched. Pure.
+ */
+function foldBonusCountSteps(held: HeldBallEnded, events: FrameOutput['events']): HeldBallEnded {
+	if (held.bonusRemaining === null) {
+		return held;
+	}
+	let next = held;
+	for (const event of events) {
+		if (isBonusCountStepEvent(event) && event.player === held.player) {
+			next = { ...next, bonusRemaining: event.remaining, complete: event.step >= event.steps };
+		}
+	}
+	return next;
+}
+
+/**
  * The presentation-held view state `advanceBackglass()` folds forward and
  * `renderFrame()` reads: which screen is showing, the tick at which a HELD
  * screen (end-of-ball) may next change (`null` when nothing is held), the
@@ -149,15 +202,16 @@ function foldMatchEvents(current: HeldMatch | null, events: FrameOutput['events'
  * long as that screen is held, since by the NEXT frame `snapshot.game` has
  * already moved on to the next player's ball -- AD-9).
  *
- * Story 2.10: `heldBallEnded.bonusRunning` is `null` until the first
- * `bonus_count_step` for this hold arrives (so a zero-bonus or tilted ball
- * end -- neither of which ever emits one -- renders no BONUS row at all,
- * DW-200's own "no entry means no row" precedent), then the running
- * un-multiplied subtotal through the most recent step, ending at that
- * step's own `total` on the LAST one -- read from the event alone, per
- * AD-9, never derived from `snapshot.game.players[...].score` (which
- * already includes the bonus by the time this same-tick snapshot arrives,
- * and would still be wrong for every frame before the count-up finishes).
+ * Story 2.10, reshaped by Story 3.0 (DW-236/DW-237, PRD FR-20 "the
+ * Backglass counts the bonus down"): see `HeldBallEnded` for the fields.
+ * The BONUS row counts DOWN from the `ball_ended` payload's own `total` to
+ * 0, one `bonus_count_step` at a time, while the score line rises from the
+ * pre-bonus score by what each step pays, reaching the final score exactly
+ * when BONUS reaches 0. Both are read from the events alone, per AD-9. The
+ * snapshot's score is read ONCE, at arming, from the snapshot that
+ * accompanies the `ball_ended` itself -- it already includes the bonus
+ * (the sim pays it on the drain tick), which is why the pre-bonus score is
+ * `score - total` rather than the snapshot's own figure (DW-237).
  *
  * Smoke rework (DW-247, reopened `by=smoke`): `pendingTiltWarning` is
  * presentation state, never `GameState` -- no golden moves. A `tilt_warning`
@@ -188,7 +242,7 @@ export interface BackglassView {
 	readonly screen: DmdScreen;
 	readonly holdUntilTick: number | null;
 	readonly attractCycleOriginTick: number;
-	readonly heldBallEnded: { readonly player: number; readonly score: number; readonly bonusRunning: number | null } | null;
+	readonly heldBallEnded: HeldBallEnded | null;
 	readonly pendingTiltWarning: boolean;
 	/** Story 2.13: the game-over sequence's own held Match payload -- see `HeldMatch`'s own doc comment. `null` on every screen except the live `ball_ended` hold (accumulating ahead of time) and `game_over` itself. */
 	readonly heldMatch: HeldMatch | null;
@@ -209,12 +263,15 @@ const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
 /**
  * How long the end-of-ball screen holds before the next frame may move on.
  *
- * Exported since Story 2.10's code review: `bonusCountMs`'s own `source`
- * prose argues the whole count-up (at most `BONUS_CATEGORIES.length + 1` = 4
- * steps) fits inside this hold, and that argument lived only in a string.
- * `test/backglass-frame.test.ts` now pins the inequality, so retuning
- * `bonusCountMs` past the point where the count-up outlives the hold is a red
- * test rather than a silently truncated animation.
+ * Exported since Story 2.10's code review. Story 3.0 (DW-287): the hold
+ * never waits for the bonus count-down; instead the count is bounded to fit
+ * inside it. The count has at most `BONUS_CATEGORIES.length` (3) steps, and
+ * `resolveTuning()` rejects any `bonusCountMs` above `BONUS_COUNT_MAX_MS`
+ * (`sim/table/tuning.ts`), the largest pace whose 3 steps still end before
+ * this hold does. `sim/` cannot import this constant (AD-1), so
+ * `test/backglass-frame.test.ts` pins the ceiling against it symbol to
+ * symbol: retuning either side past the other is a red test rather than a
+ * silently truncated count.
  */
 export const BALL_ENDED_HOLD_TICKS = msToTicks(3000);
 /**
@@ -285,18 +342,22 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  * Order of decisions, each one a discriminator Rule 19's mutations target:
  * 1. A `ball_ended` event this frame (re-)arms the hold, overriding
  *    whatever screen was showing -- reading the payload, never the snapshot
- *    (AD-9; AC 3's own sharpest case). `bonusRunning` starts `null` (Story
- *    2.10): the arming frame never carries a `bonus_count_step` itself
- *    (`ball-controller.ts`'s own schedule fires no earlier than
- *    `bonusCountTicks` ticks later), so nothing to show yet. Smoke rework
+ *    (AD-9; AC 3's own sharpest case). Story 3.0 (DW-236/DW-237): the
+ *    held payload freezes the pre-bonus score (`score - total`) and the
+ *    final score, and `bonusRemaining` starts at the payload's `total` for
+ *    an untilted ball with a bonus (`null` otherwise, no BONUS row). Any
+ *    `bonus_count_step` in the SAME frame AFTER the `ball_ended` is folded
+ *    in too (DW-287): at a one-tick pace the whole count can share the
+ *    arming frame. Smoke rework
  *    (DW-247): a `tilt_warning` landing on this SAME frame (one
  *    `FrameOutput` can carry both) is not dropped -- it sets
  *    `pendingTiltWarning`, carried forward through the whole hold. Code
  *    review (cycle 2): it also inherits a pending warning or a WARNING
  *    screen still showing (DW-250) unless the ball ended TILTED (TILT
  *    supersedes), and it never arms in Attract.
- * 2. Still inside a live hold: a `bonus_count_step` this frame updates
- *    `heldBallEnded.bonusRunning`; a `tilt_warning` this frame (smoke
+ * 2. Still inside a live hold: every `bonus_count_step` this frame is
+ *    folded into `heldBallEnded` (the last one wins, DW-287); a
+ *    `tilt_warning` this frame (smoke
  *    rework, DW-247) sets `pendingTiltWarning` so it is not lost; otherwise
  *    the view is unchanged (Story 2.10 widens this branch -- it used to
  *    return `view` unconditionally). Story 2.13: this frame's own
@@ -323,7 +384,7 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  * 5. Story 2.11: still inside a live warning hold, the SAME reset-safe
  *    half-open window `ball_ended`'s own hold uses -- the view is
  *    unchanged (there is no incremental payload to fold, unlike the BONUS
- *    count-up).
+ *    count-down).
  * 6. Story 2.13: `phase === 'game_over'` shows the `game_over` screen --
  *    final scores, GAME OVER, and the Match reveal folded from `heldMatch`
  *    (via the SAME `foldMatchEvents()` helper item 2 uses, so the two call
@@ -353,7 +414,24 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// hold branch below.
 	if (ballEndedEvent && game.phase !== 'attract') {
 		const player = ballEndedEvent.player;
-		const score = game.players[player]?.score ?? 0;
+		// Story 3.0 (DW-237): the snapshot accompanying this `ball_ended`
+		// already carries the bonus-inclusive score (the sim pays the bonus on
+		// the drain tick), so it is the FINAL score; the pre-bonus score is
+		// that minus the payload's own `total`. A tilted ball's `total` is 0, so
+		// both agree and there is nothing to count.
+		const finalScore = game.players[player]?.score ?? 0;
+		const hasCount = !ballEndedEvent.tilted && ballEndedEvent.total > 0;
+		const armedHeld: HeldBallEnded = {
+			player,
+			preBonusScore: finalScore - ballEndedEvent.total,
+			finalScore,
+			bonusRemaining: hasCount ? ballEndedEvent.total : null,
+			complete: !hasCount,
+		};
+		// DW-287: steps AFTER this `ball_ended` in the same frame belong to its
+		// own count (any before it belong to an earlier ball, whose schedule
+		// this drain has already cancelled in the sim).
+		const heldBallEnded = foldBonusCountSteps(armedHeld, input.events.slice(input.events.indexOf(ballEndedEvent) + 1));
 		// What this arming inherits (code review, cycle 2):
 		// - a warning already pending from an earlier hold (DW-247);
 		// - a WARNING screen still SHOWING, inside its own reset-safe half-open
@@ -378,7 +456,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 			screen: 'ball_ended',
 			holdUntilTick: tick + BALL_ENDED_HOLD_TICKS,
 			attractCycleOriginTick: view.attractCycleOriginTick,
-			heldBallEnded: { player, score, bonusRunning: null },
+			heldBallEnded,
 			pendingTiltWarning: inherited || Boolean(tiltWarningEvent),
 			// Story 2.13: a fresh arming starts a fresh hold -- `matchDelayTicks`
 			// exceeds this hold's own length by construction (AC 12), so no
@@ -414,21 +492,22 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		tick < view.holdUntilTick &&
 		tick >= view.holdUntilTick - BALL_ENDED_HOLD_TICKS
 	) {
-		// Story 2.10 (AD-9): fold this frame's OWN `bonus_count_step` (if any)
-		// into the frozen payload -- reading the event, never re-deriving the
-		// running subtotal from the snapshot (AC 8's own control: a fake built
-		// off `snapshot.game.players[...].bonus` would look identical on every
-		// POSITIVE frame and only be caught by that control). Matched on
-		// `player` against the held payload's own ending player -- defensive,
-		// since only one ball's schedule is ever live at a time, but payload
-		// completeness (AD-9) means never trusting "the only one running" by
-		// convention alone.
+		// Story 2.10 (AD-9): fold this frame's OWN `bonus_count_step`s (if
+		// any) into the frozen payload -- reading the events, never
+		// re-deriving the remaining bonus from the snapshot (AC 8's own
+		// control: a fake built off `snapshot.game.players[...].bonus` would
+		// look identical on every POSITIVE frame and only be caught by that
+		// control). Matched on `player` against the held payload's own ending
+		// player -- defensive, since only one ball's schedule is ever live at a
+		// time, but payload completeness (AD-9) means never trusting "the only
+		// one running" by convention alone. Story 3.0 (DW-287): EVERY step in
+		// the frame is folded and the last one wins -- the old `find` took the
+		// first and dropped the rest (`foldBonusCountSteps()`).
 		//
 		// Smoke rework (DW-247): a `tilt_warning` arriving while this hold is
 		// live must not be lost either -- it sets `pendingTiltWarning` so the
 		// warning surfaces the instant the hold releases (branch 4 below),
 		// rather than being dropped the way this whole fix exists to stop.
-		const stepEvent = input.events.find(isBonusCountStepEvent);
 		const pendingTiltWarning = view.pendingTiltWarning || Boolean(tiltWarningEvent);
 		// Story 2.13 (Design Notes, `advanceBackglass()` order item 2): fold
 		// this frame's OWN match events into `heldMatch` even while the
@@ -436,11 +515,9 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		// shorter than this hold could otherwise lose them, since none of the
 		// three returns below otherwise touch `heldMatch` at all.
 		const heldMatch = foldMatchEvents(view.heldMatch, input.events);
-		if (stepEvent && view.heldBallEnded && stepEvent.player === view.heldBallEnded.player) {
-			return { ...view, heldBallEnded: { ...view.heldBallEnded, bonusRunning: stepEvent.running }, pendingTiltWarning, heldMatch };
-		}
-		if (pendingTiltWarning !== view.pendingTiltWarning || heldMatch !== view.heldMatch) {
-			return { ...view, pendingTiltWarning, heldMatch };
+		const heldBallEnded = view.heldBallEnded ? foldBonusCountSteps(view.heldBallEnded, input.events) : null;
+		if (heldBallEnded !== view.heldBallEnded || pendingTiltWarning !== view.pendingTiltWarning || heldMatch !== view.heldMatch) {
+			return { ...view, heldBallEnded, pendingTiltWarning, heldMatch };
 		}
 		return view;
 	}
@@ -524,7 +601,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// The SAME reset-safe half-open window the ball_ended hold branch above
 	// uses (this file's own header, `src/host/loop.ts`'s `reset()`): a tick
 	// below the lower bound is a tick from a different timeline, not "still
-	// holding". Nothing to fold here (unlike the BONUS count-up) -- the
+	// holding". Nothing to fold here (unlike the BONUS count-down) -- the
 	// warning screen carries no incremental payload -- so the view is simply
 	// unchanged while the hold is live.
 	if (
@@ -816,21 +893,38 @@ function buildAttractKeysRows(viewConfig: ViewConfig): DmdRow[] {
 }
 
 /**
- * The frozen end-of-ball payload: `PLAYER <n+1>` (1-indexed for display, AC
- * 3) then the ending player's own score, read off the SAME snapshot the
- * event arrived with (captured by `advanceBackglass()`, never re-derived
- * here). Story 2.10 (AD-9, AC 8): a BONUS row is the third line, present
- * only once `bonusRunning` is non-`null` -- DW-200's "no entry means no
- * row" precedent -- so a zero-bonus or tilted ball end, which never
- * receives a `bonus_count_step`, renders no BONUS row at all.
+ * Story 3.0 (DW-237, the author's decision: the bonus visibly pays into the
+ * score while it counts down): the end-of-ball score line. With no count
+ * (tilted or zero bonus) it is the final score, unchanged. Otherwise it is
+ * `preBonusScore + (total - bonusRemaining)`, `total` being `finalScore -
+ * preBonusScore` -- the pre-bonus score at arming, rising by what each step
+ * pays, and exactly `finalScore` when `bonusRemaining` reaches 0.
  */
-function buildBallEndedRows(held: { readonly player: number; readonly score: number; readonly bonusRunning: number | null }): DmdRow[] {
+function ballEndedScoreLine(held: HeldBallEnded): number {
+	if (held.bonusRemaining === null) {
+		return held.finalScore;
+	}
+	const total = held.finalScore - held.preBonusScore;
+	return held.preBonusScore + (total - held.bonusRemaining);
+}
+
+/**
+ * The frozen end-of-ball payload: `PLAYER <n+1>` (1-indexed for display, AC
+ * 3) then the ending player's score line (`ballEndedScoreLine()`, from the
+ * scores `advanceBackglass()` froze at arming, never re-derived here). Story
+ * 2.10 (AD-9, AC 8), a count-down since Story 3.0 (DW-236): a BONUS row is
+ * the third line, present whenever `bonusRemaining` is non-`null` -- the
+ * payload's `total` at arming, then each step's `remaining`, down to 0 --
+ * so a zero-bonus or tilted ball end renders no BONUS row at all (DW-200's
+ * "no entry means no row" precedent).
+ */
+function buildBallEndedRows(held: HeldBallEnded): DmdRow[] {
 	const rows: DmdRow[] = [
 		{ text: `PLAYER ${held.player + 1}`, col: LEFT_MARGIN_COL, row: 0, emphasis: false },
-		{ text: formatScore(held.score), col: LEFT_MARGIN_COL, row: LINE_PITCH_ROWS, emphasis: false },
+		{ text: formatScore(ballEndedScoreLine(held)), col: LEFT_MARGIN_COL, row: LINE_PITCH_ROWS, emphasis: false },
 	];
-	if (held.bonusRunning !== null) {
-		rows.push({ text: `BONUS ${formatScore(held.bonusRunning)}`, col: LEFT_MARGIN_COL, row: 2 * LINE_PITCH_ROWS, emphasis: false });
+	if (held.bonusRemaining !== null) {
+		rows.push({ text: `BONUS ${formatScore(held.bonusRemaining)}`, col: LEFT_MARGIN_COL, row: 2 * LINE_PITCH_ROWS, emphasis: false });
 	}
 	return rows;
 }
