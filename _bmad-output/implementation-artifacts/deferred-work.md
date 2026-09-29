@@ -1625,6 +1625,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-11T00:25:55Z status=decision-pending owner=burndown by=cr note=product call: real machines stop all scoring under Tilt; DRAGON letters persist across balls toward the War
 - 2026-09-28T14:07:25Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=merge_gate note=Epic 2 decision sheet 2026-09-28: AUTHOR: scoring STOPS under Tilt. No DRAGON letters, no bonus credit, no skill-shot award while tilt.tilted is true. Needs tilt checks in the ball-controller letters fold, bonus.ts and skill-shot.ts, and FR-15 amended at that story's spec gate to state the rule
 - 2026-09-29T10:22:56Z status=routed owner=3-0a-playfield-scoring by=x0 note=own -- re-owned from 3.11: the author decided scoring stops under Tilt, and 3.0a's first criterion already cites this decision; one tilt rule for every score write
+- 2026-09-29T14:04:55Z status=resolved-by:3-0a-playfield-scoring by=adjudication note=59d105b scoringOpen() (phase game and not tilted) gates every new earner and the letters fold, both bonus folds, the multiplier rung and the skill-shot award/letter; FR-15 amended (prd.md, epics.md) and AD-8 records the one gate; AC4 rules-side and real-physics tilt tests with untilted controls
 
 ### DW-247: A tilt_warning that lands during a live ball_ended hold is never shown: the hold branch returns before the warning arming, so the next eligible closure tilts with no WARNING seen
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: low | fix-risk: low | footprint: in-story
@@ -1812,6 +1813,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: the only score writes are ball-controller.ts:1130 (bonus) and skill-shot.ts:202 (skill shot); spinner_spin, bank_completed and dragon_hit are unread outside sim/rules/devices; pops and slings emit no rules event; a browser playthrough scored 0 in 4 balls
 - 2026-09-29T10:12:36Z status=routed owner=3-0a-playfield-scoring by=retro note=author decision at the Epic 2 retrospective: a new story at the head of Epic 3
 - 2026-09-29T10:22:57Z status=routed owner=3-0a-playfield-scoring by=x0 note=own -- kept: this is 3.0a's whole intent
+- 2026-09-29T14:04:55Z status=resolved-by:3-0a-playfield-scoring by=adjudication note=59d105b base mode scores pops (popScore 1000), slings (slingScore 500), Spinner revolutions (count x spinnerScore 250) and a completed DRAGON bank (dragonBankAward 50000) through sim/rules/scoring.ts; AC1-AC3 in test/rules-scoring.test.ts, AC6 Hot-seat DMD row read back from rasterised dots, AC7 real machine+rules 345-tick plunge oracle
 
 ### DW-279: The shot map is never drawn: the exported model holds 18 meshes (15 inserts, vis_playfield, vis_backbox, vis_spinner_l), so no wall, Loop, Ramp, Dragon, target, bumper, slingshot, flipper or plunger is visible to a player
 - source: epic-2-retro-2026-09-28.md | severity: high | fix-risk: med | footprint: out-of-footprint
@@ -1841,6 +1843,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: ball-controller.ts:894-906 letters: player.letters + lettersDelta
 - 2026-09-29T10:12:37Z status=routed owner=3-0a-playfield-scoring by=retro note=the scoring story is the first reader of letters (the DRAGON award)
 - 2026-09-29T10:22:57Z status=routed owner=3-0a-playfield-scoring by=x0 note=own -- kept (low fix-risk, but 3.0a's DRAGON award reads the same letters fold; excluded from x0 deliberately so one story owns the letters)
+- 2026-09-29T14:04:55Z status=resolved-by:3-0a-playfield-scoring by=adjudication note=59d105b addDragonLetters() appends only letters not already spelled; letters persist across balls and stay spelled after bank_completed (cleared only by Story 3.9's War end); AC3 re-completion and across-balls tests, QA's ball-2 re-completion pays again with letters still DRAGON
 
 ### DW-284: Tilt spacing and settle marks are machine-wide while tilt warnings are per player, so player 2's nudge inside player 1's window is swallowed
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: med | footprint: out-of-footprint

@@ -205,6 +205,17 @@ describe('AC 1 -- pops and slings score for the base mode player, once per closu
 		expect(run(script, 5, gameState()).finalState.players[0]!.score).toBe(3 * POP);
 	});
 
+	it('several awards on ONE tick all land: a pop and a sling closing together pay both; a base-mode step fed a pop, a sling, spinner_spin { count: 2 } and bank_completed pays their sum', () => {
+		expect(run(close('s_pop_1').at(1).close('s_sling_l').at(1), 1, gameState()).finalState.players[0]!.score).toBe(POP + SLING);
+		const events: DeviceEvent[] = [
+			{ type: 'playfield_switch_closed', switch: POP_SWITCHES[0]!, tick: 1 },
+			{ type: 'playfield_switch_closed', switch: SLING_SWITCHES[0]!, tick: 1 },
+			{ type: 'spinner_spin', count: 2, tick: 1 },
+			{ type: 'bank_completed', tick: 1 },
+		];
+		expect(createBaseMode(TUNING).step(gameState(), events, 1).state.players[0]!.score).toBe(POP + SLING + 2 * SPIN + BANK);
+	});
+
 	it('a playfield switch outside both sets (a Loop switch) pays nothing', () => {
 		expect(run(close('s_loop_l_in').at(1), 1, gameState()).finalState.players[0]!.score).toBe(0);
 	});
