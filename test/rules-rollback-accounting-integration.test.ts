@@ -9,7 +9,7 @@
 // (implement stage) and by the lead's AD-gate mutation -- and was not
 // recorded before the fix. The reverted code gives `ballsInPlay` 1 after the
 // roll-back, 2 after the re-plunge, 1 after the drain, and no `ball_ended`.
-// Green on the fix (`sim/rules/ball-controller.ts`'s `applyDeviceEvents`,
+// Green on the fix (`sim/rules/ball-controller/accounting.ts`'s `applyDeviceEvents`,
 // task 2).
 //
 // Driven entirely through a real `createLoop()`, real input (`InputTransition`s),

@@ -3,7 +3,7 @@
 // Story 2.5 QA (DW-176): `deriveDeviceSlots()`'s incremental fold is the
 // exact code path DW-70's fix generalises -- `machine.deviceSlots` is now
 // derived PURELY from one tick's `device_ball_entered`/`_left` events
-// (`src/sim/rules/ball-controller.ts:82-101`), folding each event onto an
+// (`src/sim/rules/ball-controller/accounting.ts`), folding each event onto an
 // accumulator (`next ?? current`) rather than always re-reading the
 // tick-start `current`. Every scripted test in `test/rules-lifecycle.test.ts`
 // and `test/rules-devices.test.ts` drives at most ONE occupancy-changing
@@ -26,7 +26,7 @@
 //       carrying other devices forward).
 //
 // Mutation (Rule 19): change `const source = next ?? current;`
-// (`ball-controller.ts:92`) to `const source = current;`. QA-observed
+// (`ball-controller/accounting.ts`) to `const source = current;`. QA-observed
 // 2026-09-06: (a) reddened `expected [ false, true, true, true ] to deeply
 // equal [ true, true, true, true ]` (bd_trough's edit from the FIRST event
 // silently reverted once the second event, on bd_lock, ran) while (b)'s

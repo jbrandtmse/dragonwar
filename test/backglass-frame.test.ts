@@ -1528,15 +1528,12 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 		expect(litInBallSegment, 'the BALL segment of the SAME status band (cols 86+) must genuinely be lit -- BALL n renders dots, it is not merely a row object').toBeGreaterThan(0);
 	});
 
-	// Code review, intent-alignment layer, 2026-09-06: `buildModeRows()`'s own
-	// doc comment claims an unlabelled mode suppresses "not any of its
-	// published fields either" -- the test above only covers `base`, which
-	// publishes no `ModeView` fields at all, so that specific claim was
-	// otherwise untested (a mode WITH published fields but no authored name
-	// does not exist anywhere in this codebase yet, so this is coverage for a
-	// structural guarantee -- `buildModeRows()` returns before it ever reads
-	// `mode.timerTicks` -- rather than a live product defect today).
-	it('an unmapped mode id that ALSO publishes a ModeView field (timerTicks) still contributes NO rows and no lit dots -- the field is suppressed too, not just the name', () => {
+	// Story 3.1 (DW-206, author decision 2026-09-28) FLIPS this case: an
+	// unlabelled mode that publishes a field still shows that field -- the
+	// fields line no longer waits on a name -- while its missing name still
+	// renders nothing (DW-200 kept). It was pinned the other way by Story
+	// 2.7's code review, before the author's decision.
+	it('an unmapped mode id that ALSO publishes a ModeView field (timerTicks) shows the field (1.0) but no name row -- DW-206: the fields line does not wait on a name', () => {
 		const game: GameState = {
 			...BASE_GAME_STATE,
 			phase: 'game',
@@ -1546,8 +1543,9 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 		};
 		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
 
-		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1']);
-		expect(frame.rows.some((r) => r.text.includes('SOME UNMAPPED MODE') || r.text === '1.0')).toBe(false);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', '1.0']);
+		expect(frame.rows.find((r) => r.text === '1.0'), 'the fields line, one line below the status line').toEqual({ text: '1.0', col: 2, row: 16, emphasis: false });
+		expect(frame.rows.some((r) => r.text.includes('SOME UNMAPPED MODE')), 'no name row -- the mode has no authored name').toBe(false);
 
 		// Story 2.13 (DW-197): the same left-segment check as the base-only
 		// case above -- the mode name's own segment (cols 2-85) of the shared
@@ -1579,6 +1577,88 @@ describe('DW-200 -- a mode with no authored MODE_DISPLAY_NAMES entry contributes
 			}
 		}
 		expect(litInBallSegment, 'the BALL segment of the SAME status band (cols 86+) must genuinely be lit -- BALL n renders dots, it is not merely a row object').toBeGreaterThan(0);
+	});
+});
+
+/**
+ * Story 3.1 (DW-206, author decision 2026-09-28; the spec's two new Backglass
+ * rows): the Backglass shows the highest-priority mode that HAS SOMETHING TO
+ * SHOW -- an authored name or a published field -- and that one mode owns
+ * both the status and the fields lines (AD-8). A mode with neither is
+ * transparent.
+ */
+describe('Story 3.1 (DW-206) -- the highest-priority mode with something to show owns the status and fields lines', () => {
+	function gameWithModes(modes: GameState['modes']): GameState {
+		return {
+			...BASE_GAME_STATE,
+			phase: 'game',
+			players: [buildPlayer({ score: 0, ballNumber: 1 })],
+			currentPlayer: 0,
+			modes,
+		};
+	}
+
+	it('Matrix row "Unlabelled field publisher": [base, some_unmapped_mode@300 timerTicks 1000] shows 1.0 on the fields line and no name row', () => {
+		const frame = renderFrame(
+			{ ...INITIAL_BACKGLASS_VIEW, screen: 'score' },
+			buildSnapshot({ game: gameWithModes([{ mode: 'base', priority: 100, player: 0 }, { mode: 'some_unmapped_mode', priority: 300, player: 0, timerTicks: 1000 }]) }),
+		);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', '1.0']);
+		expect(frame.rows.find((r) => r.text === '1.0')).toEqual({ text: '1.0', col: 2, row: 16, emphasis: false });
+	});
+
+	it('Matrix row "Transparent unlabelled": [skill_shot@200, some_unmapped_mode@300 with no fields] shows ARM YOURSELF -- the unlabelled, fieldless mode above never blanks the labelled one below', () => {
+		const frame = renderFrame(
+			{ ...INITIAL_BACKGLASS_VIEW, screen: 'score' },
+			buildSnapshot({
+				game: gameWithModes([
+					{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+					{ mode: 'some_unmapped_mode', priority: 300, player: 0 },
+				]),
+			}),
+		);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'ARM YOURSELF', 'BALL 1']);
+	});
+
+	it('control: a HIGHER unlabelled mode that publishes a field owns both lines -- its field shows and the labelled skill shot below does not', () => {
+		const frame = renderFrame(
+			{ ...INITIAL_BACKGLASS_VIEW, screen: 'score' },
+			buildSnapshot({
+				game: gameWithModes([
+					{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+					{ mode: 'some_unmapped_mode', priority: 300, player: 0, value: 25000 },
+				]),
+			}),
+		);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', '25000']);
+	});
+
+	it('an unlabelled mode above the skill shot publishing ONLY charge owns the fields line, and ARM YOURSELF is absent', () => {
+		const frame = renderFrame(
+			{ ...INITIAL_BACKGLASS_VIEW, screen: 'score' },
+			buildSnapshot({
+				game: gameWithModes([
+					{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+					{ mode: 'some_unmapped_mode', priority: 300, player: 0, charge: 3 },
+				]),
+			}),
+		);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', '3']);
+		expect(frame.rows.some((r) => r.text === 'ARM YOURSELF')).toBe(false);
+	});
+
+	it('an unlabelled mode above the skill shot publishing ONLY strikesRemaining owns the fields line, and ARM YOURSELF is absent', () => {
+		const frame = renderFrame(
+			{ ...INITIAL_BACKGLASS_VIEW, screen: 'score' },
+			buildSnapshot({
+				game: gameWithModes([
+					{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
+					{ mode: 'some_unmapped_mode', priority: 300, player: 0, strikesRemaining: 2 },
+				]),
+			}),
+		);
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', '2']);
+		expect(frame.rows.some((r) => r.text === 'ARM YOURSELF')).toBe(false);
 	});
 });
 
@@ -1621,14 +1701,14 @@ describe('AC 2 (source scan) -- every English display literal lives under src/pr
 	}
 
 	// 'MATCH ' (trailing space, matching the rendered "MATCH 00" text) rather
-	// than bare 'MATCH': sim/rules/match.ts and ball-controller.ts legitimately
+	// than bare 'MATCH': sim/rules/match.ts and ball-controller/ legitimately
 	// name `MATCH_NUMBERS`/`MATCH_REVEAL_STEPS` (Story 2.13's own authored
 	// identifiers, an underscore immediately after "MATCH", never a space) --
 	// the bare word would false-positive on those non-display identifiers.
 	//
 	// Code review (this pass): the identical collision exists for the Attract
 	// keys screen's own 'START' row label (`frame.ts`'s `ATTRACT_KEYS_ROW_SPECS`,
-	// `{ prefix: 'START', action: 'start' }`) against `ball-controller.ts`'s
+	// `{ prefix: 'START', action: 'start' }`) against `ball-controller/shared.ts`'s
 	// `START_BUTTON` identifier -- a bare 'START' is a substring of
 	// "START_BUTTON" too (unlike 'PRESS START' above, which is already safe:
 	// no identifier can contain a space). `"'START'"` (the quote characters
@@ -1815,16 +1895,20 @@ describe('AC 9 (DW-197) -- the literal I/O Matrix score-screen rows, at every pl
 		expect(threeFrame.rows.find((r) => r.text === 'BALL 3')).toEqual({ text: 'BALL 3', col: 91, row: 16, emphasis: false });
 	});
 
-	// DW-206: an unlabelled mode publishing a field still contributes no row
-	// and no dot, even alongside three other players (the 2x2 grid engaged).
-	it('DW-206: an unlabelled mode publishing timerTicks contributes no row and no dot, even with the 2x2 grid engaged', () => {
+	// DW-206 (author decision 2026-09-28, Story 3.1 -- this case FLIPS, the
+	// same decision as the DW-200 block's unmapped-field case): an unlabelled
+	// mode publishing a field shows the field and no name, even alongside
+	// two other players (the 2x2 grid engaged, so the fields line sits below
+	// the two-line players block and the status line).
+	it('DW-206: an unlabelled mode publishing timerTicks shows its field and no name, even with the 2x2 grid engaged', () => {
 		const game = gameWith(
 			[buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 }), buildPlayer({ score: 0, ballNumber: 1 })],
 			0,
 			[{ mode: 'some_unmapped_mode', priority: 100, player: 0, timerTicks: 1000 }],
 		);
 		const frame = renderFrame({ ...INITIAL_BACKGLASS_VIEW, screen: 'score' }, buildSnapshot({ game }));
-		expect(frame.rows.some((r) => r.text.includes('1.0') || r.text.includes('SOME UNMAPPED'))).toBe(false);
+		expect(frame.rows.find((r) => r.text === '1.0'), 'the fields line, below the 2x2 grid and the status line').toEqual({ text: '1.0', col: 2, row: 24, emphasis: false });
+		expect(frame.rows.some((r) => r.text.includes('SOME UNMAPPED'))).toBe(false);
 	});
 });
 

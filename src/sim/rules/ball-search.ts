@@ -5,7 +5,7 @@
 // structurally derived stage list at `ballSearchStepMs` intervals (the
 // slings, the pops, a bank-reset request, then each ball device's own
 // `ballSearchOrder` pulse steps -- Lock, shooter, trough), and ends every
-// pass in exactly one `RecoverCommand`. `sim/rules/ball-controller.ts` is
+// pass in exactly one `RecoverCommand`. `sim/rules/ball-controller/` is
 // the sole caller: it constructs one instance, calls `observe()` as the
 // FIRST statement of its own `step()` (so a save re-serve's early return can
 // never drop a tick's edges), then `step()` after its own Start/drain
@@ -47,7 +47,7 @@ type BallDeviceKey = keyof typeof TABLE.ballDevices;
  * A ball device's optional `servesInto` -- declared only by a parking device
  * that serves another device's entry (`bd_trough` at this tree). The one
  * typed accessor for it: this module's stage-order derivation and
- * `ball-controller.ts`'s DW-187 serving sets both read it here (code review
+ * `ball-controller/accounting.ts`'s DW-187 serving sets both read it here (code review
  * 2026-09-11, DW-262: two hand-written copies of the same narrowing cast).
  */
 export function servesIntoOf(device: BallDeviceEntry): string | undefined {

@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { BALL_SAVE_SOURCE, HARDWARE_COILS } from '../src/sim/rules/ball-controller';
+import { MODE_PRIORITIES } from '../src/sim/rules/modes';
 import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, open, runRulesScript } from './util/switch-script';
 import type { GameState } from '../src/sim/table/names';
@@ -37,7 +38,7 @@ const NO_BALL_SAVE_TUNING = resolveTuning({
 	ballSaveGraceMs: { ...RAW_TUNING.ballSaveGraceMs, value: 0 },
 });
 
-/** A fresh empty player, mirroring `ball-controller.ts`'s own `emptyPlayer()` -- duplicated here (test-local) rather than exported from production code purely for test convenience. */
+/** A fresh empty player, mirroring `ball-controller/start.ts`'s own `emptyPlayer()` -- duplicated here (test-local) rather than exported from production code purely for test convenience. */
 function emptyPlayer(ballNumber: number) {
 	return {
 		score: 0,
@@ -194,7 +195,17 @@ describe('Story 2.5 -- AC 5: drain, mode teardown, ball end and rotation', () =>
 		const result = runRulesScript(close('s_trough_4').at(1).build(), { durationTicks: 1, initialState });
 		const after = result.finalState;
 
-		expect(after.modes, 'modes[] must be empty AFTER the drain').toEqual([]);
+		// Story 3.1 (DW-209): the rotation's `ball_starting` starts player 1's
+		// modes in this SAME tick, so the list is not empty -- it holds exactly
+		// player 1's fresh pair and nothing of the ending player's.
+		expect(after.modes.filter((mode) => mode.player === 0), 'no entry of the ENDING player survives the drain').toEqual([]);
+		expect(after.modes, 'exactly player 1\'s fresh [base, skill_shot]').toEqual([
+			{ mode: 'base', priority: MODE_PRIORITIES.base, player: 1 },
+			{ mode: 'skill_shot', priority: MODE_PRIORITIES.skill_shot, player: 1, launched: false },
+		]);
+		const stubStop = ['mode_stub_will_stop', 'mode_stub_stopping', 'mode_stub_stopped'];
+		const p1Start = ['base', 'skill_shot'].flatMap((mode) => [`mode_${mode}_will_start`, `mode_${mode}_starting`, `mode_${mode}_started`]);
+		expect(result.modeEvents.map((e) => e.type), 'the stub\'s stop triple precedes player 1\'s start triples').toEqual([...stubStop, ...p1Start]);
 		expect(after.players[0]!.modesPlayed, 'the ENDING player (0) is credited').toEqual(['stub']);
 		expect(after.players[1]!.modesPlayed, 'the other player is NOT credited').toEqual([]);
 
@@ -355,7 +366,7 @@ describe('Story 2.5 -- AC 7: Hot seat isolation, two-sided', () => {
 	// letters-dropping window (both drops happen before the drain at tick 30),
 	// so a mutation that hardcodes the credited index to 0 -- instead of
 	// reading `nextState.currentPlayer` -- passes it unchanged (confirmed:
-	// `src/sim/rules/ball-controller.ts`'s `index === currentPlayer` credit
+	// `src/sim/rules/ball-controller/accounting.ts`'s `index === currentPlayer` credit
 	// guard mutated to `index === 0`, run in isolation, left the test above
 	// GREEN). That mutation is a real "leaks to the wrong player" defect
 	// distinct from the one the story's own review already found and fixed
@@ -363,7 +374,7 @@ describe('Story 2.5 -- AC 7: Hot seat isolation, two-sided', () => {
 	// dropping a letter AFTER rotation, while player 2 (index 1) is current,
 	// and asserting the credit lands on player 2, not player 1.
 	//
-	// Mutation (Rule 19): `src/sim/rules/ball-controller.ts`'s
+	// Mutation (Rule 19): `src/sim/rules/ball-controller/accounting.ts`'s
 	// `index === currentPlayer ? ... : player` -> `index === 0 ? ... : player`.
 	// QA-observed 2026-09-06: reddened `player 2 (now current) is credited:
 	// expected '' to be 'D'` while `test/rules-lifecycle.test.ts`'s OTHER AC 7

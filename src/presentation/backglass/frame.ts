@@ -670,9 +670,11 @@ function formatScore(n: number): string {
  * or nothing at all -- there is deliberately no mechanical
  * `split('_').join(' ').toUpperCase()` fallback below any more. Before this
  * fix, the base mode (AD-8: present in `modes[]` at priority 100 for the
- * whole ball, so it becomes the top mode the instant the skill shot
- * resolves) rendered the literal internal identifier `BASE` on the score
- * screen for the rest of every ball. Generalising the fix -- "no entry here
+ * whole ball, so it then became the top mode the instant the skill shot
+ * resolved) rendered the literal internal identifier `BASE` on the score
+ * screen for the rest of every ball. Since Story 3.1 (DW-206) the base mode
+ * has nothing to show, so `selectTopMode()` skips it: it is transparent and
+ * never the top mode. Generalising the fix -- "no entry here
  * means no row", rather than special-casing `mode === 'base'` -- also
  * protects every future mode Story 3.1+ adds: an unlabelled mode id can
  * never leak onto the panel by omission, it can only be silently absent
@@ -692,11 +694,41 @@ function formatSecondsFromTicks(ticks: number): string {
 	return (ticksToMs(ticks) / 1000).toFixed(1);
 }
 
-/** The active mode with the HIGHEST `priority` (AD-8), read through a `readonly ModeView[]` annotation -- `GameState.modes` is `readonly ActiveModeState[]`, structurally assignable with no cast (Code Map, mode-view.ts), and it is this annotation alone that narrows `timerTicks` etc. to `number | undefined` instead of `unknown`. */
+/**
+ * Story 3.1 (DW-206, author decision 2026-09-28): a mode HAS SOMETHING TO
+ * SHOW when it has an authored `MODE_DISPLAY_NAMES` entry or publishes any
+ * of its `ModeView` fields (`timerTicks`, `value`, `charge`,
+ * `strikesRemaining`). A mode with neither -- the base mode -- is
+ * transparent to the Backglass.
+ */
+function hasSomethingToShow(mode: ModeView): boolean {
+	return (
+		modeDisplayName(mode.mode) !== undefined ||
+		mode.timerTicks !== undefined ||
+		mode.value !== undefined ||
+		mode.charge !== undefined ||
+		mode.strikesRemaining !== undefined
+	);
+}
+
+/**
+ * The HIGHEST-priority active mode that has something to show (AD-8:
+ * "presentation priority is the highest active mode"; Story 3.1, DW-206).
+ * That one mode alone owns the status and fields lines, so two modes can
+ * never split the Backglass between them; a transparent mode (the base mode)
+ * never blanks a labelled mode below it. Read through a `readonly ModeView[]`
+ * annotation -- `GameState.modes` is `readonly ActiveModeState[]`,
+ * structurally assignable with no cast (Code Map, mode-view.ts), and it is
+ * this annotation alone that narrows `timerTicks` etc. to `number |
+ * undefined` instead of `unknown`.
+ */
 function selectTopMode(state: GameState): ModeView | undefined {
 	const modes: readonly ModeView[] = state.modes;
 	let top: ModeView | undefined;
 	for (const mode of modes) {
+		if (!hasSomethingToShow(mode)) {
+			continue;
+		}
 		if (!top || mode.priority > top.priority) {
 			top = mode;
 		}
@@ -777,13 +809,18 @@ function buildFieldsText(mode: ModeView): string {
 /**
  * AC 2, widened by Story 2.13 (DW-197): the players block (AC 2's own
  * per-player rows, now `buildPlayersRows()` above), then ONE status line
- * sharing the current player's mode name (truncated to
+ * sharing the top mode's name (truncated to
  * `STATUS_LINE_WIDTH_COLS - |BALL text| - 1` characters, none for an
- * unlabelled/base mode -- DW-200) with `BALL <n>` right-aligned on the same
- * line, then -- only for a NAMED top mode with at least one published field
- * -- one fields line (`buildFieldsText()`). This is what makes DW-197's
+ * unlabelled mode -- DW-200) with `BALL <n>` right-aligned on the same
+ * line, then -- for a top mode with at least one published field -- one
+ * fields line (`buildFieldsText()`). This is what makes DW-197's
  * "silently drops" claim false: every score, the ball number, the mode name
  * and its fields are all visible at once, at any player count up to four.
+ *
+ * Story 3.1 (DW-206): the top mode is `selectTopMode()`'s -- the highest
+ * mode with something to show -- and its fields line no longer waits on a
+ * name: an unlabelled mode that publishes a field shows that field, with no
+ * name row.
  */
 function buildScoreRows(state: GameState): DmdRow[] {
 	const rows: DmdRow[] = buildPlayersRows(state.players, state.currentPlayer);
@@ -803,7 +840,7 @@ function buildScoreRows(state: GameState): DmdRow[] {
 		rows.push({ text: ballText, col: rightAlignCol(ballText), row: statusRow, emphasis: false });
 	}
 
-	if (topMode && modeName !== undefined) {
+	if (topMode) {
 		const fieldsText = buildFieldsText(topMode);
 		if (fieldsText.length > 0) {
 			rows.push({ text: fieldsText, col: LEFT_MARGIN_COL, row: (blockLines + 1) * LINE_PITCH_ROWS, emphasis: false });

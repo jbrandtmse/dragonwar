@@ -54,6 +54,7 @@
 
 import { disarmBallSave } from './ball-save';
 import { enterAttract, HARDWARE_COILS } from './ball-controller';
+import { createProductionModeRegistry, type ModeEvent, type ModeLookup } from './modes';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { DeviceEvent } from './devices';
 import type { GameAdjustments } from '../contracts/replay';
@@ -64,13 +65,15 @@ export interface TiltControllerStepResult {
 	readonly state: GameState;
 	readonly events: readonly SemanticEvent[];
 	readonly coilCommands: readonly CoilCommand[];
+	/** Story 3.1 (AD-8): the stop triples of the modes a Slam stopped (through `enterAttract()`), in execution order -- first in `RulesStepResult.modeEvents`. */
+	readonly modeEvents: readonly ModeEvent[];
 }
 
 export interface TiltController {
 	step(state: GameState, deviceEvents: readonly DeviceEvent[], tick: number): TiltControllerStepResult;
 }
 
-/** A `disable` `CoilCommand` for every coil in `HARDWARE_COILS` -- the same AD-5 hardware set `startBall()`'s own `enable` batch and the game-over `disable` batch both use (`sim/rules/ball-controller.ts`), imported rather than re-derived (one definition, DW-149). */
+/** A `disable` `CoilCommand` for every coil in `HARDWARE_COILS` -- the same AD-5 hardware set `startBall()`'s own `enable` batch and the game-over `disable` batch both use (`sim/rules/ball-controller/`), imported rather than re-derived (one definition, DW-149). */
 function disableHardwareCoils(tick: number): CoilCommand[] {
 	return HARDWARE_COILS.map((coil): CoilCommand => ({ type: 'coil', coil, action: 'disable', tick }));
 }
@@ -96,9 +99,16 @@ function disarmAllBallSave(ballSave: BallSaveState): BallSaveState {
 /**
  * `createTiltController(adjustments, tuning)` mirrors `createBallController`/
  * `createDevicesLayer`: the two ms windows are resolved to ticks ONCE, here,
- * never re-read per tick (AD-3/AD-15).
+ * never re-read per tick (AD-3/AD-15). Story 3.1 (AD-8): `modes` is the mode
+ * registry whose stop hooks a Slam runs through `enterAttract()` --
+ * `createRules()` passes the mode stack's own; omitted, a fresh registry of
+ * the production definitions.
  */
-export function createTiltController(adjustments: GameAdjustments, tuning: ResolvedTuning): TiltController {
+export function createTiltController(
+	adjustments: GameAdjustments,
+	tuning: ResolvedTuning,
+	modes: ModeLookup = createProductionModeRegistry(tuning),
+): TiltController {
 	const tiltWarningSpacingTicks = shotWindowTicks('tiltWarningSpacingMs', tuning);
 	const tiltSettleTicks = shotWindowTicks('tiltSettleMs', tuning);
 
@@ -135,6 +145,7 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 		let nextState = state;
 		const events: SemanticEvent[] = [];
 		const coilCommands: CoilCommand[] = [];
+		const modeEvents: ModeEvent[] = [];
 
 		// Code review finding (Blind Hunter / Edge Case Hunter, converged
 		// independently): a nudge violent enough to cross BOTH cabinet
@@ -174,9 +185,12 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 			// disarmed -- AD-18's "Tilt disarms all" -- because `lampsOf()` has no
 			// phase gate: left armed, `l_ball_save` stayed lit in Attract for the
 			// rest of the window (the implement-stage review's "Attract never
-			// reads it" was true of the drain branch only).
-			const attract = enterAttract(nextState, tick);
+			// reads it" was true of the drain branch only). Story 3.1 (AD-8,
+			// DW-209): `enterAttract()` stops the live ball's modes through the
+			// lifecycle, and their stop triples ride out as `modeEvents`.
+			const attract = enterAttract(nextState, tick, modes);
 			coilCommands.push(...attract.coilCommands);
+			modeEvents.push(...attract.modeEvents);
 			nextState = {
 				...attract.state,
 				machine: {
@@ -249,7 +263,7 @@ export function createTiltController(adjustments: GameAdjustments, tuning: Resol
 			nextState = { ...nextState, players };
 		}
 
-		return { state: nextState, events, coilCommands };
+		return { state: nextState, events, coilCommands, modeEvents };
 	}
 
 	return { step };

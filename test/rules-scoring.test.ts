@@ -51,7 +51,7 @@ const SPINNER_SWITCH = TABLE.spinnerWiring.s_spinner.switch as SwitchName;
 
 type Player = GameState['players'][number];
 
-/** A fresh player (mirrors `ball-controller.ts`'s `emptyPlayer()`), overridable per scenario. */
+/** A fresh player (mirrors `ball-controller/start.ts`'s `emptyPlayer()`), overridable per scenario. */
 function player(overrides: Partial<Player> = {}): Player {
 	return {
 		score: 0,

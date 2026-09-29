@@ -221,7 +221,7 @@ export interface BallEndedEvent {
  * `ball_ended` payload already carries. The bonus is paid into
  * `GameState` on the drain tick, not by these steps: this event only paces
  * the display. Emitted only for an UNTILTED ball whose `total` is greater
- * than 0 (`ball-controller.ts`'s own drain branch), and never while
+ * than 0 (`ball-controller/ball-end.ts`'s own drain branch), and never while
  * `phase === 'attract'` (DW-285); a tilted or zero-bonus ball end emits none.
  */
 export interface BonusCountStepEvent {

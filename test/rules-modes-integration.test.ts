@@ -179,9 +179,10 @@ describe("Story 2.7, DW-201 -- GameStart.seed genuinely reaches GameState.rng an
 				pulsedAutolaunch = true;
 			}
 			if (output.events.some((e) => e.type === 'ball_ended') && output.snapshot.game.phase === 'game') {
-				// The drain rotated straight into ball 2's own deferred start
-				// (this file's own DEFERRED START note in modes/index.ts): give
-				// the mode stack one more tick to arm before reading its lane.
+				// The drain rotated straight into ball 2's own start, which
+				// since Story 3.1 (DW-209, modes/index.ts's header) lands in
+				// this same tick; the lane is read one tick later, where it
+				// still holds.
 				const next = loop.advance(1, []);
 				const lit = next.snapshot.game.players[0]!.lanes.lit;
 				ball2Lane = (Object.keys(TABLE.laneWiring) as Array<keyof typeof TABLE.laneWiring>).find(
@@ -511,7 +512,7 @@ describe("Story 2.14, QA seam -- a REAL 3-player Hot-seat game through createLoo
 		}
 
 		// Start (player 0's game begins), then Hot seat TWICE MORE while player
-		// 0's ball 1 is still in progress -- `ball-controller.ts`'s own Hot-seat
+		// 0's ball 1 is still in progress -- `ball-controller/start.ts`'s own Hot-seat
 		// window (`currentPlayer === 0 && players[0].ballNumber === 1`) is the
 		// ONLY tick range in which a Start press adds a player, so all three
 		// players must be added before player 0's own ball 1 drains. Hot-seat
@@ -598,7 +599,7 @@ describe("Story 2.14, QA seam -- a REAL 3-player Hot-seat game through createLoo
 // own arm) and exactly ONCE MORE for the Match (strictly after all three
 // balls' own real drains), never in between.
 //
-// `drawMatch()` (`ball-controller.ts`) is called, and consumes its own `rng`
+// `drawMatch()` (`ball-controller/game-over.ts`) is called, and consumes its own `rng`
 // step, at `gameOverSequence.matchTick` UNCONDITIONALLY -- `matchProbability`
 // only decides whether the draw counts as a WIN, never whether the draw (or
 // its `rng` step) happens -- so `matchProbability: 0` here is sufficient;

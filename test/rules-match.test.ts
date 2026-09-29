@@ -478,7 +478,7 @@ describe('AC 12 -- DEFAULT_ADJUSTMENTS.matchProbability', () => {
  * and no step from it." Boundaries & Constraints (AD-7, closure state):
  * `gameOverSequence` must be "reset-safe: a mark strictly greater than
  * `tick` is discarded, following the `tilt.ts:88-97` precedent" --
- * `ball-controller.ts`'s own `armTick` guard (`if (gameOverSequence !== null
+ * `ball-controller/game-over.ts`'s own `armTick` guard (`if (gameOverSequence !== null
  * && tick < gameOverSequence.armTick) gameOverSequence = null;`).
  *
  * `runRulesScript()` can never exercise this: it always builds a FRESH

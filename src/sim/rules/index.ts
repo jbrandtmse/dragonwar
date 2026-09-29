@@ -22,7 +22,7 @@
 // Story 2.5: `createRules()` gains a SECOND, optional constructor argument
 // (`adjustments`, AD-14's `GameStart.adjustments`) -- never a fourth argument
 // to `step()` itself, which would widen AD-4's pin. `step()` now also
-// introduces the ball controller (`./ball-controller.ts`), which is the real
+// introduces the ball controller (`./ball-controller/`), which is the real
 // producer of the lifecycle events `ball_will_start`/`ball_starting`/
 // `ball_started`/`ball_ended` and the sole writer of `machine.deviceSlots`
 // (DW-70) and every player-scoped field.
@@ -165,6 +165,14 @@ export interface RulesStepResult {
 	 * `RulesStepResult.modeEvents` has always had, still surfaced here
 	 * afterward for `test/util/switch-script.ts`'s headless observability
 	 * (AC 2/AC 7). Always `[]` before any mode has ever run (Attract, AC 7).
+	 *
+	 * Story 3.1 (AD-8): the channel also carries every mode's lifecycle
+	 * events (`ModeLifecycleEvent`: `mode_<name>_will_start / _starting /
+	 * _started` and `_will_stop / _stopping / _stopped`), in execution order:
+	 * the tilt controller's (the Slam's stop triples), then the ball
+	 * controller's (the ball end's and the Attract transition's stop
+	 * triples), then the mode stack's (self-resolution stops,
+	 * `lanes_completed`, the new ball's start triples).
 	 */
 	readonly modeEvents: readonly ModeEvent[];
 }
@@ -231,7 +239,7 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
  * no golden may move).
  */
 // Test-only named export (the `HARDWARE_COILS` / `PLAYFIELD_SWITCHES`
-// precedent, `ball-controller.ts` / `devices/index.ts`) -- Story 2.7, DW-201
+// precedent, `ball-controller/` / `devices/index.ts`) -- Story 2.7, DW-201
 // code review: `src/host/boot.ts`'s real `createHostLoop(...)` call now
 // hand-types this exact literal for its own `GameStart.adjustments` (it must
 // -- `host/**` may not import `sim/rules/**` directly, AD-1/AD-16, enforced
@@ -256,9 +264,12 @@ export const DEFAULT_ADJUSTMENTS: GameAdjustments = {
  */
 export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments = DEFAULT_ADJUSTMENTS): Rules {
 	const devicesLayer = createDevicesLayer(tuning);
-	const ballController = createBallController(adjustments, tuning);
-	const tiltController = createTiltController(adjustments, tuning);
+	// Story 3.1 (AD-8): the mode stack is built first so the ball controller
+	// and the tilt controller share its registry -- their stop paths (the
+	// ball end, `enterAttract()`) run the same stop hooks the stack does.
 	const modeStack = createModeStack(tuning);
+	const ballController = createBallController(adjustments, tuning, modeStack.registry);
+	const tiltController = createTiltController(adjustments, tuning, modeStack.registry);
 
 	// See this file's header, "Sequencing note": ball_will_start events the
 	// ball controller decided on THIS tick, delivered to the devices layer's
@@ -321,11 +332,13 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		pendingLifecycleEvents = [...controllerResult.ballWillStartEvents, ...controllerResult.bankResetRequests];
 
 		// Story 2.7: runs AFTER the ball controller (so `ball_starting` and any
-		// same-tick rotation's `modes: []` teardown have already landed on
-		// `controllerResult.state`) and BEFORE `nextState` is built, exactly as
-		// this story's Code Map names the insertion point. Fed THIS tick's
-		// device events (never a raw SwitchEvent, AD-19) and the controller's
-		// own SemanticEvent output (the channel `ball_starting` arrives on).
+		// same-tick rotation's mode teardown have already landed on
+		// `controllerResult.state`) and BEFORE `nextState` is built. Fed THIS
+		// tick's device events (never a raw SwitchEvent, AD-19) and the
+		// controller's own SemanticEvent output (the channel `ball_starting`
+		// arrives on). Story 3.1 (DW-209): a `ball_starting` in that output
+		// starts the new ball's modes inside this same call, after its device
+		// fan-out -- no start decision survives the tick outside `GameState`.
 		const modeStackResult = modeStack.step(controllerResult.state, deviceResult.events, controllerResult.events, tick);
 
 		// Story 2.10 (AD-19, DW-208's fix, part 2): `RulesStepResult.modeEvents`
@@ -349,7 +362,11 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 			commands: [],
 			coilCommands: [...deviceResult.coilCommands, ...tiltResult.coilCommands, ...controllerResult.coilCommands],
 			recoverCommands: controllerResult.recoverCommands,
-			modeEvents: modeStackResult.events,
+			// Story 3.1 (AD-8): in execution order -- the Slam's stop triples
+			// (tilt), then the ball end's / Attract transition's (controller),
+			// then the stack's own (self-resolution stops, `lanes_completed`,
+			// the new ball's start triples).
+			modeEvents: [...tiltResult.modeEvents, ...controllerResult.modeEvents, ...modeStackResult.events],
 		};
 	}
 

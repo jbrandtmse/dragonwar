@@ -68,7 +68,7 @@ interface PlayerOverrides {
 	readonly ballNumber?: number;
 }
 
-/** A fresh empty player, overridable -- mirrors `ball-controller.ts`'s own `emptyPlayer()`, duplicated test-local (the established precedent: `test/rules-lifecycle.test.ts`, `test/rules-modes.test.ts`, `test/rules-lamps.test.ts`, `test/rules-ball-save.test.ts`, `test/util/snapshot-factory.ts` each keep their own copy). */
+/** A fresh empty player, overridable -- mirrors `ball-controller/start.ts`'s own `emptyPlayer()`, duplicated test-local (the established precedent: `test/rules-lifecycle.test.ts`, `test/rules-modes.test.ts`, `test/rules-lamps.test.ts`, `test/rules-ball-save.test.ts`, `test/util/snapshot-factory.ts` each keep their own copy). */
 function player(overrides: PlayerOverrides = {}): PlayerState {
 	return {
 		score: overrides.score ?? 0,
@@ -266,7 +266,7 @@ describe('AC 1 / AC 3 integration -- a category credited on the IDENTICAL tick t
 		// Code review 2026-09-08 (acceptance auditor): the "Letter credited" I/O
 		// row has TWO clauses -- the bonus category increments AND
 		// `players[i].letters` still advances via the pre-existing accumulator
-		// (`ball-controller.ts`'s own DRAGON-letter fold). Nothing in this file
+		// (`ball-controller/accounting.ts`'s own DRAGON-letter fold). Nothing in this file
 		// read the second clause back, so a regression that routed the letter
 		// into the bonus INSTEAD of the accumulator would have passed here.
 		expect(

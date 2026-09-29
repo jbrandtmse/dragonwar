@@ -25,7 +25,7 @@
 // layer's state lives"): bank letters, shot progress, the tracked slot
 // occupancy and the pending Lock-lane closure are layer-local, never written
 // to `machine.deviceSlots` or any other `GameState` field. Only
-// `ball_launched` and (via `sim/rules/ball-controller.ts`)
+// `ball_launched` and (via `sim/rules/ball-controller/`)
 // `device_ball_entered`/`_left`'s effect on `machine.ballsInPlay` reach
 // `GameState` at all, exactly as before this story.
 
@@ -222,7 +222,7 @@ function buildPlayfieldSwitches(): ReadonlySet<SwitchName> {
 }
 
 /**
- * Test-only export (the `HARDWARE_COILS` precedent, `ball-controller.ts:169`):
+ * Test-only export (the `HARDWARE_COILS` precedent, `ball-controller/shared.ts`):
  * lets a test assert the exact membership (AC 8) without hand-duplicating
  * this derivation (DW-149). Computed once, module-level -- purely a function
  * of the frozen `TABLE`, so every `createDevicesLayer()` instance shares the

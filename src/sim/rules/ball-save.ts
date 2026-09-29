@@ -2,11 +2,11 @@
 //
 // Story 2.9 (AD-18): pure helpers over `machine.ballSave` (`BallSaveState`,
 // `sim/contracts/state.ts`) -- one machine-scoped device, sources stack, the
-// longest live window wins, Tilt disarms all. `sim/rules/ball-controller.ts`
+// longest live window wins, Tilt disarms all. `sim/rules/ball-controller/`
 // is the sole owner and caller of every function here: it alone pulses
 // `c_trough_eject`/`c_autolaunch` and mutates `ballsInPlay`, this file only
 // ever touches `BallSaveState` itself. Kept as a SEPARATE file, deliberately
-// not folded into `ball-controller.ts`, so that module's own pinned
+// not folded into `ball-controller/`, so that module's own pinned
 // `applyDeviceEvents()` contract (test/rules-devices.test.ts calls it
 // directly) stays untouched by this story.
 //

@@ -39,7 +39,7 @@ const NO_MACHINE_REPORT: MachineReport = { recovered: null, failures: [] };
 
 const TROUGH_EJECT_COIL = TABLE.ballDevices.bd_trough.ejectCoil;
 // Code review (iteration 2): derived the SAME way production derives it
-// (`shooterLaunchCoil()` in `ball-controller.ts` -- the first `pulse` step,
+// (`shooterLaunchCoil()` in `ball-controller/shared.ts` -- the first `pulse` step,
 // not blindly step 0). With `[0]!.coil`, a `ballSearchOrder` whose first step
 // stopped being the pulse would make this constant `undefined`, and the
 // NEGATIVE assertion below ("the autolaunch coil must be ABSENT from the
@@ -57,7 +57,7 @@ const SHOOTER_LAUNCH_COIL = (() => {
 // Code review (Story 2.9, iteration 3) -- epic vacuity #44, one file over.
 // The block above closed a REAL vacuity (`[0]!.coil` could go `undefined` and
 // make AC 4's negative assertion pass trivially) but traded it for another:
-// it now re-implements `ball-controller.ts`'s own `shooterLaunchCoil()`
+// it now re-implements `ball-controller/shared.ts`'s own `shooterLaunchCoil()`
 // derivation VERBATIM, so the production derivation sits on BOTH sides of
 // every AC 4 assertion. A wrong derivation -- or a `ballSearchOrder` reorder
 // that changes which step is the first `pulse` -- moves the expectation and
@@ -68,14 +68,14 @@ const SHOOTER_LAUNCH_COIL = (() => {
 // halves now hold: the throw above still catches a missing pulse step, and
 // this catches a derivation that resolves to the wrong coil.
 // `mutation: TABLE.ballDevices.bd_shooter.ballSearchOrder's `pulse` step
-// coil -> any other c_ name (or ball-controller.ts's `.find(action ===
+// coil -> any other c_ name (or ball-controller/shared.ts's `.find(action ===
 // 'pulse')` -> `[0]`) reddens here.`
 it('the coil AC 4 asserts on is genuinely c_autolaunch -- anchoring the derivation this file shares with production', () => {
 	expect(SHOOTER_LAUNCH_COIL, 'bd_shooter\'s deferred-autolaunch coil').toBe('c_autolaunch');
 	expect(TROUGH_EJECT_COIL, 'bd_trough\'s eject coil, pulsed by a save\'s re-serve').toBe('c_trough_eject');
 });
 
-/** A fresh empty player, mirroring `ball-controller.ts`'s own `emptyPlayer()` -- test-local, same idiom `test/rules-lifecycle.test.ts` already established. */
+/** A fresh empty player, mirroring `ball-controller/start.ts`'s own `emptyPlayer()` -- test-local, same idiom `test/rules-lifecycle.test.ts` already established. */
 function emptyPlayer(ballNumber: number) {
 	return {
 		score: 0,
@@ -476,8 +476,8 @@ describe('AC 10 -- nothing arms outside a game', () => {
 		// none of them ever reaches this state. This test seeds the state
 		// that DOES: `phase: 'game_over'` with `sources` still holding the
 		// controller's own source -- genuinely reachable in-product, since
-		// the drain branch's own `gameOver` path (ball-controller.ts's
-		// `step()`) sets `phase: 'game_over'` WITHOUT calling `startBall()`
+		// the drain branch's own `gameOver` path (ball-controller/ball-end.ts's
+		// `endBall()`) sets `phase: 'game_over'` WITHOUT calling `startBall()`
 		// again, so whatever `sources` held at that instant (the controller's
 		// own source, enabled every ball since ball 1) survives unchanged.
 		const initialState: GameState = { ...midGameState({ ballSave: { untilTick: null, sources: [BALL_SAVE_SOURCE] } }), phase: 'game_over' };
@@ -657,7 +657,7 @@ describe("Rework iteration 1 (DW-218) -- a save's own re-serve does not re-arm t
 		// production tuning, real physics, seed 0, no player input: 28
 		// `ball_saved` and ZERO `ball_ended` in 120,000 ticks, because every
 		// re-serve re-armed a fresh full window. The fix is the discriminator
-		// `awaitingSaveRelaunch` in `ball-controller.ts`: set only when the
+		// `awaitingSaveRelaunch` in `ball-controller/`: set only when the
 		// deferred-autolaunch pulse below actually fires, consumed by the very
 		// `ball_launched` it causes.
 		const script = close('s_trough_1').at(1) // the drain, well inside the window -- ball_saved, awaitingSaveLaunch = true
@@ -690,7 +690,7 @@ describe('Rework iteration 1 (DW-218) -- the enableBallSave gate has a real beha
 		// directly through the initial-state seam (the same technique
 		// `midGameState()` already uses for every other drain-branch test),
 		// since there is no source-level way to skip ball_starting's own
-		// `enableBallSave()` call without editing `ball-controller.ts` itself.
+		// `enableBallSave()` call without editing `ball-controller/` itself.
 		const initialState = midGameState({ ballSave: { untilTick: null, sources: [] } });
 		const result = runRulesScript(open('s_shooter_lane').at(1).build(), { durationTicks: 1, initialState });
 

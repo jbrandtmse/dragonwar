@@ -6,7 +6,7 @@
 // physics, real devices, real rules, exactly `test/rules-tilt-integration.test.ts`'s
 // own "the whole chain is actually connected" standard. Red first (spec Task
 // 1): both routes were measured red on today's code before this story's
-// `ball-controller.ts` edit -- see the Code Map's own "Measured at this
+// ball controller edit (now `ball-controller/`) -- see the Code Map's own "Measured at this
 // tree" probes for the underlying defect these two tests pin.
 
 import { readFileSync } from 'node:fs';
@@ -169,7 +169,7 @@ describe('AC 5 -- DW-244 route 1: a voided game\'s loose ball is removed before 
 		// drain of the brand-new ball 1 -- `parkingEntryThisTick` is true this
 		// tick (the recover's own close edge) at `ballsInPlay === 0`, exactly
 		// the drain branch's trigger shape, guarded off by
-		// `machineReport.recovered === null` in `ball-controller.ts`. Checked
+		// `machineReport.recovered === null` in `ball-controller/ball-end.ts`. Checked
 		// at T+1 itself (Rule 19: a check that never ran is not a check) --
 		// the "quiet run" loop below only starts sampling `ball_ended` from
 		// T+2 onward, which would never have observed this exact tick.

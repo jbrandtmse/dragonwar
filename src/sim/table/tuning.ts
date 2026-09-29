@@ -1029,7 +1029,7 @@ export type ShotWindowMsKey = TuningMsKey<typeof TUNING>;
  * the helper. It was introduced for `TABLE.shots[*].windowMs` keys read from
  * `sim/rules/devices/**`, but Story 2.4 itself already used it for the
  * non-shot `lockCaptureWindowMs`, and Story 2.9 added three more non-shot
- * call sites -- `ball-controller.ts` (`ballSaveMs`, `ballSaveGraceMs`) and
+ * call sites -- `ball-controller/index.ts` (`ballSaveMs`, `ballSaveGraceMs`) and
  * `sim/loop/index.ts` (`ballSaveHurryUpMs`). It is and always was generic
  * over any top-level `…Ms` key (`ShotWindowMsKey` = `TuningMsKey<typeof
  * TUNING>`, not a shots-only union); only the name still says "shot".]

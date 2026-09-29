@@ -12,7 +12,7 @@
 // - `awardScore(state, player, points)` -- the only path a mode uses to add
 //   to `players[player].score`. Later modes (Stories 3.5-3.9) add their
 //   awards through it and never write `score` directly. The drain-tick bonus
-//   write in `ball-controller.ts` is deliberately outside it: it runs at
+//   write in `ball-controller/ball-end.ts` is deliberately outside it: it runs at
 //   ball end and already forfeits the whole bonus on Tilt.
 // - `addDragonLetters(existing, incoming)` -- the de-duplicating letter
 //   append (DW-283). `players[p].letters` holds each DRAGON letter at most

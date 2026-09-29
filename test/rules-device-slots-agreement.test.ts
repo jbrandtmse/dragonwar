@@ -12,7 +12,7 @@
 //       resolves IMMEDIATELY (`lock_lane_entered` the same tick) or opens a
 //       capture window instead.
 //   (2) `machine.deviceSlots`, derived PURELY from that same event stream by
-//       `deriveDeviceSlots()` (`src/sim/rules/ball-controller.ts`, DW-70) and
+//       `deriveDeviceSlots()` (`src/sim/rules/ball-controller/accounting.ts`, DW-70) and
 //       exposed on `GameState`.
 //
 // DW-70 existed precisely because two places disagreed about `deviceSlots`

@@ -1,72 +1,89 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
-// AD-8: the minimal Epic 2 mode stack -- base (priority 100) and skill shot
-// (priority 200), directly constructed and explicitly delegated to, exactly
-// as `sim/rules/devices/index.ts` registers `./drop-bank.ts`/`./shots.ts`:
-// no registry, no plugin table, no auto-discovery. Story 3.1
-// (`epics.md:1648`) generalises this into the real framework -- a
-// once-declared priority table with a duplicate-registration assertion, the
-// four-phase `mode_<name>_will_start/_starting/_started`/`_will_stop/
-// _stopping/_stopped` lifecycle as the only start/stop path, and the
-// highest-priority-first event fan-out as a real abstraction. This module
-// deliberately does not build any of that (this story's own Never section).
+// Story 3.1 (AD-8): the mode stack -- Epic 2's minimal two-mode stack (Story
+// 2.7) generalised into the framework every Epic 3 mode registers with.
+//
+// - Priorities are declared once, in `MODE_PRIORITIES` (`./priorities.ts`).
+//   `createModeStack(tuning, definitions?)` builds a registry
+//   (`./registry.ts`) that throws at construction on a duplicate name, a
+//   duplicate priority, or a priority that is not the table's. Production
+//   passes no definitions and gets the base mode (100) and the skill shot
+//   (200); a test may pass stub definitions, which must use the table's
+//   names and priorities too.
+// - A mode starts and stops only through `./lifecycle.ts`: `mode_<name>_
+//   will_start / _starting / _started`, and `_will_stop / _stopping /
+//   _stopped`, on the `ModeEvent` channel. A mode that resolves itself
+//   returns `stop: true` from its handler and the stack stops it.
+// - Each `step()`: first every active registered mode's optional `tick` hook
+//   runs once, in descending priority (a higher mode never suppresses a
+//   lower mode's hook). Then the fan-out is EVENT-MAJOR: each device event,
+//   in the order the devices layer emitted it, is offered to every active
+//   registered mode in descending priority before the next event is
+//   offered. A mode stopped by event k receives none of events k+1..; a mode
+//   started by event k receives k+1... Handlers receive only `DeviceEvent`
+//   (AD-19) and have no coil channel (AD-8).
+// - When this tick's ball-controller events carry `ball_starting`, the base
+//   mode and the skill shot start for `currentPlayer` in this SAME
+//   `rules.step`, after the fan-out -- so they first receive device events on
+//   the next tick. `startBall()` has already incremented that player's
+//   `ballNumber`, so the skill shot's per-ball lane advance reads the right
+//   ball. No start decision is held outside `GameState`: there is no
+//   deferred start, so a Slam on the next tick finds the modes in
+//   `modes[]` and `enterAttract()` stops them (DW-209).
+// - An entry with no registered definition (a test fixture) receives no
+//   tick hook and no device event; it is only ever stopped.
 //
 // `createModeStack()` is instantiated ONCE per `Rules` instance
-// (`sim/rules/index.ts`'s `createRules()`, mirroring `createDevicesLayer()`/
-// `createBallController()`) and returns `{ step }` closing over the two mode
-// instances -- Story 2.3's own module-level `occupied` leak is exactly what
-// this factory-per-instance shape avoids (this story's "Always" rule).
-//
-// Never produces a `CoilCommand` and never touches `machine.*` (AD-8's own
-// rule text) -- this module and both modes it drives write only
-// `players[*].lanes`, `modes[]` and `rng`, plus `players[*].score` and
+// (`sim/rules/index.ts`'s `createRules()`) and returns `{ registry, step }`;
+// `createRules()` hands the same `registry` to the ball controller and the
+// tilt controller so their stop paths run the same stop hooks. Never produces
+// a `CoilCommand` and never touches `machine.*` itself (AD-8) -- the modes it
+// drives write `players[*].lanes` and `rng`, plus `players[*].score` and
 // `players[*].letters` through `sim/rules/scoring.ts` (Story 3.0a).
-//
-// DEFERRED START (implementation finding, recorded here because it overrides
-// this spec's own Design Notes prose): a `ball_starting` this tick is
-// recorded and started on the FOLLOWING tick's `step()` call -- mirroring
-// `sim/rules/index.ts`'s own `pendingLifecycleEvents` (N -> N+1) idiom --
-// rather than starting the new modes in the SAME tick `ball_starting` fires.
-// This spec's Design Notes ("Scope boundary against Story 3.1") states the
-// opposite ("the stack starts the next ball's modes at ball_starting ...
-// in the same tick"), but this spec's own Block If ALSO names
-// `test/rules-lifecycle.test.ts:160-180` (Story 2.5's AC 5 mode-teardown
-// pin) as a test that "must keep passing unmodified" -- and that exact test
-// drains player 0 mid-game with a SECOND player still to play, which is a
-// same-tick `ball_ended` -> rotation -> `ball_starting` for player 1 (not
-// the last player, `ballsPerGame` not reached). Verified empirically: a
-// same-tick push makes `after.modes` (asserted `[]` at that test's own
-// `durationTicks: 1`) become `[base, skill_shot]` for player 1, reddening a
-// previously-green, explicitly-protected regression pin. The two spec
-// statements are irreconcilable for that exact scenario; this file follows
-// the concrete, file-and-line Block If over the descriptive prose, on the
-// reasoning that a Block If exists precisely to protect a shipped story's
-// pinned behaviour from being silently broken by a later one. AC 1's own
-// Given/When/Then ("ball_starting fires for player p ... modes[] contains
-// exactly ...") does not require same-tick timing, and is satisfied one
-// tick later; AC I1/AC I2 (real physics, many ticks between `s_start` and
-// any assertion) are unaffected either way.
-//
-// [Story 2.14] This one-tick defer is also what makes `players[p].ballNumber`
-// already correct by the time `skillShot.start()` reads it: `startBall()`
-// increments `ballNumber` the SAME tick it emits `ball_starting`
-// (`ball-controller.ts`), one tick before the deferred `start()` call above
-// reads it -- so the skill shot's own per-ball lane advance (keyed on that
-// same `ballNumber`) needs no counter of its own. A reader tempted to "fix"
-// the defer into same-tick timing must see this: doing so would hand
-// `skillShot.start()` the PRE-increment `ballNumber`, silently shifting every
-// player's own lane rotation by one ball.
 
 import type { DeviceEvent } from '../devices';
 import type { GameState, SemanticEvent } from '../../table/names';
 import type { ResolvedTuning } from '../../table/tuning';
-import { createBaseMode } from './base';
-import { createSkillShotMode } from './skill-shot';
+import type { ActiveModeState } from '../../contracts/state';
+import { baseModeLamps, createBaseMode } from './base';
+import { locateEntry, startModes, stopModes } from './lifecycle';
+import { createModeRegistry, type ModeDefinition, type ModeHookResult, type ModeLampHook, type ModeRegistry } from './registry';
+import { createSkillShotMode, skillShotLamps } from './skill-shot';
 import type { ModeEvent } from './events';
+import type { ModeName } from './priorities';
 
-export type { LaneSetName, LanesCompletedEvent, ModeEvent } from './events';
+export type { LaneSetName, LanesCompletedEvent, ModeEvent, ModeLifecycleEvent, ModeLifecyclePhase } from './events';
+export type { ModeDefinition, ModeHookResult, ModeLampHook, ModeLampRoles, ModeLookup, ModeRegistry } from './registry';
+export type { ModeName } from './priorities';
+export { MODE_PRIORITIES } from './priorities';
+export { createModeRegistry } from './registry';
+export { startModes, stopAllModes, stopModes } from './lifecycle';
 export { BASE_MODE_PRIORITY } from './base';
 export { SKILL_SHOT_MODE_PRIORITY } from './skill-shot';
+
+/** The modes a ball start starts, for `currentPlayer`, in the stack's ascending-priority order. */
+const BALL_START_MODES: readonly ModeName[] = ['base', 'skill_shot'];
+
+/**
+ * Story 3.1 (AD-9): each production mode's `lamps` hook, by name, for
+ * `lampsOf()` (`sim/rules/lamps.ts`), which is a pure projection with no
+ * stack instance in hand. The same functions the production definitions
+ * carry -- one source per mode.
+ */
+export const MODE_LAMP_ROLES: Readonly<Partial<Record<ModeName, ModeLampHook>>> = {
+	base: baseModeLamps,
+	skill_shot: skillShotLamps,
+};
+
+/** The production mode definitions -- the base mode and the skill shot. */
+export function createProductionModeDefinitions(tuning: ResolvedTuning): readonly ModeDefinition[] {
+	return [createBaseMode(tuning), createSkillShotMode(tuning)];
+}
+
+/** A registry of the production definitions, table priorities enforced -- what a ball or tilt controller built without the stack's own registry uses. */
+export function createProductionModeRegistry(tuning: ResolvedTuning): ModeRegistry {
+	return createModeRegistry(createProductionModeDefinitions(tuning), { requireTablePriorities: true });
+}
 
 export interface ModeStackStepResult {
 	readonly state: GameState;
@@ -74,14 +91,13 @@ export interface ModeStackStepResult {
 }
 
 export interface ModeStack {
+	/** The stack's own registry -- handed to the ball and tilt controllers so their stop paths run the same stop hooks. */
+	readonly registry: ModeRegistry;
 	/**
 	 * `deviceEvents` is this tick's `DeviceEvent[]` (AD-19: modes never see a
 	 * raw `SwitchEvent`); `lifecycleEvents` is this tick's `SemanticEvent[]`
 	 * from the ball controller -- the stack looks only for `ball_starting`
-	 * in it (never widened to a lifecycle-specific type, since `SemanticEvent`
-	 * is already the closed union the ball controller emits, and this is the
-	 * exact channel `sim/rules/index.ts`'s own `controllerResult.events`
-	 * carries).
+	 * in it.
 	 */
 	step(state: GameState, deviceEvents: readonly DeviceEvent[], lifecycleEvents: readonly SemanticEvent[], tick: number): ModeStackStepResult;
 }
@@ -90,72 +106,80 @@ function isBallStarting(event: SemanticEvent): boolean {
 	return event.type === 'ball_starting';
 }
 
-export function createModeStack(tuning: ResolvedTuning): ModeStack {
-	const base = createBaseMode(tuning);
-	const skillShot = createSkillShotMode(tuning);
+export function createModeStack(tuning: ResolvedTuning, definitions?: readonly ModeDefinition[]): ModeStack {
+	const registry = createModeRegistry(definitions ?? createProductionModeDefinitions(tuning), { requireTablePriorities: true });
 
-	// See this file's header, "DEFERRED START": a `ball_starting` seen THIS
-	// tick is recorded here and actually started on the FOLLOWING tick's
-	// `step()` call, never the same one.
-	let pendingStartPlayer: number | null = null;
-
-	function step(state: GameState, deviceEvents: readonly DeviceEvent[], lifecycleEvents: readonly SemanticEvent[], tick: number): ModeStackStepResult {
-		let nextState = state;
-
-		if (pendingStartPlayer !== null) {
-			const player = pendingStartPlayer;
-			pendingStartPlayer = null;
-			// AD-7/AC 1: ascending priority on start -- the base mode's lane
-			// reset must land before the skill shot draws its own lit lane,
-			// since the draw's write must not be clobbered by the reset.
-			nextState = base.start(nextState, player);
-			nextState = skillShot.start(nextState, player);
+	/** Every active entry with a registered definition, in descending priority (stable, so equal priorities keep list order). */
+	function activeRegistered(state: GameState): ActiveModeState[] {
+		const recipients: ActiveModeState[] = [];
+		for (const entry of state.modes) {
+			if (registry.get(entry.mode) !== undefined) {
+				recipients.push(entry);
+			}
 		}
-
-		if (lifecycleEvents.some(isBallStarting)) {
-			pendingStartPlayer = nextState.currentPlayer;
-		}
-
-		// AD-8: highest-priority mode delivered first -- skill shot (200) then
-		// base (100). The two modes consume these device-event types (base:
-		// lane_entered, lane_change_pressed, and -- Story 3.0a -- the pop and
-		// sling playfield_switch_closed, spinner_spin and bank_completed; skill
-		// shot: ball_launched, playfield_switch_closed and a parking
-		// device_ball_entered). They share playfield_switch_closed but act on it
-		// independently: a pop or sling that resolves the skill shot as a miss
-		// still pays the base mode's own award. They SHARE one piece of state,
-		// `players[p].lanes.lit` -- the base mode writes it, the skill shot
-		// reads it to decide the award -- so this ordering is load-bearing, not
-		// decorative. Both score only through `sim/rules/scoring.ts`.
-		//
-		// [CORRECTED 2026-09-06, code review] This comment previously claimed the
-		// ordering "has no observable effect yet". It does. Running the skill
-		// shot first is exactly what makes a `lane_entered` arriving in the SAME
-		// batch as the resolving `playfield_switch_closed` land AFTER the award
-		// is judged, so the award reads the lit pattern as it stood when the ball
-		// arrived rather than one the same closure had already changed.
-		//
-		// Note also that this fan-out is mode-MAJOR (each mode is handed the
-		// whole batch in turn), not event-major (each event offered to every mode
-		// highest-first). AD-8's rule text -- "each active mode receives every
-		// device and shot event, highest priority first" -- is satisfiable by
-		// either shape and does not yet say which. The two differ observably on a
-		// tick carrying both a `lane_change_pressed` and the resolving closure:
-		// mode-major judges the award against the PRE-rotation lane, event-major
-		// against the post-rotation one. Story 3.1 (`epics.md:1648`) owns the
-		// fan-out contract and is where that choice gets stated; it is recorded
-		// in the ledger rather than settled here.
-		const events: ModeEvent[] = [];
-		const skillShotResult = skillShot.step(nextState, deviceEvents, tick);
-		nextState = skillShotResult.state;
-		events.push(...skillShotResult.events);
-
-		const baseResult = base.step(nextState, deviceEvents, tick);
-		nextState = baseResult.state;
-		events.push(...baseResult.events);
-
-		return { state: nextState, events };
+		return recipients.sort((a, b) => b.priority - a.priority);
 	}
 
-	return { step };
+	/** Folds one hook result into the running state and events, stopping the entry through the lifecycle when the hook asked to stop. */
+	function apply(result: ModeHookResult, entry: ActiveModeState, tick: number, events: ModeEvent[]): GameState {
+		let next = result.state;
+		if (result.events) {
+			events.push(...result.events);
+		}
+		if (result.stop) {
+			const live = locateEntry(next, entry);
+			if (live) {
+				const stopped = stopModes(next, [live], tick, registry);
+				next = stopped.state;
+				events.push(...stopped.events);
+			}
+		}
+		return next;
+	}
+
+	function step(state: GameState, deviceEvents: readonly DeviceEvent[], lifecycleEvents: readonly SemanticEvent[], tick: number): ModeStackStepResult {
+		let next = state;
+		const events: ModeEvent[] = [];
+
+		// 1. Per-tick hooks, descending priority, before any event.
+		for (const recipient of activeRegistered(next)) {
+			const definition = registry.get(recipient.mode)!;
+			if (!definition.tick) {
+				continue;
+			}
+			const live = locateEntry(next, recipient);
+			if (!live) {
+				continue;
+			}
+			next = apply(definition.tick(next, live, tick), live, tick, events);
+		}
+
+		// 2. Event-major fan-out: each event to every active mode, highest
+		// priority first, before the next event. The recipients are re-read per
+		// event, so a mode stopped by event k misses k+1.. and one started by
+		// event k receives k+1..; `locateEntry` skips a mode a higher one has
+		// already stopped on this same event.
+		for (const event of deviceEvents) {
+			for (const recipient of activeRegistered(next)) {
+				const live = locateEntry(next, recipient);
+				if (!live) {
+					continue;
+				}
+				const definition = registry.get(live.mode)!;
+				next = apply(definition.onEvent(next, live, event, tick), live, tick, events);
+			}
+		}
+
+		// 3. The ball start, in this same step, after the fan-out (DW-209).
+		if (lifecycleEvents.some(isBallStarting)) {
+			const toStart = BALL_START_MODES.map((name) => registry.get(name)).filter((definition): definition is ModeDefinition => definition !== undefined);
+			const started = startModes(next, toStart, next.currentPlayer, tick);
+			next = started.state;
+			events.push(...started.events);
+		}
+
+		return { state: next, events };
+	}
+
+	return { registry, step };
 }

@@ -8,7 +8,7 @@
 //
 // `device_ball_entered`/`device_ball_left` are NOT part of the closed
 // `SemanticEvent` contract (`sim/contracts/events.ts`'s own header): they
-// are this layer's internal vocabulary for `sim/rules/ball-controller.ts`'s
+// are this layer's internal vocabulary for `sim/rules/ball-controller/`'s
 // bookkeeping, never returned in `FrameOutput.events`. Only `ball_launched`
 // -- a real closed-union member -- crosses that boundary
 // (`sim/rules/index.ts` filters for it). Every other event declared here is

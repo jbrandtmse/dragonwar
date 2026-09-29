@@ -19,15 +19,15 @@
 // barrel (`../devices`), the same table-derived types `lane_entered`/
 // `lane_change_pressed` already carry.
 //
-// Factory + closure (this story's own "Always" rule) -- though this mode
-// needs no cross-tick state of its OWN: every write lands on `GameState`
-// (`players[i].lanes`, `modes[]`), never a module-level or closure-local
-// variable. `createBaseMode()` still returns `{ start, step }` from a
-// factory, mirroring `createDevicesLayer()`/`createBallController()`,
-// because a bare exported function pair would make this module structurally
-// different from every other stateful-looking rules component for no
-// reason -- and Story 3.1's generalisation will need each mode instantiated
-// once per stack, not called as bare module functions.
+// Story 3.1 (AD-8): `createBaseMode(tuning)` builds this mode's
+// `ModeDefinition` (`./registry.ts`) -- `onStarting` (the lane reset),
+// `onEvent` (one device event at a time, fanned out event-major by the stack)
+// and `lamps` (its letter and lane roles). It needs no cross-tick state of its
+// OWN: every write lands on `GameState` (`players[i].lanes`, the score through
+// `scoring.ts`), never a module-level or closure-local variable. It never adds
+// or removes its own `modes[]` entry -- `./lifecycle.ts` does. The factory
+// also keeps a `start` / `step` pair (`soloModeDriver()`) for direct tests of
+// this one mode, routed through the same lifecycle functions.
 //
 // Story 3.0a (AD-8 amended 2026-09-29, DW-278): base playfield scoring lives
 // here, in the priority-100 mode, so "scoring accrues from all active modes"
@@ -52,14 +52,18 @@
 
 import { TABLE } from '../../table/dragonwar';
 import { awardScore } from '../scoring';
+import { soloModeDriver, type SoloModeDriver } from './lifecycle';
+import { MODE_PRIORITIES } from './priorities';
 import type { DeviceEvent, FlipperSide, LaneName } from '../devices';
 import type { ActiveModeState, PlayerLaneState } from '../../contracts/state';
-import type { GameState, SwitchName } from '../../table/names';
+import type { LampProjectionEntry } from '../../contracts';
+import type { GameState, LampName, SwitchName } from '../../table/names';
 import type { ResolvedTuning } from '../../table/tuning';
 import type { LaneSetName, ModeEvent } from './events';
+import type { ModeDefinition, ModeHookResult, ModeLampRoles } from './registry';
 
-/** AD-8: the base mode's own fixed priority. */
-export const BASE_MODE_PRIORITY = 100;
+/** AD-8: the base mode's own fixed priority -- `MODE_PRIORITIES.base` (`./priorities.ts`), never a second literal. */
+export const BASE_MODE_PRIORITY = MODE_PRIORITIES.base;
 
 /** Every lane in `TABLE.laneWiring`, grouped by `set` and sorted ascending by `order` -- computed once at module load (a pure function of the frozen `TABLE`, DW-149's derive-not-duplicate convention), shared by every `createBaseMode()` instance exactly as `HARDWARE_COILS`/`PLAYFIELD_SWITCHES` are. */
 function buildLaneSets(): ReadonlyMap<LaneSetName, readonly LaneName[]> {
@@ -116,31 +120,63 @@ function rotateLit(lit: Readonly<Record<string, boolean>>, side: FlipperSide): R
 	return next;
 }
 
+const LIT_STEP_1: LampProjectionEntry = { role: 'lit', step: 1 };
+const DRAGON_STEP_1: LampProjectionEntry = { role: 'dragon', step: 1 };
+
+type LampEntry = [LampName, (typeof TABLE.lamps)[LampName]];
+
+/** Every `TABLE.lamps` entry, once (DW-149: never a second hand-typed lamp list). */
+const LAMP_ENTRIES = Object.entries(TABLE.lamps) as LampEntry[];
+
+/**
+ * Story 3.1 (AD-9, the base mode's `lamps` hook): today's letter and lane
+ * roles, for this entry's OWN player (AD-7: the base mode owns
+ * `players[i].lanes`) -- a spelled DRAGON letter is `dragon/1` and a lit lane
+ * is `lit/1`. Every other lamp is left to the layers below (`off/0`). Pure and
+ * tuning-free, so `lampsOf()` (`sim/rules/lamps.ts`) calls it directly.
+ */
+export function baseModeLamps(state: GameState, entry: ActiveModeState): ModeLampRoles {
+	const player = state.players[entry.player];
+	if (!player) {
+		return {};
+	}
+	const roles: Partial<Record<LampName, LampProjectionEntry>> = {};
+	for (const [name, def] of LAMP_ENTRIES) {
+		const subject = def.subject;
+		if (subject.kind === 'letter') {
+			if (player.letters.toUpperCase().includes(subject.letter.toUpperCase())) {
+				roles[name] = DRAGON_STEP_1;
+			}
+		} else if (subject.kind === 'lane') {
+			if (player.lanes.lit[subject.lane] === true) {
+				roles[name] = LIT_STEP_1;
+			}
+		}
+	}
+	return roles;
+}
+
 export interface BaseModeStepResult {
 	readonly state: GameState;
 	readonly events: readonly ModeEvent[];
 }
 
-export interface BaseMode {
-	readonly mode: 'base';
-	readonly priority: number;
-	/** `ball_starting` (AD-7): pushes this mode's `ActiveModeState` entry for `player` and resets every lane's `lit` flag to false. `completedSets` is untouched -- it accumulates for the whole game, never reset per ball. */
-	start(state: GameState, player: number): GameState;
-	/** Applies every one of this tick's `DeviceEvent`s, IN ARRAY ORDER, to the currently active base-mode instance (a no-op if none is active -- e.g. Attract, AC 7). */
-	step(state: GameState, deviceEvents: readonly DeviceEvent[], tick: number): BaseModeStepResult;
+/** The base mode's `ModeDefinition`, plus the `start` / `step` pair for driving it alone in a test (`soloModeDriver()`, `./lifecycle.ts`). */
+export interface BaseMode extends ModeDefinition, SoloModeDriver {
+	readonly name: 'base';
 }
 
 export function createBaseMode(tuning: ResolvedTuning): BaseMode {
-	function start(state: GameState, player: number): GameState {
+	/** `_starting` (AD-7): resets every lane's `lit` flag to false for the entry's player. `completedSets` is untouched -- it accumulates for the whole game, never reset per ball. */
+	function onStarting(state: GameState, entry: ActiveModeState): GameState {
 		const lit: Record<string, boolean> = {};
 		for (const lane of ALL_LANES) {
 			lit[lane] = false;
 		}
 		const players = state.players.map((existing, index) =>
-			index === player ? { ...existing, lanes: { ...existing.lanes, lit } } : existing,
+			index === entry.player ? { ...existing, lanes: { ...existing.lanes, lit } } : existing,
 		);
-		const activeMode: ActiveModeState = { mode: 'base', priority: BASE_MODE_PRIORITY, player };
-		return { ...state, players, modes: [...state.modes, activeMode] };
+		return { ...state, players };
 	}
 
 	/** `lane_entered { lane }`: lights `lane`, then -- if every member of its `set` is now lit -- records the completion, emits `lanes_completed`, and resets that set's own flags. */
@@ -178,40 +214,46 @@ export function createBaseMode(tuning: ResolvedTuning): BaseMode {
 		return { ...state, players };
 	}
 
-	function step(state: GameState, deviceEvents: readonly DeviceEvent[], tick: number): BaseModeStepResult {
-		let nextState = state;
-		const events: ModeEvent[] = [];
-		for (const event of deviceEvents) {
-			const active = nextState.modes.find((mode) => mode.mode === 'base');
-			if (!active) {
-				continue;
-			}
-			if (event.type === 'lane_entered') {
-				const result = applyLaneEntered(nextState, active.player, event.lane, tick);
-				nextState = result.state;
-				events.push(...result.events);
-			} else if (event.type === 'lane_change_pressed') {
-				nextState = applyLaneChangePressed(nextState, active.player, event.side);
-			} else if (event.type === 'playfield_switch_closed') {
-				// Story 3.0a (FR-31): pops and slings. Any other playfield switch,
-				// the Spinner's included, pays nothing here.
-				if (POP_SWITCHES.has(event.switch)) {
-					nextState = awardScore(nextState, active.player, tuning.popScore.value);
-				} else if (SLING_SWITCHES.has(event.switch)) {
-					nextState = awardScore(nextState, active.player, tuning.slingScore.value);
-				}
-			} else if (event.type === 'spinner_spin') {
-				// Story 3.0a (FR-26): "the Spinner awards per rotation".
-				nextState = awardScore(nextState, active.player, event.count * tuning.spinnerScore.value);
-			} else if (event.type === 'bank_completed') {
-				// Story 3.0a (FR-28): the award, once per completion. Story 3.9
-				// decides whether a completion during the War also pays (FR-28:
-				// there a full bank "counts as Strikes instead of letters").
-				nextState = awardScore(nextState, active.player, tuning.dragonBankAward.value);
-			}
+	/** One device event for the active entry (the stack's event-major fan-out calls this once per event). Returns `state` itself when the event is not the base mode's. */
+	function onEvent(state: GameState, entry: ActiveModeState, event: DeviceEvent, tick: number): ModeHookResult {
+		const player = entry.player;
+		if (event.type === 'lane_entered') {
+			return applyLaneEntered(state, player, event.lane, tick);
 		}
-		return { state: nextState, events };
+		if (event.type === 'lane_change_pressed') {
+			return { state: applyLaneChangePressed(state, player, event.side) };
+		}
+		if (event.type === 'playfield_switch_closed') {
+			// Story 3.0a (FR-31): pops and slings. Any other playfield switch,
+			// the Spinner's included, pays nothing here.
+			if (POP_SWITCHES.has(event.switch)) {
+				return { state: awardScore(state, player, tuning.popScore.value) };
+			}
+			if (SLING_SWITCHES.has(event.switch)) {
+				return { state: awardScore(state, player, tuning.slingScore.value) };
+			}
+			return { state };
+		}
+		if (event.type === 'spinner_spin') {
+			// Story 3.0a (FR-26): "the Spinner awards per rotation".
+			return { state: awardScore(state, player, event.count * tuning.spinnerScore.value) };
+		}
+		if (event.type === 'bank_completed') {
+			// Story 3.0a (FR-28): the award, once per completion. Story 3.9
+			// decides whether a completion during the War also pays (FR-28:
+			// there a full bank "counts as Strikes instead of letters").
+			return { state: awardScore(state, player, tuning.dragonBankAward.value) };
+		}
+		return { state };
 	}
 
-	return { mode: 'base', priority: BASE_MODE_PRIORITY, start, step };
+	const definition: ModeDefinition & { readonly name: 'base' } = {
+		name: 'base',
+		priority: BASE_MODE_PRIORITY,
+		onStarting,
+		onEvent,
+		lamps: baseModeLamps,
+	};
+
+	return { ...definition, ...soloModeDriver(definition) };
 }

@@ -60,7 +60,7 @@ import type { ResolvedTuning } from '../table/tuning';
 /** The declared category iteration order (PRD FR-20: letters, Loops, Strikes) -- the one place this order is authored; every fold and every total below walks it, never a hand-rolled second list. */
 export const BONUS_CATEGORIES: readonly BonusCategory[] = ['letters', 'loops', 'strikes'];
 
-/** Every category at 0, multiplier at the ladder's first rung -- `emptyPlayer()`'s own boot value and `startBall()`'s per-ball reset (AC 6), both in `ball-controller.ts`. */
+/** Every category at 0, multiplier at the ladder's first rung -- `emptyPlayer()`'s own boot value and `startBall()`'s per-ball reset (AC 6), both in `ball-controller/start.ts`. */
 export const BONUS_EMPTY: PlayerBonusState = { byCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1 };
 
 /** The fixed multiplier ladder (PRD FR-20) -- 1x to start, capped at 5x. The one definition of both the steps and the cap: `advanceBonusMultiplier()` below never advances past its last member. */
@@ -101,7 +101,7 @@ export interface BonusCountDownStep {
 /**
  * Story 3.0 (DW-236, PRD FR-20 "the Backglass counts the bonus down", AD-3):
  * the end-of-ball count-DOWN's own arithmetic, laid out as an ordered list
- * so `sim/rules/ball-controller.ts` (the sole owner of the count's TIMING --
+ * so `sim/rules/ball-controller/ball-end.ts` (the sole owner of the count's TIMING --
  * it alone holds the pre-rotation `endingPlayer` and the tick clock) only
  * has to stamp each entry with a tick and a `player`/`step`/`steps` field.
  *

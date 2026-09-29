@@ -66,7 +66,7 @@ function adjustments(tiltWarnings: number): GameAdjustments {
 	return { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings, ballsPerGame: 3, matchProbability: 0.08 };
 }
 
-/** A fresh empty player, mirroring `ball-controller.ts`'s own `emptyPlayer()` -- the established test-local idiom. */
+/** A fresh empty player, mirroring `ball-controller/start.ts`'s own `emptyPlayer()` -- the established test-local idiom. */
 function emptyPlayer(overrides: Partial<PlayerState> = {}): PlayerState {
 	return {
 		score: 0,

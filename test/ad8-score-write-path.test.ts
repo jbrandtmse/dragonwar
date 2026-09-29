@@ -22,7 +22,7 @@ describe('AD-8 (Story 3.0a): no mode writes players[].score except through scori
 	/** Lines of `source` holding a direct score write. */
 	const writeLines = (source: string): number => source.split('\n').filter((line) => DIRECT_SCORE_WRITE.test(line)).length;
 	/** The sanctioned writers, by file (POSIX path under `src/sim/rules`) and exact line count. */
-	const SANCTIONED: Readonly<Record<string, number>> = { 'scoring.ts': 1, 'ball-controller.ts': 2 };
+	const SANCTIONED: Readonly<Record<string, number>> = { 'scoring.ts': 1, 'ball-controller/start.ts': 1, 'ball-controller/ball-end.ts': 1 };
 
 	it('no file under src/sim/rules/** holds a direct score write beyond the sanctioned ones', () => {
 		const files = (readdirSync(RULES_DIR, { recursive: true }) as string[]).map((f) => f.split(path.sep).join('/')).filter((f) => f.endsWith('.ts'));

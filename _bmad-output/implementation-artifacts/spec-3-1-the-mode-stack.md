@@ -2,9 +2,10 @@
 title: 'Story 3.1: The mode stack'
 type: 'feature'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '0437b3e9c3a74c1adc2a3597c34d8a1be1e91d23'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
 warnings: [multiple-goals, oversized]
@@ -210,6 +211,60 @@ The Backglass then shows the highest-priority mode that has something to show.
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 49 findings — high 0, medium 16, low 22, false 11, maybe-false 0
+- Patches P1-P17 were applied by a fresh patch subagent (Rule 18: the step-03 subagent is never re-engaged). The patch list it worked from is summarised in each row below. After the patches: `pnpm test` 135 files / 2238 tests, all gates exit 0, and `test/replays` byte-identical.
+- findings (blind-hunter B1-B22, edge-case-hunter E1-E11, verification-gap V1-V8, intent-alignment I1-I8):
+  - B1 `[medium]` `[patch]` `lampsOf()` composes from a static `MODE_LAMP_ROLES` table, not `ModeDefinition.lamps`, so each mode's lamp hook is registered twice and nothing ties the two together. — P1: a test asserts that every production definition's `lamps` is identical to its `MODE_LAMP_ROLES` entry and that the table names only production modes. The static table itself stays: `lampsOf` keeps its pure signature per Always and has no registry in hand.
+  - B2 `[low]` `[patch]` `onStart` fields could overwrite `mode`, `priority` and `player`. — P17: `startModes` builds the entry as `{ ...fields, mode, priority, player }`, a direct reorder. The hash canonicalises key order (`sim/loop/replay.ts`).
+  - B3 `[low]` `[reject]` a handler's `events` could carry a forged `ModeLifecycleEvent`. — The spec pins the handler result as `{ state, events?: ModeEvent[], stop?: true }`. No mode does this, and narrowing the type adds surface the spec did not ask for.
+  - B4 `[low]` `[reject]` the test drivers (`start` / `step`) ride on the production definition objects. — Both route through `startModes` / `stopModes`, so they add no second path that writes `modes[]`. Separating them is a restructure, not a direct correction.
+  - B5 `[false]` `[reject]` nothing checks that `createRules()` passes `modeStack.registry` to the controllers. — Stop hooks are pure and tuning-free by contract (Always), and no production mode has one today. A fallback registry's instances therefore stop modes identically, and no observable outcome differs.
+  - B6 `[medium]` `[patch]` (with V1) tick hooks: nothing pinned their descending order, their precedence over device events, a tick hook's `stop: true`, or the per-tick decrement. — P2: logging `tick` hooks on both stubs, a per-step `[99..95]` assertion, a "tick before event" row and a tick-`stop` row, with 4 mutations recorded.
+  - B7 `[low]` `[reject]` the `isMachineLamp` guard in `lampsOf()` is unreachable by any production lamp hook. — No mode returns a machine-lamp role. A test would need a new injectable surface on `lampsOf`, whose signature is pinned. reopen_if: a mode's `lamps` hook names `l_lock` or `l_ball_save`.
+  - B8 `[medium]` `[patch]` (with E8, V2, I5) the AC2 source scan missed `modes = [` and several array methods. — P3: the regex is widened (`modes = [`; `.modes.` concat/slice/toSpliced/unshift/pop/shift/with/flatMap) with a control line per shape. The sanctioned count is unchanged at `modes/lifecycle.ts: 2`.
+  - B9 `[medium]` `[patch]` (with V5) the AC6 type-level row: its runtime `expect` was tautological, and its real pin runs only under typecheck. — P4: the runtime assertion is removed, a comment names `pnpm typecheck` as the pin, and a mutation is recorded (a `coilCommands?` field turns TS2578 red).
+  - B10 `[medium]` `[patch]` the AC8 Slam rows did not assert `modeEvents` on every tick, or scores in the "Slam and Start on one tick" row. — P5: empty `modeEvents` on ticks 7-19, exactly one start pair at tick 20, and scores 0 on ticks 6-7. The one unmutated assertion is noted in Verification.
+  - B11 `[low]` `[patch]` `rules-mode-stack-integration.test.ts` escaped the headless gate by its suffix, although it drives no loop or physics. — P16: added to `ENTRY_FILES`. The completeness ratchet now ignores explicitly listed `-integration` files. The closure gate passes, and a planted `node:fs` import turns it red.
+  - B12 `[low]` `[patch]` the `lifecycle.ts` header named the wrong scan test file. — P10: it now names `test/ad8-mode-lifecycle-path.test.ts`.
+  - B13 `[low]` `[patch]` (with V8) stale deferred-start comments remained in the rules tests. — P11: comment-only fixes in `rules-modes.test.ts`, `rules-modes-integration.test.ts` and `rules-lamps.test.ts`.
+  - B14 `[low]` `[patch]` about 25 comments still cited the deleted `ball-controller.ts`. — P12: rewritten to `ball-controller/` or the specific file within `src/sim/rules`, `src/sim/table`, `src/sim/contracts` and `test/`. Left alone: the one deliberate historical mention, and runtime strings and `describe` names. `src/sim/loop/**` and `src/sim/physics/**` are left untouched (outside footprint, comment-only). reopen_if: someone follows a stale path there.
+  - B15 `[low]` `[patch]` the `RulesStepResult.modeEvents` doc said `lanes_completed` only. — P13: it now lists the lifecycle events and the tilt → controller → stack order.
+  - B16 `[low]` `[patch]` the `MODE_DISPLAY_NAMES` comment said the base mode becomes top when the skill shot resolves. — P14: it now says the base mode is transparent.
+  - B17 `[low]` `[reject]` `hasSomethingToShow()` repeats `buildFieldsText()`'s field list. — The spec defines "something to show" by those four fields, and this story freezes the `ModeView` shape. Deriving it from the rendered text would couple the rule to formatting. Not worth the change.
+  - B18 `[false]` `[reject]` skill-shot correctness depends on the devices layer's closure-before-lane order, with no stack-level test. — `test/rules-modes.test.ts:278` ("s_top_1 (an UNLIT Top lane -- top_2 is the lit one)") runs that exact miss through `runRulesScript`, the real devices layer and the stack, and pays no award.
+  - B19 `[low]` `[reject]` a new game does not stop leftover modes before starting. — No path reaches Start with `modes` non-empty: Attract is entered only through `enterAttract()`, which stops every mode. reopen_if: a state in `phase: 'attract'` with non-empty `modes`.
+  - B20 `[low]` `[reject]` (with E10) `ball-controller/shared.ts` is 411 lines against the ~350 target. — The target is approximate, and the excess is the moved history comments of the five `ControllerState` fields. Every other file is at most 278 lines, and `step()` is about 55. Trimming the comments would lose provenance.
+  - B21 `[low]` `[patch]` `rules-lifecycle.test.ts` used literal priorities 100/200. — P15: they now come from `MODE_PRIORITIES`.
+  - B22 `[low]` `[reject]` "only through the lifecycle" rests on a source scan and a comment. — Spec-bound: task 11 specifies the scan-by-count enforcement and allows `.modes.map(`.
+  - E1 `[low]` `[patch]` identity override by `onStart`. — Grouped with B2 (P17).
+  - E2 `[false]` `[reject]` `stopModes` would fire a stop triple for an absent or duplicated target. — Every caller passes entries read from the state it passes: `stopAllModes` passes `state.modes`, the stack's `apply` passes `[live]` after `locateEntry`, and the solo driver passes `[live]` or `[]`.
+  - E3 `[false]` `[reject]` a stop hook could leave an entry in `modes[]` at the ball end or in Attract. — No production mode has a stop hook, and any hook that adds an entry is a `modes = [` / `modes: [` write the widened scan (P3) flags outside `lifecycle.ts`.
+  - E4 `[false]` `[reject]` `stop: true` after the entry is gone is silently dropped. — The stack checks `locateEntry` before every hook call, and a hook cannot remove its own entry (scan), so a `stop` with no live entry cannot arise.
+  - E5 `[medium]` `[patch]` lamp hooks come from the static table. — Grouped with B1 (P1).
+  - E6 `[low]` `[reject]` a stop hook's writes to the bonus or score would miss `ball_ended.total`. — Stop hooks are pure and tuning-free, and none exists. `total` is the bonus, computed before the stop exactly as before. reopen_if: a stop hook writes `players[*].bonus`.
+  - E7 `[low]` `[reject]` a non-number `ModeView` field would render `null` or `NaN`. — `ModeView` types these fields `number | undefined`, their only writers are mode code, and this path already existed for named modes.
+  - E8 `[medium]` `[patch]` scan regex gaps. — Grouped with B8 (P3).
+  - E9 `[false]` `[reject]` removing the unconditional `modes: []` makes emptiness depend on the stop hooks. — `stopModes` removes every target it is given, whatever the hooks do, and a hook cannot add an entry without tripping the scan. The AC5 and AC8 rows assert `[]`.
+  - E10 `[low]` `[reject]` `shared.ts` size. — Grouped with B20.
+  - E11 `[false]` `[reject]` the `modes/index.ts` header still holds a `ballNumber` note. — The false claim ("the defer protects `ballNumber`") is gone. The remaining sentence ("`startBall()` has already incremented … `ballNumber`") is true and measured (Design Notes).
+  - V1 `[medium]` `[patch]` tick-hook gaps. — Grouped with B6 (P2).
+  - V2 `[medium]` `[patch]` scan regex. — Grouped with B8 (P3).
+  - V3 `[medium]` `[patch]` AC6 offered every `DeviceEvent` type to the base mode only, since the skill shot resolves at event 1. — P6: every event type is offered to a freshly started skill shot, both un-launched and launched. A coil in the parking branch now turns this row red, and only this row.
+  - V4 `[medium]` `[patch]` `charge` and `strikesRemaining` in `hasSomethingToShow()` were untested. — P7: two `backglass-frame` rows, each pinned by deleting its own check.
+  - V5 `[medium]` `[patch]` the tautological AC6 runtime `expect`. — Grouped with B9 (P4).
+  - V6 `[low]` `[patch]` AC7's listed mutation list included one that its own row cannot see. — P9: Verification now records "skill-shot award removed → AC7 row" as AC7's pin, and names the tests that pin the `currentPlayer` mutant. AC9 is pinned by the gate commands. Every mutation line has moved into `## Verification` (Rule 19).
+  - V7 `[medium]` `[patch]` `ModeDefinition.lamps` has no production reader. — Grouped with B1 (P1).
+  - V8 `[low]` `[patch]` stale deferred-start comments. — Grouped with B13 (P11).
+  - I1 `[false]` `[reject]` the split's no-behaviour-change checkpoint is not visible in the combined diff. — The spec's mechanism is a recorded checkpoint (Auto Run Result: 132 files / 2195 tests green, replays empty after tasks 1-2). The final tree keeps every pre-existing test and the byte-identical goldens.
+  - I2 `[medium]` `[patch]` lamp source reading R3b. — Grouped with B1 (P1).
+  - I3 `[medium]` `[patch]` "a mode started by event k receives k+1.." had no test. — P8: a stub `quickmb` starts `hurryup` on the first of two `spinner_spin` events, and `hurryup` receives only the second. Taking the recipients once turns it red.
+  - I4 `[false]` `[reject]` the timer matrix row gives `quickmb` a `value` to make it showable. — "the Backglass shows quickmb's view" presupposes that quickmb has a view, and the DW-206 rule makes a view-less mode transparent. The fixture is the only reading consistent with both, so there is no ambiguity.
+  - I5 `[medium]` `[patch]` the scan is syntactic. — Grouped with B8 (P3).
+  - I6 `[false]` `[reject]` the skill shot lights `lit/2` without a base entry present. — This is exactly the Always text ("the skill shot contributes `lit/2` for each lit Top lane of its player"), and no production state has a skill shot without base.
+  - I7 `[low]` `[patch]` the AC7 mutant. — Grouped with V6 (P9).
+  - I8 `[false]` `[reject]` test edits beyond the split's one allowed edit. — They sit in the mode-stack tasks, not the split. Each is required by a matrix row or the DW-206 decision, and task 13 lists them. The auditor itself found no conflict.
+
 ## Design Notes
 
 **Measured at this tree** (`a2b8a1b`; four read-only probes; suite 132 files / 2195 tests green).
@@ -305,25 +360,140 @@ None is declined.
 - `pnpm typecheck && pnpm lint:boundaries && pnpm check:headers && pnpm check:attributions && pnpm build && pnpm check:dist && pnpm check:size` -- expected: each exits 0.
 - `git diff --stat -- test/replays` -- expected: empty. Also a JSON parse of all five goldens confirms that no `transitions[*].frame` has `start: true`.
 
-**Mutations** (Rule 19). Apply each one, observe red, revert, and confirm `git status --short` and `git diff --stat` are unchanged. Record the actual test names here:
-- AC1: drop the duplicate check → the registry test goes red.
-- AC2: restore a direct `modes: []` in `enterAttract` → the source scan and the Slam `modeEvents` assertion go red.
+**Mutations** (Rule 19). Each was applied, red observed, reverted, and `git status --short` and `git diff --stat` confirmed unchanged afterwards. The implement stage's lines come from the Auto Run Result's "Mutations observed"; the review-pass-1 lines (P1-P8, P16) were run by the patch subagent.
+- AC1:
+  - mutation: the registry's duplicate check dropped → `rules-mode-stack` AC1 "Matrix row "Duplicate registration": [joust@310, joust@310] throws, naming both" and "Matrix row "Duplicate registration": two definitions at priority 300 throw, naming both modes and the value".
+- AC2:
+  - mutation: a direct empty `modes` list restored in `enterAttract` → `ad8-mode-lifecycle-path` "no file under src/sim/rules/** holds a mode-list write beyond the sanctioned ones", plus `rules-mode-stack-integration` AC8 "Slam after start" and "Slam and Start on one tick".
+  - mutation: a comment line holding a `.modes.slice(` call appended to `src/sim/rules/tilt.ts` → `ad8-mode-lifecycle-path` "no file under src/sim/rules/** holds a mode-list write beyond the sanctioned ones" (P3: the widened scan sees it).
+  - mutation: `MODE_LIST_WRITE` narrowed back to `modes:` plus `filter|splice|push` → `ad8-mode-lifecycle-path` "control: the pattern flags each add/remove shape and passes a field update and a read" (P3).
+  - mutation: a coil in the skill shot's resolution → `rules-mode-stack` AC2 "self-resolution: a launched skill shot missed by a pop returns stop ..." (with AC6 below).
 - AC3:
-  - revert to mode-major → the event-major pair goes red;
-  - compose lamps in descending order → the `lit/2` case goes red;
-  - drop one stub's handler → the accrual test goes red.
-- AC4: skip `tick` hooks for non-top modes → the timer test goes red.
-- AC5: remove the stop call from the ball-end teardown → the controller-level `modeEvents` test goes red.
-- AC6: add a `{type:'coil'}` to the skill shot handler's events → the wrap test goes red.
-- AC7: base pays `currentPlayer`, or the skill-shot award is removed → the AC7 row goes red.
-- AC8: reintroduce the one-tick deferred start → the Slam row goes red on `modes` and `rng` in Attract.
+  - mutation: mode-major fan-out → `rules-mode-stack-integration` "Matrix row "Event-major fan-out"" and "Matrix row "Event-major control"", plus `rules-mode-stack` "event-major: two events on one tick are each offered to every mode before the next ...".
+  - mutation: lamps composed in descending priority → `rules-mode-stack` "lamps: a lit Top lane is lit/2 with the skill shot on the stack ..." and "lamps: the order of modes[] does not matter ...", plus 7 `rules-lamps` rows.
+  - mutation: one stub's award dropped → `rules-mode-stack` "Matrix row "Stub stack order": one spinner_spin is delivered [quickmb, hurryup, base] ...".
+  - mutation: `MODE_LAMP_ROLES.skill_shot` pointed at a same-behaviour wrapper `(state, entry) => skillShotLamps(state, entry)` → `rules-mode-stack` "MODE_LAMP_ROLES (what lampsOf() composes) is each production definition's own lamps hook, and names only production modes", alone (P1).
+  - mutation: `MODE_LAMP_ROLES.base` pointed at `skillShotLamps` → the same P1 test, plus "lamps: a lit Top lane is lit/2 ...".
+  - mutation: the fan-out's recipients taken once before the event loop → `rules-mode-stack` "a mode started by event k receives events k+1.. and not k: quickmb starts hurryup on the first spinner_spin, and hurryup receives only the second" (P8).
+  - The Backglass half of AC3 is pinned by the DW-206 lines below.
+- AC4:
+  - mutation: `tick` hooks run for the top mode only → `rules-mode-stack` "Matrix row "Timer under a higher mode": both tick hooks run every step, quickmb@400 before hurryup@300; ...", "the tick hooks run before the step's first device event is delivered" and "a tick hook returning stop: true stops that mode through the lifecycle ...".
+  - mutation: `tick` hooks run in ascending priority → the same three tests (P2).
+  - mutation: the `tick` hooks run after the device-event fan-out → "the tick hooks run before the step's first device event is delivered" and "a tick hook returning stop: true ..." (P2).
+  - mutation: a `tick` hook's `stop: true` ignored → "a tick hook returning stop: true stops that mode through the lifecycle (its stop triple), and it receives none of the step's device events; ..." (P2).
+- AC5:
+  - mutation: the stop call removed from the ball-end teardown → `rules-mode-stack-integration` "Matrix row "Ball end, rotation" (controller level)", "(rules level)" and "Matrix row "Last ball"".
+- AC6:
+  - mutation: a `{ type: 'coil' }` in the skill shot's resolution → `rules-mode-stack` AC6 "driving start, every DeviceEvent type, the lamps and the stop through the production modes yields no { type: "coil" } ..." and AC2 "self-resolution".
+  - mutation: a `{ type: 'coil' }` in the skill shot's parking branch for a launched entry → `rules-mode-stack` AC6 "every DeviceEvent type offered to a live skill shot, from a fresh entry each time (launched false, then launched true): no hook output holds a coil" (P6). The older AC6 row stays green: after its resolving hit the skill shot is gone, so it never reaches that branch.
+  - mutation: `readonly coilCommands?: readonly CoilCommand[]` added to `ModeHookResult` → `pnpm typecheck` red, `test/rules-mode-stack.test.ts` TS2578 "Unused '@ts-expect-error' directive" (P4: the type-level row has no runtime assertion; its pin is the two `@ts-expect-error` lines).
+- AC7:
+  - mutation: the skill-shot award removed → `rules-mode-stack-integration` AC7 "Start, plunge, the lit Top lane, a pop: ...", plus "control, "Slam control"" and "Matrix row "Event-major fan-out"".
+  - The "base pays `currentPlayer`" mutant leaves the AC7 row green: it is a single-player run, and a real run cannot make `currentPlayer` differ from the mode's player. That mutant is pinned by `rules-scoring` "Matrix row "Hot seat" -- the base mode pays its own active.player" / "the payee is the mode's own player, never currentPlayer ..." and `rules-modes` "AD-7 player scoping ..." / "base mode: a lane entry lights the lane for the mode's player, leaving the other player untouched".
+- AC8:
+  - mutation: the one-tick deferred start restored (a `pendingStartPlayer` closure in `createModeStack`) → `rules-mode-stack-integration` "Matrix row "Ball start, same tick"", "Matrix row "Slam after start"" (red on tick 6's `modes`), "Matrix row "Slam and Start on one tick"" (red on tick 6's `rng`), "Matrix row "Ball end, rotation" (rules level)" and AC7 (`ARM YOURSELF` first at tick 6, not 5).
+  - mutation: `startModes()` orders by descending priority → "Matrix row "Slam after start"" red first on its new tick-20 `modeEvents` assertion ("the next Start: the base start triple, then the skill_shot one, and nothing else"), plus five other rows (P5).
+  - mutation: a new player's `score: 0` set to 1 in `ball-controller/start.ts` → "Matrix row "Slam and Start on one tick"" red on "tick 6: every player's score is 0" (P5).
+  - The P5 assertion that `modeEvents` is empty on ticks 7-19 has no mutant of its own: every mutant tried that leaks a lifecycle event into Attract also moves tick 6's `modes`, `rng` or stop triple, which the row asserts first.
+- AC9: pinned by the gate commands above (`pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`, and the empty `git diff --stat -- test/replays`). There is no mutation line.
 - DW-206:
-  - restore the `modeName` gate on the fields line → the `1.0` row goes red;
-  - restore "highest priority regardless" → the `ARM YOURSELF` row goes red.
+  - mutation: the `modeName` gate on the fields line restored → `backglass-frame` "an unmapped mode id that ALSO publishes a ModeView field (timerTicks) shows the field (1.0) ...", "Matrix row "Unlabelled field publisher"", the "control: a HIGHER unlabelled mode that publishes a field owns both lines ..." row, "DW-206: an unlabelled mode publishing timerTicks shows its field and no name, even with the 2x2 grid engaged", and `rules-mode-stack` AC4 "Matrix row "Timer under a higher mode"".
+  - mutation: "highest priority regardless" restored in `selectTopMode()` → `backglass-frame` "Matrix row "Transparent unlabelled"".
+  - mutation: `mode.charge !== undefined` deleted from `hasSomethingToShow()` → `backglass-frame` "an unlabelled mode above the skill shot publishing ONLY charge owns the fields line, and ARM YOURSELF is absent" (P7).
+  - mutation: `mode.strikesRemaining !== undefined` deleted from `hasSomethingToShow()` → `backglass-frame` "an unlabelled mode above the skill shot publishing ONLY strikesRemaining owns the fields line, and ARM YOURSELF is absent" (P7).
+- Headless gate (P16):
+  - mutation: `import { readFileSync } from 'node:fs'` added to `test/rules-mode-stack-integration.test.ts` → `rules-devices-headless` "no module anywhere in the closure names a forbidden specifier".
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
 Planned at `a2b8a1bea37a7e6461f31f2d00ee0d8bab950dee` on `DW-1-epic3`. The run halted after planning, as the invocation asked. It used the committed `epic-3-context.md` without recompiling it, and Story 3.0a's spec for continuity. Four read-only measurement subagents informed the plan: the ball-controller seams, the lifecycle timing and the Slam path (confirmed by probe), the fan-out, Backglass and lamps, and the closure-state inventory. Warnings: `multiple-goals` (the DW-290 split plus the stack; see Design Notes, "Size") and `oversized`. One deferred planning finding is in the frontmatter: `modesPlayed` credits base and skill_shot at every ball end, which matters for Story 3.4.
+
+**Implement stage, task-2 checkpoint (DW-290 split).** `ball-controller.ts` moved with `git mv` to `ball-controller/index.ts` and split into `shared.ts` (leaf), `accounting.ts`, `start.ts`, `save-serve.ts`, `ball-end.ts`, `game-over.ts`, `serve-recovery.ts`. The one deviation from the file map: `GameOverSequence` is declared in `shared.ts` and re-exported from `game-over.ts`, because `ControllerState` (in the leaf) holds it and dependency-cruiser counts a type-only import as a cycle edge (measured: `no-circular` fired on `game-over.ts -> shared.ts`). The only test edit is `test/ad8-score-write-path.test.ts`'s `SANCTIONED` keys (`ball-controller/start.ts: 1`, `ball-controller/ball-end.ts: 1`; total 3). At the checkpoint: `pnpm test` 132 files / 2195 tests green, `typecheck`, `lint:boundaries` and `check:headers` green, `git diff --stat -- test/replays` empty.
+
+**Implement stage, tasks 3-13 (the mode stack).**
+- New: `modes/priorities.ts` (`MODE_PRIORITIES`, `ModeName`), `modes/registry.ts` (`ModeDefinition`, `createModeRegistry`, which throws on a duplicate name or priority and, with `requireTablePriorities`, on an off-table priority; `createModeStack` always passes it), `modes/lifecycle.ts` (`startModes`, `stopModes`, `stopAllModes`, `locateEntry`, and `soloModeDriver`). `ModeEvent` widened with `ModeLifecycleEvent`.
+- `onStart` is read as "the new entry's mode-local fields" (the skill shot's `launched: false`), and `onStarting` does the start-of-life writes. `createBaseMode` / `createSkillShotMode` return the `ModeDefinition` plus a `start` / `step` pair (`soloModeDriver`) that goes through the same lifecycle functions. That keeps `test/rules-scoring.test.ts` and the Story 2.14 direct `start()` tests unchanged.
+- Stop hooks reach the ball and tilt controllers through a registry parameter. `createRules()` builds the stack first and passes `modeStack.registry` to `createBallController(adjustments, tuning, modes?)` and `createTiltController(adjustments, tuning, modes?)`. When the parameter is omitted (tests), the default is a fresh production registry. `enterAttract(state, tick, modes)` now also returns `modeEvents`. `BallControllerStepResult` and `TiltControllerStepResult` gain `modeEvents`. The root concatenates tilt, then controller, then stack.
+- Lamps: `lampsOf` reads `MODE_LAMP_ROLES`, a static name-to-hook table exported by `./modes`. It holds the same functions the production definitions carry, because `lampsOf` has no stack instance and keeps its signature. A stub definition's `lamps` hook is therefore not composed by `lampsOf`.
+
+**Test edits beyond the planned three** (each diagnosed; listed per task 13):
+- `test/rules-modes.test.ts`: the planned `:128` edit. The file's DEFERRED START header paragraph is rewritten to match. Two Story 2.14 rows pin the one-tick defer by reading the draw at `startTick + 1`, so their tick indices shift by one: AC 4 (`get(5)/get(6)` becomes `get(4)/get(5)`) and AC 6 (`get(31)/get(32)` becomes `get(30)/get(31)`). No assertion changed. **This conflicts with Code Map's "the Story 2.14 suite must stay unchanged":** both rows pin the defer, which is the class task 13 permits.
+- `test/rules-lifecycle.test.ts:197`: as planned. The `modesPlayed` assertions are untouched.
+- `test/backglass-frame.test.ts`: the planned `:1539` flip, plus the two new DW-206 rows and one control. **Unplanned:** a second DW-206 pin, the AC 9 (DW-197) row "an unlabelled mode publishing timerTicks contributes no row and no dot, even with the 2x2 grid engaged", asserted the pre-decision behaviour and went red. It flips by the same author decision and now asserts `1.0` at row 24 with no name.
+- `test/rules-devices-headless.test.ts`: `rules-mode-stack.test.ts` is added to `ENTRY_FILES`, which that file's completeness ratchet requires.
+- The AC2 source scan reads the filesystem, which the headless gate forbids in `test/rules-*.test.ts`. It therefore lives in `test/ad8-mode-lifecycle-path.test.ts` (the `ad8-score-write-path` precedent), with `modes/lifecycle.ts: 2` sanctioned. It is not in `test/rules-mode-stack.test.ts` as task 11 named.
+
+**Final verification.** `pnpm test` 135 files / 2231 tests green. `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all exit 0. `git diff --stat -- test/replays` is empty, and all five goldens' transitions have `start: false`. Size: `ball-controller/shared.ts` is 411 lines, over the ~350 target. The excess is the five `ControllerState` fields' moved history comments. Every other file is at most 278 lines, and `step()` in `ball-controller/index.ts` is about 55 lines.
+
+**Mutations observed** (each applied, red observed, reverted; `git status --short` and `git diff` hashes unchanged after each):
+- AC1, duplicate check dropped: `rules-mode-stack` AC1 "[joust@310, joust@310] throws" and "two definitions at priority 300 throw".
+- AC2, direct empty `modes` in `enterAttract`: `ad8-mode-lifecycle-path` "no file ... holds a mode-list write", plus integration AC8 "Slam after start" and "Slam and Start on one tick".
+- AC3:
+  - mode-major fan-out: integration "Event-major fan-out" and "Event-major control", plus unit "event-major: two events on one tick".
+  - lamps composed in descending order: unit "lamps: a lit Top lane is lit/2 ..." and "the order of modes[] does not matter", plus 7 `rules-lamps` rows.
+  - one stub's award dropped: unit "Stub stack order".
+- AC4, tick hooks for the top mode only: unit "Timer under a higher mode".
+- AC5, ball-end stop removed: integration "Ball end, rotation (controller level)", "(rules level)" and "Last ball".
+- AC6, a coil in the skill shot's resolution: unit AC6 "driving start, every DeviceEvent type ..." and AC2 "self-resolution".
+- AC7:
+  - skill-shot award removed: integration AC7 row, plus "Slam control" and "Event-major fan-out".
+  - base pays `currentPlayer`: **the AC7 row stays green.** It is a single-player run, and a real run cannot make `currentPlayer` differ from the mode's player. The mutant is caught by `rules-scoring` "Hot seat -- the payee is the mode's own player" and `rules-modes` "AD-7 player scoping -- base mode: a lane entry lights the lane for the mode's player".
+- AC8, one-tick deferred start restored: integration "Ball start, same tick", "Slam after start" (red on `modes` in Attract at tick 6), "Slam and Start on one tick", "Ball end, rotation (rules level)" and AC7.
+- DW-206:
+  - `modeName` gate restored: frame "an unmapped mode id that ALSO publishes ... shows the field (1.0)", "Unlabelled field publisher", the control, the 2x2-grid row and unit AC4.
+  - highest priority regardless: frame "Transparent unlabelled".
+
+**Finalize (build-auto step 04, 2026-09-29).**
+
+*Summary.*
+- **DW-290:** `ball-controller.ts` is split into `ball-controller/` with no behaviour change. The green checkpoint was recorded before the mode work.
+- **Mode stack:** `src/sim/rules/modes/` is generalised:
+  - one priority table and a registry that throws on duplicates;
+  - the six-event lifecycle (`lifecycle.ts`) as the only writer of `modes[]`, proven by a source scan;
+  - base and the skill shot start in the same `rules.step` as `ball_starting`, with no arming state (DW-209);
+  - per-tick hooks, then event-major fan-out in descending priority;
+  - stop triples from the ball end, the Slam and self-resolution, concatenated as tilt, then controller, then stack;
+  - lamp roles composed in ascending priority over machine lamps that no mode can override.
+- **Backglass (DW-206):** the Backglass shows the highest-priority mode with something to show.
+
+*Files changed* (51 under `src/` and `test/`, plus this spec):
+- `src/sim/rules/ball-controller.ts` → deleted. It is replaced by `ball-controller/{index,shared,accounting,start,save-serve,ball-end,game-over,serve-recovery}.ts`, which is the split plus the `stopAllModes` calls in `ball-end.ts` and `shared.ts` (`enterAttract`).
+- `src/sim/rules/modes/priorities.ts`, `registry.ts`, `lifecycle.ts` (new): the table, the definition shape and registry, and `startModes` / `stopModes`.
+- `src/sim/rules/modes/index.ts`, `base.ts`, `skill-shot.ts`, `events.ts`: the stack, the two modes as `ModeDefinition`s, and `ModeLifecycleEvent`.
+- `src/sim/rules/index.ts`, `tilt.ts`: registry sharing, `modeEvents` concatenation, and the Slam stop path.
+- `src/sim/rules/lamps.ts`: priority composition.
+- `src/presentation/backglass/frame.ts`: `selectTopMode` / `buildScoreRows` per DW-206.
+- Comment-only path fixes (P12) in `src/sim/rules/{ball-save,ball-search,bonus,match,scoring}.ts`, `devices/{events,index}.ts`, `src/sim/table/tuning.ts` and `src/sim/contracts/events.ts`.
+- Tests:
+  - new: `test/rules-mode-stack.test.ts`, `test/rules-mode-stack-integration.test.ts`, `test/ad8-mode-lifecycle-path.test.ts`;
+  - edited: `test/ad8-score-write-path.test.ts`, `rules-modes`, `rules-lifecycle`, `backglass-frame`, `rules-devices-headless`, plus comment-only edits in 14 other test files.
+
+*Review findings breakdown.*
+- 49 findings: high 0, medium 16, low 22, false 11.
+- Patched: 17 items (P1-P17), covering 30 rows. These are 8 medium entries (lamp-table consistency, tick hooks, scan regex, AC6 type row, AC8 per-tick assertions, AC6 skill-shot coverage, DW-206 `charge` / `strikesRemaining`, started-by-event-k) and 11 low (P9-P17).
+- Deferred: 0 new. The one planning item (`modesPlayed` credit) stays.
+- Rejected, with reasons in the triage log:
+  - B3 and B22: spec-bound;
+  - B4, B7, B17, B19, B20/E10, E6, E7: low and not worth a guard or restructure;
+  - B5, B18, E2, E3, E4, E9, E11, I1, I4, I6, I8: false.
+
+*Follow-up review recommendation: `true`.* Patched counts at entry verdict: high 0, medium 8, low 11. The specific unverified risk: the P1-P8 and P16 tests and their `mutation:` lines were written and self-observed by the patch subagent, and no independent review layer has re-read them. That includes P16's change to the headless completeness ratchet, which now ignores explicitly listed `-integration` files.
+
+*Verification performed* (after the patches, by this stage, one suite per call, with `BLENDER` exported):
+- `pnpm test`: 135 files / 2238 tests passed.
+- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` each exit 0.
+- `git diff --stat 0437b3e -- test/replays` is empty, and no golden `transitions[*].frame.start` is `true`.
+- No non-ASCII bytes in the changed rules, Backglass or new test sources.
+- Matrix Test Audit: all 14 matrix rows are covered by named, executed, passing tests. The row "Base only" is `backglass-frame.test.ts:1486`, unchanged.
+
+*Residual risks.*
+- `ball-controller/shared.ts` is 411 lines, over the ~350 target.
+- `MODE_LAMP_ROLES` is a second registration point for lamp hooks. It is now pinned by a consistency test, and every later mode must add its hook there too.
+- The AC8 "empty `modeEvents` on ticks 7-19" assertion has no mutant of its own.
+- Comments in `src/sim/loop/**` and `src/sim/physics/**` still cite `ball-controller.ts` (outside the footprint).
+- Code Map said "the Story 2.14 suite must stay unchanged"; two of its rows shifted one tick under task 13's defer clause.
+- Footprint extensions to report: `src/presentation/backglass/frame.ts`, `src/sim/contracts/events.ts` (comment only), `test/*.test.ts`.
+- The lead-run browser smoke is still to do (Design Notes).

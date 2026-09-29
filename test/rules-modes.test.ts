@@ -6,14 +6,12 @@
 // never a raw switch and never `sim/loop`/`sim/physics` (AC 9, pinned
 // transitively by `test/rules-devices-headless.test.ts`'s ENTRY_FILES gate).
 //
-// DEFERRED START (read before editing any test below that touches
-// `ball_starting`): `src/sim/rules/modes/index.ts`'s own header explains why
-// a `ball_starting` seen at tick T is actually started on tick T+1's
-// `step()` call, never the SAME tick -- keeping `test/rules-lifecycle.test.ts`'s
-// Story 2.5 AC 5 mode-teardown pin green through a same-tick
-// `ball_ended` -> rotation -> `ball_starting`. Every test here that checks
-// state right after `ball_starting` fires therefore reads
-// `statesByTick.get(startTick + 1)`, never `startTick` itself.
+// SAME-TICK START (Story 3.1, DW-209; read before editing any test below
+// that touches `ball_starting`): the mode stack starts the new ball's modes
+// in the SAME `rules.step` that emits `ball_starting`, after that tick's
+// device fan-out (`src/sim/rules/modes/index.ts`'s header). Epic 2's
+// one-tick deferred start is gone, so a test that checks state right after
+// `ball_starting` fires reads `statesByTick.get(startTick)` itself.
 //
 // AC 2/AC 3/AC 4/AC 5 and the remaining Matrix rows script a MID-GAME
 // `initialState` directly (mirroring `test/rules-lifecycle.test.ts`'s own AC
@@ -62,7 +60,7 @@ function litLanesInSet(state: GameState, set: 'top' | 'inout'): LaneName[] {
 	return LANE_NAMES.filter((lane) => TABLE.laneWiring[lane].set === set && lit[lane] === true);
 }
 
-/** A fresh player, test-local (mirrors `ball-controller.ts`'s own `emptyPlayer()`, `test/rules-lifecycle.test.ts`'s own precedent) -- `lanes`/`letters`/`score`/`ballNumber` overridable per scenario. */
+/** A fresh player, test-local (mirrors `ball-controller/start.ts`'s own `emptyPlayer()`, `test/rules-lifecycle.test.ts`'s own precedent) -- `lanes`/`letters`/`score`/`ballNumber` overridable per scenario. */
 function player(overrides: {
 	readonly score?: number;
 	readonly letters?: string;
@@ -120,14 +118,14 @@ function armedAfterLaunch(): GameState['modes'] {
 }
 
 describe('AC 1 -- ball_starting arms the stack', () => {
-	it('modes[] gains exactly base + skill_shot for player p one tick after ball_starting; one Top lane lit; rng advanced; no inout lane lit', () => {
+	it('modes[] gains exactly base + skill_shot for player p at the SAME tick ball_starting fires (Story 3.1, DW-209); one Top lane lit; rng advanced; no inout lane lit', () => {
 		const result = runRulesScript(close('s_start').at(5).build(), { durationTicks: 6 });
-		const atStart = result.statesByTick.get(5)!;
-		const after = result.statesByTick.get(6)!;
+		const beforeStart = result.statesByTick.get(4)!;
+		const after = result.statesByTick.get(5)!;
 
-		expect(atStart.modes, 'not yet armed at the SAME tick ball_starting fires -- see this file\'s DEFERRED START header note').toEqual([]);
+		expect(beforeStart.modes, 'nothing is armed before the Start tick').toEqual([]);
 
-		expect(after.modes).toEqual([
+		expect(after.modes, 'armed at tick 5, the tick ball_starting fires -- see this file\'s SAME-TICK START header note').toEqual([
 			{ mode: 'base', priority: 100, player: 0 },
 			{ mode: 'skill_shot', priority: 200, player: 0, launched: false },
 		]);
@@ -135,7 +133,7 @@ describe('AC 1 -- ball_starting arms the stack', () => {
 		expect(litLanesInSet(after, 'top'), 'exactly one Top lane lit').toHaveLength(1);
 		expect(litLanesInSet(after, 'inout'), 'no inout lane lit').toEqual([]);
 
-		expect(after.rng, 'rng must have advanced from its pre-tick value').not.toBe(atStart.rng);
+		expect(after.rng, 'rng must have advanced from its pre-tick value').not.toBe(beforeStart.rng);
 	});
 });
 
@@ -612,11 +610,12 @@ describe('Story 2.14 -- the lit Top lane rotates from a game-scoped starting pos
 	 * always true, so each drain wraps back to the SAME player -- ball 2,
 	 * then ball 3, then game over at ball 3's own drain, `ballsPerGame: 3`
 	 * default). Each ball: Start/drain, a plunge (`open('s_shooter_lane')`,
-	 * simulated -- see this file's own DEFERRED START header, `ball_launched`
-	 * only matters for the skill-shot's OWN `launched` gate, not for this
-	 * test), then a parking-slot closure that drains it. The draw for ball N
-	 * lands on the tick AFTER that ball's own `ball_starting` (this file's
-	 * DEFERRED START note) -- ticks 6, 11 and 21 below.
+	 * simulated -- `ball_launched` only matters for the skill-shot's OWN
+	 * `launched` gate, not for this test), then a parking-slot closure that
+	 * drains it. The draw for ball N lands on that ball's own `ball_starting`
+	 * tick (this file's SAME-TICK START header) -- ticks 5, 10 and 20 -- and
+	 * is read one tick later, at ticks 6, 11 and 21 below, where it still
+	 * holds.
 	 */
 	function threeBallDrawSequence(seed: number): readonly LaneName[] {
 		const script = close('s_start').at(5)
@@ -720,8 +719,8 @@ describe('Story 2.14 -- the lit Top lane rotates from a game-scoped starting pos
 			.build();
 		const result = runRulesScript(script, { durationTicks: 35, initialState: attractState(seed), tuning: NO_BALL_SAVE_TUNING });
 
-		const beforeBall1Draw = result.statesByTick.get(5)!.rng;
-		const afterBall1Draw = result.statesByTick.get(6)!.rng;
+		const beforeBall1Draw = result.statesByTick.get(4)!.rng;
+		const afterBall1Draw = result.statesByTick.get(5)!.rng;
 		const atBall2 = result.statesByTick.get(11)!.rng;
 		const atBall3 = result.statesByTick.get(21)!.rng;
 
@@ -740,14 +739,14 @@ describe('Story 2.14 -- the lit Top lane rotates from a game-scoped starting pos
 		// Starting position 1 (seed 1): ball 1 -> top_2 (both players' own ball
 		// 1); ball 2 -> top_3 (both players' own ball 2) -- see the CASES table.
 		const seed = 1;
-		const script = close('s_start').at(5) // player 0's game begins (draw at tick 6)
+		const script = close('s_start').at(5) // player 0's game begins (draw at tick 5, read at 6 below)
 			.close('s_start').at(7) // Hot seat: adds player 1 (currentPlayer 0, ballNumber 1)
 			.open('s_shooter_lane').at(8) // player 0's ball 1 plunge (simulated)
-			.close('s_trough_1').at(10) // drains player 0's ball 1 -> rotates to player 1's ball 1 (start deferred to tick 11)
+			.close('s_trough_1').at(10) // drains player 0's ball 1 -> rotates to player 1's ball 1 (started the same tick; read at 11)
 			.open('s_shooter_lane').at(12) // player 1's ball 1 plunge
-			.close('s_trough_2').at(20) // drains player 1's ball 1 -> rotates to player 0's ball 2 (start deferred to tick 21)
+			.close('s_trough_2').at(20) // drains player 1's ball 1 -> rotates to player 0's ball 2 (started the same tick; read at 21)
 			.open('s_shooter_lane').at(22) // player 0's ball 2 plunge
-			.close('s_trough_3').at(30) // drains player 0's ball 2 -> rotates to player 1's ball 2 (start deferred to tick 31)
+			.close('s_trough_3').at(30) // drains player 0's ball 2 -> rotates to player 1's ball 2 (started the same tick; read at 31)
 			.build();
 		const result = runRulesScript(script, { durationTicks: 35, initialState: attractState(seed), tuning: NO_BALL_SAVE_TUNING });
 
@@ -773,13 +772,13 @@ describe('Story 2.14 -- the lit Top lane rotates from a game-scoped starting pos
 
 	// [Rule 19 discriminator for AC 5] The scripted Hot-seat test above drives
 	// the REAL ball controller's own rotation, which -- by construction of
-	// `startBall()` (`ball-controller.ts:746`, `currentPlayer: playerIndex`)
-	// and the one-tick DEFERRED START -- always has `state.currentPlayer`
-	// already equal to the mode entry's own `player` argument by the time
-	// `skillShot.start()` runs: `pendingStartPlayer` is captured from
-	// `currentPlayer` the SAME tick `startBall()` sets it, and nothing can
-	// rotate `currentPlayer` again in the one-tick gap before the deferred
-	// call reads it. So a script driven through the real system, however
+	// `startBall()` (`ball-controller/start.ts`, `currentPlayer: playerIndex`)
+	// and the same-tick start (Story 3.1, DW-209) -- always has
+	// `state.currentPlayer` already equal to the mode entry's own `player`
+	// argument by the time the skill shot's start runs: the stack starts the
+	// modes for `currentPlayer` in the SAME `rules.step` in which
+	// `startBall()` sets it, so nothing can rotate `currentPlayer` in
+	// between. So a script driven through the real system, however
 	// elaborate, CANNOT construct a `player` / `currentPlayer` mismatch --
 	// verified by mutation: keying the advance's `ballNumber` lookup on
 	// `state.currentPlayer` instead of `player` leaves the Hot-seat test
@@ -829,8 +828,8 @@ describe('Story 2.14 -- the lit Top lane rotates from a game-scoped starting pos
 		expect(game1Lane, 'game 1\'s own opening lane (this test\'s own positive)').toEqual(['top_3']);
 		expect(result.statesByTick.get(20)!.phase, 'the single-ball game ends the instant it drains').toBe('game_over');
 
-		const rngBeforeGame2 = result.statesByTick.get(31)!.rng;
-		const rngAfterGame2 = result.statesByTick.get(32)!.rng;
+		const rngBeforeGame2 = result.statesByTick.get(30)!.rng;
+		const rngAfterGame2 = result.statesByTick.get(31)!.rng;
 		expect(rngAfterGame2, 'game 2 must take a FRESH draw -- rng must move again').not.toBe(rngBeforeGame2);
 
 		const game2Lane = litLanesInSet(result.statesByTick.get(32)!, 'top');

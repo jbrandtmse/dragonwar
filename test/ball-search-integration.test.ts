@@ -358,7 +358,7 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			const troughUntilPlunge = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
 			const ballsInPlayUntilPlunge = out.snapshot.game.machine.ballsInPlay;
 			// Rework iteration 1 (CR-1): the RULES-derived view
-			// (`sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`), never
+			// (`sim/rules/ball-controller/accounting.ts`'s `deriveDeviceSlots()`), never
 			// read anywhere in this file before this pass -- CR-1's own named
 			// gap ("test/physics-recover-trough.test.ts observes the physics
 			// getter over the very array recover() wrote"; this recover, at

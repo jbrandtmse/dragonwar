@@ -22,7 +22,7 @@
 // very `parkingSlots` array `recover()` itself writes -- CR-1's own
 // diagnosis of why this file shipped green over a missing-switch-edge
 // defect that left `GameState.machine.deviceSlots` (the RULES-derived view,
-// `sim/rules/ball-controller.ts`'s `deriveDeviceSlots()`) under-reporting
+// `sim/rules/ball-controller/accounting.ts`'s `deriveDeviceSlots()`) under-reporting
 // physics for hundreds of ticks. This file's own scenario is kept as-is (it
 // still correctly pins AC 14's physics-level "the trough never empties"
 // invariant) but is a POOR fit for the RULES-side pin CR-1 also requires:

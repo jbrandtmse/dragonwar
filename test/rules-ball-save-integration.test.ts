@@ -202,7 +202,7 @@ describe('Story 2.9, AC 8 -- Integration: a real createLoop, the ball-save inser
 	// and its resulting `ball_launched` re-armed a fresh full window, over
 	// and over, forever -- ball 2, the bonus, rotation, game over and Match
 	// were all unreachable. The fix is a closure-held discriminator
-	// (`awaitingSaveRelaunch`, `ball-controller.ts`) that only a genuine
+	// (`awaitingSaveRelaunch`, `ball-controller/`) that only a genuine
 	// PLAYER plunge arms. This is the "passing form" of that measurement:
 	// the property survives as a real, committed test, not merely an
 	// observation made once during review.

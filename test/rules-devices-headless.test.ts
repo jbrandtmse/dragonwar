@@ -217,6 +217,12 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-stray-clear.test.ts'),
 	// Story 3.0a: same reasoning -- ungated otherwise.
 	path.join(__dirname, 'rules-scoring.test.ts'),
+	// Story 3.1: same reasoning -- ungated otherwise.
+	path.join(__dirname, 'rules-mode-stack.test.ts'),
+	// Story 3.1: its `-integration` suffix names the rules layers it composes
+	// end to end, but it drives no `createLoop()` and no physics, so the
+	// suffix's exemption does not apply and it is gated here explicitly.
+	path.join(__dirname, 'rules-mode-stack-integration.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 
@@ -244,8 +250,11 @@ const HEADLESS_RULES_TESTS = readdirSync(__dirname)
 
 describe('AC 9 (headless), completeness: every headless rules test file is actually listed in ENTRY_FILES', () => {
 	it('ENTRY_FILES names every test/rules-*.test.ts that is not an -integration test and not this gate itself', () => {
+		// An `-integration` file listed explicitly (Story 3.1's
+		// `rules-mode-stack-integration.test.ts`, which drives no loop or
+		// physics) is gated on top of the ratchet, not counted by it.
 		const listed = ENTRY_FILES.map((f) => path.basename(f))
-			.filter((n) => n.startsWith('rules-'))
+			.filter((n) => n.startsWith('rules-') && !n.endsWith('-integration.test.ts'))
 			.sort();
 		expect(
 			listed,

@@ -58,7 +58,7 @@ function winnersFor(number: number, scores: readonly number[]): readonly number[
  * ten) that appear among the players' own `score % 100` values, which is at
  * most the player count, NOT the count of all distinct `score % 100` values
  * -- can never reach `MATCH_NUMBERS.length` (10) while
- * `ball-controller.ts`'s own hot-seat gate caps a game at 4 players
+ * `ball-controller/start.ts`'s own hot-seat gate caps a game at 4 players
  * (`nextState.players.length < 4`), so `c.length = 10 - w.length >= 6 > 0`
  * always. This function does not enforce that cap itself (`scores` is a
  * plain array here, not `GameState`), so it relies on it silently -- unlike
