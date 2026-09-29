@@ -98,8 +98,8 @@ development_status:
   4-8-per-group-baked-lighting-behind-the-same-driver: backlog
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-0a-visible-placeholder-geometry: ready-for-dev
+  epic-5: in-progress
+  5-0a-visible-placeholder-geometry: in-progress
   5-1-the-dragon: backlog
   5-2-playfield-art-and-materials: backlog
   5-3-cabinet-backbox-and-glass: backlog
