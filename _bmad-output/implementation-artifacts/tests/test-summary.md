@@ -70,3 +70,30 @@ Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). Every row drives a whole `
 
 ### Next Steps
 - The lead's browser smoke (spec Design Notes).
+
+## Story 3.2
+
+Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The headless rows drive a whole `createRules()` through `runRulesScript()`. The physics rows compose a real `createMachine()` and a real `createRules()` by hand (the `driveLockLane()` convention; each tick's rules commands reach physics on the next tick, AD-4), over the committed collision document or Story 2.12's test-only V-cup addendum.
+
+### Generated Tests (integration, real runtime)
+- [x] `test/rules-lock-arbiter-qa.test.ts` (6 tests; its one `it.fails` row was flipped to a passing `it` at the code review, which fixed the defect; gated as headless in `test/rules-devices-headless.test.ts`'s `ENTRY_FILES`)
+  - AC 6 (UJ-3) through a real Hot-seat. Start creates the game, a second Start joins player 2, and player 1's drain rotates to player 2. Nothing is hand-set. Player 1 locks twice, player 2's capture spits `{ player 1, credits 1, credited }`, and the credits end at `[2, 1]`.
+  - The Mouth sequence: three parks (the third on the first pulse tick itself) make one show and pulses at LEAD, LEAD+INTERVAL and LEAD+2*INTERVAL. A park after the last pulse opens a new show with the full lead. A non-production tuning moves every pulse.
+  - The pulse-tick "pending" boundary (EC4/IA1): a control, the one-eject expectation (was `it.fails`, fixed at the code review), and DW-297's no-stall evidence for an `eject_failed { bd_lock }`.
+- [x] `test/lock-arbiter-qa-physics.test.ts` (4 tests)
+  - DW-221 inside a LIVE save (the premise is asserted): an 800 mm/s Lock shot is locked, never saved. The serve is autolaunched without re-arming the save.
+  - DW-281 on a real ball-search run: a genuinely stuck, tilted ball. The pass serves nothing. Physics' real recover gives `ball_missing { 1 }`, `ball_ended { tilted: true }`, then the rotation's one serve.
+  - DW-282 on a real ball-search run: the stuck ball is freed onto `s_top_2` between the second trough slot and the recover. The pass never serves or recovers, and there is never a second ball on the table.
+  - The pulse-tick boundary on real physics (constructed): one Mouth eject and no `eject_failed { bd_lock }` (before the code review's fix, a surplus pulse that physics answered with `eject_failed`).
+
+### Coverage
+- 8 mutations were demonstrated, and each is recorded in the spec's `## Verification` (QA stage).
+- AC 6: the credited player comes from a real rotation for the first time.
+- The interval anchor and the tunable read had no mutation before QA.
+- DW-221, DW-281 and DW-282 were pinned only headless (DW-221 on physics without a live-save premise). They now also hold on real physics.
+- One finding was pinned as a failing expectation (`it.fails`), since fixed at the code review (the pulse tick now counts as pending for ball search): the pulse-tick boundary makes ball search request a surplus Mouth eject. It is reachable at the rules surface with production tuning. Physics reaches it only through a constructed park that bypasses `s_lock_lane`.
+- Gates: `pnpm test` 141 files / 2304 passed + 1 expected fail; `typecheck` and `check:headers` exit 0. No production file changed.
+
+### Next Steps
+- The lead decides the pulse-tick boundary (see the spec's QA-stage Verification and the QA report). Making ball search count the pulse tick as pending also moves `rules-lock-arbiter.test.ts`'s AC 7 second-stage pin by one tick.
+- Story 3.3 pins the show on `FrameOutput.commands` (deferred VG5).

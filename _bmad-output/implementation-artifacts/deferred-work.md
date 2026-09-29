@@ -1132,6 +1132,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-05T23:25:47Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=adjudication note=Routed to 3.2 because AD-18 puts the arbiter there and makes it the SOLE consumer of lock_lane_entered and the only pulser of c_mouth, so only 3.2 can decide the policy: eject an uncredited ball, credit it late, or treat bd_lock occupancy rather than the event as the truth. NOT a 2.4 defect - 2.4's job was to stop lock_lane_entered over-reporting and it does. Out-of-footprint for this epic since the arbiter does not exist until Epic 3. Its Rule 17 1b acceptance bullet is the ORCHESTRATOR's to write post-merge, since Story 3.2's block belongs to another epic and Rule 11 forbids me editing it
 - 2026-09-06T00:20:26Z occurrence=2-4-the-devices-and-shots-layer
 - 2026-09-29T10:22:59Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=x0 note=own -- kept: 3.2's arbiter is the sole consumer of lock_lane_entered; a parked slot with no entry breaks its one-outcome-per-entry criterion
+- 2026-09-29T18:29:55Z status=resolved-by:3-2-locking-balls-and-the-lock-arbiter by=adjudication note=d49e0a0 lock-arbiter.ts ejects a ball that parks in bd_lock with no lock_lane_entered, after the Mouth-open lead, with no outcome and no credit (AC10 pinned)
 
 ### DW-172: AC 9's named Rule 19 mutation is a no-op, so the AC is unfalsified: reversing the switch-script DSL's tick sort changes nothing because the runner re-groups edges into a Map keyed by tick and iterates 1..durationTicks in order. The headless claim itself has no automated pin either -- only a comment and a manual check
 - source: spec-2-4-the-devices-and-shots-layer.md | severity: med | fix-risk: low | footprint: in-story
@@ -1152,6 +1153,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-06T00:20:44Z status=routed owner=2-5-start-hot-seat-and-the-ball-lifecycle by=cr note=Correctly NOT this layer's work: the spec's own Never list forbids it pulsing c_mouth/c_trough_eject/c_autolaunch, and AD-18 gives every eject to the ball controller, so the immediate-eject answer necessarily belongs to the ball-controller story. The defect is that the obligation was dropped silently instead of routed. Routed to 2.5, which introduces the ball controller
 - 2026-09-06T01:07:57Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=spec_gate note=Re-owned off Story 2.5 on the plan stage's measured evidence, which I checked. device_overflow is a SemanticEvent that goes straight to FrameOutput.events and NEVER reaches rules.step(), so answering it inside 2.5 would widen AD-4's pinned three-argument signature. Worse, for bd_lock - the only device that overflows in play - an immediate eject pulses c_mouth, which resolves to slots.lastIndexOf(true), i.e. a LEGITIMATELY LOCKED ball rather than the offender, producing a swap that silently leaks ballsInPlay. For bd_trough it is unreachable. Story 3.2 owns the AD-18 arbiter and already has the lock_lane_spit path this belongs on, and it is now also the owner of DW-171, the closely-related uncredited-capture question. Its Rule 17 1b acceptance bullet is the ORCHESTRATOR's to write post-merge since 3.2 is another epic's block
 - 2026-09-29T10:22:59Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=x0 note=own -- kept (low fix-risk, but 3.2's device_overflow criterion is exactly this obligation; excluded from x0 because the arbiter must exist first)
+- 2026-09-29T18:29:55Z status=resolved-by:3-2-locking-balls-and-the-lock-arbiter by=adjudication note=d49e0a0 a bd_lock device_overflow is answered with one arbiter eject after the lead, only when none is pending (AC9 pinned); AD-18 amended
 
 ### DW-175: The five golden replays still carry a declared coil prologue; removing it so they serve through the rules layer is deferred whole from Story 2.5 to Epic 3, to be completed at or after Story 3.7 (Quick multiball) or formally retired there
 - source: epics.md:654 (Story 1.8 forward reference) | severity: med | fix-risk: high | footprint: out-of-footprint
@@ -1397,6 +1399,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-07T08:35:36Z status=decision-pending owner=burndown by=cr note=product call: does the Lock insert stay lit between balls and in attract. Either the code or the frozen contract is wrong; whichever survives needs the other amended under Rule 5. Test pinning the current behaviour added this pass
 - 2026-09-28T14:07:23Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=merge_gate note=Epic 2 decision sheet 2026-09-28: route to 3.2, which owns Lock lighting; lampsOf() must not light l_lock on an empty mode stack
 - 2026-09-29T10:23:00Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=x0 note=own -- kept: 3.2's Lock-insert criterion rewrites this lamp
+- 2026-09-29T18:29:55Z status=resolved-by:3-2-locking-balls-and-the-lock-arbiter by=adjudication note=d49e0a0 lamps.ts: l_lock is off whenever modes is empty; dragon/1 below two credits with a mode on the stack; off at two (AC5)
 
 ### DW-213: The golden header-refresh flipped gameStart.tuning's serialisation from sorted keys to TUNING declaration order across all five files, so ~1890 lines of the diff are pure reordering noise and the next re-record may flip it back
 - source: spec-2-8-inserts-in-the-held-colour-grammar.md | severity: low | fix-risk: med | footprint: in-story
@@ -1453,6 +1456,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-08T01:11:20Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=cr note=AD-18 makes the Lock arbiter the owner of what a Lock-lane entry means; same owner as DW-171
 - 2026-09-08T07:14:48Z occurrence=2-9-ball-save
 - 2026-09-29T10:23:00Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=x0 note=own -- kept: a lock that ends the ball breaks 3.2's 'ballsInPlay is unchanged' criterion
+- 2026-09-29T18:29:56Z status=resolved-by:3-2-locking-balls-and-the-lock-arbiter by=adjudication note=d49e0a0 the drain gate ignores bd_lock captures and stays closed while a Mouth eject is pending; a Mouth eject adds 1 to ballsInPlay (AC2, AC12 real physics with a live save: locked, never saved); AD-6 amended
 
 ### DW-222: A Tilt between a save's re-serve and the re-served ball's arrival suppresses the autolaunch AND consumes the flag, stranding that ball in the shooter lane with no ball_ended and no recovery
 - source: spec-2-9-ball-save.md | severity: med | fix-risk: low | footprint: in-epic
@@ -1788,6 +1792,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: ball-controller.ts closure fields: awaitingSaveLaunch:488, awaitingSaveRelaunch:558, pendingBonusCountSteps:579, gameOverSequence:606, pendingStrayClear:619. Story 2.13's second review cleared the first two and gameOverSequence BY INSPECTION only, patched a third instance in the RecoverCommand/c_trough_eject branch, and explicitly recorded that the class must not be assumed exhausted. Three instances have now been found by three different gates
 - 2026-09-12T13:43:26Z status=routed owner=3-7-quick-multiball-fight-the-monster by=harvest note=Routed to 3.7 because it is the next story that materially reworks ball accounting in this file, so the sweep rides work already opening it. DISTINCT from DW-255, which is a spine-text matter (AD-7's clause naming closure fields) rather than a behavioural ordering sweep, though they touch the same field list. Not Story 2.15's to widen: 2.15 is chartered on ten named entries and this is a new axis
 - 2026-09-29T10:23:04Z status=routed owner=3-7-quick-multiball-fight-the-monster by=x0 note=own -- kept: 3.7 adds the most same-tick events to the ball controller's closure; the ordering sweep rides with it
+- 2026-09-29T18:27:40Z occurrence=3-2-locking-balls-and-the-lock-arbiter
 
 ### DW-274: The reachability witness search cannot express a SECOND chained flip, leaving one of the three originally named unsearched axes open
 - source: spec-2-15-epic-2-burn-down.md | severity: low | fix-risk: low | footprint: in-epic
@@ -1833,12 +1838,14 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: ball-search.ts:119-134 guardFor gives kind tilt only to non-parking devices; :253; FR-15 says every tilted ball drains
 - 2026-09-29T10:12:37Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=retro note=found by the Epic 2 retrospective's cross-story review; 3.2 owns ball search's Lock stages
 - 2026-09-29T10:23:00Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=x0 note=own -- kept: ball search's Lock steps are 3.2's; tilt guard on the trough stage rides with that rework
+- 2026-09-29T18:29:56Z status=resolved-by:3-2-locking-balls-and-the-lock-arbiter by=adjudication note=d49e0a0 under Tilt ball search serves nothing and the recover emits ball_missing then ball_ended{tilted:true} (AC11; QA real-physics V-cup run)
 
 ### DW-282: A playfield closure between ball search's trough stage and its recover stage cancels the pass after it has served, leaving a second ball in the lane with no multiball
 - source: epic-2-retro-2026-09-28.md | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: ball-search.ts:286-288 observe() re-origins the pass on any closure; plausible, physics timing not measured
 - 2026-09-29T10:12:37Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=retro note=verify with a replay before fixing
 - 2026-09-29T10:23:01Z status=routed owner=3-2-locking-balls-and-the-lock-arbiter by=x0 note=own -- kept: verify with a replay first (retro D4); same ball-search stages as DW-281
+- 2026-09-29T18:29:56Z status=resolved-by:3-2-locking-balls-and-the-lock-arbiter by=adjudication note=d49e0a0 verified on real physics, then fixed: ball search's trough stages issue nothing and the recover is the pass's one serve (AC11; QA real-physics run: no second ball)
 
 ### DW-283: DRAGON letters accumulate duplicates: each bank_target_down appends its letter with no de-duplication, so a reset bank yields DRD and the string grows in hashed state
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
@@ -1919,3 +1926,30 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-3-1-the-mode-stack.md | severity: low | fix-risk: low | footprint: in-story
 - evidence: src/sim/rules/lamps.ts:141 guards mode roles against machine lamps; baseModeLamps and skillShotLamps return only letter/lane/Top roles, so no test reaches the guard. Pinning it needs a vi.mock of ./modes in a new test file (~40 lines), past the two-way-door size.
 - 2026-09-29T16:18:49Z status=wontfix-accepted owner=3-1-the-mode-stack by=cr note=reopen_if=a ModeLampHook returns a key whose TABLE.lamps subject kind is lock or ball_save (3.2 Lock arbiter, 3.4 lit Modes)
+
+### DW-295: A Lock-lane shot into a full bd_lock is not parked (device_overflow); the ball rolls back and re-closes s_lock_lane ~518 ticks later, so one shot emits a SECOND lock_lane_entered while the device is still full: a double lock credit now, a double bash hit/Strike under Quick multiball or the War
+- source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: med | fix-risk: med | footprint: in-epic
+- evidence: measured at 3.2 planning: s_lock_lane t1914 -> lock_lane_entered, device_overflow t2048, re-close t2432 -> second lock_lane_entered; src/sim/rules/devices/index.ts full-device branch; needs 2+ balls on the table
+- 2026-09-29T17:45:47Z status=routed owner=3-7-quick-multiball-fight-the-monster by=harvest note=first reachable in multiball (3.7 bash hit, then 3.8/3.9 Strikes); 3.7's bullets are at the cap, so ledger-only -- it reaches 3.7 through its plan inbox
+
+### DW-296: A Slam followed by Start inside mouthOpenLeadMs of a Lock spit leaves the spat ball loose in the new game: the pending Mouth eject survives the Slam and fires after the new game's t+1 stray clear
+- source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: 3.2 design: pending Mouth ejects are never cancelled once their show is emitted; the stray clear runs at startBall's t+1, before a pulse due up to mouthOpenLeadTicks later; needs Slam and Start within ~1 s of a Lock entry
+- 2026-09-29T17:45:47Z status=wontfix-accepted owner=3-2-locking-balls-and-the-lock-arbiter by=harvest note=reopen_if=a replay or the 3.11 playtest shows a second loose ball on a new game's first serve after a Slam
+- 2026-09-29T18:27:40Z occurrence=3-2-locking-balls-and-the-lock-arbiter
+
+### DW-297: A Mouth pulse that ejects nothing (eject_failed) still clears the pending sequence, so if the rules-side bd_lock view ever disagrees with physics ballsInPlay can stay 0 with no drain gate and no ball search, stalling the game
+- source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: 3.2 review BH8/EC2: pulseDueMouth() shifts the due tick unconditionally; eject_failed is a no-op; ball search needs ballsInPlay > 0; no reachable divergence known (unconfirmed)
+- 2026-09-29T17:45:47Z status=open owner=3-2-locking-balls-and-the-lock-arbiter by=harvest note=in-story MED (unconfirmed): code review to pin or disposition
+- 2026-09-29T18:27:40Z status=wontfix-theoretical owner=3-2-locking-balls-and-the-lock-arbiter by=cr note=QA: eject_failed{bd_lock} only after all parked balls counted back; real only if rules/physics bd_lock slots diverge at a pulse
+
+### DW-298: No test observes the Lock arbiter's show_dragon_mouth_open reaching FrameOutput.commands through createLoop; the loop's show forwarding could be dropped with every test green
+- source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: 3.2 review VG5/IA6: every show assertion goes through runRulesScript or a hand-composed machine+rules run; src/sim/loop/index.ts show forwarding unpinned
+- 2026-09-29T17:45:47Z status=routed owner=3-3-the-dragon-s-mouth-and-hit-reaction by=harvest note=Story 3.3 is the first presentation consumer of the Mouth shows and pins them on FrameOutput.commands
+
+### DW-299: A Lock capture that locks while a Mouth eject is pending is the ball that eject then spits (highest slot first): the player gets a credit, a served ball and the spat ball, two balls in play with multiball null
+- source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: 3.2 cr (EC7/AA6; implement review BH9): decideEntry() counts held without the pending ejects; reachable only if a stuck ball frees itself into the Lock inside the ~1 s lead after a search Lock stage
+- 2026-09-29T18:27:41Z status=wontfix-accepted owner=3-2-locking-balls-and-the-lock-arbiter by=cr note=reopen_if=Story 3.8/3.9 plans a capture while requestMouthEject is pending (the War fires the Lock)

@@ -23,7 +23,7 @@ import { describe, expect, it } from 'vitest';
 import { createRules } from '../src/sim/rules';
 import { lampsOf } from '../src/sim/rules/lamps';
 import { BALL_SAVE_SOURCE } from '../src/sim/rules/ball-controller';
-import { resolveTuning, shotWindowTicks } from '../src/sim/table/tuning';
+import { resolveTuning, shotWindowTicks, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, runRulesScript, type RunRulesScriptResult } from './util/switch-script';
 import type { PlayerState } from '../src/sim/contracts/state';
 import type { GameState, MachineReport, MachineState, SemanticEvent, SwitchEvent, SwitchName } from '../src/sim/table/names';
@@ -484,10 +484,12 @@ describe('Story 3.2 -- AC 7: ball search reaches the Lock through the Mouth', ()
 	it('Search reaches the Lock (L holds 2): each Lock stage is a show then c_mouth exactly LEAD later; the second stage comes due only after the first pulse; no c_autolaunch and no recover before the second pulse', () => {
 		const O = 100;
 		const firstShow = slotTick(O, 6);
-		// The quiet count is held from the first request until its pulse (the
-		// pulse tick counts), so the second stage falls due STEP - 1 ticks
-		// after the first pulse.
-		const secondShow = firstShow + LEAD + STEP - 1;
+		// The quiet count is held from the first request through its pulse tick
+		// (the ball being pulsed still shows in the rules-side Lock until the
+		// next tick, so that tick counts as pending too -- code review of Story
+		// 3.2), so the second stage falls due exactly STEP ticks after the first
+		// pulse.
+		const secondShow = firstShow + LEAD + STEP;
 		const script = [
 			...stuckFrom(O),
 			// The first pulse spits the highest slot (s_lock_2), the second the
@@ -497,9 +499,10 @@ describe('Story 3.2 -- AC 7: ball search reaches the Lock through the Mouth', ()
 		];
 		const result = runRulesScript(script, { durationTicks: secondShow + LEAD + 3 * STEP, initialState: stuckState({ held: 2 }) });
 
-		expect(showTicks(result)).toEqual([firstShow, secondShow]);
+		const shows = showTicks(result);
+		expect(shows).toEqual([firstShow, secondShow]);
 		expect(pulseTicks(result, MOUTH_COIL)).toEqual([firstShow + LEAD, secondShow + LEAD]);
-		expect(secondShow, 'the second stage comes due only after the first pulse').toBeGreaterThan(firstShow + LEAD);
+		expect(shows[1]! - (firstShow + LEAD), 'the second stage comes due only after the first pulse, a full STEP of quiet ticks later').toBe(STEP);
 		const autolaunch = pulseTicks(result, AUTOLAUNCH_COIL);
 		expect(autolaunch, 'the autolaunch stage still runs -- after the second pulse').toHaveLength(1);
 		expect(autolaunch[0]!).toBeGreaterThan(secondShow + LEAD);
@@ -585,6 +588,31 @@ describe('Story 3.2 -- AC 11 (DW-281, DW-282): the trough stages issue nothing; 
 		expect(eventsOfType(result, 'ball_missing').map((e) => e.tick)).toEqual([report]);
 		const ended = eventsOfType(result, 'ball_ended');
 		expect(ended.map((e) => e.tick), 'no ball_ended at the report; the spat ball\'s drain ends the ball').toEqual([drain]);
+		expect(ended[0]).toMatchObject({ tilted: true });
+	});
+
+	it('Search under Tilt, the recover report on the Mouth\'s own pulse tick: the pulse tick still counts as pending (the ball being spat is still the player\'s), so no ball_ended at the report -- the spat ball\'s drain gives the one ball_ended { tilted: true }', () => {
+		// Code review of Story 3.2: the S9 tilted recover reads the controller\'s
+		// one "pending" (`ball-controller/index.ts`), which counts a pulse issued
+		// this tick. The report is injected on the pulse tick itself.
+		const O = 100;
+		const park = O + 200;
+		const pulse = park + LEAD;
+		const drain = pulse + 300;
+		const script = [
+			...stuckFrom(O),
+			...close('s_lock_1').at(park).open().at(pulse + 1).build(),
+			...close('s_trough_4').at(drain).build(),
+		];
+		const result = runRulesScript(script, {
+			durationTicks: drain + 5,
+			initialState: stuckState({ tilted: true }),
+			machineReports: new Map([[pulse, { recovered: 0, failures: [] }]]),
+		});
+		expect(pulseTicks(result, MOUTH_COIL), 'the premise: the Mouth pulses on the report tick').toEqual([pulse]);
+		expect(eventsOfType(result, 'ball_missing').map((e) => e.tick), 'the premise: the report is answered').toEqual([pulse]);
+		const ended = eventsOfType(result, 'ball_ended');
+		expect(ended.map((e) => e.tick), 'no ball_ended on the pulse tick; the spat ball\'s drain ends the ball').toEqual([drain]);
 		expect(ended[0]).toMatchObject({ tilted: true });
 	});
 
@@ -697,5 +725,36 @@ describe('Story 3.2 -- a full-device entry spits without a Mouth eject (its ball
 		expect(showTicks(result)).toEqual([]);
 		expect(pulseTicks(result, MOUTH_COIL)).toEqual([]);
 		expect(result.finalState.players[0]!.lockCredits).toBe(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The Mouth sequence's two guards beyond the Boundaries text (code review of
+// Story 3.2, lead observation (c)): the cap at the Lock's capacity (AD-7's
+// "bounded, at most 3 ejects") and the one-tick floor on the lead.
+// ---------------------------------------------------------------------------
+
+describe('Story 3.2 -- the Mouth sequence is bounded by the Lock\'s capacity, and a 0 ms lead still spaces pulses by the interval', () => {
+	it('four uncredited parks while three ejects are pending (one slot opened and re-closed by hand): one show and exactly three c_mouth pulses -- a request beyond the Lock\'s capacity is dropped, since three balls are all the Lock holds', () => {
+		const t = 300;
+		const script = [
+			...close('s_lock_1').at(t).build(),
+			...close('s_lock_2').at(t + 1).build(),
+			...close('s_lock_3').at(t + 2).open().at(t + 3).close().at(t + 4).build(),
+		];
+		const result = runRulesScript(script, { durationTicks: t + LEAD + 3 * INTERVAL + 10, initialState: gameState({ machine: { ballsInPlay: 4 } }) });
+		expect(showTicks(result)).toEqual([t]);
+		expect(pulseTicks(result, MOUTH_COIL), 'three balls in the Lock, three ejects').toEqual([t + LEAD, t + LEAD + INTERVAL, t + LEAD + 2 * INTERVAL]);
+	});
+
+	it('mouthOpenLeadMs 0 (the dev panel can hot-apply it): two parks in one batch pulse the tick after the request and then exactly one interval later -- the lead is floored at 1 tick so the interval is measured from a real pulse', () => {
+		const tuned = resolveTuning({ ...RAW_TUNING, mouthOpenLeadMs: { ...RAW_TUNING.mouthOpenLeadMs, value: 0 } });
+		expect(shotWindowTicks('mouthOpenLeadMs', tuned), 'the premise: a 0-tick lead resolves').toBe(0);
+		const interval = shotWindowTicks('mouthEjectIntervalMs', tuned);
+		const t = 300;
+		const script = close('s_lock_1').at(t).close('s_lock_2').at(t).build();
+		const result = runRulesScript(script, { durationTicks: t + interval + 10, tuning: tuned, initialState: gameState({ machine: { ballsInPlay: 2 } }) });
+		expect(showTicks(result)).toEqual([t]);
+		expect(pulseTicks(result, MOUTH_COIL)).toEqual([t + 1, t + 1 + interval]);
 	});
 });

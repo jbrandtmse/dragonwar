@@ -1998,6 +1998,8 @@ So that the Dragon is the protagonist and not set dressing.
 **When** the rig is reviewed
 **Then** it has exactly the open, close and hit animations and no idle animation
 
+- DW-298: No test observes the Lock arbiter's show_dragon_mouth_open reaching FrameOutput.commands through createLoop; the loop's show forwarding could be dropped with every test green (ledger; routed by harvest 2026-09-29)
+
 ### Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane
 
 As a player,

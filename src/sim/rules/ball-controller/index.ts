@@ -60,7 +60,7 @@ import { ballEndGateOpen, drainBonusCountSteps, endBall, withoutStaleBonusSteps 
 import { discardStaleGameOverSequence, stepGameOverSequence } from './game-over';
 import { armSaveOrAutolaunch, expireBallSave, serveBallSave } from './save-serve';
 import { answerOverflows, discardStaleStrayClear, reportRecovery, stepBallSearch } from './serve-recovery';
-import { arbitrateLockLane, discardStaleMouth } from './lock-arbiter';
+import { arbitrateLockLane, discardStaleMouth, pendingMouthEjects } from './lock-arbiter';
 import { handleStartButton } from './start';
 import type { BallController, BallControllerStepResult, ControllerContext, ControllerState, TickOutput } from './shared';
 import type { DeviceEvent } from '../devices';
@@ -143,20 +143,21 @@ export function createBallController(
 	const matchRevealTicks = Math.max(1, shotWindowTicks('matchRevealMs', tuning));
 	const attractTicks = Math.max(1, shotWindowTicks('attractMs', tuning));
 	// Story 3.2 (AD-18, AD-3/AD-15): the Mouth's open lead and eject spacing,
-	// resolved once here like every duration above. Both are clamped to at
-	// least 1 tick at this one derivation site, for the reason the three
-	// above are: a `...Ms` of exactly 0 resolves and the dev tuning panel
-	// hot-applies it. A 0 lead would put the first pulse on the request tick
-	// itself, after that tick's scheduler already ran (a request from S11
-	// would then pulse a tick late, and a later request's arithmetic would
-	// drift); a 0 interval would schedule two pulses on one tick, which the
-	// scheduler (one pulse per tick) would then fire a tick apart late. The
-	// clamp only keeps the scheduler's arithmetic sound: it is NOT a safe
-	// spacing. Planning measured about 100 ticks as the floor below which
-	// successive ejects collide (1 tick stalls a ball, 3-10 ticks shove one
-	// back over s_lock_lane), which is why `mouthEjectIntervalMs` is 500.
+	// resolved once here like every duration above. The LEAD is clamped to at
+	// least 1 tick, for the reason the three above are: a `...Ms` of exactly
+	// 0 resolves and the dev tuning panel hot-applies it. A 0 lead would
+	// schedule the first pulse on the request tick itself, after that tick's
+	// scheduler already ran, so it would fire a tick late -- and every later
+	// pulse, scheduled `mouthEjectIntervalTicks` after that stale due tick,
+	// would land one tick short of the interval. The INTERVAL needs no clamp
+	// (code review of Story 3.2): the scheduler fires at most one pulse per
+	// tick, so a 0 interval already spaces pulses one tick apart. Neither
+	// value is a safe spacing: planning measured about 100 ticks as the floor
+	// below which successive ejects collide (1 tick stalls a ball, 3-10 ticks
+	// shove one back over s_lock_lane), which is why `mouthEjectIntervalMs`
+	// is 500.
 	const mouthOpenLeadTicks = Math.max(1, shotWindowTicks('mouthOpenLeadMs', tuning));
-	const mouthEjectIntervalTicks = Math.max(1, shotWindowTicks('mouthEjectIntervalMs', tuning));
+	const mouthEjectIntervalTicks = shotWindowTicks('mouthEjectIntervalMs', tuning);
 
 	// Story 2.12 (AD-18): the search's own seat -- ONE instance for the life
 	// of this controller (mirrors every other cross-tick component this
@@ -214,10 +215,16 @@ export function createBallController(
 		nextState = armSaveOrAutolaunch(ctx, nextState, deviceEvents, tick, out); // S7
 		const arbitrated = arbitrateLockLane(ctx, nextState, deviceEvents, machineReport, tick, out); // SL (Story 3.2)
 		nextState = arbitrated.state;
-		// A Mouth pulse issued THIS tick still counts as pending for the gate:
-		// the spat ball's own `device_ball_left` (its `ballsInPlay` +1) only
-		// reaches rules on the next tick (AD-4).
-		const mouthEjectPending = ctx.cs.mouth !== null || arbitrated.mouthPulsedThisTick;
+		// A Mouth pulse issued THIS tick still counts as pending: the spat
+		// ball's own `device_ball_left` (its `ballsInPlay` +1, and the rules-side
+		// `bd_lock` slot opening) only reaches rules on the next tick (AD-4).
+		// ONE reading of "pending", computed once here, for the S8 gate, the S9
+		// tilted recover and the S11 search alike (the overflow answer inside
+		// SL reads the same two facts) -- code review of Story 3.2: the search
+		// once read it without the pulse tick, so a Lock stage falling due on a
+		// pulse tick requested a surplus eject for the ball being pulsed.
+		const mouthEjectsPending = pendingMouthEjects(ctx) + (arbitrated.mouthPulsedThisTick ? 1 : 0);
+		const mouthEjectPending = mouthEjectsPending > 0;
 
 		if (ballEndGateOpen(nextState, deviceEvents, machineReport, newGameStartedThisTick, mouthEjectPending)) {
 			// S8a: a live save re-serves instead -- the EARLY RETURN, which
@@ -237,9 +244,9 @@ export function createBallController(
 			nextState = endBall(ctx, nextState, tick, out); // S8b-S8d
 		}
 
-		nextState = reportRecovery(ctx, nextState, pendingStrayClearAtStart, machineReport, tick, out); // S9
+		nextState = reportRecovery(ctx, nextState, pendingStrayClearAtStart, machineReport, tick, out, mouthEjectPending); // S9
 		answerOverflows(machineReport, tick, out); // S10
-		stepBallSearch(ctx, nextState, tick, out); // S11
+		stepBallSearch(ctx, nextState, tick, out, mouthEjectsPending); // S11
 
 		return {
 			state: nextState,

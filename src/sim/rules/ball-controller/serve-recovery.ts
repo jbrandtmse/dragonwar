@@ -12,7 +12,7 @@
 
 import { TABLE } from '../../table/dragonwar';
 import { endBall } from './ball-end';
-import { mouthEjectPending, pendingMouthEjects, requestMouthEject } from './lock-arbiter';
+import { requestMouthEject } from './lock-arbiter';
 import type { ControllerContext, PendingStrayClear, TickOutput } from './shared';
 import type { BallDeviceName, CoilName, GameState, MachineReport } from '../../table/names';
 
@@ -73,6 +73,7 @@ export function reportRecovery(
 	machineReport: MachineReport,
 	tick: number,
 	out: TickOutput,
+	mouthEjectPending: boolean,
 ): GameState {
 	const { cs } = ctx;
 	const strayClearReportDue = pendingStrayClearAtStart !== null && tick === pendingStrayClearAtStart.tick + 1;
@@ -122,10 +123,13 @@ export function reportRecovery(
 		// ball instead of serving -- `ball_ended { tilted: true }`, then the
 		// rotation or game over, exactly as a tilted drain would. Serving here
 		// handed a tilted player a fresh ball and left the game stalled on it.
-		// Not while a Mouth eject is pending: that spat ball is still the
-		// player's, and its own drain ends the ball through the gate.
+		// Not while a Mouth eject is pending (the pulse tick included --
+		// `mouthEjectPending` is the controller's one reading, computed in
+		// `./index.ts`): that spat ball is still the player's, and its own
+		// drain ends the ball through the gate (FR-15: the ball ends when the
+		// last ball drains).
 		if (state.machine.tilt.tilted) {
-			return mouthEjectPending(ctx) ? state : endBall(ctx, state, tick, out);
+			return mouthEjectPending ? state : endBall(ctx, state, tick, out);
 		}
 		// Story 3.2 (DW-282): the pass's ONLY serve. Ball search's trough
 		// stages issue nothing (`sim/rules/ball-search.ts`), so a closure after
@@ -165,10 +169,13 @@ export function answerOverflows(machineReport: MachineReport, tick: number, out:
  * many Mouth ejects are pending -- it holds its quiet count while any is,
  * and its Lock stages request an eject only for a ball not already
  * scheduled -- and each Lock-stage request goes through the arbiter's one
- * Mouth, never a bare `c_mouth` pulse.
+ * Mouth, never a bare `c_mouth` pulse. `mouthEjectsPending` counts a pulse
+ * issued THIS tick (`./index.ts`): the ball it ejects still shows in the
+ * rules-side `bd_lock` slots until next tick, so a Lock stage falling due
+ * on the pulse tick must not request a second eject for it.
  */
-export function stepBallSearch(ctx: ControllerContext, state: GameState, tick: number, out: TickOutput): void {
-	const searchResult = ctx.ballSearch.step(state, tick, pendingMouthEjects(ctx));
+export function stepBallSearch(ctx: ControllerContext, state: GameState, tick: number, out: TickOutput, mouthEjectsPending: number): void {
+	const searchResult = ctx.ballSearch.step(state, tick, mouthEjectsPending);
 	out.events.push(...searchResult.events);
 	out.coilCommands.push(...searchResult.coilCommands);
 	out.recoverCommands.push(...searchResult.recoverCommands);

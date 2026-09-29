@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-29-2026 17:00
+last_updated: 09-29-2026 11:29
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -76,7 +76,7 @@ development_status:
   3-0-epic-2-deferred-cleanup: done
   3-0a-playfield-scoring: done
   3-1-the-mode-stack: done
-  3-2-locking-balls-and-the-lock-arbiter: in-progress
+  3-2-locking-balls-and-the-lock-arbiter: done
   3-3-the-dragon-s-mouth-and-hit-reaction: backlog
   3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan: backlog
   3-5-hurry-up-answer-the-call: backlog

@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-29'
 status: 'done'
 baseline_revision: 'ccddb7a29954b1bad79c2b753351a3644c515cf8'
+baseline_commit: 'ccddb7a29954b1bad79c2b753351a3644c515cf8'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -210,6 +211,58 @@ L = `mouthOpenLeadTicks`, I = `mouthEjectIntervalTicks`, both read from `resolve
   - **Spit run.** `createMachine()` and `createRules()` are composed by hand, following the `driveLockLane` convention of `test/rules-devices-integration.test.ts:196-236`, with each tick's rules `coilCommands` fed to physics on the next tick. It starts from a `game` state where p0 holds 2 credits and one ball is in play, and drives an 800 mm/s Lock shot. When the ball is captured, then the rules `commands` hold `show_dragon_mouth_open` on the capture tick; `c_mouth` is issued exactly `mouthOpenLeadTicks` later; physics opens `s_lock_1`; `ballsInPlay` is 1 after the eject; and `ball_ended` fires only on the spat ball's own later drain, never at the capture.
 - AC13: Given the story, when the gates run, then `pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` pass. The goldens differ only in their headers.
 
+### Review Findings
+
+Code review, 2026-09-29 (`bmad-code-review`, first review; tier `full-opus`, layers blind-hunter, edge-case-hunter, verification-gap and acceptance-auditor, all run from `C:/git/dragonwar/.worktrees/epic-3`). The diff was `ccddb7a`..working tree plus QA's two untracked files. There were 30 raw findings in 25 entries: 1 medium, 22 low, 2 false. The medium is patched. No high.
+
+- [x] [Review][Patch] **Ball search did not count a Mouth pulse tick as pending, but the drain gate and the overflow answer did.** A Lock stage falling due on a pulse tick requested a surplus eject for the ball being pulsed: a second show, and a surplus `c_mouth` that physics answers with `eject_failed`. QA reproduced it at production tuning. It also left AD-18's "hold the quiet count while an eject is pending" unmet on that one tick. Severity medium, fix-risk low, in-story. Found by blind-hunter, verification-gap and acceptance-auditor (BH1, BH2, BH4, VG1, AA1, AA2). **Fixed:**
+  - `ball-controller/index.ts` computes "pending" once, as the pending count plus 1 on a pulse tick. That one value feeds the S8 gate, the S9 tilted recover and the S11 search, and the overflow answer reads the same two facts. `serve-recovery.ts` no longer reads it on its own.
+  - QA's `it.fails` row is now a passing `it`, and its control is kept. QA's surplus-pulse row now carries DW-297's evidence: an `eject_failed { bd_lock }` after the ball is back changes nothing and does not stall the pass. The physics row now expects one `c_mouth` and no Lock failure.
+  - The AC 7 pin moves to `secondShow = firstShow + LEAD + STEP`, and its mutation line is updated.
+  - Location: `src/sim/rules/ball-controller/index.ts` (the pending computation), `serve-recovery.ts` (`reportRecovery`, `stepBallSearch`).
+- [x] [Review][Patch] **AC 7's `expect(secondShow).toBeGreaterThan(firstShow + LEAD)` could not fail:** `secondShow` was computed, not observed. It now asserts on the observed show tick. Low. [`test/rules-lock-arbiter.test.ts`, AC 7] (VG2)
+- [x] [Review][Patch] **The implement stage added three behaviours the spec does not ask for** (lead observation (c)). Each is decided against AD-18, AD-6 and FR-15. Low. (AA4, IA3)
+  - (1) **Cap of three pending ejects: kept, now pinned.** It is what makes AD-7's recorded "bounded (at most 3 ejects)" true by construction.
+  - (2) **One-tick floor on the Mouth lead: kept, now pinned.** A 0 ms lead would schedule on a tick whose scheduler has already run, so the interval would be measured from a stale due tick.
+  - (3) **Interval clamp: reverted.** It changed no behaviour: the scheduler fires at most one pulse per tick, so a 0 interval already spaces pulses a tick apart, and no test can fail against it. The comment is corrected.
+  - (4) **Tilted recover that does not end the ball while an eject is pending: kept** (by-design; see below).
+  - [`src/sim/rules/ball-controller/index.ts`, `test/rules-lock-arbiter.test.ts`]
+- [x] [Review][Patch] **AC 13 had no `mutation:` line** (Rule 19; LOW, closed in pass). Mutation M5 was applied and observed red. (VG3)
+- [x] [Review][Defer] **The drain gate is suppressed while an eject is pending; if that pulse ejects nothing, can the game stall?** [`lock-arbiter.ts` `pulseDueMouth()`] Deferred to the ledger: DW-297 is closed `wontfix-theoretical`. QA showed `eject_failed { bd_lock }` arrives only after every parked ball has been ejected and counted back. This review removed the one known surplus-pulse source. It becomes real only if rules and physics disagree about the `bd_lock` slots at a pulse. (EC3)
+- [x] [Review][Defer] **A lock and a trough drain on the same tick serve twice.** The arbiter's trough eject plus `serveBallSave` or `startBall` put two balls in the lane. It needs two balls in play with `multiball` null. Deferred to the ledger: an occurrence on DW-273 (the same-tick ordering sweep, owner 3.7). Low. (EC4)
+- [x] [Review][Defer] **A Slam then Start inside the Mouth lead carries the spat ball into the new game.** Deferred to the ledger: an occurrence on DW-296 (`wontfix-accepted`). (EC5)
+- [x] [Review][Defer] **A capture that locks while an eject is pending is spat by that eject.** Deferred to the ledger: new entry DW-299, `wontfix-accepted`, reopen_if Story 3.8/3.9 plans a capture while `requestMouthEject` is pending. (EC7, AA6; the implement review's BH9)
+- [x] [Review][Dismiss] by-design: EC1. A search spits locked balls and credits stay (Design Notes: "the locks are virtual").
+- [x] [Review][Dismiss] by-design: EC2. A last-ball drain is swallowed while a search or overflow eject is pending. The gate rule in the Accounting section says "a ball waiting to be spat is still the player's ball".
+- [x] [Review][Dismiss] by-design: EC10. `l_lock` lights under Tilt or multiball. The lamp rule is the author's decision (DW-212).
+- [x] [Review][Dismiss] by-design: AA3 (lead observation (c)(4)). The tilted recover does not end the ball while an eject is pending.
+  - It is FR-15-consistent: "every ball drains … the ball ends when the last ball drains".
+  - It applies the spec's own gate rule. Ending the ball at the report would hand the spat ball to the next ball or player.
+  - It is pinned by two rows (a park on the report tick, and the report on the pulse tick, which is new).
+
+**Rejected:**
+- BH3 (low): the untilted recover serves while an eject is pending. Theoretical. It needs a park on the recover-report tick, and every organic path into a Lock slot crosses `s_lock_lane`, which resets the pass.
+- BH5 (low): the drain gate names the Lock, while the accounting uses "parking with no `servesInto`". Both select only `bd_lock` today. It becomes real only when a second such parking device is added.
+- BH6 (low): `serveAfterLock` repeats `serveBallSave`'s two lines. The shared path is the S7 `awaitingSaveLaunch` protocol, which it uses.
+- BH7 (low): the trough stages are still pulse stages behind a `serve` guard. The spec keeps their slots so the recover stays at S+2750, and the code says so.
+- BH8 / EC11 (low): the only-consumer instruments could be evaded by a re-export or a template literal. This repeats the implement review's BH10. An evasion would be deliberate.
+- BH9 / EC6 (false): `decideEntry` returns silently with no player. In `phase === 'game'`, `players[currentPlayer]` always exists, because the game is built by `startGame`.
+- BH10 (low): extra rows for `game_over`, same-batch classification, the multiball `c_mouth`, and the Attract overflow +1. `game_over` shares Attract's single `phase !== 'game'` branch, which is pinned. The rest add no discriminating power.
+- BH11 (false): QA's files are uncommitted. That is the pipeline protocol: the lead commits.
+- EC8 (low): a same-batch park plus a full-device `lock_lane_entered` is misclassified. Theoretical: it needs two balls in the lane at once, and the park to fill the last slot in that batch.
+- EC9 (low): a dev-tuned interval between 1 and 99 ticks collides. It is dev-panel only, and the tunable's own note records the ~100-tick floor.
+- VG-other (low): the frontmatter `deferred` evidence for DW-297 is stale. The fix edits the spec; the ledger's trailer carries the current evidence.
+- AA5 (low): the AC 7 route 2 test was edited. This repeats the implement review's BH15, recorded in the Auto Run Result.
+
+Rule checks:
+- **Rule 3:** the sim's real target runtime is exercised by AC 12's `createLoop` Lock run on real physics. The browser smoke stays with the lead.
+- **Rule 6:** checked against AD-18, AD-6, AD-7, AD-8, AD-9 and AD-19. The only mismatch was the pulse-tick hold (AD-18), fixed above.
+
+**Gates on the patched tree:**
+- `pnpm test`: 141 files / 2308 tests green.
+- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` all exit 0.
+- No non-ASCII characters or CRLF line endings in the edited files.
+
 ## Spec Change Log
 
 - 2026-09-29, lead spec gate: the Rule 20 sentences under Design Notes were written into the spine (AD-18, with `lock_lane_spit { credited }` recorded as the no-award outcome so each captured entry still yields exactly one outcome; AD-6; AD-7's `ControllerState.mouth`). Story 2.12's AC 1 wording in Epic 2's block is stale after the DW-282 fix; it is another epic's block and is reported to the orchestrator, not edited. No spec text changed.
@@ -353,6 +406,7 @@ L = `mouthOpenLeadTicks`, I = `mouthEjectIntervalTicks`, both read from `resolve
   - mutation: `index === playerIndex` changed to `index === 0` in `decideEntry()`'s credit write → `rules-lock-arbiter.test.ts` "player 1 locks twice and drains; player 2 captures into s_lock_3: ...".
 - AC7: the pending-eject pause removed → "Search reaches the Lock" red.
   - mutation: `!mouthPending &&` removed from the quiet-count increment in `ball-search.ts` → `rules-lock-arbiter.test.ts` "Search reaches the Lock (L holds 2): ...".
+  - mutation (code review; the pin moved to `secondShow = firstShow + LEAD + STEP`): `stepBallSearch(ctx, nextState, tick, out, mouthEjectsPending)` changed to `stepBallSearch(ctx, nextState, tick, out, pendingMouthEjects(ctx))` in `ball-controller/index.ts` (the pulse tick no longer counts as pending for the search) → `rules-lock-arbiter.test.ts` "Search reaches the Lock (L holds 2): ...", `rules-lock-arbiter-qa.test.ts` "a park ON the first Lock stage's own due tick: the pulse tick counts as pending ..." and "DW-297's evidence: ...", and `lock-arbiter-qa-physics.test.ts` "a second ball moved into s_lock_1 on the first Lock stage's own due tick ..." (a surplus `c_mouth`).
 - AC8: the `timerTicks` guard dropped → its row red.
   - mutation: `&& !timerRunning` removed from the Lock stage's guard in `ball-search.ts` → `rules-lock-arbiter.test.ts` "L holds 2 and a stub mode entry publishes timerTicks: ...".
 - AC9: "only when none pending" dropped → "Overflow with a spit pending" red.
@@ -366,15 +420,35 @@ L = `mouthOpenLeadTicks`, I = `mouthEjectIntervalTicks`, both read from `resolve
   - mutation: `return mouthEjectPending(ctx) ? state : endBall(ctx, state, tick, out);` replaced by `return state;` in `reportRecovery()` → `rules-lock-arbiter.test.ts` "Search under Tilt (DW-281): ...".
   - mutation (review pass): the same line replaced by `return endBall(ctx, state, tick, out);` (the pending-eject deferral dropped) → `rules-lock-arbiter.test.ts` "Search under Tilt with a Mouth eject pending at the recover report: ...".
   - mutation (review pass): `!state.machine.tilt.tilted &&` removed from the Lock stage's guard in `ball-search.ts` → `rules-lock-arbiter.test.ts` "Search under Tilt (DW-281): ..." (no stage ejects under Tilt).
+  - mutation (code review): `reportRecovery(..., mouthEjectPending)` changed to `reportRecovery(..., ctx.cs.mouth !== null)` in `ball-controller/index.ts` (the S9 tilted recover no longer counts the pulse tick) → `rules-lock-arbiter.test.ts` "Search under Tilt, the recover report on the Mouth's own pulse tick: ...".
 - AC12: the Mouth +1 dropped → the spit run red (`ballsInPlay` 0 after the eject). The gate's L exclusion removed → the Lock run red (`ball_saved` at the capture).
   - mutation: `&& false` appended to the Mouth `device_ball_left` condition in `applyDeviceEvents()` → `lock-arbiter-physics.test.ts` "two credits and an 800 mm/s Lock shot: ..." (the spit run) and `rules-devices.test.ts` "Story 3.2: a bd_lock device_ball_left ... returns a ball to play -- +1".
   - mutation: the gate's L exclusion removed (the AC2 line above) → `lock-arbiter-physics.test.ts` the Lock run.
 - The drain gate's pending-eject condition (not planned; added):
   - mutation: `!mouthEjectPending &&` deleted from `ballEndGateOpen()` → `rules-lock-arbiter.test.ts` "two balls; one is captured and spat, the other drains to ballsInPlay 0 while the eject is pending: ...".
   - mutation (review pass): `ctx.cs.mouth !== null || arbitrated.mouthPulsedThisTick` changed to `ctx.cs.mouth !== null` in `ball-controller/index.ts` → `rules-lock-arbiter.test.ts` "the other ball drains on the very tick the Mouth pulses: ...".
+- The Mouth sequence's bounds (code review, lead observation (c); the interval clamp was reverted as behaviour-neutral):
+  - mutation: the `if (cs.mouth.dueTicks.length >= MAX_PENDING_EJECTS) { return; }` guard deleted from `requestMouthEject()` in `lock-arbiter.ts` → `rules-lock-arbiter.test.ts` "four uncredited parks while three ejects are pending ...: one show and exactly three c_mouth pulses ...".
+  - mutation: `Math.max(1, shotWindowTicks('mouthOpenLeadMs', tuning))` changed to `shotWindowTicks('mouthOpenLeadMs', tuning)` in `ball-controller/index.ts` → `rules-lock-arbiter.test.ts` "mouthOpenLeadMs 0 ...: two parks in one batch pulse the tick after the request and then exactly one interval later ...".
 - The Mouth sequence's reset-safety (Boundaries: discarded only if `tick < openTick`; review pass):
   - mutation: the `discardStaleMouth(ctx, tick);` call deleted from `ball-controller/index.ts` → `rules-lock-arbiter.test.ts` "control: an uninterrupted timeline pulses at park+LEAD; a timeline restarted at tick 1 ... never pulses".
 - AC13: pinned by the gate commands (the golden replay tests fail on any `expectedHash` move; `git diff -- test/replays` parsed per field shows only `tableHash` and the four tuning keys).
+  - mutation (code review, Rule 19): `ballsInPlay += 1` changed to `ballsInPlay += 2` on `ball_launched` in `applyDeviceEvents()` (`ball-controller/accounting.ts`), a state change that reaches every plunging golden → `replay-goldens.test.ts` "roll-and-drain / hold-and-release / full-plunge / two-ball-collision: finalHash and finalGameStateHash match the recorded goldens" (8 tests red).
+
+**QA stage** (2026-09-29, on `d49e0a0`; the production tree was left byte-identical after every mutation: a per-file sha256 before and after, and `git status --short` / `git diff --stat -- src tools` unchanged).
+- New files:
+  - `test/rules-lock-arbiter-qa.test.ts` (QA; headless, listed in `test/rules-devices-headless.test.ts`'s `ENTRY_FILES`): AC 6 through a real Hot-seat, the Mouth sequence's timing, and the pulse-tick "pending" boundary (EC4/IA1, DW-297).
+  - `test/lock-arbiter-qa-physics.test.ts` (QA; `createMachine()` + `createRules()` composed by hand, AD-4): DW-221 inside a live save, DW-281 and DW-282 on a real ball-search run (Story 2.12's V-cup stuck ball), and DW-297's surplus pulse reaching physics as `eject_failed`.
+- Edited: `test/rules-devices-headless.test.ts` (`ENTRY_FILES` gains the new headless file).
+- Mutations:
+  - AC6: mutation: `const playerIndex = state.currentPlayer;` changed to `const playerIndex = 0;` in `decideEntry()` (`lock-arbiter.ts`) → `rules-lock-arbiter-qa.test.ts` "player 1 locks twice and drains; the rotation makes player 2 current; ..." (the game created by Start, player 2 joined by the Hot-seat Start, made current by the real rotation).
+  - AC3/AC4/AC10 (the lead): mutation: `dueTicks: [tick + mouthOpenLeadTicks]` changed to `tick + mouthOpenLeadTicks + 1` in `requestMouthEject()` → `rules-lock-arbiter-qa.test.ts` "three uncredited parks ... are ONE sequence ...", "the lead and the interval are read from the resolved tuning ...", the UJ-3 Hot-seat row and both pulse-boundary rows (5 tests).
+  - The interval (Boundaries: "schedules last due + `mouthEjectIntervalTicks`"): mutation: `cs.mouth.dueTicks.push(lastDue + mouthEjectIntervalTicks)` changed to `push(tick + mouthEjectIntervalTicks)` (anchored on the request tick) → `rules-lock-arbiter-qa.test.ts` "three uncredited parks ... ONE sequence ..." and "the lead and the interval are read from the resolved tuning ...".
+  - Tunables read through `shotWindowTicks`: mutation: `const mouthOpenLeadTicks = Math.max(1, shotWindowTicks('mouthOpenLeadMs', tuning));` changed to `const mouthOpenLeadTicks = 1000;` in `ball-controller/index.ts` → `rules-lock-arbiter-qa.test.ts` "the lead and the interval are read from the resolved tuning ..." (every production-tuned test stays green under it).
+  - AC2 (DW-221, real physics, live save): mutation: `event.device !== TABLE.lockLaneWiring.device &&` deleted from `ballEndGateOpen()` → `lock-arbiter-qa-physics.test.ts` "an 800 mm/s Lock shot while the player's own save is live: ..." (`ball_saved` at the capture).
+  - AC11 (DW-281, real physics): mutation: the `if (state.machine.tilt.tilted) { return mouthEjectPending(ctx) ? state : endBall(...); }` block deleted from `reportRecovery()` → `lock-arbiter-qa-physics.test.ts` "a genuinely stuck, tilted ball: ..." (the recover serves; no `ball_ended`, no rotation).
+  - AC11 (DW-282, real physics): mutation: the `if (stage.guard.kind === 'serve') { return; }` arm deleted from `applyStage()` → `lock-arbiter-qa-physics.test.ts` "a genuinely stuck, untilted ball freed onto a top rollover ..." (the trough stages serve two balls before the freeing move: three on the table) and "a genuinely stuck, tilted ball: ..." (the served balls change the recover's `ball_missing` count).
+  - The pulse-tick boundary (EC4/IA1; QA's failing expectation by design, SUPERSEDED at the code review, which made the fix below and flipped the row to a passing `it`; the current line is under AC7): mutation: `ctx.ballSearch.step(state, tick, pendingMouthEjects(ctx))` changed to `pendingMouthEjects(ctx) + (a c_mouth pulse already issued this tick ? 1 : 0)` in `stepBallSearch()` (`serve-recovery.ts`) -- ball search then counts the pulse tick as pending, as the drain gate and the overflow answer already do → `rules-lock-arbiter-qa.test.ts` "a park ON the first Lock stage's own due tick: ..." (`it.fails` goes red: its one-eject expectation now holds), "the surplus pulse the boundary produces does not stall the game: ..." and `lock-arbiter-qa-physics.test.ts` "a second ball moved into s_lock_1 on the first Lock stage's own due tick ..." (one `c_mouth` on real physics, no `eject_failed`). Under the same mutation the implement stage's `rules-lock-arbiter.test.ts` "Search reaches the Lock (L holds 2): ..." also goes red: its `secondShow = firstShow + LEAD + STEP - 1` pins today's inconsistent boundary.
 
 ## Auto Run Result
 
