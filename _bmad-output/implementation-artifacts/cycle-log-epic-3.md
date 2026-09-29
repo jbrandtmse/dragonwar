@@ -83,3 +83,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-09-29T16:25:22Z	Story 3.1	ci_resolved	story=3.1 run=36597323795 result=success resolved_at=next_plan
 2026-09-29T16:25:23Z	Epic 3	epic_context_compiled	reason=planning_artifact_newer model=opus
 2026-09-29T16:25:23Z	Story 3.2	stage_spawned	stage=plan spawn_at=2026-09-29T16:25:23Z model=opus agent_name=3-2-locking-balls-and-the-lock-arbiter-plan-1 cycle_iteration=1
+2026-09-29T16:48:46Z	Story 3.2	story_created	spawn_at=2026-09-29T16:25:23Z model=opus path=_bmad-output/implementation-artifacts/spec-3-2-locking-balls-and-the-lock-arbiter.md build_status=ready-for-dev epic_context=reused warnings=multiple-goals,oversized cycle_iteration=1
+2026-09-29T16:48:46Z	Epic 3	spine_updated	ad=AD-18,AD-6,AD-7 reason=rule5 by=runner story=3-2-locking-balls-and-the-lock-arbiter lint=ok
+2026-09-29T16:48:46Z	Story 3.2	spec_validated	service_introducing=true integration_ac=present(AC12_real_physics_lock_and_spit) adr_constrained_acs=AC1-AC4,AC7,AC9,AC10:AD-18,AC2/AC11/AC12:AD-6,AC5:AD-9,AC6:AD-7 decision_dependency=none sections_created=none owned_ledger=DW-171,174,212,221,281,282 addressed=6 declined=0 mutates_shared_runtime=false lead_edits=AD-18,AD-6,AD-7_amendments second_read=done note=Story_2.12_AC1_text_stale_after_DW-282_fix(Epic_2_block;reported_not_edited) model=claude-opus-5-5
