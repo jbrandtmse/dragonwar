@@ -7,7 +7,7 @@ paradigm: 'Ports-and-adapters around a virtual pinball machine — Physics is th
 scope: 'DragonWar v1 whole system: physics core, rules layer, presentation, host loop, assets, persistence, build and deployment'
 status: final
 created: '2026-08-26'
-updated: '2026-09-11'
+updated: '2026-09-29'
 binds: [FR-1..FR-55, NFR-1..NFR-9, UJ-1..UJ-4]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-dragonwar-2026-08-26/prd.md
@@ -277,6 +277,7 @@ The closed unions in `sim/contracts/`; every field named here is binding, everyt
 | Config | Solver constants in `sim/physics/constants.ts`; table tunables in `sim/table/tuning.ts` → player adjustments from `dragonwar.save`; nothing reads env at runtime. No i18n scaffolding: English literals live in `presentation/backglass` only. |
 | Licence headers | Ported: original header retained + `// Ported from vpdb/vpx-js (GPL-2.0-or-later); distributed with DragonWar under GPL-3.0`; new: GPL-3.0 header. Three complementary gates, none retirable in favour of another (AD-16): `pnpm check:headers` checks **presence** per file across `git ls-files`; `test/port-provenance.test.ts` checks **structure** (upstream block intact, provenance sets disjoint, AD-15 constants pin, DW-79 port-body freeze); `tools/boundary-lint.mjs` checks **imports**. Presence cannot see a stripped copyright block. |
 | Assets | `assets/src/` (Blender, `.wav` masters — editable) vs `public/assets/` (exported glb, collision json, textures, `.mp3`); every third-party or generated file in `ATTRIBUTIONS.md` first; a playfield template drawing needs an entry like any other asset. |
+| Visible placeholders | (Story 5.0a, 2026-09-29) Every player-visible `col_` body has a flat-shaded `vis_` twin generated in the same `tools/make-placeholder-blend.py` run by copying the `col_` mesh: `col_<x>` -> `vis_<x>`, except the four `surface: 'dragon'` bodies, which merge into one `vis_dragon`. No twin for `col_playfield` (`vis_playfield`), `col_glass` (Story 5.3) or any body with `bboxMm.max.y <= 0` (under the apron). The twin's material family comes from the body's `surface`; the name helpers live in `src/presentation/scene/vis-names.ts`. Moving twins (flippers, drop targets, plunger) are posed each frame from `Snapshot.mechanisms` by `src/presentation/mechanisms/`, and never from sim state. Art passes (5.1-5.4) replace a twin behind the same name. A `vis_` twin never enters the collision document, `tableHash` or `assetHash` (AD-11, AD-15). |
 
 ## Stack
 
