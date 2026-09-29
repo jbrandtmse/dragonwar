@@ -6,21 +6,27 @@
 // every rules step. It never mutates `state` and never produces a
 // `LampCommand` itself; `sim/loop/index.ts` is the one place that diffs two
 // consecutive calls into the `LampCommand` stream -- `RulesStepResult.commands`
-// stays `readonly never[]` (AD-9: the diff lives in sim/loop).
+// never carries a `LampCommand` (AD-9: the diff lives in sim/loop; since
+// Story 3.2 that channel carries show commands only).
 //
 // Story 3.1 (AD-8, AD-9: "modes contribute roles by priority"): this file
 // reads each mode's `lamps` contribution. The composition, per lamp:
 // - the MACHINE lamps (`subject.kind` `lock` and `ball_save`) keep their own
-//   projection off `machine` (AD-7: machine-scoped, so they light with no
-//   mode active at all -- an occupied `bd_lock` lights `l_lock`), and no mode
-//   may override them;
+//   projection, and no mode may override them. `l_ball_save` projects off
+//   `machine` alone (AD-7: machine-scoped, so it lights with no mode active
+//   at all). Story 3.2 (DW-212, author decision 2026-09-28): `l_lock` no
+//   longer reads Lock occupancy -- it is off whenever `modes` is empty, and
+//   otherwise `dragon/1` while the CURRENT player's `lockCredits` is below
+//   2 (a lock is available) and off at 2;
 // - every other lamp starts `off/0`, then each active mode's `lamps(state,
 //   entry)` roles (`MODE_LAMP_ROLES`, `./modes`) are applied in ASCENDING
 //   priority, so a higher mode overwrites a lower one per lamp. The base
 //   mode contributes its own player's letter (`dragon/1`) and lane (`lit/1`)
 //   roles; the skill shot contributes `lit/2` for each lit Top lane of its
 //   player, which is why a lit Top lane reads `lit/2` while the shot is live.
-// A mode reads its own entry's `player`, never `state.currentPlayer`. With
+// A mode reads its own entry's `player`, never `state.currentPlayer` (the
+// machine lamp `l_lock` is the one exception: since Story 3.2 it reads the
+// CURRENT player's `lockCredits`, outside any mode's contribution). With
 // no mode on the stack (Attract, and every tick between balls) every
 // non-machine lamp is `off/0`. A mode never issues a lamp command: it only
 // returns roles, and this projection decides.
@@ -30,8 +36,8 @@
 // `TABLE.lamps` changes what this function iterates with no edit here.
 //
 // The five golden replays are unaffected: none of them ever presses
-// `s_start` (so no mode is ever active), and `bootDeviceSlots()` leaves
-// `bd_lock` empty, so every lamp really is `off/0` throughout all five.
+// `s_start`, so no mode is ever active and every lamp really is `off/0`
+// throughout all five.
 
 import { TABLE } from '../table/dragonwar';
 import { isRunning, isWithinHurryUp } from './ball-save';
@@ -48,10 +54,23 @@ const DRAGON_STEP_1: LampProjectionEntry = { role: 'dragon', step: 1 };
 type LampDef = (typeof TABLE.lamps)[LampName];
 type LampSubject = LampDef['subject'];
 
-/** `true` iff any of `machine.deviceSlots.bd_lock`'s slots is currently occupied (AD-18: the Lock arbiter and `lockCredits` are Story 3.2's -- this reads `deviceSlots` directly, never `players[i].lockCredits`, which nothing writes yet). */
-function lockOccupied(state: GameState): boolean {
-	const slots = state.machine.deviceSlots.bd_lock;
-	return slots.some((slot) => slot === true);
+/** The most `lockCredits` a player may hold (AD-18) -- at 2, no lock is available and `l_lock` is off. */
+const MAX_LOCK_CREDITS = 2;
+
+/**
+ * `l_lock`'s own projection (Story 3.2, DW-212, author decision 2026-09-28):
+ * off with no mode on the stack (Attract, and every tick between balls);
+ * otherwise `dragon/1` while the current player can still lock
+ * (`lockCredits` below 2) and off once they cannot. Occupancy no longer
+ * matters: another player's (or a previous game's) balls in the Lock say
+ * nothing about whether THIS player can lock.
+ */
+function projectLock(state: GameState): LampProjectionEntry {
+	if (state.modes.length === 0) {
+		return ALL_OFF;
+	}
+	const credits = state.players[state.currentPlayer]?.lockCredits ?? 0;
+	return credits < MAX_LOCK_CREDITS ? DRAGON_STEP_1 : ALL_OFF;
 }
 
 /**
@@ -74,8 +93,9 @@ function projectBallSave(ballSave: BallSaveState, tilted: boolean, tick: number,
 /**
  * One lamp's base layer. `l_lock` (`subject.kind === 'lock'`) and
  * `l_ball_save` (`subject.kind === 'ball_save'`) are the MACHINE lamps,
- * resolved directly off `machine` (AD-7) and final -- `lampsOf()` never lets
- * a mode's roles override them. Every other subject kind starts `off/0`
+ * projected here (`l_ball_save` off `machine`, AD-7; `l_lock` off the stack
+ * and the current player's credits, Story 3.2) and final -- `lampsOf()`
+ * never lets a mode's roles override them. Every other subject kind starts `off/0`
  * here, and the active modes' roles are layered on top in `lampsOf()`.
  * `hurryUpTicks` is `l_ball_save`'s own resolved `ballSaveHurryUpTicks` --
  * threaded in from `lampsOf()`'s own caller rather than added to
@@ -83,7 +103,7 @@ function projectBallSave(ballSave: BallSaveState, tilted: boolean, tick: number,
  */
 function projectLamp(subject: LampSubject, state: GameState, hurryUpTicks: number): LampProjectionEntry {
 	if (subject.kind === 'lock') {
-		return lockOccupied(state) ? DRAGON_STEP_1 : ALL_OFF;
+		return projectLock(state);
 	}
 	if (subject.kind === 'ball_save') {
 		return projectBallSave(state.machine.ballSave, state.machine.tilt.tilted, state.tick, hurryUpTicks);

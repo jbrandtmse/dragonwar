@@ -29,11 +29,12 @@ const TUNING = resolveTuning();
 function player(overrides: {
 	readonly letters?: string;
 	readonly lit?: Record<string, boolean>;
+	readonly lockCredits?: number;
 } = {}) {
 	return {
 		score: 0,
 		letters: overrides.letters ?? '',
-		lockCredits: 0,
+		lockCredits: overrides.lockCredits ?? 0,
 		tiltWarnings: 0,
 		bonus: { byCategory: { letters: 0, loops: 0, strikes: 0 }, multiplier: 1 },
 		lanes: { lit: overrides.lit ?? {}, completedSets: [] },
@@ -92,44 +93,27 @@ describe('lampsOf -- Attract / no base mode: every lamp is off/0, never a player
 		expect(lampsOf(state)).toEqual(allLampsOff());
 	});
 
-	// !!! DIVERGENCE FROM THE FROZEN INTENT CONTRACT -- pinned here so it is
-	// visible, NOT endorsed. Code review pass 2 found that neither attract
-	// test above combines `modes: []` with an OCCUPIED `bd_lock`, which is the
-	// one case that separates the code from the spec:
-	//   - the spec's execution task 5 says "if no base mode is on the stack,
-	//     return every lamp off/0", and the frozen I/O matrix says the same
-	//     twice ("Attract, no modes" -> every lamp off; "Active player is not
-	//     index 0" -> "If modes[] is empty, all lamps are off");
-	//   - `src/sim/rules/lamps.ts` projects `subject.kind === 'lock'` from
-	//     `machine` alone (no mode may override a machine lamp since Story
-	//     3.1), so an occupied bd_lock projects dragon/1 with no base mode on
-	//     the stack. Its own comment argues this is RIGHT (the Lock is
-	//     machine-scoped, AD-7) -- but `## Spec Change Log`
-	//     is empty, so the deviation is undocumented.
-	// It is reachable in a real game: modes are stopped at the ball end and,
-	// since Story 3.1 (DW-209), restarted in the same tick as
-	// `ball_starting` -- but after the last ball's drain (game over, then
-	// Attract) `modes[]` stays empty, and Epic 2 has no Lock arbiter to eject
-	// a parked ball, so the slot stays true across that window. It does NOT
-	// threaten the golden/attract argument the loop leans on --`bootDeviceSlots()` leaves bd_lock empty, and `previousLamps` is
-	// seeded from the same state either way -- but that precondition was
-	// unstated. Whether the code or the contract is wrong is the lead's call
-	// (ledgered as a decision-pending finding); this test exists so the next
-	// reader cannot mistake the divergence for an accident.
-	it('modes: [] with an OCCUPIED bd_lock -- l_lock reads dragon/1 (machine-scoped, AD-7) while every other lamp is off', () => {
+	// Story 3.2 (DW-212, author decision 2026-09-28): the divergence Story
+	// 3.1's code review pinned here is resolved in the contract's favour.
+	// `l_lock` no longer reads Lock occupancy: with `modes: []` it is off like
+	// every other lamp, even with balls sitting in the Lock (another player's,
+	// or a previous game's, parked across game over). The paired positive
+	// below is the SAME state with a mode on the stack, where `l_lock` lights
+	// from the current player's credits.
+	it('DW-212: modes: [] with an OCCUPIED bd_lock -- every lamp, l_lock included, is off/0; the same state with a mode on the stack lights l_lock dragon/1', () => {
 		const state = gameState({
 			players: [player({ letters: 'DRAGON', lit: { top_1: true } })],
 			modes: [],
-			bdLock: [true, false, false],
+			bdLock: [true, true, false],
 		});
-		const lamps = lampsOf(state);
-		expect(lamps.l_lock, 'l_lock is resolved from machine.deviceSlots.bd_lock BEFORE the no-base-mode guard').toEqual({ role: 'dragon', step: 1 });
-		for (const name of Object.keys(TABLE.lamps)) {
-			if (name === 'l_lock') {
-				continue;
-			}
-			expect(lamps[name as keyof typeof lamps], `${name} must still be off with no base mode on the stack`).toEqual(ALL_OFF);
-		}
+		expect(lampsOf(state), 'no mode on the stack: every lamp is off, whatever the Lock holds').toEqual(allLampsOff());
+
+		const withMode = gameState({
+			players: [player({ letters: 'DRAGON', lit: { top_1: true } })],
+			modes: [{ mode: 'base', priority: 100, player: 0 }],
+			bdLock: [true, true, false],
+		});
+		expect(lampsOf(withMode).l_lock, 'positive: with a mode on the stack and credits 0, l_lock is dragon/1').toEqual({ role: 'dragon', step: 1 });
 	});
 });
 
@@ -217,14 +201,27 @@ function describeMatrix(basePlayer: 0 | 1): void {
 			expect(lamps.l_dragon_g).toEqual(ALL_OFF);
 		});
 
-		it('an occupied bd_lock slot -- l_lock is dragon/1, independent of which player is active', () => {
-			const state = gameState({ players: playersWith(player()), modes: [{ mode: 'base', priority: 100, player: basePlayer }], bdLock: [false, true, false] });
+		// Story 3.2 (DW-212): `l_lock` reads the CURRENT player's
+		// `lockCredits` (currentPlayer is pinned at 0 here), never the Lock's
+		// occupancy and never the mode entry's own `player`. Each state below
+		// gives the other player the opposite credit count, so reading the
+		// wrong player reddens the pair.
+		it('DW-212: currentPlayer has credits 0 (the other player 2), an empty Lock -- l_lock is dragon/1', () => {
+			const players = [player({ lockCredits: 0 }), player({ lockCredits: 2 })];
+			const state = gameState({ players, modes: [{ mode: 'base', priority: 100, player: basePlayer }], bdLock: [false, false, false] });
 			expect(lampsOf(state).l_lock).toEqual({ role: 'dragon', step: 1 });
 		});
 
-		it('no bd_lock slot occupied -- l_lock is off', () => {
-			const state = gameState({ players: playersWith(player()), modes: [{ mode: 'base', priority: 100, player: basePlayer }], bdLock: [false, false, false] });
+		it('DW-212: currentPlayer has credits 2 (the other player 0), a full Lock -- l_lock is off/0', () => {
+			const players = [player({ lockCredits: 2 }), player({ lockCredits: 0 })];
+			const state = gameState({ players, modes: [{ mode: 'base', priority: 100, player: basePlayer }], bdLock: [true, true, true] });
 			expect(lampsOf(state).l_lock).toEqual(ALL_OFF);
+		});
+
+		it('DW-212: currentPlayer has credits 1 -- l_lock is still dragon/1 (a second lock is available)', () => {
+			const players = [player({ lockCredits: 1 }), player({ lockCredits: 2 })];
+			const state = gameState({ players, modes: [{ mode: 'base', priority: 100, player: basePlayer }], bdLock: [true, false, false] });
+			expect(lampsOf(state).l_lock).toEqual({ role: 'dragon', step: 1 });
 		});
 
 		it('a lit inlane/outlane lamp is lit/1 always -- the step-2 promotion is exclusive to the Top set (AC 6)', () => {

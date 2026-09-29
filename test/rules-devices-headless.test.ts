@@ -226,6 +226,8 @@ const ENTRY_FILES = [
 	// Story 3.1 QA: same reasoning -- `-integration` for the rules layers and
 	// the Backglass fold it composes, but no loop and no physics.
 	path.join(__dirname, 'rules-mode-stack-qa-integration.test.ts'),
+	// Story 3.2: the Lock arbiter's headless matrix -- ungated otherwise.
+	path.join(__dirname, 'rules-lock-arbiter.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

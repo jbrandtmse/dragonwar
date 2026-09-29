@@ -20,6 +20,10 @@
 import { TABLE } from '../../table/dragonwar';
 import type { BallDeviceName, ShotName, SwitchName } from '../../table/names';
 import type { BallLaunchedEvent } from '../../contracts/events';
+// Story 3.2 (AD-18): the Lock-lane entry's type lives in its own file so the
+// boundary lint can hold its importers to the three sanctioned ones; it is
+// imported here only to join the union below, and never re-exported.
+import type { LockLaneEnteredEvent } from './lock-lane-event';
 
 export interface DeviceBallEnteredEvent {
 	readonly type: 'device_ball_entered';
@@ -89,21 +93,6 @@ export interface TiltBobClosedEvent {
 /** Story 2.11 (AD-19's 2026-09-08 amendment): the slam-tilt cabinet switch closed. Same shape and same exclusions as `TiltBobClosedEvent` above. */
 export interface SlamTiltClosedEvent {
 	readonly type: 'slam_tilt_closed';
-	readonly tick: number;
-}
-
-/**
- * DW-166: a Lock-lane closure that RESOLVED -- either a real capture (a
- * `bd_lock` slot switch closed within `lockCaptureWindowTicks`) or the
- * device was already full at the moment of closure (physics parks nothing;
- * AD-18's `lock_lane_spit` still needs the credit). An unresolved closure
- * (the measured 550-600 mm/s non-capturing band) emits nothing at all. The
- * Lock arbiter (AD-18, `sim/rules/ball-controller`) is the only consumer,
- * and does not exist until Story 3.2 -- this layer only resolves whether a
- * closure counts.
- */
-export interface LockLaneEnteredEvent {
-	readonly type: 'lock_lane_entered';
 	readonly tick: number;
 }
 

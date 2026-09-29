@@ -27,6 +27,19 @@
 // k * ballSearchStepTicks`, the recover being the last slot -- so a hold
 // pauses the pass wherever it stands, and resumes it, never restarts it.
 //
+// Story 3.2 (AD-18, DW-282): the Lock's two stages REQUEST a Mouth eject
+// from the Lock arbiter (`ball-controller/lock-arbiter.ts`) -- returned as
+// `lockEjectRequests`, never a bare `c_mouth` pulse -- and only for a ball
+// the Lock holds beyond the ejects already pending, never while tilted and
+// never while any mode publishes `timerTicks` (FR-23). The quiet count also
+// does not advance on a tick where a Mouth eject is pending, like a held
+// flipper, so every Lock eject lands before the autolaunch, trough and
+// recover stages. The trough stages issue nothing: in this simulation a
+// trough pulse cannot free a stuck ball (parked balls are not simulated),
+// so its only effect was an early serve that a closure after it could leave
+// stranded beside the recover's own serve. The recover's answer
+// (`ball-controller/serve-recovery.ts`) is the pass's one serve.
+//
 // Every mark this module holds (the pass's own `origin`, and each held
 // button's own press tick) is reset-safe against a restarted timeline: a
 // mark strictly greater than the current tick is discarded (`tilt.ts:88-97`'s
@@ -54,11 +67,19 @@ export function servesIntoOf(device: BallDeviceEntry): string | undefined {
 	return (device as { readonly servesInto?: string }).servesInto;
 }
 
-/** A guarded pulse stage's reason for silently issuing nothing -- see `applyStage()` below. */
-type StageGuard =
-	| { readonly kind: 'lock' }
-	| { readonly kind: 'tilt' }
-	| { readonly kind: 'laneOccupied'; readonly nonParkingDevice: BallDeviceKey };
+/**
+ * A guarded pulse stage's own rule -- see `applyStage()` below. `lock`
+ * requests a Mouth eject instead of pulsing; `tilt` issues nothing while
+ * tilted; `serve` (a parking device that serves another device's entry: the
+ * trough) issues nothing at all (Story 3.2, DW-282).
+ */
+type StageGuard = { readonly kind: 'lock' } | { readonly kind: 'tilt' } | { readonly kind: 'serve' };
+
+/** Story 3.2 (AD-18): one Lock-stage request for a Mouth eject, handed to the Lock arbiter by the ball controller (`ball-controller/serve-recovery.ts`). */
+export interface LockEjectRequest {
+	readonly type: 'lock_eject_requested';
+	readonly tick: number;
+}
 
 type BallSearchStage =
 	| { readonly kind: 'pulse'; readonly coil: CoilName; readonly guard?: StageGuard }
@@ -75,7 +96,9 @@ type BallSearchStage =
  *    devices with no `servesInto` (the Lock) first, then non-parking
  *    devices (the shooter), then parking devices WITH a `servesInto` (the
  *    trough) last -- so the trough's own eject can never stack a second
- *    ball on a plunger tip the shooter's own autolaunch slot already tried;
+ *    ball on a plunger tip the shooter's own autolaunch slot already tried
+ *    (Story 3.2: the trough's slots now issue nothing, but keep their place
+ *    so the recover's bound is unchanged);
  * 5. one recover.
  *
  * Throws naming the defect for an empty `slingWiring`/`popWiring` or a ball
@@ -106,9 +129,11 @@ function buildStages(): readonly BallSearchStage[] {
 	const lockDevice = TABLE.lockLaneWiring.device as BallDeviceKey;
 	const entries = Object.entries(TABLE.ballDevices) as Array<[BallDeviceKey, BallDeviceEntry]>;
 
-	// The reverse `servesInto switch -> non-parking device` lookup the
-	// `laneOccupied` guard reads: which non-parking device's own `entry`
-	// equals a parking device's declared `servesInto`.
+	// The reverse `servesInto switch -> non-parking device` lookup: which
+	// non-parking device's own `entry` equals a parking device's declared
+	// `servesInto`. Since Story 3.2 (DW-282) it only VALIDATES the
+	// declaration (an authoring defect throws below); the serving device's
+	// own stages issue nothing, so no guard reads the device it resolves.
 	const nonParkingByEntrySwitch = new Map<string, BallDeviceKey>();
 	for (const [name, device] of entries) {
 		if (device.kind === 'non-parking') {
@@ -118,8 +143,8 @@ function buildStages(): readonly BallSearchStage[] {
 
 	function guardFor(name: BallDeviceKey, device: BallDeviceEntry): StageGuard | undefined {
 		if (name === lockDevice) {
-			// AD-18, phased on AD-8's precedent: the Lock's own slots issue
-			// nothing until Story 3.2 builds the Lock arbiter.
+			// Story 3.2 (AD-18): the Lock's own slots request a Mouth eject from
+			// the Lock arbiter -- never a bare pulse.
 			return { kind: 'lock' };
 		}
 		if (device.kind === 'non-parking') {
@@ -135,7 +160,10 @@ function buildStages(): readonly BallSearchStage[] {
 					`createBallSearch(): ball device "${name}" declares servesInto "${servesInto}", but no non-parking device's own entry matches it (a TABLE authoring defect)`,
 				);
 			}
-			return { kind: 'laneOccupied', nonParkingDevice };
+			// Story 3.2 (DW-282): validated above, but the serving device's own
+			// stages issue nothing -- the recover's answer is the pass's one
+			// serve.
+			return { kind: 'serve' };
 		}
 		return undefined;
 	}
@@ -195,6 +223,8 @@ export interface BallSearchStepResult {
 	readonly coilCommands: readonly CoilCommand[];
 	readonly recoverCommands: readonly RecoverCommand[];
 	readonly bankResetRequests: readonly BankResetRequest[];
+	/** Story 3.2 (AD-18): the Lock stage's Mouth-eject request this tick, if any -- the ball controller hands each to the Lock arbiter. */
+	readonly lockEjectRequests: readonly LockEjectRequest[];
 }
 
 export interface BallSearch {
@@ -205,8 +235,13 @@ export interface BallSearch {
 	 * whatever `ballsInPlay` reads.
 	 */
 	observe(deviceEvents: readonly DeviceEvent[], tick: number): void;
-	/** Advances the pass, if any, against this tick's `GameState`. */
-	step(state: GameState, tick: number): BallSearchStepResult;
+	/**
+	 * Advances the pass, if any, against this tick's `GameState`.
+	 * `pendingMouthEjects` (Story 3.2) is how many Mouth ejects the Lock
+	 * arbiter has scheduled and not yet pulsed: while any is, the quiet count
+	 * holds, and a Lock stage requests an eject only for a ball beyond them.
+	 */
+	step(state: GameState, tick: number, pendingMouthEjects?: number): BallSearchStepResult;
 	/** Clears the timer and schedule for `startBall()` -- never the held set. */
 	reset(): void;
 }
@@ -234,9 +269,11 @@ export function createBallSearch(tuning: ResolvedTuning): BallSearch {
 		stage: BallSearchStage,
 		state: GameState,
 		tick: number,
+		pendingMouthEjects: number,
 		coilCommands: CoilCommand[],
 		recoverCommands: RecoverCommand[],
 		bankResetRequests: BankResetRequest[],
+		lockEjectRequests: LockEjectRequest[],
 	): void {
 		if (stage.kind === 'recover') {
 			recoverCommands.push({ type: 'recover', tick });
@@ -248,12 +285,20 @@ export function createBallSearch(tuning: ResolvedTuning): BallSearch {
 		}
 		if (stage.guard) {
 			if (stage.guard.kind === 'lock') {
+				// Story 3.2 (AD-18, FR-23): a request, never a pulse -- and none
+				// for a ball already scheduled to leave, none while tilted, and
+				// none while any mode publishes a timer.
+				const held = state.machine.deviceSlots[TABLE.lockLaneWiring.device].filter(Boolean).length;
+				const timerRunning = state.modes.some((mode) => mode.timerTicks !== undefined);
+				if (held > pendingMouthEjects && !state.machine.tilt.tilted && !timerRunning) {
+					lockEjectRequests.push({ type: 'lock_eject_requested', tick });
+				}
 				return;
 			}
 			if (stage.guard.kind === 'tilt' && state.machine.tilt.tilted) {
 				return;
 			}
-			if (stage.guard.kind === 'laneOccupied' && state.machine.deviceSlots[stage.guard.nonParkingDevice]?.[0]) {
+			if (stage.guard.kind === 'serve') {
 				return;
 			}
 		}
@@ -288,11 +333,12 @@ export function createBallSearch(tuning: ResolvedTuning): BallSearch {
 		}
 	}
 
-	function step(state: GameState, tick: number): BallSearchStepResult {
+	function step(state: GameState, tick: number, pendingMouthEjects = 0): BallSearchStepResult {
 		const events: SemanticEvent[] = [];
 		const coilCommands: CoilCommand[] = [];
 		const recoverCommands: RecoverCommand[] = [];
 		const bankResetRequests: BankResetRequest[] = [];
+		const lockEjectRequests: LockEjectRequest[] = [];
 
 		const inPlayNow = state.phase === 'game' && state.machine.ballsInPlay > 0;
 		if (inPlayNow && !wasInPlay) {
@@ -302,12 +348,16 @@ export function createBallSearch(tuning: ResolvedTuning): BallSearch {
 
 		if (pass !== null) {
 			const held = heldSince.size > 0;
+			// Story 3.2 (AD-18): a pending Mouth eject holds the count exactly
+			// as a held flipper does -- paused, never reset -- so the Lock's
+			// ejects all land before the next stage falls due.
+			const mouthPending = pendingMouthEjects > 0;
 			// The origin tick itself never counts as quiet (q(O) = 0, task 13's
 			// own clock: "the number of ticks u with origin < u <= t"). Guards
 			// against double-crediting the very tick a fresh origin was just
 			// set on THIS SAME call, whether by the in-play transition above or
 			// by observe()'s own closure fold immediately before it.
-			if (!held && tick > pass.origin) {
+			if (!held && !mouthPending && tick > pass.origin) {
 				pass.quietTicks += 1;
 			}
 
@@ -318,13 +368,13 @@ export function createBallSearch(tuning: ResolvedTuning): BallSearch {
 					if (k === 0) {
 						events.push({ type: 'ball_search_started', tick });
 					}
-					applyStage(stages[k]!, state, tick, coilCommands, recoverCommands, bankResetRequests);
+					applyStage(stages[k]!, state, tick, pendingMouthEjects, coilCommands, recoverCommands, bankResetRequests, lockEjectRequests);
 					pass.nextStageIndex += 1;
 				}
 			}
 		}
 
-		return { events, coilCommands, recoverCommands, bankResetRequests };
+		return { events, coilCommands, recoverCommands, bankResetRequests, lockEjectRequests };
 	}
 
 	function reset(): void {

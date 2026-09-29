@@ -79,6 +79,17 @@ function buildServingSetsByNonParkingEntry(): ReadonlyMap<BallDeviceName, Readon
 
 const SERVING_SETS_BY_NON_PARKING_ENTRY: ReadonlyMap<BallDeviceName, ReadonlySet<BallDeviceName>> = buildServingSetsByNonParkingEntry();
 
+/**
+ * Story 3.2 (AD-6 amended): `true` for a parking device with no declared
+ * `servesInto` -- a device whose eject puts the ball straight back onto open
+ * playfield (the Lock's Mouth) rather than into another device's entry.
+ * Derived from `TABLE.ballDevices`, never a device-name literal.
+ */
+function isReturnToPlay(device: BallDeviceName): boolean {
+	const entry = TABLE.ballDevices[device];
+	return entry.kind === 'parking' && servesIntoOf(entry) === undefined;
+}
+
 /** Applies this tick's device events to `machine`, returning the next `MachineState`. Pure: no I/O, no physics access. */
 export function applyDeviceEvents(machine: MachineState, events: readonly DeviceEvent[]): MachineState {
 	let ballsInPlay = machine.ballsInPlay;
@@ -101,6 +112,13 @@ export function applyDeviceEvents(machine: MachineState, events: readonly Device
 
 	for (const event of events) {
 		if (event.type === 'ball_launched') {
+			ballsInPlay += 1;
+		} else if (event.type === 'device_ball_left' && isReturnToPlay(event.device)) {
+			// Story 3.2 (AD-6 amended): a ball leaving a PARKING device that
+			// serves into no other device -- the Mouth spitting a ball back onto
+			// the playfield -- returns a ball to play. The trough's own
+			// `device_ball_left` (it `servesInto` the shooter lane) is a serve,
+			// counted later by `ball_launched`, and still changes nothing.
 			ballsInPlay += 1;
 		} else if (event.type === 'device_ball_entered') {
 			// Story 2.5, task 3(a): only a PARKING device's entry means "a ball

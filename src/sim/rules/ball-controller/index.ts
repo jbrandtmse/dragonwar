@@ -43,6 +43,14 @@
 // - `./game-over.ts`: the game-over sequence, S2 (its half), S3, the
 //   resolved gate S6 reads and the S8c arm;
 // - `./serve-recovery.ts`: S2 (the stray half and the snapshot), S9-S11.
+//
+// Story 3.2 (AD-18): the Lock arbiter (`./lock-arbiter.ts`) -- the only
+// consumer of `lock_lane_entered` and the only pulser of the Mouth -- runs
+// as its own seam, SL, after S7 and before the S8 drain gate, so a Lock
+// capture is decided before the gate could read it as a drain. The gate
+// ignores the Lock's entries and stays closed while a Mouth eject is
+// pending; S11 hands ball search's Lock-stage requests to the same
+// arbiter. The Mouth sequence's reset-safety check joins S2.
 
 import { createBallSearch } from '../ball-search';
 import { createProductionModeRegistry, type ModeLookup } from '../modes';
@@ -52,6 +60,7 @@ import { ballEndGateOpen, drainBonusCountSteps, endBall, withoutStaleBonusSteps 
 import { discardStaleGameOverSequence, stepGameOverSequence } from './game-over';
 import { armSaveOrAutolaunch, expireBallSave, serveBallSave } from './save-serve';
 import { answerOverflows, discardStaleStrayClear, reportRecovery, stepBallSearch } from './serve-recovery';
+import { arbitrateLockLane, discardStaleMouth } from './lock-arbiter';
 import { handleStartButton } from './start';
 import type { BallController, BallControllerStepResult, ControllerContext, ControllerState, TickOutput } from './shared';
 import type { DeviceEvent } from '../devices';
@@ -133,6 +142,21 @@ export function createBallController(
 	const matchDelayTicks = Math.max(1, shotWindowTicks('matchDelayMs', tuning));
 	const matchRevealTicks = Math.max(1, shotWindowTicks('matchRevealMs', tuning));
 	const attractTicks = Math.max(1, shotWindowTicks('attractMs', tuning));
+	// Story 3.2 (AD-18, AD-3/AD-15): the Mouth's open lead and eject spacing,
+	// resolved once here like every duration above. Both are clamped to at
+	// least 1 tick at this one derivation site, for the reason the three
+	// above are: a `...Ms` of exactly 0 resolves and the dev tuning panel
+	// hot-applies it. A 0 lead would put the first pulse on the request tick
+	// itself, after that tick's scheduler already ran (a request from S11
+	// would then pulse a tick late, and a later request's arithmetic would
+	// drift); a 0 interval would schedule two pulses on one tick, which the
+	// scheduler (one pulse per tick) would then fire a tick apart late. The
+	// clamp only keeps the scheduler's arithmetic sound: it is NOT a safe
+	// spacing. Planning measured about 100 ticks as the floor below which
+	// successive ejects collide (1 tick stalls a ball, 3-10 ticks shove one
+	// back over s_lock_lane), which is why `mouthEjectIntervalMs` is 500.
+	const mouthOpenLeadTicks = Math.max(1, shotWindowTicks('mouthOpenLeadMs', tuning));
+	const mouthEjectIntervalTicks = Math.max(1, shotWindowTicks('mouthEjectIntervalMs', tuning));
 
 	// Story 2.12 (AD-18): the search's own seat -- ONE instance for the life
 	// of this controller (mirrors every other cross-tick component this
@@ -147,6 +171,7 @@ export function createBallController(
 		pendingBonusCountSteps: [],
 		gameOverSequence: null,
 		pendingStrayClear: null,
+		mouth: null,
 	};
 
 	const ctx: ControllerContext = {
@@ -158,6 +183,8 @@ export function createBallController(
 		matchDelayTicks,
 		matchRevealTicks,
 		attractTicks,
+		mouthOpenLeadTicks,
+		mouthEjectIntervalTicks,
 		ballSearch,
 		modes,
 		cs,
@@ -172,10 +199,11 @@ export function createBallController(
 		ballSearch.observe(deviceEvents, tick);
 
 		let nextState = state;
-		const out: TickOutput = { events: [], coilCommands: [], ballWillStartEvents: [], recoverCommands: [], bankResetRequests: [], modeEvents: [] };
+		const out: TickOutput = { events: [], coilCommands: [], ballWillStartEvents: [], recoverCommands: [], bankResetRequests: [], modeEvents: [], showCommands: [] };
 
 		drainBonusCountSteps(ctx, nextState, tick, out); // S1 (reads the INPUT phase)
 		discardStaleGameOverSequence(ctx, tick); // S2
+		discardStaleMouth(ctx, tick); // S2 (Story 3.2: the Mouth sequence's reset-safety)
 		const pendingStrayClearAtStart = discardStaleStrayClear(ctx, tick); // S2 + the DW-269 snapshot
 		nextState = stepGameOverSequence(ctx, nextState, tick, out); // S3
 		nextState = expireBallSave(ctx, nextState, tick); // S4
@@ -184,8 +212,14 @@ export function createBallController(
 		nextState = started.state;
 		const newGameStartedThisTick = started.newGameStartedThisTick;
 		nextState = armSaveOrAutolaunch(ctx, nextState, deviceEvents, tick, out); // S7
+		const arbitrated = arbitrateLockLane(ctx, nextState, deviceEvents, machineReport, tick, out); // SL (Story 3.2)
+		nextState = arbitrated.state;
+		// A Mouth pulse issued THIS tick still counts as pending for the gate:
+		// the spat ball's own `device_ball_left` (its `ballsInPlay` +1) only
+		// reaches rules on the next tick (AD-4).
+		const mouthEjectPending = ctx.cs.mouth !== null || arbitrated.mouthPulsedThisTick;
 
-		if (ballEndGateOpen(nextState, deviceEvents, machineReport, newGameStartedThisTick)) {
+		if (ballEndGateOpen(nextState, deviceEvents, machineReport, newGameStartedThisTick, mouthEjectPending)) {
 			// S8a: a live save re-serves instead -- the EARLY RETURN, which
 			// skips S9-S12 exactly as the monolith did.
 			if (serveBallSave(ctx, nextState, tick, out)) {
@@ -197,12 +231,13 @@ export function createBallController(
 					recoverCommands: out.recoverCommands,
 					bankResetRequests: out.bankResetRequests,
 					modeEvents: out.modeEvents,
+					showCommands: out.showCommands,
 				};
 			}
 			nextState = endBall(ctx, nextState, tick, out); // S8b-S8d
 		}
 
-		reportRecovery(ctx, nextState, pendingStrayClearAtStart, machineReport, tick, out); // S9
+		nextState = reportRecovery(ctx, nextState, pendingStrayClearAtStart, machineReport, tick, out); // S9
 		answerOverflows(machineReport, tick, out); // S10
 		stepBallSearch(ctx, nextState, tick, out); // S11
 
@@ -214,6 +249,7 @@ export function createBallController(
 			recoverCommands: out.recoverCommands,
 			bankResetRequests: out.bankResetRequests,
 			modeEvents: out.modeEvents,
+			showCommands: out.showCommands,
 		};
 	}
 

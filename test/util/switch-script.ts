@@ -21,7 +21,7 @@ import { createRules, type ModeEvent } from '../../src/sim/rules';
 import { resolveTuning, type ResolvedTuning } from '../../src/sim/table/tuning';
 import type { BallWillStartEvent } from '../../src/sim/contracts/events';
 import type { GameAdjustments } from '../../src/sim/contracts/replay';
-import type { CoilCommand, GameState, MachineReport, RecoverCommand, SemanticEvent, SwitchEvent, SwitchName } from '../../src/sim/table/names';
+import type { CoilCommand, GameState, MachineReport, RecoverCommand, SemanticEvent, ShowCommand, SwitchEvent, SwitchName } from '../../src/sim/table/names';
 
 interface ScheduledStep {
 	readonly switch: SwitchName;
@@ -199,6 +199,8 @@ export interface RunRulesScriptResult {
 	readonly recoverCommands: readonly RecoverCommand[];
 	/** Story 2.7, task 12: every `ModeEvent` (`RulesStepResult.modeEvents`) across the whole run, in tick order -- surfaced so a headless test can observe `lanes_completed` (AC 5) without touching `sim/loop`. */
 	readonly modeEvents: readonly ModeEvent[];
+	/** Story 3.2: every presentation command `rules.step()` returned (`RulesStepResult.commands` -- the Lock arbiter's `show_dragon_mouth_open`), across the whole run, in tick order. */
+	readonly commands: readonly ShowCommand[];
 }
 
 /**
@@ -288,6 +290,7 @@ export function runRulesScript(script: readonly SwitchEvent[], options: RunRules
 	const coilCommands: CoilCommand[] = [];
 	const recoverCommands: RecoverCommand[] = [];
 	const modeEvents: ModeEvent[] = [];
+	const commands: ShowCommand[] = [];
 	for (let tick = 1; tick <= options.durationTicks; tick++) {
 		const machineReport = options.machineReports?.get(tick);
 		const result = machineReport === undefined ? rules.step(state, switchEventsByTick.get(tick) ?? [], tick) : rules.step(state, switchEventsByTick.get(tick) ?? [], tick, machineReport);
@@ -298,7 +301,8 @@ export function runRulesScript(script: readonly SwitchEvent[], options: RunRules
 		coilCommands.push(...result.coilCommands);
 		recoverCommands.push(...result.recoverCommands);
 		modeEvents.push(...result.modeEvents);
+		commands.push(...result.commands);
 	}
 
-	return { finalState: state, statesByTick, events, coilCommands, recoverCommands, modeEvents };
+	return { finalState: state, statesByTick, events, coilCommands, recoverCommands, modeEvents, commands };
 }

@@ -119,11 +119,14 @@ describe('sim/rules/ball-search.ts -- AC 1: the search starts on its bound and w
 		expect(pulseAt(O + BALL_SEARCH_TICKS + 3 * BALL_SEARCH_STEP_TICKS)).toEqual([POP_COILS[1]]);
 		expect(pulseAt(O + BALL_SEARCH_TICKS + 4 * BALL_SEARCH_STEP_TICKS)).toEqual([POP_COILS[2]]);
 		expect(pulseAt(O + BALL_SEARCH_TICKS + 5 * BALL_SEARCH_STEP_TICKS), 'the bank-reset slot never pulses the coil directly -- it only requests').toEqual([]);
-		expect(pulseAt(O + BALL_SEARCH_TICKS + 6 * BALL_SEARCH_STEP_TICKS), 'the Lock\'s first slot issues nothing (AD-18 phasing)').toEqual([]);
+		expect(pulseAt(O + BALL_SEARCH_TICKS + 6 * BALL_SEARCH_STEP_TICKS), 'the Lock\'s first slot pulses nothing -- the Lock holds no ball, so it requests no Mouth eject either (Story 3.2)').toEqual([]);
 		expect(pulseAt(O + BALL_SEARCH_TICKS + 7 * BALL_SEARCH_STEP_TICKS), 'the Lock\'s second slot issues nothing').toEqual([]);
 		expect(pulseAt(O + BALL_SEARCH_TICKS + 8 * BALL_SEARCH_STEP_TICKS)).toEqual([SHOOTER_PULSE_COIL]);
-		expect(pulseAt(O + BALL_SEARCH_TICKS + 9 * BALL_SEARCH_STEP_TICKS), 'the shooter lane reads empty throughout, so both trough slots fire').toEqual([TROUGH_EJECT_COIL]);
-		expect(pulseAt(O + BALL_SEARCH_TICKS + 10 * BALL_SEARCH_STEP_TICKS)).toEqual([TROUGH_EJECT_COIL]);
+		// Story 3.2 (DW-282): the trough slots keep their place in the schedule
+		// but issue nothing -- the recover's own answer is the pass's one serve
+		// (pinned in this file's AC 3 block and in test/rules-lock-arbiter.test.ts).
+		expect(pulseAt(O + BALL_SEARCH_TICKS + 9 * BALL_SEARCH_STEP_TICKS), 'the first trough slot issues nothing (DW-282)').toEqual([]);
+		expect(pulseAt(O + BALL_SEARCH_TICKS + 10 * BALL_SEARCH_STEP_TICKS), 'the second trough slot issues nothing (DW-282)').toEqual([]);
 
 		// The devices layer's OWN merged coilCommands carry the bank reset one
 		// tick after the request (AD-19's next-tick lifecycle forwarding).
@@ -212,7 +215,10 @@ describe('sim/rules/ball-search.ts -- AC 3: the recover\'s rules-side answers', 
 
 		expect(result.events.filter((e) => e.type === 'ball_search_started'), 'one pass, at O+15000; none through O+33751').toEqual([{ type: 'ball_search_started', tick: O + BALL_SEARCH_TICKS }]);
 		expect(result.recoverCommands, 'the search itself issues the one RecoverCommand this report answers').toEqual([{ type: 'recover', tick: trueRecoverTick }]);
-		expect(result.coilCommands.filter((c) => c.tick === O + 17250), 'the same instrument\'s positive: the lane was empty at the first trough slot, so it served').toEqual([{ type: 'coil', coil: TROUGH_EJECT_COIL, action: 'pulse', tick: O + 17250 }]);
+		// Story 3.2 (DW-282): the first trough slot no longer serves; the same
+		// instrument's positive is the shooter slot's own pulse at O+17000.
+		expect(result.coilCommands.filter((c) => c.tick === O + 17250), 'the first trough slot issues nothing (DW-282)').toEqual([]);
+		expect(result.coilCommands.filter((c) => c.tick === O + 17000), 'the same instrument\'s positive: the shooter slot still pulses').toEqual([{ type: 'coil', coil: SHOOTER_PULSE_COIL, action: 'pulse', tick: O + 17000 }]);
 
 		const beforeReport = result.statesByTick.get(reportTick - 1)!.machine;
 		expect(beforeReport.ballsInPlay, 'the stuck ball is still counted when the report lands').toBe(1);
@@ -276,7 +282,7 @@ describe('sim/rules/ball-search.ts -- AC 4b: non-playfield closures never delay 
 });
 
 describe('sim/rules/ball-search.ts -- AC 5: the failure vocabulary is tolerated, and overflow is answered', () => {
-	it('eject_failed and broken issue no command/event and leave the same GameState.machine reference; device_overflow{bd_trough} answers with one pulse; device_overflow{bd_lock} in the SAME report yields nothing (AD-18)', () => {
+	it('eject_failed and broken issue no command/event and leave the same GameState.machine reference; device_overflow{bd_trough} answers with one pulse; device_overflow{bd_lock} in the SAME report is answered by the Lock arbiter -- a show now, never a bare coil (Story 3.2, DW-174)', () => {
 		const O = 1000;
 		const reportTick = O + 5;
 		const report: MachineReport = {
@@ -301,6 +307,11 @@ describe('sim/rules/ball-search.ts -- AC 5: the failure vocabulary is tolerated,
 		// and could never fail; its `toEqual` claimed reference equality.)
 		const commandsThisTick = result.coilCommands.filter((c) => c.tick === reportTick);
 		expect(commandsThisTick).toEqual([{ type: 'coil', coil: TROUGH_EJECT_COIL, action: 'pulse', tick: reportTick }]);
+		// Story 3.2 (DW-174): the Lock overflow is no longer ignored -- the Lock
+		// arbiter answers it with the Mouth's show on the report tick (its
+		// `c_mouth` follows `mouthOpenLeadMs` later, pinned in
+		// test/rules-lock-arbiter.test.ts), never a bare coil on this tick.
+		expect(result.commands, 'the bd_lock overflow opens the Mouth: one show, on the report tick').toEqual([{ type: 'show', show: 'show_dragon_mouth_open', tick: reportTick }]);
 
 		// No event: rules never re-emit a physics failure (Boundaries; the loop
 		// alone forwards them to FrameOutput.events). The same instrument's
@@ -369,7 +380,8 @@ describe('sim/rules/ball-search.ts -- AC 6: the phase, in-play and tilt gates ho
 		// The I/O row "Tilted": the trough and bank slots are unchanged by tilt
 		// (code review 2026-09-11; previously unasserted).
 		expect(tilted.coilCommands.filter((c) => c.coil === BANK_RESET_COIL), 'the bank reset still lands, merged, at O+16251').toEqual([{ type: 'coil', coil: BANK_RESET_COIL, action: 'pulse', tick: O + 16251 }]);
-		expect(tilted.coilCommands.filter((c) => c.coil === TROUGH_EJECT_COIL && c.tick === O + 17250), 'the first trough slot still serves into the empty lane').toHaveLength(1);
+		// Story 3.2 (DW-281, DW-282): no trough slot serves, tilted or not.
+		expect(tilted.coilCommands.filter((c) => c.coil === TROUGH_EJECT_COIL), 'no trough slot serves under Tilt (DW-281)').toEqual([]);
 
 		const untilted = runRulesScript(launchAt(O), { durationTicks, initialState: midGameState() });
 		expect(untilted.coilCommands.filter((c) => c.tick === O + BALL_SEARCH_TICKS + 8 * BALL_SEARCH_STEP_TICKS)).toEqual([{ type: 'coil', coil: SHOOTER_PULSE_COIL, action: 'pulse', tick: O + BALL_SEARCH_TICKS + 8 * BALL_SEARCH_STEP_TICKS }]);
@@ -476,8 +488,10 @@ describe('sim/rules/ball-search.ts -- AC 4d: the held flipper\'s edge cases (dec
 		expect(pulseAt(O + 26000)).toEqual([POP_COILS[2]]); // c_pop_3
 		expect(pulseAt(O + 26251)).toEqual([BANK_RESET_COIL]); // merged, one tick after the request at O+26250
 		expect(pulseAt(O + 27000)).toEqual([SHOOTER_PULSE_COIL]);
-		expect(pulseAt(O + 27250)).toEqual([TROUGH_EJECT_COIL]);
-		expect(pulseAt(O + 27500)).toEqual([TROUGH_EJECT_COIL]);
+		// Story 3.2 (DW-282): the trough slots issue nothing, but still hold
+		// their place -- the recover lands on its shifted bound regardless.
+		expect(pulseAt(O + 27250)).toEqual([]);
+		expect(pulseAt(O + 27500)).toEqual([]);
 		expect(result.recoverCommands).toEqual([{ type: 'recover', tick: O + 27750 }]);
 	});
 

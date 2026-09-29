@@ -310,6 +310,38 @@ export interface MatchRevealStepEvent {
 }
 
 /**
+ * Story 3.2 (AD-18, AD-9): the Lock arbiter's outcome for a captured
+ * Lock-lane entry that locked the ball -- the ball stays parked in the Lock
+ * and a new ball is served. Payload-complete: `player` is the index into
+ * `GameState.players` whose credit rose, and `credits` is that player's
+ * `lockCredits` AFTER this lock (1 or 2), so presentation never joins this
+ * event to a snapshot.
+ */
+export interface LockLaneLockedEvent {
+	readonly type: 'lock_lane_locked';
+	readonly player: number;
+	readonly credits: number;
+	readonly tick: number;
+}
+
+/**
+ * Story 3.2 (AD-18, AD-9): the Lock arbiter's outcome for every Lock-lane
+ * entry that does not lock -- the ball is spat back out through the Mouth
+ * (or, for a full-device entry, was never parked at all). `credited` is
+ * whether this entry raised the player's credit: `true` when the Lock was
+ * already full of other balls (the credit still counts), `false` when the
+ * entry earns nothing (two credits already, Tilt, or a multiball). `credits`
+ * is the player's `lockCredits` AFTER this entry. Payload-complete (AD-9).
+ */
+export interface LockLaneSpitEvent {
+	readonly type: 'lock_lane_spit';
+	readonly player: number;
+	readonly credits: number;
+	readonly credited: boolean;
+	readonly tick: number;
+}
+
+/**
  * Device-failure vocabulary (AD-9 Conventions): named so the vocabulary
  * exists, even though nothing in Epic 1 emits them. No artifact states a
  * payload beyond the device that failed, so none is invented here.
@@ -375,6 +407,8 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| GameEndedEvent
 	| MatchDrawnEvent
 	| MatchRevealStepEvent
+	| LockLaneLockedEvent
+	| LockLaneSpitEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

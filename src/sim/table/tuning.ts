@@ -334,6 +334,26 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 3.2 (AD-18, AD-3/AD-15): the Mouth's own two paced durations, read
+	 * by the Lock arbiter (`sim/rules/ball-controller/lock-arbiter.ts`) through
+	 * `shotWindowTicks()`. Every Mouth eject is one sequence: one
+	 * `show_dragon_mouth_open`, the first `c_mouth` pulse `mouthOpenLeadMs`
+	 * later, each further pulse `mouthEjectIntervalMs` after the previous.
+	 * Top-level scalars beside `lockCaptureWindowMs`, never nested under
+	 * `hardware` (DW-34).
+	 */
+	mouthOpenLeadMs: entry(
+		1000,
+		"authored: AD-18 requires every Mouth eject to follow show_dragon_mouth_open by mouthOpenLeadMs but no artifact states the figure. An authored placeholder: Story 3.3's Dragon rig must be fully open inside it, and the Story 3.11 playtest owns the value",
+		'unverified',
+	),
+	mouthEjectIntervalMs: entry(
+		500,
+		"authored: no artifact states the spacing between two successive Mouth ejects. Measured 2026-09-29 at Story 3.2's planning (real createMachine() runs, bd_lock ejecting at 300 mm/s from the Mouth pose (170, 460)): two c_mouth pulses in one tick drop a ball through the playfield, 1 tick apart one ball stalls, 3-10 ticks apart the second ball is shoved back over s_lock_lane, and 100 ticks apart the two balls separate by 27.03 mm against a 26.99 mm ball -- so about 100 ticks is the floor. 500 ms sits well above it, pending the Story 3.11 playtest",
+		'unverified',
+	),
+
+	/**
 	 * Story 2.9 (AD-18): the three ball-save durations `machine.ballSave`
 	 * resolves through `shotWindowTicks('<key>Ms', tuning)`. PRD FR-19 names
 	 * the mechanism (enable / timer-start / hurry-up / grace) but states a

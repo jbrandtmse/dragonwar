@@ -455,7 +455,8 @@ export function createLoop(options: CreateLoopOptions): Loop {
 			contactEvents.push(...machineResult.contactEvents);
 			commands.push(...rulesResult.commands);
 			// Story 2.8 (AD-9, AC 1): the lamp DIFF, computed here -- never in
-			// rules (`RulesStepResult.commands` stays `readonly never[]`).
+			// rules (`RulesStepResult.commands` carries show commands only, never a
+			// `LampCommand` -- Story 3.2).
 			// `lampsOf(state, ballSaveHurryUpTicks)` is a pure, whole-projection
 			// recompute every tick;
 			// only a lamp whose `role` OR `step` changed since the previous

@@ -196,5 +196,21 @@ export default {
 			from: { path: '^src/sim/table/' },
 			to: { path: '^src/sim/(physics|rules|loop)/' },
 		},
+		{
+			name: 'lock-lane-entered-only-arbiter',
+			comment:
+				"AD-18 (Story 3.2): the Lock arbiter is the ONLY consumer of lock_lane_entered. Its type " +
+				"lives alone in src/sim/rules/devices/lock-lane-event.ts, which only three files may import: " +
+				"the devices layer that emits it (devices/index.ts), the DeviceEvent union that carries it " +
+				"(devices/events.ts) and the arbiter (ball-controller/lock-arbiter.ts). A type-only import " +
+				"counts as an edge (swc parser, tsPreCompilationDeps false), so a mode naming the type fails " +
+				"here. test/ad18-lock-lane-consumer.test.ts pins the quoted event name to the same files.",
+			severity: 'error',
+			from: {
+				path: '^src/',
+				pathNot: '^src/sim/rules/(devices/index|devices/events|ball-controller/lock-arbiter)\\.ts$',
+			},
+			to: { path: '^src/sim/rules/devices/lock-lane-event\\.ts$' },
+		},
 	],
 };

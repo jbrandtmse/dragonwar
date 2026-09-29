@@ -258,9 +258,18 @@ describe('TABLE.giChannels -- AD-9\'s three architectural channels', () => {
 });
 
 describe('TABLE\'s empty collections -- Design Notes "Scope decisions on the closed unions"', () => {
-	it('flashers and shows are still empty, so their name unions are still never', () => {
+	it('flashers is still empty, so its name union is still never', () => {
 		expect(TABLE.flashers).toEqual({});
-		expect(TABLE.shows).toEqual({});
+	});
+
+	// Story 3.2 (AD-9, AD-18): `shows` gains its first entry, the Mouth-open
+	// show every Mouth eject is preceded by, and `lockLaneWiring` names it so
+	// the Lock arbiter never spells a `show_` literal (AD-16). Story 3.3 adds
+	// the close and hit shows.
+	it('shows holds exactly show_dragon_mouth_open (Story 3.2), and lockLaneWiring.mouthOpenShow names it', () => {
+		expect(Object.keys(TABLE.shows)).toEqual(['show_dragon_mouth_open']);
+		expect(TABLE.lockLaneWiring.mouthOpenShow).toBe('show_dragon_mouth_open');
+		expect(Object.keys(TABLE.shows), 'the wiring names a declared show').toContain(TABLE.lockLaneWiring.mouthOpenShow);
 	});
 });
 

@@ -23,6 +23,7 @@ const EXEMPTION_EXACT_ROOT = path.join(FIXTURES_ROOT, 'exemption-exact');
 const EXEMPTION_NEAR_MISS_ROOT = path.join(FIXTURES_ROOT, 'exemption-near-miss');
 const SWITCH_EVENT_LEAK_ROOT = path.join(FIXTURES_ROOT, 'switch-event-leak');
 const COLOUR_ROOT = path.join(FIXTURES_ROOT, 'colour');
+const LOCK_LANE_LEAK_ROOT = path.join(FIXTURES_ROOT, 'lock-lane-leak');
 const RUN_TIMEOUT_MS = 30_000;
 
 interface RunResult {
@@ -228,6 +229,27 @@ describe('tools/boundary-lint.mjs -- test/fixtures/boundary/table-reaches-physic
 		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
 		expect(stderr).toContain('[sim-table-no-physics-rules-loop]');
 		expect(stderr).toContain('src/sim/table/reaches-physics.ts');
+	});
+});
+
+// Story 3.2 (AD-18, AC 1): the Lock arbiter is the only consumer of
+// `lock_lane_entered`. The fixture places the guarded type at its real path
+// with all three sanctioned importers beside one mode that imports it
+// type-only: only the mode may be reported.
+describe('tools/boundary-lint.mjs -- test/fixtures/boundary/lock-lane-leak (Story 3.2: lock-lane-entered-only-arbiter)', () => {
+	const { status, stderr } = run([LOCK_LANE_LEAK_ROOT]);
+
+	it('exits 2 and reports lock-lane-entered-only-arbiter for a mode that imports lock-lane-event.ts, type-only', () => {
+		expect(status, `expected exit 2, stderr:\n${stderr}`).toBe(2);
+		const lines = stderr.split('\n').filter((line) => line.includes('[lock-lane-entered-only-arbiter]'));
+		expect(lines, `expected exactly one violation, got:\n${stderr}`).toHaveLength(1);
+		expect(lines[0]).toContain('src/sim/rules/modes/leaks-lock-lane.ts');
+	});
+
+	it('never reports the three sanctioned importers (the devices layer, the DeviceEvent union, the arbiter)', () => {
+		expect(stderr).not.toContain('src/sim/rules/devices/index.ts');
+		expect(stderr).not.toContain('src/sim/rules/devices/events.ts');
+		expect(stderr).not.toContain('src/sim/rules/ball-controller/lock-arbiter.ts');
 	});
 });
 

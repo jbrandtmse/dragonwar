@@ -146,13 +146,25 @@ export function ballEndGateOpen(
 	deviceEvents: readonly DeviceEvent[],
 	machineReport: MachineReport,
 	newGameStartedThisTick: boolean,
+	mouthEjectPending: boolean,
 ): boolean {
+	// Story 3.2 (AD-6 amended, DW-221): a Lock capture is not a drain. The
+	// Lock (`TABLE.lockLaneWiring.device`) is a parking device, so its entry
+	// still takes the ball out of play (`applyDeviceEvents()`), but it never
+	// opens this gate -- the Lock arbiter (`./lock-arbiter.ts`) decides what
+	// the capture means: a lock serves a new ball, a spit returns this one.
 	const parkingEntryThisTick = deviceEvents.some(
-		(event) => event.type === 'device_ball_entered' && TABLE.ballDevices[event.device].kind === 'parking',
+		(event) =>
+			event.type === 'device_ball_entered' &&
+			event.device !== TABLE.lockLaneWiring.device &&
+			TABLE.ballDevices[event.device].kind === 'parking',
 	);
 	return (
 		!newGameStartedThisTick &&
 		machineReport.recovered === null &&
+		// Story 3.2 (AD-6 amended): a ball waiting to be spat by the Mouth is
+		// still the player's ball, so no drain ends the ball meanwhile.
+		!mouthEjectPending &&
 		state.phase === 'game' &&
 		parkingEntryThisTick &&
 		state.machine.ballsInPlay === 0

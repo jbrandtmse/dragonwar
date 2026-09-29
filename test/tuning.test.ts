@@ -62,6 +62,9 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'loopWindowMs',
 			'rampWindowMs',
 			'lockCaptureWindowMs',
+			// Story 3.2 (AD-18, AD-15): the Mouth's open lead and eject spacing.
+			'mouthOpenLeadMs',
+			'mouthEjectIntervalMs',
 			// Story 2.7 (AD-15): the first scoring value in the file.
 			'skillShotAward',
 			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.

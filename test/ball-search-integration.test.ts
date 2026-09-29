@@ -279,10 +279,18 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			const searchStartedTicks: number[] = [];
 			const bankResetContactTicks: number[] = [];
 			let ejectFailedShooterTick = -1;
+			// Story 3.2 (DW-282): the search's trough stages issue nothing, so the
+			// pass's one serve is the recover's own answer: the recover parks the
+			// cup ball in the trough at S+2751 (3 -> 4) and the serve it answers
+			// with drops the trough at S+2752 (4 -> 3). `prevTroughClosed` finds
+			// the first DROP after the launch, wherever it lands.
+			let prevTroughClosed = 3;
 			let troughDropTick = -1;
 			let troughDropShooterSlots: readonly boolean[] | null = null;
 			let troughDropBallsInPlay = -1;
 			let troughAtS2501 = -1;
+			let troughAtS2751 = -1;
+			let troughRulesAtS2751 = -1;
 			const missingEvents: { readonly count: number; readonly tick: number }[] = [];
 			let ballsLenBeforeMissing = -1;
 			let ballsLenAfterMissing = -1;
@@ -327,13 +335,18 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 					}
 				}
 				const troughClosed = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
-				if (troughDropTick === -1 && troughClosed === 2) {
+				if (troughDropTick === -1 && troughClosed < prevTroughClosed) {
 					troughDropTick = tick;
 					troughDropShooterSlots = out.snapshot.mechanisms.devices.bd_shooter.slots;
 					troughDropBallsInPlay = out.snapshot.game.machine.ballsInPlay;
 				}
+				prevTroughClosed = troughClosed;
 				if (tick === S + 2501) {
 					troughAtS2501 = troughClosed;
+				}
+				if (tick === S + 2751) {
+					troughAtS2751 = troughClosed;
+					troughRulesAtS2751 = out.snapshot.game.machine.deviceSlots.bd_trough.filter(Boolean).length;
 				}
 				const missing = out.events.find((e) => e.type === 'ball_missing');
 				if (missing && missing.type === 'ball_missing') {
@@ -361,12 +374,11 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			// (`sim/rules/ball-controller/accounting.ts`'s `deriveDeviceSlots()`), never
 			// read anywhere in this file before this pass -- CR-1's own named
 			// gap ("test/physics-recover-trough.test.ts observes the physics
-			// getter over the very array recover() wrote"; this recover, at
-			// S+2751, shares no tick with any eject -- the search's own
-			// trough serve already happened 500 ticks earlier, at S+2251 --
-			// so a missing switch edge out of `recover()` would leave THIS
-			// stuck at 2 forever, an undisguised divergence from physics' own
-			// 3, unlike a paired recover+eject on the same slot).
+			// getter over the very array recover() wrote"). Story 3.2 (DW-282):
+			// the recover (S+2751) and the serve that answers it (S+2752) still
+			// share no tick, so `troughRulesAtS2751` below is the direct pin: a
+			// missing switch edge out of `recover()` would leave the rules view
+			// at 3 while physics reads 4.
 			const troughUntilPlungeRulesDerived = out.snapshot.game.machine.deviceSlots.bd_trough.filter(Boolean).length;
 
 			// The plunge (a 1200-tick hold -- full strength, the same idiom
@@ -405,14 +417,19 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 			expect(searchStartedTicks, 'exactly one ball_search_started, at S = O+15000, none earlier').toEqual([S]);
 			expect(bankResetContactTicks, 'AC 7: exactly one bank_reset contact, at S+1252').toEqual([S + 1252]);
 			expect(ejectFailedShooterTick, "eject_failed { device: 'bd_shooter' } at S+2001").toBe(S + 2001);
-			expect(troughDropTick, 'the trough 3->2 drop lands at S+2251').toBe(S + 2251);
+			// Story 3.2 (DW-282): the trough stages issue nothing -- the trough
+			// still holds 3 at S+2501 -- and the pass's one serve is the
+			// recover's answer, pulsed at S+2751 and landing at S+2752.
+			expect(troughAtS2501, 'the trough count is still 3 at S+2501 -- the trough stages served nothing (DW-282)').toBe(3);
+			expect(troughAtS2751, 'the recover parks the cup ball in the trough at S+2751: 3 -> 4').toBe(4);
+			expect(troughRulesAtS2751, 'CR-1: the RULES-derived trough count rises with it').toBe(4);
+			expect(troughDropTick, "the one trough drop is the recover answer's own serve, landing at S+2752 (it was S+2251 before DW-282)").toBe(S + 2752);
 			expect(troughDropShooterSlots, 'the served ball arrives in bd_shooter on the SAME tick as the trough drop').toEqual([true]);
-			expect(troughDropBallsInPlay, 'a served arrival is never double-counted (DW-187): ballsInPlay stays 1').toBe(1);
-			expect(troughAtS2501, 'the trough count is still 2 at S+2501').toBe(2);
+			expect(troughDropBallsInPlay, 'a served arrival is never counted (DW-187): ballsInPlay stays 0 after the recover').toBe(0);
 			expect(missingEvents, 'exactly one ball_missing { count: 1 }, at S+2751, in the whole run').toEqual([{ count: 1, tick: S + 2751 }]);
-			expect(ballsLenBeforeMissing, 'two balls (cup + served) exist just before the recover').toBe(2);
-			expect(ballsLenAfterMissing, 'one ball remains after the recover').toBe(1);
-			expect(cupBallGoneAfterMissing, 'the ball that remains is not the cup ball').toBe(true);
+			expect(ballsLenBeforeMissing, 'only the cup ball exists just before the recover -- nothing was served beside it (DW-282)').toBe(1);
+			expect(ballsLenAfterMissing, 'no ball remains on the recover tick; the answer\'s serve spawns on the next').toBe(0);
+			expect(cupBallGoneAfterMissing, 'the cup ball is gone').toBe(true);
 			expect(screenAtMissing, 'ball_missing through the real Backglass fold: no throw, and the score screen stays up -- never mistaken for an end of ball').toBe('score');
 			expect(ballsInPlayAtS2751, 'ballsInPlay reads 0 from S+2751').toBe(0);
 			// Story 2.13 (DW-257, amended expectation): `recover()` now RETURNS
@@ -601,6 +618,12 @@ describe('Integration ACs 2, 4c, 7 -- ball search through a real createLoop (rea
 // drain at S+2577) safely inside the window between the replacement serve
 // (S+2251) and the search's own final recover stage (S+2751) -- so THIS
 // run genuinely has a search pass in flight for the drain to cancel.
+//
+// Story 3.2 (DW-282): the search's trough stages no longer serve (the
+// recover's own answer is a pass's one serve), so the S+2251 lane ball is
+// now served by the dev hatch on the tick the search used to pulse -- the
+// same physics command at the same tick, so every measured figure above
+// stands, and the search pass is still in flight when the drain lands.
 // ---------------------------------------------------------------------------
 describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current ball drains plays as the NEXT ball, never stacked', () => {
 	it(
@@ -623,19 +646,31 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 
 			const S = L + BALL_SEARCH_TICKS;
 
-			// Run to S+2251 (the search's own trough serve into the lane) and a
-			// little past it (S+2300, the Given's own release tick), watching
-			// for the trough's own 3->2 drop en route -- the premise this
-			// route's Given names explicitly.
+			// Run to S+2251 (a trough serve into the lane) and a little past it
+			// (S+2300, the Given's own release tick), watching for the trough's
+			// own 3->2 drop en route -- the premise this route's Given names
+			// explicitly.
+			//
+			// Story 3.2 (DW-282): ball search's trough stages no longer serve, so
+			// the lane ball is served here through the dev hatch
+			// (`loop.pulseCoil`) on the SAME tick the search's first trough stage
+			// used to pulse (S+2250, landing at S+2251) -- the physics commands,
+			// and so the trajectories, are identical to before. The search pass
+			// is still genuinely in flight (it started at S and has run its
+			// stages up to the trough slots), so the cancellation clause below
+			// is still not vacuous.
 			let troughDropTick = -1;
 			while (out.snapshot.tick < S + 2300) {
+				if (out.snapshot.tick === S + 2250) {
+					loop.pulseCoil('c_trough_eject');
+				}
 				out = loop.advance(1, []);
 				const troughClosed = out.snapshot.mechanisms.devices.bd_trough.slots.filter(Boolean).length;
 				if (troughDropTick === -1 && troughClosed === 2) {
 					troughDropTick = out.snapshot.tick;
 				}
 			}
-			expect(troughDropTick, "the premise: the search's own trough serve lands at S+2251").toBe(S + 2251);
+			expect(troughDropTick, 'the premise: the trough serve lands at S+2251').toBe(S + 2251);
 			expect(out.snapshot.balls, 'the premise: two balls exist by S+2300 (the cup ball, and the replacement)').toHaveLength(2);
 			expect(out.snapshot.game.machine.ballsInPlay, 'the premise: the replacement lane ball is never counted as a ball in play').toBe(1);
 			const laneBallId = out.snapshot.balls.find((b) => b.id !== ball1Id)!.id;
@@ -662,8 +697,8 @@ describe('AC 7 -- DW-244 route 2: a lane ball already resting when the current b
 			expect(sawBallEnded, 'ball 1 must genuinely drain on its own, through real contact physics').toBe(true);
 			expect(ballEndedTick, 'the drain lands at S+2577 (measured at this tree, matching the spec\'s own Code Map)').toBe(S + 2577);
 			// The positive this route's own cancellation clause needs: a search
-			// pass was genuinely IN FLIGHT (the trough serve at S+2251 already
-			// fired, from the SAME pass) when this drain landed, strictly
+			// pass was genuinely IN FLIGHT (it started at S and has walked its
+			// stages up to the trough slots) when this drain landed, strictly
 			// before that pass's own final recover stage (S+2751) -- so
 			// `sawMissingAnywhere === false` below is evidence the drain
 			// closure actually cancelled something, not a vacuous absence.

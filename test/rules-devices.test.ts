@@ -837,11 +837,21 @@ describe('sim/rules/ball-controller.ts -- ballsInPlay accounting (AD-6, unchange
 		expect(parked.ballsInPlay).toBe(0);
 	});
 
-	it('device_ball_left never changes the count -- only a launch does', () => {
+	// Story 3.2 (AD-6 amended): narrowed from "device_ball_left never changes
+	// the count" -- a trough serve (bd_trough `servesInto` the shooter lane)
+	// still changes nothing, but the Mouth's eject from bd_lock (no
+	// `servesInto`) returns a ball to play (the paired case below).
+	it('a trough device_ball_left (a serve) never changes the count -- only a launch does', () => {
 		const before = machine({ ballsInPlay: 1 });
 		const after = applyDeviceEvents(before, [{ type: 'device_ball_left', device: 'bd_trough', slot: 3, tick: 1 }]);
 		expect(after.ballsInPlay).toBe(1);
 		expect(after, 'an unchanged count must return the SAME MachineState object, not a copy').toBe(before);
+	});
+
+	it('Story 3.2: a bd_lock device_ball_left (the Mouth spitting a ball onto the playfield) returns a ball to play -- +1', () => {
+		const before = machine({ ballsInPlay: 0 });
+		const after = applyDeviceEvents(before, [{ type: 'device_ball_left', device: 'bd_lock', slot: 2, tick: 1 }]);
+		expect(after.ballsInPlay).toBe(1);
 	});
 
 	it('a ball parking while nothing is in play floors the count at zero, never negative', () => {
@@ -943,14 +953,15 @@ describe('sim/rules/index.ts -- createRules().step() runs on every physics step 
 		expect(result.state.tick).toBe(42);
 		expect(result.events).toEqual([]);
 		// `RulesStepResult.commands` (the PRESENTATION-only channel, AD-9's
-		// Seam Contracts table) stays `readonly never[]` -- vacuous by its own
-		// type, a fact restated at runtime rather than evidence this test
-		// exercised (Story 1.8 sweep, vacuity shape 1). Story 2.4 adds a
+		// Seam Contracts table) carries show commands since Story 3.2 (the Lock
+		// arbiter's Mouth show) -- empty here because nothing reached the Lock,
+		// no longer vacuous by type (it was `readonly never[]` until then).
+		// Story 2.4 adds a
 		// SEPARATE `coilCommands` channel (rules -> physics, never
 		// presentation) -- also empty here, but for a REAL reason: no switch
 		// event and no lifecycle event reached the devices layer at all, so
 		// nothing had cause to pulse a coil.
-		expect(result.commands, 'the presentation-only channel: vacuous by readonly never[], not an AD-5 proof by itself').toEqual([]);
+		expect(result.commands, 'the presentation-only channel: no show, since nothing reached the Lock -- not an AD-5 proof by itself').toEqual([]);
 		expect(result.coilCommands, 'no switch or lifecycle event reached the layer, so nothing pulsed a coil').toEqual([]);
 	});
 
@@ -979,6 +990,6 @@ describe('sim/rules/index.ts -- createRules().step() runs on every physics step 
 			result = rules.step(result.state, [{ type: 'switch', switch: TABLE.dropBankWiring[letter].switch, closed: true, tick: index + 1 }], index + 1);
 		}
 		expect(result.coilCommands).toEqual([{ type: 'coil', coil: 'c_dragon_bank_reset', action: 'pulse', tick: letters.length }]);
-		expect(result.commands, 'the presentation-only channel: vacuous by readonly never[], not itself a proof -- the real assertion is result.coilCommands above').toEqual([]);
+		expect(result.commands, 'the presentation-only channel: no show (a bank completion never opens the Mouth) -- the real assertion is result.coilCommands above').toEqual([]);
 	});
 });

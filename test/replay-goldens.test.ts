@@ -59,8 +59,9 @@
 // `c_trough_eject` the same way, in response to a real `s_start`
 // `InputTransition`), routed through `sim/loop`'s `pendingCommands` exactly
 // like `pulseCoil()`. `RulesStepResult.commands` itself is unaffected -- it
-// stays `readonly never[]`, the presentation-only channel AD-9's Seam
-// Contracts table pins `FrameOutput.commands` to. None of these five goldens
+// is the presentation-only channel AD-9's Seam Contracts table pins
+// `FrameOutput.commands` to (Story 3.2 widened it from `readonly never[]`
+// to the Lock arbiter's show commands; no golden reaches the Lock). None of these five goldens
 // presses `s_start` (they stay in `phase: 'attract'` throughout, per Story
 // 2.5's ball controller, which only acts once a game is in progress), so
 // the coil prologue mechanism they rely on is unaffected either way.

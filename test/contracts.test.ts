@@ -281,6 +281,10 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return `match drawn ${event.number} winners ${event.winners.join(',')}`;
 				case 'match_reveal_step':
 					return `match reveal ${event.step}/${event.steps} shown ${event.shown}`;
+				case 'lock_lane_locked':
+					return `lock locked ${event.player} credits ${event.credits}`;
+				case 'lock_lane_spit':
+					return `lock spit ${event.player} credits ${event.credits} credited ${event.credited}`;
 				default: {
 					// Exhaustiveness: if a new event variant is ever added without a
 					// case above, this line fails `pnpm typecheck`.
@@ -355,6 +359,14 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(describeEvent({ type: 'game_ended', scores: [100, 200], tick: 200 })).toBe('game ended 100,200');
 		expect(describeEvent({ type: 'match_drawn', number: 30, winners: [0, 2], tick: 205 })).toBe('match drawn 30 winners 0,2');
 		expect(describeEvent({ type: 'match_reveal_step', step: 4, steps: 10, shown: 70, tick: 206 })).toBe('match reveal 4/10 shown 70');
+
+		// Story 3.2 (AD-18, AD-9): the Lock arbiter's two outcomes, each with an
+		// executing assertion from the moment it ships -- player, credits and
+		// tick are distinct values so a field swap reddens rather than
+		// typechecks, and `credited` is asserted both ways.
+		expect(describeEvent({ type: 'lock_lane_locked', player: 3, credits: 1, tick: 300 })).toBe('lock locked 3 credits 1');
+		expect(describeEvent({ type: 'lock_lane_spit', player: 2, credits: 1, credited: true, tick: 301 })).toBe('lock spit 2 credits 1 credited true');
+		expect(describeEvent({ type: 'lock_lane_spit', player: 1, credits: 2, credited: false, tick: 302 })).toBe('lock spit 1 credits 2 credited false');
 	});
 });
 

@@ -125,10 +125,11 @@ export function deepFreeze<T>(value: T, visited: WeakSet<object> = new WeakSet()
  * four inlane/outlane, six DRAGON letters and the Lock, each carrying the
  * `subject` wiring that lets both the projection and the placement test
  * derive from this one declaration (DW-149) rather than a second hand-typed
- * list. `flashers` and `shows` stay empty, so their derived name unions are
- * still `never` until a later story populates them (Design Notes, "Scope
- * decisions on the closed unions"). `shots` (Story 2.4, AD-19) is populated
- * with the three declared shots.
+ * list. `flashers` stays empty, so its derived name union is still `never`
+ * until a later story populates it (Design Notes, "Scope decisions on the
+ * closed unions"); Story 3.2 gives `shows` its first entry,
+ * `show_dragon_mouth_open`. `shots` (Story 2.4, AD-19) is populated with the
+ * three declared shots.
  */
 /**
  * Story 2.3 (AD-6, AD-11 "TABLE owns ... wiring", task 1): each DRAGON-bank
@@ -591,12 +592,18 @@ export const TABLE = deepFreeze({
 	 * devices layer owns `bd_lock`'s slot bookkeeping, which is what makes
 	 * the capture-resolution condition expressible at all). The Lock
 	 * arbiter that decides what a `lock_lane_entered` MEANS lives in the
-	 * ball controller (AD-18) and does not exist until Story 3.2 -- this
-	 * layer only resolves whether the closure captured.
+	 * ball controller (AD-18; Story 3.2's
+	 * `sim/rules/ball-controller/lock-arbiter.ts`) -- the devices layer only
+	 * resolves whether the closure captured.
 	 */
 	lockLaneWiring: {
 		switch: 's_lock_lane',
 		device: 'bd_lock',
+		// Story 3.2 (AD-18, AD-9): the show every Mouth eject is preceded by,
+		// `mouthOpenLeadMs` (`tuning.ts`) before its first `c_mouth` pulse.
+		// Named here so the Lock arbiter reaches it through `TABLE`, never a
+		// `show_` literal (AD-16). Story 3.3 adds the close and hit shows.
+		mouthOpenShow: 'show_dragon_mouth_open',
 	},
 
 	/**
@@ -670,10 +677,11 @@ export const TABLE = deepFreeze({
 	// above reference, so `lampsOf()` (`sim/rules/lamps.ts`) and the
 	// placement test (`test/asset-contract.test.ts`) both derive "which
 	// lane/letter/device this insert reports for" from `TABLE` alone.
-	// `flashers` and `shows` stay empty on purpose (Design Notes, "Scope
-	// decisions on the closed unions"): `keyof typeof TABLE.flashers` (etc.)
-	// is `never` until a later story adds entries, so an early flasher/show
-	// name is a type error rather than a runtime string. `shots` (Story 2.4)
+	// `flashers` stays empty on purpose (Design Notes, "Scope decisions on
+	// the closed unions"): `keyof typeof TABLE.flashers` is `never` until a
+	// later story adds entries, so an early flasher name is a type error
+	// rather than a runtime string (`shows` gained its first entry at Story
+	// 3.2, below). `shots` (Story 2.4)
 	// is declared above, alongside the other wiring blocks it is authored
 	// beside.
 	lamps: {
@@ -697,7 +705,12 @@ export const TABLE = deepFreeze({
 		l_ball_save: { channel: 'insert', group: 'lg_inserts', subject: { kind: 'ball_save' } satisfies LampSubject },
 	},
 	flashers: {},
-	shows: {},
+	// Story 3.2 (AD-9, AD-13, AD-18): the first named show -- the Dragon's
+	// mouth opening before every Mouth eject (`lockLaneWiring.mouthOpenShow`).
+	// Story 3.3 adds `show_dragon_mouth_close` and `show_dragon_hit`.
+	shows: {
+		show_dragon_mouth_open: {} as Record<string, never>,
+	},
 
 	// AD-12: every static mesh the placeholder `.blend` exports carries a
 	// `lightgroup` custom property from this closed set, so the eventual

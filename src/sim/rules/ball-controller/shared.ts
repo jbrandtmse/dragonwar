@@ -16,7 +16,7 @@ import type { BankResetRequest, DeviceEvent } from '../devices';
 import type { RecoverCommand } from '../../contracts/commands';
 import type { BallWillStartEvent, BonusCountStepEvent } from '../../contracts/events';
 import type { GameAdjustments } from '../../contracts/replay';
-import type { CoilCommand, CoilName, GameState, MachineReport, SemanticEvent, SwitchName } from '../../table/names';
+import type { CoilCommand, CoilName, GameState, MachineReport, SemanticEvent, ShowCommand, SwitchName } from '../../table/names';
 import type { ResolvedTuning } from '../../table/tuning';
 import type { ModeEvent } from '../modes/events';
 import type { ModeLookup } from '../modes/registry';
@@ -143,6 +143,8 @@ export interface BallControllerStepResult {
 	readonly bankResetRequests: readonly BankResetRequest[];
 	/** Story 3.1 (AD-8): the stop triples of every mode this tick's ball end or Attract transition stopped, in execution order -- `sim/rules/index.ts` places them after the tilt controller's and before the mode stack's in `RulesStepResult.modeEvents`. */
 	readonly modeEvents: readonly ModeEvent[];
+	/** Story 3.2 (AD-9, AD-18): the Lock arbiter's `show_dragon_mouth_open` this tick, if any -- `sim/rules/index.ts` returns it as `RulesStepResult.commands`. */
+	readonly showCommands: readonly ShowCommand[];
 }
 
 export interface BallController {
@@ -175,6 +177,19 @@ export interface PendingBonusCountStep {
 /** Story 2.13 (AD-6 amended, AD-7, AD-18): DW-244's own stray-clear record -- see `ControllerState.pendingStrayClear` below. */
 export interface PendingStrayClear {
 	readonly tick: number;
+}
+
+/**
+ * Story 3.2 (AD-7, AD-18): the pending Mouth eject sequence -- see
+ * `ControllerState.mouth` below. `openTick` is the tick the sequence's one
+ * `show_dragon_mouth_open` was pushed (its reset-safety mark); `dueTicks`
+ * holds each scheduled `c_mouth` pulse, ascending, and loses its head as
+ * each pulse fires. Mutable on purpose: the arbiter
+ * (`./lock-arbiter.ts`) appends and shifts in place.
+ */
+export interface MouthSequence {
+	readonly openTick: number;
+	readonly dueTicks: number[];
 }
 
 /**
@@ -336,6 +351,18 @@ export interface ControllerState {
 	 * `step()`.
 	 */
 	pendingStrayClear: PendingStrayClear | null;
+
+	/**
+	 * Story 3.2 (AD-7, AD-18): the pending Mouth eject sequence, owned by the
+	 * Lock arbiter (`./lock-arbiter.ts`), `null` when nothing is scheduled.
+	 * Bounded (at most the Lock's capacity, 3, ejects) and cleared after its
+	 * last pulse. Never cancelled by a ball end, a Slam or a phase change --
+	 * a ball waiting to be spat is still on the machine -- and discarded only
+	 * if `tick` runs backwards (`discardStaleMouth()`). Closure state, not
+	 * `GameState`, for the reason every field above gives: `machine` is
+	 * hashed into every golden.
+	 */
+	mouth: MouthSequence | null;
 }
 
 /**
@@ -353,6 +380,9 @@ export interface ControllerContext {
 	readonly matchDelayTicks: number;
 	readonly matchRevealTicks: number;
 	readonly attractTicks: number;
+	/** Story 3.2 (AD-18): the Mouth's open lead and eject spacing, resolved once from `mouthOpenLeadMs`/`mouthEjectIntervalMs`. */
+	readonly mouthOpenLeadTicks: number;
+	readonly mouthEjectIntervalTicks: number;
 	readonly ballSearch: BallSearch;
 	/** Story 3.1 (AD-8): the mode registry whose stop hooks the ball end and the Attract transition run -- the stack's own (`sim/rules/index.ts`). */
 	readonly modes: ModeLookup;
@@ -371,6 +401,7 @@ export interface TickOutput {
 	readonly recoverCommands: RecoverCommand[];
 	readonly bankResetRequests: BankResetRequest[];
 	readonly modeEvents: ModeEvent[];
+	readonly showCommands: ShowCommand[];
 }
 
 /**

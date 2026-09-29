@@ -45,12 +45,14 @@ import type {
 	LaneChangePressedEvent,
 	LaneEnteredEvent,
 	LaneName,
-	LockLaneEnteredEvent,
 	PlayfieldSwitchClosedEvent,
 	SlamTiltClosedEvent,
 	SpinnerSpinEvent,
 	TiltBobClosedEvent,
 } from './events';
+// Story 3.2 (AD-18): imported from its own file and deliberately NOT
+// re-exported below -- the Lock arbiter is its only consumer.
+import type { LockLaneEnteredEvent } from './lock-lane-event';
 
 export type {
 	BankResetRequest,
@@ -67,7 +69,6 @@ export type {
 	LaneChangePressedEvent,
 	LaneEnteredEvent,
 	LaneName,
-	LockLaneEnteredEvent,
 	PlayfieldSwitchClosedEvent,
 	ShotBrokenEvent,
 	ShotMadeEvent,

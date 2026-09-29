@@ -64,13 +64,14 @@
 // via `lifecycleEvents`, independent of this module's own wiring.
 
 import { applyDeviceEvents, applyRecovery, createBallController, deriveDeviceSlots } from './ball-controller';
+import { withoutLockLaneEntered } from './ball-controller/lock-arbiter';
 import { advanceBonusMultiplier, creditBonusFromDeviceEvents } from './bonus';
 import { bootDeviceSlots, createDevicesLayer, type BankResetRequest, type DeviceEvent, type DevicesLayer } from './devices';
 import { createModeStack, type ModeEvent } from './modes';
 import { lampsOf } from './lamps';
 import { createTiltController } from './tilt';
 import { TABLE } from '../table/dragonwar';
-import type { GameState, MachineReport, MachineState, RecoverCommand, SemanticEvent, CoilCommand, LampState } from '../table/names';
+import type { GameState, MachineReport, MachineState, RecoverCommand, SemanticEvent, CoilCommand, LampState, ShowCommand } from '../table/names';
 import type { BallLaunchedEvent, BallWillStartEvent } from '../contracts/events';
 import type { GameAdjustments } from '../contracts/replay';
 import { TUNING, type ResolvedTuning } from '../table/tuning';
@@ -102,10 +103,9 @@ export { bootDeviceSlots };
  * Story 2.8 (AD-9): re-exported so `sim/loop/index.ts` reaches the lamp
  * projection through the SAME `../rules` barrel it already uses for
  * `createRules()`/`bootDeviceSlots`, mirroring the re-export above.
- * `RulesStepResult.commands` deliberately stays `readonly never[]` --
- * AD-9 and this story's AC 1 both place the diff (`lampsOf(state,
- * ballSaveHurryUpTicks)` called
- * twice, compared) in `sim/loop`, never here.
+ * AD-9 and Story 2.8's AC 1 both place the lamp diff (`lampsOf(state,
+ * ballSaveHurryUpTicks)` called twice, compared) in `sim/loop`, never here,
+ * so `RulesStepResult.commands` carries no `LampCommand`.
  */
 export { lampsOf };
 export type { LampState };
@@ -123,19 +123,17 @@ export interface RulesStepResult {
 	readonly events: readonly SemanticEvent[];
 	/**
 	 * Presentation-only (AD-9's Seam Contracts table pins
-	 * `FrameOutput.commands` to `(Lamp | Gi | Flasher | Show)Command[]`):
-	 * deliberately still `readonly never[]`, and NOT because there is nothing
-	 * to say. Story 2.8 (code review pass 2 corrected this doc: it used to
-	 * read "the one lamp is never lit", which stopped being true the moment
-	 * `l_insert_left` became fourteen real inserts). AD-9 and Story 2.8's
-	 * AC 1 both place the lamp DIFF in `sim/loop`, not here: rules export the
-	 * pure projection (`lampsOf`, re-exported above), `sim/loop/index.ts`
-	 * calls it after every rules step and pushes a `LampCommand` for each
-	 * lamp whose `role` or `step` changed. `TABLE.flashers`/`shows` are still
-	 * empty and `GiCommand` still has no producer, so this channel stays
-	 * empty for a second, independent reason too.
+	 * `FrameOutput.commands` to `(Lamp | Gi | Flasher | Show)Command[]`).
+	 * Story 3.2 (AD-9, AD-18) widens it from `readonly never[]` to the bound
+	 * `ShowCommand`: the Lock arbiter's `show_dragon_mouth_open`, fed from
+	 * the ball controller's `showCommands`. `sim/loop/index.ts` already
+	 * forwards this channel into `FrameOutput.commands`. It still carries no
+	 * `LampCommand`: AD-9 and Story 2.8's AC 1 place the lamp DIFF in
+	 * `sim/loop` (rules export the pure projection, `lampsOf`, re-exported
+	 * above). `TABLE.flashers` is still empty and `GiCommand` still has no
+	 * producer.
 	 */
-	readonly commands: readonly never[];
+	readonly commands: readonly ShowCommand[];
 	/**
 	 * Story 2.4 (AD-9, AD-4): the rules -> physics coil channel this story
 	 * builds. Separate from `commands` above -- never widens
@@ -339,7 +337,11 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// arrives on). Story 3.1 (DW-209): a `ball_starting` in that output
 		// starts the new ball's modes inside this same call, after its device
 		// fan-out -- no start decision survives the tick outside `GameState`.
-		const modeStackResult = modeStack.step(controllerResult.state, deviceResult.events, controllerResult.events, tick);
+		//
+		// Story 3.2 (AD-18): the stack receives this tick's device events
+		// WITHOUT `lock_lane_entered` -- the Lock arbiter, inside the ball
+		// controller above, is that event's only consumer.
+		const modeStackResult = modeStack.step(controllerResult.state, withoutLockLaneEntered(deviceResult.events), controllerResult.events, tick);
 
 		// Story 2.10 (AD-19, DW-208's fix, part 2): `RulesStepResult.modeEvents`
 		// gains its first production consumer here -- `lanes_completed` does not
@@ -359,7 +361,7 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		return {
 			state: nextState,
 			events,
-			commands: [],
+			commands: controllerResult.showCommands,
 			coilCommands: [...deviceResult.coilCommands, ...tiltResult.coilCommands, ...controllerResult.coilCommands],
 			recoverCommands: controllerResult.recoverCommands,
 			// Story 3.1 (AD-8): in execution order -- the Slam's stop triples

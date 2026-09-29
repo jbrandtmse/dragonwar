@@ -1,7 +1,8 @@
 // DragonWar is licensed GPL-3.0. See LICENSE, NOTICE, and ATTRIBUTIONS.md.
 //
 // Story 3.1 (DW-290): the ball controller's serve-recovery seams, moved
-// unchanged out of the Epic 2 monolith -- the stray clear's reset-safety and
+// out of the Epic 2 monolith (Story 3.2 changes S9's tilted answer, the
+// Lock's overflow and S11's Lock stages; see each) -- the stray clear's reset-safety and
 // snapshot (S2), and Story 2.12's task-14 tail, in order: (a) the recover's
 // own answer (S9), (b) the overflow ejects (S10) and (d) the ball search's
 // own step (S11). `applyRecovery()` (`./accounting.ts`) has already corrected
@@ -10,6 +11,8 @@
 // the SERVE, never the count.
 
 import { TABLE } from '../../table/dragonwar';
+import { endBall } from './ball-end';
+import { mouthEjectPending, pendingMouthEjects, requestMouthEject } from './lock-arbiter';
 import type { ControllerContext, PendingStrayClear, TickOutput } from './shared';
 import type { BallDeviceName, CoilName, GameState, MachineReport } from '../../table/names';
 
@@ -70,7 +73,7 @@ export function reportRecovery(
 	machineReport: MachineReport,
 	tick: number,
 	out: TickOutput,
-): void {
+): GameState {
 	const { cs } = ctx;
 	const strayClearReportDue = pendingStrayClearAtStart !== null && tick === pendingStrayClearAtStart.tick + 1;
 	if (strayClearReportDue && machineReport.recovered !== null) {
@@ -112,16 +115,34 @@ export function reportRecovery(
 		// leave the simulated set, and that is Story 2.12's contract for
 		// every non-stray-clear report.
 		const servedThisTickByStartBall = cs.pendingStrayClear !== null && cs.pendingStrayClear.tick === tick;
-		if (!servedThisTickByStartBall && state.phase === 'game' && !state.machine.deviceSlots.bd_shooter[0]) {
+		if (servedThisTickByStartBall || state.phase !== 'game') {
+			return state;
+		}
+		// Story 3.2 (DW-281, FR-15): under Tilt the recover's answer ends the
+		// ball instead of serving -- `ball_ended { tilted: true }`, then the
+		// rotation or game over, exactly as a tilted drain would. Serving here
+		// handed a tilted player a fresh ball and left the game stalled on it.
+		// Not while a Mouth eject is pending: that spat ball is still the
+		// player's, and its own drain ends the ball through the gate.
+		if (state.machine.tilt.tilted) {
+			return mouthEjectPending(ctx) ? state : endBall(ctx, state, tick, out);
+		}
+		// Story 3.2 (DW-282): the pass's ONLY serve. Ball search's trough
+		// stages issue nothing (`sim/rules/ball-search.ts`), so a closure after
+		// them can no longer leave a second ball in the lane.
+		if (!state.machine.deviceSlots.bd_shooter[0]) {
 			out.coilCommands.push({ type: 'coil', coil: TABLE.ballDevices.bd_trough.ejectCoil as CoilName, action: 'pulse', tick });
 		}
 	}
+	return state;
 }
 
 /**
- * S10: (b) device_overflow on any parking device OTHER than the Lock --
- * AD-18's phasing tolerates a Lock overflow without an eject (decision
- * 1); every other parking device answers with one immediate eject.
+ * S10: (b) device_overflow on any parking device OTHER than the Lock, which
+ * answers with one immediate eject. Story 3.2 (DW-174): the Lock's own
+ * overflow is answered by the Lock arbiter instead (`./lock-arbiter.ts`,
+ * `arbitrateLockLane()`), with one Mouth eject after the show's lead and
+ * only when none is pending -- never a bare `c_mouth` pulse from here.
  */
 export function answerOverflows(machineReport: MachineReport, tick: number, out: TickOutput): void {
 	const lockDevice = TABLE.lockLaneWiring.device as BallDeviceName;
@@ -139,11 +160,20 @@ export function answerOverflows(machineReport: MachineReport, tick: number, out:
 	}
 }
 
-/** S11: (d) the search itself. */
+/**
+ * S11: (d) the search itself. Story 3.2 (AD-18): the search is told how
+ * many Mouth ejects are pending -- it holds its quiet count while any is,
+ * and its Lock stages request an eject only for a ball not already
+ * scheduled -- and each Lock-stage request goes through the arbiter's one
+ * Mouth, never a bare `c_mouth` pulse.
+ */
 export function stepBallSearch(ctx: ControllerContext, state: GameState, tick: number, out: TickOutput): void {
-	const searchResult = ctx.ballSearch.step(state, tick);
+	const searchResult = ctx.ballSearch.step(state, tick, pendingMouthEjects(ctx));
 	out.events.push(...searchResult.events);
 	out.coilCommands.push(...searchResult.coilCommands);
 	out.recoverCommands.push(...searchResult.recoverCommands);
 	out.bankResetRequests.push(...searchResult.bankResetRequests);
+	for (let i = 0; i < searchResult.lockEjectRequests.length; i++) {
+		requestMouthEject(ctx, tick, out);
+	}
 }
