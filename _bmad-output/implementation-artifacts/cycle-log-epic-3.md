@@ -41,3 +41,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-09-29T12:42:01Z	Story 3.0	ci_resolved	story=3.0 run=36569631029 result=success resolved_at=next_plan
 2026-09-29T12:42:01Z	Epic 3	epic_context_compiled	reason=planning_artifact_newer model=opus
 2026-09-29T12:42:02Z	Story 3.0a	stage_spawned	stage=plan spawn_at=2026-09-29T12:42:02Z model=opus agent_name=3-0a-playfield-scoring-plan-1 cycle_iteration=1
+2026-09-29T12:53:35Z	Story 3.0a	story_created	spawn_at=2026-09-29T12:42:02Z model=opus path=_bmad-output/implementation-artifacts/spec-3-0a-playfield-scoring.md build_status=ready-for-dev epic_context=reused warnings=oversized cycle_iteration=1
+2026-09-29T12:53:35Z	Epic 3	spine_updated	ad=AD-8 reason=rule5 by=runner story=3-0a-playfield-scoring lint=ok note=one_score_gate;base_scoring_in_base_mode;FR-15_amended_prd.md+epics.md(DW-246_author_decision)
+2026-09-29T12:53:35Z	Story 3.0a	spec_validated	service_introducing=true integration_ac=present(AC6_backglass_score_row;AC7_real_machine+rules) adr_constrained_acs=AC1-AC5:AD-8/AD-19/AD-7,AC4:AD-5,AC8:AD-15 decision_dependency=none sections_created=none owned_ledger=DW-246,278,283 addressed=3 declined=0 mutates_shared_runtime=false lead_edits=FR-15(prd.md,epics.md),AD-8_amendment second_read=done model=claude-opus-5-5

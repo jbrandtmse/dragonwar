@@ -50,7 +50,7 @@ Numbering is kept from the sources so traceability holds end to end: **FR-N** is
 
 - FR-13: The player can Nudge left, right and up from the keyboard and the ball responds as to a cabinet movement (the ball keeps its inertia while the cabinet moves — never a force on the ball); a Nudge during a cradle can free the ball and disturbs the Tilt bob.
 - FR-14: Repeated or hard Nudges produce per-player Tilt warnings on the Backglass up to the Settings count (default 1); warnings are per player in Hot seat; the bob's continued swing cannot produce two warnings inside the spacing window.
-- FR-15: Exceeding the warning count Tilts: flippers go dead, every ball drains, the End-of-ball bonus is forfeited, the score is kept; during a multiball the ball ends when the last ball drains and the Mode ends with it; the next ball starts normally; Backglass shows TILT.
+- FR-15: Exceeding the warning count Tilts: flippers go dead, every ball drains, the End-of-ball bonus is forfeited, the score is kept; while Tilted nothing scores -- no switch or device award, no DRAGON letter, no bonus credit, no skill-shot award [AMENDED 2026-09-29, Story 3.0a spec gate -- author decision at the Epic 2 decision sheet, 2026-09-28 (DW-246): scoring stops under Tilt; the author asked that FR-15 state it]; during a multiball the ball ends when the last ball drains and the Mode ends with it; the next ball starts normally; Backglass shows TILT.
 - FR-16: Violent cabinet abuse triggers Slam tilt via a tick-windowed nudge count in physics with its own threshold (`slamNudgesPerWindow`, never the bob's) closing `s_slam_tilt`; all players' games end; the Table returns to Attract; the event is inside the replay.
 
 **Standard game flow (§4.4)**
