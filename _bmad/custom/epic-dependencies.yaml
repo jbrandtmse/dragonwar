@@ -66,6 +66,8 @@ epics:
     paths_hint:
       - "src/sim/rules/modes/**"
       - "src/sim/table/**"
+      - "src/sim/rules/**"          # 2026-09-29: Story 3.0a's playfield scoring reaches beyond modes/
+      - "test/replays/**"           # 2026-09-29: tuning changes re-record golden headers; CONTENDED with epic-5
     rationale: >-
       Modes sit on the devices-and-shots layer (2.4), the ball lifecycle (2.5), the DMD (2.6)
       and the Lock in physics (2.3). Heavy overlap with epic-2 on src/sim/rules/.
@@ -93,6 +95,8 @@ epics:
       - "src/presentation/mechanisms/**"
       - "src/presentation/scene/**"
       - "ATTRIBUTIONS.md"
+      - "tools/make-placeholder-blend.py"   # 2026-09-29: Story 5.0a generates the visible placeholder geometry here
+      - "test/replays/**"                   # 2026-09-29: a model change moves the goldens' asset hash; CONTENDED with epic-3
     rationale: >-
       Art passes fit the geometry frozen by epic-2 (2.1) and the DMD (2.6), and are decoupled
       from rules work by the fixed node contract from epic-1 -- each pass replaces placeholder
