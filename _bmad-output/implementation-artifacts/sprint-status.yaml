@@ -75,7 +75,7 @@ development_status:
   epic-3: in-progress
   3-0-epic-2-deferred-cleanup: done
   3-0a-playfield-scoring: done
-  3-1-the-mode-stack: ready-for-dev
+  3-1-the-mode-stack: in-progress
   3-2-locking-balls-and-the-lock-arbiter: backlog
   3-3-the-dragon-s-mouth-and-hit-reaction: backlog
   3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan: backlog
