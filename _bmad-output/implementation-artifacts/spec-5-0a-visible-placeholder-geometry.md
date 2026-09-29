@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-29'
 status: 'done'
 baseline_revision: '3c5c41b61f318b73f45a57ed877cda6402177541'
+baseline_commit: '3c5c41b61f318b73f45a57ed877cda6402177541'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -73,6 +74,7 @@ deferred:
 
   - Every pair of family base colours, and each family against `mat_playfield`'s base colour `(0.45, 0.30, 0.15)`, differs by at least 0.25 in at least one linear-RGB channel.
   - The script fails on a surface that maps to no family.
+  - [AMENDED 2026-09-29 -- see the story change log] **Exception:** a `target`-surface body that is not a drop target (not a `node` in `TABLE.dropBankWiring`) -- at this tree only `col_dragon_bank_backstop` -- takes the walls-and-guides family (`mat_vis_wall`, the wall family's top offset), so a dropped target reveals a different colour behind it (DW-294).
 - **Export contract.** Every `vis_` mesh carries `uv_base` and `uv_lightmap` (TEXCOORD_1), `lightgroup: 'lg_playfield'`, exactly one material, and `playfield_root` as parent.
 - **The follower.**
   - It is stateless: snapshot in, pose out, no interpolation (AD-4).
@@ -229,6 +231,8 @@ deferred:
 - Then hold the left flipper (`KeyboardEvent`) and re-sample `vis_flipper_l`.
 
 ## Spec Change Log
+
+- 2026-09-29 (lead, after dev_complete, Rule 5 apply-and-report, intent-preserving): DW-294. Original: every twin's family comes from its body's `surface`. Amended: a non-drop-target `target`-surface body (`col_dragon_bank_backstop`) takes the walls-and-guides family. Why: the lead's browser measurement (port 5185, in-page rAF sampler) read the drop targets' south faces and the backstop's south face at the identical colour (165,55,45), so a dropped target revealed exactly the colour it hid -- AC 2's promise 'a dropped target is shown down' was not observable to a player. The spine's 'Visible placeholders' convention row is amended in the same commit. AC 1's material assertion for the backstop follows the amended rule.
 
 - 2026-09-29 (lead spec gate, epic-runner-5): Manual-check dev-server port 5180 -> 5185 (Epic 5's assigned port; 5183 is Epic 3's). Added the representative-node rule to AC 4's manual check. Rule 20: the naming/exclusion/family rule this spec defines was written into the spine as the Consistency Conventions row 'Visible placeholders'. Lead measurement recorded at the gate: `assetHash()` (src/sim/loop/replay.ts:150) hashes the collision document only, so AC 3 expects NO golden field to move, not even the header.
 - 2026-09-29 (implement, 5-0a-visible-placeholder-geometry-implement): no path outside the footprint was touched; `src/presentation/mechanisms/.gitkeep` deleted per task 4. Decisions made inside the Always rules, recorded for review:

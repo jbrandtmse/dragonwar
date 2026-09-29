@@ -1854,3 +1854,18 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: low | footprint: out-of-footprint
 - evidence: ball-controller.ts:606,619; ball-search.ts:229-231; drop-bank.ts:64; skill-shot.ts:136; spine AD-7
 - 2026-09-29T10:12:39Z status=routed owner=3-1-the-mode-stack by=retro note=refresh the inventory when the mode stack is restructured
+
+### DW-292: Snapshot plunger.posMm is hard-wired 0 (src/sim/physics/plunger.ts:100-104), so vis_plunger and any plunger art cannot show travel until physics publishes it
+- source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: out-of-footprint
+- evidence: plunger.ts:100-104 returns { posMm: 0, holdTicks }; Story 5.0a's vis_plunger follows posMm faithfully but is static in real play; 5.4 AC1 'plunger travel' depends on it; src/sim is outside Epic 5
+- 2026-09-29T11:14:24Z status=routed owner=burndown by=harvest note=src/sim work Epic 5 cannot do; re-own to a sim-owning story at the burn-down gate
+
+### DW-293: src/host/boot.ts's per-frame syncMechanisms wiring has no automated test; deleting the call, or moving resolveMechanismNodes below the latestSnapshot guard, leaves every test green
+- source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: boot.ts:356; boot.ts is allowlisted unreached in test/module-coverage.test.ts; only the lead's AC4 flipper-hold browser check falsifies it
+- 2026-09-29T11:14:25Z status=open owner=5-0a-visible-placeholder-geometry by=harvest note=QA to add the cheap partial (missing vis_flipper_l rejects the first frame naming it) or the lead's smoke closes it
+
+### DW-294: vis_dragon_bank_backstop takes the target family colour and top height under the surface-to-family rule and sits 8 mm behind the six drop targets, so a dropped target may be barely visible
+- source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: col_dragon_bank_backstop surface=target x202.4-286.4 y708-723 z0-50; targets y700-708 same red, same 52 mm top; AC2 promises a dropped target is shown down
+- 2026-09-29T11:14:27Z status=open owner=5-0a-visible-placeholder-geometry by=harvest note=lead measures in the browser before prescribing; fix (backstop to wall family) is intent-preserving for AC2
