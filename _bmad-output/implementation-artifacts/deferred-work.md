@@ -680,6 +680,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-08-30T05:52:58Z status=escalated owner=burndown by=cr note=cr disposition: severity is real but every fix is out of this stage's reach; the compensating gate (lead's dual-path browser smoke, AC 5's own build-side leg) is scheduled and still pending-author. Decide at the decision sheet whether Epic 1 accepts stub-only DOM evidence or funds a real test host.
 - 2026-08-30T11:10:25Z status=routed owner=6-6-the-browser-matrix-and-the-feel-ritual-on-both-paths by=merge_gate note=Author routes to Story 6.6. A real-runtime DOM test host for host UI belongs with the browser matrix; jsdom stays a forbidden new package
 - 2026-09-07T21:31:56Z occurrence=2-8-inserts-in-the-held-colour-grammar
+- 2026-09-29T11:37:17Z occurrence=5-0a-visible-placeholder-geometry
 
 ### DW-101: The dev tuning panel and the full 31 KB text of tuning.ts ship in the default-path production bundle, because boot.ts imports them statically
 - source: spec-1-9-dev-tuning-panel-and-the-first-feel-ritual.md | severity: low | fix-risk: med | footprint: in-story
@@ -1794,6 +1795,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: epic-2-retro-2026-09-28.md | severity: high | fix-risk: med | footprint: out-of-footprint
 - evidence: public/assets/dragonwar.glb node list; test/shot-map-legibility.test.ts:18-19; browser screenshots 2026-09-28
 - 2026-09-29T10:12:36Z status=routed owner=5-0a-visible-placeholder-geometry by=retro note=author decision: a placeholder-geometry story at the head of Epic 5; its visible flipper and plunger half overlaps DW-249 (5.4)
+- 2026-09-29T11:38:52Z status=resolved-by:5-0a-visible-placeholder-geometry by=adjudication note=glb now carries 87 copied vis_ twins+vis_plunger; test/placeholder-geometry.test.ts pins set/pose/family; browser-sampled 2026-09-29
 
 ### DW-280: tick is never reset at game start, against AD-3: since Story 2.13 made a second game possible, it inherits game 1's tick and rng and cannot be replayed or hashed standalone
 - source: epic-2-retro-2026-09-28.md | severity: high | fix-risk: med | footprint: out-of-footprint
@@ -1864,8 +1866,10 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: in-story
 - evidence: boot.ts:356; boot.ts is allowlisted unreached in test/module-coverage.test.ts; only the lead's AC4 flipper-hold browser check falsifies it
 - 2026-09-29T11:14:25Z status=open owner=5-0a-visible-placeholder-geometry by=harvest note=QA to add the cheap partial (missing vis_flipper_l rejects the first frame naming it) or the lead's smoke closes it
+- 2026-09-29T11:38:52Z status=resolved-by:5-0a-visible-placeholder-geometry by=adjudication note=test/boot-mechanisms-wiring.test.ts pins call presence+order (6 mutations); residual never-runs case is DW-100 (occurrence appended)
 
 ### DW-294: vis_dragon_bank_backstop takes the target family colour and top height under the surface-to-family rule and sits 8 mm behind the six drop targets, so a dropped target may be barely visible
 - source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: in-story
 - evidence: col_dragon_bank_backstop surface=target x202.4-286.4 y708-723 z0-50; targets y700-708 same red, same 52 mm top; AC2 promises a dropped target is shown down
 - 2026-09-29T11:14:27Z status=open owner=5-0a-visible-placeholder-geometry by=harvest note=lead measures in the browser before prescribing; fix (backstop to wall family) is intent-preserving for AC2
+- 2026-09-29T11:38:53Z status=resolved-by:5-0a-visible-placeholder-geometry by=adjudication note=backstop now mat_vis_wall 50mm top; placeholder-geometry DW-294 case, mutation red; spec+spine amended

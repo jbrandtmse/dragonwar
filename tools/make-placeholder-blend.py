@@ -1585,7 +1585,12 @@ def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from
 #     drain-edge walls under the apron);
 #   - family: taken from the body's own `surface`, which the collision
 #     document also carries, so the test can check it independently. A
-#     surface that maps to no family FAILS this script.
+#     surface that maps to no family FAILS this script. [AMENDED 2026-09-29,
+#     DW-294] One exception: a `target`-surface body that is NOT a drop
+#     target (not one of the bank's own `col_dragon_<letter>` bodies, the
+#     `node`s of `TABLE.dropBankWiring`) -- at this tree only
+#     `col_dragon_bank_backstop` -- takes the wall family, so a dropped
+#     target reveals a different colour behind it instead of the same red.
 #
 # None of this touches a `col_`/`sw_` object, so `dragonwar.collision.json`,
 # `assetHash` and every replay golden stay byte-identical (AD-15: `assetHash`
@@ -1724,10 +1729,12 @@ def _new_twin_object(name, mesh, parent, location_m=(0.0, 0.0, 0.0)):
 	return obj
 
 
-def add_visible_twins(playfield_root, excluded_names):
+def add_visible_twins(playfield_root, excluded_names, drop_target_names):
 	"""Story 5.0a's twin pass -- see the block comment above. Must run after
-	every `col_` object exists. Returns the new `vis_` objects (the dragon
-	twin included, the plunger not)."""
+	every `col_` object exists. `drop_target_names` is the set of the bank's
+	own drop-target `col_` names (the DW-294 family exception). Returns
+	`(twins, materials)`: the new `vis_` objects (the dragon twin included,
+	the plunger not) and the family -> material map."""
 	_check_vis_colour_separation()
 	bpy.context.view_layer.update()  # matrix_world of every col_ object is current
 
@@ -1738,6 +1745,7 @@ def add_visible_twins(playfield_root, excluded_names):
 
 	twins = []
 	dragon_sources = []
+	seen_drop_targets = set()
 	sources = sorted(
 		(obj for obj in bpy.data.objects if obj.name.startswith('col_') and obj.type == 'MESH'),
 		key=lambda o: o.name,
@@ -1752,6 +1760,11 @@ def add_visible_twins(playfield_root, excluded_names):
 		family = VIS_FAMILY_BY_SURFACE.get(surface)
 		if family is None:
 			raise RuntimeError(f'[make-placeholder-blend] "{src.name}" has surface "{surface}", which maps to no visible family')
+		if family == 'target':
+			if src.name in drop_target_names:
+				seen_drop_targets.add(src.name)
+			else:
+				family = 'wall'  # DW-294: a static target-surface body (the bank backstop) is drawn as a guide
 		if family == 'dragon':
 			dragon_sources.append(src)
 			continue
@@ -1779,6 +1792,11 @@ def add_visible_twins(playfield_root, excluded_names):
 		_finish_twin_mesh(mesh, materials[family])
 		twins.append(_new_twin_object('vis_' + src.name[len('col_'):], mesh, playfield_root, location_m))
 
+	if seen_drop_targets != set(drop_target_names):
+		raise RuntimeError(
+			f'[make-placeholder-blend] drop targets {sorted(set(drop_target_names) - seen_drop_targets)} '
+			'are not visible surface: target bodies -- the DW-294 family exception would misfire',
+		)
 	if not dragon_sources:
 		raise RuntimeError('[make-placeholder-blend] no surface: dragon body found for vis_dragon')
 	merged = bmesh.new()
@@ -3661,7 +3679,14 @@ def main():
 	# plunger rod -- see add_visible_twins()'s own block comment. Runs here,
 	# after every col_ object above exists. col_playfield's visual is
 	# vis_playfield; col_glass belongs to Story 5.3. ----
-	vis_twins, vis_materials = add_visible_twins(playfield_root, {col_playfield.name, col_glass.name})
+	# The drop targets are the bank's own col_dragon_<letter> bodies authored
+	# above from DRAGON_LETTERS (the same names TABLE.dropBankWiring's `node`s
+	# carry -- test/placeholder-geometry.test.ts checks the two agree).
+	vis_twins, vis_materials = add_visible_twins(
+		playfield_root,
+		{col_playfield.name, col_glass.name},
+		{f'col_dragon_{letter}' for letter in DRAGON_LETTERS},
+	)
 	vis_plunger = add_visible_plunger(playfield_root, vis_materials['plunger'])
 
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):

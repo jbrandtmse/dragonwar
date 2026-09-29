@@ -22,6 +22,9 @@
 //     face (the z-fighting the offset exists to prevent);
 //   - family material from `surface`, TEXCOORD_1, `lg_playfield`, parent
 //     `playfield_root`; the flipper twins' origins at the loader's pivots;
+//     [AMENDED 2026-09-29, DW-294] except that a `target`-surface body which
+//     is not a drop target (not a `node` of `TABLE.dropBankWiring`) takes the
+//     wall family, so a dropped target reveals a different colour behind it;
 //   - the nine family colours (and each against `mat_playfield`) at least
 //     0.25 apart in some linear-RGB channel.
 //
@@ -29,8 +32,9 @@
 // `vis_post_sling_l` inside the glb JSON chunk reddens the missing-twin case;
 // shifting one twin's accessor `max` reddens the pose case; setting
 // `mat_vis_post`'s base colour equal to `mat_vis_wall`'s reddens the colour
-// case; lowering one sling twin's accessor top onto the wall family's 50 mm
-// reddens the coplanar-top case.
+// case; lowering `vis_post_divider_l_hi`'s accessor top from 0.053 to 0.050
+// reddens the coplanar-top case; setting `vis_dragon_bank_backstop` back to
+// `mat_vis_target` reddens the DW-294 case.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -45,7 +49,7 @@ const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.gl
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const REPLAYS_DIR = path.resolve(__dirname, 'replays');
 
-/** `tools/make-placeholder-blend.py`'s `WALL_H_MM`: the height every twin is capped at before its family offset. Mirrored, because the collision document does not carry it -- the 50 mm guides' own `zHighMm` is the independent witness below. */
+/** `tools/make-placeholder-blend.py`'s `WALL_H_MM`: the height every twin is capped at before its family offset. Mirrored, because the collision document does not carry it -- a wrong mirror reddens the cap case below on the 400 mm perimeter/lane walls (their capped tops would sit below it, or more than MAX_TOP_OFFSET_MM above it). */
 const WALL_H_MM = 50;
 const MAX_TOP_OFFSET_MM = 3;
 const XY_TOLERANCE_MM = 0.01;
@@ -72,6 +76,8 @@ const FAMILY_BY_SURFACE: Readonly<Record<string, string>> = {
 	ramp: 'ramp',
 };
 const FAMILIES = ['wall', 'post', 'target', 'bumper', 'sling', 'flipper', 'dragon', 'ramp', 'plunger'] as const;
+/** The drop targets, from the table's own wiring -- never a hard-coded name (DW-294's exception is "a target-surface body that is not one of these"). */
+const DROP_TARGET_NODES: ReadonlySet<string> = new Set(Object.values(TABLE.dropBankWiring).map((wiring) => wiring.node));
 
 interface Vec3 {
 	readonly x: number;
@@ -108,6 +114,14 @@ interface CollisionNode {
 	readonly name: string;
 	readonly surface: string;
 	readonly bboxMm: BoxMm;
+}
+
+/** The spec's family rule: the surface's family, except that a target-surface body which is not a drop target takes the wall family (DW-294). */
+function familyOf(node: CollisionNode): string | undefined {
+	if (node.surface === 'target' && !DROP_TARGET_NODES.has(node.name)) {
+		return 'wall';
+	}
+	return FAMILY_BY_SURFACE[node.surface];
 }
 
 function readGlbJson(): GltfDocument {
@@ -265,7 +279,7 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 			expect(offset, `${label}: top ${actual.max.z} sits below min(zHigh, WALL_H_MM) = ${capped}`).toBeGreaterThanOrEqual(-Z_TOLERANCE_MM);
 			expect(offset, `${label}: top ${actual.max.z} sits more than ${MAX_TOP_OFFSET_MM} mm above min(zHigh, WALL_H_MM) = ${capped}`).toBeLessThanOrEqual(MAX_TOP_OFFSET_MM + Z_TOLERANCE_MM);
 
-			const family = FAMILY_BY_SURFACE[bodies[0]!.surface]!;
+			const family = familyOf(bodies[0]!)!;
 			const seen = offsetByFamily.get(family);
 			if (seen === undefined) {
 				offsetByFamily.set(family, offset);
@@ -311,15 +325,32 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 		for (const [twinName, bodies] of expectedTwins()) {
 			const node = requireNode(doc, twinName);
 			const surface = bodies[0]!.surface;
-			const family = FAMILY_BY_SURFACE[surface];
+			const family = familyOf(bodies[0]!);
 			expect(family, `${twinName}: surface "${surface}" maps to no family`).toBeDefined();
 			for (const body of bodies) {
-				expect(FAMILY_BY_SURFACE[body.surface], `${twinName}: every merged body shares one family`).toBe(family);
+				expect(familyOf(body), `${twinName}: every merged body shares one family`).toBe(family);
 			}
 			expect(materialName(doc, node), `${twinName}: material`).toBe(`mat_vis_${family}`);
 			expect(doc.meshes[node.mesh!]!.primitives[0]!.attributes.TEXCOORD_1, `${twinName}: TEXCOORD_1 (AD-12)`).toBeDefined();
 			expect(node.extras?.lightgroup, `${twinName}: lightgroup`).toBe('lg_playfield');
 			expect(parentName(doc, node), `${twinName}: parent`).toBe(TABLE.nodes.playfieldRoot);
+		}
+	});
+
+	it('DW-294: every drop target (TABLE.dropBankWiring) is target-red, and every OTHER target-surface body (the bank backstop) is drawn as a wall', () => {
+		const doc = readGlbJson();
+		const targetSurface = readCollisionJson().nodes.filter((n) => n.surface === 'target' && !isExcluded(n));
+		const dropTargets = targetSurface.filter((n) => DROP_TARGET_NODES.has(n.name));
+		const others = targetSurface.filter((n) => !DROP_TARGET_NODES.has(n.name));
+		expect(dropTargets.map((n) => n.name).sort(), 'every dropBankWiring node is a visible target-surface body').toEqual([...DROP_TARGET_NODES].sort());
+		expect(others.length, 'non-vacuity: the tree has a target-surface body that is not a drop target').toBeGreaterThan(0);
+		for (const node of dropTargets) {
+			expect(materialName(doc, requireNode(doc, visTwinName(node.name))), `${node.name}: a drop target`).toBe('mat_vis_target');
+		}
+		for (const node of others) {
+			// Its top offset is the wall family's: the cap case above requires
+			// ONE shared offset per family, and familyOf() puts it in 'wall'.
+			expect(materialName(doc, requireNode(doc, visTwinName(node.name))), `${node.name}: not a drop target, so the wall family (DW-294)`).toBe('mat_vis_wall');
 		}
 	});
 
