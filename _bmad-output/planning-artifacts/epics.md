@@ -1799,6 +1799,58 @@ The five modes and the moment: lock two balls under the Dragon, spell DRAGON in 
 
 **FRs covered:** FR-21, FR-30, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41 · **ARs:** AR-20, AR-21 · **Judges:** SM-2 · [AMENDED 2026-09-29, Epic 2 retrospective -- author decision: Story 3.0a takes the **scoring** halves of FR-26 (the Spinner awards per rotation), FR-28 (the DRAGON award) and FR-31 (pops and slings score). Epic 2 listed them and never built them, and every mode below builds on base scoring.]
 
+### Story 3.0: Epic 2 Deferred Cleanup
+
+As the author,
+I want the end-of-ball bonus to count down as FR-20 and AD-3 say, with a Slam that stops the count, a pace that can be neither zero nor longer than the Backglass hold, and a provenance note that quotes the PRD truthfully; the tilt marks judged per player; and the skill shot refusing to pay on an automatic re-launch after a save,
+So that the Epic 2 defects the author has already decided, and that no later Epic 3 story touches, are closed before modes start adding to the same code.
+
+**Context.** Created at Epic 3's retro-review gate on 2026-09-29. The gate triaged the 32 ledger entries owned by Epic 3 story keys, from Epic 2's decision sheet (2026-09-28) and retrospective (2026-09-29). Eight come here. The other 24 stay with, or move to, the Epic 3 story whose own acceptance fails while the entry stands (DW-246 to 3.0a, DW-173 to 3.6); the full triage table is in this story's spec. Entries owned by Epic 4, 5 and 6 keys are left untouched. The six open `action_items` are all the author's own (Reference-machine rituals, Apple hardware, a kit process lesson) and remain there. Two of the eight carry author decisions: DW-236/DW-237 (the bonus counts DOWN, with the score line frozen at the pre-bonus score; budget a golden re-record) and DW-232 (a skill shot rewards player aim, so it never pays on an automatic re-launch).
+
+**Acceptance Criteria:**
+
+**Given** a ball ends with a nonzero bonus
+**When** the Backglass shows the end-of-ball bonus
+**Then** the BONUS row counts DOWN to zero rather than up to the total, and the score line shows the pre-bonus score until the count completes and the final score after it, never the bonus-inclusive score from the first frame (FR-20; AD-3's "bonus count-down"; author decision on DW-236 and DW-237)
+**And** the bonus arithmetic, the final score and the tick on which the bonus enters `GameState` are unchanged, so no golden's `expectedHash` or `expectedGameStateHash` moves (a header-only re-record is permitted)
+
+**Given** a Slam tilt arrives while a bonus count is running
+**When** the machine returns to Attract
+**Then** no `bonus_count_step` fires after the Slam (DW-285)
+
+**Given** `bonusCountMs` set to 0 from the dev panel
+**When** a ball ends with a bonus
+**Then** `bonusCountTicks` is clamped to at least one tick, as its three neighbours are, and the count still renders (DW-286)
+
+**Given** the longest bonus count the tuning range admits
+**When** it is compared with the Backglass's `ball_ended` hold
+**Then** a test fails if the count could outlast the hold, and a step event is never dropped because another landed in the same frame (DW-287)
+
+**Given** the `bonusCountMs` provenance note in `tuning.ts`
+**When** it is read against the PRD
+**Then** it quotes FR-20 accurately (the bonus counts down) and no longer attributes to the PRD a phrase the PRD does not contain (DW-289)
+
+**Given** a Hot-seat game
+**When** the next player nudges within the spacing or settle window that the previous player's nudge opened
+**Then** the nudge is judged against that player's own marks, never the previous player's, and a switch-script test pins it (DW-284; the tilt-window origins ratified at DW-240 are unchanged)
+
+**Given** a ball that drains without closing a playfield switch and is saved by ball save
+**When** it is re-launched automatically
+**Then** the skill shot is not live for that launch and no skill-shot award is paid; a manual plunge still earns it (author decision on DW-232)
+
+**Given** the whole story
+**When** the gates run
+**Then** `pnpm test`, `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm build`, `pnpm check:dist` and `pnpm check:size` all pass
+
+- DW-236: The end-of-ball bonus counts UP on the Backglass while FR-20 and AD-3 both name a count-DOWN, and nothing records the departure (ledger; owned by x0 2026-09-29)
+- DW-237: The end-of-ball screen's score line already contains the bonus from its first frame, so the BONUS row counts up to a total the line above has already shown (ledger; owned by x0 2026-09-29)
+- DW-285: A Slam leaves the previous ball's bonus count-up emitting bonus_count_step in Attract (ledger; owned by x0 2026-09-29)
+- DW-286: bonusCountTicks is not clamped to at least one tick like its three neighbours, so bonusCountMs 0 never renders the count (ledger; owned by x0 2026-09-29)
+- DW-287: Nothing enforces that the bonus count fits inside the Backglass end-of-ball hold, and the hold reads only the first step event per frame (ledger; owned by x0 2026-09-29)
+- DW-289: The bonusCountMs provenance note quotes PRD FR-20 as saying categories count up, but the PRD says the bonus counts down and the quoted phrase exists nowhere (ledger; owned by x0 2026-09-29)
+- DW-284: Tilt spacing and settle marks are machine-wide while tilt warnings are per player, so player 2's nudge inside player 1's window is swallowed (ledger; owned by x0 2026-09-29)
+- DW-232: The skill shot survives a ball save, so a ball saved from a no-switch centre drain gets a second skill-shot attempt from an automatic launch with no player aim (ledger; owned by x0 2026-09-29)
+
 ### Story 3.0a: Playfield scoring
 
 As a player,
@@ -1827,6 +1879,7 @@ So that hitting the playfield is worth something, and every mode that follows ha
 
 - DW-278: Playfield scoring was never built: pop bumpers, slingshots, the Spinner and a completed DRAGON bank score nothing, so the scoring halves of FR-26, FR-28 and FR-31 are undelivered (ledger; routed by retro 2026-09-29)
 - DW-283: DRAGON letters accumulate duplicates: each bank_target_down appends its letter with no de-duplication, so a reset bank yields DRD and the string grows in hashed state (ledger; routed by retro 2026-09-29)
+- DW-246: A tilted ball still earns: DRAGON letters from bank targets, bonus credit, and a skill-shot award on a DW-222 manual plunge; FR-15 is silent on whether scoring stops under Tilt (ledger; routed by merge_gate 2026-09-28; re-owned from 3.11 by x0 2026-09-29: the author's decision is that scoring stops under Tilt, and this story's first criterion already cites it)
 
 ### Story 3.1: The mode stack
 
@@ -2030,6 +2083,7 @@ So that the joust is charge, pass, wheel around, charge again.
 **Then** the Mode stops; the spinner continues to award per rotation independently of Joust
 
 - DW-288: Loops can never emit _broken, yet Story 2.4's and Story 3.6's criteria depend on a Loop being started and broken (ledger; routed by retro 2026-09-29)
+- DW-173: Two consecutive Loop orbits on the SAME side emit a spurious shot_<other>_loop_made: every made Loop ends by closing the opposite Loop's entry switch, arming it, and the next orbit's opposite _out completes that stale flight (ledger; routed by merge_gate 2026-09-28; re-owned from 3.11 by x0 2026-09-29: Joust's Charge counts Loop alternation, so a spurious opposite-Loop event breaks this story's first criterion)
 
 ### Story 3.7: Quick multiball — fight the monster
 
@@ -2178,12 +2232,8 @@ So that the numbers stop being starting values and SM-2 — the dragon-fire mome
 **When** CI runs after the freeze
 **Then** a test asserts every scoring tunable carries `confidence: playtested`
 
-- DW-236: The end-of-ball bonus counts UP on the Backglass while FR-20 and AD-3 both name a count-DOWN, and nothing records the departure (ledger; routed by merge_gate 2026-09-28)
-- DW-237: The end-of-ball screen's score line already contains the bonus from its first frame, so the BONUS row counts up to a total the line above has already shown (ledger; routed by merge_gate 2026-09-28)
-- DW-246: A tilted ball still earns: DRAGON letters from bank targets, bonus credit, and a skill-shot award on a DW-222 manual plunge; FR-15 is silent on whether scoring stops under Tilt (ledger; routed by merge_gate 2026-09-28)
-- DW-173: Two consecutive Loop orbits on the SAME side emit a spurious shot_<other>_loop_made: every made Loop ends by closing the opposite Loop's entry switch, arming it, and the next orbit's opposite _out completes that stale flight (ledger; routed by merge_gate 2026-09-28)
-- DW-232: The skill shot survives a ball save, so a ball saved from a no-switch centre drain gets a second skill-shot attempt - this time from an automatic launch with no player aim (ledger; routed by merge_gate 2026-09-28)
-- DW-285: A Slam leaves the previous ball's bonus count-up emitting bonus_count_step in Attract (ledger; routed by retro 2026-09-29)
+[AMENDED 2026-09-29, Epic 3 retro-review gate -- six routed bullets left this block, each to the story that fixes it: DW-236, DW-237, DW-285 and DW-232 to Story 3.0 (with the ledger-only DW-284, DW-286, DW-287 and DW-289), DW-246 to Story 3.0a and DW-173 to Story 3.6. This story keeps its playtest and freeze criteria.]
+
 
 ## Epic 4: Lights, Sound and the Walk-up
 
