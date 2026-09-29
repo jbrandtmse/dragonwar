@@ -457,6 +457,26 @@
           "source": "authored: PRD FR-20 names Strikes as a bonus category but states no per-strike value; the War mode that produces one does not exist until Epic 3 (Story 3.7), so this figure has no producer to measure against yet. Set equal to skillShotAward's own 25000 as the highest-value category, pending Epic 3's own War design and this story's shared Story 3.11 playtest freeze",
           "confidence": "unverified"
         },
+        "popScore": {
+          "value": 1000,
+          "source": "authored: PRD FR-31 states the mechanism (\"pops and slings score and disturb the ball\") but no planning artifact states the figure. Set to 1/25 of skillShotAward (25000) -- a pop is an incidental hit the ball finds on its own, not an aimed shot. Adjustable until the Story 3.11 playtest freeze",
+          "confidence": "unverified"
+        },
+        "slingScore": {
+          "value": 500,
+          "source": "authored: PRD FR-31 states the mechanism (\"pops and slings score and disturb the ball\") but no planning artifact states the figure. Set to half of popScore, 1/50 of skillShotAward (25000) -- a slingshot fires on nearly every trip to the flippers. Adjustable until the Story 3.11 playtest freeze",
+          "confidence": "unverified"
+        },
+        "spinnerScore": {
+          "value": 250,
+          "source": "authored: PRD FR-26 states the mechanism (\"the Spinner awards per rotation\") but no planning artifact states the figure. Set to 1/100 of skillShotAward (25000) per revolution -- one Left Loop pass can turn the Spinner many times. Adjustable until the Story 3.11 playtest freeze",
+          "confidence": "unverified"
+        },
+        "dragonBankAward": {
+          "value": 50000,
+          "source": "authored: PRD FR-28 states the mechanism (\"all six down spells DRAGON, awards, and resets the bank\") but no planning artifact states the figure. Set to 2x skillShotAward (25000) -- six aimed targets are worth twice one aimed plunge. Adjustable until the Story 3.11 playtest freeze",
+          "confidence": "unverified"
+        },
         "liveLightBudget": {
           "value": 20,
           "source": "<AD-12: \"the live dynamic-light budget on the floor is 20 per frame [ASSUMPTION]\", verified 2026-08-26 at ~23 Babylon clustered-forward lights per WebGL2 batch, re-verify 2026-09-26. No artifact states a measured figure>",

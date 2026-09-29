@@ -2,7 +2,8 @@
 title: 'Story 3.0a: Playfield scoring'
 type: 'feature'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '47860717fb2ff30113848d944274c7a17390259a'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -135,6 +136,51 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 41 findings — high 0, medium 4, low 33, false 4, maybe-false 0
+- findings:
+  - `[low]` `[patch]` (blind) No test shows the base mode reads the `ResolvedTuning` it is given rather than the `TUNING` singleton — added an override test through a real `createRules()` run; its mutation is recorded.
+  - `[false]` `[reject]` (blind) The skill shot keeps only `.players` from `awardScore()` — `awardScore` changes nothing but `players`, so no field is dropped today; the concern is a hypothetical future helper.
+  - `[low]` `[patch]` (blind) AC 7's `maxShown` stores the oracle rather than the DMD text, and `stateMismatches` reads `players[0]` while the row reads `currentPlayer` — reworded the sanity message and keyed `stateMismatches` on `currentPlayer`.
+  - `[low]` `[reject]` (blind) The real-runtime AC 7 never sees a pop or sling edge — the intent fixes this plunge path, with at least one Spinner edge as its sanity check. Pops and slings are pinned through a real `createRules()` in AC 1 and AC 6. Forcing a physics pop needs a different scenario, not a direct correction.
+  - `[low]` `[patch]` (blind) Docs disagree on letter order (spelling vs arrival) — `state.ts` and the `scoring.ts` header now say "in the order each was first struck", matching the intent's "in the order it arrives".
+  - `[false]` `[reject]` (blind) `addDragonLetters` accepts non-DRAGON characters — both callers pass only `TABLE.dropBankWiring` letters (the typed `bank_target_down.letter` and `nextUnspelledLetter`), so no other character reaches it.
+  - `[low]` `[patch]` (blind) Nothing enforces the single score-write path — added `test/ad8-score-write-path.test.ts`, a source ratchet over `src/sim/rules/modes/**` with a pattern control, and recorded its mutation. It lives outside the headless `rules-*` set because it reads the filesystem.
+  - `[low]` `[patch]` (blind) `PlayerState.score` has no doc — added one naming `awardScore()` and the drain-tick bonus as its only writers.
+  - `[low]` `[reject]` (blind) In Hot seat the bank award goes to `active.player` and the letters to `currentPlayer`, untested — the two are always equal in play (the stack starts the base mode for `currentPlayer`). Only a constructed state separates them, so no user can meet it.
+  - `[low]` `[patch]` (blind) "Completion paid once" checked the score only on the completion tick — it now also asserts the score before the drain equals `dragonBankAward`, and that ball 2's D adds nothing. (A first attempt compared the final score to `BANK` and went red on the drain-tick bonus, which is legitimate.)
+  - `[low]` `[patch]` (blind) AC 6 reads `rows[0]` without checking `currentPlayer === 0` — added that sanity assertion.
+  - `[low]` `[reject]` (blind) The new tests duplicate helpers (`player()`, `gameState()`, `NO_BALL_SAVE_TUNING`, `commas()`) — this test-local duplication follows the `rules-modes.test.ts` precedent. A shared-util refactor is more than a direct correction. A hand-written `commas()` also keeps the expectation independent of the code under test.
+  - `[low]` `[reject]` (blind) AC 7 repeats the loop step-order harness from `rules-tilt-integration.test.ts` — extracting a shared harness is a cross-file refactor. If `sim/loop` drifts, the oracle fails loudly.
+  - `[low]` `[reject]` (blind) `tuning.test.ts` has two versions of the FR quote audit — folding the older Story 3.0 block into the general helper would refactor a passing test outside this story.
+  - `[medium]` `[patch]` (blind + verification-gap) `expect(key.endsWith('Ms'))` checks a literal from the test's own `CASES` table and cannot fail (Rule 19) — deleted it. The typed `TUNING[key]` access and `resolveTuning()`'s own `Ms` handling carry the rule.
+  - `[low]` `[reject]` (blind) The spec's Verification section keeps two stale mutation predictions — the fix edits this build's spec. Both deviations are recorded under Recorded mutations and in the Auto Run Result.
+  - `[low]` `[reject]` (blind) The spec's status fields disagree ("Status: implemented") — the fix edits the spec, and finalize rewrites the Auto Run Result to `done` anyway.
+  - `[low]` `[patch]` (blind) The `base.ts` header "(never `currentPlayer`, which is right in Hot seat)" is ambiguous — reworded.
+  - `[low]` `[patch]` (blind) Nothing in the code points Story 3.9 to FR-28's War exception — added a comment on the bank branch quoting FR-28 verbatim ("counts as Strikes instead of letters", checked against prd.md).
+  - `[low]` `[reject]` (blind) A scoring closure on the drain tick gets its letter but no award — a single ball cannot be at the drain and at a target, pop or Spinner on the same 1 ms tick. In multiball, one ball draining neither ends the ball nor tears down the modes. The fix would reorder the step pipeline.
+  - `[low]` `[patch]` (blind) `wiredSwitches()` widens the switch to `string` and casts it back — the parameter is now typed `{ readonly switch: SwitchName }` with no cast; typecheck passes.
+  - `[low]` `[reject]` (blind) No test covers a Slam on the same tick as a scoring switch — a Slam sets `phase` to Attract before any earner runs. The phase conjunct is already pinned by AC 5 and the helper tests, so another row adds no discriminating power.
+  - `[low]` `[reject]` (edge-case) The same-tick drain asymmetry — same root cause and reason as the blind drain-tick row: physically unreachable with one ball.
+  - `[low]` `[reject]` (edge-case) A lane set completed while Tilted still appends to `completedSets` — the intent's Tilted row lists only score, letters, `bonus.byCategory` and `bonus.multiplier` as unchanged, and its earner list excludes lane state. Gating it would change specified behaviour (by-design).
+  - `[false]` `[reject]` (edge-case) `addDragonLetters` could duplicate if `existing` held lowercase letters — every writer of `letters` goes through `addDragonLetters`, which upper-cases, and the initial value is `''`. A lowercase `existing` cannot arise.
+  - `[low]` `[patch]` (edge-case) The `state.ts` doc says "spelling order" but the helper uses arrival order — same patch as the blind letter-order row.
+  - `[low]` `[reject]` (edge-case) AC 7's oracle gate ignores base-mode presence on a drain tick — a pop on the drain tick is unreachable with one ball, and a mismatch would fail loudly, never a false green.
+  - `[medium]` `[patch]` (verification-gap) AC 5's `scores` assertion cannot fail for any change to the gate (the fixture has `modes: []`), and its comment overclaims — added constructed `game_over`/`attract` cases with a base entry present, reworded the comment, and recorded the phase-conjunct mutation turning the new cases red on scores.
+  - `[medium]` `[patch]` (verification-gap) The `endsWith('Ms')` tautology — same patch as the blind row.
+  - `[low]` `[reject]` (verification-gap) AC 9 has no `mutation:` line — AC 9 is a command gate, and adding a line would edit the spec. The review-pass note records why none applies.
+  - `[low]` `[patch]` (verification-gap) AC 7's `maxShown` message overstates what it measures — same patch as the blind row.
+  - `[low]` `[reject]` (verification-gap) AC 7 is coupled to `public/assets/dragonwar.collision.json`, which Epic 5 may change — its sanity asserts fail loudly, never a false green. The file is contended with Epic 5, so this story may not touch it.
+  - `[low]` `[reject]` (intent-alignment) The Problem is stated at the browser, but the tests exercise the rules and harness — the lead's browser smoke in ## Verification covers the browser. The Rule 3 real-runtime evidence is AC 7, a real machine + rules run folded to the DMD.
+  - `[low]` `[reject]` (intent-alignment) The bank award runs only on scripted edges, and AC 7 excludes the bank — this is the AC 7 shape the intent fixes (a bank edge is a declared sanity break). AC 3 and AC 6 run the bank through a real `createRules()`.
+  - `[low]` `[reject]` (intent-alignment) The Tilted rows start from a `tilted: true` fixture — "Same-tick Tilt" and "Next ball after Tilt" tilt through a real `s_tilt_bob` closure, and the gate reads only `machine.tilt.tilted`.
+  - `[medium]` `[patch]` (intent-alignment) Outside a game, the score line is guarded by the teardown, not the gate — same patch as the verification-gap AC 5 row.
+  - `[low]` `[reject]` (intent-alignment) The Hot-seat payee split uses a constructed fixture — the two never differ in play; same reason as the blind Hot-seat row.
+  - `[low]` `[reject]` (intent-alignment) The letters and bonus folds use `currentPlayer`, so a split state would pay two players — the intent's "never against `currentPlayer`" binds the base mode only, and the split is unreachable in play.
+  - `[low]` `[patch]` (intent-alignment) Nothing checks structurally that `awardScore` is the only path — same patch as the blind ratchet row.
+  - `[low]` `[patch]` (intent-alignment) The letters doc says "spelling order" — same patch as the blind letter-order row.
+  - `[false]` `[reject]` (intent-alignment) The goldens never run the scoring code — the intent requires only that no golden hash or trajectory moves. No golden presses Start (measured in Design Notes), so there is nothing for the scoring code to run, and the new behaviour is pinned elsewhere.
+
 ## Design Notes
 
 **Measured at this tree (lead guidance: measure before you prescribe).**
@@ -208,6 +254,41 @@ None is declined.
 - AC7: `spinnerScore` read as 0 in the base mode → the AC7 oracle comparison goes red, and the spinner sanity still holds.
 - AC8: the `dragonBankAward` source misquotes FR-28 → the quote audit goes red. Separately, one golden's added entry removed → `StaleReplayHeaderError` goes red.
 
+**Recorded mutations (implement stage, 2026-09-29).** A scratchpad script applied each mutation, ran the named test files, and reverted it. After each one, `git status --short`, `git diff --stat` and the md5 of both new files matched the pre-mutation baseline. File keys: `S` = `test/rules-scoring.test.ts`, `M` = `test/rules-modes.test.ts`, `B` = `test/backglass-integration.test.ts`, `T` = `test/tuning.test.ts`, `G` = `test/replay-goldens.test.ts`.
+- mutation: base mode's pop branch removed → S `AC 1 ... Matrix row "Pop / sling"` red. Also red: S `every TABLE.popWiring switch pays popScore ...`, S `once per closure ...`, S `Matrix row "Skill-shot miss on a pop or sling"`, M `AC 3 -- skill shot missed > s_pop_2 ...` and M `... no Top lane lit ...`. 13 red in all, each one a pop assertion.
+- mutation: `SLING_SWITCHES` derived from `TABLE.popWiring` → S `AC 1 ... Matrix row "Pop / sling"` red (expected 1000 to be 1500). Also red: S `every TABLE.popWiring switch pays popScore and every TABLE.slingWiring switch pays slingScore`, M `AC 3 -- skill shot missed > s_sling_l ...`, S `AC 4 ... sling: control, untilted -> paid`, S `Matrix row "Tilted", control`.
+- mutation: `spinner_spin` pays `spinnerScore` ignoring `count` → S `AC 2 ... Matrix row "Spinner": a base-mode step fed { count: 3 } pays 3 x spinnerScore` red (250 vs 750). No other test went red.
+- mutation: the Spinner switch added to the pop set → S `AC 2 ... a base-mode step fed only the Spinner switch's playfield_switch_closed pays nothing (same state reference)` and S `AC 2 ... Matrix row "Spinner": count 1 on each of 3 ticks -> exactly 3 x spinnerScore` red. Three AC 4 and AC 5 controls whose totals include a Spinner closure also went red.
+- mutation: `dragonBankAward` paid per `bank_target_down` instead of per `bank_completed` → S `AC 3 ... Matrix row "Bank completed" ... exactly one +dragonBankAward on the sixth tick` red. Also red: S `Re-completion`, S `a completed bank keeps its letters into the next ball`, and three AC 4 and AC 5 controls.
+- mutation: `addDragonLetters` in the ball controller's letters fold replaced by concatenation (`player.letters + lettersDelta.toUpperCase()`) → S `AC 3 ... Matrix row "Re-completion" (DW-283)` red (`DRAGONDRAGON`) and S `AC 3 ... Matrix row "Across balls" (DW-283)` red (`DRDA`). Also red: S `a completed bank keeps its letters into the next ball` (`DRAGOND`) and S `Matrix row "Tilted", control` (`DDRAGON`). A first run with bare concatenation, without upper-casing, also went red, but on letter case alone. The upper-cased form isolates the duplicate.
+- mutation: letters cleared on `bank_completed` (in the base mode's bank branch) → S `AC 3 ... Matrix row "Bank completed"`, S `Re-completion`, S `a completed bank keeps its letters into the next ball (FR-28, FR-40)` and S `Matrix row "Tilted", control` red. **Deviation:** the spec named the "Across balls" row here, but that row completes no bank, so this mutation cannot affect it. The test "a completed bank keeps its letters into the next ball" was added to pin this mutation.
+- mutation: the `tilted` conjunct removed from `scoringOpen` → every S `AC 4 ... <earner>: Tilted -> unchanged` row went red: pop, sling, spinner, bank completion, target letter, bonus category, multiplier rung and skill shot. S `Matrix row "Tilted"`, S `Matrix row "Same-tick Tilt"`, S `Matrix row "Next ball after Tilt"` and the two helper unit tests also went red. Every `control` row stayed green.
+- mutation: the gate removed only from `advanceBonusMultiplier` (back to `phase !== 'game'`) → S `AC 4 ... multiplier rung (the Top lanes completed): Tilted -> unchanged` and S `Matrix row "Tilted"` red. Nothing else went red.
+- mutation: `scoringOpen` removed only from the skill shot's award condition → S `AC 4 ... skill shot (award, letter, and the mode closes either way): Tilted -> unchanged` and S `Matrix row "Tilted"` red on the letter (`'D'`). The score stays 0 because `awardScore` still gates it.
+- mutation: the `phase` conjunct removed from `scoringOpen` → S `AC 5 ... game_over with players present: every player unchanged` and S `AC 5 ... attract with players present: every player unchanged` red on the **letters** assertion (`['DR', 'A']`). The two helper unit tests also went red. The scores assertion stayed green, as expected: the base mode is torn down outside a game, so the pop and spinner halves guard the teardown, not the gate.
+- mutation: the base mode pays `currentPlayer` instead of `active.player` (pop branch) → S `Matrix row "Hot seat" ... the payee is the mode's own player, never currentPlayer: a (constructed) base entry for player 2 while currentPlayer is 0 pays player 2` red. **Deviation:** the plain Hot-seat row and AC 6 stayed green. In production the base mode always starts for `currentPlayer`, so the two values agree during play and no real script can tell them apart. The constructed-divergence test was added to give the Always clause an observable pin.
+- mutation: the bank award removed (`awardScore(..., 0)`) → B `Story 3.0a AC 6 ... the current player's row reads popScore, + slingScore, + 3 x spinnerScore (one per tick), + dragonBankAward; the other player's row stays 0` red on its final row. S's five bank assertions also went red.
+- mutation: `spinnerScore` read as 0 in the base mode → B `Story 3.0a AC 7 ... popScore x pop edges + slingScore x sling edges + spinnerScore x Spinner edges, counted in-game and untilted, equals the current player's row on every score-screen tick` red on `the DMD row equals the oracle on every score-screen tick`. Its Spinner sanity check, asserted earlier in the same test, held. B AC 6 also went red.
+- mutation: `dragonBankAward`'s source quotes "all six down spells DRAGON and awards a jackpot" → T `Story 3.0a AC 8 (AD-15) ... dragonBankAward: confidence 'unverified', source starts 'authored:' and names PRD FR-28, and every quoted phrase is FR-28's own words (at least one)` red. No other test in T went red.
+- mutation: `header.gameStart.tuning.dragonBankAward` deleted from `roll-and-drain.golden.json` → G `roll-and-drain: finalHash and finalGameStateHash match the recorded goldens` red with `runReplay(): header.gameStart.tuning no longer matches the live resolveTuning() output` (`StaleReplayHeaderError`). The other five roll-and-drain cases in G also went red.
+
+**Measured at the implement stage.**
+- Suite: 130 files / 2179 tests, all passing (baseline 129 / 2128; +1 file, +51 tests).
+- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`: each exits 0.
+- Golden diff: a scratchpad Node helper JSON-parsed all five goldens before and after and compared them leaf by leaf. Only `header.gameStart.tuning.{popScore,slingScore,spinnerScore,dragonBankAward}` were added (12 leaves each). No leaf was removed or changed. `notes` was deliberately left alone, because the spec allows no other leaf to move.
+- AC 7's real run: one in-game `s_spinner` edge, oracle 250. The first save came at tick 6954, with release at 1345 (+5609). No DRAGON-target or Top-lane edge occurred. From the Spinner tick on, the DMD row read 250, as the browser smoke expects.
+
+**Recorded mutations (review pass, 2026-09-29).** A scratchpad script applied each one, observed red, and reverted it. Before and after each, `git status --short`, `git diff --stat` and the md5 of `src/sim/rules/scoring.ts` + `test/rules-scoring.test.ts` matched. `A` = `test/ad8-score-write-path.test.ts`.
+- mutation: the `phase` conjunct removed from `scoringOpen` → S `AC 5 ... game_over, a (constructed) base-mode entry still present: pop and spinner pay nothing -- awardScore's phase gate, not the teardown` and its `attract` twin went red on **scores**. The two earlier AC 5 rows went red on letters, and the two helper tests also went red. This closes the verification-gap finding that AC 5's score half guarded only the teardown.
+- mutation: the base mode's pop branch writes `score: p.score + tuning.popScore.value` directly instead of calling `awardScore` → A `AD-8 (Story 3.0a): no mode writes players[].score except through scoring.ts awardScore() > no file under src/sim/rules/modes holds a direct score write` red. The S gate rows also went red, because the direct write bypasses the gate.
+- mutation: `createBaseMode` ignores its argument and uses `resolveTuning()` → S `the base mode reads the ResolvedTuning it is given, never the raw TUNING singleton > an override of all four values reaches every branch through a real createRules() run` red; nothing else went red.
+- AC 9 has no `mutation:` line. It is a command gate (each command's exit code), not a behaviour a test pins.
+
+**Measured after the review patches.**
+- Suite: 131 files / 2184 tests, all passing.
+- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`: each exits 0.
+- Golden JSON-parse diff: each of the five goldens still adds only the four `header.gameStart.tuning` keys (12 leaves). None is removed or changed, and LF is kept.
+
 **Browser smoke (the lead runs it; only the ball is drawn on the playfield; read the DMD through an in-page rAF sampler cropping `#render-canvas`):**
 - Start a game, then hold Enter for about 345 ms and release.
 - Expected: the score row stays 0 through the launch and the Left Loop climb. The skill shot misses, because its first closure is `s_loop_l_out`.
@@ -217,7 +298,64 @@ None is declined.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
-Planned and halted after planning, as the dispatch asked. The spec passed the READY FOR DEVELOPMENT gate on its first re-read, after one self-review repair: AC5 now includes a DRAGON-target closure, so the `phase` gate has an observable mutation, and AC7 gained its oracle sanity bounds. Nothing was implemented. The throwaway measurement probe (`test/zz-probe-3-0a.test.ts`) was deleted, and the tree holds only this spec, uncommitted.
+**Summary.** Pops (1,000), slings (500), Spinner revolutions (250 each) and a completed DRAGON bank (50,000) now score, through the priority-100 base mode, for the mode's own player (DW-278). A new `src/sim/rules/scoring.ts` holds three helpers:
+- the one scoring gate (in a game and untilted);
+- the one score-write helper for modes;
+- a letter append that skips duplicates.
+
+The skill shot, both bonus folds and the letters fold use the same gate, so nothing scores under Tilt (DW-246). Letters no longer duplicate. They carry across balls and survive a bank completion (DW-283). The four new values are `unverified` tunables, and the golden headers were re-recorded, header only.
+
+**Files changed:**
+- `src/sim/rules/scoring.ts` (new): `scoringOpen`, `awardScore`, `addDragonLetters`.
+- `src/sim/rules/modes/base.ts`: `createBaseMode(tuning)`; pop and sling sets derived from `TABLE`; the four scoring branches via `awardScore`; header prose; a FR-28 War pointer for Story 3.9.
+- `src/sim/rules/modes/index.ts`: passes `tuning`; fan-out and write-scope comments corrected.
+- `src/sim/rules/modes/skill-shot.ts`: award and letter through `scoring.ts`, only while `scoringOpen`; the mode still closes.
+- `src/sim/rules/bonus.ts`: both folds gate on `scoringOpen`; header note.
+- `src/sim/rules/ball-controller.ts`: the letters fold is gated and de-duplicated; net line change 0.
+- `src/sim/contracts/state.ts`: docs only (the `score` writers; `letters` order and uniqueness).
+- `src/sim/table/tuning.ts`: `popScore`, `slingScore`, `spinnerScore`, `dragonBankAward`, all `unverified`.
+- `test/replays/*.golden.json` (5): header only, four tuning entries each.
+- `test/rules-scoring.test.ts` (new): AC 1-5, every I/O row, the three helpers and the tuning-override pin.
+- `test/ad8-score-write-path.test.ts` (new, review): the AD-8 source ratchet over `src/sim/rules/modes/**`.
+- `test/backglass-integration.test.ts`: AC 6 and AC 7.
+- `test/tuning.test.ts`: the four keys added to `scalarKeys`; the AC 8 quote audit.
+- `test/rules-modes.test.ts`: the three skill-shot miss cases now expect their own base award, read from `TUNING`.
+- `test/rules-devices-headless.test.ts`: `rules-scoring.test.ts` added to `ENTRY_FILES`, as its completeness ratchet requires.
+
+**Pre-existing assertions edited:** in `test/rules-modes.test.ts`, under `AC 3 -- skill shot missed`, the `s_sling_l`, `s_pop_2` and `no Top lane lit` (`s_pop_1`) cases now expect `TUNING.slingScore.value` or `TUNING.popScore.value` instead of 0. Letters are still `''` and modes still `['base']`. No other pre-existing assertion changed.
+
+**Footprint extensions (none contended):** `src/sim/contracts/state.ts` (docs), `test/rules-devices-headless.test.ts` and `test/ad8-score-write-path.test.ts`, plus the spec's own `test/*.test.ts` files.
+
+**Review findings:** four layers reported 41 findings: 0 high, 4 medium, 33 low, 4 false.
+- **Patched: 12 entries (2 medium, 10 low).**
+  - Medium: AC 5 now has a constructed case that pins the phase gate on base-mode awards, and the tautological `endsWith('Ms')` assertion was removed.
+  - Low: the letter-order docs, the AD-8 ratchet test, the `score` doc, the tuning-override test, the AC 7 sanity message and player key, the AC 6 `currentPlayer` sanity check, the "paid once" assertion, the `base.ts` wording, the FR-28 pointer, and the `wiredSwitches` typing.
+- **Deferred:** none.
+- **Rejected: 20 low and 4 false,** each with its reason in the Review Triage Log. The main groups:
+  - the same-tick drain (physically unreachable with one ball);
+  - Hot-seat payee splits (unreachable in play);
+  - helper and harness duplication (refactors);
+  - AC 7's surface and coverage bounds, which the intent fixes;
+  - spec-only edits.
+
+**Follow-up review recommendation: false.** This pass patched 2 medium entries and 0 high. Both are test-adequacy fixes: AC 5's gate pin and a removed tautology. Each new pin had its mutation applied and observed red, so no unverified risk remains to name.
+
+**Deviations from the spec's predicted mutations** (recorded under ## Verification):
+- Clearing letters on `bank_completed` cannot turn "Across balls" red, because that row completes no bank. The added test "a completed bank keeps its letters into the next ball" pins it.
+- Paying `currentPlayer` cannot turn the plain Hot-seat row or AC 6 red, because the two players agree in play. A constructed-divergence test pins it.
+
+**Verification performed:**
+- `pnpm test`: 131 files / 2184 tests, all passing (baseline 129 / 2128).
+- `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`: each exits 0.
+- JSON-parse golden diff: only the four header tuning keys were added. No hash, transition, trajectory or checkpoint moved.
+- Matrix Test Audit: every I/O row has a named, passing test in `test/rules-scoring.test.ts`, and none is skipped.
+- Every mutation in ## Verification was applied, observed red and reverted, with the tree byte-identical afterwards.
+- No added line contains a non-ASCII byte.
+
+**Residual risks:**
+- The browser smoke (the lead's gate) has not run yet. Expect 250 on the first Spinner revolution, about 4.7-5.2 s after a 345 ms hold.
+- AC 7 depends on `public/assets/dragonwar.collision.json`, which Epic 5 may change. If the plunge path moves, AC 7 fails loudly.
+- A scoring closure on the same tick as a single-ball drain would get its letter but no award. This is physically unreachable today. Revisit it if a later story changes when the drain tears down the modes.

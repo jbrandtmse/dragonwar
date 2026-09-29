@@ -722,6 +722,39 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 3.0a (AD-8, AD-15, DW-278): the base mode's playfield scoring
+	 * values -- a pop bumper closure, a slingshot closure, one Spinner
+	 * revolution, and a completed DRAGON bank. Paid by the priority-100 base
+	 * mode (`sim/rules/modes/base.ts`) through `sim/rules/scoring.ts`'s one
+	 * gated write path, never while Tilted or outside a game (DW-246). No
+	 * unit suffix (raw score points, never durations -- must not end in
+	 * `Ms`, `assertNoNestedMsKeys`/`sim-no-literal-ms`). No planning artifact
+	 * states any of the four figures; each is authored on the scale
+	 * `skillShotAward` (25000) already set and is adjustable until the Story
+	 * 3.11 playtest freeze.
+	 */
+	popScore: entry(
+		1000,
+		'authored: PRD FR-31 states the mechanism ("pops and slings score and disturb the ball") but no planning artifact states the figure. Set to 1/25 of skillShotAward (25000) -- a pop is an incidental hit the ball finds on its own, not an aimed shot. Adjustable until the Story 3.11 playtest freeze',
+		'unverified',
+	),
+	slingScore: entry(
+		500,
+		'authored: PRD FR-31 states the mechanism ("pops and slings score and disturb the ball") but no planning artifact states the figure. Set to half of popScore, 1/50 of skillShotAward (25000) -- a slingshot fires on nearly every trip to the flippers. Adjustable until the Story 3.11 playtest freeze',
+		'unverified',
+	),
+	spinnerScore: entry(
+		250,
+		'authored: PRD FR-26 states the mechanism ("the Spinner awards per rotation") but no planning artifact states the figure. Set to 1/100 of skillShotAward (25000) per revolution -- one Left Loop pass can turn the Spinner many times. Adjustable until the Story 3.11 playtest freeze',
+		'unverified',
+	),
+	dragonBankAward: entry(
+		50000,
+		'authored: PRD FR-28 states the mechanism ("all six down spells DRAGON, awards, and resets the bank") but no planning artifact states the figure. Set to 2x skillShotAward (25000) -- six aimed targets are worth twice one aimed plunge. Adjustable until the Story 3.11 playtest freeze',
+		'unverified',
+	),
+
+	/**
 	 * Story 2.8 (AD-12): the live cap on simultaneously-enabled dynamic
 	 * insert lights `presentation/lighting/lamp-driver.ts`'s `syncLamps()`
 	 * enforces, counting ENABLED lights only. A dimensionless count, never a

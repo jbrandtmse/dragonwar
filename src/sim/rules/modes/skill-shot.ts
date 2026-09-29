@@ -35,6 +35,12 @@
 // close it. A ball-search recover of a launched ball closes it the same way.
 // The lit Top lane stays lit, exactly as it does after a miss.
 //
+// Story 3.0a (DW-246, AD-8 amended): the award goes through
+// `sim/rules/scoring.ts`'s `awardScore()` and the letter through its
+// `addDragonLetters()`, both only while `scoringOpen()` -- so a Tilted ball
+// (or any state outside a game) gets neither. The mode still resolves and
+// leaves `modes[]` exactly as before; only the payout is withheld.
+//
 // Story 2.14 (DW-205, DW-214): the lit Top lane is no longer drawn fresh from
 // `GameState.rng` at every ball start. Measured over 200,000 seeds, that
 // per-ball draw put the SAME lane on all three balls 11.20% of the time and
@@ -96,6 +102,7 @@
 
 import { TABLE } from '../../table/dragonwar';
 import { nextRngInt } from '../rng';
+import { addDragonLetters, awardScore, scoringOpen } from '../scoring';
 import type { DeviceEvent } from '../devices';
 import type { ResolvedTuning } from '../../table/tuning';
 import type { ActiveModeState } from '../../contracts/state';
@@ -217,16 +224,10 @@ export function createSkillShotMode(tuning: ResolvedTuning): SkillShotMode {
 			const matched = litTopLane !== undefined && TABLE.laneWiring[litTopLane].switch === event.switch;
 
 			let players = nextState.players;
-			if (matched && target) {
+			if (matched && target && scoringOpen(nextState)) {
 				const letter = nextUnspelledLetter(target.letters);
-				players = nextState.players.map((existing, index) =>
-					index === player
-						? {
-								...existing,
-								score: existing.score + tuning.skillShotAward.value,
-								letters: letter !== undefined ? existing.letters + letter : existing.letters,
-							}
-						: existing,
+				players = awardScore(nextState, player, tuning.skillShotAward.value).players.map((existing, index) =>
+					index === player && letter !== undefined ? { ...existing, letters: addDragonLetters(existing.letters, letter) } : existing,
 				);
 			}
 

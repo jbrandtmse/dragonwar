@@ -18,8 +18,9 @@
 // this factory-per-instance shape avoids (this story's "Always" rule).
 //
 // Never produces a `CoilCommand` and never touches `machine.*` (AD-8's own
-// rule text) -- this module and both modes it drives read and write only
-// `players[*].lanes`, `modes[]` and `rng`.
+// rule text) -- this module and both modes it drives write only
+// `players[*].lanes`, `modes[]` and `rng`, plus `players[*].score` and
+// `players[*].letters` through `sim/rules/scoring.ts` (Story 3.0a).
 //
 // DEFERRED START (implementation finding, recorded here because it overrides
 // this spec's own Design Notes prose): a `ball_starting` this tick is
@@ -90,7 +91,7 @@ function isBallStarting(event: SemanticEvent): boolean {
 }
 
 export function createModeStack(tuning: ResolvedTuning): ModeStack {
-	const base = createBaseMode();
+	const base = createBaseMode(tuning);
 	const skillShot = createSkillShotMode(tuning);
 
 	// See this file's header, "DEFERRED START": a `ball_starting` seen THIS
@@ -116,12 +117,16 @@ export function createModeStack(tuning: ResolvedTuning): ModeStack {
 		}
 
 		// AD-8: highest-priority mode delivered first -- skill shot (200) then
-		// base (100). The two modes consume DISJOINT device-event types in this
-		// story's minimal scope (base: lane_entered, lane_change_pressed; skill
-		// shot: ball_launched, playfield_switch_closed) but they SHARE one piece
-		// of state, `players[p].lanes.lit` -- the base mode writes it, the skill
-		// shot reads it to decide the award -- so this ordering is load-bearing,
-		// not decorative.
+		// base (100). The two modes consume these device-event types (base:
+		// lane_entered, lane_change_pressed, and -- Story 3.0a -- the pop and
+		// sling playfield_switch_closed, spinner_spin and bank_completed; skill
+		// shot: ball_launched, playfield_switch_closed and a parking
+		// device_ball_entered). They share playfield_switch_closed but act on it
+		// independently: a pop or sling that resolves the skill shot as a miss
+		// still pays the base mode's own award. They SHARE one piece of state,
+		// `players[p].lanes.lit` -- the base mode writes it, the skill shot
+		// reads it to decide the award -- so this ordering is load-bearing, not
+		// decorative. Both score only through `sim/rules/scoring.ts`.
 		//
 		// [CORRECTED 2026-09-06, code review] This comment previously claimed the
 		// ordering "has no observable effect yet". It does. Running the skill

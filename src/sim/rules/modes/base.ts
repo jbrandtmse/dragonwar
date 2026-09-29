@@ -28,11 +28,34 @@
 // different from every other stateful-looking rules component for no
 // reason -- and Story 3.1's generalisation will need each mode instantiated
 // once per stack, not called as bare module functions.
+//
+// Story 3.0a (AD-8 amended 2026-09-29, DW-278): base playfield scoring lives
+// here, in the priority-100 mode, so "scoring accrues from all active modes"
+// holds from the first point. The mode pays its OWN `active.player`, never
+// `currentPlayer` (the two agree in play, Hot seat included, but the payee
+// is the mode's own player), from device events it already receives
+// (AD-19, never a raw switch):
+// - `playfield_switch_closed` on a `TABLE.popWiring` switch -> `popScore`;
+//   on a `TABLE.slingWiring` switch -> `slingScore`. Both switch sets are
+//   derived from `TABLE` once at module load. The Spinner's own switch is a
+//   playfield switch too, but joins neither set: it scores only through
+//   `spinner_spin`, never twice.
+// - `spinner_spin { count }` -> `count x spinnerScore` (physics closes the
+//   Spinner switch once per revolution).
+// - `bank_completed` -> `dragonBankAward`, once per event. The letters are
+//   NOT cleared: DRAGON stays spelled until Story 3.9's War end (FR-28,
+//   FR-40).
+// Every write goes through `sim/rules/scoring.ts`'s `awardScore()`, so none
+// pays while Tilted or outside a game (FR-15 as decided at DW-246). The
+// tunables come from the `ResolvedTuning` passed at construction, never the
+// raw `TUNING` singleton, so a test's `resolveTuning(override)` reaches them.
 
 import { TABLE } from '../../table/dragonwar';
+import { awardScore } from '../scoring';
 import type { DeviceEvent, FlipperSide, LaneName } from '../devices';
 import type { ActiveModeState, PlayerLaneState } from '../../contracts/state';
-import type { GameState } from '../../table/names';
+import type { GameState, SwitchName } from '../../table/names';
+import type { ResolvedTuning } from '../../table/tuning';
 import type { LaneSetName, ModeEvent } from './events';
 
 /** AD-8: the base mode's own fixed priority. */
@@ -57,6 +80,17 @@ const LANE_SETS = buildLaneSets();
 
 /** Every lane name, for the `ball_starting` all-false reset (AD-7: "resets `players[p].lanes.lit` to all-false for both groups"). */
 const ALL_LANES: readonly LaneName[] = Object.keys(TABLE.laneWiring) as LaneName[];
+
+/** Story 3.0a: the switch each `wiring` entry names, as a set -- derived from `TABLE` once (DW-149), never a hand-typed list (AD-16). */
+function wiredSwitches(wiring: Readonly<Record<string, { readonly switch: SwitchName }>>): ReadonlySet<SwitchName> {
+	return new Set(Object.values(wiring).map((entry) => entry.switch));
+}
+
+/** Story 3.0a (FR-31): the pop bumpers' own switches, from `TABLE.popWiring`. */
+const POP_SWITCHES = wiredSwitches(TABLE.popWiring);
+
+/** Story 3.0a (FR-31): the slingshots' own switches, from `TABLE.slingWiring`. */
+const SLING_SWITCHES = wiredSwitches(TABLE.slingWiring);
 
 /**
  * Rotates every set's lit flags by one `order` position independently --
@@ -96,7 +130,7 @@ export interface BaseMode {
 	step(state: GameState, deviceEvents: readonly DeviceEvent[], tick: number): BaseModeStepResult;
 }
 
-export function createBaseMode(): BaseMode {
+export function createBaseMode(tuning: ResolvedTuning): BaseMode {
 	function start(state: GameState, player: number): GameState {
 		const lit: Record<string, boolean> = {};
 		for (const lane of ALL_LANES) {
@@ -158,6 +192,22 @@ export function createBaseMode(): BaseMode {
 				events.push(...result.events);
 			} else if (event.type === 'lane_change_pressed') {
 				nextState = applyLaneChangePressed(nextState, active.player, event.side);
+			} else if (event.type === 'playfield_switch_closed') {
+				// Story 3.0a (FR-31): pops and slings. Any other playfield switch,
+				// the Spinner's included, pays nothing here.
+				if (POP_SWITCHES.has(event.switch)) {
+					nextState = awardScore(nextState, active.player, tuning.popScore.value);
+				} else if (SLING_SWITCHES.has(event.switch)) {
+					nextState = awardScore(nextState, active.player, tuning.slingScore.value);
+				}
+			} else if (event.type === 'spinner_spin') {
+				// Story 3.0a (FR-26): "the Spinner awards per rotation".
+				nextState = awardScore(nextState, active.player, event.count * tuning.spinnerScore.value);
+			} else if (event.type === 'bank_completed') {
+				// Story 3.0a (FR-28): the award, once per completion. Story 3.9
+				// decides whether a completion during the War also pays (FR-28:
+				// there a full bank "counts as Strikes instead of letters").
+				nextState = awardScore(nextState, active.player, tuning.dragonBankAward.value);
 			}
 		}
 		return { state: nextState, events };

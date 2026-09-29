@@ -68,6 +68,7 @@ import { armBallSave, EMPTY_BALL_SAVE, enableBallSave, hasGraceLapsed, isRunning
 import { bonusCountDownSteps, bonusTotal, BONUS_EMPTY } from './bonus';
 import { createBallSearch, servesIntoOf } from './ball-search';
 import { drawMatch, MATCH_REVEAL_STEPS, revealShown } from './match';
+import { addDragonLetters, scoringOpen } from './scoring';
 import { shotWindowTicks, type ResolvedTuning } from '../table/tuning';
 import type { BankResetRequest, DeviceEvent } from './devices';
 import type { RecoverCommand } from '../contracts/commands';
@@ -912,19 +913,18 @@ export function createBallController(adjustments: GameAdjustments, tuning: Resol
 		}
 
 		// DRAGON-letter accumulation (AD-7: "player-scoped ... DRAGON letters"),
-		// credited to whoever is currently playing. Not a mode, not scoring --
-		// raw per-player state the ball controller already owns the write scope
-		// for (AC 7).
+		// credited to whoever is currently playing. Story 3.0a: behind
+		// `scoring.ts`'s gate (DW-246) and de-duplicated there (DW-283).
 		let lettersDelta = '';
 		for (const event of deviceEvents) {
 			if (event.type === 'bank_target_down') {
-				lettersDelta += event.letter.toUpperCase();
+				lettersDelta += event.letter;
 			}
 		}
-		if (lettersDelta.length > 0 && nextState.phase === 'game') {
+		if (lettersDelta.length > 0 && scoringOpen(nextState)) {
 			const currentPlayer = nextState.currentPlayer;
 			const players = nextState.players.map((player, index) =>
-				index === currentPlayer ? { ...player, letters: player.letters + lettersDelta } : player,
+				index === currentPlayer ? { ...player, letters: addDragonLetters(player.letters, lettersDelta) } : player,
 			);
 			nextState = { ...nextState, players };
 		}

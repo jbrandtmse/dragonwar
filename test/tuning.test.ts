@@ -87,6 +87,12 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'bonusLetterValue',
 			'bonusLoopValue',
 			'bonusStrikeValue',
+			// Story 3.0a (AD-8, AD-15, DW-278): the base mode's four playfield
+			// scoring values.
+			'popScore',
+			'slingScore',
+			'spinnerScore',
+			'dragonBankAward',
 			// Story 2.13 (AD-14/AD-15): the Match's win chance and the
 			// game-over sequence's three paced durations.
 			'matchProbability',
@@ -790,5 +796,53 @@ describe('Story 3.0 AC 7 (DW-289) -- TUNING.bonusCountMs.source quotes PRD FR-20
 		const result = audit(old, fr20Section());
 		expect(result.missing).toEqual(['categories count up, then the multiplier is applied']);
 		expect(result.countUp).toBe(true);
+	});
+});
+
+describe('Story 3.0a AC 8 (AD-15) -- the four playfield scoring values are unverified, authored, and quote the FR they name verbatim', () => {
+	const PRD_PATH = path.resolve(__dirname, '..', '_bmad-output', 'planning-artifacts', 'prds', 'prd-dragonwar-2026-08-26', 'prd.md');
+
+	/** The `FR-<n>` section of prd.md: from its own heading to the next `####` heading. */
+	function frSection(fr: number): string {
+		const prd = readFileSync(PRD_PATH, 'utf8');
+		const match = prd.match(new RegExp(String.raw`#### FR-${fr}:[\s\S]*?(?=\n#### |$)`));
+		expect(match, `FR-${fr} must exist in prd.md`).not.toBeNull();
+		return match![0];
+	}
+
+	/** Every double-quoted phrase in `source`, and those that do NOT appear verbatim in `section`. */
+	function quoteAudit(source: string, section: string): { quotes: string[]; missing: string[] } {
+		const quotes = [...source.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+		return { quotes, missing: quotes.filter((q) => !section.includes(q)) };
+	}
+
+	const CASES = [
+		{ key: 'popScore', fr: 31 },
+		{ key: 'slingScore', fr: 31 },
+		{ key: 'spinnerScore', fr: 26 },
+		{ key: 'dragonBankAward', fr: 28 },
+	] as const;
+
+	for (const { key, fr } of CASES) {
+		it(`${key}: confidence 'unverified', source starts 'authored:' and names PRD FR-${fr}, and every quoted phrase is FR-${fr}'s own words (at least one)`, () => {
+			const entry = TUNING[key];
+			expect(entry.confidence).toBe('unverified');
+			expect(entry.source.startsWith('authored:')).toBe(true);
+			expect(entry.source).toContain(`PRD FR-${fr}`);
+			expect(entry.source, 'names its scale against skillShotAward').toContain('skillShotAward');
+			expect(entry.source, 'notes the Story 3.11 playtest freeze').toContain('Story 3.11');
+			const result = quoteAudit(entry.source, frSection(fr));
+			expect(result.quotes.length, `the source must quote FR-${fr} at least once`).toBeGreaterThan(0);
+			expect(result.missing, `every quoted phrase must be FR-${fr}'s own words`).toEqual([]);
+		});
+	}
+
+	it('the values the spec authorises: popScore 1000, slingScore 500, spinnerScore 250, dragonBankAward 50000', () => {
+		expect([TUNING.popScore.value, TUNING.slingScore.value, TUNING.spinnerScore.value, TUNING.dragonBankAward.value]).toEqual([1000, 500, 250, 50000]);
+	});
+
+	it('control: the audit flags a misquote of FR-28', () => {
+		const result = quoteAudit('authored: PRD FR-28 states the mechanism ("all six down spells DRAGON and awards a jackpot").', frSection(28));
+		expect(result.missing).toEqual(['all six down spells DRAGON and awards a jackpot']);
 	});
 });

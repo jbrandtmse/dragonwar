@@ -215,6 +215,8 @@ const ENTRY_FILES = [
 	// so this file's own completeness ratchet below never names them either.)
 	path.join(__dirname, 'rules-match.test.ts'),
 	path.join(__dirname, 'rules-stray-clear.test.ts'),
+	// Story 3.0a: same reasoning -- ungated otherwise.
+	path.join(__dirname, 'rules-scoring.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

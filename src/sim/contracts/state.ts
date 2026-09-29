@@ -99,8 +99,9 @@ export interface PlayerLaneState {
  * lanes, Jackpot seed and Wars started.
  */
 export interface PlayerState {
+	/** Story 3.0a (AD-8): a mode adds to it only through `sim/rules/scoring.ts`'s `awardScore()`; the one other writer is the ball controller's drain-tick bonus. */
 	readonly score: number;
-	/** The DRAGON letters spelled so far, in spelling order (e.g. `"DRA"`). */
+	/** The DRAGON letters spelled so far, in the order each was first struck (e.g. `"DRA"`). Each letter at most once; persists across balls (Story 3.0a, DW-283: `sim/rules/scoring.ts`'s `addDragonLetters()`). */
 	readonly letters: string;
 	readonly lockCredits: number;
 	readonly tiltWarnings: number;

@@ -22,7 +22,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createLoop, NO_FRAME } from '../src/sim/loop';
+import { buttonSwitchEdges, createLoop, frameInForceAt, NO_FRAME } from '../src/sim/loop';
+import { createMachine } from '../src/sim/physics/machine';
+import { createRules } from '../src/sim/rules';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW, type DmdScreen } from '../src/presentation/backglass/frame';
 import { rasterise } from '../src/presentation/backglass/raster';
 import { FONT_5X7 } from '../src/presentation/backglass/font';
@@ -31,8 +33,8 @@ import { TABLE } from '../src/sim/table/dragonwar';
 import { close, runRulesScript } from './util/switch-script';
 import { BASE_GAME_STATE, buildPlayer, buildSnapshot } from './util/snapshot-factory';
 import { MAX_OWED_TICKS } from '../src/sim/contracts/time';
-import type { CoilName, FrameOutput, GameStart, GameState } from '../src/sim/table/names';
-import type { InputTransition } from '../src/sim/contracts/input';
+import type { CoilCommand, CoilName, FrameOutput, GameStart, GameState, RecoverCommand, SwitchName } from '../src/sim/table/names';
+import type { InputFrame, InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const DISABLED_HAZARD_COILS: readonly CoilName[] = ['c_pop_1', 'c_pop_2', 'c_pop_3', 'c_sling_l', 'c_sling_r'];
@@ -547,4 +549,206 @@ describe('Story 3.0 QA -- a real createRules() run folded like the real loop: th
 		const control = foldFrames(result, durationTicks, 1);
 		expect(control.map(({ bonus }) => bonus), 'control: one tick per frame shows every step in turn').toEqual(['BONUS 100,000', 'BONUS 70,000', 'BONUS 50,000', 'BONUS 0']);
 	});
+});
+
+// Story 3.0a AC 6 (Integration, Rule 1): base playfield scoring reaches the
+// DMD. A real createRules() (inside runRulesScript) in Hot seat -- a pop, a
+// sling, a 3-tick Spinner and the six DRAGON targets -- with every tick
+// folded through advanceBackglass()/renderFrame() exactly as src/host/boot.ts
+// does. On the `score` screen, rows[i] is player i's score cell.
+describe('Story 3.0a AC 6 -- a real createRules() Hot-seat run, folded through advanceBackglass()/renderFrame(), shows each playfield award on the current player\'s score row', () => {
+	it('the current player\'s row reads popScore, + slingScore, + 3 x spinnerScore (one per tick), + dragonBankAward; the other player\'s row stays 0', () => {
+		const tuning = resolveTuning();
+		const pop = tuning.popScore.value;
+		const sling = tuning.slingScore.value;
+		const spin = tuning.spinnerScore.value;
+		const bank = tuning.dragonBankAward.value;
+		const letters = Object.keys(TABLE.dropBankWiring) as (keyof typeof TABLE.dropBankWiring)[];
+
+		const script = close('s_start').at(5).at(8)
+			.open('s_shooter_lane').at(10)
+			.close('s_pop_1').at(20)
+			.close('s_sling_l').at(30)
+			.close('s_spinner').at(40).open().at(41).close().at(42).open().at(43).close().at(44);
+		letters.forEach((letter, i) => {
+			script.close(TABLE.dropBankWiring[letter].switch).at(50 + i);
+		});
+		const durationTicks = 60;
+		const result = runRulesScript(script.build(), { durationTicks, tuning });
+		expect(result.finalState.players, 'sanity: Hot seat added a second player').toHaveLength(2);
+		expect(result.finalState.currentPlayer, 'sanity: player 1 is up, so rows[0] is the current player row').toBe(0);
+
+		const commas = (value: number): string => value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		const scoringTicks = [20, 30, 40, 42, 44, 55];
+		const expected = [pop, pop + sling, pop + sling + spin, pop + sling + 2 * spin, pop + sling + 3 * spin, pop + sling + 3 * spin + bank];
+
+		let view = INITIAL_BACKGLASS_VIEW;
+		const shownAtScoringTicks: Array<{ tick: number; screen: string; row: string | undefined }> = [];
+		const otherRowNonZero: number[] = [];
+		let scoreScreenTicks = 0;
+		for (let tick = 1; tick <= durationTicks; tick++) {
+			const output: FrameOutput = {
+				snapshot: buildSnapshot({ tick, game: result.statesByTick.get(tick)! }),
+				events: result.events.filter((e) => e.tick === tick),
+				contactEvents: [],
+				commands: [],
+			};
+			view = advanceBackglass(view, output);
+			const frame = renderFrame(view, output.snapshot);
+			if (frame.screen === 'score' && output.snapshot.game.players.length === 2) {
+				scoreScreenTicks += 1;
+				if (frame.rows[1]?.text !== '0') {
+					otherRowNonZero.push(tick);
+				}
+			}
+			if (scoringTicks.includes(tick)) {
+				shownAtScoringTicks.push({ tick, screen: frame.screen, row: frame.rows[0]?.text });
+			}
+		}
+
+		expect(shownAtScoringTicks).toEqual(scoringTicks.map((tick, i) => ({ tick, screen: 'score', row: commas(expected[i]!) })));
+		expect(scoreScreenTicks, 'sanity: the two-player score screen was up').toBeGreaterThan(0);
+		expect(otherRowNonZero, 'the other player\'s row stays 0 throughout').toEqual([]);
+	});
+});
+
+// Story 3.0a AC 7 (real runtime, Rule 3): a real createMachine() +
+// createRules() pair driven in sim/loop's own step order (button edges from
+// the input frame, machine.step() with the previous tick's commands, then
+// rules.step() with the machine report; commands issued at N reach physics
+// at N+1) -- the harness test/rules-tilt-integration.test.ts established, and
+// for the same reason: FrameOutput carries no SwitchEvent, and the oracle
+// below is built from the physics switch edges themselves. Start, let the
+// served ball settle on the plunger, hold the plunger 345 ticks, release,
+// and run to the first ball end or save. The oracle predicts the score from
+// the physics edges alone, and the DMD score row must show it on every tick.
+describe('Story 3.0a AC 7 -- a real machine + rules plunge: the DMD score row equals an oracle built from the physics switch edges', () => {
+	it('popScore x pop edges + slingScore x sling edges + spinnerScore x Spinner edges, counted in-game and untilted, equals the current player\'s row on every score-screen tick', () => {
+		const tuning = resolveTuning();
+		const machine = createMachine(loadDoc(), tuning);
+		const rules = createRules(tuning, { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 1, ballsPerGame: 3, matchProbability: 0 });
+
+		const popSwitches = new Set<SwitchName>(Object.values(TABLE.popWiring).map((w) => w.switch as SwitchName));
+		const slingSwitches = new Set<SwitchName>(Object.values(TABLE.slingWiring).map((w) => w.switch as SwitchName));
+		const spinnerSwitch = TABLE.spinnerWiring.s_spinner.switch as SwitchName;
+		const targetSwitches = new Set<SwitchName>(Object.values(TABLE.dropBankWiring).map((w) => w.switch as SwitchName));
+		const topLaneSwitches = new Set<SwitchName>(Object.values(TABLE.laneWiring).filter((w) => w.set === 'top').map((w) => w.switch as SwitchName));
+
+		const HOLD_START = 1000;
+		const HOLD_TICKS = 345;
+		const RELEASE = HOLD_START + HOLD_TICKS;
+		const MAX_TICK = RELEASE + 12000;
+		const pending: InputTransition[] = [
+			{ tick: 2, frame: { ...NO_FRAME, start: true } },
+			{ tick: 3, frame: NO_FRAME },
+			{ tick: HOLD_START, frame: { ...NO_FRAME, plunger: true } },
+			{ tick: RELEASE, frame: NO_FRAME },
+		];
+
+		let state: GameState = {
+			tick: 0,
+			phase: 'attract',
+			machine: {
+				ballsInPlay: 0,
+				hardwareEnabled: false,
+				ballSave: { untilTick: null, sources: [] },
+				tilt: { tilted: false, slamTilted: false },
+				multiball: null,
+				highscores: [],
+				deviceSlots: { bd_trough: [true, true, true, true], bd_shooter: [false], bd_lock: [false, false, false] },
+			},
+			players: [],
+			currentPlayer: 0,
+			modes: [],
+			rng: 0,
+		};
+		let currentFrame: InputFrame = NO_FRAME;
+		let previousFrame: InputFrame = NO_FRAME;
+		let queued: Array<CoilCommand | RecoverCommand> = [];
+
+		let oracle = 0;
+		let spinnerEdgesInGame = 0;
+		let settledAtHold: boolean | undefined;
+		let endTick = -1;
+		let scoreScreenTicks = 0;
+		let maxShown = 0;
+		const sanityBreaks: string[] = [];
+		const rowMismatches: Array<{ tick: number; row: string | undefined; oracle: string }> = [];
+		const stateMismatches: Array<{ tick: number; score: number | undefined; oracle: number }> = [];
+		const commas = (value: number): string => value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+		let view = INITIAL_BACKGLASS_VIEW;
+
+		for (let tick = 1; tick <= MAX_TICK; tick++) {
+			if (tick === HOLD_START) {
+				settledAtHold = state.phase === 'game' && state.machine.deviceSlots.bd_shooter[0] === true;
+			}
+			currentFrame = frameInForceAt(pending, tick, currentFrame);
+			const edges = buttonSwitchEdges(previousFrame, currentFrame, tick);
+			previousFrame = currentFrame;
+
+			const commands = queued.map((c) => ({ ...c, tick }));
+			queued = [];
+			const machineResult = machine.step(tick, currentFrame, commands);
+			const rulesResult = rules.step(state, [...edges, ...machineResult.switchEvents], tick, { recovered: machineResult.recovered, failures: machineResult.semanticEvents });
+			state = rulesResult.state;
+			queued.push(...rulesResult.coilCommands, ...rulesResult.recoverCommands);
+
+			// The gate for this tick, read from this tick's resulting state.
+			const gateOpen = state.phase === 'game' && !state.machine.tilt.tilted;
+			for (const event of machineResult.switchEvents) {
+				if (!event.closed) {
+					continue;
+				}
+				if (targetSwitches.has(event.switch) || topLaneSwitches.has(event.switch)) {
+					sanityBreaks.push(`${event.switch}@${tick}`);
+				}
+				if (!gateOpen) {
+					continue;
+				}
+				if (popSwitches.has(event.switch)) {
+					oracle += tuning.popScore.value;
+				} else if (slingSwitches.has(event.switch)) {
+					oracle += tuning.slingScore.value;
+				} else if (event.switch === spinnerSwitch) {
+					oracle += tuning.spinnerScore.value;
+					spinnerEdgesInGame += 1;
+				}
+			}
+
+			if (state.phase === 'game' && state.players[state.currentPlayer]?.score !== oracle) {
+				stateMismatches.push({ tick, score: state.players[state.currentPlayer]?.score, oracle });
+			}
+
+			const output: FrameOutput = {
+				snapshot: buildSnapshot({ tick, game: state }),
+				events: [...machineResult.semanticEvents, ...rulesResult.events],
+				contactEvents: [],
+				commands: [],
+			};
+			view = advanceBackglass(view, output);
+			const frame = renderFrame(view, output.snapshot);
+			if (frame.screen === 'score') {
+				scoreScreenTicks += 1;
+				const row = frame.rows[state.currentPlayer]?.text;
+				if (row !== commas(oracle)) {
+					rowMismatches.push({ tick, row, oracle: commas(oracle) });
+				}
+				maxShown = Math.max(maxShown, oracle);
+			}
+
+			if (rulesResult.events.some((e) => e.type === 'ball_saved' || e.type === 'ball_ended')) {
+				endTick = tick;
+				break;
+			}
+		}
+
+		expect(settledAtHold, 'sanity: the served ball rests in the shooter lane before the hold').toBe(true);
+		expect(endTick, 'sanity: the run reached its first ball end or save').toBeGreaterThan(RELEASE);
+		expect(spinnerEdgesInGame, 'sanity: at least one in-game Spinner edge, or the oracle comparison is vacuous').toBeGreaterThan(0);
+		expect(sanityBreaks, 'sanity break: a DRAGON-target or Top-lane edge on this path (measured: none) -- the oracle does not model either').toEqual([]);
+		expect(scoreScreenTicks, 'sanity: the score screen was up').toBeGreaterThan(0);
+		expect(maxShown, 'sanity: the oracle was nonzero on a score-screen tick (rowMismatches ties the row to it)').toBeGreaterThan(0);
+		expect(rowMismatches.slice(0, 5), 'the DMD row equals the oracle on every score-screen tick').toEqual([]);
+		expect(stateMismatches.slice(0, 5), 'the sim score equals the oracle on every in-game tick').toEqual([]);
+	}, 120000);
 });

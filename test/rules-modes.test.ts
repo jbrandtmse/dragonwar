@@ -267,21 +267,27 @@ describe('DW-202 -- lane change actually repositions the lane the skill shot pay
 });
 
 describe('AC 3 -- skill shot missed', () => {
-	const misses: readonly { readonly label: string; readonly switchName: SwitchName }[] = [
-		{ label: 's_sling_l (an unrelated playfield switch)', switchName: 's_sling_l' },
-		{ label: 's_pop_2 (an unrelated playfield switch)', switchName: 's_pop_2' },
-		{ label: 's_drain', switchName: 's_drain' },
-		{ label: 's_top_1 (an UNLIT Top lane -- top_2 is the lit one)', switchName: 's_top_1' },
+	// Story 3.0a (DW-278): a pop or sling closure now pays the BASE mode's own
+	// playfield award (`popScore`/`slingScore`), independently of the skill
+	// shot. So each miss below expects exactly that switch's own base award
+	// -- 0 for a switch the base mode does not score -- and still no
+	// skill-shot award and no letter. The intent is unchanged: a miss pays
+	// the skill shot nothing.
+	const misses: readonly { readonly label: string; readonly switchName: SwitchName; readonly baseAward: number }[] = [
+		{ label: 's_sling_l (an unrelated playfield switch)', switchName: 's_sling_l', baseAward: TUNING.slingScore.value },
+		{ label: 's_pop_2 (an unrelated playfield switch)', switchName: 's_pop_2', baseAward: TUNING.popScore.value },
+		{ label: 's_drain', switchName: 's_drain', baseAward: 0 },
+		{ label: 's_top_1 (an UNLIT Top lane -- top_2 is the lit one)', switchName: 's_top_1', baseAward: 0 },
 	];
 
-	for (const { label, switchName } of misses) {
-		it(`${label}: modes[] loses skill_shot, keeps base; score and letters unchanged`, () => {
+	for (const { label, switchName, baseAward } of misses) {
+		it(`${label}: modes[] loses skill_shot, keeps base; score is only the base mode's own award for that switch, no skill-shot award, letters unchanged`, () => {
 			const initial = gameState({ players: [player({ lit: { top_2: true } })], modes: armedAfterLaunch() });
 			const result = runRulesScript(close(switchName).at(1).build(), { durationTicks: 1, initialState: initial });
 			const after = result.finalState;
 
 			expect(after.modes.map((m) => m.mode)).toEqual(['base']);
-			expect(after.players[0]!.score).toBe(0);
+			expect(after.players[0]!.score).toBe(baseAward);
 			expect(after.players[0]!.letters).toBe('');
 		});
 	}
@@ -292,7 +298,7 @@ describe('AC 3 -- skill shot missed', () => {
 		const after = result.finalState;
 
 		expect(after.modes.map((m) => m.mode)).toEqual(['base']);
-		expect(after.players[0]!.score).toBe(0);
+		expect(after.players[0]!.score, 'the base mode pop award only (Story 3.0a) -- no skill-shot award').toBe(TUNING.popScore.value);
 		expect(after.players[0]!.letters).toBe('');
 	});
 });

@@ -4,7 +4,7 @@
 // arithmetic -- AD-19 names "modes, scoring and the ball controller" as the
 // consumers of device and shot events, and this is the scoring peer that
 // AD-19 has always described and the tree never had. Two pure folds, each
-// gated on `phase === 'game'` and a present `players[currentPlayer]`, each
+// gated on `scoringOpen()` and a present `players[currentPlayer]`, each
 // returning the SAME `GameState` reference when nothing changed, each
 // writing only `players[currentPlayer].bonus`:
 //
@@ -36,12 +36,21 @@
 //   multiplier earned in the same millisecond the ball drained does not pay
 //   on that ball" stays a defensible answer once Epic 3 makes it reachable.
 //
+// Story 3.0a (DW-246, FR-15 as decided): both folds gate on
+// `sim/rules/scoring.ts`'s `scoringOpen()` -- `phase === 'game'` AND not
+// Tilted -- rather than on the phase alone. A category credited or a rung
+// earned under Tilt is bonus credit, which stops under Tilt like every
+// other earner. The multiplier gate has no score effect (a tilted ball
+// forfeits its bonus and the multiplier resets per ball), but it keeps the
+// Tilted `bonus` unchanged, as FR-15 now states.
+//
 // `strikes` is a declared category with no producer this epic (Epic 3's War
 // is the first) -- `bonusTotal()` still sums it, so a seeded non-zero
 // `strikes` count is proven to contribute, without this file ever
 // fabricating an event that credits it.
 
 import { TABLE } from '../table/dragonwar';
+import { scoringOpen } from './scoring';
 import type { DeviceEvent, ShotMadeEvent } from './devices';
 import type { ModeEvent } from './modes';
 import type { BonusCategory, PlayerBonusState } from '../contracts/state';
@@ -142,11 +151,12 @@ function shotNameOf(event: ShotMadeEvent): ShotName {
  * (`shot_left_loop_made`/`shot_right_loop_made`, via `TABLE.bonusWiring`)
  * credits its category by exactly 1. `shot_ramp_made` and every other device
  * event credit nothing -- `TABLE.bonusWiring` has no entry for the Ramp
- * (task 1). Gated on `phase === 'game'` and a present current player;
- * returns `state` unchanged (same reference) when nothing credits.
+ * (task 1). Gated on `scoringOpen()` (a game, not Tilted -- Story 3.0a)
+ * and a present current player; returns `state` unchanged (same reference)
+ * when nothing credits.
  */
 export function creditBonusFromDeviceEvents(state: GameState, deviceEvents: readonly DeviceEvent[]): GameState {
-	if (state.phase !== 'game') {
+	if (!scoringOpen(state)) {
 		return state;
 	}
 	const currentPlayer = state.currentPlayer;
@@ -190,12 +200,12 @@ export function creditBonusFromDeviceEvents(state: GameState, deviceEvents: read
  * current player's multiplier one rung, never past `MULTIPLIER_LADDER`'s
  * last member; `{ set: 'inout' }` moves nothing. Keys off
  * `state.currentPlayer` -- `LanesCompletedEvent` carries no player field
- * (this file's own header). Gated on `phase === 'game'` and a present
- * current player; returns `state` unchanged (same reference) when nothing
- * advances.
+ * (this file's own header). Gated on `scoringOpen()` (a game, not Tilted
+ * -- Story 3.0a) and a present current player; returns `state` unchanged
+ * (same reference) when nothing advances.
  */
 export function advanceBonusMultiplier(state: GameState, modeEvents: readonly ModeEvent[]): GameState {
-	if (state.phase !== 'game') {
+	if (!scoringOpen(state)) {
 		return state;
 	}
 	const currentPlayer = state.currentPlayer;
