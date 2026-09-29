@@ -1811,7 +1811,7 @@ So that the Epic 2 defects the author has already decided, and that no later Epi
 
 **Given** a ball ends with a nonzero bonus
 **When** the Backglass shows the end-of-ball bonus
-**Then** the BONUS row counts DOWN to zero rather than up to the total, and the score line shows the pre-bonus score until the count completes and the final score after it, never the bonus-inclusive score from the first frame (FR-20; AD-3's "bonus count-down"; author decision on DW-236 and DW-237)
+**Then** the BONUS row counts DOWN to zero rather than up to the total, and the score line starts at the pre-bonus score and rises by what each step pays, reaching the final score as the BONUS row reaches zero, never the bonus-inclusive score from the first frame (FR-20; AD-3's "bonus count-down"; author decision on DW-236 and DW-237: "freeze the score line PRE-bonus so the bonus visibly pays into it while it counts down") [AMENDED 2026-09-29, Story 3.0 spec gate -- the runner's own wording at insertion had the line jump to the final score on completion, which drifted from the author's recorded DW-237 decision; restored]
 **And** the bonus arithmetic, the final score and the tick on which the bonus enters `GameState` are unchanged, so no golden's `expectedHash` or `expectedGameStateHash` moves (a header-only re-record is permitted)
 
 **Given** a Slam tilt arrives while a bonus count is running
