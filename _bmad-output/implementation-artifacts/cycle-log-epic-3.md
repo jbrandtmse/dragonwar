@@ -61,3 +61,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-09-29T14:11:47Z	Story 3.0a	ci_resolved	story=3.0a run=36580546127 result=success resolved_at=next_plan
 2026-09-29T14:11:47Z	Epic 3	epic_context_compiled	reason=planning_artifact_newer model=opus
 2026-09-29T14:11:47Z	Story 3.1	stage_spawned	stage=plan spawn_at=2026-09-29T14:11:47Z model=opus agent_name=3-1-the-mode-stack-plan-1 cycle_iteration=1
+2026-09-29T14:33:52Z	Story 3.1	story_created	spawn_at=2026-09-29T14:11:47Z model=opus path=_bmad-output/implementation-artifacts/spec-3-1-the-mode-stack.md build_status=ready-for-dev epic_context=reused warnings=multiple-goals,oversized cycle_iteration=1
+2026-09-29T14:33:52Z	Epic 3	spine_updated	ad=AD-8 reason=rule5 by=runner story=3-1-the-mode-stack lint=ok note=event-major_fan-out;same-step_mode_start(DW-209)
+2026-09-29T14:33:52Z	Story 3.1	spec_validated	service_introducing=true integration_ac=present(AC7) adr_constrained_acs=AC1-AC6:AD-8,AC5/AC8:AD-7,AC7:AD-9 decision_dependency=none sections_created=none owned_ledger=DW-206,209,290,291 addressed=4 declined=0 mutates_shared_runtime=false lead_edits=AD-8_amendment second_read=done note=kept_as_one_story(split_first_with_green_checkpoint) model=claude-opus-5-5
