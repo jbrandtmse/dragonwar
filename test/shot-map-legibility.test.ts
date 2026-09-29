@@ -16,14 +16,23 @@
 // feature legibility half).
 //
 // col_ nodes never reach the glb (export.py's is_presentation_object(),
-// :95-100), so this is the FIRST test to project COLLISION-DOCUMENT
-// geometry through the fixed camera: `readCollisionDoc()` for each named
-// feature's bboxMm (test/asset-contract.test.ts's own convention),
-// `toScene()` to lift a table-mm point into playfield_root's LOCAL scene
-// space, then `playfieldNodes.playfieldRoot.computeWorldMatrix(true)`
-// (which carries applyPitch(), create-engine.ts:283) into world space,
-// exactly as test/scene-smoke.test.ts's own vis_playfield check does for a
-// real glb mesh.
+// :95-100), so the first case projects COLLISION-DOCUMENT geometry through
+// the fixed camera: `readCollisionDoc()` for each named feature's bboxMm
+// (test/asset-contract.test.ts's own convention), `toScene()` to lift a
+// table-mm point into playfield_root's LOCAL scene space, then
+// `playfieldNodes.playfieldRoot.computeWorldMatrix(true)` (which carries
+// applyPitch(), create-engine.ts:283) into world space, exactly as
+// test/scene-smoke.test.ts's own vis_playfield check does for a real glb
+// mesh.
+//
+// Story 5.0a (DW-279): until that story nothing drawn stood for these
+// bodies -- the glb carried only the inserts, vis_playfield, vis_backbox and
+// vis_spinner_l, so a legible collision bbox proved nothing a player could
+// SEE. Every feature below now also has visible `vis_` twins
+// (`src/presentation/scene/vis-names.ts`'s naming rule; the four dragon
+// bodies share one `vis_dragon`), and the second case applies the SAME
+// NDC-inside and MIN_LEGIBLE_NDC_SPAN checks to each twin's LOADED world
+// bbox -- the mesh the renderer actually draws, pitch included.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -37,6 +46,9 @@ import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engi
 import { toScene } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { readCollisionDoc } from './util/collision-doc';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { getRequiredNode } from '../src/presentation/scene/playfield';
+import { VIS_DRAGON_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 
@@ -193,6 +205,69 @@ describe('shot map legibility from the fixed camera (AC 8, task 26a)', () => {
 					drainNdc.y,
 					`the drain end (table y = 0) must render BELOW the far end (drain ndc.y ${drainNdc.y.toFixed(4)}, far ndc.y ${farNdc.y.toFixed(4)})`,
 				).toBeLessThan(farNdc.y);
+			} finally {
+				scene.dispose();
+			}
+		} finally {
+			engine.dispose();
+		}
+	});
+});
+
+describe('shot map legibility -- Story 5.0a: the VISIBLE twins, as loaded (DW-279)', () => {
+	it('each named feature\'s loaded vis_ twin world bbox lands inside NDC [-1, 1] and spans at least MIN_LEGIBLE_NDC_SPAN, per twin and as a union', async () => {
+		const engine = new NullEngine();
+		try {
+			const bytes = readFileSync(GLB_PATH);
+			const { scene } = await loadAndRenderOnceForTests(engine, glbDataUrl(bytes), { pluginExtension: '.glb' });
+			try {
+				const camera = scene.activeCamera;
+				expect(camera, 'the authored fixed camera must be the scene\'s active camera').not.toBeNull();
+				const viewProj = camera!.getViewMatrix().multiply(camera!.getProjectionMatrix(true));
+				const doc = readCollisionDoc();
+				const surfaceOf = (name: string): string | undefined =>
+					(doc.nodes.find((n) => n.name === name) as { surface?: string } | undefined)?.surface;
+
+				for (const feature of FEATURES) {
+					// The naming rule: col_<x> -> vis_<x>; a dragon body -> vis_dragon.
+					const twinNames = [...new Set(feature.nodeNames.map((name) => (surfaceOf(name) === 'dragon' ? VIS_DRAGON_NODE_NAME : visTwinName(name))))];
+					let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+					for (const twinName of twinNames) {
+						const twin = getRequiredNode(scene, twinName) as AbstractMesh;
+						twin.computeWorldMatrix(true);
+						let nodeMinX = Infinity, nodeMaxX = -Infinity, nodeMinY = Infinity, nodeMaxY = -Infinity;
+						for (const corner of twin.getBoundingInfo().boundingBox.vectorsWorld) {
+							const ndc = Vector3.TransformCoordinates(corner, viewProj);
+							const where = `${feature.name} (twin "${twinName}") corner ${corner.toString()}`;
+							expect(ndc.x, `${where} projects outside the viewport on x (${ndc.x.toFixed(4)})`).toBeGreaterThanOrEqual(-1);
+							expect(ndc.x, `${where} projects outside the viewport on x (${ndc.x.toFixed(4)})`).toBeLessThanOrEqual(1);
+							expect(ndc.y, `${where} projects outside the viewport on y (${ndc.y.toFixed(4)})`).toBeGreaterThanOrEqual(-1);
+							expect(ndc.y, `${where} projects outside the viewport on y (${ndc.y.toFixed(4)})`).toBeLessThanOrEqual(1);
+							nodeMinX = Math.min(nodeMinX, ndc.x);
+							nodeMaxX = Math.max(nodeMaxX, ndc.x);
+							nodeMinY = Math.min(nodeMinY, ndc.y);
+							nodeMaxY = Math.max(nodeMaxY, ndc.y);
+						}
+						minX = Math.min(minX, nodeMinX);
+						maxX = Math.max(maxX, nodeMaxX);
+						minY = Math.min(minY, nodeMinY);
+						maxY = Math.max(maxY, nodeMaxY);
+						const nodeSpanX = nodeMaxX - nodeMinX;
+						const nodeSpanY = nodeMaxY - nodeMinY;
+						expect(
+							Math.max(nodeSpanX, nodeSpanY),
+							`${feature.name} (twin "${twinName}"): projected span (x=${nodeSpanX.toFixed(4)}, y=${nodeSpanY.toFixed(4)}) must reach at least MIN_LEGIBLE_NDC_SPAN (${MIN_LEGIBLE_NDC_SPAN}) on at least one axis`,
+						).toBeGreaterThanOrEqual(MIN_LEGIBLE_NDC_SPAN);
+					}
+					const spanX = maxX - minX;
+					const spanY = maxY - minY;
+					// eslint-disable-next-line no-console
+					console.log(`[shot-map-legibility] ${feature.name} (vis twins ${twinNames.join(', ')}): NDC span x=${spanX.toFixed(4)} y=${spanY.toFixed(4)}`);
+					expect(
+						Math.max(spanX, spanY),
+						`${feature.name} (vis twins): projected span (x=${spanX.toFixed(4)}, y=${spanY.toFixed(4)}) must reach at least MIN_LEGIBLE_NDC_SPAN (${MIN_LEGIBLE_NDC_SPAN})`,
+					).toBeGreaterThanOrEqual(MIN_LEGIBLE_NDC_SPAN);
+				}
 			} finally {
 				scene.dispose();
 			}

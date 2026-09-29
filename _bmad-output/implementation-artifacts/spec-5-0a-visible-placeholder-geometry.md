@@ -2,7 +2,8 @@
 title: 'Story 5.0a: Visible placeholder geometry'
 type: 'feature'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '3c5c41b61f318b73f45a57ed877cda6402177541'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -13,6 +14,20 @@ deferred:
     evidence: 'src/sim/physics/plunger.ts:100-104 returns { posMm: 0, holdTicks }. This story''s vis_plunger follows posMm faithfully but is static in real play. Publishing travel is src/sim work, outside Epic 5''s footprint. Story 5.4''s AC 1 ("plunger travel") and DW-249 depend on it.'
     location: 'src/sim/physics/plunger.ts:100'
     severity: med
+  - summary: >-
+      The boot.ts render-hook wiring of the mechanism twins has no automated test; only the lead's AC 4 browser check would catch its removal.
+    evidence: |-
+      src/host/boot.ts calls resolveMechanismNodes() before the latestSnapshot guard and syncMechanisms() after syncBalls(). boot.ts is allowlisted as unreached in test/module-coverage.test.ts (DOM + WebGL2 by design). Deleting the syncMechanisms call, or moving resolveMechanismNodes below the guard (turning a missing twin into an uncaught render-loop error instead of the error panel), leaves every automated test green. AC 4's "hold the left flipper changes vis_flipper_l's region" is the only falsifier. A cheap partial: a loadAndRenderOnceForTests(..., onFrame) test asserting that a missing vis_flipper_l rejects the first-frame promise naming it.
+    location: >-
+      src/host/boot.ts:356
+    severity: medium
+  - summary: >-
+      vis_dragon_bank_backstop takes the target colour under the mechanical surface-to-family rule and sits directly behind the six drop targets, so a dropped target may be barely visible on screen.
+    evidence: |-
+      col_dragon_bank_backstop carries surface 'target' (x 202.4-286.4, y 708-723, z 0-50), so its twin gets mat_vis_target red and the target family's 52 mm top. The six targets are at y 700-708, with the same red and the same 52 mm top. When a target drops (hidden and lowered, as specified), the camera sees the backstop's red south face 8 mm further back in the same place. This is spec-bound: the intent's Always rule takes the family from surface, and AC 1 pins mat_vis_target on the backstop. Fixing it (for example, static target-surface bodies take the wall family) amends the spine's "Visible placeholders" convention, so it is a product call for the decision sheet or Story 5.4. Settle it with the lead's AC 4 browser session by striking a target and sampling nodeScreenRect('vis_dragon_d') before and after.
+    location: >-
+      tools/make-placeholder-blend.py (VIS_FAMILY_BY_SURFACE); public/assets/dragonwar.glb vis_dragon_bank_backstop
+    severity: medium
 ---
 
 <intent-contract>
@@ -202,6 +217,10 @@ deferred:
 - AC 2: `mutation: negate the flipper rotation in sync-mechanisms.ts → test/mechanisms-follow.test.ts rest-tip case red`. Also skip the drop-target translation → target-down case red.
 - AC 3: `mutation: change one coordinate digit in public/assets/dragonwar.collision.json → test/replay-goldens.test.ts red (StaleReplayHeaderError)`.
 - AC 4, headless: `mutation: set mat_vis_post's base colour equal to mat_vis_wall's → placeholder-geometry colour-separation red`.
+- Added at review (2026-09-29), each applied, observed red and reverted from a byte copy (tree identical after):
+  - AC 1 (cap rule's purpose): `mutation: lower vis_post_divider_l_hi's POSITION accessor top 0.053 -> 0.050 inside the glb JSON chunk → placeholder-geometry coplanar-top case red (vis_guide_divider_l vs vis_post_divider_l_hi, gap 7e-7 < 0.1)`.
+  - AC 2 (statelessness across frames): `mutation: base each pose on the node's CURRENT pose in sync-mechanisms.ts (flipper rotationQuaternion, drop-target position, plunger position) → mechanisms-follow rest-tip (103.9 mm off), held (5.1 mm), target-struck (top -52 vs floor 0) and plunger (-120 vs -80) cases red`.
+  - AC 4 headless (`nodeScreenRect` orientation): `mutation: flip node-screen-rect.ts to a bottom-left pixel origin (y := renderHeight - y) → mechanisms-follow nodeScreenRect case red (vis_flipper_l above vis_dragon)`.
 
 **Manual checks (lead, AC 4):** `pnpm dev --port 5185 --strictPort` (Epic 5's port; Epic 3 uses 5183 on the same machine -- verify the server serves THIS worktree before trusting it), press to begin, stay in Attract. Inside one `evaluate`, an rAF sampler `drawImage`s `#render-canvas` and averages the RGB over each `nodeScreenRect` region.
 - **Measure first:** capture the same regions on 5 consecutive frames. Set Δ = 5 × the largest per-channel standard deviation observed, floored at 1 level. Record the measured means, the noise and Δ here before claiming a pass.
@@ -212,10 +231,96 @@ deferred:
 ## Spec Change Log
 
 - 2026-09-29 (lead spec gate, epic-runner-5): Manual-check dev-server port 5180 -> 5185 (Epic 5's assigned port; 5183 is Epic 3's). Added the representative-node rule to AC 4's manual check. Rule 20: the naming/exclusion/family rule this spec defines was written into the spine as the Consistency Conventions row 'Visible placeholders'. Lead measurement recorded at the gate: `assetHash()` (src/sim/loop/replay.ts:150) hashes the collision document only, so AC 3 expects NO golden field to move, not even the header.
+- 2026-09-29 (implement, 5-0a-visible-placeholder-geometry-implement): no path outside the footprint was touched; `src/presentation/mechanisms/.gitkeep` deleted per task 4. Decisions made inside the Always rules, recorded for review:
+  - `topOffsetMm`: wall 0.0, ramp 0.4, dragon 0.8, sling 1.2, bumper 1.6, target 2.0, post 3.0, flipper 0.0. The flipper is 0.0 because the 20 mm bats are never coplanar with any 50 mm family's top, and it keeps the "Flipper held" row's bbox equal to `col_flipper_l` in z as well as x/y.
+  - Family colours (linear RGB): wall (0.55, 0.60, 0.70), post (0.03, 0.03, 0.03), target (0.90, 0.08, 0.05), bumper (0.10, 0.20, 0.95), sling (0.95, 0.80, 0.05), flipper (0.98, 0.98, 0.98), dragon (0.10, 0.65, 0.15), ramp (0.70, 0.20, 0.85), plunger (0.95, 0.45, 0.02). The script asserts the 0.25 separation at authoring time; the test re-asserts it from the glb.
+  - `bd_shooter`'s literal pose became the named `BD_SHOOTER_POS_MM` (same values) so `vis_plunger` derives from it. `vis_plunger`: x 493-503, y -40 to 21.505, z 3-23.
+  - `sync-mechanisms.ts` also exports `resolveMechanismNodes()`. `boot.ts` calls it on every render frame before the `latestSnapshot` guard (cached per scene), so a glb missing a twin fails inside `loadAndRenderOnce()`'s first-frame guard and reaches the error panel (I/O row "Missing twin"), not an uncaught render-loop error. `boot.ts` names the scene type as `Parameters<typeof nodeScreenRect>[0]` so `host/` gains no direct `@babylonjs/*` import.
+  - Flipper rotation: angle between the twin's authored tip direction (its local bbox centre, origin = pivot) and `toScene(fromPhysics(sin theta, -cos theta) - fromPhysics(0))`, about `toScene(table +Z)`; degrees go through Babylon's `Angle.FromDegrees`. A drop target's drop is its own bbox extent along that same axis.
+  - Mutations (Rule 19) were run as written. The AC 4 headless colour mutation was applied to the glb's JSON chunk (`mat_vis_post.baseColorFactor := mat_vis_wall`'s) rather than through a re-export; the test reads the same field either way. Observed red: missing twin (`vis_post_sling_l`), pose (`max.x` +1 mm), colour separation (0 < 0.25), rest tip (103.9 mm off), target down (top 52.0 mm), and `replay-goldens` 35 failures with `StaleReplayHeaderError`. Every mutation was reverted from byte copies; `git status --short` and `git diff --stat` were unchanged.
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 34 findings — high 0, medium 9, low 18, false 7, maybe-false 0
+- findings:
+  - `[low]` `[patch]` Blind Hunter: ATTRIBUTIONS.md rows 71/72 Date column still reads 2026-09-01 to 2026-09-07 though both rows now record a 2026-09-29 regeneration. Fixed: both Date cells read `2026-09-01 to 2026-09-29`; `pnpm check:attributions` green.
+  - `[false]` `[reject]` Blind Hunter: the .glb row's note names the wrong tool. The note says the story "re-exported it", and says the twins were generated by `tools/make-placeholder-blend.py`, which is what task 1 prescribes and is true: the seeding script authors the geometry and `export.py` (the row's Tool column) exports it.
+  - `[low]` `[reject]` Blind Hunter: vis_plunger extends to y -40, past vis_playfield's y=0 edge, where there is no apron mesh. Spec-bound: task 2 authors "y from -40", and the fix would edit this build's spec. It is also cosmetic, placeholder only. AC 4 residual: the lead's plunger sample should use the on-board part of its rect.
+  - `[low]` `[reject]` Blind Hunter: on a WebGPU-capable browser, a missing twin is first reported as a WebGPU render failure before the WebGL2 retry. Verified in create-engine.ts:388-432. The retry fails the same way and bootScene rejects, so the error panel still shows the node name, which satisfies the matrix row. This is the existing behaviour for every first-frame glb-contract failure. Fixing it means tagging error types in create-engine, which is added complexity for a developer-only path.
+  - `[low]` `[reject]` Blind Hunter: the bats show their authored end-of-stroke pose until the first snapshot arrives. The window is only the frames before the host loop's first output (created just before bootScene), the same window in which balls are not yet synced. Posing without a snapshot would add a branch for a transient that lasts a frame or two.
+  - `[low]` `[reject]` Blind Hunter: _cap_twin_heights compares against a floor rounded to 4 decimals with a 1e-6 epsilon, and a body floored at or above WALL_H_MM would invert. Theoretical at this tree: every visible body floors at z 0, and the only z-400 body, col_glass, is excluded. AC 1's z-floor assertion (within 0.01 mm of zLow) would redden on either case in the exported artifact.
+  - `[false]` `[reject]` Blind Hunter: the merged vis_dragon floor comes from the lowest body, so higher bodies are distorted. All four dragon bodies floor at z 0 (collision.json bboxMm.min.z), so no body sits above the shared floor.
+  - `[low]` `[reject]` Blind Hunter: _world_bbox_mm divides by MM where export.py multiplies by 1000 and uses BBOX_ROUND, so they could drift. Both round to 4 decimals today, and the exported-artifact case "the set without a twin equals the exclusion rule exactly" would redden on any divergence at the max.y <= 0 edge.
+  - `[false]` `[reject]` Blind Hunter: twin baking double-applies playfield_root's transform. playfield_root is authored at (0, 0, 0) with no rotation (make-placeholder-blend.py:1822), so there is no parent transform to apply twice. The x/y 0.01 mm pose case would catch a moved root.
+  - `[medium]` `[patch]` Blind Hunter: the coplanar-top purpose of topOffsetMm is never tested (all-zero offsets pass). Fixed: new placeholder-geometry case asserting every cross-family pair of twins with overlapping x/y footprints has tops at least 0.1 mm apart (40 pairs at this tree). Mutation recorded in Verification.
+  - `[low]` `[patch]` Blind Hunter: the vis_plunger test checks only centre x and tip y. Fixed: it now also asserts the 10 mm width, the -40 mm south end, and the z band 3-23 mm.
+  - `[medium]` `[patch]` Blind Hunter: nodeScreenRect's orientation is unchecked; a y-flipped rect passes. Fixed: the nodeScreenRect case now asserts both flipper rects lie below vis_dragon's rect and that the left flipper is left of the right one. Mutation recorded.
+  - `[low]` `[patch]` Blind Hunter: placeholder-geometry's header claims an "AC 3 byte-identity guard" it cannot provide. Fixed: the header now says it is the collision-document/assetHash guard and that byte identity is the Verification git-diff command.
+  - `[low]` `[reject]` Blind Hunter: the new legibility case skips bumper, sling, post and plunger twins. Spec-bound: task 9 applies the checks to "each feature's" twins, meaning the existing FEATURES list. AC 4 covers all nine families in the browser.
+  - `[low]` `[reject]` Blind Hunter: the dragon naming exception is restated in three test sites instead of a shared helper. The tests restate the rule independently on purpose, as an oracle. A `visTwinNameFor` helper adds public surface and names no caller that would diverge.
+  - `[low]` `[reject]` Blind Hunter: syncMechanisms allocates about 30 small Vector3/Quaternion objects per frame. Negligible at 11 nodes, and it matches balls.ts's per-frame pattern.
+  - `[false]` `[reject]` Blind Hunter: the spec's status and Auto Run Result are inconsistent and verification results are missing. That is mid-run state; this finalize writes both. The fix would also edit this build's spec.
+  - `[low]` `[reject]` Edge Case Hunter: vis_dragon's AABB rect is about 40% lock-lane playfield, which dilutes AC 4's mean RGB. Spec-bound: AC 4 defines the sample as the central 50% of nodeScreenRect. Recorded as a residual risk for the lead's measurement.
+  - `[low]` `[reject]` Edge Case Hunter: nodeScreenRect returns a rect for a hidden mesh (a down target). The only consumer, the lead's AC 4 capture, samples in Attract with every target up. A guard adds a branch for a case nobody calls.
+  - `[low]` `[reject]` Edge Case Hunter: bbox corners behind the camera or outside the frustum give out-of-canvas coordinates. The camera is fixed and every feature twin projects inside NDC (the shot-map-legibility twin case). Theoretical.
+  - `[low]` `[reject]` Edge Case Hunter: a body floored at or above WALL_H_MM inverts. Same root cause as the _cap_twin_heights row above: none exists at this tree, and AC 1's z-floor assertion guards it.
+  - `[false]` `[reject]` Edge Case Hunter: a zero in-plane tip direction would freeze the flipper. The flipper box is about 100 mm long against a 12.5 mm half-width, so the bbox centre is far from the pivot. The rest-tip case measures a real 103.9 mm swing under the negation mutation.
+  - `[low]` `[reject]` Edge Case Hunter: the per-scene cache ignores the playfieldRoot argument and later disposal. One scene has exactly one playfield_root, and no code path disposes a twin mid-scene. Theoretical.
+  - `[low]` `[reject]` Edge Case Hunter: a missing twin triggers a spurious WebGPU fallback. Same root cause as the Blind Hunter WebGPU row; rejected on the same evidence.
+  - `[medium]` `[patch]` Verification Gap: nothing checks that syncMechanisms is stable across repeated calls, so accumulating onto the current pose would pass. Fixed: rest-tip syncs three times, held syncs rest, held, held, struck syncs twice and asserts the drop equals exactly its own height, and the plunger syncs 40 twice. The accumulation mutation reddens all four cases.
+  - `[medium]` `[patch]` Verification Gap: nodeScreenRect's top-left origin is never checked. Same root cause as the Blind Hunter orientation row; fixed by the same orientation assertions.
+  - `[medium]` `[defer]` Verification Gap: the boot.ts per-frame wiring (the syncMechanisms call and the eager resolve) is checked only by the manual AC 4. boot.ts has no test host by design (the module-coverage allowlist). Added to frontmatter `deferred:`.
+  - `[false]` `[reject]` Verification Gap: AC sub-clauses and matrix rows lack their own mutation lines. Rule 19 requires one demonstrated mutation per AC, not per assertion. AC 1, AC 2, AC 3 and AC 4-headless each carry one (now more). AC 4's browser half is the lead's check, with its own negative control.
+  - `[medium]` `[patch]` Verification Gap: distinct top offsets between overlapping families are unpinned. Same root cause as the Blind Hunter coplanar row; fixed by the same case.
+  - `[low]` `[reject]` Verification Gap (other): a missing twin is misreported as a WebGPU failure. Same root cause as the Blind Hunter WebGPU row; rejected on the same evidence.
+  - `[false]` `[reject]` Intent Alignment: no automated test measures rendered pixels, which is where the Problem statement lives. By design: the spec gives AC 4's rendered check to the lead, and this stage is forbidden a browser. The headless tier covers the glb contract and scene-graph poses.
+  - `[medium]` `[defer]` Intent Alignment: the boot.ts wiring is untested. Same root cause as the Verification Gap boot.ts row; deferred there.
+  - `[medium]` `[defer]` Intent Alignment: the static vis_dragon_bank_backstop is target-red, has the same 52 mm top and sits right behind the six targets, so a dropped target may not read on screen. Verified from collision.json (backstop y 708-723, targets y 700-708, both surface target). Spec-bound product call: the intent mandates family from surface, and the fix amends the spine convention. Added to frontmatter `deferred:` for the decision sheet or Story 5.4.
+  - `[medium]` `[reject]` Intent Alignment: vis_plunger is static in real play because posMm is hard-wired 0. Duplicate of the frontmatter `deferred:` entry already recorded at the spec gate (src/sim/physics/plunger.ts:100).
+
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Summary.** DW-279's visible placeholder pass is in place. `tools/make-placeholder-blend.py` now copies every visible `col_` body's own mesh into a flat-shaded `vis_` twin: 87 twins, the four dragon bodies merged into `vis_dragon`, nine `mat_vis_*` family materials, the height cap plus per-family top offsets, and flipper twins with their origin at the pivot. It also authors `vis_plunger`. The `.blend` and `.glb` were regenerated. A new stateless follower, `syncMechanisms`, poses the flipper, drop-target and plunger twins from each snapshot, and `src/host/boot.ts` calls it every frame. `nodeScreenRect` is exposed on `window.__dragonwarBoot` for the lead's AC 4 capture. Collision, `TABLE` and every replay golden are unchanged.
+
+**Files changed:**
+- `ATTRIBUTIONS.md` -- Story 5.0a provenance note on the `.blend` and `.glb` rows (author-made, Blender 5.2.1, 2026-09-29, nothing sourced); Date cells extended to 2026-09-29.
+- `tools/make-placeholder-blend.py` -- the twin pass (`add_visible_twins`, `add_visible_plunger`), the family, colour and offset tables, the authoring-time colour-separation guard, and `BD_SHOOTER_POS_MM`.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` -- regenerated (glb 49 KB to 259 KB, 88 new `vis_` nodes). `dragonwar.collision.json` is byte-identical.
+- `src/presentation/scene/vis-names.ts` (new) -- the naming rule: `visTwinName`, `VIS_DRAGON_NODE_NAME`, `VIS_PLUNGER_NODE_NAME`.
+- `src/presentation/mechanisms/sync-mechanisms.ts` (new; `.gitkeep` deleted) -- `syncMechanisms` and `resolveMechanismNodes`.
+- `src/presentation/scene/node-screen-rect.ts` (new) -- `nodeScreenRect(scene, name)`, a canvas-pixel rect with a top-left origin.
+- `src/host/boot.ts` -- footprint extension (planned, uncontended): an eager resolve and a `syncMechanisms` call in the render hook, plus the `nodeScreenRect` hatch.
+- `test/placeholder-geometry.test.ts` (new) -- AC 1, the colour separation, the cross-family coplanar-top pin, and AC 3's `assetHash` guard, all from the exported artifacts.
+- `test/mechanisms-follow.test.ts` (new) -- every I/O matrix row against real snapshots on NullEngine plus the committed glb, the repeated-sync stability checks, and `nodeScreenRect`'s bounds and orientation.
+- `test/shot-map-legibility.test.ts` -- the same NDC and `MIN_LEGIBLE_NDC_SPAN` checks, applied to each feature's loaded `vis_` twins; header updated.
+
+**Review findings (one pass, 34 findings: high 0, medium 9, low 18, false 7):**
+- **Patches applied (6 entries):**
+  - medium: the cross-family coplanar-top pin; the `nodeScreenRect` orientation check; the repeated-sync stability checks.
+  - low: the ATTRIBUTIONS Date cells; the fuller `vis_plunger` checks; the placeholder-geometry header wording.
+  - All six are test or provenance edits. No production code changed at review.
+- **Deferred (2 new, in frontmatter `deferred:`):**
+  - medium: the boot.ts wiring has no automated test.
+  - medium: a spec-bound product call. `vis_dragon_bank_backstop` is target-red directly behind the drop targets, so a dropped target may not read on screen.
+- **Rejected:** 7 false and 18 low findings, plus one duplicate of the existing plunger `deferred:` entry. Each has its reason in the Review Triage Log, above.
+- **Follow-up review recommendation:** `false`. The patched entries were 0 high, 3 medium and 3 low. The medium-count rule would say `true`, but every patch is a test-only assertion demonstrated red under its named mutation, so no specific unverified risk remains to name.
+
+**Verification performed:**
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers` (the new files were marked intent-to-add so the tracked-file scan covered them) and `pnpm check:attributions`: all green.
+- `pnpm test` with Blender resolvable: 131 files, 2106 tests passed, 0 skipped.
+- `git diff --exit-code -- public/assets/dragonwar.collision.json test/replays`: exit 0. The goldens were parsed per field: all five `header.assetHash` = ab163ff, and `expectedHash`/`expectedGameStateHash` are unchanged since the baseline.
+- `pnpm build`, `pnpm check:dist` and `pnpm check:size`: green, 0.900 MB of the 2.75 MB budget.
+- Rule 19: every mutation in `## Verification` was applied, observed red and reverted, with `git status --short`, `git diff --stat` and the glb bytes identical afterwards. This includes the three added at review.
+- Matrix Test Audit: all six I/O rows are covered in `test/mechanisms-follow.test.ts`, which ran in the default suite and passed.
+
+**Residual risks (for the lead's AC 4 browser smoke):**
+- AC 4 has not been run. The rendered colour separation and the flipper-hold region change are unmeasured.
+- `vis_dragon`'s screen rect is an AABB, and its central 50% includes lock-lane playfield, which dilutes the mean.
+- `vis_plunger`'s south 40 mm lies past the playfield edge, so sample the on-board part.
+- Flipper white and wall blue-grey differ mainly in the red channel.
+- On a WebGPU-capable browser, a missing twin passes through a spurious WebGPU-to-WebGL2 fallback before the error panel shows it.
+- `vis_plunger` never moves in real play: `posMm` is hard-wired 0, per the existing `deferred:` entry.

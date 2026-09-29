@@ -49,7 +49,7 @@ import os
 
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -1561,6 +1561,258 @@ def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from
 			tree.links.new(tex_node.outputs['Alpha'], bsdf.inputs['Alpha'])
 			mat.blend_method = 'BLEND'
 	return mat
+
+
+# ---------------------------------------------------------------------------
+# Story 5.0a (DW-279): visible placeholder twins.
+#
+# Before this story the glb drew only the inserts, `vis_playfield`,
+# `vis_backbox` and `vis_spinner_l`: every wall, Loop, Ramp, Dragon, target,
+# bumper, slingshot, flipper and the plunger existed only as invisible `col_`
+# scaffolding, so a player watched a ball cross a bare board.
+# `add_visible_twins()` below closes that by COPYING each visible `col_`
+# body's own mesh data into a flat-shaded `vis_` twin inside this same run --
+# the twin and the collision body share one authoring source and cannot
+# drift. `test/placeholder-geometry.test.ts` proves the correspondence from
+# the EXPORTED artifacts (glb + collision.json), never from this text.
+#
+# The rule (the spine's Consistency Conventions row "Visible placeholders"):
+#   - naming: `col_<x>` -> `vis_<x>`; the four `surface: 'dragon'` bodies
+#     merge into ONE `vis_dragon` (the mesh Story 5.1 replaces);
+#   - exclusions: `col_playfield` (its visual is `vis_playfield`),
+#     `col_glass` (Story 5.3's), and every body whose table-frame
+#     `bbox.max.y <= 0` (the below-deck channels, channel posts and
+#     drain-edge walls under the apron);
+#   - family: taken from the body's own `surface`, which the collision
+#     document also carries, so the test can check it independently. A
+#     surface that maps to no family FAILS this script.
+#
+# None of this touches a `col_`/`sw_` object, so `dragonwar.collision.json`,
+# `assetHash` and every replay golden stay byte-identical (AD-15: `assetHash`
+# hashes the collision document only).
+# ---------------------------------------------------------------------------
+
+# The Lock/plunger-lane ball-device empty's authored pose (its eject point,
+# the resting ball's centre). Named so `vis_plunger` below derives from the
+# SAME figure `bd_shooter` is placed at, never a re-typed literal (DW-149).
+BD_SHOOTER_POS_MM = (498.0, 35.0, 13.0)
+
+VIS_DRAGON_NAME = 'vis_dragon'
+VIS_PLUNGER_NAME = 'vis_plunger'
+
+# surface -> family. Every `surface` a `col_` body may carry except `glass`
+# (col_glass is excluded above) must appear here, or the pass fails loudly.
+VIS_FAMILY_BY_SURFACE = {
+	'wood': 'wall',
+	'plastic': 'wall',
+	'rubber_post': 'post',
+	'target': 'target',
+	'bumper': 'bumper',
+	'rubber_band': 'sling',
+	'flipper': 'flipper',
+	'dragon': 'dragon',
+	'ramp': 'ramp',
+}
+
+# One flat base colour per family, LINEAR RGB (Blender's Base Colour input).
+# Authored placeholder figures, not sourced from any machine. Chosen so every
+# pair of families, and each family against `mat_playfield`'s own
+# (0.45, 0.30, 0.15), differs by at least VIS_MIN_CHANNEL_SEPARATION in at
+# least one channel -- asserted below at authoring time AND by
+# test/placeholder-geometry.test.ts from the exported glb.
+VIS_FAMILY_COLOURS = {
+	'wall': (0.55, 0.60, 0.70),      # blue-grey plastic/wood guides
+	'post': (0.03, 0.03, 0.03),      # black rubber
+	'target': (0.90, 0.08, 0.05),    # red drop targets
+	'bumper': (0.10, 0.20, 0.95),    # blue pop bumpers
+	'sling': (0.95, 0.80, 0.05),     # yellow slingshots
+	'flipper': (0.98, 0.98, 0.98),   # white bats
+	'dragon': (0.10, 0.65, 0.15),    # green Dragon
+	'ramp': (0.70, 0.20, 0.85),      # purple Ramp
+	'plunger': (0.95, 0.45, 0.02),   # orange plunger rod
+}
+VIS_MIN_CHANNEL_SEPARATION = 0.25
+PLAYFIELD_BASE_COLOUR = (0.45, 0.30, 0.15)
+
+# Per-family top offset (mm, each in [0, 3]) added above the capped height,
+# so two overlapping families (a post at a guide's end, a sling against its
+# posts) never share a coplanar top face and z-fight. Authored figures.
+VIS_TOP_OFFSET_MM = {
+	'wall': 0.0,
+	'ramp': 0.4,
+	'dragon': 0.8,
+	'sling': 1.2,
+	'bumper': 1.6,
+	'target': 2.0,
+	'flipper': 0.0,  # 20 mm bats: no 50 mm-high family's top is ever coplanar with theirs, so the twin keeps the col_ box exactly
+	'post': 3.0,
+	'plunger': 0.0,  # vis_plunger is authored directly, never capped
+}
+
+# vis_plunger's authored box (mm). Half-width across the lane, the rod's own
+# far (south) end under the apron, and its z band -- all authored placeholder
+# figures, not measurements of any real plunger.
+VIS_PLUNGER_HALF_W_MM = 5.0
+VIS_PLUNGER_Y0_MM = -40.0
+VIS_PLUNGER_Z0_MM = 3.0
+VIS_PLUNGER_Z1_MM = 23.0
+
+
+def _check_vis_colour_separation():
+	"""Authoring-time guard for the colour rule above (the exported-glb
+	check lives in test/placeholder-geometry.test.ts)."""
+	named = list(VIS_FAMILY_COLOURS.items()) + [('mat_playfield', PLAYFIELD_BASE_COLOUR)]
+	for i in range(len(named)):
+		for j in range(i + 1, len(named)):
+			(name_a, a), (name_b, b) = named[i], named[j]
+			separation = max(abs(a[k] - b[k]) for k in range(3))
+			if separation < VIS_MIN_CHANNEL_SEPARATION:
+				raise RuntimeError(
+					f'[make-placeholder-blend] visible family colours {name_a} {a} and {name_b} {b} differ by only '
+					f'{separation:.3f} in their most-different channel (< {VIS_MIN_CHANNEL_SEPARATION})',
+				)
+
+
+def _world_bbox_mm(obj):
+	"""`tools/export.py`'s own `world_bbox_mm()` reduction (the one that
+	writes collision.json's `bboxMm`), rounded to the same 4 decimals, so the
+	exclusion rule here reads exactly the figure the test reads."""
+	corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+	xs = [c.x / MM for c in corners]
+	ys = [c.y / MM for c in corners]
+	zs = [c.z / MM for c in corners]
+	return (
+		(round(min(xs), 4), round(min(ys), 4), round(min(zs), 4)),
+		(round(max(xs), 4), round(max(ys), 4), round(max(zs), 4)),
+	)
+
+
+def _cap_twin_heights(mesh, z_low_mm, family):
+	"""Applies the height rule: every vertex above the body's own floor is
+	capped at WALL_H_MM (so the 400 mm perimeter and lane walls read as
+	ordinary guides) and lifted by the family's own top offset."""
+	top_offset_mm = VIS_TOP_OFFSET_MM[family]
+	for vertex in mesh.vertices:
+		z_mm = vertex.co.z / MM
+		if z_mm <= z_low_mm + 1e-6:
+			continue
+		vertex.co.z = (min(z_mm, WALL_H_MM) + top_offset_mm) * MM
+
+
+def _finish_twin_mesh(mesh, material):
+	"""Export contract (AD-11/AD-12): `uv_base` + `uv_lightmap`
+	(TEXCOORD_1), exactly one material, flat shading."""
+	if 'uv_base' not in mesh.uv_layers:
+		mesh.uv_layers.new(name='uv_base')
+	if 'uv_lightmap' not in mesh.uv_layers:
+		mesh.uv_layers.new(name='uv_lightmap')
+	mesh.materials.clear()
+	mesh.materials.append(material)
+	for polygon in mesh.polygons:
+		polygon.use_smooth = False
+	mesh.update()
+
+
+def _new_twin_object(name, mesh, parent, location_m=(0.0, 0.0, 0.0)):
+	mesh.name = name
+	obj = bpy.data.objects.new(name, mesh)
+	obj.data.name = name
+	obj.location = Vector(location_m)
+	bpy.context.scene.collection.objects.link(obj)
+	obj.parent = parent
+	set_props(obj, lightgroup='lg_playfield')
+	return obj
+
+
+def add_visible_twins(playfield_root, excluded_names):
+	"""Story 5.0a's twin pass -- see the block comment above. Must run after
+	every `col_` object exists. Returns the new `vis_` objects (the dragon
+	twin included, the plunger not)."""
+	_check_vis_colour_separation()
+	bpy.context.view_layer.update()  # matrix_world of every col_ object is current
+
+	materials = {
+		family: new_material(f'mat_vis_{family}', base_color=(*rgb, 1.0))
+		for family, rgb in VIS_FAMILY_COLOURS.items()
+	}
+
+	twins = []
+	dragon_sources = []
+	sources = sorted(
+		(obj for obj in bpy.data.objects if obj.name.startswith('col_') and obj.type == 'MESH'),
+		key=lambda o: o.name,
+	)
+	for src in sources:
+		if src.name in excluded_names:
+			continue
+		bbox_min, bbox_max = _world_bbox_mm(src)
+		if bbox_max[1] <= 0:
+			continue  # under the apron -- never visible
+		surface = src.get('surface')
+		family = VIS_FAMILY_BY_SURFACE.get(surface)
+		if family is None:
+			raise RuntimeError(f'[make-placeholder-blend] "{src.name}" has surface "{surface}", which maps to no visible family')
+		if family == 'dragon':
+			dragon_sources.append(src)
+			continue
+
+		mesh = src.data.copy()
+		mesh.transform(src.matrix_world)  # baked table-frame vertices, identity object transform
+		_cap_twin_heights(mesh, bbox_min[2], family)
+		location_m = (0.0, 0.0, 0.0)
+		if family == 'flipper':
+			# The pivot, derived exactly as src/sim/physics/loader's
+			# loadFlipper() derives it from this same bbox: the outer end is
+			# the one farther from the playfield's x-centre, and the pivot
+			# sits one half-width (the bat's base radius) in from it, on the
+			# box's y centreline, at its floor.
+			centre_x = PLAYFIELD_W_MM / 2
+			outer_is_min = abs(bbox_min[0] - centre_x) >= abs(bbox_max[0] - centre_x)
+			half_width = (bbox_max[1] - bbox_min[1]) / 2
+			pivot_x = bbox_min[0] + half_width if outer_is_min else bbox_max[0] - half_width
+			pivot_y = (bbox_min[1] + bbox_max[1]) / 2
+			pivot_z = bbox_min[2]
+			location_m = (pivot_x * MM, pivot_y * MM, pivot_z * MM)
+			# Vertices relative to the pivot origin; the authored pose stays
+			# the end-of-stroke pose, the same as the col_ box.
+			mesh.transform(Matrix.Translation(Vector(location_m) * -1.0))
+		_finish_twin_mesh(mesh, materials[family])
+		twins.append(_new_twin_object('vis_' + src.name[len('col_'):], mesh, playfield_root, location_m))
+
+	if not dragon_sources:
+		raise RuntimeError('[make-placeholder-blend] no surface: dragon body found for vis_dragon')
+	merged = bmesh.new()
+	z_low_mm = min(_world_bbox_mm(src)[0][2] for src in dragon_sources)
+	for src in dragon_sources:
+		part = src.data.copy()
+		part.transform(src.matrix_world)
+		merged.from_mesh(part)  # successive calls append -- one joined bmesh
+		bpy.data.meshes.remove(part)
+	dragon_mesh = bpy.data.meshes.new(VIS_DRAGON_NAME)
+	merged.to_mesh(dragon_mesh)
+	merged.free()
+	_cap_twin_heights(dragon_mesh, z_low_mm, 'dragon')
+	_finish_twin_mesh(dragon_mesh, materials['dragon'])
+	twins.append(_new_twin_object(VIS_DRAGON_NAME, dragon_mesh, playfield_root))
+
+	return twins, materials
+
+
+def add_visible_plunger(playfield_root, material):
+	"""`vis_plunger`: an authored rod box on `bd_shooter`'s own x, running
+	from under the apron up to the resting ball's own south edge (its tip
+	touches a ball resting at BD_SHOOTER_POS_MM). Presentation translates it
+	`posMm` toward table -Y each frame (src/presentation/mechanisms/)."""
+	shooter_x, shooter_y, _ = BD_SHOOTER_POS_MM
+	tip_y = shooter_y - BALL_MM / 2
+	plunger = new_box_mesh(
+		VIS_PLUNGER_NAME,
+		(shooter_x - VIS_PLUNGER_HALF_W_MM, VIS_PLUNGER_Y0_MM, VIS_PLUNGER_Z0_MM),
+		(shooter_x + VIS_PLUNGER_HALF_W_MM, tip_y, VIS_PLUNGER_Z1_MM),
+		parent=playfield_root, material=material, second_uv=True,
+	)
+	set_props(plunger, lightgroup='lg_playfield')
+	return plunger
 
 
 def main():
@@ -3283,7 +3535,7 @@ def main():
 	)
 	bd_trough.rotation_euler = (0.0, 0.0, 0.0)  # local +Y is the eject direction: (0, 1, 0)
 
-	bd_shooter = new_empty('bd_shooter', (498.0, 35.0, 13.0), parent=playfield_root)
+	bd_shooter = new_empty('bd_shooter', BD_SHOOTER_POS_MM, parent=playfield_root)
 	bd_shooter.rotation_euler = (0.0, 0.0, 0.0)  # local +Y is the eject direction: (0, 1, 0)
 
 	# ---- vis_playfield: the one `vis_` placeholder mesh (visible geometry) ----
@@ -3405,11 +3657,19 @@ def main():
 	)
 	set_props(vis_backbox, lightgroup='lg_cabinet')
 
+	# ---- Story 5.0a (DW-279): the visible placeholder twins and the
+	# plunger rod -- see add_visible_twins()'s own block comment. Runs here,
+	# after every col_ object above exists. col_playfield's visual is
+	# vis_playfield; col_glass belongs to Story 5.3. ----
+	vis_twins, vis_materials = add_visible_twins(playfield_root, {col_playfield.name, col_glass.name})
+	vis_plunger = add_visible_plunger(playfield_root, vis_materials['plunger'])
+
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):
 	# the three roots, vis_playfield, vis_spinner_l, vis_backbox, the
 	# fourteen Story 2.8 insert lamps plus Story 2.9's l_ball_save,
-	# bd_trough, bd_shooter, bd_lock. col_/sw_ nodes are excluded --
-	# collision scaffolding, never rendered. ----
+	# bd_trough, bd_shooter, bd_lock, and Story 5.0a's vis_ twins and
+	# vis_plunger. col_/sw_ nodes are excluded -- collision scaffolding,
+	# never rendered. ----
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	presentation_objects = [
@@ -3418,6 +3678,7 @@ def main():
 		*top_lane_inserts, l_inlane_l, l_inlane_r, l_outlane_l, l_outlane_r,
 		*dragon_letter_inserts.values(), l_lock, l_ball_save,
 		bd_trough, bd_shooter, bd_lock,
+		*vis_twins, vis_plunger,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

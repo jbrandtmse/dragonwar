@@ -17,6 +17,8 @@
 import { bootScene } from '../presentation/scene/create-engine';
 import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
+import { nodeScreenRect, type ScreenRect } from '../presentation/scene/node-screen-rect';
+import { resolveMechanismNodes, syncMechanisms } from '../presentation/mechanisms/sync-mechanisms';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presentation/backglass/frame';
 import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
 import { syncBackglass } from '../presentation/backglass/backglass';
@@ -33,6 +35,9 @@ import { deriveGameSeed } from './game-seed';
 import { resolveTuning, TUNING } from '../sim/table/tuning';
 import { TABLE } from '../sim/table/dragonwar';
 import type { CoilName, GameStart, Snapshot } from '../sim/table/names';
+
+/** The Babylon scene type, named through presentation's own signature so host/ stays free of a direct `@babylonjs/*` import. */
+type LiveScene = Parameters<typeof nodeScreenRect>[0];
 
 const GLB_URL = './assets/dragonwar.glb';
 const COLLISION_URL = './assets/dragonwar.collision.json';
@@ -135,6 +140,17 @@ declare global {
 			 * `reset()`, so a stale A/B setting never survives a reset.
 			 */
 			setLightBudget: (budget: number | null) => void;
+			/**
+			 * Story 5.0a (AC 4), same dev-only/console-only terms as every
+			 * hatch above: where the named mesh currently lands on
+			 * `#render-canvas`, as drawing-buffer pixels (origin top-left) --
+			 * its world bounding box projected through the active camera
+			 * (`presentation/scene/node-screen-rect.ts`). The lead's in-page
+			 * capture samples each visible family's region with it, e.g.
+			 * `window.__dragonwarBoot.nodeScreenRect('vis_dragon')`. Throws
+			 * naming the node if it is missing. No network access (AD-17).
+			 */
+			nodeScreenRect: (name: string) => ScreenRect;
 		};
 	}
 }
@@ -244,6 +260,9 @@ async function onBegin(): Promise<void> {
 		// production default (`TUNING.liveLightBudget.value`) exactly as it
 		// did before this hatch existed.
 		let lightBudgetOverride: number | null = null;
+		// Story 5.0a: the live Babylon scene, captured by the render hook below
+		// for the `nodeScreenRect()` hatch.
+		let liveScene: LiveScene | undefined;
 		// Story 1.8 (AC 3): the recorder is constructed once per boot and
 		// tapped via createHostLoop()'s third argument -- never wired into
 		// sim/ itself (AD-1). start()/save()/invalidate() are exposed on
@@ -325,6 +344,16 @@ async function onBegin(): Promise<void> {
 		// timestamp captured at the true first-render moment keeps that
 		// verification latency out of the reported figure.
 		const { renderer, firstFrameMs, webgpuFallbackReason } = await bootScene(canvas, GLB_URL, (scene, nodes) => {
+			// Story 5.0a: the scene whose meshes `nodeScreenRect()` (the hatch
+			// below) projects -- the latest one this hook saw, so a WebGPU ->
+			// WebGL2 fallback's rebuilt scene replaces the abandoned one.
+			liveScene = scene;
+			// Story 5.0a: resolve the mechanism twins on the FIRST render frame,
+			// before any snapshot is required, so a glb missing one fails inside
+			// loadAndRenderOnce()'s first-frame guard and lands in this file's
+			// error panel (AD-17) rather than as an uncaught render-loop error.
+			// Cached per scene -- every later call is a map lookup.
+			resolveMechanismNodes(scene, nodes.playfieldRoot);
 			// The host loop's own rAF and Babylon's render loop are two separate
 			// requestAnimationFrame chains driven by the same browser scheduler --
 			// this callback simply re-syncs presentation to whatever FrameOutput
@@ -334,6 +363,9 @@ async function onBegin(): Promise<void> {
 				return;
 			}
 			syncBalls(scene, nodes.playfieldRoot, latestSnapshot);
+			// Story 5.0a (DW-279): flipper, drop-target and plunger twins follow
+			// the same latest snapshot.
+			syncMechanisms(scene, nodes.playfieldRoot, latestSnapshot);
 			applyPitch(nodes, latestSnapshot.effectivePitchDeg);
 			if (latestRaster) {
 				syncBackglass(scene, latestRaster);
@@ -476,6 +508,12 @@ async function onBegin(): Promise<void> {
 				}
 				tuningPanel = createTuningPanel({ hostLoop: hostLoopRef, replayRecorder });
 				document.body.appendChild(tuningPanel.element);
+			},
+			nodeScreenRect: (name: string): ScreenRect => {
+				if (!liveScene) {
+					throw new Error('[dragonwar] nodeScreenRect(): no scene has rendered yet');
+				}
+				return nodeScreenRect(liveScene, name);
 			},
 		};
 
