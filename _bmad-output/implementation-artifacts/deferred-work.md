@@ -1889,3 +1889,18 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: 5.2 implement: shot-routing 'Top lanes > lane 1' stranded at (93.56, 834.72), 0.30 mm progress over 500 ticks, with maxMm.y 834.5/835.5 and 835.0/836.0 and 833.995/836.005; green at 834.0/835.0 by chance; fix needs pops.ts contact test or non-rectangular zones (src/sim)
 - 2026-09-30T08:34:26Z status=escalated owner=burndown by=harvest note=for the decision sheet: pops.ts should kick only on contact, or zones become discs; out of Epic 5's footprint
+
+### DW-312: No headless check compares a lit insert against the flame art ring around it (AC 2 (d)); flame paint near the Dragon/Lock is close in hue to the lit dragon role
+- source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: flame colours (0.88,0.20,0.015)/(0.95,0.60,0.07) near Mouth/Lock inserts lit dragon (1,0.5,0)x0.6; only a 4 mm dark lens ring separates them
+- 2026-09-30T09:16:15Z status=open owner=5-2-playfield-art-and-materials by=harvest note=settle by the lead's AC 2 (d) browser measurement
+
+### DW-313: mat_playfield exports alphaMode BLEND though the mask is now binary, so the whole deck draws in the transparent pass and may depth-sort against plastics and the Ramp
+- source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: BLEND wiring predates 5.2 (chosen for uniform alpha 0.5); needs a browser look
+- 2026-09-30T09:16:15Z status=open owner=5-2-playfield-art-and-materials by=harvest note=settle by the lead's AC 5 browser re-run
+
+### DW-314: The binary mask is sampled LINEAR_MIPMAP_LINEAR, so lens-opening edges and the gaps between DRAGON letter openings may blur semi-opaque under minification
+- source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: exported sampler is linear/mipmap; camera ~0.8 px/mm vs texture 1 px/mm
+- 2026-09-30T09:16:16Z status=open owner=5-2-playfield-art-and-materials by=harvest note=settle by the lead's per-insert browser reading

@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-30'
 status: 'done'
 baseline_revision: 'd79428a5951949322ca961cbb7a882cebae7ec91'
+baseline_commit: 'c6d7aa442208cd47f63f9610893a25697bd87b00'
 story_baseline_revision: 'c6d7aa442208cd47f63f9610893a25697bd87b00' # implement pass 1's baseline; the story's review diff is from here (pass 1's work is WIP commit 249c424)
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -173,6 +174,8 @@ deferred:
    - `pop-bumper.test.ts` adds the disjoint and contains-contact-disc pins and the Matrix overlap row, and fixes its comments. `shot-routing` fixes its comment.
    - `lighting-scene.test.ts` adds the overlay rows.
 
+12. **[Smoke] Insert occlusion (lead, 2026-09-30).** No art part may hide an `l_` lens from the fixed camera. Lower the art height of the parts that occlude a lens (measured: `vis_guide_inlane_feed_l`, and `vis_guide_inlane_feed_r` partly) toward the ball band floor (`min(zHighMm, ballMm)`, the 5.4 'Height' rule) -- art only, `col_` bodies untouched -- and pin it headlessly: on NullEngine with the committed glb and the fixed camera, a ray from the camera to each `l_` lens's centre and four inset corners reaches the lens before any `vis_` mesh (iterate the glb's `l_` nodes, never a list), with a positive/negative pair (a synthetic tall occluder in front of one lens is caught). The lead re-measures in the browser.
+
 **Acceptance Criteria:**
 - **AC 1.** Given the regenerated glb and collision document, when `test/playfield-art.test.ts` and a scratchpad structural diff run, then:
   - every `l_` lens in the exported glb (15 today, derived from the glb) has its opening under the mask rule, and the coverage checker fails on a lens placed where the mask is solid (its paired negative) [AMENDED 2026-09-30, lead spec gate -- author decision: openings derive from the generator's lens list];
@@ -202,9 +205,11 @@ deferred:
   Also, `replay-goldens` passes and the per-field diff shows only `header.assetHash` and `notes`.
 - **AC 5 (legibility regression).**
   - Given the regenerated glb and collision document, when the art-ring separation cases run, then every flipper, drop-target, ramp and guide part, and `vis_dragon`, differs from the mean of its ring's opaque texels by at least 0.25 in some linear channel.
-  - Given the lead's browser session, when 5.4's AC 7 part-against-adjacent-playfield sampling is re-run on the new art, then every part differs by more than Δ, and two playfield-only regions (the negative control) differ by less than Δ.
+  - Given the lead's browser session, when 5.4's AC 7 part-against-adjacent-playfield sampling is re-run on the new art, then every part's region differs from the same region with that part hidden (the playfield beneath) by more than Δ, and a playfield-only region re-sampled before and after hiding a distant part (the negative control) differs by less than Δ. [AMENDED 2026-09-30 -- lead, Rule 5 apply-and-report: the painted art is non-uniform by design, so 'two playfield-only regions differ by less than Δ' is false by construction (measured 31.9 levels apart); the restated control keeps the same falsifying role.]
 
 ## Spec Change Log
+
+- 2026-09-30 (lead, AD gate after dev_complete): browser measurement -- AC 2 (a) Δ 142 (13x the shipped 11), (b) 0, (c) lit lane 228 vs 79 moves with lane change, (e) R-B 153-172, (d) 14 of 15 pass. **(d) FAILS for `l_inlane_l`**: only 12 of 462 px change on/off (outlane 125); the occluder, found by disabling meshes one at a time, is `vis_guide_inlane_feed_l` (5.4's art wall, 48 mm tall, ~10 mm down-table of the lens at (68, 175)); `l_inlane_r` is partly occluded (47 px). Measured fix envelope: feed-guide art at ~27 mm -> 83 / 109 px, at ~14 mm -> 119 / 124 px. Added task 12 (below). AC 5's negative control restated (see its [AMENDED] marker).
 
 - 2026-09-30 (implement pass 2, re-dispatch): applied the amended DW-161 values exactly (834.0 / 835.0, split 834.5, gap 1.0) through a new authored generator constant `POP_ZONE_SPLIT_Y_MM`; re-exported (glb unchanged, `collision.json` three fields), refreshed the goldens' `assetHash` to bcecd10d with the notes sentence corrected to "split at y 834.5", fixed four stale test comments and ATTRIBUTIONS row 73's values. `shot-routing` "Top lanes > 'lane 1'" is green; the full suite, reachability and corridor are green. No path outside pass 1's set was touched.
 
