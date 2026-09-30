@@ -108,3 +108,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-09-30T04:51:59Z	Epic 3	ci_resolved	story=merge_581c6ae run=36670493344 result=success resolved_at=next_plan
 2026-09-30T04:51:59Z	Epic 3	epic_context_compiled	reason=planning_artifact_newer(3.3/3.3b_split) model=opus
 2026-09-30T04:51:59Z	Story 3.3	stage_spawned	stage=plan spawn_at=2026-09-30T04:51:59Z model=opus agent_name=3-3-the-dragon-s-mouth-and-hit-reaction-plan-1 cycle_iteration=1
+2026-09-30T05:09:53Z	Story 3.3	story_created	spawn_at=2026-09-30T04:51:59Z model=opus path=_bmad-output/implementation-artifacts/spec-3-3-the-dragon-s-mouth-and-hit-reaction.md build_status=ready-for-dev epic_context=reused cycle_iteration=1
+2026-09-30T05:09:53Z	Epic 3	spine_updated	ad=AD-18,AD-19,AD-7 reason=rule5 by=runner story=3-3-the-dragon-s-mouth-and-hit-reaction lint=ok
+2026-09-30T05:09:53Z	Story 3.3	spec_validated	service_introducing=true integration_ac=present(AC5_createLoop_FrameOutput.commands;AC6_dragon_hit_show) adr_constrained_acs=AC1-AC5:AD-18/AD-9,AC6:AD-19 decision_dependency=none sections_created=none owned_ledger=DW-298 addressed=1 declined=0 mutates_shared_runtime=false lead_edits=AD-18,AD-19,AD-7_amendments second_read=done model=claude-opus-5-5
