@@ -2579,7 +2579,7 @@ So that the fiction is set before I plunge.
 
 **Given** the Backglass renderer
 **When** it plays a sequence on a payload-complete event
-**Then** the sequence is selected and timed in presentation from the event, and the score layout remains legible during and after it; every sequence is keyed by event name in a presentation-side map, Attract and Match are wired and verified now, and the Mode-prompt, War-start and Jackpot sequences are keyed by their plain event-name strings without reaching into `src/sim/` [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the real-event trigger check for Mode prompts, the War start and the Jackpot moved to Story 4.5)
+**Then** the sequence is selected and timed in presentation from the event, and the score layout remains legible during and after it; every sequence is keyed by event name in a presentation-side map, Attract and Match are wired and verified now, and the Mode-prompt, War-start and Jackpot sequences are keyed by their plain event-name strings without reaching into `src/sim/` [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the real-event trigger check for Mode prompts, the War start and the Jackpot moved to Story 4.5); Attract has no event in this tree (it is a phase entered by `enterAttract()`), so presentation starts the Attract sequence itself whenever the PRESS START screen appears, keyed under MPF's `mode_attract_started` [AMENDED 2026-09-30 -- Story 5.5 spec gate, Rule 5 apply-and-report: an Attract event does not exist to select from]
 
 **Given** the war-fiction Attract sequence
 **When** a stranger watches the Walk-up
