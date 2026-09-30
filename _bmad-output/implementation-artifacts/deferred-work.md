@@ -2009,3 +2009,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-3-5-hurry-up-answer-the-call.md | severity: low | fix-risk: med | footprint: in-story
 - evidence: hurry-up-physics.test.ts covers start, decay, ball save and ball end on createLoop(); the collect (AC3/AC7) runs in runRulesScript. The Ramp->shot_ramp_made seam is proven on real physics on ball 1 of the same run, so the collect is covered by composition
 - 2026-09-30T10:36:10Z status=wontfix-accepted owner=3-5-hurry-up-answer-the-call by=cr note=reopen_if=a reachability witness makes the Ramp after a Lock capture and its createLoop run does not pay the published value
+
+### DW-319: No real flipper shot makes either Loop at this tree: Joust (3.6), the Right-Loop Extra-ball collect (3.10) and 3.11's full-Charge Joust cannot be played by real input
+- source: spec-3-6-joust-the-charge.md | severity: high | fix-risk: high | footprint: out-of-footprint
+- evidence: 3.6 planning, 2026-09-30: ~12,400 real flips and 2085 mm/s launches across the field closed zero Loop switches; the collision document walls the left lane mouth from the field between y 200 and y 1004.8; every Loop in the test corpus is a teleported launch or a plunge descending from the top; geometry lives in tools/make-placeholder-blend.py / public/assets (contended with Epic 5)
+- 2026-09-30T11:46:28Z status=decision-pending owner=burndown by=plan note=cross-epic geometry call for the author: which story opens a Loop entry (Epic 5's geometry work now, or Story 3.3c after the merge), and a Loop-geometry change can move golden trajectories (author grant)
