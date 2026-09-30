@@ -344,7 +344,7 @@ export const TUNING = deepFreeze({
 	 */
 	mouthOpenLeadMs: entry(
 		1000,
-		"authored: AD-18 requires every Mouth eject to follow show_dragon_mouth_open by mouthOpenLeadMs but no artifact states the figure. An authored placeholder: Story 3.3's Dragon rig must be fully open inside it, and the Story 3.11 playtest owns the value",
+		"authored: AD-18 requires every Mouth eject to follow show_dragon_mouth_open by mouthOpenLeadMs but no artifact states the figure. An authored placeholder: Story 3.3b's Dragon rig must be fully open inside it, and the Story 3.11 playtest owns the value",
 		'unverified',
 	),
 	mouthEjectIntervalMs: entry(

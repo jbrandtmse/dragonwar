@@ -97,3 +97,38 @@ Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The headless rows drive a 
 ### Next Steps
 - The lead decides the pulse-tick boundary (see the spec's QA-stage Verification and the QA report). Making ball search count the pulse tick as pending also moves `rules-lock-arbiter.test.ts`'s AC 7 second-stage pin by one tick.
 - Story 3.3 pins the show on `FrameOutput.commands` (deferred VG5).
+
+## Story 3.3
+
+Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The headless rows drive a whole `createRules()` through `runRulesScript()`. The loop rows drive a real `createLoop({ collisionDoc, gameStart, tuning })` on production tuning, using AC5's measured recipe (an uncredited park on tick 5506).
+
+### Generated Tests (integration, real runtime)
+- [x] `test/rules-dragon-shows-qa.test.ts` (18 tests; headless, gated in `test/rules-devices-headless.test.ts`'s `ENTRY_FILES`)
+  - AC2/AC3 on every Mouth request path, not only the park:
+    - the spit;
+    - the `bd_lock` overflow answer, in a game and in Attract;
+    - a three-eject sequence, whose one close comes exactly H after the THIRD pulse;
+    - ball search's two Lock stages, followed through to the last close.
+    - On every path, open and close strictly alternate and every `c_mouth` pulse falls inside a pair.
+  - AC3 requests inside the hold from the overflow answer and from the spit. The two boundaries: a request on the last pulse's own tick, and one on the close's due tick. Each gives exactly one close.
+  - AC4:
+    - `show_dragon_hit` in all four phases, under Tilt and under a Slam, each with an `s_dragon_d` negative;
+    - one show per closed edge across ticks, and none while the switch is held;
+    - [close, hit] on the close tick.
+  - Boundaries: the hit is presentation only. The coils and every per-tick state are identical with and without it, and `dragon_hit` still reaches the base mode.
+- [x] `test/dragon-shows-loop-qa-physics.test.ts` (2 tests)
+  - AC5/AC6 fidelity. A recording wrapper around the real `createRules()` also adds hand-closed `s_dragon_body` edges, so the real rules emit same-tick pairs ([open, hit], [close, hit]) on real-loop ticks. `FrameOutput.commands` must carry exactly the rules' shows, in the same order and on the same ticks. It is checked two ways: one tick per `advance()`, and 97-tick chunks in which one chunk holds shows from two ticks.
+
+### Coverage
+- 10 mutations were demonstrated, and each is recorded in the spec's `## Verification` (QA stage). Four of them turn only a QA row red, so no earlier test covered them:
+  - the pending close handled on the park path only (ball search, the overflow answer and the spit then let two opens meet);
+  - the hit show gated out of `highscore_entry` and `game_over`;
+  - `sim/loop` reversing a tick's shows, which the implement stage's AC5/AC6 miss because none of their shows share a tick;
+  - `sim/loop` prepending shows across a multi-tick batch.
+- AC1 and AC7: already pinned. They were audited and no gap was found.
+- The rule that no mode emits a `CoilCommand` stays pinned at the type level (`rules-mode-stack.test.ts`, typecheck). The rule that the arbiter is the only `c_mouth` pulser is now partly pinned at runtime: every pulse must lie inside an open/close pair, so a bare S10 overflow pulse turns that red. A second pulser that fired only inside an open window would not (code review, 2026-09-29).
+- Gates: `pnpm test` gives 145 files / 2341 tests, all passing. `typecheck`, `lint:boundaries` and `check:headers` each exit 0. No production file changed.
+
+### Next Steps
+- The lead's browser smoke (spec Design Notes).
+- Story 3.3b (the rig) consumes these three shows from `FrameOutput.commands`. The loop-fidelity test is the seam it relies on.

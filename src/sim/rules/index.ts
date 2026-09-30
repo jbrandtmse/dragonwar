@@ -130,8 +130,8 @@ export interface RulesStepResult {
 	 * the ball controller's `showCommands`. Story 3.3 adds the arbiter's
 	 * `show_dragon_mouth_close` on the same channel, then
 	 * `./dragon-hit.ts`'s `show_dragon_hit` after it. `sim/loop/index.ts`
-	 * already forwards this channel into `FrameOutput.commands`. It still carries no
-	 * `LampCommand`: AD-9 and Story 2.8's AC 1 place the lamp DIFF in
+	 * already forwards this channel into `FrameOutput.commands`. It still
+	 * carries no `LampCommand`: AD-9 and Story 2.8's AC 1 place the lamp DIFF in
 	 * `sim/loop` (rules export the pure projection, `lampsOf`, re-exported
 	 * above). `TABLE.flashers` is still empty and `GiCommand` still has no
 	 * producer.

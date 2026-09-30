@@ -230,9 +230,8 @@ function classify(deviceEvents: readonly DeviceEvent[]): { readonly entries: rea
  * the Mouth's due pulse (any phase); its due close (any phase, Story 3.3);
  * the `bd_lock` overflow answer (any phase, DW-174); then, in
  * `phase === 'game'` only, each entry's decision and each uncredited park's
- * eject. Returns the next state (only
- * `players[currentPlayer].lockCredits` ever changes) and whether the Mouth
- * pulsed this tick.
+ * eject. Returns the next state (only `players[currentPlayer].lockCredits`
+ * ever changes) and whether the Mouth pulsed this tick.
  */
 export function arbitrateLockLane(
 	ctx: ControllerContext,

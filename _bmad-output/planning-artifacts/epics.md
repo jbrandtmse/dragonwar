@@ -2168,6 +2168,8 @@ So that the founding moment of the project lands.
 **When** the War starts
 **Then** it increments and `war_started { player, jackpot }` carries the Jackpot for this War
 
+- DW-304: FR-30 says the Dragon holds the Mouth open for the War start, but every Mouth sequence closes mouthCloseHoldMs (300 ms) after its last pulse, the War's included; decide whether the War start needs a longer hold (ledger; routed by harvest 2026-09-30)
+
 ### Story 3.9: Strikes, the Jackpot and the end of the War
 
 As a player,
@@ -2199,6 +2201,8 @@ So that winning the War is the biggest payoff on the table.
 **Given** the War ended
 **When** the player spells DRAGON and locks two balls again in the same game
 **Then** a second War starts with a Jackpot 500,000 higher than the first
+
+- DW-303: FR-30 says a Strike produces a visible reaction, but a Lock-lane Strike never closes s_dragon_body, so it gets no show_dragon_hit; decide whether lock_lane_strike also emits show_dragon_hit (ledger; routed by harvest 2026-09-30)
 
 ### Story 3.10: Extra ball from the achievement menu
 

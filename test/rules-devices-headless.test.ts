@@ -233,6 +233,8 @@ const ENTRY_FILES = [
 	// Story 3.3: the Dragon's shows (the Mouth close and the hit reaction) --
 	// ungated otherwise.
 	path.join(__dirname, 'rules-dragon-shows.test.ts'),
+	// Story 3.3 QA: same reasoning -- ungated otherwise.
+	path.join(__dirname, 'rules-dragon-shows-qa.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

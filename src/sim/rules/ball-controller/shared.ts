@@ -143,7 +143,7 @@ export interface BallControllerStepResult {
 	readonly bankResetRequests: readonly BankResetRequest[];
 	/** Story 3.1 (AD-8): the stop triples of every mode this tick's ball end or Attract transition stopped, in execution order -- `sim/rules/index.ts` places them after the tilt controller's and before the mode stack's in `RulesStepResult.modeEvents`. */
 	readonly modeEvents: readonly ModeEvent[];
-	/** Story 3.2 (AD-9, AD-18): the Lock arbiter's `show_dragon_mouth_open` this tick, if any -- `sim/rules/index.ts` returns it as `RulesStepResult.commands`. */
+	/** Stories 3.2/3.3 (AD-9, AD-18): the Lock arbiter's Mouth shows this tick, in seam order -- `show_dragon_mouth_open` and, from Story 3.3, `show_dragon_mouth_close` (a request inside the hold gives [close, open] on one tick) -- which `sim/rules/index.ts` returns first in `RulesStepResult.commands`. */
 	readonly showCommands: readonly ShowCommand[];
 }
 

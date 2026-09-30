@@ -1948,8 +1948,25 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: low | fix-risk: low | footprint: in-epic
 - evidence: 3.2 review VG5/IA6: every show assertion goes through runRulesScript or a hand-composed machine+rules run; src/sim/loop/index.ts show forwarding unpinned
 - 2026-09-29T17:45:47Z status=routed owner=3-3-the-dragon-s-mouth-and-hit-reaction by=harvest note=Story 3.3 is the first presentation consumer of the Mouth shows and pins them on FrameOutput.commands
+- 2026-09-30T06:07:33Z status=resolved-by:3-3-the-dragon-s-mouth-and-hit-reaction by=adjudication note=b42e691 AC5 test/dragon-shows-physics.test.ts: a real createLoop game (full plunge, left tap at release+3957 held 25) parks in the Lock and FrameOutput.commands carries show_dragon_mouth_open at T and show_dragon_mouth_close at T+lead+hold with the eject contact at T+lead+1; QA's loop test matches FrameOutput.commands to the rules' shows exactly incl. same-tick pairs and 97-tick chunks
 
 ### DW-299: A Lock capture that locks while a Mouth eject is pending is the ball that eject then spits (highest slot first): the player gets a credit, a served ball and the spat ball, two balls in play with multiball null
 - source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: low | fix-risk: med | footprint: in-story
 - evidence: 3.2 cr (EC7/AA6; implement review BH9): decideEntry() counts held without the pending ejects; reachable only if a stuck ball frees itself into the Lock inside the ~1 s lead after a search Lock stage
 - 2026-09-29T18:27:41Z status=wontfix-accepted owner=3-2-locking-balls-and-the-lock-arbiter by=cr note=reopen_if=Story 3.8/3.9 plans a capture while requestMouthEject is pending (the War fires the Lock)
+
+### DW-303: FR-30 says a Strike produces a visible reaction, but a Lock-lane Strike (lock_lane_strike) never closes s_dragon_body, so it gets no show_dragon_hit; Story 3.9 decides whether lock_lane_strike also emits show_dragon_hit
+- source: spec-3-3-the-dragon-s-mouth-and-hit-reaction.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: show_dragon_hit is driven only by dragon_hit (s_dragon_body edge); the Lock-lane corridor x150-190 does not overlap the body switch zones x94-146 and 194-209.4
+- 2026-09-30T05:38:45Z status=routed owner=3-9-strikes-the-jackpot-and-the-end-of-the-war by=harvest note=FR-30 coverage question inside 3.9's Strike design
+
+### DW-304: FR-30 says the Dragon holds the Mouth open for the War start, but every Mouth sequence closes mouthCloseHoldMs (300 ms) after its last pulse, the War's included; Story 3.8 decides whether the War start needs a longer hold
+- source: spec-3-3-the-dragon-s-mouth-and-hit-reaction.md | severity: low | fix-risk: low | footprint: in-epic
+- evidence: 3.3 design: one close rule for every sequence; the War fires the Lock through requestMouthEject (3.2) and inherits the 300 ms hold
+- 2026-09-30T05:38:45Z status=routed owner=3-8-the-war-starts-dragon-fire by=harvest note=FR-30 coverage question inside 3.8's War start
+
+### DW-305: The mouthOpenLeadMs tuning source string still says Story 3.3's Dragon rig must be fully open inside it, but the rig is now Story 3.3b
+- source: spec-3-3-the-dragon-s-mouth-and-hit-reaction.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: src/sim/table/tuning.ts mouthOpenLeadMs source, copied into all five golden headers; stale since the 3.3/3.3b split
+- 2026-09-30T05:38:46Z status=open owner=3-3-the-dragon-s-mouth-and-hit-reaction by=harvest note=two-way door: code review patches it with a header-only golden re-record (pre-authorised)
+- 2026-09-30T06:06:26Z status=resolved-by:3-3-the-dragon-s-mouth-and-hit-reaction by=cr note=tuning.ts:347 now names Story 3.3b; 5 goldens re-recorded by hand, leaf diff: only mouthOpenLead{Ms,Ticks}.source moved
