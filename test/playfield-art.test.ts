@@ -226,6 +226,12 @@ describe('Story 5.2 AC 1 -- vis_playfield: the planar uv_base and the mesh contr
 		expect(material.name).toBe('mat_playfield');
 		expect(material.alphaMode).toBe('BLEND');
 		expect(material.pbrMetallicRoughness?.baseColorTexture, 'Color drives Base Color from the image').toBeDefined();
+		// glTF multiplies the texture by any baseColorFactor: an unlinked Color
+		// socket exports the socket default as a factor beside the texture (the
+		// pre-5.2 glb carried (0.45, 0.30, 0.15)), tinting the art the texel
+		// tests read raw. The factor must be absent or identity.
+		const factor = material.pbrMetallicRoughness?.baseColorFactor ?? [1, 1, 1, 1];
+		expect(factor, 'no baseColorFactor tints the art (absent or [1, 1, 1, 1])').toEqual([1, 1, 1, 1]);
 	});
 });
 
@@ -254,8 +260,31 @@ describe('Story 5.2 AC 1 -- the translucency mask opens exactly at every l_ lens
 	// while the real lenses beside it still pass.
 	it('the coverage checker is falsifiable: a synthetic lens under a solid mask fails naming it; a withheld real lens reads as a stray opening', () => {
 		const half = 8;
-		const centre = { x: PLAYFIELD_MM.w / 2, y: PLAYFIELD_MM.h / 2 };
-		const synthetic: Lens = { name: 'l_synthetic_future_insert', min: { x: centre.x - half, y: centre.y - half }, max: { x: centre.x + half, y: centre.y + half } };
+		// The first spot (scanning out from the playfield centre on a 10 mm
+		// grid) where the committed mask is solid under the whole synthetic
+		// lens -- never a fixed point, so an insert added later at the centre
+		// (Epic 3) moves the synthetic lens instead of breaking the case.
+		const solidUnder = (min: { x: number; y: number }, max: { x: number; y: number }): boolean => {
+			const r = texture.texelRange(min, max);
+			for (let row = r.row0; row <= r.row1; row++) {
+				for (let col = r.col0; col <= r.col1; col++) {
+					if (texture.alpha(col, row) !== 255) {
+						return false;
+					}
+				}
+			}
+			return true;
+		};
+		const candidates: { x: number; y: number }[] = [];
+		for (let y = 3 * half; y <= PLAYFIELD_MM.h - 3 * half; y += 10) {
+			for (let x = 3 * half; x <= PLAYFIELD_MM.w - 3 * half; x += 10) {
+				candidates.push({ x, y });
+			}
+		}
+		candidates.sort((a, b) => Math.hypot(a.x - PLAYFIELD_MM.w / 2, a.y - PLAYFIELD_MM.h / 2) - Math.hypot(b.x - PLAYFIELD_MM.w / 2, b.y - PLAYFIELD_MM.h / 2));
+		const centre = candidates.find((c) => solidUnder({ x: c.x - 2 * half, y: c.y - 2 * half }, { x: c.x + 2 * half, y: c.y + 2 * half }));
+		expect(centre, 'a solid spot for the synthetic lens exists').toBeDefined();
+		const synthetic: Lens = { name: 'l_synthetic_future_insert', min: { x: centre!.x - half, y: centre!.y - half }, max: { x: centre!.x + half, y: centre!.y + half } };
 		// Precondition: the committed mask really is solid there.
 		const range = texture.texelRange(synthetic.min, synthetic.max);
 		let solid = 0;

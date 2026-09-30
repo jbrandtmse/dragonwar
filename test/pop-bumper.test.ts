@@ -366,7 +366,7 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 			// x[192,218]/y[832,838] corner, where a south-approaching sweep
 			// for c_pop_3 clipped straight through sw_pop_2's own box and
 			// produced a spurious second make. [Story 5.2, DW-161] The zones
-			// are now disjoint (the facing edges split at y 834.5 / 835.5, the
+			// are now disjoint (the facing edges split at y 834.0 / 835.0, the
 			// "Story 5.2 (DW-161)" cases below), but a south sweep would still
 			// cross sw_pop_2 on its way in, so the west approach -- at a y
 			// already outside every OTHER pop's own y-range, avoiding every
@@ -449,7 +449,7 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 //     permanent rest point.
 //   - a REAL, previously undocumented ceiling exists at 221 mm/s: a NEW
 //     permanent equilibrium appears near (93, 840) mm -- just outside
-//     sw_pop_1's own north edge (y = 838 when measured; 834.5 since Story
+//     sw_pop_1's own north edge (y = 838 when measured; 834.0 since Story
 //     5.2's DW-161 split, which leaves the point outside it either way),
 //     a different location from the
 //     original (130.00, 833.55) apex-vertex rest point -- and most values
@@ -571,9 +571,12 @@ describe('AD-15 provenance: TUNING.hardware.popKickMmPerS -- the corrected floor
 // sw_pop_1/sw_pop_3 and sw_pop_2/sw_pop_3 overlapped by 26 x 6 mm (y 832 to
 // 838), so one ball inside an overlap made two pop switches -- and fired two
 // pop coils -- on one tick. The generator now splits the FACING edges at
-// y_split = (pop_1.y + pop_3.y) / 2 = 835, 1 mm apart, and keeps every other
-// edge. These cases read the committed collision document through the real
-// loader and machine; every zone and pop comes from TABLE.popWiring and the
+// y_split = POP_ZONE_SPLIT_Y_MM = 834.5 (sw_pop_1/sw_pop_2 end at 834.0,
+// sw_pop_3 starts at 835.0), 1 mm apart, and keeps every other edge. The
+// split is below the rows' midpoint (835) because the midpoint stranded
+// shot-routing's Top lane 1 case (the generator's comment on the constant;
+// the trap itself is DW-307). These cases read the committed collision
+// document through the real loader and machine; every zone and pop comes from TABLE.popWiring and the
 // document, never a typed coordinate (the Matrix row's own drive line
 // excepted, which the spec fixes).
 describe('Story 5.2 (DW-161) -- the pop switch zones are disjoint and still contain each pop\'s contact disc', () => {
@@ -689,10 +692,14 @@ describe('Story 5.2 (DW-161) -- the pop switch zones are disjoint and still cont
 			expect(x1 - x0, `${low.coil}: non-vacuity -- the former overlap is 26 mm wide`).toBeCloseTo(26, 6);
 			for (let x = x0 + 1; x < x1; x += 2) {
 				for (let y = band.y0; y <= band.y1 + 1e-9; y += 2) {
-					for (const t of drive(doc, { x, y }, { x: 0, y: 0 }, 3)) {
+					const run = drive(doc, { x, y }, { x: 0, y: 0 }, 3);
+					for (const t of run) {
 						expect(t.makes.length, `ball at rest at (${x}, ${y}): tick ${t.tick} made ${t.makes.join(', ')}`).toBeLessThanOrEqual(1);
 						expect(t.fires.length, `ball at rest at (${x}, ${y}): tick ${t.tick} fired ${t.fires.join(', ')}`).toBeLessThanOrEqual(1);
 					}
+					// Non-vacuity (code review): the at-most-one bound above is
+					// only evidence if the ball at rest makes a pop switch at all.
+					expect(run.some((t) => t.makes.length > 0), `non-vacuity: a ball at rest at (${x}, ${y}) makes a pop switch`).toBe(true);
 					points += 1;
 				}
 			}

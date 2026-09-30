@@ -23,7 +23,7 @@ import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presen
 import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
 import { syncBackglass } from '../presentation/backglass/backglass';
 import { FONT_5X7 } from '../presentation/backglass/font';
-import { advanceLamps, INITIAL_LAMP_VIEW, lampOverrideProblem, overlayLampView, type LampView } from '../presentation/lighting/lamp-view';
+import { advanceLamps, INITIAL_LAMP_VIEW, nextLampOverride, overlayLampView, type LampView } from '../presentation/lighting/lamp-view';
 import { syncLamps } from '../presentation/lighting/lamp-driver';
 import { createHostLoop, type HostLoop, type ResetOptions } from './loop';
 import { viewConfigFromKeyMap } from './input';
@@ -528,13 +528,12 @@ async function onBegin(): Promise<void> {
 				lightBudgetOverride = budget;
 			},
 			setLampOverride: (override: LampView | null) => {
-				const problem = lampOverrideProblem(override);
-				if (problem !== null) {
+				const next = nextLampOverride(lampOverride, override);
+				if (next.problem !== null) {
 					// eslint-disable-next-line no-console
-					console.error(`[dragonwar] setLampOverride(): ${problem} -- ignored; the previous override is kept.`);
-					return;
+					console.error(`[dragonwar] setLampOverride(): ${next.problem} -- ignored; the previous override is kept.`);
 				}
-				lampOverride = override === null ? null : Object.freeze({ ...override });
+				lampOverride = next.override;
 			},
 			openTuningPanel: () => {
 				if (tuningPanel) {

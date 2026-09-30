@@ -9,7 +9,8 @@
 //
 // Four measured traps this file exists to close (Design Notes, "The four
 // measured traps"), each with its own fix inline below:
-//  1. The glb's fifteen inserts all share ONE `mat_insert` datablock --
+//  1. The glb's fifteen inserts share lens datablocks (`mat_insert`, and
+//     since Story 5.2 `mat_insert_dragon` for the letters and the Lock) --
 //     `material.clone()` PER INSERT on first use, so lighting one insert
 //     never lights another.
 //  2. `ShadowLight.getAbsolutePosition()` lies under `NullEngine` (reads

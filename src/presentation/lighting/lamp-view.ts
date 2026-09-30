@@ -104,3 +104,27 @@ export function lampOverrideProblem(override: unknown): string | null {
 	}
 	return null;
 }
+
+/**
+ * Story 5.2 (code review): the `setLampOverride()` hatch's whole store rule,
+ * pure so the I/O matrix's "Bad override" row -- "logs an error and keeps its
+ * previous override" -- is testable without a browser. A bad `requested`
+ * keeps `previous` and names the problem (the hatch logs it); `null` clears;
+ * a good one is stored as a frozen COPY, entry by entry, so a console caller
+ * mutating its own object afterwards can never slip an unvalidated role or
+ * step past `lampOverrideProblem()` into `syncLamps()`.
+ */
+export function nextLampOverride(previous: LampView | null, requested: unknown): { override: LampView | null; problem: string | null } {
+	const problem = lampOverrideProblem(requested);
+	if (problem !== null) {
+		return { override: previous, problem };
+	}
+	if (requested === null) {
+		return { override: null, problem: null };
+	}
+	const copy: LampView = {};
+	for (const [name, entry] of Object.entries(requested as Record<LampName, LampProjectionEntry>)) {
+		copy[name as LampName] = Object.freeze({ role: entry.role, step: entry.step });
+	}
+	return { override: Object.freeze(copy), problem: null };
+}

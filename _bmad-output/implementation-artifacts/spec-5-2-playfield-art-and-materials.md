@@ -2,15 +2,37 @@
 title: 'Story 5.2: Playfield art and materials'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
-baseline_revision: 'c6d7aa442208cd47f63f9610893a25697bd87b00'
+status: 'done'
+baseline_revision: 'd79428a5951949322ca961cbb7a882cebae7ec91'
+story_baseline_revision: 'c6d7aa442208cd47f63f9610893a25697bd87b00' # implement pass 1's baseline; the story's review diff is from here (pass 1's work is WIP commit 249c424)
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-5-4-mechanisms-plastics-ramp-and-guides.md'
 warnings: [oversized, multiple-goals]
-deferred: []
+deferred:
+  - summary: >-
+      No headless check compares a lit insert against the art ring around it (AC 2 (d)); the flame paint near the Dragon and Lock is close in hue to the lit dragon role.
+    evidence: |-
+      maybe-false: the art's flame colours (0.88, 0.20, 0.015) / (0.95, 0.60, 0.07) sit near the Mouth/Lock inserts whose lit emissive is dragon (1, 0.5, 0) x 0.6; only the 4 mm dark lens ring separates them. Settled by the lead's AC 2 (d) browser measurement (each of the 15 inserts lit in its home role vs the 3-8 mm art ring, > max(delta, 22)).
+    location: >-
+      tools/make-placeholder-blend.py (make_playfield_art flame motifs); AC 2 (d)
+    severity: medium (unverified)
+  - summary: >-
+      mat_playfield exports alphaMode BLEND although the mask is now binary, so the whole deck draws in the transparent pass and depth-sorts against plastics and the Ramp.
+    evidence: |-
+      maybe-false: the BLEND wiring predates this story (the spec keeps mat_playfield's alpha-from-image wiring) and was chosen when alpha was a uniform 0.5; whether full-deck BLEND mis-sorts against the plastics/Ramp or costs measurable fill needs a browser look (the lead's AC 5 re-run and a render-order check). MASK with an alphaCutoff would fit a 0/255 mask but is an AD-11/AD-12 material decision (Story 4.2 owns the spill).
+    location: >-
+      tools/make-placeholder-blend.py new_material (alpha_from_image); public/assets/dragonwar.glb mat_playfield
+    severity: medium (unverified)
+  - summary: >-
+      The binary mask is sampled LINEAR_MIPMAP_LINEAR, so under minification the lens-opening edges and the narrow gaps between the DRAGON letter openings may blur semi-opaque.
+    evidence: |-
+      maybe-false: the exported sampler is linear/mipmap (pre-existing, Code Map); at the camera's ~0.8 px/mm the texture (1 px/mm) is only mildly minified, so the effect may be one texel of edge softening or a visible bleed between letters. Settled by the lead's AC 2 (d) per-insert reading and a close look at the DRAGON letters in the browser.
+    location: >-
+      public/assets/dragonwar.glb sampler 0; tools/make-placeholder-blend.py (image texture node interpolation)
+    severity: medium (unverified)
 ---
 
 <intent-contract>
@@ -184,6 +206,8 @@ deferred: []
 
 ## Spec Change Log
 
+- 2026-09-30 (implement pass 2, re-dispatch): applied the amended DW-161 values exactly (834.0 / 835.0, split 834.5, gap 1.0) through a new authored generator constant `POP_ZONE_SPLIT_Y_MM`; re-exported (glb unchanged, `collision.json` three fields), refreshed the goldens' `assetHash` to bcecd10d with the notes sentence corrected to "split at y 834.5", fixed four stale test comments and ATTRIBUTIONS row 73's values. `shot-routing` "Top lanes > 'lane 1'" is green; the full suite, reachability and corridor are green. No path outside pass 1's set was touched.
+
 - 2026-09-30 (lead, re-dispatch after the implement-stage intent gap): pop facing edges amended 834.5/835.5 -> 834.0/835.0 (see the [AMENDED] marker in the DW-161 rule). The in-tree work of implement pass 1 is committed as a WIP commit before this re-dispatch (Rule 16); the re-dispatch works ONLY: apply the amended values in the generator, re-export, re-verify goldens per field (only header.assetHash + notes may move), re-run shot-routing, pop-bumper, `pnpm check:reachability` and `pnpm check:corridor`, update the AC 4 mutation line's numbers, then finish the skill's normal verification, review and finalize. The pop-zone trap is a separate ledger entry (out-of-footprint).
 
 - 2026-09-30 (lead spec gate, epic-runner-5; author decision via orchestrator, Option A): AD-12 clause 3 amended in the spine -- Story 5.2 authors the translucency mask as the alpha channel of its generated playfield texture; Story 4.2 keeps the spill. Added the author's constraint: mask openings derive from the generator's own lens list (Epic 3's Story 3.3c adds inserts after the merge), tests iterate the glb's `l_` nodes, and the coverage checker carries a positive/negative pair. DW-159 was set aside `decision-pending` for the decision sheet (not declined-and-dropped).
@@ -199,6 +223,52 @@ deferred: []
   - Reading: the generator writes the PNG itself (IHDR, one IDAT at zlib level 9 with per-row filter choice, IEND; no ancillary chunk) and packs those bytes into the image; Blender's glTF exporter embeds a packed, unmodified PNG as-is (`encode_image.py` `__encode_from_image`), which is what makes the bytes reproducible. Two further guards fire at authoring time before any test can: the PNG byte ceiling (RuntimeError) and the DW-161 disjoint/contact-disc asserts.
 
 ## Review Triage Log
+
+### 2026-09-30 — Review pass
+- verdicts: 42 findings — high 0, medium 5, low 28, false 6, maybe-false 3
+- findings:
+  - `[low]` `[reject]` (blind) The home-role mapping (lane/ball_save -> lit, letter/lock -> dragon) is hand-copied in the generator and two tests, never pinned against `lampsOf()`. — Today's mapping matches `projectLamp()` (Code Map); a drift would mis-tint a lens at the 0.08 level while the lit emissive stays grammar-correct, and a new role or subject kind fails loudly (KeyError in the generator, missing table entry in the test). A `lampsOf()`-driven pin needs a lit game state per subject kind -- more than a direct correction.
+  - `[low]` `[reject]` (blind) The generator's `_check_vis_colour_separation()` / `_check_art_constants()` still compare against the flat `PLAYFIELD_BASE_COLOUR`. — The Code Map keeps that constant as the art's ground tone, so the authoring guard still measures against the dominant colour and is not weakened; the intent's art-ring rule is enforced by `mechanism-art` and `placeholder-geometry` on the exported texels. Re-deriving the ring in the generator would duplicate `test/util/playfield-texture.ts`.
+  - `[false]` `[reject]` (blind) The art-ring rule compares the part against the ring's mean only, and only at the rest pose. — The intent defines the rule as exactly that: the mean linear colour of the opaque texels 2-12 mm outside the part's `col_` footprint(s). Spec-bound, implemented as written.
+  - `[maybe-false]` `[defer]` (blind) No headless check compares a lit insert against its surrounding art (AC 2 (d)); flame paint is near the lit dragon hue. — Needs the lead's AC 2 (d) browser measurement; recorded in `deferred:` (medium, unverified).
+  - `[low]` `[patch]` (blind) The pop-zone trap is called "a separate ledger entry" with no id. — Patched: the generator's `POP_ZONE_SPLIT_Y_MM` comment and the pop-bumper DW-161 comment now cite DW-307.
+  - `[low]` `[patch]` (blind) The generator's DW-161 comment cites the plan probe (run on the old split) as evidence that no golden moved. — Patched: the comment now cites the per-field golden comparison on the shipped 834.0 / 835.0 edges.
+  - `[low]` `[patch]` (blind) `setLampOverride` freezes only the top level; a caller mutating an entry afterwards slips an unvalidated role/step into `syncLamps()`. — Patched with the hatch store-rule entry below: `nextLampOverride()` stores a frozen per-entry copy; pinned by the new lighting-scene case.
+  - `[medium]` `[patch]` (blind) Only the pure validator is tested, not the hatch (keep the previous override on a bad call; `reset()` clears). — Patched: the store rule moved into the pure `nextLampOverride(previous, requested)` in `lamp-view.ts` (bad -> keeps `previous` and names the problem; `null` clears; good -> frozen copy); `boot.ts` calls it; a new `lighting-scene` case pins it, with two mutations recorded under `## Verification`. `reset()`'s one-line clear stays in `boot.ts` (no headless host by design; the lead's browser check).
+  - `[low]` `[reject]` (blind) An `add_insert()` call placed after `fill_playfield_image()` would get no opening. — No such call exists, and the post-export mask test (every `l_` lens open, one opening per lens) would fail loudly; a generator guard adds state for a hypothetical.
+  - `[maybe-false]` `[defer]` (blind) `alphaMode: BLEND` with a binary mask puts the whole deck in the transparent pass. — Pre-existing wiring the spec keeps; needs a browser render-order look; recorded in `deferred:` (medium, unverified).
+  - `[low]` `[reject]` (blind) "Same run, same PNG bytes" has no committed guard. — Verified by two full regenerations with identical glb sha256 (recorded under `## Verification`); a committed guard means a Blender-driven generator test -- more than a direct correction.
+  - `[low]` `[patch]` (blind) The generator refers to "ATTRIBUTIONS.md rows 71-73" by line number. — Patched: it names the `.blend`, glb and `collision.json` rows.
+  - `[low]` `[reject]` (blind) `new_image()`'s docstring and the `'translucency_mask'` node label are stale. — The docstring already describes the `pack=False` placeholder that `fill_playfield_image()` replaces; the node label is Blender-internal (never exported), and renaming it would force a regeneration for no observable change.
+  - `[low]` `[reject]` (blind) `test/util/playfield-texture.ts` reads node-local normals (works only while `vis_playfield` is unrotated) and is O(vertices x nodes). — `vis_playfield` is unrotated by contract, and a rotation would leave no top face and fail the UV case loudly; `playfield-art` runs in ~130 ms.
+  - `[low]` `[reject]` (blind) The at-rest grid is slow and never samples inside the 834-835 gap. — The grid targets the former overlaps (the defect DW-161 names); the gap is pinned by the box-disjoint case; the grid runs in ~1.4 s.
+  - `[low]` `[patch]` (blind) Two comments are badly wrapped (pop-bumper DW-161 block; the generator's DW-161 comment in `main()`). — Patched: both re-wrapped.
+  - `[low]` `[patch]` (edge) `boot.ts:537` stores a shallow copy; inner entries stay mutable. — Same root cause as the shallow-freeze row; patched by `nextLampOverride()`'s per-entry frozen copy.
+  - `[low]` `[reject]` (edge) A Map/Set/Date passes `lampOverrideProblem()` as an empty override. — Console-only; an object with no own entries is a no-op override, not a crash or a wrong lamp; a prototype guard is a new branch for an unlikely console input.
+  - `[low]` `[patch]` (edge) The at-rest grid never asserts that any pop switch makes, so it could pass vacuously. — Patched: every grid point must make a pop switch (non-vacuity); green, and the at-most-one bound stays the pin.
+  - `[low]` `[patch]` (edge) The synthetic-lens negative uses the fixed playfield centre; a later insert there (Epic 3's 3.3c) would break the precondition. — Patched: the case scans out from the centre on a 10 mm grid for the first spot solid under a 32 mm square, asserts one exists, and places the synthetic lens there.
+  - `[maybe-false]` `[defer]` (edge) The binary mask is sampled linear/mipmap, so openings and the DRAGON letter gaps may blur at distance. — Needs the lead's browser look; recorded in `deferred:` (medium, unverified).
+  - `[low]` `[reject]` (edge) The generator's authoring guards still compare against flat `PLAYFIELD_BASE_COLOUR`. — Same root cause and reason as the blind row above.
+  - `[low]` `[reject]` (edge) `playfield-texture.ts` does not handle normalized or signed TEXCOORD accessors. — Blender's exporter writes float UVs, and quantized attributes would need `KHR_mesh_quantization`, which AD-12 (2) forbids; theoretical.
+  - `[low]` `[reject]` (edge) `playfield-texture.ts` ignores node `matrix` transforms. — The exporter writes TRS on every node; theoretical.
+  - `[false]` `[reject]` (edge) The claim "author art can replace this image with no code change" is contradicted by the 512 x 1024 pins and the regenerating generator. — The claim is about runtime code behind fixed names, which holds; the 512 x 1024 size is the intent's own contract, not a code dependency.
+  - `[false]` `[reject]` (edge) The pop-bumper comment's claim "every grid point makes both on its first tick" is unasserted. — The recorded AC 4 mutation shows "tick 321 made s_pop_1, s_pop_3": tick 321 is the first tick after the 320-tick serve; the new non-vacuity assertion now pins that each point makes.
+  - `[medium]` `[patch]` (verification-gap) No test asserts `mat_playfield`'s `baseColorFactor` is absent/identity; dropping the Color link would tint the art brown and every texel test stays green. — Patched: the `vis_playfield` mesh-contract case asserts the factor is absent or `[1, 1, 1, 1]`; mutation recorded (factor (0.45, 0.30, 0.15) injected into the glb -> red).
+  - `[medium]` `[patch]` (verification-gap) The `setLampOverride` hatch's own behaviour has no executed test. — Same root cause as the blind "only the validator is tested" row; patched by `nextLampOverride()` and its case.
+  - `[low]` `[reject]` (verification-gap) The literal Matrix row (south drive through (205, 845)) passes under the old zones too. — Its input is fixed by the intent's Matrix; the spec records this, and the at-rest companion row is the falsifiable pin (red under the AC 4 mutation).
+  - `[low]` `[patch]` (verification-gap) The at-rest grid has no non-vacuity assertion. — Same root cause as the edge row; patched.
+  - `[medium]` `[patch]` (verification-gap) `src/host/boot.ts` has no executed test host. — Same root cause as the hatch rows; the store rule is now tested through `nextLampOverride()`; the remaining three wiring lines in `boot.ts` are the lead's browser check.
+  - `[false]` `[reject]` (verification-gap) `tools/make-placeholder-blend.py` has no executed test host, so its guards are unexercised. — Its asserts and the byte-ceiling guard run on every generation, the only time the values they guard can change, and the recorded AC 3/AC 4 mutations observed them firing; the outputs are pinned by the suite on the committed artifacts.
+  - `[false]` `[reject]` (verification-gap) Several AC clauses have no `mutation:` line. — Rule 19 requires one demonstrated mutation per AC, not per assertion; AC 1-AC 5 each carry at least one; the `col_`/`switchZones` and per-field golden comparisons are scratchpad checks by the intent's own AC 1/AC 4 wording.
+  - `[low]` `[patch]` (verification-gap) `lamp-driver.ts:12` still says every insert shares ONE `mat_insert`. — Patched (comment only; no behaviour): it names `mat_insert` and `mat_insert_dragon`.
+  - `[low]` `[patch]` (verification-gap) `boot.ts:537` stores a shallow copy. — Same root cause as the shallow-freeze row; patched.
+  - `[low]` `[reject]` (intent) The 5 mm feature scale: a 3 mm shield rim, a 4 mm lens ring, 1.2 mm soft edges. — The diff takes the defensible reading that 5 mm governs the noise (the camera-resolution rationale); the dark lens ring is the intent's own example motif; changing it regenerates the art and moves every golden header again, and the browser checks judge legibility.
+  - `[low]` `[reject]` (intent) The home role is a hand-copied table, so Epic 3's new roles or kinds need edits in two places. — Same root cause and reason as the first blind row.
+  - `[false]` `[reject]` (intent) The hatch is not excluded from production builds. — The intent says it follows the `setLightBudget` pattern, which is installed the same way; the diff matches.
+  - `[low]` `[reject]` (intent) Determinism is by construction with no test. — Same root cause and reason as the blind determinism row.
+  - `[low]` `[reject]` (intent) The literal Matrix row's surface (moving ball) differs from the defect's (a ball inside an overlap). — Same root cause and reason as the verification-gap literal-row row.
+  - `[low]` `[reject]` (intent) The generator's authoring guard was not moved to the art-ring form. — Same root cause and reason as the blind generator-guard row.
+  - `[medium]` `[patch]` (intent) The hatch's keep-previous / reset / console-error behaviour lives only in `boot.ts` and is untested. — Same root cause as the hatch rows; patched by `nextLampOverride()`.
 
 ## Design Notes
 
@@ -285,26 +355,79 @@ deferred: []
 - AC 2 (overlay): `mutation: overlayLampView() returns view, ignoring the override -> lighting-scene overlay rows red (3: "the overridden insert: expected {0,0,0} to deeply equal {0.6,0.3,0}")`; `mutation: lampOverrideProblem() skips the TABLE.lamps name check -> lighting-scene "a bad override" row red`.
 - AC 3: `mutation: full-amplitude per-texel noise (colour x U(0, 2)) -> the generator's own ceiling guard refuses first (RuntimeError: 1,727,353 B, over the 524,288 B ceiling; no file written, tests stay green on the untouched glb); with that guard also bypassed and re-exported -> playfield-art PNG byte-ceiling case red ("the PNG is 1727353 B")`.
 - AC 3: `mutation: a flat fill (PLAYFIELD_BASE_COLOUR everywhere, lens rings too) and re-export -> playfield-art not-a-flat-fill case red ("linear-luminance SD 0.0000 (mean 0.3216)")`.
-- AC 4: `mutation: restore the 38 mm facing edges -> the generator's own assert fires first (AssertionError: DW-161: sw_pop_1 and sw_pop_3 overlap; no file written); with that assert also bypassed and re-exported -> pop-bumper disjoint case red ("c_pop_1's and c_pop_3's zones overlap by 26.00 x 6.00 mm") and the at-rest overlap row red ("ball at rest at (143, 832): tick 321 made s_pop_1, s_pop_3")`. The literal south-drive row stays green under this mutation (see the Spec Change Log).
-- AC 4 (containment): `mutation: sw_pop_3 minMm.y 835.5 -> 837 in the committed collision.json -> pop-bumper contact-disc case red ("c_pop_3: the zone leaves -0.495 mm beyond its contact disc")`.
+- AC 4: `mutation: restore the 38 mm facing edges -> the generator's own assert fires first (AssertionError: DW-161: sw_pop_1 and sw_pop_3 overlap; no file written); with that assert also bypassed and re-exported -> pop-bumper disjoint case red ("c_pop_1's and c_pop_3's zones overlap by 26.00 x 6.00 mm") and the at-rest overlap row red ("ball at rest at (143, 832): tick 321 made s_pop_1, s_pop_3")`. Re-observed by the re-dispatch on the amended 834.0/835.0 zones with the same messages (the mutation's zones 838/832 are the same from either base). The literal south-drive row stays green under this mutation (see the Spec Change Log).
+- AC 4 (containment): `mutation: sw_pop_3 minMm.y 835.0 -> 837 in the committed collision.json -> pop-bumper contact-disc case red ("c_pop_3: the zone leaves -0.495 mm beyond its contact disc")` (re-dispatch, amended base; pass 1 ran it from 835.5 with the same result).
+- AC 4 (containment at the amended edge, re-dispatch): `mutation: sw_pop_1 maxMm.y 834.0 -> 833.9 in the committed collision.json -> pop-bumper contact-disc case red ("c_pop_1: the zone leaves 0.405 mm beyond its contact disc")` -- the amended value keeps 0.505 mm, so the 0.5 mm floor binds 0.105 mm below it.
 - AC 5: `mutation: paint a 14 mm band around col_flipper_l's box in mat_art_flipper's colour in make_playfield_art and re-export -> mechanism-art art-ring case red ("vis_flipper_l mat_art_flipper [0.97,0.97,0.95] vs its art ring's mean [0.968,0.968,0.949] (2401 texels)")`.
 - AC 5 (vis_dragon): `mutation: paint the dragon bodies and 14 mm around them in mat_vis_dragon's colour and re-export -> placeholder-geometry vis_dragon art-ring case red ("vs its art ring's mean [0.099,0.639,0.148] (8345 texels)")`.
 
 **Commands run (implement, 2026-09-30):** `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers` (after `git add -N` of the two new test files), `pnpm check:attributions` -- green; a non-ASCII scan of every added line in code and tests (none; the only non-ASCII in the diff is pre-existing text on the long ATTRIBUTIONS and golden `notes` lines). `pnpm test` with BLENDER set: 135 files, **2180 passed, 1 failed** -- `shot-routing` "Top lanes > 'lane 1'" (the DW-161 intent gap in the Spec Change Log); every other case green, including `replay-goldens` (52/52), `playfield-art` (9), `mechanism-art` (26), `placeholder-geometry` (9), `pop-bumper` (19), `lighting-scene` (22). `pnpm check:reachability` green (149.7 s); `pnpm check:corridor` green. `pnpm build`, `pnpm check:dist`, `pnpm check:size`: **1.191 MB (1,190,767 B)** of 2.750 MB -- before 0.965 MB (965,368 B), so +225,399 B; the embedded PNG is **224,082 B** (ceiling 524,288 B), 512 x 1024.
 
 **Structural checks (scratchpad scripts, implement):**
-- Collision: `nodes`, `devices`, `reference`, `frame`, `units` and `version` deep-equal the baseline; of 37 `switchZones`, exactly three differ, each in one field: `sw_pop_1` and `sw_pop_2` `maxMm.y` 838 -> 834.5, `sw_pop_3` `minMm.y` 832 -> 835.5.
+- Collision: `nodes`, `devices`, `reference`, `frame`, `units` and `version` deep-equal the baseline; of 37 `switchZones`, exactly three differ, each in one field: `sw_pop_1` and `sw_pop_2` `maxMm.y` 838 -> 834.5, `sw_pop_3` `minMm.y` 832 -> 835.5. (Pass 1's values; superseded by the re-dispatch block below.)
 - Goldens, per parsed leaf against the task-1 copy: in all five only `header.assetHash` (ea9d01d6 -> 4cc4ba44) and `notes` (append-only, the one Story 5.2 sentence in 5.4's form) differ; `expectedHash`, `expectedGameStateHash`, `expectedCheckpointHashes` and `header.tableHash` equal. `replay-goldens` reproduces every hash.
 - glb against the baseline, node by node (TRS, extras, every accessor's bytes, indices, material): all 170 nodes present; the only differences are the 15 `l_` lens materials (`mat_insert` 0.08 grey for lane/ball-save inserts, the new `mat_insert_dragon` (0.08, 0.04, 0) for the letters and the Lock), `mat_playfield` (now `baseColorTexture` 0, alpha BLEND, no factor) and `vis_playfield`'s TEXCOORD_0 (planar on every face; the top face's values unchanged). Lens and cup geometry are byte-identical. One image, one texture, sampler linear/mipmap, no `extensionsUsed`.
 - Reproducibility: a second `blender ... make-placeholder-blend.py` + `pnpm export:assets` gave a byte-identical glb (sha256 `c3dfc3d5...`) and `collision.json` (`e0fe354b...`); the `.blend` is not byte-reproducible and was checked structurally (it exports those same bytes).
 - The art, measured from the committed glb: linear-luminance SD of the opaque texels 0.0835 (floor 0.02), 521,616 opaque texels, 2,672 open (15 openings). Art-ring separations (floor 0.25): flippers 0.803 (worst `col_flipper_l`; the rubber child 0.411), drop targets 0.483 (`col_dragon_g`), Ramp 0.749 (`col_ramp_wall_r`), guides 0.660 (`col_guide_inlane_r`), `vis_dragon` 0.497 (ring mean (0.319, 0.153, 0.080)).
 
+**Re-dispatch (implement pass 2, 2026-09-30, baseline d79428a5951949322ca961cbb7a882cebae7ec91; story baseline c6d7aa442208cd47f63f9610893a25697bd87b00)** -- the amended DW-161 values only:
+- Generator: new authored `POP_ZONE_SPLIT_Y_MM = 834.5` (comment records why it is not the rows' midpoint 835, the knife-edge sweep, and the lead's amendment); `pop_zone_split_y` reads it, with a new assert that it lies between the two pop rows. The disjoint and contact-disc asserts are unchanged and pass (`sw_pop_1`/`sw_pop_2` spare 0.505 mm, `sw_pop_3` 1.505 mm). `ATTRIBUTIONS.md` row 73's note was corrected to 834.0 / 835.0 before the regeneration.
+- Collision, against the story baseline (c6d7aa4) and against pass 1: `nodes`, `devices`, `reference`, `frame`, `units`, `version` deep-equal; exactly three `switchZones` fields differ -- `sw_pop_1` and `sw_pop_2` `maxMm.y` 838 -> 834.0 (pass 1: 834.5), `sw_pop_3` `minMm.y` 832 -> 835.0 (pass 1: 835.5).
+- glb: byte-identical to pass 1 (sha256 `c3dfc3d5...`; switch zones never enter it), so every playfield-art, lens, mask and art-ring figure above stands. Reproducibility: a second `blender ... make-placeholder-blend.py` + `pnpm export:assets` gave the same glb and `collision.json` (sha256 `415412a8...`); the `.blend` differs byte-wise between runs, as recorded.
+- Goldens, per parsed leaf against c6d7aa4: in all five only `header.assetHash` (ea9d01d6 -> **bcecd10d**) and `notes` (append-only; the one Story 5.2 sentence, now "split at y 834.5") differ; `expectedHash`, `expectedGameStateHash`, `expectedCheckpointHashes` and `header.tableHash` (e22fbdcf) equal. The golden HALT condition did not arise.
+- Test comments: `test/pop-bumper.test.ts` (three stale split-value comments) and `test/shot-routing.test.ts` (one) now say 834.0 / 835.0 / 834.5; no assertion changed -- every pop case derives the zones from the document.
+- Commands, one test-runner call each: `pnpm vitest run test/pop-bumper.test.ts` 19/19; `test/shot-routing.test.ts` 61/61 (Top lanes > 'lane 1' green); `test/replay-goldens.test.ts` 52/52; `pnpm check:reachability` green (150.5 s); `pnpm check:corridor` green; `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` green; `python -m py_compile tools/make-placeholder-blend.py`; a non-ASCII scan of added code/test lines (only the pre-existing text on the long golden `notes` lines); `pnpm test` with BLENDER set: **135 files, 2181 passed, 0 failed**; `pnpm build`, `pnpm check:dist`, `pnpm check:size`: **1.191 MB (1,190,764 B)** of 2.750 MB (before the story 0.965 MB, 965,368 B; the PNG is unchanged at 224,082 B).
+- Mutations: the AC 4 lines above were re-observed on the amended zones; each reverted from scratchpad byte copies (generator, `.blend`, glb, `collision.json`; sha256 re-checked equal) with `git status --short` / `git diff --stat` identical to the pre-mutation capture.
+- Not re-run by this pass: the AC 1/2/3/5 mutations (their subject, the glb, is byte-identical to pass 1's, where they were observed).
+
+**Review pass (2026-09-30, stage agent; whole story `c6d7aa4..` + tree):** patches applied, then every command re-run.
+- `mutation: inject baseColorFactor (0.45, 0.30, 0.15, 1) into mat_playfield in the committed glb -> playfield-art "vis_playfield keeps TEXCOORD_1 ..." red ("no baseColorFactor tints the art (absent or [1, 1, 1, 1]): expected [0.45, 0.3, 0.15, 1] to deeply equal [1, 1, 1, 1]")`.
+- `mutation: nextLampOverride() returns { override: null } on a bad override -> lighting-scene "the hatch store rule" red ("a bad override keeps the previous one: expected null to be { l_top_1: ... }")`; `mutation: nextLampOverride() stores the caller's object uncopied -> the same case red ("the stored entry is a copy ...: expected { role: 'purple', step: 1 } to deeply equal { role: 'lit', step: 1 }")`.
+- Each mutation reverted from a scratchpad byte copy (glb sha256 `c3dfc3d5...` re-checked; `lamp-view.ts` `cmp`-equal); `git status --short` / `git diff --stat` identical to the pre-mutation capture.
+- The at-rest grid now also asserts every point makes a pop switch (non-vacuity; green). The synthetic-lens negative now finds its solid spot by search instead of the fixed centre (green; same checker assertions).
+- Commands after the patches: `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions` green; non-ASCII scan of added code/test lines clean (only the pre-existing golden `notes` text); `pnpm test` with BLENDER set **135 files, 2182 passed, 0 failed**; `pnpm check:reachability` green (229 s); `pnpm check:corridor` green; `pnpm build`, `pnpm check:dist`, `pnpm check:size` **1.191 MB (1,190,824 B)** of 2.750 MB (story before: 965,368 B). Goldens and `collision.json` re-compared per leaf against c6d7aa4: only `header.assetHash` (ea9d01d6 -> bcecd10d) and append-only `notes` in all five; `collision.json` differs only in `switchZones` `sw_pop_1`/`sw_pop_2` `maxMm.y` 838 -> 834 and `sw_pop_3` `minMm.y` 832 -> 835.
+
 **Manual checks (lead, AC 2 (a)-(e) and AC 5's re-run):** not run by the implement stage (no dev server or browser). The hatch is `window.__dragonwarBoot.setLampOverride({ l_top_2: { role: 'lit', step: 1 } })`; `null` clears it; `reset()` clears it too.
 
 ## Auto Run Result
 
-Status: blocked
-Blocking condition: intent gap: DW-161 pop-zone values in the intent contract (sw_pop_1/sw_pop_2 maxMm.y = 834.5, sw_pop_3 minMm.y = 835.5) fail the existing strand gate test/shot-routing.test.ts 'Top lanes > lane 1' (ball stranded at (93.56, 834.72), net progress 0.30 mm over 500 ticks); recommended amendment: 834.0 / 835.0 (gap stays 1.0 mm, contact-disc clearance 0.505 mm)
+Status: done
+Blocking condition: none
+
+**Summary (implement pass 2 + the story's first review, 2026-09-30, baseline d79428a5951949322ca961cbb7a882cebae7ec91; story baseline c6d7aa442208cd47f63f9610893a25697bd87b00).** Pass 2 applied the lead's amended DW-161 values (`sw_pop_1`/`sw_pop_2` `maxMm.y` 834.0, `sw_pop_3` `minMm.y` 835.0, via the authored generator constant `POP_ZONE_SPLIT_Y_MM = 834.5`), regenerated the `.blend` and `collision.json` (the glb is byte-identical to pass 1), refreshed the five goldens' `header.assetHash` to bcecd10d with the notes sentence, and fixed the stale split values in comments and the ATTRIBUTIONS row note. `shot-routing` "Top lanes > 'lane 1'" is green. The review ran over the WHOLE story (`c6d7aa4..` + tree, pass 1's WIP commit included): four layers, 42 findings, no HIGH.
+
+**Files changed by the story** (c6d7aa4..finalize):
+- `ATTRIBUTIONS.md` -- Story 5.2 notes on the `.blend`, glb and `collision.json` rows; dates to 2026-09-30.
+- `tools/make-placeholder-blend.py` -- generated painted art + binary mask from `add_insert`'s lens list, role-tinted lens materials (`LENS_TINT_LEVEL`), planar `uv_base`, the DW-161 facing-edge split with its asserts.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json` -- regenerated.
+- `test/replays/*.golden.json` (5) -- `header.assetHash` + one appended `notes` sentence only.
+- `src/presentation/lighting/lamp-view.ts` -- `overlayLampView()`, `lampOverrideProblem()`, `nextLampOverride()` (review).
+- `src/host/boot.ts` -- the dev-only `setLampOverride` hatch, cleared in `reset()`, applied at `syncLamps`.
+- `src/presentation/lighting/lamp-driver.ts` -- one stale comment (review; no behaviour).
+- `test/playfield-art.test.ts` (new), `test/util/playfield-texture.ts` (new) -- UV, mask, coverage checker +/- pair, lens tints, byte ceiling, not-a-flat-fill, `baseColorFactor` (review).
+- `test/mechanism-art.test.ts`, `test/placeholder-geometry.test.ts` -- the art-ring separation form.
+- `test/pop-bumper.test.ts` -- DW-161 disjoint / contact-disc / Matrix rows (+ non-vacuity, review); `test/shot-routing.test.ts` -- comment fix; `test/lighting-scene.test.ts` -- overlay rows + the hatch store rule (review).
+
+**Review findings:** 42 -- high 0, medium 5, low 28, false 6, maybe-false 3 (full rows in `## Review Triage Log`).
+- Patched (entries at entry verdict): 2 medium -- the hatch store rule (`nextLampOverride()` + its test; absorbs the shallow-copy lows) and the `baseColorFactor` pin; 8 low -- the DW-307 citation, the stale probe claim, rows by name, comment wraps, grid non-vacuity, the synthetic-lens search, the lamp-driver comment (plus grouped duplicates).
+- Deferred (frontmatter `deferred:`, 3, each medium unverified and each settled by the lead's browser session): lit insert vs flame art (AC 2 (d)); `alphaMode` BLEND on a binary mask; linear/mipmap sampling of the binary mask.
+- Rejected: 6 false and the rejected lows, each with its reason in the triage log (spec-bound mean-ring rule; hand-copied home-role table; generator guard vs the ground tone; add_insert-after-fill; determinism guard; docstring/label; texture-util rotation/perf; grid coarseness; Map/Set override; accessor encodings; matrix transforms; the literal Matrix row; the 5 mm feature-scale reading).
+
+**Follow-up review recommended: true** (patched this pass: high 0, medium 2, low 8). The named unverified risk: `src/host/boot.ts`'s wiring of the hatch (`lampOverride = next.override`, the `console.error`, and `reset()`'s clear) still has no executed test host -- the store rule itself is now pinned, but the wiring is verified only by the lead's AC 2 browser check.
+
+**Verification:** see `## Verification` (the re-dispatch and review-pass blocks): full suite 2182/2182, reachability, corridor, typecheck, boundaries, headers, attributions, build, dist and size (1,190,824 B of 2,750,000 B; PNG 224,082 B) green; goldens and `collision.json` compared per field against c6d7aa4 as the intent requires; the glb is reproducible.
+
+**Residual risks / for the lead:**
+- AC 2 (a)-(e) and AC 5's browser re-run are the lead's (hatch: `window.__dragonwarBoot.setLampOverride({ l_top_2: { role: 'lit', step: 1 } })`).
+- The 834.0 / 835.0 split is green by measurement, not by principle (DW-307, escalated); any geometry change near the pops should re-run `shot-routing` and `check:reachability`. DW-161 closes only on "zones disjoint as boxes".
+- The goldens' `assetHash` (bcecd10d) is shared with Epic 3 -- coordinate at merge.
+- Footprint extensions (uncontended): `src/presentation/lighting/lamp-view.ts`, `src/host/boot.ts`, `src/presentation/lighting/lamp-driver.ts` (comment only), `test/util/playfield-texture.ts`, and the test files named in Design Notes.
+
+---
+
+Earlier pass record (implement pass 1, superseded by the lines above):
+
+Pass-1 status (superseded): blocked -- intent gap: DW-161 pop-zone values in the intent contract (sw_pop_1/sw_pop_2 maxMm.y = 834.5, sw_pop_3 minMm.y = 835.5) fail the existing strand gate test/shot-routing.test.ts 'Top lanes > lane 1' (ball stranded at (93.56, 834.72), net progress 0.30 mm over 500 ticks); recommended amendment: 834.0 / 835.0 (gap stays 1.0 mm, contact-disc clearance 0.505 mm)
 
 Implement pass (2026-09-30, bmad-build-auto, baseline c6d7aa442208cd47f63f9610893a25697bd87b00). Everything the spec asks for is implemented in the working tree, which is left uncommitted for the lead's rework commit (Rule 16). That covers ATTRIBUTIONS rows 71-73, the generator (art, mask from the lens list that add_insert records, lens tints, planar uv_base, DW-161 split and asserts), the regenerated .blend, glb and collision.json, the goldens, lamp-view.ts overlayLampView, the boot.ts setLampOverride hatch, and the tests. `pnpm test`: 2180 passed, 1 failed (the case above). Typecheck, boundaries, headers, attributions, reachability and corridor are green. check:size 0.965 MB -> 1.191 MB of 2.75 MB; the PNG is 224,082 B. A second export gives a byte-identical glb. Goldens, compared per parsed field against HEAD: only `header.assetHash` and `notes` differ in all five.
 

@@ -1033,7 +1033,7 @@ describe('shot routing (AC 1 behavioural half, task 16a) -- DRAGON bank', () => 
 describe('shot routing (AC 1 behavioural half, task 16a) -- Top lanes', () => {
 	it.each([
 		// Story 2.1c task 2: lane 1's release moved 145 -> 110. 145 sat inside
-		// sw_pop_3's own zone (x 142..218, y 832..908 then; y 835.5..908 since
+		// sw_pop_3's own zone (x 142..218, y 832..908 then; y 835.0..908 since
 		// Story 5.2's DW-161 facing-edge split) -- a switch-zone
 		// contamination this file's own Code Map flagged, though not a col_
 		// footprint embed. The obvious replacement, x = 130, is col_pop_1's

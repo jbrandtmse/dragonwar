@@ -1228,10 +1228,24 @@ POP_BUMPER_RADIUS_MM = 20.0  # authored -- a common pop-bumper body radius
 # only at the corners.
 POP_ZONE_HALF_MM = 38.0
 # Story 5.2 (DW-161): the gap left between the FACING edges of the lower
-# pair's zones (sw_pop_1, sw_pop_2) and sw_pop_3's, split about the midpoint
-# of the two rows (see the sw_pop_* zones in main()), so no two pop zones
-# overlap and one ball can never make two pop switches on one tick. Authored.
+# pair's zones (sw_pop_1, sw_pop_2) and sw_pop_3's, centred on
+# POP_ZONE_SPLIT_Y_MM (see the sw_pop_* zones in main()), so no two pop zones
+# overlap as boxes. Authored.
 POP_ZONE_SPLIT_GAP_MM = 1.0
+# Story 5.2 (DW-161): where the facing edges split -- sw_pop_1/sw_pop_2 end
+# at 834.0 and sw_pop_3 starts at 835.0. Authored, and MEASURED rather than
+# derived: the midpoint of the two rows' contact limits (835.0, so edges
+# 834.5 / 835.5) stranded test/shot-routing.test.ts "Top lanes > 'lane 1'"
+# at (93.56, 834.72) -- the ball hovers at sw_pop_1's NW corner, ~50 mm
+# from the pop, because pops.ts kicks any ball whose swept segment enters
+# the rectangular zone (ledgered as DW-307, out of this file's reach).
+# A sweep of the whole shot-routing file found 835.0/836.0 and
+# 833.995/836.005 red too, and 834.0/835.0 green, so the response is a knife
+# edge: re-run shot-routing and check:reachability after ANY change here.
+# The lead amended the spec to these values on 2026-09-30. The asserts in
+# main() keep every zone >= POP_ZONE_CONTACT_SPARE_MM beyond its contact disc
+# (sw_pop_1/sw_pop_2 keep 0.505 mm) and the three pairwise disjoint.
+POP_ZONE_SPLIT_Y_MM = 834.5
 # The least clearance every pop zone keeps beyond its own pop's contact disc
 # (radius POP_BUMPER_RADIUS_MM + BALL_MM / 2), asserted at authoring time.
 POP_ZONE_CONTACT_SPARE_MM = 0.5
@@ -2497,7 +2511,8 @@ def add_mechanism_art(playfield_root, twins, plunger, drop_target_names):
 #
 # The playfield's one image, `img_playfield_translucency`, is GENERATED here
 # by numpy from a fixed seed -- no third-party image, brush, font or asset of
-# any kind (ATTRIBUTIONS.md rows 71-73 carry the Story 5.2 note). Its RGB is a
+# any kind (ATTRIBUTIONS.md's `.blend`, glb and `collision.json` rows carry the
+# Story 5.2 note). Its RGB is a
 # stylized painted playfield in a rustic register -- the dragon-and-knight
 # war: a wood-grain ground, a dragon silhouette over the Dragon with flames
 # from its Mouth, crossed-lance shields for the knights, painted arrows up the
@@ -4551,24 +4566,27 @@ def main():
 	# and sw_pop_2/sw_pop_3 overlapped by 26 x 6 mm, so one ball in the
 	# overlap made two pop switches -- and fired two pop coils -- on one tick.
 	# The FACING edges now split the gap between the two rows' contact limits
-	# at y_split = (pop_1.y + pop_3.y) / 2 = 835, POP_ZONE_SPLIT_GAP_MM apart;
-	# every other edge keeps POP_ZONE_HALF_MM. Both properties the zones exist
-	# for are asserted below: each still contains its own pop's full contact
-	# disc (the reach limit above) with >= POP_ZONE_CONTACT_SPARE_MM to spare,
-	# and the three are pairwise disjoint. The plan's probe measured no golden
-	# finalHash/finalGameStateHash moving under this split.
+	# (833.495 .. 836.505) at y_split = POP_ZONE_SPLIT_Y_MM = 834.5,
+	# POP_ZONE_SPLIT_GAP_MM apart (why not the midpoint 835: see the
+	# constant); every other edge keeps POP_ZONE_HALF_MM. Both properties the
+	# zones exist for are asserted below: each still contains its own pop's
+	# full contact disc (the reach limit above) with >=
+	# POP_ZONE_CONTACT_SPARE_MM to spare, and the three are pairwise disjoint.
+	# No golden's expectedHash/expectedGameStateHash/checkpoints moved under
+	# the shipped 834.0 / 835.0 edges (compared per field at implement).
 	pop_low_row_y = POP_POSITIONS_MM[0][1]
 	pop_high_row_y = POP_POSITIONS_MM[2][1]
 	assert POP_POSITIONS_MM[1][1] == pop_low_row_y, 'DW-161: the facing-edge split assumes pop_1 and pop_2 share one row'
-	pop_zone_split_y = (pop_low_row_y + pop_high_row_y) / 2  # 835.0
+	pop_zone_split_y = POP_ZONE_SPLIT_Y_MM  # 834.5
+	assert pop_low_row_y < pop_zone_split_y < pop_high_row_y, 'DW-161: the facing-edge split must lie between the two pop rows'
 	pop_zone_boxes = []
 	for i, center in enumerate(POP_POSITIONS_MM):
 		zone_min_y = center[1] - POP_ZONE_HALF_MM
 		zone_max_y = center[1] + POP_ZONE_HALF_MM
 		if center[1] == pop_low_row_y:
-			zone_max_y = pop_zone_split_y - POP_ZONE_SPLIT_GAP_MM / 2  # 834.5
+			zone_max_y = pop_zone_split_y - POP_ZONE_SPLIT_GAP_MM / 2  # 834.0
 		else:
-			zone_min_y = pop_zone_split_y + POP_ZONE_SPLIT_GAP_MM / 2  # 835.5
+			zone_min_y = pop_zone_split_y + POP_ZONE_SPLIT_GAP_MM / 2  # 835.0
 		zone_min = (center[0] - POP_ZONE_HALF_MM, zone_min_y, 0)
 		zone_max = (center[0] + POP_ZONE_HALF_MM, zone_max_y, 30)
 		contact_reach = POP_BUMPER_RADIUS_MM + BALL_MM / 2  # 33.495

@@ -33,7 +33,7 @@ import { LAMP_GRAMMAR, lookupGrammar } from '../src/presentation/lighting/gramma
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { LampName } from '../src/sim/table/names';
 import type { LampRole, LampStep } from '../src/sim/contracts/commands';
-import { lampOverrideProblem, overlayLampView, type LampView } from '../src/presentation/lighting/lamp-view';
+import { lampOverrideProblem, nextLampOverride, overlayLampView, type LampView } from '../src/presentation/lighting/lamp-view';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 
@@ -677,5 +677,23 @@ describe('Story 5.2 -- the setLampOverride() overlay, fed to syncLamps() on the 
 		expect(lampOverrideProblem('l_top_2')).toMatch(/expected an object/);
 		expect(lampOverrideProblem(42)).toMatch(/expected an object/);
 		expect(lampOverrideProblem([])).toMatch(/an array/);
+	});
+
+	it('the hatch store rule (nextLampOverride): a bad override keeps the previous one and names the problem; null clears; a good one is stored as a frozen copy the caller cannot mutate', () => {
+		const previous: LampView = Object.freeze({ l_top_1: { role: 'lit', step: 1 } });
+		const bad = nextLampOverride(previous, { l_no_such_insert: { role: 'lit', step: 1 } });
+		expect(bad.override, 'a bad override keeps the previous one').toBe(previous);
+		expect(bad.problem).toMatch(/l_no_such_insert/);
+		const notAnObject = nextLampOverride(previous, 'l_top_2');
+		expect(notAnObject.override, 'a non-object keeps the previous one').toBe(previous);
+		expect(notAnObject.problem).toMatch(/expected an object/);
+		expect(nextLampOverride(previous, null), 'null clears').toEqual({ override: null, problem: null });
+		const requested = { l_top_2: { role: 'lit' as const, step: 1 as const } };
+		const good = nextLampOverride(previous, requested);
+		expect(good.problem).toBeNull();
+		expect(good.override, 'a good override replaces the previous one').toEqual({ l_top_2: { role: 'lit', step: 1 } });
+		(requested.l_top_2 as { role: string }).role = 'purple';
+		expect(good.override?.l_top_2, 'the stored entry is a copy: the caller mutating its own object afterwards changes nothing').toEqual({ role: 'lit', step: 1 });
+		expect(Object.isFrozen(good.override) && Object.isFrozen(good.override?.l_top_2), 'the stored override and its entries are frozen').toBe(true);
 	});
 });
