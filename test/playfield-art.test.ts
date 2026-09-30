@@ -317,6 +317,15 @@ describe('Story 5.2 AC 3 -- one generated image within its byte ceiling, no exte
 		expect(doc.extensionsRequired, 'no extensionsRequired').toBeUndefined();
 		expect(texture.pngBytes.length, `the PNG is ${texture.pngBytes.length} B`).toBeLessThanOrEqual(PNG_CEILING_BYTES);
 		expect([texture.png.width, texture.png.height]).toEqual([IMAGE_W, IMAGE_H]);
+		// [Story 5.2 review] The image covers the deck exactly once, so its
+		// sampler clamps on both axes (glTF's default is REPEAT, which blends
+		// opposite deck edges under bilinear filtering and mipmaps).
+		// mutation: drop tex_node.extension = 'EXTEND' in new_material and
+		// re-export -> red here (wrapS undefined).
+		const samplers = (doc as { samplers?: ReadonlyArray<{ wrapS?: number; wrapT?: number }> }).samplers ?? [];
+		const sampler = samplers[(doc.textures![0] as { sampler?: number }).sampler ?? -1];
+		const CLAMP_TO_EDGE = 33071;
+		expect([sampler?.wrapS, sampler?.wrapT], 'the playfield texture clamps (CLAMP_TO_EDGE) on both axes').toEqual([CLAMP_TO_EDGE, CLAMP_TO_EDGE]);
 	});
 
 	it('the art is not a flat fill: the linear-luminance SD of the opaque texels is >= 0.02', () => {

@@ -604,7 +604,10 @@ describe('Story 5.2 (DW-161) -- the pop switch zones are disjoint and still cont
 				const b = zones[j]!.zone;
 				const overlapX = Math.min(a.maxMm.x, b.maxMm.x) - Math.max(a.minMm.x, b.minMm.x);
 				const overlapY = Math.min(a.maxMm.y, b.maxMm.y) - Math.max(a.minMm.y, b.minMm.y);
-				expect(overlapX > 0 && overlapY > 0, `${zones[i]!.coil}'s and ${zones[j]!.coil}'s zones overlap by ${overlapX.toFixed(2)} x ${overlapY.toFixed(2)} mm`).toBe(false);
+				// Closed boxes ([Story 5.2 review]): segmentIntersectsBox() accepts
+				// lo <= p <= hi, so zones that merely TOUCH share an edge a ball
+				// can sit on and make both switches -- >= 0, not > 0.
+				expect(overlapX >= 0 && overlapY >= 0, `${zones[i]!.coil}'s and ${zones[j]!.coil}'s closed zones overlap by ${overlapX.toFixed(2)} x ${overlapY.toFixed(2)} mm`).toBe(false);
 			}
 		}
 	});

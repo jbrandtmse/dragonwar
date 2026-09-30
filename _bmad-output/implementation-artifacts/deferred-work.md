@@ -38,6 +38,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Epic 5 needs a sculpted Blender Dragon under 2000 tris, hand-painted textures, cabinet and backglass art
 - 2026-08-27T22:32:54Z status=routed owner=burndown by=migration note=Agents deliver export/loader/budget scaffolding and placeholders; author supplies meshes and textures with ATTRIBUTIONS entries first
 - 2026-08-30T06:08:46Z status=routed owner=5-2-playfield-art-and-materials by=burndown note=overflow re-own. Hand-authored art assets are Epic 5's whole subject and 5.2 is its playfield-art-and-materials story, so that is where the obligation actually lands. Author-owned in the sense that a human draws them, but unlike DW-1/DW-3 this has a real story to belong to rather than a standing practice.
+- 2026-09-30T09:59:12Z status=resolved-by:5-2-playfield-art-and-materials by=adjudication note=author 2026-09-29: pipeline-generated stylized art; generated painted-look playfield texture, recorded in ATTRIBUTIONS.md
 
 ### DW-5: AGENTS.md scaffold-stage TODOs are now answerable but unrefreshed
 - source: spec-1-1-spike-1 | severity: low | fix-risk: low | footprint: in-epic
@@ -1079,6 +1080,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Computed from the committed document: sw_pop_1 x[92,168] y[762,838], sw_pop_2 x[192,268] y[762,838], sw_pop_3 x[142,218] y[832,908] -- two 26x6 mm overlaps at y[832,838]. Story 2.2 is what makes the overlap ACTUATING: applyPostSwitchEdges() loops devices independently, so both coils fire on the same ball. Reproduced at a realistic 2.83 mm/tick approach into the sw_pop_2/sw_pop_3 corner: edges s_pop_2+s_pop_3, coil_fire [c_pop_2, c_pop_3], net kick 99.9 mm/s instead of 200 (and exactly 0.0 mm/s at the centroids' midpoint). NOT observed in 90 live drop columns / 241 pop fires, so it is reachable-in-principle rather than routine. The pop-bumper it.each test's own comment names the overlap and re-aims its approach to dodge it rather than covering it.
 - 2026-09-05T14:09:18Z status=escalated owner=burndown by=cr note=Root fix is the sw_ geometry (Blender re-export + a SECOND five-golden re-record) which is out of this story's budget; the code-side mitigation (kick each ball at most once per tick, nearest centroid wins) changes which coil fires and so is a product call for Story 2.4/Epic 4 consumers -- decision sheet.
 - 2026-09-28T14:07:22Z status=routed owner=5-2-playfield-art-and-materials by=merge_gate note=Epic 2 decision sheet 2026-09-28: route to 5.2; resolve the sw_pop_1/3 and sw_pop_2/3 skirt-zone overlap in committed geometry
+- 2026-09-30T09:59:12Z status=resolved-by:5-2-playfield-art-and-materials by=adjudication note=zones disjoint as closed boxes, 1.0 mm facing gap (834.0/835.0), pinned by pop-zone-split; residual fast-diagonal double-fire is DW-307 (escalated)
 
 ### DW-162: KickReportingSlingshot reports a coil_fire whenever the frozen port's kick BRANCH runs, but the port scales its impulse by a parabolic profile that reaches exactly zero at either end of a segment, so a contact within a fraction of a mm of a sling footprint vertex emits a full coil_fire with essentially no impulse
 - source: spec-2-2-slingshots-and-pop-bumpers-as-hardware-rules.md | severity: low | fix-risk: med | footprint: in-story
@@ -1757,6 +1759,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-14-the-lit-top-lane-rotation-and-when-it-may-move.md | severity: high | fix-risk: med | footprint: out-of-epic
 - evidence: Story 2.14 browser smoke, lead, 2026-09-12: in a real game at 1280x900 I sampled the rendered playfield inside requestAnimationFrame (a WebGL canvas without preserveDrawingBuffer reads blank outside it) and pressed lane change (ShiftLeft then ShiftRight, the shipped Story 2.7 behaviour that MOVES the lit lane). The saturated-pixel signature was byte-identical across both presses: 926298 before, 926298 after, 926298 after the second. Across three real balls of one game - transitions confirmed by DETECTING the end-of-ball hold on the backglass, not by guessing with sleeps - the playfield lamp signature was byte-identical (609 saturated px, the same 12 grid cells) while the backglass correctly changed per ball (399/407/404). src/presentation/lighting/ has grammar.ts, lamp-driver.ts and lamp-view.ts, but NOTHING in src/presentation/ resolves lamp nodes onto playfield geometry: grep for l_top_1, lampNodes and resolveLampNodes returns zero hits
 - 2026-09-12T11:01:15Z status=routed owner=5-2-playfield-art-and-materials by=smoke note=Same CLASS as DW-249 (no flipper or plunger rendered) and found the same way - by a browser smoke, not by a test. 2078 automated tests pass and not one of them observes that the player cannot see the lit lane, which is exactly the test-pyramid leak the smoke gate exists to catch. Routed to 5.2 because its own acceptance criteria already own this surface: 'the inserts as saturated lenses set into it' and 'the translucency mask matches every l_ lens position' and 'Given the inserts lit in the grammar'. NOT a Story 2.14 defect - 2.14 changes only which lane the rules light, and its rotation is pinned by three red-first seed tests, a lead-applied freeze mutation, a real 3-player Hot seat test and an independent mulberry32 reimplementation. The author may want this pulled earlier than Epic 5, as DW-249's trailer also suggested: until inserts render, EVERY skill-shot and lamp behaviour can only be proven by unit tests
+- 2026-09-30T09:59:12Z status=resolved-by:5-2-playfield-art-and-materials by=adjudication note=dark role-tinted lenses + lens-matched mask; browser off->on 116-151 levels for all 15 inserts (shipped 11); lane change moves the lit reading
 
 ### DW-272: No gate resolves a file.ts:line comment anchor against the file it cites, so in-code citations rot silently
 - source: spec-2-15-epic-2-burn-down.md | severity: low | fix-risk: low | footprint: in-epic
@@ -1889,18 +1892,27 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: med | footprint: out-of-footprint
 - evidence: 5.2 implement: shot-routing 'Top lanes > lane 1' stranded at (93.56, 834.72), 0.30 mm progress over 500 ticks, with maxMm.y 834.5/835.5 and 835.0/836.0 and 833.995/836.005; green at 834.0/835.0 by chance; fix needs pops.ts contact test or non-rectangular zones (src/sim)
 - 2026-09-30T08:34:26Z status=escalated owner=burndown by=harvest note=for the decision sheet: pops.ts should kick only on contact, or zones become discs; out of Epic 5's footprint
+- 2026-09-30T09:55:11Z occurrence=5-2-playfield-art-and-materials note=cr: same root cause; a ball crossing the 1 mm pop-zone gap diagonally at >~1 mm/tick still makes sw_pop_2+sw_pop_3 in one tick
 
 ### DW-312: No headless check compares a lit insert against the flame art ring around it (AC 2 (d)); flame paint near the Dragon/Lock is close in hue to the lit dragon role
 - source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: low | footprint: in-story
 - evidence: flame colours (0.88,0.20,0.015)/(0.95,0.60,0.07) near Mouth/Lock inserts lit dragon (1,0.5,0)x0.6; only a 4 mm dark lens ring separates them
 - 2026-09-30T09:16:15Z status=open owner=5-2-playfield-art-and-materials by=harvest note=settle by the lead's AC 2 (d) browser measurement
+- 2026-09-30T09:59:13Z status=resolved-by:5-2-playfield-art-and-materials by=adjudication note=browser: dragon-role inserts lit vs art ring 52.6-93.3 levels, R-B 153-172
 
 ### DW-313: mat_playfield exports alphaMode BLEND though the mask is now binary, so the whole deck draws in the transparent pass and may depth-sort against plastics and the Ramp
 - source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: low | footprint: in-story
 - evidence: BLEND wiring predates 5.2 (chosen for uniform alpha 0.5); needs a browser look
 - 2026-09-30T09:16:15Z status=open owner=5-2-playfield-art-and-materials by=harvest note=settle by the lead's AC 5 browser re-run
+- 2026-09-30T09:59:13Z status=wontfix-accepted by=adjudication note=no mis-sort seen in smoke captures; reopen_if=a plastic, the Ramp or any part renders behind the deck in a browser capture
 
 ### DW-314: The binary mask is sampled LINEAR_MIPMAP_LINEAR, so lens-opening edges and the gaps between DRAGON letter openings may blur semi-opaque under minification
 - source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: low | footprint: in-story
 - evidence: exported sampler is linear/mipmap; camera ~0.8 px/mm vs texture 1 px/mm
 - 2026-09-30T09:16:16Z status=open owner=5-2-playfield-art-and-materials by=harvest note=settle by the lead's per-insert browser reading
+- 2026-09-30T09:59:13Z status=resolved-by:5-2-playfield-art-and-materials by=adjudication note=browser: DRAGON letters read 116-124 off->on and 52.6+ vs ring; sampler now clamped (CR)
+
+### DW-315: Story 5.2's darker painted deck edges bring the dark-wood perimeter walls and two post rubbers closer than 0.25 to their art ring (was ~0.29 vs the flat deck); outside AC 5's ART_LEGIBLE_KINDS, so no gate covers them
+- source: spec-5-2-playfield-art-and-materials.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: cr blind-hunter, read-only ring script on the committed glb: vis_wall_left 0.163, vis_wall_top 0.164, vis_wall_right 0.173, vis_loop_r_deflector 0.203 (mat_art_wood); vis_post_lock_ceiling_west_fill_e_rubber 0.180, vis_post_dragon_leg_r_rubber 0.231 (mat_art_rubber). The lead's AC 5 browser re-run found parts >= 26 levels from the deck beneath.
+- 2026-09-30T09:55:12Z status=wontfix-accepted owner=5-2-playfield-art-and-materials by=cr note=reopen_if=a browser smoke reads a perimeter wall or post rubber within Delta of the deck with that part hidden

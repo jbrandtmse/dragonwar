@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-30-2026 09:16
+last_updated: 09-30-2026 10:05
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -101,7 +101,7 @@ development_status:
   epic-5: in-progress
   5-0a-visible-placeholder-geometry: done
   5-1-the-dragon: backlog
-  5-2-playfield-art-and-materials: review
+  5-2-playfield-art-and-materials: done
   5-3-cabinet-backbox-and-glass: backlog
   5-4-mechanisms-plastics-ramp-and-guides: done
   5-5-backglass-art-and-dmd-frames: backlog

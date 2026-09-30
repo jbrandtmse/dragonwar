@@ -1601,6 +1601,11 @@ def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from
 		tex_node = tree.nodes.new('ShaderNodeTexImage')
 		tex_node.image = image
 		tex_node.label = 'translucency_mask'
+		# [Story 5.2 review] The texture covers the deck exactly once, so it
+		# must clamp: glTF's default REPEAT lets bilinear filtering and the
+		# mip chain blend the top rows into the bottom and the left edge into
+		# the right. EXTEND exports as CLAMP_TO_EDGE (33071).
+		tex_node.extension = 'EXTEND'
 		if color_from_image:
 			tree.links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
 		if alpha_from_image:
@@ -1951,6 +1956,13 @@ ART_RUBBER_MIN_ROUGHNESS = 0.8
 ART_LIP_OUT_MM = 1.2
 ART_LIP_MITER_LIMIT = 3.0  # a lip vertex moves at most this many lip widths (acute tips: the tapered loop return rails, the bank backstop)
 ART_GUIDE_BODY_TOP_MM, ART_GUIDE_TOP_MM = 44.0, 48.0
+# [Story 5.2 task 12] The two inlane feed guides (`_art_feed_guide()`): a
+# sloped top, low at the inlane end in front of `l_inlane_l`/`_r` and at
+# least min(zHighMm, ballMm) = BALL_MM at the bat end (5.4's Height rule).
+# The inlane-end figure stays above the ball's centre height so the ball is
+# still seen pressing against the wall it rides.
+ART_FEED_GUIDE_NAMES = ('vis_guide_inlane_feed_l', 'vis_guide_inlane_feed_r')
+ART_FEED_GUIDE_INLANE_TOP_MM, ART_FEED_GUIDE_BAT_TOP_MM = 18.0, 28.0
 ART_WOOD_BODY_TOP_MM, ART_WOOD_TOP_MM = 46.0, 50.0
 ART_RAMP_BODY_TOP_MM, ART_RAMP_TOP_MM = 40.0, 44.0
 # Posts: a core (a fraction of the footprint's own radius) up to a wider nut
@@ -2033,6 +2045,8 @@ def _check_art_constants():
 		raise RuntimeError('[make-placeholder-blend] a plastic or the spinner bracket dips into the ball band')
 	if not ART_RUBBER_Z0_MM < BALL_MM / 2 < ART_RUBBER_Z1_MM or not ART_SLING_BAND_Z0_MM < BALL_MM / 2 < ART_SLING_BAND_Z1_MM:
 		raise RuntimeError('[make-placeholder-blend] a rubber part does not span the ball centre height')
+	if ART_FEED_GUIDE_BAT_TOP_MM < BALL_MM or not BALL_MM / 2 < ART_FEED_GUIDE_INLANE_TOP_MM <= ART_FEED_GUIDE_BAT_TOP_MM:
+		raise RuntimeError('[make-placeholder-blend] a feed guide must reach min(zHighMm, ballMm) at its bat end and stay above the ball centre at its inlane end')
 
 
 def _art_hull_2d(points):
@@ -2231,6 +2245,35 @@ def _art_wall(twin, poly, body_top_mm, top_mm, material):
 	art = _ArtMesh()
 	art.prism(poly, 0.0, body_top_mm)
 	art.prism(_offset_polygon(poly, ART_LIP_OUT_MM), body_top_mm, top_mm)
+	_replace_mesh(twin, art.to_mesh(material))
+	return []
+
+
+def _art_feed_guide(twin, poly, material):
+	"""An inlane feed guide ([Story 5.2 task 12] -- the lead's AC 2 (d)
+	browser check: the 48 mm guide wall hid `l_inlane_l` almost wholly and
+	`l_inlane_r` mostly from the fixed camera, since each lens sits just
+	up-table of its feed's inlane end). The footprint extruded with a SLOPED
+	top: ART_FEED_GUIDE_INLANE_TOP_MM at the inlane (high-y) end, rising to
+	ART_FEED_GUIDE_BAT_TOP_MM at the bat end, so the part still reaches
+	min(zHighMm, ballMm) (5.4's Height rule) while the end in front of the
+	lens stays low. No lip: at the inlane end the top is inside the ball
+	band, where a lip wider than the footprint would break the band rule.
+	test/insert-occlusion.test.ts pins the result from the camera."""
+	ranked = sorted(poly, key=lambda p: p[1])
+	bat_end, inlane_end = ranked[:2], ranked[-2:]
+	bat_mid = ((bat_end[0][0] + bat_end[1][0]) / 2, (bat_end[0][1] + bat_end[1][1]) / 2)
+	inlane_mid = ((inlane_end[0][0] + inlane_end[1][0]) / 2, (inlane_end[0][1] + inlane_end[1][1]) / 2)
+	axis = (inlane_mid[0] - bat_mid[0], inlane_mid[1] - bat_mid[1])
+	axis_len2 = axis[0] ** 2 + axis[1] ** 2
+
+	def top_z(x, y):
+		t = ((x - bat_mid[0]) * axis[0] + (y - bat_mid[1]) * axis[1]) / axis_len2
+		t = min(1.0, max(0.0, t))
+		return ART_FEED_GUIDE_BAT_TOP_MM + t * (ART_FEED_GUIDE_INLANE_TOP_MM - ART_FEED_GUIDE_BAT_TOP_MM)
+
+	art = _ArtMesh()
+	art.loft([[(x, y, 0.0) for x, y in poly], [(x, y, top_z(x, y)) for x, y in poly]], cap_start=True, cap_end=True, smooth=False)
 	_replace_mesh(twin, art.to_mesh(material))
 	return []
 
@@ -2478,6 +2521,8 @@ def add_mechanism_art(playfield_root, twins, plunger, drop_target_names):
 			created += _art_wall(twin, poly, ART_RAMP_BODY_TOP_MM, ART_RAMP_TOP_MM, materials['ramp'])
 		elif surface == 'wood':
 			created += _art_wall(twin, poly, ART_WOOD_BODY_TOP_MM, ART_WOOD_TOP_MM, materials['wood'])
+		elif surface == 'plastic' and twin.name in ART_FEED_GUIDE_NAMES:
+			created += _art_feed_guide(twin, poly, materials['guide'])
 		elif surface in ('plastic', 'target'):
 			# 'target' here is the bank backstop (DW-294: drawn as a guide so
 			# a dropped target reveals a different colour behind it).
