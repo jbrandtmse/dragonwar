@@ -623,7 +623,9 @@ export const TABLE = deepFreeze({
 	 * `${lightShot}_made`). Named here so rules never spell a `show_` or
 	 * `shot_` literal (AD-16). Story 3.5 (FR-34): `hurryUpCollectShot` is the
 	 * shot whose completion collects a running Hurry-up
-	 * (`sim/rules/modes/hurry-up.ts` reads `${hurryUpCollectShot}_made`).
+	 * (`sim/rules/modes/hurry-up.ts` reads `${hurryUpCollectShot}_made`) --
+	 * PRD FR-34 `[ASSUMPTION: collect shot]`, which the Story 3.11 playtest
+	 * confirms or moves.
 	 */
 	modeWiring: {
 		startShow: 'show_mode_start',

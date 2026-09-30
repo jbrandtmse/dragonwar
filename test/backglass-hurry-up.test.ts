@@ -58,9 +58,12 @@ describe('Story 3.5 -- AC 6: a running Hurry-up owns the status line and the fie
 	});
 
 	it('e = 1000: the fields line reads "19.0  240000"', () => {
-		const texts = rows(inGame({ modes: [BASE, hurryup(240000, 19000)] })).map(([text]) => text);
-		expect(texts).toContain('19.0  240000');
-		expect(texts).toContain('HURRY-UP');
+		expect(rows(inGame({ modes: [BASE, hurryup(240000, 19000)] }))).toEqual([
+			['0', 2, 0],
+			['HURRY-UP', 2, 8],
+			['BALL 1', BALL_1_COL, 8],
+			['19.0  240000', 2, 16],
+		]);
 	});
 
 	it('on the floor (no timerTicks): the fields line reads "50000" alone', () => {
@@ -98,6 +101,21 @@ describe('Story 3.5 -- AC 6: DW-311, measured with the real entry shape and Quic
 			['20.0  250000', 2, 24],
 		]);
 		expect(litRow(game)).toBeUndefined();
+	});
+
+	it('three and four players: the 2x2 grid takes rows 0 and 8, status 16, fields 24 -- there is no LIT row, and every row is on the panel', () => {
+		for (const count of [3, 4]) {
+			const others = Array.from({ length: count - 1 }, () => buildPlayer({ ballNumber: 0 }));
+			const game = inGame({ players: [litQuickMb(), ...others], modes: [BASE, hurryup(250000, 20000)] });
+			const all = rows(game);
+			expect(all.filter(([text]) => text === '0').map(([, , row]) => row).sort((a, b) => a - b), `${count} players: the grid`).toEqual(count === 3 ? [0, 0, 8] : [0, 0, 8, 8]);
+			expect(all.filter(([text]) => text !== '0'), `${count} players`).toEqual([
+				['HURRY-UP', 2, 16],
+				['BALL 1', BALL_1_COL, 16],
+				['20.0  250000', 2, 24],
+			]);
+			expect(litRow(game), `${count} players`).toBeUndefined();
+		}
 	});
 
 	it('two players after Hurry-up stops: the LIT row is back at row 24', () => {

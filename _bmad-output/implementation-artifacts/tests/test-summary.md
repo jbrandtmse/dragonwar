@@ -173,3 +173,29 @@ Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The headless rows drive a 
 ### Next Steps
 - The lead should ledger the QA finding in the spec's `## Verification`. A Start pressed inside the Mouth's lead after a Slam lets the owed eject fire into the new game, whose ball 1 is then ended by the Slam-era ball's drain. Story 3.2's spit shares the root cause (AD-18 Mouth-in-any-phase vs AD-6's stray clear).
 - The lead's browser smoke (spec Design Notes).
+
+## Story 3.5
+
+Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The physics file uses a real `createLoop()` from Attract. It has no seeded state and no scripted switch edges: the inputs are the recorded reachability witnesses, offset from each ball's `ball_started` tick. The headless file drives a whole `createRules()` through `runRulesScript()`, and a real Lock capture starts Hurry-up in every test.
+
+### Generated Tests (integration, real runtime)
+- [x] `test/hurry-up-physics.test.ts` (7 tests, real physics). The whole path, from Attract:
+  - ball 1's `plunge-then-bat-r-3899` Ramp lights Hurry-up;
+  - ball 2's `plunge-then-bat-l-3945` Lock capture (no credits, one candidate) starts it at t0;
+  - `value` = S - 10e and `timerTicks` = T - e on every real tick until the ball end;
+  - Hurry-up survives ball 2's ball save;
+  - the ball end removes the entry and changes the score by exactly `ball_ended.total`;
+  - the loop's own `FrameOutput`s, folded through the Backglass and read back from the rasterised dots, show `HURRY-UP` / `BALL 2` / `20.0  250000`, then `19.0  240000`, then no HURRY-UP and no fields line after the ball end.
+- [x] `test/rules-hurry-up-qa.test.ts` (19 tests; headless, gated in `ENTRY_FILES`)
+  - Decay where (S - F) / T is not an integer: `hurryUpMs` 7777, and S 100001 / F 3 / 13 ms. It checks every tick against Hurry-up-free bounds: an integer, exact at both ends, on or under the line by less than 1 (integer cross-multiplication), and never increasing. It also checks hand literals, and that a collect at a non-integer point pays 224283.
+  - The collect under Tilt vs untilted, paired in one test (the runs differ only by the second bob closure).
+  - A tilted drain stops Hurry-up with no award.
+  - Ball search's `timerTicks` gate, in one run on a capture-started Hurry-up. Pass 1's Lock stages fall in the decay and do nothing. A playfield closure restarts the search. Pass 2's Lock stage falls on the floor and opens the Mouth, and `c_mouth` fires LEAD later. This is paired with `hurryUpMs` 60000, where nothing opens.
+
+### Coverage
+- 10 mutations were demonstrated, each recorded in the spec's `## Verification` (QA): `ceil` rounding, the float value, a cyclic decay, the dropped `scoringOpen` guard, `onStopping` paying through `awardScore`, `onStopping` paying directly, `timerTicks: 0` on the floor, a timer that is never published, a frozen tick hook, and the removed display name. The tilted-drain row is pinned by the direct-pay mutation: it stays green under the `awardScore` one, because `awardScore` is closed under Tilt.
+- Audited with no gap found: AC1 (tuning/table pins), AC5 (priority 400: Quick MB on top and the 3.7 stand-in with a real higher `tick` hook), AC6 (backglass rows, DW-311) and AC7 (rasterised collect).
+- Gates: `pnpm test` 155 files / 2499 tests, all passing (153 / 2473 before QA). `typecheck`, `lint:boundaries` and `check:headers` each exit 0. No production file changed.
+
+### Next Steps
+- The lead's browser smoke (spec Design Notes). `test/hurry-up-physics.test.ts` now replays the smoke's start-decay-ball-end leg through `createLoop()`. A post-lock collect by real input still has no recipe.

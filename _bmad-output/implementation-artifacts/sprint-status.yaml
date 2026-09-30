@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-27-2026 15:49
-last_updated: 09-30-2026 09:40
+last_updated: 09-30-2026 03:39
 project: dragonwar
 project_key: NOKEY
 tracking_system: file-system
@@ -81,7 +81,7 @@ development_status:
   3-3b-the-dragon-rig: backlog
   3-3c-epic-3-inserts: backlog
   3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan: done
-  3-5-hurry-up-answer-the-call: in-progress
+  3-5-hurry-up-answer-the-call: done
   3-6-joust-the-charge: backlog
   3-7-quick-multiball-fight-the-monster: backlog
   3-8-the-war-starts-dragon-fire: backlog

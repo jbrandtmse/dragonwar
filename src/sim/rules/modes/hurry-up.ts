@@ -58,7 +58,7 @@ export function createHurryUpMode(tuning: ResolvedTuning): HurryUpMode {
 	const floor = tuning.hurryUpFloor.value;
 	const decayTicks = Math.max(1, shotWindowTicks('hurryUpMs', tuning));
 
-	/** The elapsed ticks since `entry`'s own start -- never negative. Every entry `onStart` builds carries `startTick`; a hand-made fixture entry without one reads as just started. */
+	/** The elapsed ticks since `entry`'s own start -- never negative. Every entry `onStart` builds carries `startTick`, and only `./lifecycle.ts` adds entries; a hand-made fixture entry without one reads e = 0 on every tick, so it holds S and T and never decays. */
 	function elapsed(entry: ActiveModeState, tick: number): number {
 		const startTick = typeof entry.startTick === 'number' ? entry.startTick : tick;
 		return Math.max(0, tick - startTick);

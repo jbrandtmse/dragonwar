@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-30'
 status: 'done'
 baseline_revision: 'eb7e82ca610c0fdf7d3df990d4b34f683d45a742'
+baseline_commit: 'eb7e82ca610c0fdf7d3df990d4b34f683d45a742'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -187,6 +188,34 @@ Measured at `50c97ce8522f7915ead265849eca5f04c9e7342d` on `DW-1-epic3`.
   - once it is on the floor, the stage opens the Mouth, as with no timer.
 - **AC9.** Given the story, when the gates run, then every gate passes, and the goldens differ only in `tableHash` and the six tuning keys. The gates are `pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size`.
 
+### Review Findings
+
+_Code review 2026-09-30 (`bmad-code-review`, full mode, first review of this story). Scope: `git diff eb7e82c` (build commit `1f48b45`) plus QA's untracked `test/hurry-up-physics.test.ts` and `test/rules-hurry-up-qa.test.ts`, run from `C:/git/dragonwar/.worktrees/epic-3` (verified with `git rev-parse --show-toplevel`). Review tier: `full-opus`; all four layers ran with no model override: blind-hunter, edge-case-hunter, verification-gap and acceptance-auditor. None failed, and no layer edited a file. Raw rows: 20 (blind 12, edge 3, verification 2, acceptance 3), plus the lead's observations (a) and (b), grouped into 19 entries: 6 patched, 3 closed at emission and ledgered, 10 rejected. Severity: high 0, medium 1 (patched), low 13, false 5. After the patches: `pnpm test` passes 155 files / 2500 tests. `typecheck`, `lint:boundaries` and `check:headers` each exit 0. The review's added lines are ASCII-only. Rule 3: satisfied. `hurry-up-physics.test.ts` drives the deliverable on the real runtime tier: real `createLoop()` physics from Attract, with the DMD read back from `rasterise()` dots. The collect's own real-physics gap is DW-318. Rule 6: AD-3, AD-7, AD-8, AD-9, AD-16, AD-18 and AD-19 were checked against the diff, with no mismatch. Rule 1: no shared component is introduced; AC7 and AC8 are the Integration ACs._
+
+Each entry: severity / fix-risk / footprint / spec-status.
+
+- [x] [Review][Patch] **The physics test's "no HURRY-UP after the ball end" DMD read could not fail.** med / low / in-story / clear. It read `endOfBall2` and `run.lastTick`, which are the same tick: the ball-ended screen, which draws no mode rows whatever `modes[]` holds. The run now continues `BALL_ENDED_HOLD_TICKS + 100` past ball 3's start. The read is taken on the first `screen === 'score'` tick after the ball end, with the premises asserted (`ball_ended` screen at the end tick, `BALL 3` on the read). The "never restarted" loop now spans the hold too. Mutation recorded in `## Verification`. (verification-gap) [test/hurry-up-physics.test.ts:240]
+- [x] [Review][Patch] **AC6's e = 1000 row was pinned by `toContain` only.** low / low / in-story / clear. It now pins the whole `[text, col, row]` list, like its neighbours. (blind+acceptance) [test/backglass-hurry-up.test.ts:60]
+- [x] [Review][Patch] **The Design Notes' 3-4 player DW-311 layout had no test.** low / low / in-story / clear. Added: at 3 and 4 players, the grid takes rows 0 and 8, `HURRY-UP` is at 16, the fields line is at 24, and there is no LIT row. (blind) [test/backglass-hurry-up.test.ts:103]
+- [x] [Review][Patch] **The `elapsed()` docstring said a fixture entry with no `startTick` "reads as just started".** low / low / in-story / clear. It reads e = 0 on every tick and never decays. The comment now says so. The fallback itself is DW-317. (blind) [src/sim/rules/modes/hurry-up.ts:61]
+- [x] [Review][Patch] **`modeWiring.hurryUpCollectShot` dropped FR-34's `[ASSUMPTION: collect shot]` tag.** low / low / in-story / clear. The comment now carries it and names the Story 3.11 playtest. Comments do not enter `tableHash` (canonical `TABLE` JSON). (blind) [src/sim/table/dragonwar.ts:624]
+- [x] [Review][Patch] **A QA test title claimed "the Lock is released", but the test asserts only the Mouth open and the `c_mouth` pulse.** low / low / in-story / clear. The suffix is removed; the title now matches the spec's QA mutation line. (blind) [test/rules-hurry-up-qa.test.ts:315]
+- [x] [Review][Defer] **The fields line shows a running timer as `0.0` for its last 49 ticks** (lead observation b). low / low / in-story / clear. `formatSecondsFromTicks` rounds to the nearest tenth. FR-34's "Backglass shows the decaying value" holds: the value beside the timer is exact on every tick, and the timer drops 1-49 ms later at the floor (about 3 frames at 60 fps). A ceil would change Story 2.13's shared formatter and move pinned readings (`19.0  240010` at t0+999 would read `19.1`). Ledger **DW-316** `wontfix-accepted`, reopen_if = a timer mode holds `0.0` on the panel for >= 100 ms while it runs. [src/presentation/backglass/frame.ts:821]
+- [x] [Review][Defer] **A `hurryup` entry with no `startTick` shows S and a full timer forever** (lead observation a; the implementer's residual risk). low / med / in-story / clear. A type cannot make this unrepresentable. `ActiveModeState` (`contracts/state.ts`, frozen for this story) is a generic record, and the stack's hooks and `GameState.modes` are typed on it, so a Hurry-up-local type would not reach the hand-built fixtures that create the state. That rules out a mechanical two-way door. Only `lifecycle.ts` adds entries, and `onStart` always stamps `startTick`. Ledger **DW-317** `wontfix-theoretical`: it becomes real if any path besides `lifecycle.startModes` adds a `hurryup` entry (a mid-game state restore, a replay seeded mid-ball). [src/sim/rules/modes/hurry-up.ts:62]
+- [x] [Review][Defer] **No test collects Hurry-up through real physics** (lead observation c). low / med / in-story / clear. No recorded recipe makes the Ramp after a Lock capture. The collect is covered by composition, and each part runs on a real runtime: ball 1 of the same `createLoop()` run makes `shot_ramp_made` from real physics, and a real `createRules()` pays on that event (AC3/AC7). Ledger **DW-318** `wontfix-accepted`, reopen_if = a reachability witness makes the Ramp after a Lock capture and its `createLoop()` run does not pay the published value. (blind) [test/hurry-up-physics.test.ts]
+
+**Rejected** (one line each):
+- `low` (blind) The Auto Run Result says "verification-gap 3 (no gaps)". The fix would edit the spec under review's run record.
+- `false` (blind+acceptance) AC4's "stops before `ball_ended`" has no pinned order. `ball-end.ts:210-218` calls `stopAllModes` before it pushes `ball_ended`, on separate channels in the same tick. The test pins the same tick, the entry gone and the score change equal to `total`.
+- `low` (blind, two rows) Helpers and the DMD reader are duplicated across the new test files. The fix is a `test/util/` refactor across four files, including Story 3.4's, well over 15 lines, and no helper has drifted.
+- `false` (blind) The test headers say they fold "exactly as `src/host/boot.ts` does". `boot.ts:308-309` folds once per sim `FrameOutput`, which is tick by tick; `viewConfig` feeds only the Attract keys screen.
+- `low` (blind) Joust (310) coexistence is not noted. This is by design: FR-41/AD-8 give the panel to the top Mode. Joust is a shell with no `ModeView`, and Story 3.6 makes the same choice the Design Notes hand to 3.7.
+- `low` (edge) A ball-search Lock stage landing exactly on t0+T reads the previous tick's `timerTicks: 1`. That is a 1-tick coincidence in a 20,000-tick decay, and it recovers on the next pass. A fix contradicts AC2's `timerTicks(T-1) = 1` or reorders the controller and the stack.
+- `low` (edge) The dev tuning panel can hot-apply a floor above the start value. Dev-only; AC1 pins the authored values, and a guard adds new throws (as in the prior triage).
+- `false` (edge) `hurryup_collected` could report points `awardScore` never added. `value >= F >= 0`, and `entry.player` is the live player the lifecycle stamped.
+- `false` (verification-gap) AC9's "headers only" rests on a manual diff. This review's acceptance layer re-compared all five goldens: 7 changed paths each, trajectory fields untouched.
+- `false` (acceptance) The spec says `done` while sprint-status says `review`. That is pipeline state, which this stage's sprint sync sets.
+
 ## Spec Change Log
 
 - 2026-09-30, lead spec gate: DW-311 kept `wontfix-accepted` with the planner's restated `reopen_if` (3.3c without a lit-Mode insert, or the 3.11 playtest missing a lit Mode in a 2+ player game). No spec text changed; no spine write (the timer-at-floor reading is mode behaviour inside AD-8, not a new rule).
@@ -329,6 +358,28 @@ No AC contradicts an AD's Rule.
 - mutation: the collect pays `value(e - 1)` → red `rules-hurry-up-integration.test.ts` "the score rises by exactly v(1000) (240000) at the collect" (and the post-collect dots, `240,010`).
 - mutation: `timerTicks: 0` published on the floor instead of dropping it → red `rules-hurry-up.test.ts` "AC 8 control: on the floor at the Lock stage ... opens the Mouth at slotTick(O, 6)" (`expected [] to deeply equal [16600]`).
 - mutation: `full-plunge.golden.json` header `hurryUpMs.value` 20000 -> 20001 → red `replay-goldens.test.ts` "full-plunge: finalHash and finalGameStateHash match the recorded goldens" (`StaleReplayHeaderError`).
+
+**QA** (2026-09-30, `bmad-qa-generate-e2e-tests`). New test files:
+- `test/hurry-up-physics.test.ts` (QA): 7 tests on real physics. A real `createLoop()` from Attract. Ball 1 runs the `plunge-then-bat-r-3899` witness, whose Ramp lights Hurry-up. Ball 2 runs the `plunge-then-bat-l-3945` witness, whose Lock capture starts Hurry-up at t0. The tests check that the value and timer are on the line on every real tick, that Hurry-up survives ball 2's ball save, that the ball end removes the entry and the score changes by exactly `ball_ended.total`, and that the rasterised DMD reads `HURRY-UP` / `BALL 2` / `20.0  250000`, then `19.0  240000`, then no fields line after the ball end.
+- `test/rules-hurry-up-qa.test.ts` (QA): 19 tests, headless, listed in `ENTRY_FILES`.
+  - Decay at `hurryUpMs` 7777 and at S 100001 / F 3 / 13 ms: every value is an integer, both ends are exact, the value is on or under the line by less than 1 (checked by integer cross-multiplication), never increasing, matches the hand literals, and a collect at a non-integer point pays 224283.
+  - A tilt warning plus Ramp collects; a Tilt plus Ramp does nothing. These two runs are in one test.
+  - A tilted drain stops Hurry-up with no award.
+  - Ball search, in one run with a Hurry-up a real capture started: pass 1's Lock stages fall in the decay and do nothing; a playfield closure restarts the search; pass 2's Lock stage falls on the floor and opens the Mouth (`c_mouth` LEAD later). This is paired with the same run at `hurryUpMs` 60000, where nothing opens.
+
+QA mutations. Each was applied, observed red, and reverted. After each revert, `git status --short`, `git diff --stat`, `sha1(git diff)` and the two new files were identical to before.
+- mutation: `Math.ceil` for `Math.floor` in `valueAt` → red `rules-hurry-up-qa.test.ts` "every tick 0 <= e < T: an integer, (value - F) * T <= ..." and "hand literals (rounded down, never to nearest)" (both tunings), plus "a Ramp at a non-integer point pays exactly the published value".
+- mutation: `Math.floor` dropped (float value) → red `rules-hurry-up-qa.test.ts` "every tick 0 <= e < T ..." (not an integer) and "hand literals" (both tunings).
+- mutation: the tick hook's `e` taken modulo `T + 1` (the decay restarts after the floor) → red `rules-hurry-up-qa.test.ts` "monotonic non-increasing from t0 to T + 50" and "both ends are exact ..." (both tunings), plus AC 8 "pass 2, on the floor".
+- mutation: the collect's `scoringOpen(state)` guard dropped → red `rules-hurry-up-qa.test.ts` "one closure (a warning): collects v(1000); two closures (Tilt): no award ...".
+- mutation: an `onStopping` that adds the entry's `value` to the score directly → red `rules-hurry-up-qa.test.ts` "the entry is gone on the drain tick, no hurryup_collected anywhere, and the score is unchanged by the ball end" (the tilted drain). An `onStopping` that pays through `awardScore` is ALSO red, in `hurry-up-physics.test.ts` "the ball end stops Hurry-up and pays nothing ...". But the tilted-drain row stays green under that mutation, because `awardScore` is itself closed under Tilt.
+- mutation: `timerTicks: 0` published on the floor → red `rules-hurry-up-qa.test.ts` "pass 2, on the floor: the Lock stage opens the Mouth at slot(R, 6), and c_mouth pulses LEAD later".
+- mutation: the tick hook never publishes `timerTicks` → red `rules-hurry-up-qa.test.ts` "pass 1, decaying: its Lock stages request nothing" and "paired control: the same run at hurryUpMs 60000".
+- mutation: the tick hook returns the state unchanged (the value is frozen at S) → red `hurry-up-physics.test.ts` "every real tick from t0 to the ball end publishes value(e) ...", "the ball save on ball 2 is not a ball end ..." and "the DMD dots ...".
+- mutation: `MODE_DISPLAY_NAMES.hurryup` removed → red `hurry-up-physics.test.ts` "the DMD dots, folded from the loop's own FrameOutputs: HURRY-UP, BALL 2 ...".
+
+Code review (2026-09-30). Applied, observed red, reverted; `git status --short` identical before and after:
+- mutation: `stopAllModes` skips the `hurryup` entry (`lifecycle.ts`, `state.modes.filter((m) => m.mode !== 'hurryup')`) → red `hurry-up-physics.test.ts` "the DMD dots ... no HURRY-UP and no fields line on the first score screen after the ball end" (`no HURRY-UP at 29263: expected [ '0', 'HURRY-UP', 'BALL 3', ... ]`), and "the ball end stops Hurry-up and pays nothing ...". Before the patch, the DMD half read only the ball-ended screen, which ignores `modes[]` (verification-gap layer, `frame.ts:1114-1123`).
 
 ## Auto Run Result
 

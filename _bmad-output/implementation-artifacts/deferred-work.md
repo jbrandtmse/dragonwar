@@ -1994,3 +1994,18 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: frame.ts buildScoreRows draws the lit line only while nextFreeRow < DMD_ROWS; unreachable today (no mode publishes ModeView fields), reachable once 3.5's Hurry-up timer fields line runs in a Hot-seat game with another Mode lit
 - 2026-09-30T09:12:56Z status=wontfix-accepted owner=3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=cr note=reopen_if=a 2+ player game with Hurry-up's fields line live and a Mode lit renders no LIT row (3.5 layout)
 - 2026-09-30T09:34:06Z status=wontfix-accepted by=spec_gate note=Story 3.5 made the case reachable (2+ players, Hurry-up's fields line live, another Mode lit): kept by the lead -- FR-34 needs the value on the Backglass, the LIT line is a stand-in for Story 3.3c's lit-Mode inserts and returns when Hurry-up stops, and the lit Mode can still be started. reopen_if=Story 3.3c merges without a lit-Mode insert, or the 3.11 playtest reports a lit Mode missed in a 2+ player game
+
+### DW-316: The Backglass fields line shows a running Hurry-up timer as 0.0 for its last 49 ticks, because formatSecondsFromTicks rounds to the nearest tenth
+- source: spec-3-5-hurry-up-answer-the-call.md | severity: low | fix-risk: low | footprint: in-story
+- evidence: frame.ts formatSecondsFromTicks is (ms/1000).toFixed(1): timerTicks 1..49 render 0.0 while the mode still decays (~3 frames at 60 fps); the value beside it is exact every tick, and the timer drops 1-49 ms later at the floor
+- 2026-09-30T10:36:09Z status=wontfix-accepted owner=3-5-hurry-up-answer-the-call by=cr note=FR-34's value is shown; ceil would move Story 2.13's shared formatter and pinned 19.0 readings. reopen_if=a timer mode holds 0.0 visibly >=100 ms
+
+### DW-317: A hurryup modes[] entry with no startTick never decays: elapsed() falls back to the current tick, so it publishes S and T on every tick
+- source: spec-3-5-hurry-up-answer-the-call.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: hurry-up.ts elapsed(): startTick absent -> e = 0 each tick. Only lifecycle.ts adds entries and onStart always stamps startTick; reached only by hand-built 3.4 fixtures (rules-campaign.test.ts:284, :718) that never read the value. ActiveModeState (contracts/state.ts) is a generic record, so a type cannot make it unrepresentable without a contracts change
+- 2026-09-30T10:36:10Z status=wontfix-theoretical owner=3-5-hurry-up-answer-the-call by=cr note=real if any path besides lifecycle.startModes adds a hurryup entry (mid-game state restore, replay seeded mid-ball)
+
+### DW-318: No test collects Hurry-up through real physics: no recorded recipe makes the Ramp after a Lock capture, so the collect is pinned only on a real createRules() fed a scripted shot_ramp_made
+- source: spec-3-5-hurry-up-answer-the-call.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: hurry-up-physics.test.ts covers start, decay, ball save and ball end on createLoop(); the collect (AC3/AC7) runs in runRulesScript. The Ramp->shot_ramp_made seam is proven on real physics on ball 1 of the same run, so the collect is covered by composition
+- 2026-09-30T10:36:10Z status=wontfix-accepted owner=3-5-hurry-up-answer-the-call by=cr note=reopen_if=a reachability witness makes the Ramp after a Lock capture and its createLoop run does not pay the published value
