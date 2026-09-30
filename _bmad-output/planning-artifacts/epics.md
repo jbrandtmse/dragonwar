@@ -1980,13 +1980,27 @@ As a player,
 I want the Dragon to open its mouth before anything comes out of it and to react when I hit it,
 So that the Dragon is the protagonist and not set dressing.
 
+*This story is the sim side: the shows, their timing and their path to the presentation. The rig that plays them is Story 3.3b.* `[AMENDED 2026-09-29 — author decision at Epic 3's clarification: the rig is built after Epic 5 merges, so it wires into Epic 5's sync-mechanisms.ts against the real vis_dragon with no contended edit]`
+
 **Acceptance Criteria:**
 
 **Given** `TABLE.shows` declares `show_dragon_mouth_open`, `show_dragon_mouth_close` and `show_dragon_hit`
 **When** rules emit them
 **Then** `dragon_hit` from the devices layer causes `ShowCommand show_dragon_hit`, and every Mouth eject is preceded by `show_dragon_mouth_open` by `mouthOpenLeadMs` and followed by `show_dragon_mouth_close` after the last eject of that sequence
 
-**Given** the Dragon rig in `src/presentation/mechanisms/dragon.ts` on the placeholder mesh
+- DW-298: No test observes the Lock arbiter's show_dragon_mouth_open reaching FrameOutput.commands through createLoop; the loop's show forwarding could be dropped with every test green (ledger; routed by harvest 2026-09-29)
+
+### Story 3.3b: The Dragon rig
+
+As a player,
+I want to see the Dragon's mouth open before a ball comes out and the Dragon flinch when I hit it,
+So that the shows Story 3.3 emits are something I actually watch.
+
+*Split from Story 3.3; built after Epic 5 merges, against Epic 5's `vis_dragon` model (Story 5.1 delivers a named jaw node and pivot, and never creates `dragon.ts`).* `[AMENDED 2026-09-29 — author decision at Epic 3's clarification: the rig is built after Epic 5 merges, so it wires into Epic 5's sync-mechanisms.ts against the real vis_dragon with no contended edit]`
+
+**Acceptance Criteria:**
+
+**Given** the Dragon rig in `src/presentation/mechanisms/dragon.ts`, wired into `src/presentation/mechanisms/sync-mechanisms.ts` on the merged `vis_dragon` model
 **When** `show_dragon_mouth_open` arrives
 **Then** the mouth animates open within the lead time so it is fully open before the first ball spawns, stays open until `show_dragon_mouth_close`, and the animation reads the show commands only — never the snapshot's device slots or `ballsInPlay`
 
@@ -1997,8 +2011,6 @@ So that the Dragon is the protagonist and not set dressing.
 **Given** v1 scope
 **When** the rig is reviewed
 **Then** it has exactly the open, close and hit animations and no idle animation
-
-- DW-298: No test observes the Lock arbiter's show_dragon_mouth_open reaching FrameOutput.commands through createLoop; the loop's show forwarding could be dropped with every test green (ledger; routed by harvest 2026-09-29)
 
 ### Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane
 
