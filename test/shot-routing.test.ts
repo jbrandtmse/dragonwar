@@ -1150,6 +1150,16 @@ describe('shot routing (AC 1 behavioural half, Rework iteration 2 item (e)) -- d
 		// 26.57 deg still stranded on col_loop_r_deflector). See the case's
 		// own note in test/util/shot-cases.ts for the measurements.
 		{ label: 'shooter-lane divider cap (col_wall_lane)', id: 'descend-wall-lane-cap' },
+		// [STORY 5.4, DW-142] The cap is now terminated by col_post_wall_lane_cap,
+		// and a post can strand a descending ball across a band of columns
+		// (the plan-stage probe: centred on the cap midpoint it did). Three
+		// more columns sweep the cap from its low west side to its high east
+		// corner, with the existing one above at the post's centre -- x 470,
+		// 474.4, 478 and 480; none may strand. See the cases' own note in
+		// test/util/shot-cases.ts.
+		{ label: 'shooter-lane divider cap, west of the DW-142 post (x 470)', id: 'descend-wall-lane-cap-470' },
+		{ label: 'shooter-lane divider cap, the DW-142 post\'s east flank (x 478)', id: 'descend-wall-lane-cap-478' },
+		{ label: 'shooter-lane divider cap, its high east corner (x 480)', id: 'descend-wall-lane-cap-480' },
 		// Story 2.1c review fix (MED finding): col_loop_top's own north face
 		// (the re-joined DW-123 connector) is 368.4 mm wide (x 50..418.4) --
 		// by far the largest north face on the table. It USED to be dead

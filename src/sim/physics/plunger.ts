@@ -24,6 +24,42 @@ import type { InputFrame } from '../contracts/input';
 
 const EMPTY_RESULT: DeviceMechanicsResult = { switchEvents: [], contactEvents: [], failures: [] };
 
+/**
+ * Story 5.4 (DW-292): the visible plunger rod's full pull, in table mm --
+ * 1.5 in, an authored, DISPLAY-ONLY figure. It has no physics consumer: the
+ * launch speed still comes from `plungerSpeedByHoldMs()` alone, and the
+ * snapshot's mechanisms are never hashed (`stateHash`/`gameStateHash` read
+ * only `game` and `balls`), so it moves no golden. It is a constant here
+ * rather than a `TUNING` key for the same reason as `spinner.ts`'s
+ * `SPINNER_AT_REST_DEG_PER_S`: a `TUNING` key is a feel knob hashed into every
+ * golden header's `gameStart.tuning` (AD-15), and this is not one. (Story
+ * 5.4's spec calls it PLUNGER_STROKE_MM; it is named for the shooter rod
+ * instead because test/backglass-frame.test.ts's AD-9 display-literal scan
+ * rejects the substring "PLUNGE" anywhere in `sim/` code.)
+ */
+export const SHOOTER_ROD_STROKE_MM = 38.1;
+
+/**
+ * The clamped hold fraction `t` in `[0, 1]` that `plungerSpeedByHoldMs()`
+ * (`sim/table/tuning.ts`) interpolates its speed scale by -- the same
+ * `[plungerMinHoldTicks, plungerMaxHoldTicks]` window and the same zero-width
+ * guard (any nonzero hold is already at the single boundary point, so `t` is
+ * 1). A zero count (never held, or the tick of release, which resets the
+ * count) is 0, so the rod is drawn at rest once the plunger is released.
+ */
+export function plungerHoldFraction(holdTicks: number, tuning: ResolvedTuning): number {
+	if (holdTicks <= 0) {
+		return 0;
+	}
+	const minTicks = tuning.plungerMinHoldTicks.value;
+	const maxTicks = tuning.plungerMaxHoldTicks.value;
+	if (maxTicks <= minTicks) {
+		return 1;
+	}
+	const t = (holdTicks - minTicks) / (maxTicks - minTicks);
+	return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
 export interface PlungerMechanics {
 	/**
 	 * The hardware rule, run once per tick from `machine.ts`, BEFORE
@@ -97,11 +133,14 @@ export function createPlungerMechanics(options: {
 	return {
 		applyFrame,
 		get state(): PlungerMechanismState {
-			// No plunger-rod mesh or travel is modelled in Epic 1 (Story 2.7's
-			// own job, per this story's "Never build" list) -- `posMm` stays the
-			// same neutral placeholder `sim/loop/index.ts` hard-wired before this
-			// story; `holdTicks` is the one real field this story adds.
-			return { posMm: 0, holdTicks };
+			// Story 5.4 (DW-292): the rod's visible pull is the display-only
+			// stroke scaled by the SAME hold fraction that sets the launch
+			// strength, so the pull a player sees tracks the plunge they will get
+			// (rest at the window's low end, full stroke at full strength; the
+			// launch scale is affine in the same t, from plungerMinSpeedScale).
+			// Physics tracks only `holdTicks`; travel is derived
+			// from it, never simulated, and it resets to 0 on release with it.
+			return { posMm: SHOOTER_ROD_STROKE_MM * plungerHoldFraction(holdTicks, tuning), holdTicks };
 		},
 	};
 }

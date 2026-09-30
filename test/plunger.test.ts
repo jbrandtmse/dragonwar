@@ -11,12 +11,21 @@
 // document, matching `test/machine-serve-drain.test.ts`'s own integration
 // style for the serve/launch/main-field sequence this file's scenarios
 // build on directly.
+//
+// Story 5.4 (DW-292): the snapshot's `plunger.posMm` -- the visible rod's
+// pull -- is `SHOOTER_ROD_STROKE_MM x t`, `t` being exactly the clamped hold
+// fraction `plungerSpeedByHoldMs()` interpolates the launch speed by (with
+// its zero-width guard), and 0 once released. Pinned below through the real
+// `createLoop()`, plus the helper itself against `plungerSpeedByHoldMs()`.
+// mutation: return `posMm: 0` from plunger.ts's state getter -> the
+// "held for 250 ticks" case goes red (19.05 expected).
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
-import { resolveTuning, plungerSpeedByHoldMs } from '../src/sim/table/tuning';
+import { resolveTuning, plungerSpeedByHoldMs, TUNING } from '../src/sim/table/tuning';
+import { SHOOTER_ROD_STROKE_MM, plungerHoldFraction } from '../src/sim/physics/plunger';
 import type { InputTransition } from '../src/sim/contracts/input';
 
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -256,5 +265,91 @@ describe('sim/table/tuning.ts -- plungerMaxHoldTicks === plungerMinHoldTicks deg
 		expect(out.snapshot.mechanisms.plunger.holdTicks, 'a disabled-coil release must still reset the count').toBe(0);
 		expect(out.snapshot.balls, 'a disabled coil must not launch the ball').toHaveLength(1);
 		expect(out.snapshot.balls[0]!.speed).toBeLessThan(50);
+	});
+});
+
+describe('sim/physics/plunger.ts -- Story 5.4 (DW-292): the snapshot publishes the rod\'s pull, posMm = SHOOTER_ROD_STROKE_MM x t', () => {
+	/** The shipped figures this story's I/O matrix quotes: a 1.5 in stroke over a 0..500 ms hold window. */
+	it('the stroke is the authored 38.1 mm (1.5 in), and the shipped hold window is 0..500 ticks', () => {
+		expect(SHOOTER_ROD_STROKE_MM).toBe(38.1);
+		const tuning = resolveTuning();
+		expect(tuning.plungerMinHoldTicks.value).toBe(0);
+		expect(tuning.plungerMaxHoldTicks.value).toBe(500);
+	});
+
+	it('held for 250 ticks through the real createLoop, posMm = 38.1 x 250/500 = 19.05; held to 600, it clamps at 38.1; on the release tick it is 0', () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		let out = serveAndSettle(loop);
+		expect(out.snapshot.mechanisms.plunger.posMm, 'at rest before any hold').toBe(0);
+
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+		for (let i = 0; i < 249; i++) {
+			out = loop.advance(1, []);
+		}
+		expect(out.snapshot.mechanisms.plunger.holdTicks).toBe(250);
+		expect(out.snapshot.mechanisms.plunger.posMm, 'posMm after a 250-tick hold').toBeCloseTo(19.05, 9);
+
+		for (let i = 0; i < 350; i++) {
+			out = loop.advance(1, []);
+		}
+		expect(out.snapshot.mechanisms.plunger.holdTicks).toBe(600);
+		expect(out.snapshot.mechanisms.plunger.posMm, 'posMm past plungerMaxHoldTicks clamps at the full stroke').toBeCloseTo(38.1, 9);
+
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
+		expect(out.snapshot.mechanisms.plunger.holdTicks).toBe(0);
+		expect(out.snapshot.mechanisms.plunger.posMm, 'posMm on the release tick -- the rod is back at rest').toBe(0);
+	});
+
+	it('t is exactly the clamped fraction plungerSpeedByHoldMs() interpolates by, at every hold from 0 to past the window', () => {
+		const tuning = resolveTuning();
+		const fullSpeed = tuning.autolaunchSpeedMmPerS.value;
+		const minScale = tuning.plungerMinSpeedScale.value;
+		const maxScale = tuning.plungerMaxSpeedScale.value;
+		for (const holdTicks of [1, 2, 50, 125, 250, 375, 499, 500, 501, 600, 5000]) {
+			const t = plungerHoldFraction(holdTicks, tuning);
+			expect(t, `t at holdTicks ${holdTicks} stays in [0, 1]`).toBeGreaterThanOrEqual(0);
+			expect(t).toBeLessThanOrEqual(1);
+			expect(plungerSpeedByHoldMs(holdTicks, tuning), `the launch speed at holdTicks ${holdTicks} is the one t sets`).toBeCloseTo(fullSpeed * (minScale + t * (maxScale - minScale)), 6);
+		}
+		expect(plungerHoldFraction(0, tuning), 'no hold (never held, or the release tick) is the rest pose').toBe(0);
+	});
+
+	// [Story 5.4 review] The shipped window starts at 0, so the lower clamp
+	// (a hold shorter than plungerMinHoldTicks is t = 0) never runs above.
+	// A 100..500 ms window exercises it, and the interior, against the speed
+	// function. mutation: drop the `t < 0 ? 0` clamp in plungerHoldFraction()
+	// -> red here at holdTicks 1..99.
+	it('with a non-zero window start (100..500 ms), t is 0 below the start and still the speed function\'s fraction inside and past the window', () => {
+		const tuning = resolveTuning({ ...TUNING, plungerMinHoldMs: { ...TUNING.plungerMinHoldMs, value: 100 }, plungerMaxHoldMs: { ...TUNING.plungerMaxHoldMs, value: 500 } });
+		const minTicks = tuning.plungerMinHoldTicks.value;
+		expect(minTicks, 'non-vacuity: the window starts above 0').toBeGreaterThan(0);
+		const fullSpeed = tuning.autolaunchSpeedMmPerS.value;
+		const minScale = tuning.plungerMinSpeedScale.value;
+		const maxScale = tuning.plungerMaxSpeedScale.value;
+		for (const holdTicks of [1, 50, minTicks - 1, minTicks, minTicks + 1, 300, 499, 500, 501, 900]) {
+			const t = plungerHoldFraction(holdTicks, tuning);
+			expect(t, `t at holdTicks ${holdTicks}`).toBeGreaterThanOrEqual(0);
+			expect(t).toBeLessThanOrEqual(1);
+			expect(plungerSpeedByHoldMs(holdTicks, tuning), `the launch speed at holdTicks ${holdTicks} is the one t sets`).toBeCloseTo(fullSpeed * (minScale + t * (maxScale - minScale)), 6);
+		}
+		expect(plungerHoldFraction(minTicks - 1, tuning), 'a hold shorter than the window start shows no pull').toBe(0);
+	});
+
+	it('zero-width hold window (plungerMinHoldMs === plungerMaxHoldMs): any nonzero hold is the full stroke, never a division by zero; no hold is 0', () => {
+		const tuning = resolveTuning({ ...TUNING, plungerMinHoldMs: { ...TUNING.plungerMinHoldMs, value: 200 }, plungerMaxHoldMs: { ...TUNING.plungerMaxHoldMs, value: 200 } });
+		expect(tuning.plungerMinHoldTicks.value).toBe(tuning.plungerMaxHoldTicks.value);
+		expect(plungerHoldFraction(0, tuning)).toBe(0);
+		for (const holdTicks of [1, 199, 200, 201]) {
+			expect(plungerHoldFraction(holdTicks, tuning), `t at holdTicks ${holdTicks}`).toBe(1);
+			expect(plungerSpeedByHoldMs(holdTicks, tuning), 'the speed guard gives the max scale at the same holds').toBe(tuning.autolaunchSpeedMmPerS.value * tuning.plungerMaxSpeedScale.value);
+		}
+
+		const loop = createLoop({ collisionDoc: loadDoc(), tuning });
+		let out = serveAndSettle(loop);
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+		expect(Number.isFinite(out.snapshot.mechanisms.plunger.posMm)).toBe(true);
+		expect(out.snapshot.mechanisms.plunger.posMm, 'a one-tick hold under a zero-width window is already the full stroke').toBeCloseTo(SHOOTER_ROD_STROKE_MM, 9);
+		out = loop.advance(1, [{ tick: out.snapshot.tick + 1, frame: NO_FRAME }]);
+		expect(out.snapshot.mechanisms.plunger.posMm, 'released: back to 0').toBe(0);
 	});
 });

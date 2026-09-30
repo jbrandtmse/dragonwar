@@ -556,6 +556,35 @@ const GUIDE_SURFACES = new Set(['plastic', 'rubber_band', 'dragon', 'ramp']);
 const NON_GUIDE_SURFACES = new Set(['rubber_post', 'bumper', 'target', 'wood']);
 
 /**
+ * Story 5.4 (DW-142): bodies brought INTO the guide-termination gate BY NAME
+ * although their surface is non-guide -- each with its reason. The partition
+ * above excludes `wood` wholesale (the table's own perimeter is a structural
+ * boundary, not a guide), but one wood body is a guide in fact: the
+ * shooter-lane divider runs up the middle of the table and ends in a free
+ * tip a ball can meet. Enforced in both directions below, like every other
+ * allowlist in this file: the body must exist, must still carry a NON-guide
+ * surface (an entry for a body the surface selector already picks up is
+ * stale), and its ends then go through the gate like any other guide's.
+ */
+interface GuideInclusion {
+	readonly body: string;
+	readonly reason: string;
+}
+
+const GUIDE_TERMINATION_INCLUSIONS: readonly GuideInclusion[] = [
+	{
+		body: 'col_wall_lane',
+		reason:
+			'DW-142. The shooter-lane divider (surface wood, so the surface selector never saw it) is a guide in fact: a ball plunged up '
+			+ 'the lane, or descending the Right Loop, meets its top end. That end was the one bare, unterminated guide tip on the table. '
+			+ 'Its free-end midpoint is (474.40, 947.00) -- the midpoint of the 6 mm bevel Story 2.1f added (DW-142 recorded (474.40, 950.00), '
+			+ 'which predates the bevel); its bottom end joins col_wall_lane_bottom. Story 5.4 terminates the top end with '
+			+ 'col_post_wall_lane_cap at (474.40, 944.00), 3.0 mm down-table of the midpoint, because a post centred ON the midpoint '
+			+ 'strands a descending ball at (474.40, 964.51) (Story 5.4 plan-stage probe); the gate\'s 4.5 mm budget still holds.',
+	},
+];
+
+/**
  * The nearest `rubber_post` to a table-frame point, and how far away it is
  * -- the SAME derivation the main gate's own per-end loop uses (post centre
  * = its bbox centre, radius = its bbox x half-width), factored out so a
@@ -950,6 +979,31 @@ const GUIDE_TERMINATION_EXEMPTIONS: readonly GuideExemption[] = [
 			}
 		},
 	},
+	{
+		body: 'col_ramp_slot_fill',
+		reason:
+			'Story 5.4 (DW-258). Not a guide with ends at all: a 5-point FILLER (so freeEndsMm(), which derives the two end caps of a '
+			+ '4-point quad, cannot derive it) that closes the 24 mm dead slot between col_ramp_wall_r and col_loop_r_lower from the Ramp '
+			+ 'entrance (y 485) to the crossing (y 740/750). Every one of its five vertices lies ON a neighbour\'s boundary -- its west edge '
+			+ 'is col_ramp_wall_r\'s east face, its south-east edge runs along col_loop_r_funnel\'s west face, its east edge is '
+			+ 'col_loop_r_lower\'s west face -- so it has no free tip for FR-31 to protect; its two exposed faces (south at y 485, north '
+			+ 'from (366.4, 740) to (390.4, 750)) each span between two neighbours. verify() below checks that join for real, against the '
+			+ 'live footprints.',
+		verify: (doc) => {
+			const fill = doc.nodes.find((n) => n.name === 'col_ramp_slot_fill');
+			expect(fill?.footprintMm, 'col_ramp_slot_fill must carry a footprintMm polygon').toBeDefined();
+			const partners = ['col_ramp_wall_r', 'col_loop_r_funnel', 'col_loop_r_lower']
+				.map((name) => doc.nodes.find((n) => n.name === name))
+				.filter((n): n is NonNullable<typeof n> => n !== undefined && n.footprintMm !== undefined);
+			expect(partners.length, 'col_ramp_slot_fill\'s exemption names col_ramp_wall_r, col_loop_r_funnel and col_loop_r_lower as its join partners -- all three must exist').toBe(3);
+			const unjoined = fill!.footprintMm!.filter((v) => !partners.some((partner) => distanceToPolygonEdgeMm(v, partner.footprintMm!) <= 0.05));
+			expect(
+				unjoined,
+				'col_ramp_slot_fill is exempt because every one of its vertices sits ON a neighbour\'s boundary (no free tip), but these touch '
+				+ 'none of col_ramp_wall_r, col_loop_r_funnel, col_loop_r_lower: ' + JSON.stringify(unjoined),
+			).toEqual([]);
+		},
+	},
 ];
 
 describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at a rubber_post, selected STRUCTURALLY (FR-31, AD-11)', () => {
@@ -958,8 +1012,20 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 		const posts = doc.nodes.filter((n) => n.surface === 'rubber_post');
 		expect(posts.length, 'sanity: at least one rubber_post node must be authored').toBeGreaterThan(0);
 
-		const guides = doc.nodes.filter((n) => n.shape === 'wall' && n.surface !== undefined && GUIDE_SURFACES.has(n.surface));
+		const includedNames = new Set(GUIDE_TERMINATION_INCLUSIONS.map((i) => i.body));
+		const guides = doc.nodes.filter(
+			(n) => n.shape === 'wall' && ((n.surface !== undefined && GUIDE_SURFACES.has(n.surface)) || includedNames.has(n.name)),
+		);
 		expect(guides.length, 'sanity: at least one guide-class body must be authored').toBeGreaterThan(0);
+		for (const inclusion of GUIDE_TERMINATION_INCLUSIONS) {
+			const body = doc.nodes.find((n) => n.name === inclusion.body);
+			expect(body, `the inclusion record names "${inclusion.body}", which is absent from the committed document -- a stale entry`).toBeDefined();
+			expect(
+				body!.surface !== undefined && GUIDE_SURFACES.has(body!.surface),
+				`"${inclusion.body}" now carries a guide-class surface, so the surface selector already gates it -- its inclusion record is stale`,
+			).toBe(false);
+			expect(guides.includes(body!), `"${inclusion.body}" must be in the gate's subject set BY NAME`).toBe(true);
+		}
 
 		const exemptedNames = new Set(GUIDE_TERMINATION_EXEMPTIONS.map((e) => e.body));
 		for (const exemption of GUIDE_TERMINATION_EXEMPTIONS) {
@@ -1179,6 +1245,25 @@ describe('asset contract -- Story 2.1d AC 3: every guide free end terminates at 
 			`${derivedEnds.filter((e) => e.klass.kind === 'enclosed').length} enclosed). A gate that stops checking most of its own subject set ` +
 			'is not evidence, whatever it reports.',
 		).toBeGreaterThanOrEqual(Math.ceil(derivedEnds.length / 2));
+	});
+
+	// Story 5.4 AC 5 (DW-142): the named inclusion is not a formality -- the
+	// gate reaches col_wall_lane by name and finds its top end terminated.
+	// mutation: move col_post_wall_lane_cap more than 4.5 mm from (474.4, 947)
+	// in the committed document -> red here and in the main gate above.
+	it('DW-142: the gate checks col_wall_lane BY NAME and finds its top-end midpoint (474.40, 947.00) terminated by a rubber_post within the 4.5 mm budget', () => {
+		const doc = readCollisionDoc();
+		const lane = doc.nodes.find((n) => n.name === 'col_wall_lane');
+		expect(lane?.footprintMm, 'col_wall_lane must carry a footprintMm polygon').toBeDefined();
+		expect(lane!.surface !== undefined && GUIDE_SURFACES.has(lane!.surface), 'col_wall_lane is NOT guide-class by surface (it is wood) -- only its inclusion record brings it in').toBe(false);
+		expect(GUIDE_TERMINATION_INCLUSIONS.map((i) => i.body)).toContain('col_wall_lane');
+		const ends = freeEndsMm(lane!.footprintMm!, lane!.name);
+		const top = ends.reduce((a, b) => (b.y > a.y ? b : a));
+		expect(Math.hypot(top.x - 474.4, top.y - 947.0), `col_wall_lane's derived top end (${top.x.toFixed(2)}, ${top.y.toFixed(2)})`).toBeLessThanOrEqual(1e-3);
+		const { distance, radius, name } = nearestPost(doc, top);
+		expect(name, 'the post that terminates it').toBe('col_post_wall_lane_cap');
+		expect(distance, `nearest post ${name} at ${distance.toFixed(3)} mm`).toBeLessThanOrEqual(postDistanceBudgetMm(radius));
+		expect(postDistanceBudgetMm(radius), 'the budget is 4.5 mm for a 4 mm post').toBeCloseTo(4.5, 6);
 	});
 
 	it('the guide selector is a PARTITION, not an allowlist: every surface carried by a col_/sw_ wall body is classified as guide-class or explicitly non-guide', () => {
@@ -1976,6 +2061,10 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 	// RAMP_LANE_CLEAR_MM = 52 it would have been 28.0 mm and a ball would sit
 	// in it). 56.0 is still narrower than LOOP_LANE_CLEAR_MM (66.0), the
 	// relation the constant's own comment in the seeding script asks for.
+	// [Story 5.4, DW-258] Sub-ball was not enough: a ball placed overlapping
+	// the walls could still wedge in the slot or sink into it, so the slot is
+	// now FILLED (col_ramp_slot_fill) -- see the gap-grid case below. The
+	// width pin stays: it is the geometry the fill is flush against.
 	// mutation: change RAMP_LANE_CLEAR_MM in the seeding script and re-export
 	// -> this measured width moves with it.
 	it('the Ramp entrance\'s clear width (between its two up-channel walls) is the authored 56 mm (RAMP_LANE_CLEAR_MM), and still narrower than a Loop lane', () => {
@@ -1998,8 +2087,44 @@ describe('asset contract -- Story 2.1b task 25: the shot map\'s load-bearing dim
 		).toBeLessThan(wallLane!.bboxMm.min.x - loopR!.bboxMm.max.x);
 		expect(
 			loopRLower!.bboxMm.min.x - wallR!.bboxMm.max.x,
-			'the dead slot between the Ramp east wall and the Right Loop lower rail must stay SUB-BALL, or it becomes a pocket a ball can sit in',
+			'the slot between the Ramp east wall and the Right Loop lower rail must stay SUB-BALL -- it is the width col_ramp_slot_fill (DW-258) is authored to fill flush, so a wider slot would leave the fill short of one wall',
 		).toBeLessThan(TABLE.reference.ballMm);
+	});
+
+	// Story 5.4 AC 6 (DW-258): the dead slot is closed, not merely sub-ball.
+	// A 1 mm grid over the whole former slot, x 366.4..390.4 (col_ramp_wall_r's
+	// east face to col_loop_r_lower's west face) by y 500..740: every point
+	// lies inside some col_ footprint, or within 0.01 mm of one (the two
+	// flush faces). mutation: drop col_ramp_slot_fill from the collision
+	// document -> this case goes red naming the first open grid point.
+	it('DW-258: the former dead slot between col_ramp_wall_r and col_loop_r_lower is closed -- every point of a 1 mm grid over x 366.4..390.4, y 500..740 lies inside a col_ footprint', () => {
+		const doc = readCollisionDoc();
+		const footprints = doc.nodes.filter((n) => n.name.startsWith('col_') && n.shape === 'wall' && n.footprintMm !== undefined).map((n) => n.footprintMm!);
+		const inside = (poly: ReadonlyArray<{ readonly x: number; readonly y: number }>, p: { readonly x: number; readonly y: number }): boolean => {
+			let result = false;
+			for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+				const vi = poly[i]!;
+				const vj = poly[j]!;
+				if (vi.y > p.y !== vj.y > p.y && p.x < ((vj.x - vi.x) * (p.y - vi.y)) / (vj.y - vi.y) + vi.x) {
+					result = !result;
+				}
+			}
+			return result;
+		};
+		const open: string[] = [];
+		let sampled = 0;
+		for (let i = 0; i <= 24; i++) {
+			const x = 366.4 + i;
+			for (let y = 500; y <= 740; y++) {
+				sampled++;
+				const p = { x, y };
+				if (!footprints.some((poly) => inside(poly, p) || distanceToPolygonEdgeMm(p, poly) <= 0.01)) {
+					open.push(`(${x.toFixed(1)}, ${y})`);
+				}
+			}
+		}
+		expect(sampled, 'non-vacuity: the grid is 25 x 241 points').toBe(25 * 241);
+		expect(open.slice(0, 10), `${open.length} grid point(s) of the former slot lie in open space -- the slot is not closed`).toEqual([]);
 	});
 
 	// [STORY 2.1f, AC 3] The corridor tunable itself, pinned so a later change

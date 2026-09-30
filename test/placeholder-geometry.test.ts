@@ -35,6 +35,22 @@
 // case; lowering `vis_post_divider_l_hi`'s accessor top from 0.053 to 0.050
 // reddens the coplanar-top case; setting `vis_dragon_bank_backstop` back to
 // `mat_vis_target` reddens the DW-294 case.
+//
+// [AMENDED 2026-09-29, Story 5.4] Story 5.4's art pass replaced every twin
+// EXCEPT `vis_dragon` with an art part behind the same name. This file keeps
+// the naming, exactly-once, exclusion and flipper-pivot rules for all of them
+// (at the new count: two sealing bodies were added, DW-142/DW-258, so 92
+// visible bodies -> 89 twins), and restricts the placeholder-only pins --
+// bbox, cap, family material, colour and coplanar top -- to the one
+// remaining placeholder, `vis_dragon`. The pins the art pass retired from
+// here reappear as their art-contract equivalents in
+// test/mechanism-art.test.ts: the ball-band containment and bbox coverage
+// (for the pose pin), the `mat_art_*` legibility and DW-294 art-form checks
+// (for the colour and DW-294 pins), the plunger pins (centre x, tip, and
+// the art forms of the z-band and south-end pins), and the cap pin (a
+// ceiling of min(zHigh, WALL_H_MM) plus a lip on every art part). The
+// coplanar-top mutation above now reddens nothing (vis_post_divider_l_hi is
+// an art part); its placeholder-era form is recorded in the 5.0a spec.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -43,13 +59,13 @@ import { TABLE } from '../src/sim/table/dragonwar';
 import { glbToTable } from '../src/sim/table/frames';
 import { loadCollision } from '../src/sim/physics/loader';
 import { assetHash } from '../src/sim/loop/replay';
-import { VIS_DRAGON_NODE_NAME, VIS_PLUNGER_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
+import { VIS_DRAGON_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
 const REPLAYS_DIR = path.resolve(__dirname, 'replays');
 
-/** `tools/make-placeholder-blend.py`'s `WALL_H_MM`: the height every twin is capped at before its family offset. Mirrored, because the collision document does not carry it -- a wrong mirror reddens the cap case below on the 400 mm perimeter/lane walls (their capped tops would sit below it, or more than MAX_TOP_OFFSET_MM above it). */
+/** `tools/make-placeholder-blend.py`'s `WALL_H_MM`: the height every twin is capped at before its family offset. Mirrored, because the collision document does not carry it. Since Story 5.4 the cap case below covers only the placeholder vis_dragon (whose bodies are 50 mm tall, so the cap does not bind); the art-contract ceiling on the 400 mm perimeter/lane walls lives in test/mechanism-art.test.ts. */
 const WALL_H_MM = 50;
 const MAX_TOP_OFFSET_MM = 3;
 const XY_TOLERANCE_MM = 0.01;
@@ -57,11 +73,6 @@ const Z_TOLERANCE_MM = 0.01;
 const MIN_CHANNEL_SEPARATION = 0.25;
 /** Two top faces closer than this read as coplanar to a depth buffer at the fixed camera's range; the smallest authored gap between two family offsets is 0.4 mm. */
 const MIN_CROSS_FAMILY_TOP_GAP_MM = 0.1;
-/** `tools/make-placeholder-blend.py`'s authored `vis_plunger` constants (task 2): half-width, south end, z band. */
-const PLUNGER_HALF_W_MM = 5;
-const PLUNGER_Y0_MM = -40;
-const PLUNGER_Z0_MM = 3;
-const PLUNGER_Z1_MM = 23;
 
 /** The spec's surface -> family table, written out independently of the authoring script. */
 const FAMILY_BY_SURFACE: Readonly<Record<string, string>> = {
@@ -75,7 +86,6 @@ const FAMILY_BY_SURFACE: Readonly<Record<string, string>> = {
 	dragon: 'dragon',
 	ramp: 'ramp',
 };
-const FAMILIES = ['wall', 'post', 'target', 'bumper', 'sling', 'flipper', 'dragon', 'ramp', 'plunger'] as const;
 /** The drop targets, from the table's own wiring -- never a hard-coded name (DW-294's exception is "a target-surface body that is not one of these"). */
 const DROP_TARGET_NODES: ReadonlySet<string> = new Set(Object.values(TABLE.dropBankWiring).map((wiring) => wiring.node));
 
@@ -189,6 +199,24 @@ function tableBoxMm(doc: GltfDocument, node: GltfNode): BoxMm {
 	};
 }
 
+/**
+ * [Story 5.4] A node's table-frame bbox WITH its descendants (an art part's
+ * sub-part children, `<parent>_<part>`), each carried by its own translation
+ * chain -- no art node carries a rotation or scale in its authored pose.
+ */
+function hierarchyBoxMm(doc: GltfDocument, node: GltfNode, offset: readonly number[] = [0, 0, 0]): BoxMm {
+	const t = node.translation ?? [0, 0, 0];
+	const at = [offset[0]! + t[0]!, offset[1]! + t[1]!, offset[2]! + t[2]!];
+	const boxes: BoxMm[] = [];
+	if (node.mesh !== undefined) {
+		boxes.push(tableBoxMm(doc, { ...node, translation: at }));
+	}
+	for (const child of node.children ?? []) {
+		boxes.push(hierarchyBoxMm(doc, doc.nodes[child]!, at));
+	}
+	return unionBox(boxes);
+}
+
 function unionBox(boxes: readonly BoxMm[]): BoxMm {
 	return {
 		min: { x: Math.min(...boxes.map((b) => b.min.x)), y: Math.min(...boxes.map((b) => b.min.y)), z: Math.min(...boxes.map((b) => b.min.z)) },
@@ -215,11 +243,12 @@ function expectedTwins(): Map<string, CollisionNode[]> {
 }
 
 describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin under the naming rule', () => {
-	it('the rule yields 90 bodies -> 87 twins at this tree (the spec\'s own count)', () => {
+	it('the rule yields 92 bodies -> 89 twins at this tree (5.0a\'s 90 -> 87, plus Story 5.4\'s two sealing bodies)', () => {
 		const twins = expectedTwins();
 		const bodies = [...twins.values()].reduce((sum, list) => sum + list.length, 0);
-		expect(bodies).toBe(90);
-		expect(twins.size).toBe(87);
+		expect(bodies).toBe(92);
+		expect(twins.size).toBe(89);
+		expect(twins.has('vis_post_wall_lane_cap') && twins.has('vis_ramp_slot_fill'), 'the two DW-142/DW-258 bodies are drawn too').toBe(true);
 		expect(twins.get(VIS_DRAGON_NODE_NAME)?.map((n) => n.name).sort()).toEqual(
 			['col_dragon_leg_l', 'col_dragon_leg_r', 'col_lock_ceiling', 'col_lock_ceiling_west_fill'],
 		);
@@ -237,14 +266,15 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 
 	it('the set of col_ bodies WITHOUT a twin equals the exclusion rule exactly', () => {
 		const doc = readGlbJson();
-		// A twin is a vis_ node carrying a `mat_vis_*` family material. That
-		// is what tells `col_playfield`'s pre-existing visual `vis_playfield`
-		// (mat_playfield, Story 1.4) apart from a generated twin -- it shares
-		// the naming rule's output but is not a twin, which is exactly why
-		// the rule excludes col_playfield.
+		// A twin is a vis_ node carrying a `mat_vis_*` family material (the
+		// placeholder, `vis_dragon`) or a `mat_art_*` art material (Story 5.4's
+		// parts behind the same names). That is what tells `col_playfield`'s
+		// pre-existing visual `vis_playfield` (mat_playfield, Story 1.4) apart
+		// from a generated twin -- it shares the naming rule's output but is
+		// not a twin, which is exactly why the rule excludes col_playfield.
 		const twinNames = new Set(
 			doc.nodes
-				.filter((n) => n.name?.startsWith('vis_') && n.mesh !== undefined && materialName(doc, n)?.startsWith('mat_vis_'))
+				.filter((n) => n.name?.startsWith('vis_') && n.mesh !== undefined && /^mat_(vis|art)_/.test(materialName(doc, n) ?? ''))
 				.map((n) => n.name!),
 		);
 		const collision = readCollisionJson().nodes;
@@ -260,10 +290,11 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 		expect(excluded.length).toBe(13);
 	});
 
-	it('each twin\'s table-frame x/y bbox matches its body (the dragon: the union) within 0.01 mm, and its z range follows the cap rule', () => {
+	it('the remaining placeholder\'s (vis_dragon\'s) table-frame x/y bbox matches the union of its bodies within 0.01 mm, and its z range follows the cap rule', () => {
 		const doc = readGlbJson();
-		const offsetByFamily = new Map<string, number>();
-		for (const [twinName, bodies] of expectedTwins()) {
+		const placeholders = [...expectedTwins()].filter(([twinName]) => twinName === VIS_DRAGON_NODE_NAME);
+		expect(placeholders.length, 'vis_dragon is the one placeholder left (Story 5.1 replaces it)').toBe(1);
+		for (const [twinName, bodies] of placeholders) {
 			const node = requireNode(doc, twinName);
 			const actual = tableBoxMm(doc, node);
 			const expected = unionBox(bodies.map((b) => b.bboxMm));
@@ -279,31 +310,28 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 			expect(offset, `${label}: top ${actual.max.z} sits below min(zHigh, WALL_H_MM) = ${capped}`).toBeGreaterThanOrEqual(-Z_TOLERANCE_MM);
 			expect(offset, `${label}: top ${actual.max.z} sits more than ${MAX_TOP_OFFSET_MM} mm above min(zHigh, WALL_H_MM) = ${capped}`).toBeLessThanOrEqual(MAX_TOP_OFFSET_MM + Z_TOLERANCE_MM);
 
-			const family = familyOf(bodies[0]!)!;
-			const seen = offsetByFamily.get(family);
-			if (seen === undefined) {
-				offsetByFamily.set(family, offset);
-			} else {
-				expect(Math.abs(offset - seen), `${label}: family "${family}" must share ONE authored top offset (${seen.toFixed(3)} vs ${offset.toFixed(3)})`).toBeLessThanOrEqual(Z_TOLERANCE_MM);
-			}
+			// [Story 5.4] The family-shared top-offset comparison needed two twins
+			// of one family; with vis_dragon the only placeholder left it could no
+			// longer run, so it was removed rather than left as a dead branch.
 		}
-		// The 400 mm perimeter/lane walls are capped like every other guide.
-		const tallWalls = readCollisionJson().nodes.filter((n) => !isExcluded(n) && n.bboxMm.max.z > WALL_H_MM);
-		expect(tallWalls.length, 'non-vacuity: the tree has walls taller than WALL_H_MM for the cap to act on').toBeGreaterThan(0);
 	});
 
-	it('no two twins of DIFFERENT families whose x/y footprints overlap share a coplanar top face (the reason topOffsetMm exists)', () => {
+	it('the placeholder vis_dragon never shares a coplanar top face with any other part whose x/y footprint overlaps it (the reason topOffsetMm exists)', () => {
 		const doc = readGlbJson();
-		const twins = doc.nodes
-			.filter((n) => n.name?.startsWith('vis_') && n.mesh !== undefined && materialName(doc, n)?.startsWith('mat_vis_'))
-			.map((n) => ({ name: n.name!, material: materialName(doc, n)!, box: tableBoxMm(doc, n) }));
+		const rootIndex = doc.nodes.findIndex((n) => n.name === TABLE.nodes.playfieldRoot);
+		const parts = (doc.nodes[rootIndex]!.children ?? [])
+			.map((i) => doc.nodes[i]!)
+			.filter((n) => n.name?.startsWith('vis_') && n.mesh !== undefined && /^mat_(vis|art)_/.test(materialName(doc, n) ?? ''))
+			.map((n) => ({ name: n.name!, material: materialName(doc, n)!, box: hierarchyBoxMm(doc, n) }));
+		const twins = parts.filter((p) => p.name === VIS_DRAGON_NODE_NAME);
+		expect(twins.length, 'vis_dragon').toBe(1);
 		let overlappingPairs = 0;
 		for (let i = 0; i < twins.length; i++) {
-			for (let j = i + 1; j < twins.length; j++) {
+			for (let j = 0; j < parts.length; j++) {
 				const a = twins[i]!;
-				const b = twins[j]!;
+				const b = parts[j]!;
 				if (a.material === b.material) {
-					continue; // same material: a shared top plane cannot z-fight visibly
+					continue; // itself (the only mat_vis_dragon part)
 				}
 				const overlapX = Math.min(a.box.max.x, b.box.max.x) - Math.max(a.box.min.x, b.box.min.x);
 				const overlapY = Math.min(a.box.max.y, b.box.max.y) - Math.max(a.box.min.y, b.box.min.y);
@@ -320,7 +348,7 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 		expect(overlappingPairs, 'non-vacuity: the tree has cross-family twins whose footprints overlap').toBeGreaterThan(0);
 	});
 
-	it('each twin carries its surface\'s family material, TEXCOORD_1, lg_playfield and playfield_root as parent', () => {
+	it('each twin carries TEXCOORD_1, lg_playfield and playfield_root as parent; the placeholder vis_dragon carries its surface\'s family material (the art parts\' materials: test/mechanism-art.test.ts)', () => {
 		const doc = readGlbJson();
 		for (const [twinName, bodies] of expectedTwins()) {
 			const node = requireNode(doc, twinName);
@@ -330,29 +358,20 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 			for (const body of bodies) {
 				expect(familyOf(body), `${twinName}: every merged body shares one family`).toBe(family);
 			}
-			expect(materialName(doc, node), `${twinName}: material`).toBe(`mat_vis_${family}`);
+			if (twinName === VIS_DRAGON_NODE_NAME) {
+				expect(materialName(doc, node), `${twinName}: material`).toBe(`mat_vis_${family}`);
+			} else {
+				expect(materialName(doc, node), `${twinName}: an art part (Story 5.4)`).toMatch(/^mat_art_/);
+			}
 			expect(doc.meshes[node.mesh!]!.primitives[0]!.attributes.TEXCOORD_1, `${twinName}: TEXCOORD_1 (AD-12)`).toBeDefined();
 			expect(node.extras?.lightgroup, `${twinName}: lightgroup`).toBe('lg_playfield');
 			expect(parentName(doc, node), `${twinName}: parent`).toBe(TABLE.nodes.playfieldRoot);
 		}
 	});
 
-	it('DW-294: every drop target (TABLE.dropBankWiring) is target-red, and every OTHER target-surface body (the bank backstop) is drawn as a wall', () => {
-		const doc = readGlbJson();
-		const targetSurface = readCollisionJson().nodes.filter((n) => n.surface === 'target' && !isExcluded(n));
-		const dropTargets = targetSurface.filter((n) => DROP_TARGET_NODES.has(n.name));
-		const others = targetSurface.filter((n) => !DROP_TARGET_NODES.has(n.name));
-		expect(dropTargets.map((n) => n.name).sort(), 'every dropBankWiring node is a visible target-surface body').toEqual([...DROP_TARGET_NODES].sort());
-		expect(others.length, 'non-vacuity: the tree has a target-surface body that is not a drop target').toBeGreaterThan(0);
-		for (const node of dropTargets) {
-			expect(materialName(doc, requireNode(doc, visTwinName(node.name))), `${node.name}: a drop target`).toBe('mat_vis_target');
-		}
-		for (const node of others) {
-			// Its top offset is the wall family's: the cap case above requires
-			// ONE shared offset per family, and familyOf() puts it in 'wall'.
-			expect(materialName(doc, requireNode(doc, visTwinName(node.name))), `${node.name}: not a drop target, so the wall family (DW-294)`).toBe('mat_vis_wall');
-		}
-	});
+	// [Story 5.4] The DW-294 case (a dropped target reveals a different colour
+	// behind it) moved to test/mechanism-art.test.ts in its art form: the
+	// drop targets are mat_art_target and the bank backstop is not.
 
 	it('vis_flipper_l/_r node translations equal the loader-derived pivots (DW-279)', () => {
 		const doc = readGlbJson();
@@ -369,27 +388,12 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 		}
 	});
 
-	it('vis_plunger is the authored rod: plunger material and export contract, on bd_shooter\'s x, its tip touching the resting ball', () => {
-		const doc = readGlbJson();
-		const node = requireNode(doc, VIS_PLUNGER_NODE_NAME);
-		expect(materialName(doc, node)).toBe('mat_vis_plunger');
-		expect(doc.meshes[node.mesh!]!.primitives[0]!.attributes.TEXCOORD_1).toBeDefined();
-		expect(node.extras?.lightgroup).toBe('lg_playfield');
-		expect(parentName(doc, node)).toBe(TABLE.nodes.playfieldRoot);
-		const shooter = (JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as { devices: Array<{ name: string; ejectPose: { posMm: Vec3 } }> })
-			.devices.find((d) => d.name === 'bd_shooter')!.ejectPose.posMm;
-		const box = tableBoxMm(doc, node);
-		expect(Math.abs((box.min.x + box.max.x) / 2 - shooter.x)).toBeLessThanOrEqual(XY_TOLERANCE_MM);
-		expect(Math.abs(box.max.y - (shooter.y - TABLE.reference.ballMm / 2))).toBeLessThanOrEqual(XY_TOLERANCE_MM);
-		expect(Math.abs((box.max.x - box.min.x) - 2 * PLUNGER_HALF_W_MM), `vis_plunger width ${box.max.x - box.min.x}`).toBeLessThanOrEqual(XY_TOLERANCE_MM);
-		expect(Math.abs(box.min.y - PLUNGER_Y0_MM), `vis_plunger south end ${box.min.y}`).toBeLessThanOrEqual(XY_TOLERANCE_MM);
-		expect(Math.abs(box.min.z - PLUNGER_Z0_MM), `vis_plunger z floor ${box.min.z}`).toBeLessThanOrEqual(Z_TOLERANCE_MM);
-		expect(Math.abs(box.max.z - PLUNGER_Z1_MM), `vis_plunger z top ${box.max.z}`).toBeLessThanOrEqual(Z_TOLERANCE_MM);
-	});
+	// [Story 5.4] The vis_plunger pins (centre x on bd_shooter, tip at the
+	// resting ball) moved to test/mechanism-art.test.ts with the art rod.
 });
 
-describe('Story 5.0a -- the nine family colours are separable (AC 4\'s headless half)', () => {
-	it('every pair of mat_vis_* base colours, and each against mat_playfield, differs by >= 0.25 in some linear-RGB channel; none is textured', () => {
+describe('Story 5.0a -- the placeholder\'s colour is separable (AC 4\'s headless half; Story 5.4 restricts it to vis_dragon)', () => {
+	it('mat_vis_dragon differs from mat_playfield by >= 0.25 in some linear-RGB channel and is not textured; no other mat_vis_* material remains in the glb', () => {
 		const doc = readGlbJson();
 		const colourOf = (name: string): readonly number[] => {
 			const material = doc.materials.find((m) => m.name === name);
@@ -398,11 +402,9 @@ describe('Story 5.0a -- the nine family colours are separable (AC 4\'s headless 
 			expect(factor, `${name}: baseColorFactor`).toBeDefined();
 			return factor!;
 		};
-		const named = [...FAMILIES.map((f) => `mat_vis_${f}`), 'mat_playfield'];
-		for (const family of FAMILIES) {
-			const material = doc.materials.find((m) => m.name === `mat_vis_${family}`)!;
-			expect(material.pbrMetallicRoughness?.baseColorTexture, `mat_vis_${family} must carry no texture`).toBeUndefined();
-		}
+		const named = ['mat_vis_dragon', 'mat_playfield'];
+		expect(doc.materials.filter((m) => m.name?.startsWith('mat_vis_')).map((m) => m.name), 'only the placeholder\'s family material is left').toEqual(['mat_vis_dragon']);
+		expect(doc.materials.find((m) => m.name === 'mat_vis_dragon')!.pbrMetallicRoughness?.baseColorTexture, 'mat_vis_dragon must carry no texture').toBeUndefined();
 		for (let i = 0; i < named.length; i++) {
 			for (let j = i + 1; j < named.length; j++) {
 				const a = colourOf(named[i]!);

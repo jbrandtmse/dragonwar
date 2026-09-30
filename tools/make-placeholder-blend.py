@@ -854,7 +854,7 @@ LOCK_CEILING_SHOULDER_MM = 16.0  # authored -- how far above LOCK_CEILING_Y0_MM 
 # see this constants block's own closing note, and LOCK_CEILING_RIDGE_MM's
 # own comment, below, for the full account.
 LOCK_CEILING_RIDGE_PEAK_FRACTION = 0.28  # authored -- unchanged from rework iteration 2's own original derivation: how far across col_lock_ceiling's own x0..x1 span the peak sits (146 + 48 * 0.28 = 159.44). Only this peak's own HEIGHT (LOCK_CEILING_RIDGE_MM, below) moved this rework; its own x position did not.
-LOCK_CEILING_RIDGE_MM = 28.0  # authored, rework iteration 3 round 7 -- the peak's own rise above LOCK_CEILING_SHOULDER_MM (614 -> 642), raised from the original 10.0 (624). See the [REWORK ITERATION 3] note above for the six rounds this replaces: the peak must clear col_dragon_leg_r's own corner (620) via the EAST flank's own angle (atan((642-626)/34.56) = 24.85 deg, comfortably above 18.43 -- and the east flank reaches 627.85 mm at x = 190, the corner's own x, a real 7.85 mm margin) while remaining col_lock_ceiling's own SOLE global maximum -- the property that keeps the WEST flank safe (see the note above for why any taller point further east reopens the strand regardless of its own shape). This IS a real change to the west flank's own reach (rise 28 mm over the same 13.44 mm run, 64.4 deg, versus the original 36.65 deg) -- unlike rounds 2-6, which each added NEW material further east while leaving this flank's own two endpoints nominally unchanged, this round changes exactly one endpoint of the ALREADY-existing flank. CRITICALLY, this raised peak also raises col_lock_ceiling_west_fill's own required thickness: LOCK_FILL_THICKNESS_MM's own LIVE formula (below) means west_fill's own north edge rises WITH this peak (36 -> 54 mm), which is load-bearing, not incidental -- see that constant's own comment for the direct A/B confirmation (hard-coding it back to 36 immediately re-strands the west side). With both raised together, a wide sweep finds a narrower, DIFFERENT residual (x = 92..110, against col_dragon_leg_l's own cap -- a pre-existing, latent near-miss this rework did not create, only exposed by redirecting trajectories that used to roll past the original, shorter col_lock_ceiling without ever reaching it) rather than the west_fill strand every other round reopened. Recorded honestly in this story's own frontmatter `deferred:` rather than chased further: it is outside every committed shot case's own reachable trajectory (test/shot-routing.test.ts's full 52-case manifest and the dense check:reachability sweep both stay green, re-verified after this change (Story 2.15, DW-151)) and outside this story's own new SHOT_CASES columns (x = 120, 150, 185, all within the now-safe x = 112..192 range).
+LOCK_CEILING_RIDGE_MM = 28.0  # authored, rework iteration 3 round 7 -- the peak's own rise above LOCK_CEILING_SHOULDER_MM (614 -> 642), raised from the original 10.0 (624). See the [REWORK ITERATION 3] note above for the six rounds this replaces: the peak must clear col_dragon_leg_r's own corner (620) via the EAST flank's own angle (atan((642-626)/34.56) = 24.85 deg, comfortably above 18.43 -- and the east flank reaches 627.85 mm at x = 190, the corner's own x, a real 7.85 mm margin) while remaining col_lock_ceiling's own SOLE global maximum -- the property that keeps the WEST flank safe (see the note above for why any taller point further east reopens the strand regardless of its own shape). This IS a real change to the west flank's own reach (rise 28 mm over the same 13.44 mm run, 64.4 deg, versus the original 36.65 deg) -- unlike rounds 2-6, which each added NEW material further east while leaving this flank's own two endpoints nominally unchanged, this round changes exactly one endpoint of the ALREADY-existing flank. CRITICALLY, this raised peak also raises col_lock_ceiling_west_fill's own required thickness: LOCK_FILL_THICKNESS_MM's own LIVE formula (below) means west_fill's own north edge rises WITH this peak (36 -> 54 mm), which is load-bearing, not incidental -- see that constant's own comment for the direct A/B confirmation (hard-coding it back to 36 immediately re-strands the west side). With both raised together, a wide sweep finds a narrower, DIFFERENT residual (x = 92..110, against col_dragon_leg_l's own cap -- a pre-existing, latent near-miss this rework did not create, only exposed by redirecting trajectories that used to roll past the original, shorter col_lock_ceiling without ever reaching it) rather than the west_fill strand every other round reopened. Recorded honestly in this story's own frontmatter `deferred:` rather than chased further: it is outside every committed shot case's own reachable trajectory (test/shot-routing.test.ts's full 55-case manifest and the dense check:reachability sweep both stay green, re-verified after this change (Story 2.15, DW-151, when the manifest held 52 cases; Story 5.4 added three col_wall_lane cap columns, DW-142)) and outside this story's own new SHOT_CASES columns (x = 120, 150, 185, all within the now-safe x = 112..192 range).
 LOCK_CEILING_EAST_SHOULDER_MM = 28.0  # authored, rework iteration 3 -- how far above LOCK_CEILING_Y0_MM col_lock_ceiling's own EAST vertical riser reaches (598 -> 626) before the east flank begins. Deliberately taller than the WEST shoulder (614, unchanged): col_dragon_leg_r's own cap corner sits at y = 620 (unlike the WEST leg, this one has no recession -- task 8's own note), so the east shoulder must clear 620 with real margin or the gap between col_lock_ceiling's own material and that corner becomes a two-body bridging trap regardless of the east flank's own slope angle (round 1's own failure, above). 626 clears it by 6 mm; re-verified directly (a ball dropped at x = 190, directly over the corner, makes genuine positional progress rather than settling there).
 LOCK_FILL_WEST_MARGIN_MM = 2.0  # authored -- how far below col_dragon_leg_l's own diagonal cap col_lock_ceiling_west_fill's own south edge sits, the whole 60 mm run (the SAME two-point line the leg's own cap is, merely shifted -2 mm in y, so it can never fall short of that leg's own true boundary anywhere along its run)
 # [REWORK, found empirically, round 5 -- pre-dating this story's own rework
@@ -1547,12 +1547,19 @@ def new_image(name, size=16, rgba=(0.6, 0.6, 0.6, 0.5)):
 	return img
 
 
-def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from_image=False):
+def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from_image=False, roughness=None, metallic=None):
+	"""`roughness`/`metallic` (Story 5.4, the `mat_art_*` materials): left at
+	the Principled BSDF's defaults when None, so every earlier caller is
+	unchanged."""
 	mat = bpy.data.materials.new(name)
 	mat.use_nodes = True
 	tree = mat.node_tree
 	bsdf = tree.nodes.get('Principled BSDF')
 	bsdf.inputs['Base Color'].default_value = base_color
+	if roughness is not None:
+		bsdf.inputs['Roughness'].default_value = roughness
+	if metallic is not None:
+		bsdf.inputs['Metallic'].default_value = metallic
 	if image is not None:
 		tex_node = tree.nodes.new('ShaderNodeTexImage')
 		tex_node.image = image
@@ -1604,6 +1611,7 @@ BD_SHOOTER_POS_MM = (498.0, 35.0, 13.0)
 
 VIS_DRAGON_NAME = 'vis_dragon'
 VIS_PLUNGER_NAME = 'vis_plunger'
+VIS_SPINNER_NAME = 'vis_spinner_l'  # Story 5.4: the spinner bracket; its blade is the child VIS_SPINNER_NAME + '_blade'
 
 # surface -> family. Every `surface` a `col_` body may carry except `glass`
 # (col_glass is excluded above) must appear here, or the pass fails loudly.
@@ -1831,6 +1839,632 @@ def add_visible_plunger(playfield_root, material):
 	)
 	set_props(plunger, lightgroup='lg_playfield')
 	return plunger
+
+
+
+# ---------------------------------------------------------------------------
+# Story 5.4 (DW-249): the mechanisms-and-plastics art pass.
+#
+# `add_visible_twins()` above draws every visible `col_` body as a
+# flat-shaded copy of its own collision mesh. `add_mechanism_art()` below
+# replaces each of those twins EXCEPT `vis_dragon` (Story 5.1's) with a
+# stylized part, behind the SAME object name, still a direct child of
+# `playfield_root` -- the spine's Consistency Conventions row "Art parts":
+#   - a part that needs a second material carries child meshes named
+#     `<parent>_<part>` (`vis_flipper_l_rubber`, `vis_pop_1_cap`, ...);
+#   - art materials are `mat_art_<kind>`: base colour and roughness only,
+#     metallic 0 (the scene has no environment map), no texture;
+#   - every part's geometry is DERIVED in this same run from its source
+#     `col_` body's own footprint (the convex hull of its world vertices, the
+#     same reduction tools/export.py writes as `footprintMm`) and bbox --
+#     never a re-typed coordinate;
+#   - the ball band: inside table z [0, BALL_MM] every triangle with a vertex
+#     in the band keeps ALL of its vertices within 0.5 mm of the source
+#     footprint (in practice: on or inside it), so the ball's visible path
+#     matches its collision path. Anything wider -- a wall's lip, a pop
+#     bumper's cap, the plastics, the spinner -- lives wholly above the band.
+# It also re-authors `vis_plunger` (a rod plus a knob), `vis_spinner_l` (a
+# static bracket whose origin is on the spin axis, plus the
+# `vis_spinner_l_blade` child the follower spins) and adds the two sling
+# plastics.
+#
+# test/mechanism-art.test.ts proves every rule above from the EXPORTED glb
+# and collision document, never from this text. None of it touches a `col_`
+# or `sw_` object, so it moves neither `tableHash` nor `assetHash`.
+# ---------------------------------------------------------------------------
+
+# Round parts: at most this many segments per full circle, smooth normals.
+ART_ROUND_SEGMENTS = 16
+
+# Art materials: (linear RGB, roughness); metallic is 0 on every one.
+# Authored figures, not sampled from any machine. The flipper, drop-target,
+# ramp and guide colours each differ from mat_playfield's (0.45, 0.30, 0.15)
+# by >= ART_MIN_PLAYFIELD_SEPARATION in some channel, and mat_art_rubber is
+# dark (every channel <= ART_RUBBER_MAX_CHANNEL) and rough (>=
+# ART_RUBBER_MIN_ROUGHNESS) -- asserted below at authoring time and by
+# test/mechanism-art.test.ts from the glb.
+ART_MATERIALS = {
+	'rubber': ((0.02, 0.02, 0.02), 0.90),          # black rubber: post rings, sling bands, flipper rubbers
+	'post': ((0.82, 0.82, 0.80), 0.35),            # white post cores and nuts
+	'guide': ((0.70, 0.74, 0.82), 0.30),           # pale blue-grey plastic guides
+	'wood': ((0.16, 0.08, 0.03), 0.60),            # dark-stained wood perimeter rails
+	'ramp': ((0.20, 0.55, 0.90), 0.20),            # tinted Ramp rails
+	'target': ((0.95, 0.20, 0.06), 0.40),          # red-orange drop targets
+	'bumper_skirt': ((0.92, 0.92, 0.90), 0.50),    # white pop skirt
+	'bumper_body': ((0.08, 0.20, 0.90), 0.35),     # blue pop body
+	'bumper_cap': ((0.95, 0.80, 0.15), 0.30),      # yellow pop cap
+	'sling': ((0.95, 0.78, 0.08), 0.40),           # yellow sling kicker body and posts
+	'flipper': ((0.97, 0.97, 0.95), 0.30),         # white bats
+	'plunger': ((0.72, 0.73, 0.76), 0.25),         # grey plunger rod
+	'plunger_knob': ((0.85, 0.06, 0.05), 0.40),    # red plunger knob
+	'spinner': ((0.60, 0.61, 0.64), 0.30),         # grey spinner bracket
+	'spinner_blade': ((0.95, 0.85, 0.20), 0.30),   # yellow spinner blade
+	'plastic': ((0.90, 0.20, 0.45), 0.15),         # magenta sling plastics
+}
+ART_MIN_PLAYFIELD_SEPARATION = 0.25
+ART_LEGIBLE_KINDS = ('flipper', 'target', 'ramp', 'guide')
+ART_RUBBER_MAX_CHANNEL = 0.10
+ART_RUBBER_MIN_ROUGHNESS = 0.8
+
+# Heights (table mm), all authored. A wall is a body on its footprint up to
+# *_BODY_TOP_MM, then a lip ART_LIP_OUT_MM wider up to *_TOP_MM; the lip
+# starts above the ball band, so it may overhang the footprint.
+ART_LIP_OUT_MM = 1.2
+ART_LIP_MITER_LIMIT = 3.0  # a lip vertex moves at most this many lip widths (acute tips: the tapered loop return rails, the bank backstop)
+ART_GUIDE_BODY_TOP_MM, ART_GUIDE_TOP_MM = 44.0, 48.0
+ART_WOOD_BODY_TOP_MM, ART_WOOD_TOP_MM = 46.0, 50.0
+ART_RAMP_BODY_TOP_MM, ART_RAMP_TOP_MM = 40.0, 44.0
+# Posts: a core (a fraction of the footprint's own radius) up to a wider nut
+# above the band, and a rubber ring whose outer surface IS the footprint,
+# spanning the ball's centre height (BALL_MM / 2).
+ART_POST_CORE_SCALE = 0.60
+ART_POST_CORE_TOP_MM = 50.0
+ART_POST_NUT_SCALE, ART_POST_NUT_TOP_MM = 0.80, 53.0
+ART_RUBBER_INNER_SCALE = 0.62
+ART_RUBBER_Z0_MM, ART_RUBBER_Z1_MM = 6.0, 21.0
+ART_RUBBER_BEVEL_MM = 3.0
+# Pop bumpers: a skirt collar whose outer surface IS the footprint up past
+# the ball's centre height (so the surface the ball visibly meets is the
+# collision surface -- [Story 5.4 review]: a 5 mm deck-level skirt left the
+# 0.72-scale body 5.6 mm inside the collision radius at contact height), a
+# body rising out of it, and a cap above the band.
+ART_POP_SKIRT_INNER_SCALE, ART_POP_SKIRT_TOP_MM = 0.70, 22.0
+ART_POP_SKIRT_ROLL_MM = 2.0
+ART_POP_BODY_SCALE, ART_POP_BODY_TOP_MM = 0.72, 30.0
+ART_POP_CAP_SCALE, ART_POP_CAP_TOP_MM = 0.95, 42.0
+# Slingshots: a rubber band round the whole footprint, a kicker body inset
+# inside it, and a post at each corner of a slightly deeper inset.
+ART_SLING_BAND_INSET_MM = 3.0
+ART_SLING_BAND_Z0_MM, ART_SLING_BAND_Z1_MM = 6.0, 20.0
+ART_SLING_BODY_INSET_MM, ART_SLING_BODY_TOP_MM = 3.0, 24.0
+ART_SLING_POST_INSET_MM, ART_SLING_POST_RADIUS_MM, ART_SLING_POST_SEGMENTS = 4.0, 2.2, 12
+# Sling plastics: inset from the sling footprint far enough to clear every
+# rubber part under them (the band's inner edge at 3 mm, and the sling's own
+# terminating posts' rings, radius 4 about points ON the footprint), and
+# wholly above the ball band. The sling's corner posts carry them.
+ART_PLASTIC_INSET_MM = 5.0
+ART_PLASTIC_Z0_MM, ART_PLASTIC_Z1_MM = 54.0, 57.0
+ART_SLING_POST_TOP_MM = ART_PLASTIC_Z0_MM
+# Drop targets: a face on the footprint up to the body top, then a top that
+# bevels back toward the footprint's north edge (above the band).
+ART_TARGET_BODY_TOP_MM, ART_TARGET_TOP_MM = 34.0, 44.0
+ART_TARGET_BEVEL_BACK_FRACTION = 0.5
+# Flippers: a tapered bat -- the base circle is the col_ box's own half width
+# (the pivot's base radius), the tip radius is authored -- with a rubber band
+# round its whole outline and a core inset inside it.
+ART_FLIPPER_TIP_RADIUS_MM = 7.0
+ART_FLIPPER_CORE_INSET_MM = 2.0
+ART_FLIPPER_RUBBER_INNER_INSET_MM = 2.5
+ART_FLIPPER_RUBBER_Z0_MM, ART_FLIPPER_RUBBER_Z1_MM = 5.0, 15.0
+ART_FLIPPER_RUBBER_BEVEL_MM = 2.0
+# Plunger: a rod on bd_shooter's own axis whose wider tip ends at the resting
+# ball (the same tip line as the 5.0a rod), and a knob at its south end.
+ART_PLUNGER_ROD_RADIUS_MM = 3.0
+ART_PLUNGER_TIP_RADIUS_MM, ART_PLUNGER_TIP_LEN_MM = 4.5, 3.0
+ART_PLUNGER_KNOB_RADIUS_MM, ART_PLUNGER_KNOB_LEN_MM = 8.0, 12.0
+# Spinner (Left Loop): a bracket across the lane standing on the two walls
+# that bound it, an axle at SPINNER_AXIS_Z_MM on SPINNER_Y_MM, and a blade
+# hanging SPINNER_BLADE_DROP_MM below the axle at rest -- every blade vertex
+# sweeps a circle wholly above the ball band (asserted below).
+SPINNER_AXIS_Z_MM = 48.0
+SPINNER_BLADE_DROP_MM = 16.0
+SPINNER_BLADE_T_MM = 2.0
+SPINNER_BLADE_SIDE_CLEAR_MM = 3.0
+SPINNER_BRACKET_UPRIGHT_MM = 4.0
+SPINNER_BRACKET_BASE_Z_MM = 40.0
+SPINNER_UPRIGHT_TOP_ABOVE_AXLE_MM = 7.2  # the uprights stand this far above the axle; no cross bar (the blade turns a full circle)
+SPINNER_AXLE_RADIUS_MM = 1.2
+
+
+def _check_art_constants():
+	"""Authoring-time guard for the material and height rules above (the
+	exported-glb checks live in test/mechanism-art.test.ts)."""
+	for kind in ART_LEGIBLE_KINDS:
+		rgb = ART_MATERIALS[kind][0]
+		separation = max(abs(rgb[k] - PLAYFIELD_BASE_COLOUR[k]) for k in range(3))
+		if separation < ART_MIN_PLAYFIELD_SEPARATION:
+			raise RuntimeError(f'[make-placeholder-blend] mat_art_{kind} {rgb} is within {separation:.3f} of mat_playfield')
+	rubber_rgb, rubber_roughness = ART_MATERIALS['rubber']
+	if max(rubber_rgb) > ART_RUBBER_MAX_CHANNEL or rubber_roughness < ART_RUBBER_MIN_ROUGHNESS:
+		raise RuntimeError(f'[make-placeholder-blend] mat_art_rubber {ART_MATERIALS["rubber"]} is not dark and rough')
+	lowest_blade_z = SPINNER_AXIS_Z_MM - math.hypot(SPINNER_BLADE_DROP_MM, SPINNER_BLADE_T_MM / 2)
+	if lowest_blade_z < BALL_MM + 1.0:
+		raise RuntimeError(f'[make-placeholder-blend] the spinner blade sweeps down to z {lowest_blade_z:.3f}, inside the ball band')
+	if ART_PLASTIC_Z0_MM < BALL_MM + 1.0 or SPINNER_BRACKET_BASE_Z_MM < BALL_MM + 1.0:
+		raise RuntimeError('[make-placeholder-blend] a plastic or the spinner bracket dips into the ball band')
+	if not ART_RUBBER_Z0_MM < BALL_MM / 2 < ART_RUBBER_Z1_MM or not ART_SLING_BAND_Z0_MM < BALL_MM / 2 < ART_SLING_BAND_Z1_MM:
+		raise RuntimeError('[make-placeholder-blend] a rubber part does not span the ball centre height')
+
+
+def _art_hull_2d(points):
+	"""Andrew's monotone chain -- tools/export.py's own `_convex_hull_2d()`,
+	counter-clockwise, colinear points dropped -- so a part is derived from
+	exactly the polygon the collision document carries as `footprintMm`."""
+	pts = sorted(set(points))
+
+	def cross(o, a, b):
+		return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+	lower = []
+	for p in pts:
+		while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+			lower.pop()
+		lower.append(p)
+	upper = []
+	for p in reversed(pts):
+		while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+			upper.pop()
+		upper.append(p)
+	return lower[:-1] + upper[:-1]
+
+
+def _footprint_mm(obj):
+	"""The source body's own plan-view footprint (table mm, CCW)."""
+	world = [obj.matrix_world @ v.co for v in obj.data.vertices]
+	return _art_hull_2d([(round(w.x / MM, 4), round(w.y / MM, 4)) for w in world])
+
+
+def _centroid(poly):
+	"""The area centroid of a simple polygon."""
+	area2 = 0.0
+	cx = cy = 0.0
+	for i in range(len(poly)):
+		x0, y0 = poly[i]
+		x1, y1 = poly[(i + 1) % len(poly)]
+		c = x0 * y1 - x1 * y0
+		area2 += c
+		cx += (x0 + x1) * c
+		cy += (y0 + y1) * c
+	return (cx / (3.0 * area2), cy / (3.0 * area2))
+
+
+def _offset_polygon(poly, distance_mm, miter_limit=ART_LIP_MITER_LIMIT):
+	"""Offsets a CCW convex polygon outward (`distance_mm` > 0) or inward
+	(< 0) along each vertex's own bisector, the miter clamped to
+	`miter_limit` times the distance so an acute tip cannot spike."""
+	out = []
+	count = len(poly)
+	for i in range(count):
+		px, py = poly[i - 1]
+		vx, vy = poly[i]
+		qx, qy = poly[(i + 1) % count]
+		normals = []
+		for (ax, ay), (bx, by) in (((px, py), (vx, vy)), ((vx, vy), (qx, qy))):
+			dx, dy = bx - ax, by - ay
+			length = math.hypot(dx, dy)
+			normals.append((dy / length, -dx / length))  # outward, for a CCW ring
+		mx, my = normals[0][0] + normals[1][0], normals[0][1] + normals[1][1]
+		m_len = math.hypot(mx, my)
+		mx, my = mx / m_len, my / m_len
+		along = distance_mm / max(mx * normals[0][0] + my * normals[0][1], 1e-9)
+		limit = abs(distance_mm) * miter_limit
+		along = max(-limit, min(limit, along))
+		out.append((vx + mx * along, vy + my * along))
+	return out
+
+
+def _radial_outline(poly, centre, segments=ART_ROUND_SEGMENTS):
+	"""`segments` offsets from `centre` to the footprint's own boundary, one
+	per equal angle step from +x -- a round part's outline that lies exactly
+	ON its body's footprint (an octagonal post sampled at 16 steps is its own
+	eight vertices plus its eight edge midpoints), shaded smooth."""
+	cx, cy = centre
+	offsets = []
+	for k in range(segments):
+		theta = 2.0 * math.pi * k / segments
+		dx, dy = math.cos(theta), math.sin(theta)
+		best = None
+		for i in range(len(poly)):
+			ax, ay = poly[i]
+			bx, by = poly[(i + 1) % len(poly)]
+			ex, ey = bx - ax, by - ay
+			denom = dx * ey - dy * ex
+			if abs(denom) < 1e-12:
+				continue
+			t = ((ax - cx) * ey - (ay - cy) * ex) / denom
+			u = ((ax - cx) * dy - (ay - cy) * dx) / denom
+			if t > 0 and -1e-9 <= u <= 1 + 1e-9 and (best is None or t < best):
+				best = t
+		if best is None:
+			raise RuntimeError(f'[make-placeholder-blend] centre {centre} is not inside footprint {poly}')
+		offsets.append((dx * best, dy * best))
+	return offsets
+
+
+def _circle_outline(radius_mm, segments=ART_ROUND_SEGMENTS):
+	return [
+		(radius_mm * math.cos(2.0 * math.pi * k / segments), radius_mm * math.sin(2.0 * math.pi * k / segments))
+		for k in range(segments)
+	]
+
+
+class _ArtMesh:
+	"""A small bmesh builder in table millimetres (Blender metres on write)."""
+
+	def __init__(self):
+		self.bm = bmesh.new()
+
+	def vert(self, x_mm, y_mm, z_mm):
+		return self.bm.verts.new((x_mm * MM, y_mm * MM, z_mm * MM))
+
+	def face(self, verts, smooth=False):
+		f = self.bm.faces.new(verts)
+		f.smooth = smooth
+		return f
+
+	def loft(self, rings, closed=False, cap_start=False, cap_end=False, smooth=True):
+		"""Joins consecutive rings (each a closed list of (x, y, z) mm, all
+		the same length) with quads; `closed` joins the last ring back to the
+		first (a closed profile), `cap_start`/`cap_end` close the ends with a
+		flat n-gon."""
+		vert_rings = [[self.vert(*p) for p in ring] for ring in rings]
+		spans = len(vert_rings) if closed else len(vert_rings) - 1
+		for r in range(spans):
+			a = vert_rings[r]
+			b = vert_rings[(r + 1) % len(vert_rings)]
+			n = len(a)
+			for i in range(n):
+				j = (i + 1) % n
+				self.face((a[i], a[j], b[j], b[i]), smooth=smooth)
+		if cap_start:
+			self.face(list(reversed(vert_rings[0])))
+		if cap_end:
+			self.face(vert_rings[-1])
+
+	def prism(self, poly, z0_mm, z1_mm, smooth_sides=False):
+		"""A closed prism over a plan polygon."""
+		self.loft([[(x, y, z0_mm) for x, y in poly], [(x, y, z1_mm) for x, y in poly]], cap_start=True, cap_end=True, smooth=smooth_sides)
+
+	def lathe(self, centre, unit_outline, profile, **loft_args):
+		"""A solid of revolution about the vertical axis through `centre`:
+		`profile` is a list of (scale, z_mm), each scaling `unit_outline`."""
+		cx, cy = centre
+		self.loft([[(cx + s * ux, cy + s * uy, z) for ux, uy in unit_outline] for s, z in profile], **loft_args)
+
+	def to_mesh(self, material):
+		"""Writes the mesh with AD-11/AD-12's contract: one material,
+		`uv_base` plus `uv_lightmap` (TEXCOORD_1)."""
+		bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces[:])
+		mesh = bpy.data.meshes.new('art_part')
+		self.bm.to_mesh(mesh)
+		self.bm.free()
+		mesh.uv_layers.new(name='uv_base')
+		mesh.uv_layers.new(name='uv_lightmap')
+		mesh.materials.append(material)
+		mesh.update()
+		return mesh
+
+
+def _replace_mesh(obj, mesh):
+	"""Puts `mesh` behind `obj`'s existing node name (an art part replaces its
+	twin behind the same name) and drops the placeholder mesh."""
+	old = obj.data
+	obj.data = mesh
+	if old is not None and old.users == 0:
+		bpy.data.meshes.remove(old)
+	mesh.name = obj.name
+
+
+def _new_art_node(name, mesh, parent, location_mm=(0.0, 0.0, 0.0)):
+	"""A new art node (mesh datablock named like the node), with the static
+	mesh's lightgroup (AD-11/AD-12)."""
+	if name in bpy.data.objects:
+		raise RuntimeError(f'[make-placeholder-blend] art node name "{name}" already exists')
+	mesh.name = name
+	obj = bpy.data.objects.new(name, mesh)
+	obj.data.name = name
+	bpy.context.scene.collection.objects.link(obj)
+	obj.parent = parent
+	obj.location = Vector((location_mm[0] * MM, location_mm[1] * MM, location_mm[2] * MM))
+	set_props(obj, lightgroup='lg_playfield')
+	return obj
+
+
+def _new_art_child(parent, part, mesh):
+	"""A `<parent>_<part>` child mesh at its parent's own origin."""
+	return _new_art_node(f'{parent.name}_{part}', mesh, parent)
+
+
+def _art_wall(twin, poly, body_top_mm, top_mm, material):
+	"""Walls, guides and rails: the footprint extruded (its in-band part
+	exactly on the footprint), then a lip ART_LIP_OUT_MM wider above the
+	band."""
+	art = _ArtMesh()
+	art.prism(poly, 0.0, body_top_mm)
+	art.prism(_offset_polygon(poly, ART_LIP_OUT_MM), body_top_mm, top_mm)
+	_replace_mesh(twin, art.to_mesh(material))
+	return []
+
+
+def _art_target(twin, poly, material):
+	"""A drop target: ONE mesh, identity transform (the follower lowers and
+	hides it as one node) -- a face on the footprint up to the body top,
+	then a top that bevels back toward the footprint's north edge."""
+	ys = [y for _, y in poly]
+	back_y = min(ys) + (max(ys) - min(ys)) * ART_TARGET_BEVEL_BACK_FRACTION
+	art = _ArtMesh()
+	art.loft([
+		[(x, y, 0.0) for x, y in poly],
+		[(x, y, ART_TARGET_BODY_TOP_MM) for x, y in poly],
+		[(x, max(y, back_y), ART_TARGET_TOP_MM) for x, y in poly],
+	], cap_start=True, cap_end=True, smooth=False)
+	_replace_mesh(twin, art.to_mesh(material))
+	return []
+
+
+def _art_post(twin, poly, materials):
+	"""A rubber post: a core and a nut (the parent), and a rubber ring whose
+	outer surface is the footprint itself (the child)."""
+	centre = _centroid(poly)
+	unit = _radial_outline(poly, centre)
+	core = _ArtMesh()
+	core.lathe(centre, unit, [(ART_POST_CORE_SCALE, 0.0), (ART_POST_CORE_SCALE, ART_POST_CORE_TOP_MM)], cap_start=True, cap_end=True)
+	core.lathe(centre, unit, [(ART_POST_NUT_SCALE, ART_POST_CORE_TOP_MM), (ART_POST_NUT_SCALE, ART_POST_NUT_TOP_MM)], cap_start=True, cap_end=True)
+	_replace_mesh(twin, core.to_mesh(materials['post']))
+	rubber = _ArtMesh()
+	rubber.lathe(centre, unit, [
+		(ART_RUBBER_INNER_SCALE, ART_RUBBER_Z0_MM),
+		(1.0, ART_RUBBER_Z0_MM + ART_RUBBER_BEVEL_MM),
+		(1.0, ART_RUBBER_Z1_MM - ART_RUBBER_BEVEL_MM),
+		(ART_RUBBER_INNER_SCALE, ART_RUBBER_Z1_MM),
+	], closed=True)
+	return [_new_art_child(twin, 'rubber', rubber.to_mesh(materials['rubber']))]
+
+
+def _art_pop(twin, poly, materials):
+	"""A pop bumper: a body (the parent), a skirt collar whose outer surface
+	is the footprint from the deck to past the ball's centre height, and a
+	cap above the ball band (children)."""
+	centre = _centroid(poly)
+	unit = _radial_outline(poly, centre)
+	body = _ArtMesh()
+	body.lathe(centre, unit, [(ART_POP_BODY_SCALE, 0.0), (ART_POP_BODY_SCALE, ART_POP_BODY_TOP_MM)], cap_start=True, cap_end=True)
+	_replace_mesh(twin, body.to_mesh(materials['bumper_body']))
+	skirt = _ArtMesh()
+	skirt.lathe(centre, unit, [
+		(ART_POP_SKIRT_INNER_SCALE, 0.0),
+		(1.0, 0.0),
+		(1.0, ART_POP_SKIRT_TOP_MM - ART_POP_SKIRT_ROLL_MM),
+		(ART_POP_SKIRT_INNER_SCALE, ART_POP_SKIRT_TOP_MM),
+	], closed=True)
+	cap = _ArtMesh()
+	cap.lathe(centre, unit, [
+		(ART_POP_BODY_SCALE, ART_POP_BODY_TOP_MM),
+		(ART_POP_CAP_SCALE, ART_POP_BODY_TOP_MM + 2.0),
+		(ART_POP_CAP_SCALE, ART_POP_CAP_TOP_MM - 4.0),
+		(ART_POP_BODY_SCALE, ART_POP_CAP_TOP_MM),
+	], cap_start=True, cap_end=True)
+	return [
+		_new_art_child(twin, 'skirt', skirt.to_mesh(materials['bumper_skirt'])),
+		_new_art_child(twin, 'cap', cap.to_mesh(materials['bumper_cap'])),
+	]
+
+
+def _art_sling(twin, poly, materials):
+	"""A slingshot: a kicker body with a post at each corner (the parent),
+	and a rubber band round the WHOLE footprint (the child)."""
+	body = _ArtMesh()
+	body.prism(_offset_polygon(poly, -ART_SLING_BODY_INSET_MM), 0.0, ART_SLING_BODY_TOP_MM)
+	post_outline = _circle_outline(ART_SLING_POST_RADIUS_MM, ART_SLING_POST_SEGMENTS)
+	for corner in _offset_polygon(poly, -ART_SLING_POST_INSET_MM):
+		body.lathe(corner, post_outline, [(1.0, 0.0), (1.0, ART_SLING_POST_TOP_MM)], cap_start=True, cap_end=True)
+	_replace_mesh(twin, body.to_mesh(materials['sling']))
+	inner = _offset_polygon(poly, -ART_SLING_BAND_INSET_MM)
+	band = _ArtMesh()
+	band.loft([
+		[(x, y, ART_SLING_BAND_Z0_MM) for x, y in inner],
+		[(x, y, ART_SLING_BAND_Z0_MM) for x, y in poly],
+		[(x, y, ART_SLING_BAND_Z1_MM) for x, y in poly],
+		[(x, y, ART_SLING_BAND_Z1_MM) for x, y in inner],
+	], closed=True, smooth=False)
+	return [_new_art_child(twin, 'rubber', band.to_mesh(materials['rubber']))]
+
+
+def _flipper_outline(length_mm, base_r, tip_r, sign):
+	"""A tapered bat's plan outline relative to the pivot: the base circle
+	(radius `base_r`, at the pivot) and the tip circle (radius `tip_r`, at
+	`length_mm - base_r - tip_r` along `sign` * x) joined by their outer
+	tangents. Symmetric about the bat's own centreline (the follower reads
+	the tip direction from the node's own bbox centre), and it carries the
+	extreme points (the back of the base circle, its two sides and the tip's
+	front), so the outline's bbox is exactly `length_mm` by `2 * base_r`."""
+	centre_dist = length_mm - base_r - tip_r
+	beta = math.asin((base_r - tip_r) / centre_dist)
+	start = math.pi / 2 - beta
+	base_angles = [start] + [math.pi / 2 + k * math.pi / 8 for k in range(9)] + [3 * math.pi / 2 + beta]
+	tip_angles = [-start, -math.pi / 3, -math.pi / 6, 0.0, math.pi / 6, math.pi / 3, start]
+	points = [(base_r * math.cos(a), base_r * math.sin(a)) for a in base_angles]
+	points += [(centre_dist + tip_r * math.cos(a), tip_r * math.sin(a)) for a in tip_angles]
+	if sign < 0:
+		points = [(-x, y) for x, y in reversed(points)]  # mirrored, still counter-clockwise
+	return points
+
+
+def _art_flipper(twin, bbox_min, bbox_max, materials):
+	"""A flipper: a tapered core (the parent, origin still at the pivot) and
+	a rubber band round the bat's whole outline (the child), in the authored
+	end-of-stroke pose -- the col_ box twin's own pose and origin."""
+	pivot = twin.location / MM
+	length = bbox_max[0] - bbox_min[0]
+	base_r = (bbox_max[1] - bbox_min[1]) / 2
+	sign = 1.0 if (bbox_max[0] - pivot.x) > (pivot.x - bbox_min[0]) else -1.0
+	z0, z1 = bbox_min[2] - pivot.z, bbox_max[2] - pivot.z
+
+	def outline(inset_mm):
+		return _flipper_outline(length - 2 * inset_mm, base_r - inset_mm, ART_FLIPPER_TIP_RADIUS_MM - inset_mm, sign)
+
+	core_outline = outline(ART_FLIPPER_CORE_INSET_MM)
+	core = _ArtMesh()
+	core.loft([[(x, y, z0) for x, y in core_outline], [(x, y, z1) for x, y in core_outline]], cap_start=True, cap_end=True)
+	_replace_mesh(twin, core.to_mesh(materials['flipper']))
+	outer = outline(0.0)
+	inner = outline(ART_FLIPPER_RUBBER_INNER_INSET_MM)
+	rz0 = ART_FLIPPER_RUBBER_Z0_MM - pivot.z
+	rz1 = ART_FLIPPER_RUBBER_Z1_MM - pivot.z
+	rubber = _ArtMesh()
+	rubber.loft([
+		[(x, y, rz0) for x, y in inner],
+		[(x, y, rz0 + ART_FLIPPER_RUBBER_BEVEL_MM) for x, y in outer],
+		[(x, y, rz1 - ART_FLIPPER_RUBBER_BEVEL_MM) for x, y in outer],
+		[(x, y, rz1) for x, y in inner],
+	], closed=True)
+	return [_new_art_child(twin, 'rubber', rubber.to_mesh(materials['rubber']))]
+
+
+def _art_plunger(plunger, materials):
+	"""`vis_plunger`: a rod on bd_shooter's own x and z, whose wider tip ends
+	at the resting ball's south edge (the 5.0a rod's own tip line), and a
+	knob child at its south end. The follower translates the parent (and so
+	the knob) `posMm` toward table -Y."""
+	shooter_x, shooter_y, shooter_z = BD_SHOOTER_POS_MM
+	tip_y = shooter_y - BALL_MM / 2
+	south_y = VIS_PLUNGER_Y0_MM + ART_PLUNGER_KNOB_LEN_MM
+
+	def along_y(profile, segments=ART_ROUND_SEGMENTS):
+		"""Rings about the rod's own axis (parallel to table y), one per
+		(radius, y) in `profile`."""
+		unit = _circle_outline(1.0, segments)
+		return [[(shooter_x + r * ux, y, shooter_z + r * uy) for ux, uy in unit] for r, y in profile]
+
+	rod = _ArtMesh()
+	rod.loft(along_y([
+		(ART_PLUNGER_ROD_RADIUS_MM, south_y),
+		(ART_PLUNGER_ROD_RADIUS_MM, tip_y - ART_PLUNGER_TIP_LEN_MM),
+		(ART_PLUNGER_TIP_RADIUS_MM, tip_y - ART_PLUNGER_TIP_LEN_MM),
+		(ART_PLUNGER_TIP_RADIUS_MM, tip_y),
+	]), cap_start=True, cap_end=True)
+	_replace_mesh(plunger, rod.to_mesh(materials['plunger']))
+	knob = _ArtMesh()
+	knob.loft(along_y([
+		(ART_PLUNGER_KNOB_RADIUS_MM * 0.8, VIS_PLUNGER_Y0_MM),
+		(ART_PLUNGER_KNOB_RADIUS_MM, VIS_PLUNGER_Y0_MM + 3.0),
+		(ART_PLUNGER_KNOB_RADIUS_MM, south_y - 3.0),
+		(ART_PLUNGER_KNOB_RADIUS_MM * 0.6, south_y),
+	]), cap_start=True, cap_end=True)
+	return [_new_art_child(plunger, 'knob', knob.to_mesh(materials['plunger_knob']))]
+
+
+def _art_spinner(playfield_root, lane_west_x, lane_east_x, west_wall_x0, east_wall_x1, materials):
+	"""`vis_spinner_l`: a static bracket across the Left Loop lane whose
+	ORIGIN is on the spin axis -- (lane centre, SPINNER_Y_MM,
+	SPINNER_AXIS_Z_MM) -- and its `vis_spinner_l_blade` child, hanging from
+	that axis toward table -Z at rest. The follower spins the blade about
+	its parent's own table +X. Everything sits above the ball band. The
+	uprights stand on the two walls that bound the lane, joined only by the
+	axle: the blade turns a full circle, so nothing else of the bracket
+	crosses the lane ([Story 5.4 review]: a cross bar 3.2-7.2 mm above the
+	axle sat inside the blade's swept radius)."""
+	origin_x = (lane_west_x + lane_east_x) / 2
+	origin = (origin_x, SPINNER_Y_MM, SPINNER_AXIS_Z_MM)
+	half_upright = SPINNER_BRACKET_UPRIGHT_MM / 2
+	base_z = SPINNER_BRACKET_BASE_Z_MM - SPINNER_AXIS_Z_MM
+	upright_top_z = SPINNER_UPRIGHT_TOP_ABOVE_AXLE_MM
+	west_upright_x = (west_wall_x0 + lane_west_x) / 2 - origin_x
+	east_upright_x = (lane_east_x + east_wall_x1) / 2 - origin_x
+	bracket = _ArtMesh()
+	for ux in (west_upright_x, east_upright_x):
+		square = [(ux - half_upright, -half_upright), (ux + half_upright, -half_upright), (ux + half_upright, half_upright), (ux - half_upright, half_upright)]
+		bracket.prism(square, base_z, upright_top_z)
+	axle_unit = _circle_outline(SPINNER_AXLE_RADIUS_MM, 8)
+	bracket.loft([[(x, uy, uz) for uy, uz in axle_unit] for x in (west_upright_x, east_upright_x)], cap_start=True, cap_end=True)
+	spinner = _new_art_node(VIS_SPINNER_NAME, bracket.to_mesh(materials['spinner']), playfield_root, origin)
+	blade_x0 = lane_west_x + SPINNER_BLADE_SIDE_CLEAR_MM - origin_x
+	blade_x1 = lane_east_x - SPINNER_BLADE_SIDE_CLEAR_MM - origin_x
+	half_t = SPINNER_BLADE_T_MM / 2
+	blade = _ArtMesh()
+	blade.loft([
+		[(blade_x0, -half_t, -SPINNER_BLADE_DROP_MM), (blade_x1, -half_t, -SPINNER_BLADE_DROP_MM), (blade_x1, half_t, -SPINNER_BLADE_DROP_MM), (blade_x0, half_t, -SPINNER_BLADE_DROP_MM)],
+		[(blade_x0, -half_t, 0.0), (blade_x1, -half_t, 0.0), (blade_x1, half_t, 0.0), (blade_x0, half_t, 0.0)],
+	], cap_start=True, cap_end=True, smooth=False)
+	return [spinner, _new_art_child(spinner, 'blade', blade.to_mesh(materials['spinner_blade']))]
+
+
+def add_mechanism_art(playfield_root, twins, plunger, drop_target_names):
+	"""Story 5.4's art pass -- see the block comment above. Runs after
+	`add_visible_twins()`/`add_visible_plunger()`. Replaces every twin in
+	`twins` except `vis_dragon`, re-authors `plunger` and the spinner, and
+	adds the sling plastics. Returns every NEW object it creates (children,
+	the spinner and its blade, the plastics)."""
+	_check_art_constants()
+	bpy.context.view_layer.update()
+	materials = {}
+	for kind, (rgb, roughness) in ART_MATERIALS.items():
+		materials[kind] = new_material(f'mat_art_{kind}', base_color=(*rgb, 1.0), roughness=roughness, metallic=0.0)
+
+	created = []
+	sources = {obj.name: obj for obj in bpy.data.objects if obj.name.startswith('col_') and obj.type == 'MESH'}
+	replaced = 0
+	for twin in twins:
+		if twin.name == VIS_DRAGON_NAME:
+			continue  # Story 5.1's -- stays the 5.0a placeholder
+		source = sources.get('col_' + twin.name[len('vis_'):])
+		if source is None:
+			raise RuntimeError(f'[make-placeholder-blend] twin "{twin.name}" has no col_ source body')
+		surface = source.get('surface')
+		bbox_min, bbox_max = _world_bbox_mm(source)
+		if surface == 'flipper':
+			created += _art_flipper(twin, bbox_min, bbox_max, materials)
+			replaced += 1
+			continue
+		poly = _footprint_mm(source)
+		if surface == 'rubber_post':
+			created += _art_post(twin, poly, materials)
+		elif surface == 'bumper':
+			created += _art_pop(twin, poly, materials)
+		elif surface == 'rubber_band':
+			created += _art_sling(twin, poly, materials)
+		elif surface == 'target' and source.name in drop_target_names:
+			created += _art_target(twin, poly, materials['target'])
+		elif surface == 'ramp':
+			created += _art_wall(twin, poly, ART_RAMP_BODY_TOP_MM, ART_RAMP_TOP_MM, materials['ramp'])
+		elif surface == 'wood':
+			created += _art_wall(twin, poly, ART_WOOD_BODY_TOP_MM, ART_WOOD_TOP_MM, materials['wood'])
+		elif surface in ('plastic', 'target'):
+			# 'target' here is the bank backstop (DW-294: drawn as a guide so
+			# a dropped target reveals a different colour behind it).
+			created += _art_wall(twin, poly, ART_GUIDE_BODY_TOP_MM, ART_GUIDE_TOP_MM, materials['guide'])
+		else:
+			raise RuntimeError(f'[make-placeholder-blend] twin "{twin.name}" has surface "{surface}", which has no art part')
+		replaced += 1
+
+		if surface == 'rubber_band':
+			# The sling's plastic: the footprint inset past every rubber part
+			# under it, wholly above the ball band.
+			plastic = _ArtMesh()
+			plastic.prism(_offset_polygon(poly, -ART_PLASTIC_INSET_MM), ART_PLASTIC_Z0_MM, ART_PLASTIC_Z1_MM)
+			created.append(_new_art_node('vis_plastic_' + source.name[len('col_'):], plastic.to_mesh(materials['plastic']), playfield_root))
+
+	if replaced != len(twins) - 1:
+		raise RuntimeError(f'[make-placeholder-blend] the art pass replaced {replaced} of {len(twins) - 1} twins')
+
+	created += _art_plunger(plunger, materials)
+
+	# The spinner's lane: between col_wall_left's inner face and col_loop_l's
+	# west face, read from the two bodies in this run.
+	wall_min, wall_max = _world_bbox_mm(sources['col_wall_left'])
+	loop_min, loop_max = _world_bbox_mm(sources['col_loop_l'])
+	created += _art_spinner(playfield_root, wall_max[0], loop_min[0], wall_min[0], loop_max[0], materials)
+	return created
 
 
 def main():
@@ -2574,13 +3208,14 @@ def main():
 	# spin or decay mechanism -- Story 2.3 owns that, driven off
 	# sw_spinner's own zone crossing, which stays byte-identical (x 5..45,
 	# y 635..662, authored from bare literals below and untouched here).
-	mat_spinner = new_material('mat_spinner', base_color=(0.65, 0.65, 0.7, 1.0))
-	vis_spinner_l = new_box_mesh(
-		'vis_spinner_l',
-		(0.0, SPINNER_Y_MM - 3.0, 0.0), (SPINNER_PROTRUDE_MM, SPINNER_Y_MM + 3.0, WALL_H_MM),
-		parent=playfield_root, material=mat_spinner, second_uv=True,
-	)
-	set_props(vis_spinner_l, lightgroup='lg_playfield')
+	#
+	# [STORY 5.4, DW-249] The stub box that stood here (x 0..12, z 0..50, its
+	# origin at the table origin, so the ball visibly passed THROUGH it) is
+	# gone. vis_spinner_l is now authored by add_mechanism_art() as a static
+	# bracket whose origin is on the spin axis, plus the vis_spinner_l_blade
+	# child the presentation follower spins from Snapshot.mechanisms.spinner
+	# -- all of it above the ball band, so the pass-through gate is drawn as
+	# one. Still non-colliding and still absent from the collision document.
 
 	# DW-58's own consequence, verified empirically (this story's own planning
 	# pass, not merely derived by inspection): gravity has no x-component
@@ -2739,6 +3374,46 @@ def main():
 		(RAMP_RETURN_END_X_MM, RAMP_RETURN_END_Y_MM),
 		WALL_T_MM,
 	)
+
+	# [STORY 5.4, DW-258] col_ramp_slot_fill -- the 24 mm dead slot between
+	# col_ramp_wall_r's own east face (x = ramp_lane_x1 + WALL_T_MM = 366.4)
+	# and col_loop_r_lower's own west face (loop_r_x0 = 390.4), closed from
+	# the Ramp entrance (RAMP_ENTER_Y_MM = 485) up to the crossing, flush
+	# with every neighbour so no new face or corner is created:
+	#   - its west edge is col_ramp_wall_r's east face (366.4, 485..740);
+	#   - its south-east edge runs ALONG col_loop_r_funnel's own west face,
+	#     the line (inlane_r_x0, LOOP_FUNNEL_Y0_MM) -> (loop_r_x0,
+	#     LOOP_FUNNEL_Y1_MM), entered at y = RAMP_ENTER_Y_MM -- x derived
+	#     from that line here, never re-typed (= 385.5613);
+	#   - its east edge is col_loop_r_lower's west face (390.4, 500..750);
+	#   - its north edge joins col_ramp_wall_r's crossing corner
+	#     (366.4, RAMP_WALL_R_TOP_Y_MM = 740) to col_loop_r_lower's own
+	#     (390.4, RAMP_RETURN_GAP_Y0_MM = 750), a 22.6 deg grade -- above the
+	#     16.699 deg slide threshold, so it takes the strand gate's own
+	#     "steep enough" branch.
+	# The slot was sub-ball (24.0 mm against the 26.99 mm ball), but DW-258's
+	# own evidence is that a ball placed overlapping the walls could wedge in
+	# it or sink into it; filling it removes the hazard outright. Probe
+	# evidence (Story 5.4 plan stage, scratchpad probe54): none of 84
+	# realistic approaches reached the slot, and adding this body moves no
+	# golden's expectedHash, expectedGameStateHash or checkpoint hashes --
+	# only assetHash. surface/phys 'plastic'/'default' like every guide it
+	# sits between; convex by construction (export.py rejects otherwise).
+	slot_fill_x0 = ramp_lane_x1 + WALL_T_MM
+	slot_fill_funnel_x = inlane_r_x0 + (RAMP_ENTER_Y_MM - LOOP_FUNNEL_Y0_MM) / (LOOP_FUNNEL_Y1_MM - LOOP_FUNNEL_Y0_MM) * (loop_r_x0 - inlane_r_x0)
+	col_ramp_slot_fill = new_prism_mesh(
+		'col_ramp_slot_fill',
+		[
+			(slot_fill_x0, RAMP_ENTER_Y_MM),
+			(slot_fill_funnel_x, RAMP_ENTER_Y_MM),
+			(loop_r_x0, LOOP_FUNNEL_Y1_MM),
+			(loop_r_x0, RAMP_RETURN_GAP_Y0_MM),
+			(slot_fill_x0, RAMP_WALL_R_TOP_Y_MM),
+		],
+		0.0, WALL_H_MM,
+		parent=playfield_root,
+	)
+	set_props(col_ramp_slot_fill, col_shape='wall', surface='plastic', phys_material='default')
 
 	# ---- Dragon body + Lock lane (task 6, AD-6): off-centre (left of
 	# PLAYFIELD_W_MM / 2 = 257.2 -- decisions-rejected.md:14,
@@ -3025,6 +3700,19 @@ def main():
 	add_rubber_post('col_post_ramp_wall_r_crossing', (ramp_lane_x1 + WALL_T_MM / 2, RAMP_WALL_R_TOP_Y_MM))  # col_ramp_wall_r's own crossing lip -- 2.1b
 	add_rubber_post('col_post_loop_r_lower', (396.40, 747.00))  # col_loop_r_lower's own north lip, the crossing gap -- 2.1c
 	add_rubber_post('col_post_loop_r_south', (396.40, 832.00))  # col_loop_r's own south lip, the crossing gap -- 2.1b
+	# [STORY 5.4, DW-142] col_wall_lane's own top end, bevelled by Story
+	# 2.1f (LANE_WALL_CAP_DROP_MM), was the one bare, unterminated guide tip
+	# left on the table: its cap midpoint is (LANE_X0_MM + WALL_T_MM / 2,
+	# LANE_WALL_TOP_Y_MM - LANE_WALL_CAP_DROP_MM / 2) = (474.40, 947.00).
+	# (DW-142 recorded (474.40, 950.00), which predates that bevel.) The post
+	# sits LANE_WALL_CAP_DROP_MM / 2 = 3.0 mm DOWN-table of that midpoint, at
+	# the bevel's own low corner height (474.40, 944.00): measured at the
+	# Story 5.4 plan stage (scratchpad probe54), a post centred ON the
+	# midpoint strands a descending ball at (474.40, 964.51), while this site
+	# strands nothing and still terminates the cap within the FR-31 gate's
+	# 4.5 mm budget (3.0 mm). It moves no golden's expectedHash,
+	# expectedGameStateHash or checkpoint hashes -- only assetHash.
+	add_rubber_post('col_post_wall_lane_cap', (LANE_X0_MM + WALL_T_MM / 2, LANE_WALL_TOP_Y_MM - LANE_WALL_CAP_DROP_MM))
 	# col_top_divider_1..4's own LOWER tips (TOP_LANE_Y0_MM) -- 2.1b. Reuses
 	# the same XS this story's own top-lane loop above draws the dividers
 	# from, rather than a second set of bare coordinates.
@@ -3681,7 +4369,8 @@ def main():
 	# vis_playfield; col_glass belongs to Story 5.3. ----
 	# The drop targets are the bank's own col_dragon_<letter> bodies authored
 	# above from DRAGON_LETTERS (the same names TABLE.dropBankWiring's `node`s
-	# carry -- test/placeholder-geometry.test.ts checks the two agree).
+	# carry -- test/mechanism-art.test.ts checks the two agree: each
+	# dropBankWiring node must resolve to a vis_ twin in mat_art_target).
 	vis_twins, vis_materials = add_visible_twins(
 		playfield_root,
 		{col_playfield.name, col_glass.name},
@@ -3689,21 +4378,31 @@ def main():
 	)
 	vis_plunger = add_visible_plunger(playfield_root, vis_materials['plunger'])
 
+	# ---- Story 5.4 (DW-249): the art pass -- see add_mechanism_art()'s own
+	# block comment. Replaces every twin above except vis_dragon behind the
+	# same name, re-authors vis_plunger and the spinner, adds the sling
+	# plastics. ----
+	art_objects = add_mechanism_art(
+		playfield_root, vis_twins, vis_plunger,
+		{f'col_dragon_{letter}' for letter in DRAGON_LETTERS},
+	)
+
 	# ---- Presentation selection (Design Notes, "What goes into the glb"):
-	# the three roots, vis_playfield, vis_spinner_l, vis_backbox, the
+	# the three roots, vis_playfield, vis_backbox, the
 	# fourteen Story 2.8 insert lamps plus Story 2.9's l_ball_save,
-	# bd_trough, bd_shooter, bd_lock, and Story 5.0a's vis_ twins and
-	# vis_plunger. col_/sw_ nodes are excluded -- collision scaffolding,
+	# bd_trough, bd_shooter, bd_lock, Story 5.0a's vis_ twins and
+	# vis_plunger, and Story 5.4's art children, spinner and plastics.
+	# col_/sw_ nodes are excluded -- collision scaffolding,
 	# never rendered. ----
 	for obj in bpy.data.objects:
 		obj.select_set(False)
 	presentation_objects = [
 		playfield_root, cabinet_root, pivot_pitch,
-		vis_playfield, vis_spinner_l, vis_backbox,
+		vis_playfield, vis_backbox,
 		*top_lane_inserts, l_inlane_l, l_inlane_r, l_outlane_l, l_outlane_r,
 		*dragon_letter_inserts.values(), l_lock, l_ball_save,
 		bd_trough, bd_shooter, bd_lock,
-		*vis_twins, vis_plunger,
+		*vis_twins, vis_plunger, *art_objects,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

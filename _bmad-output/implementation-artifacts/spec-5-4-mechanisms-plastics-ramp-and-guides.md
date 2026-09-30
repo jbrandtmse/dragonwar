@@ -2,9 +2,10 @@
 title: 'Story 5.4: Mechanisms, plastics, ramp and guides'
 type: 'feature'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'a0f93eddf5d5f848c9180c46d3759dea7a0c4e5e'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-5-0a-visible-placeholder-geometry.md'
@@ -249,6 +250,34 @@ deferred: []
 - AC 5: `mutation: move col_post_wall_lane_cap to (474.4, 947) and re-export → the shot-routing descending column strands (red)`.
 - AC 6: `mutation: drop col_ramp_slot_fill from the collision document → the mechanism-art/asset-contract gap-grid case red`.
 
+**Observed (implement, 2026-09-29)** -- each applied, observed red, reverted from a scratchpad byte copy; `git status --short` and `git diff --stat` identical to the pre-mutation snapshot afterwards, and the sha256 of every mutated file matched its pre-mutation copy:
+- AC 1: `mutation: skip the spinner angle accumulation in sync-mechanisms.ts (angleDeg left unchanged) → mechanisms-follow "Spinner spins" red (blade at 0.000 deg after 500 ticks, expected 180), and "the turn is positive about table +X" and "Real spinner" red`.
+- AC 1: `mutation: change one collision.json digit (col_ramp_slot_fill 385.5613 -> 385.5614) → replay-goldens red, 35 failed, StaleReplayHeaderError`.
+- AC 2: `mutation: move one vis_post_sling_l_rubber ring vertex 2 mm outward (+table x) in the glb BIN chunk -- the test reads the BIN, not the JSON accessor bounds → mechanism-art band-containment red ("in-band triangle vertex (120.000, 420.000, 9.000) lies 2.000 mm outside col_post_sling_l's footprint"), plus the in-band bbox and rubber-bbox cases red`.
+- AC 3: `mutation: append an images[] entry to the glb JSON → mechanism-art single-image red`.
+- AC 4: `mutation: return posMm: 0 in plunger.ts → plunger.test "held for 250 ticks" and "zero-width" red, mechanisms-follow "Plunger held" red (expected 19.05, got 0)`.
+- AC 5: `mutation: move col_post_wall_lane_cap to (474.4, 947) in the script and re-export → shot-routing descending columns red: x 474.4 strands at (474.40, 964.51) (0.01 mm progress, the plan probe's exact point), x 478 and x 480 red too`. Reverted by restoring the script, re-running Blender and pnpm export:assets: the regenerated collision.json and glb were byte-identical (sha256) to the pre-mutation copies; the .blend (not byte-reproducible) was restored from its pre-mutation byte copy.
+- AC 6: `mutation: drop col_ramp_slot_fill from the collision document → asset-contract gap-grid case red (5543 open grid points), plus the fill's exemption staleness checks and mechanism-art's body/count cases red`.
+
+**Commands run (implement, 2026-09-29), all green:** `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers` (after `git add -N test/mechanism-art.test.ts`), `pnpm check:attributions`; `pnpm test` with BLENDER set: 133 files, 2157 tests passed; `pnpm check:corridor`; `pnpm check:reachability`; `pnpm build`, `pnpm check:dist`, `pnpm check:size` (0.965 MB of 2.750 MB).
+
+**Structural checks (scratchpad scripts, implement):**
+- Collision: every baseline `collision.json` node is deep-equal to the current one; the added names are exactly `{col_post_wall_lane_cap, col_ramp_slot_fill}`; switchZones, devices, reference, frame, units and version are deep-equal.
+- Goldens, per parsed field against the task-1 copy: only `header.assetHash` (ab163ff -> ea9d01d6) and `notes` (append-only, the prescribed sentence) differ in all five. A replay of each golden with only the header refreshed reproduced `expectedHash`, `expectedGameStateHash` and roll-and-drain's `expectedCheckpointHashes` before the files were touched.
+- glb: vis_playfield (with the mask image bytes), vis_backbox, all 15 `l_` inserts, vis_dragon, the three `bd_` empties and the roots have byte-identical accessor data, materials and node properties against the pre-story glb (only buffer-view indices moved). One image, no `extensionsUsed`.
+
+**Observed (review pass, 2026-09-29)** -- tests added or materially changed by the review patches; each mutation applied, observed red, reverted from a byte copy (sha256 re-checked), and `git status --short` / `git diff --stat` byte-identical to the pre-mutation capture afterwards:
+- AC 2 (contact height, new): `mutation: the pre-review pop bumper (0.72-scale body, skirt on the footprint only to z 2.5) → mechanism-art "at the ball's contact height" red ("vis_pop_1: contact-height min.x 115.600 vs 110")` -- observed on the pre-patch glb, then green after the script fix and re-export.
+- AC 2 (spinner sweep, new): `mutation: the pre-review bracket cross bar (3.2-7.2 mm above the axle) → mechanism-art "the spinner" red (8 bracket faces inside the 16.03 mm swept radius)` -- observed on the pre-patch glb.
+- AC 2 (round parts, new): `mutation: a ring with more than 16 angles about its axis → mechanism-art "round parts" red` -- observed while calibrating the case (the pre-patch skirt's two concentric z-0 rings read as 32 before the count moved to distinct angles); smoothness reads NORMAL per shared position.
+- AC 2 (sourceless band, fixed): `mutation: move vis_spinner_l's translation 30 mm down in the glb JSON → mechanism-art "a part with no source body" red ("vis_spinner_l_blade: in-band triangle vertex (3.000, 647.000, 2.000) is outside every visible col_ footprint")`.
+- AC 2 (height ceiling, new): `mutation: scale vis_wall_left x8 in table z in the glb JSON → mechanism-art "no part rises more than a lip" red ("vis_wall_left: top z 400.000 ... <= 54.01")`.
+- AC 3 (Assets table, new): `mutation: add a row under ATTRIBUTIONS.md's "## Assets" table → mechanism-art "Assets table stays empty" red`.
+- AC 4 (lower clamp, new): `mutation: drop the t < 0 clamp in plungerHoldFraction() → plunger.test "non-zero window start" red ("t at holdTicks 1: expected -0.2475")`.
+- AC 1 (rewind, extended): `mutation: advance on tick !== lastTick instead of tick > lastTick in syncSpinner() → mechanisms-follow "Spinner spins" red ("a rewound tick must not move the blade")`.
+
+**Commands run (review pass, 2026-09-29, after the patches), all green:** `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`; `pnpm test` with BLENDER set: 133 files, 2162 tests passed; `pnpm check:reachability`; `pnpm check:corridor`; the scratchpad collision/golden field diff (added exactly the two DW bodies; per golden only `header.assetHash` ab163ff -> ea9d01d6 and the appended `notes` sentence differ); `pnpm build`, `pnpm check:dist`, `pnpm check:size`. The re-export left `dragonwar.collision.json` byte-identical to the implement pass's, and the untouched glb nodes (vis_playfield with its mask image, vis_backbox, the `l_` inserts, vis_dragon, the `bd_` empties, the roots) byte-identical to the baseline glb.
+
 **Manual checks (lead, AC 7):**
 - Run `pnpm dev --port 5185 --strictPort`. First confirm the server is serving this worktree.
 - Use the in-page rAF sampler over `nodeScreenRect` regions (the central 50%), as in 5.0a.
@@ -260,9 +289,106 @@ deferred: []
 
 - 2026-09-30 (lead spec gate, epic-runner-5): task 5 gains the golden `notes` sentence (the header-only precedent every earlier refresh followed). Rule 20: the plan's 'Art parts' conventions (children `<parent>_<part>`, `mat_art_*`, ball-band containment, derived from the footprint in the same run) were written into the spine as a Consistency Conventions row. Accepted the plan's two readings (collision additions limited to the two routed DW bodies; plunger travel derived from the hold fraction, since physics tracks only holdTicks) as within the author's 2026-09-29 decisions.
 
+- 2026-09-29 (implement, 5-4-mechanisms-plastics-ramp-and-guides-implement): paths and names outside the planned footprint, each with its reason:
+  - `PLUNGER_STROKE_MM` is named `SHOOTER_ROD_STROKE_MM` in `src/sim/physics/plunger.ts`. `test/backglass-frame.test.ts`'s AD-9 display-literal scan rejects the substring `PLUNGE` anywhere in `src/sim/**` code outside comments, so the spec's name reddened that gate. Renaming the constant keeps the gate unweakened; the value (38.1, 1.5 in), its placement, its display-only provenance comment (which records the spec's name) and the formula are as specified. `plungerHoldFraction()` is exported beside it so the test can pin `t` against `plungerSpeedByHoldMs()`.
+  - `test/shot-reachability.test.ts` (not a named footprint file): the DW-130 right feed-rail proximity record re-recorded 0.036104934502217744 -> 0.015345760209470427, with a note. Cause, measured against the pre-5.4 document: `col_post_wall_lane_cap`'s rim stands 1-2 mm proud of the lane wall's bevel, and `left-loop-orbit-28`/`-31` descend the Right Loop lane along `col_wall_lane`, so their paths diverge from tick 1349/1360 at (463.0, 957.1)/(462.9, 956.7). The sign is unchanged (the right feed rail is still cleared), both cases still pass every routing assertion, `left-loop-orbit-34`, `ramp-return-geometry` and the left record are bit-identical, and no golden moved. The same record's Story 2.1f re-record is the precedent.
+  - `tools/make-placeholder-blend.py:857`'s historical "52-case manifest" comment now reads 55 (`test/reachability-harness-integrity.test.ts` pins every quoted count to `SHOT_CASES.length`; this story adds three lane-cap columns).
+  - `test/asset-contract.test.ts` additions beyond the task list: a dedicated DW-142 case (the gate reaches `col_wall_lane` by name and finds (474.40, 947.00) terminated by `col_post_wall_lane_cap` within 4.5 mm), and the AC 6 gap-grid case lives here.
+  - Decisions inside the Always rules, for review: guides/walls extrude the footprint to 44 mm (wood 46, ramp 40) with a 1.2 mm lip above the band (to 48/50/44); posts have a core and nut to 53 mm and a rubber ring on the footprint at z 6-21; pops a skirt ring on the footprint, a body and a cap (to 42); slings a rubber band round the whole footprint (z 6-20), a body inset 3 mm and four inset corner posts carrying the plastic; plastics are the sling footprint inset 5 mm at z 54-57; drop targets one mesh, a face to 34 mm and a top bevelled back to 44; flippers a tapered bat (tip radius 7 mm) with a rubber child, symmetric about the centreline; the plunger rod on bd_shooter's axis (radius 3, tip 4.5 ending at the resting ball) with a knob child at y -40..-28; the spinner bracket's origin at (33.0, 648.0, 48.0) on the lane centre, its blade hanging 16 mm (lowest swept z 31.97). Materials: 16 `mat_art_*`, metallic 0; the backstop is `mat_art_guide`, so a dropped target still reveals a different colour (DW-294). 13,876 triangles over 112 direct children; the largest part is a pop bumper at 312.
+  - AC 7 hints for the lead's browser check: representative nodes `vis_flipper_l`, `vis_dragon_d`, `vis_ramp_wall_l`, `vis_loop_l`, `vis_pop_1` (the body; its cap is `vis_pop_1_cap`), `vis_sling_l`, `vis_plunger` (sample its on-board part, y > 0), `vis_post_sling_l_rubber` for the rubber ring, and `vis_spinner_l_blade` for the spin. `nodeScreenRect` measures a node's own mesh, not its children.
+
+- 2026-09-29 (review pass, bmad-build-auto step 4): patches applied inline by the stage agent; no path outside the implement pass's set was touched.
+  - `tools/make-placeholder-blend.py`: the pop bumper's skirt is now a collar whose outer surface is the footprint from the deck to z 20 (rolling in to z 22), so the surface the ball visibly meets at contact height is the collision surface (the 0.72-scale body had sat 5.6 mm inside it). The spinner bracket lost its cross bar (it sat inside the blade's swept radius); the uprights, on the walls, are joined by the axle alone. `new_material()` gained the `roughness`/`metallic` options task 4 named, and the art materials use them. A stale comment now names `test/mechanism-art.test.ts` as the drop-target agreement check. Regenerated `.blend` and glb; `collision.json` byte-identical.
+  - `test/mechanism-art.test.ts`: the sourceless-band case excludes the excluded bodies (col_playfield/col_glass made it unable to fail) and checks whole triangles; new cases for contact-height coverage, the art-form height ceiling (the retired 5.0a cap pin), the spinner sweep, round-part segments and smooth rubber rings, the plunger's z-centre and south-end pins, and AC 3's empty Assets table.
+  - `test/placeholder-geometry.test.ts`: the dead family-offset branch removed; the header and the `WALL_H_MM` comment describe what now lives where.
+  - `test/plunger.test.ts`: a 100..500 ms window case exercises the lower clamp. `test/mechanisms-follow.test.ts`: a rewound-tick check, and a guard that the real crossing has a following frame. `src/sim/physics/plunger.ts`: the getter comment says "tracks" instead of "proportional" (the launch scale is affine in t).
+  - AC 7 hint correction: the pop bumper's ring the ball meets is `vis_pop_1_skirt` (a child); `vis_pop_1` is the body above it.
+
 ## Review Triage Log
+
+### 2026-09-29 — Review pass
+- verdicts: 44 findings — high 0, medium 12, low 28, false 4, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` (blind-hunter) Sourceless-part band case could never fail: col_playfield/col_glass bbox rectangles cover the table, and its subjects have no in-band geometry — filtered to visible bodies via `isExcluded()`, checks whole triangles, non-vacuity on footprints and meshes; mutation observed red.
+  - `[medium]` `[patch]` (blind-hunter) Pop bumper body 0.72-scale from z 0-30 with only a 2.5 mm deck skirt on the footprint: at contact height the visible surface is 5.6 mm inside the collision radius — skirt made a collar on the footprint to z 20/22; new contact-height case red on the old glb, green after re-export.
+  - `[medium]` `[patch]` (blind-hunter) Retired 5.0a gates without art equivalents (cap, coplanar tops, pairwise colour) — the cap gets its art form (ceiling min(zHigh, 50) + 4 mm, non-vacuity on the four 400 mm walls, mutation observed). Coplanar tops between art parts: every coincident height named (ramp lip 44 / guide body 44, post core 50 / wood 50) is buried inside a neighbour's lip or under a nut, not visible from the camera, and task 7 restricts that pin to vis_dragon. Pairwise art colours are not an Always rule (only the four groups against mat_playfield are). Both sub-claims rejected.
+  - `[low]` `[reject]` (blind-hunter) DW-142 post changed two non-golden trajectories and `MEASURED_RIGHT_FEED_MARGIN_MM` was re-recorded — the collision change is the author-routed DW-142 body; the record is a determinism measurement, not a golden (the golden condition held per field), its sign and band are unchanged, and the re-record is logged in the Spec Change Log for the lead.
+  - `[low]` `[patch]` (blind-hunter) `plungerHoldFraction()` duplicates the speed function's maths; the lower clamp is never exercised under shipped tuning — duplication is forced (tuning.ts is out of bounds); added a 100..500 ms window case, mutation observed.
+  - `[low]` `[patch]` (blind-hunter) plunger.ts getter comment says "proportional" though launch scale is affine in t — comment corrected.
+  - `[false]` `[reject]` (blind-hunter) A spinner key mismatch would fail silently (`?? 0`) — the key is from `Object.keys(TABLE.spinnerWiring)` as the spec mandates, and the "Real spinner" case (real createLoop crossing, blade must leave rest) goes red on any mismatch.
+  - `[low]` `[patch]` (blind-hunter) Rewound ticks untested — rewind assertion added to "Spinner spins", mutation observed.
+  - `[low]` `[reject]` (blind-hunter) "Real spinner" hard-codes spinner.test.ts's release setup — test-only duplication with no user-facing harm; a shared helper is a refactor across a file outside this story.
+  - `[low]` `[reject]` (blind-hunter) `renameGlbNode()` now has three copies — test-only duplication; consolidating touches two files outside the footprint.
+  - `[medium]` `[patch]` (blind-hunter) AC 3's "Assets table stays empty" clause had no pinning test — new mechanism-art case parses the `## Assets` table; mutation observed.
+  - `[medium]` `[patch]` (blind-hunter) "Round parts at most 16 segments with smooth normals" unpinned — new case counts distinct angles per ring (≤ 16) for posts and pops and checks smooth rubber rings via NORMAL per shared position.
+  - `[low]` `[patch]` (blind-hunter) Task 4's `new_material` roughness/metallic option not added — added and used; re-export structurally verified.
+  - `[low]` `[reject]` (blind-hunter) Art pass names drop targets from DRAGON_LETTERS and falls back to a guide silently — a mismatch is caught by mechanism-art (each dropBankWiring node must resolve to a mat_art_target twin).
+  - `[low]` `[reject]` (blind-hunter) `SPINNER_Y_MM = 648` mirrored in the test with a ±13 mm cross-check — the collision document does not carry it; the pin itself is exact (0.01 mm) against the mirror, and drift in the script would need both to move.
+  - `[low]` `[reject]` (blind-hunter) Spec Change Log dates out of order — the fix is an edit to this build's spec history.
+  - `[medium]` `[patch]` (edge-case-hunter) Sourceless band filter includes col_playfield/col_glass — same root cause as the first blind-hunter finding; patched there.
+  - `[false]` `[reject]` (edge-case-hunter) spinnerWiring key could differ from its `.switch` — here key and switch are both `s_spinner`, the spec names `Object.keys()` as the key source, and the Real spinner case would go red on a divergence.
+  - `[low]` `[reject]` (edge-case-hunter) NaN/Infinity speed poisons angleDeg — the snapshot contract carries finite deg/s ≥ 0 from spinner.ts; theoretical until a producer emits a non-finite speed.
+  - `[medium]` `[patch]` (edge-case-hunter) Spinner blade sweeps through the bracket's cross bar every turn — bar removed (uprights on the walls, joined by the axle); new triangle-based sweep check red on the old glb, green after re-export.
+  - `[low]` `[reject]` (edge-case-hunter) With plungerMinHoldTicks > 0 a short hold shows no pull yet launches at min scale — spec-bound: `t` is defined as the speed function's hold fraction, so this is the specified behaviour.
+  - `[low]` `[patch]` (edge-case-hunter) Real spinner test would TypeError if the first spinning frame were the last — explicit following-frame assertion added.
+  - `[low]` `[reject]` (edge-case-hunter) Gap grid skips y 485..500 and 740..750 — spec-bound: AC 6 fixes the grid at y 500–740; the north wedge above y 740 is the intended Ramp crossing gap, and the south wedge lies in col_loop_r_funnel.
+  - `[low]` `[reject]` (edge-case-hunter) readAccessor assumes float/uint, non-sparse, TRIANGLES — the exporter is fixed and every art mesh passes the AD-11/AD-12 case; a guard adds complexity for an unreached path.
+  - `[low]` `[reject]` (edge-case-hunter) A node `matrix` would be ignored — the exporter writes TRS only; same reasoning.
+  - `[low]` `[patch]` (edge-case-hunter) Script comment pointed at a removed placeholder-geometry check — now names mechanism-art's drop-target check.
+  - `[low]` `[patch]` (edge-case-hunter) Plunger width/south-end/z pins dropped while the header said "moved whole" — art-form z-centre and south-end pins added, header corrected (the 10 mm width was a placeholder dimension the rod no longer has).
+  - `[low]` `[patch]` (edge-case-hunter) `new_material` option not added — same root cause as the blind-hunter finding; patched there.
+  - `[medium]` `[patch]` (verification-gap) Art parts lost the 5.0a upper height cap — same root cause as the retired-gates finding; ceiling case added, stale `WALL_H_MM` comment fixed.
+  - `[medium]` `[patch]` (verification-gap) "≤ 16 segments, smooth normals" unpinned — same root cause as the blind-hunter finding; patched there.
+  - `[medium]` `[patch]` (verification-gap) Sourceless-part case never executes its assertion — same root cause as the first blind-hunter finding; patched there.
+  - `[low]` `[patch]` (verification-gap) Family-shared top-offset branch in placeholder-geometry can no longer run — dead branch removed with a note.
+  - `[low]` `[reject]` (verification-gap) AC 7 has no pinning test or mutation line — AC 7 is the lead's manual browser check by the spec's own design (Verification → Manual checks).
+  - `[low]` `[patch]` (verification-gap) Rewound tick untested — same root cause as the blind-hunter finding; patched there.
+  - `[low]` `[reject]` (intent-alignment) Trajectory invariance enforced only on goldens; a non-golden figure was re-recorded — same root cause as the blind-hunter re-record finding; rejected there.
+  - `[false]` `[reject]` (intent-alignment) Goldens also changed `notes` — the one appended sentence is prescribed by task 5 (the lead's spec-gate amendment); verified append-only per field.
+  - `[low]` `[reject]` (intent-alignment) The constant is `SHOOTER_ROD_STROKE_MM`, not `PLUNGER_STROKE_MM` — the literal name reddens `backglass-frame.test.ts`'s AD-9 display-literal scan, and the Never list forbids weakening a gate; value, placement, formula and provenance are as specified. Reported to the lead as a name amendment.
+  - `[low]` `[patch]` (intent-alignment) `t` is a duplicate calculation proven at sampled holds — same root cause as the blind-hunter duplication finding; patched there.
+  - `[false]` `[reject]` (intent-alignment) physMaterial of the fill is `default`, not `plastic` — no `plastic` physics material exists in the collision document (every plastic-surface body uses `default`), so `surface: plastic` / `physMaterial: default` is the only loadable reading.
+  - `[medium]` `[patch]` (intent-alignment) Inset pop bumper body invisible to the tests — same root cause as the blind-hunter pop finding; patched there.
+  - `[medium]` `[patch]` (intent-alignment) Four retired 5.0a checks without replacement — same root cause as the retired-gates finding: the cap and the plunger pins now have art forms; coplanar and pairwise colour rejected there.
+  - `[low]` `[reject]` (intent-alignment) Byte-for-byte parts and segment count verified outside the committed suite — segments now pinned; byte identity re-verified at review against the baseline glb (scratchpad), and a committed byte baseline would break on every legitimate re-export.
+  - `[low]` `[reject]` (intent-alignment) Missing-blade test does not reach the error panel — `resolveSpinner()` runs inside `resolveMechanismNodes()`, whose pre-snapshot-guard ordering test/boot-mechanisms-wiring.test.ts already pins.
+  - `[low]` `[reject]` (intent-alignment) Attribution-before-regeneration order cannot be shown by a diff — a process claim the implement report attests; the note's content matches the contract.
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Summary.** Story 5.4 is implemented. The art pass replaces all 88 non-dragon twins with `mat_art_*` parts derived from their `col_` footprints, re-authors the plunger (rod plus knob) and the spinner (bracket plus blade), and adds the two sling plastics. Physics publishes the plunger pull (DW-292), and the follower spins the blade as view state. `col_post_wall_lane_cap` (DW-142) and `col_ramp_slot_fill` (DW-258) are added, and in the goldens only `header.assetHash` moved (ab163ff -> ea9d01d6).
+
+**Files changed:**
+- `ATTRIBUTIONS.md`: Story 5.4 provenance notes on the `.blend`, glb and collision rows.
+- `tools/make-placeholder-blend.py`: the two DW bodies, `add_mechanism_art()`, the round-part helpers and the `new_material` roughness/metallic options.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json`: regenerated.
+- `src/sim/physics/plunger.ts`: `posMm = SHOOTER_ROD_STROKE_MM x plungerHoldFraction()`.
+- `src/presentation/scene/vis-names.ts`: the spinner node names.
+- `src/presentation/mechanisms/sync-mechanisms.ts`: resolves the blade and accumulates the spinner angle.
+- `test/mechanism-art.test.ts` (new): the art contract, AC 2 and AC 3.
+- `test/mechanisms-follow.test.ts`: the matrix rows.
+- `test/plunger.test.ts`: DW-292.
+- `test/placeholder-geometry.test.ts`: now restricted to `vis_dragon`.
+- `test/asset-contract.test.ts`: the DW-142 inclusion and DW-258 exemption, plus the gap grid.
+- `test/util/shot-cases.ts`, `test/shot-routing.test.ts`: three lane-cap descending columns.
+- `test/shot-reachability.test.ts`: the right feed-rail record re-measured.
+- `test/replays/*.golden.json` (5): `header.assetHash` plus the one `notes` sentence.
+
+**Review findings:** 44 findings from four layers.
+- 14 root causes patched: 6 medium, 8 low.
+- 0 deferred.
+- 21 rows rejected, each with its reason in the triage log: 17 low and 4 false. (The 23 patched rows collapse into the 14 root causes above.)
+
+**Follow-up review recommended: true** (6 medium entries patched on a first pass). The specific unverified risk is that the review-pass patches were verified only by the agent that wrote them. They are two geometry changes (the pop-bumper collar and the spinner bracket without its bar) and six new or tightened mechanism-art gates.
+
+**Verification:** every command in `## Verification` is green after the patches, the Matrix Test Audit passed (all 9 rows are covered by tests that ran), and every mutation named in `## Verification` was observed red. See the Observed and Commands blocks above.
+
+**Residual risks, for the lead:**
+- AC 7, the browser check, has not been run. The node hints are in the Spec Change Log; for the pop ring, sample `vis_pop_1_skirt`.
+- The rendered look has not been seen by anyone.
+- Amendment candidate (Rule 5, apply-and-report): the intent names the constant `PLUNGER_STROKE_MM`, but it ships as `SHOOTER_ROD_STROKE_MM` because of the AD-9 display-literal scan.
+- A non-golden trajectory record moved: `MEASURED_RIGHT_FEED_MARGIN_MM` went from 0.0361 to 0.0153 because of the DW-142 post. The sign is unchanged. It needs the lead's acceptance.
+- Footprint extensions: `test/shot-reachability.test.ts`, plus the test files the spec names.

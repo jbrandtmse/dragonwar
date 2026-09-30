@@ -995,6 +995,54 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		probesBody: 'col_wall_lane',
 		reachability: { kind: 'reachable', witness: 'plunge-full' },
 	},
+	// [STORY 5.4, DW-142] col_post_wall_lane_cap now terminates this same cap,
+	// sited 3.0 mm down-table of the cap's own midpoint (474.40, 944.00)
+	// because a post centred ON the midpoint (474.40, 947.00) strands a
+	// descending ball at (474.40, 964.51) -- measured at the Story 5.4 plan
+	// stage. One column at the cap's centre cannot pin that: a post that
+	// strands a ball does so across a band, not a point. So the cap is swept
+	// at four columns spanning the post and the bevel, west to east: 470
+	// (over the bevel's low side, west of the post's own 470.4), 474.4 (the
+	// column above, the post's centre), 478 (the post's east flank) and 480
+	// (the bevel's high east corner, 480.4). Every release is the same
+	// y = 979 as the column above; each one's witness distance was measured
+	// through test/util/reachability.ts (plunge-full: 9.766, 4.442 and
+	// 3.132 mm), and none may strand.
+	// mutation: move col_post_wall_lane_cap to (474.4, 947) and re-export ->
+	// a column here strands (red in assertNotStranded).
+	{
+		id: 'descend-wall-lane-cap-470',
+		label: 'Descending release onto col_wall_lane\'s bevelled cap, west of col_post_wall_lane_cap (DW-142)',
+		startMm: { x: 470, y: 979, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 3000,
+		switchesUnderTest: [],
+		probesBody: 'col_wall_lane',
+		reachability: { kind: 'reachable', witness: 'plunge-full' },
+	},
+	{
+		id: 'descend-wall-lane-cap-478',
+		label: 'Descending release onto col_post_wall_lane_cap\'s east flank over the lane cap (DW-142)',
+		startMm: { x: 478, y: 979, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 3000,
+		switchesUnderTest: [],
+		probesBody: 'col_wall_lane',
+		reachability: { kind: 'reachable', witness: 'plunge-full' },
+	},
+	{
+		id: 'descend-wall-lane-cap-480',
+		label: 'Descending release onto col_wall_lane\'s bevelled cap, its high east corner (DW-142)',
+		startMm: { x: 480, y: 979, z: 13.5 },
+		speedMmPerS: 1,
+		dirDeg: 0,
+		ticks: 3000,
+		switchesUnderTest: [],
+		probesBody: 'col_wall_lane',
+		reachability: { kind: 'reachable', witness: 'plunge-full' },
+	},
 	// Rework iteration 3 (code review 2026-09-04, HIGH finding): col_lock_
 	// ceiling's own east flank stranded a ball at (182.6, 631.3) after
 	// rework iteration 2's corridor seal, and neither new sealing body

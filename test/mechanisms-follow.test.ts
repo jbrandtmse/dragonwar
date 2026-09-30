@@ -5,16 +5,18 @@
 // the REAL loaded scene (NullEngine + the committed glb, the
 // `test/ball-render.test.ts` template), fed snapshots produced by the REAL
 // simulation (`createLoop()` for the flippers, the drop-target strike
-// harness from `test/drop-targets.test.ts` for the bank). Only the plunger
-// row is synthetic, because `Snapshot.mechanisms.plunger.posMm` is
-// hard-wired 0 in physics (the spec's `deferred:` entry).
+// harness from `test/drop-targets.test.ts` for the bank). The Story 5.0a
+// plunger row is synthetic (posMm 0, then 40); since Story 5.4 (DW-292)
+// physics publishes the real pull, so the Story 5.4 rows below drive the
+// plunger through a real `createLoop()` hold as well.
 //
 // Every I/O matrix row:
 //   Flipper at rest  -- the loader's tipMm, carried through each twin's
 //                       local transform, lands within 0.5 mm of
 //                       fromPhysics(pivotPhys + R (sin theta, -cos theta)) and below
 //                       the pivot.
-//   Flipper held     -- vis_flipper_l's bbox matches col_flipper_l's box
+//   Flipper held     -- vis_flipper_l's HIERARCHY bbox (the bat plus its
+//                       Story 5.4 rubber child) matches col_flipper_l's box
 //                       within 0.5 mm.
 //   Target struck    -- vis_dragon_d drops to/below table z 0 and is not
 //                       rendered; the other five stay up and visible.
@@ -22,6 +24,22 @@
 //   Plunger          -- posMm 0 then 40: authored, then 40 mm toward -Y.
 //   Missing twin     -- throws naming vis_flipper_l.
 // plus `nodeScreenRect('vis_dragon')` returning a finite rect in the canvas.
+//
+// Story 5.4 (DW-249, DW-292), AC 1 -- its own I/O matrix:
+//   Plunger held     -- real createLoop, held 250 then 600 ticks: posMm is
+//                       19.05 then 38.1, and vis_plunger (rod + knob) sits
+//                       exactly that far toward table -Y.
+//   Plunger released -- posMm 0 on the release tick, vis_plunger authored.
+//   Spinner spins    -- tick 1000 then 1500 at 360 deg/s: the blade turns
+//                       180 +/- 0.5 deg about table +X from rest (and a
+//                       +90 deg turn swings it toward table +Y: the sign).
+//   Spinner idle     -- the same snapshot synced twice: angle unchanged.
+//   Spinner stops    -- speed 0: the rest pose.
+//   Real spinner     -- test/spinner.test.ts's createLoop crossing: speed > 0
+//                       and the blade has left rest.
+//   Flipper held, Target struck / bank reset -- as above, on the art parts.
+//   Missing blade    -- vis_spinner_l_blade renamed out of the glb: the
+//                       first sync throws naming it.
 //
 // Every position is measured in playfield_root's LOCAL frame (so the
 // applied pitch cancels out) and converted to table mm with `glbToTable()`
@@ -33,7 +51,9 @@
 // translation reddens the target-down case; basing a pose on the node's
 // CURRENT pose instead of its authored one (accumulating frame over frame)
 // reddens the repeated-sync assertions; a bottom-left pixel origin in
-// node-screen-rect.ts reddens the orientation assertions.
+// node-screen-rect.ts reddens the orientation assertions. Story 5.4: skipping
+// the spinner's angle accumulation reddens "Spinner spins"; returning
+// `posMm: 0` from plunger.ts reddens "Plunger held".
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -48,11 +68,11 @@ import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engi
 import { getRequiredNode } from '../src/presentation/scene/playfield';
 import { syncMechanisms } from '../src/presentation/mechanisms/sync-mechanisms';
 import { nodeScreenRect } from '../src/presentation/scene/node-screen-rect';
-import { VIS_DRAGON_NODE_NAME, VIS_PLUNGER_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
+import { VIS_DRAGON_NODE_NAME, VIS_PLUNGER_NODE_NAME, VIS_SPINNER_BLADE_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
 import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { createMachine, type Machine } from '../src/sim/physics/machine';
 import { loadCollision } from '../src/sim/physics/loader';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING } from '../src/sim/table/tuning';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { fromPhysics, glbToTable, MM_PER_VU, toPhysics, toScene, type Vec3 } from '../src/sim/table/frames';
 import type { Snapshot } from '../src/sim/table/names';
@@ -85,10 +105,10 @@ function collisionBox(name: string): BoxMm {
 	return node!.bboxMm;
 }
 
-async function withLoadedScene(body: (scene: Scene, playfieldRoot: TransformNode) => void | Promise<void>): Promise<void> {
+async function withLoadedScene(body: (scene: Scene, playfieldRoot: TransformNode) => void | Promise<void>, glbBytes: Buffer = readFileSync(GLB_PATH)): Promise<void> {
 	const engine = new NullEngine();
 	try {
-		const { scene, playfieldNodes } = await loadAndRenderOnceForTests(engine, glbDataUrl(readFileSync(GLB_PATH)), { pluginExtension: '.glb' });
+		const { scene, playfieldNodes } = await loadAndRenderOnceForTests(engine, glbDataUrl(glbBytes), { pluginExtension: '.glb' });
 		try {
 			await body(scene, playfieldNodes.playfieldRoot);
 		} finally {
@@ -114,6 +134,37 @@ function tableBox(mesh: AbstractMesh, playfieldRoot: TransformNode): BoxMm {
 		min: { x: Math.min(...points.map((p) => p.x)), y: Math.min(...points.map((p) => p.y)), z: Math.min(...points.map((p) => p.z)) },
 		max: { x: Math.max(...points.map((p) => p.x)), y: Math.max(...points.map((p) => p.y)), z: Math.max(...points.map((p) => p.z)) },
 	};
+}
+
+/** The mesh's bbox WITH its descendants (an art part's `<parent>_<part>` children), in playfield_root's local frame, table mm. */
+function hierarchyTableBox(root: AbstractMesh, playfieldRoot: TransformNode): BoxMm {
+	const boxes = [root, ...root.getChildMeshes(false)].map((m) => tableBox(m, playfieldRoot));
+	return {
+		min: { x: Math.min(...boxes.map((b) => b.min.x)), y: Math.min(...boxes.map((b) => b.min.y)), z: Math.min(...boxes.map((b) => b.min.z)) },
+		max: { x: Math.max(...boxes.map((b) => b.max.x)), y: Math.max(...boxes.map((b) => b.max.y)), z: Math.max(...boxes.map((b) => b.max.z)) },
+	};
+}
+
+/** The glb with one node renamed in its JSON chunk -- test/boot-mechanisms-wiring.test.ts's own helper. */
+function renameGlbNode(bytes: Buffer, oldName: string, newName: string): Buffer {
+	const jsonLength = bytes.readUInt32LE(12);
+	const json = JSON.parse(bytes.subarray(20, 20 + jsonLength).toString('utf8')) as { nodes: Array<{ name?: string }> };
+	const node = json.nodes.find((n) => n.name === oldName);
+	if (!node) {
+		throw new Error(`renameGlbNode(): node "${oldName}" not found in the committed glb`);
+	}
+	node.name = newName;
+	const raw = Buffer.from(JSON.stringify(json), 'utf8');
+	const paddedJson = raw.length % 4 === 0 ? raw : Buffer.concat([raw, Buffer.alloc(4 - (raw.length % 4), 0x20)]);
+	const binChunkAndHeader = bytes.subarray(20 + jsonLength);
+	const jsonChunkHeader = Buffer.alloc(8);
+	jsonChunkHeader.writeUInt32LE(paddedJson.length, 0);
+	jsonChunkHeader.writeUInt32LE(0x4e4f534a, 4);
+	const header = Buffer.alloc(12);
+	header.writeUInt32LE(0x46546c67, 0);
+	header.writeUInt32LE(2, 4);
+	header.writeUInt32LE(12 + 8 + paddedJson.length + binChunkAndHeader.length, 8);
+	return Buffer.concat([header, jsonChunkHeader, paddedJson, binChunkAndHeader]);
 }
 
 function mesh(scene: Scene, name: string): AbstractMesh {
@@ -214,7 +265,7 @@ describe('Story 5.0a AC 2 -- syncMechanisms() poses the moving twins from real s
 		});
 	});
 
-	it('Flipper held (DW-279): with flipper_l held until angleDeg settles, vis_flipper_l\'s bbox matches the col_flipper_l box within 0.5 mm', async () => {
+	it('Flipper held (DW-279): with flipper_l held until angleDeg settles, vis_flipper_l\'s hierarchy bbox (bat + rubber, Story 5.4) matches the col_flipper_l box within 0.5 mm', async () => {
 		const loop = createLoop({ collisionDoc: loadDoc() });
 		const start = advanceTicks(loop, 50);
 		let snapshot = advanceTicks(loop, 100, [{ tick: start.tick + 1, frame: { ...NO_FRAME, flipper_l: true } }]);
@@ -230,7 +281,9 @@ describe('Story 5.0a AC 2 -- syncMechanisms() poses the moving twins from real s
 			syncMechanisms(scene, playfieldRoot, start);
 			syncMechanisms(scene, playfieldRoot, snapshot);
 			syncMechanisms(scene, playfieldRoot, snapshot);
-			expectBoxClose(tableBox(mesh(scene, visTwinName(TABLE.nodes.colFlipperL)), playfieldRoot), collisionBox(TABLE.nodes.colFlipperL), BOX_TOLERANCE_MM, 'vis_flipper_l held');
+			const bat = mesh(scene, visTwinName(TABLE.nodes.colFlipperL));
+			expect(bat.getChildMeshes(false).length, 'non-vacuity: the art bat carries its rubber child').toBeGreaterThan(0);
+			expectBoxClose(hierarchyTableBox(bat, playfieldRoot), collisionBox(TABLE.nodes.colFlipperL), BOX_TOLERANCE_MM, 'vis_flipper_l held');
 		});
 	});
 
@@ -287,16 +340,16 @@ describe('Story 5.0a AC 2 -- syncMechanisms() poses the moving twins from real s
 	it('Plunger: posMm 0 leaves vis_plunger at its authored pose; posMm 40 (synthetic) translates it 40 mm toward table -Y', async () => {
 		await withLoadedScene((scene, playfieldRoot) => {
 			const plunger = mesh(scene, VIS_PLUNGER_NODE_NAME);
-			const authored = tableBox(plunger, playfieldRoot);
+			const authored = hierarchyTableBox(plunger, playfieldRoot);
 			const base = buildSnapshot();
 
 			syncMechanisms(scene, playfieldRoot, buildSnapshot({ mechanisms: { ...base.mechanisms, plunger: { posMm: 0, holdTicks: 0 } } }));
-			expectBoxClose(tableBox(plunger, playfieldRoot), authored, POSE_TOLERANCE_MM, 'vis_plunger at posMm 0');
+			expectBoxClose(hierarchyTableBox(plunger, playfieldRoot), authored, POSE_TOLERANCE_MM, 'vis_plunger at posMm 0');
 
 			const pulledSnapshot = buildSnapshot({ mechanisms: { ...base.mechanisms, plunger: { posMm: 40, holdTicks: 0 } } });
 			syncMechanisms(scene, playfieldRoot, pulledSnapshot);
 			syncMechanisms(scene, playfieldRoot, pulledSnapshot); // a second frame at 40 stays at 40, never 80
-			const pulled = tableBox(plunger, playfieldRoot);
+			const pulled = hierarchyTableBox(plunger, playfieldRoot);
 			const expected: BoxMm = {
 				min: { ...authored.min, y: authored.min.y - 40 },
 				max: { ...authored.max, y: authored.max.y - 40 },
@@ -336,5 +389,137 @@ describe('Story 5.0a AC 2 -- syncMechanisms() poses the moving twins from real s
 			expect((flipperL.x0 + flipperL.x1) / 2, 'vis_flipper_l centre must be left of vis_flipper_r centre').toBeLessThan((flipperR.x0 + flipperR.x1) / 2);
 			expect(() => nodeScreenRect(scene, 'vis_no_such_node')).toThrow(/vis_no_such_node/);
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Story 5.4 (DW-249, DW-292) -- the plunger's real pull and the spinner.
+// ---------------------------------------------------------------------------
+
+const SPINNER_KEY = Object.keys(TABLE.spinnerWiring)[0]!;
+
+/** A synthetic snapshot at `tick` with the spinner at `speed` deg/s. */
+function spinnerSnapshot(tick: number, speed: number): Snapshot {
+	const base = buildSnapshot();
+	return buildSnapshot({ tick, mechanisms: { ...base.mechanisms, spinner: { [SPINNER_KEY]: { speed } } } });
+}
+
+/** The blade's hang direction (its own bbox centre from its origin on the axis), table frame, y/z only. */
+function bladeHang(scene: Scene, playfieldRoot: TransformNode): { y: number; z: number } {
+	const blade = mesh(scene, VIS_SPINNER_BLADE_NODE_NAME);
+	const box = blade.getBoundingInfo().boundingBox;
+	const origin = localToTableMm(blade, playfieldRoot, Vector3.Zero());
+	const centre = localToTableMm(blade, playfieldRoot, box.minimum.add(box.maximum).scale(0.5));
+	return { y: centre.y - origin.y, z: centre.z - origin.z };
+}
+
+/** Signed angle, degrees, from `rest` to `now` about table +X (right-handed: +90 swings a downward hang toward +Y). */
+function angleAboutXDeg(rest: { y: number; z: number }, now: { y: number; z: number }): number {
+	return (Math.atan2(rest.y * now.z - rest.z * now.y, rest.y * now.y + rest.z * now.z) * 180) / Math.PI;
+}
+
+describe('Story 5.4 AC 1 -- the plunger\'s real pull and the spinner, through syncMechanisms() on the committed glb', () => {
+	it('Plunger held (DW-292): a real createLoop hold of 250 then 600 ticks gives posMm 19.05 then 38.1, and vis_plunger sits exactly that far toward table -Y; Plunger released: posMm 0 and the authored pose', async () => {
+		const loop = createLoop({ collisionDoc: loadDoc() });
+		const start = advanceTicks(loop, 50);
+		const held250 = advanceTicks(loop, 250, [{ tick: start.tick + 1, frame: { ...NO_FRAME, plunger: true } }]);
+		expect(held250.mechanisms.plunger.holdTicks).toBe(250);
+		expect(held250.mechanisms.plunger.posMm, '38.1 x 250/500').toBeCloseTo(19.05, 6);
+		const held600 = advanceTicks(loop, 350);
+		expect(held600.mechanisms.plunger.holdTicks).toBe(600);
+		expect(held600.mechanisms.plunger.posMm, 'clamped at the full stroke').toBeCloseTo(38.1, 6);
+		const released = advanceTicks(loop, 1, [{ tick: held600.tick + 1, frame: NO_FRAME }]);
+		expect(released.mechanisms.plunger.posMm, 'posMm on the release tick').toBe(0);
+
+		await withLoadedScene((scene, playfieldRoot) => {
+			const plunger = mesh(scene, VIS_PLUNGER_NODE_NAME);
+			expect(plunger.getChildMeshes(false).length, 'non-vacuity: the rod carries its knob child').toBeGreaterThan(0);
+			const authored = hierarchyTableBox(plunger, playfieldRoot);
+			for (const [label, snapshot, pullMm] of [['held 250', held250, 19.05], ['held 600', held600, 38.1]] as const) {
+				syncMechanisms(scene, playfieldRoot, snapshot);
+				const expected: BoxMm = { min: { ...authored.min, y: authored.min.y - pullMm }, max: { ...authored.max, y: authored.max.y - pullMm } };
+				expectBoxClose(hierarchyTableBox(plunger, playfieldRoot), expected, POSE_TOLERANCE_MM, `vis_plunger ${label}`);
+			}
+			syncMechanisms(scene, playfieldRoot, released);
+			expectBoxClose(hierarchyTableBox(plunger, playfieldRoot), authored, POSE_TOLERANCE_MM, 'vis_plunger released');
+		});
+	});
+
+	it('Spinner spins: tick 1000 then 1500 at 360 deg/s turns the blade 180 +/- 0.5 deg about table +X from rest; Spinner idle frame: re-syncing the same snapshot leaves it there', async () => {
+		await withLoadedScene((scene, playfieldRoot) => {
+			const rest = bladeHang(scene, playfieldRoot);
+			expect(rest.z, 'at rest the blade hangs toward table -Z').toBeLessThan(0);
+			expect(Math.abs(rest.y), 'and straight down').toBeLessThanOrEqual(0.01);
+
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(1000, 360));
+			expect(Math.abs(angleAboutXDeg(rest, bladeHang(scene, playfieldRoot))), 'the first sync has no elapsed ticks to advance').toBeLessThanOrEqual(0.5);
+
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(1500, 360));
+			const turned = angleAboutXDeg(rest, bladeHang(scene, playfieldRoot));
+			expect(Math.abs(Math.abs(turned) - 180), `blade at ${turned.toFixed(3)} deg after 500 ticks at 360 deg/s`).toBeLessThanOrEqual(0.5);
+
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(1500, 360));
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(1500, 360));
+			const idle = angleAboutXDeg(rest, bladeHang(scene, playfieldRoot));
+			expect(Math.abs(Math.abs(idle) - 180), `an idle frame (same tick) must not move the blade -- ${idle.toFixed(3)} deg`).toBeLessThanOrEqual(0.5);
+
+			// [Story 5.4 review] A rewound tick (a restarted loop in the same
+			// scene) advances nothing either -- the documented `tick >
+			// lastTick` guard -- and the next forward tick advances from it.
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(1000, 360));
+			const rewound = angleAboutXDeg(rest, bladeHang(scene, playfieldRoot));
+			expect(Math.abs(Math.abs(rewound) - 180), `a rewound tick must not move the blade -- ${rewound.toFixed(3)} deg`).toBeLessThanOrEqual(0.5);
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(1250, 360));
+			const onward = angleAboutXDeg(rest, bladeHang(scene, playfieldRoot));
+			expect(Math.abs(onward - -90) <= 0.5 || Math.abs(onward - 270) <= 0.5, `250 ticks on from the rewind: 180 + 90 = 270 deg (-90) -- got ${onward.toFixed(3)}`).toBe(true);
+		});
+	});
+
+	it('the turn is positive about table +X (a quarter turn swings the hanging blade toward table +Y); Spinner stops: speed 0 is the rest pose', async () => {
+		await withLoadedScene((scene, playfieldRoot) => {
+			const rest = bladeHang(scene, playfieldRoot);
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(0, 360));
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(250, 360));
+			const quarter = bladeHang(scene, playfieldRoot);
+			expect(angleAboutXDeg(rest, quarter), 'a +90 deg turn about +X').toBeCloseTo(90, 1);
+			expect(quarter.y, 'the blade now points up-table (+Y)').toBeGreaterThan(0);
+
+			syncMechanisms(scene, playfieldRoot, spinnerSnapshot(300, 0));
+			expect(Math.abs(angleAboutXDeg(rest, bladeHang(scene, playfieldRoot))), 'speed 0 shows the rest pose').toBeLessThanOrEqual(0.01);
+		});
+	});
+
+	it('Real spinner: test/spinner.test.ts\'s createLoop crossing reports speed > 0, and the synced blade leaves rest', async () => {
+		const doc = JSON.parse(JSON.stringify(loadDoc())) as { devices: Array<{ name: string; ejectPose: { posMm: Vec3; dir: Vec3 } }> };
+		// test/spinner.test.ts's own release under sw_spinner and its measured crossing speed.
+		doc.devices.find((d) => d.name === 'bd_trough')!.ejectPose = { posMm: { x: 30, y: 500, z: 13.5 }, dir: { x: 0, y: 1, z: 0 } };
+		const tuning = resolveTuning({ ...TUNING, troughEjectSpeedMmPerS: { ...TUNING.troughEjectSpeedMmPerS, value: 1800 } });
+		const loop = createLoop({ collisionDoc: doc, tuning });
+		loop.pulseCoil('c_trough_eject');
+		loop.advance(0, []);
+		const frames: Snapshot[] = [];
+		for (let i = 0; i < 60; i++) {
+			frames.push(loop.advance(50, []).snapshot);
+		}
+		const spinning = frames.findIndex((f) => (f.mechanisms.spinner[SPINNER_KEY]?.speed ?? 0) > 0);
+		expect(spinning, 'the real crossing must spin the spinner').toBeGreaterThanOrEqual(0);
+		expect(spinning, 'a following frame exists to sync against').toBeLessThan(frames.length - 1);
+		const first = frames[spinning]!;
+		const next = frames[spinning + 1]!;
+		expect(next.mechanisms.spinner[SPINNER_KEY]!.speed, 'still spinning a frame later').toBeGreaterThan(0);
+		await withLoadedScene((scene, playfieldRoot) => {
+			const rest = bladeHang(scene, playfieldRoot);
+			syncMechanisms(scene, playfieldRoot, first);
+			syncMechanisms(scene, playfieldRoot, next);
+			const angle = angleAboutXDeg(rest, bladeHang(scene, playfieldRoot));
+			expect(Math.abs(angle), `the blade must have left rest (at ${angle.toFixed(3)} deg after ${next.tick - first.tick} ticks)`).toBeGreaterThan(1);
+		});
+	});
+
+	it('Missing blade: with vis_spinner_l_blade renamed out of the glb, the first sync throws naming it', async () => {
+		const broken = renameGlbNode(readFileSync(GLB_PATH), VIS_SPINNER_BLADE_NODE_NAME, 'vis_spinner_l_gone');
+		await withLoadedScene((scene, playfieldRoot) => {
+			expect(() => syncMechanisms(scene, playfieldRoot, buildSnapshot())).toThrow(/vis_spinner_l_blade/);
+		}, broken);
 	});
 });

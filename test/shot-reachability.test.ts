@@ -565,7 +565,22 @@ const MEASURED_LEFT_FEED_MARGIN_MM = -0.007077330733434195;
 // still asserted separately (positive: the right-bat-arrival trajectories
 // CLEAR the rail), the agreement band is unchanged at 0.01 mm, and the
 // LEFT record did not move at all -- only the right-side trajectory did.
-const MEASURED_RIGHT_FEED_MARGIN_MM = 0.036104934502217744;
+// [RE-RECORDED, STORY 5.4, DW-142] 0.036104934502217744 -> 0.015345760209470427.
+// Story 5.4 terminates col_wall_lane's bevelled top end with
+// col_post_wall_lane_cap at (474.40, 944.00), whose rim stands 1-2 mm proud
+// of the bevel. Two of the four cases here -- left-loop-orbit-28 and -31 --
+// orbit the top and descend the Right Loop lane hugging col_wall_lane's west
+// face, and there the descending ball now grazes that rim instead of the
+// bare bevel corner: measured against the pre-5.4 document, their driven
+// paths are bit-identical until tick 1349 / 1360, where they first diverge
+// at (463.0, 957.1) / (462.9, 956.7), just above the post. Per case the
+// margin moved 0.0426 -> 0.0407 (orbit-28) and 0.1072 -> 0.0153 (orbit-31,
+// now the minimum); left-loop-orbit-34 and ramp-return-geometry (the old
+// minimum, 0.0361) are bit-identical. The SIGN is unchanged (positive: the
+// right-bat-arrival trajectories still CLEAR the rail), both cases still pass
+// every routing assertion in test/shot-routing.test.ts, the band is
+// unchanged at 0.01 mm, and the LEFT record did not move.
+const MEASURED_RIGHT_FEED_MARGIN_MM = 0.015345760209470427;
 /**
  * The simulation is fully deterministic (AD-3): re-running the SAME
  * committed geometry reproduces the margin bit-identically, so this band

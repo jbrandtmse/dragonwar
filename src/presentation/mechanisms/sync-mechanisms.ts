@@ -6,9 +6,10 @@
 // `Snapshot.mechanisms`.
 //
 // - Stateless towards the game: snapshot in, pose out, no interpolation
-//   (AD-4). The only thing cached (per scene, in a `WeakMap`, the same shape
-//   as `balls.ts` and `lighting/lamp-driver.ts`) is each node's AUTHORED
-//   pose, read once from the loaded glb.
+//   (AD-4). What is cached (per scene, in a `WeakMap`, the same shape as
+//   `balls.ts` and `lighting/lamp-driver.ts`) is each node's AUTHORED pose,
+//   read once from the loaded glb, plus -- from Story 5.4 -- the spinner
+//   blade's accumulated angle (view state; see below).
 // - Read-only towards the simulation (AD-1): imports only `sim/contracts`
 //   and `sim/table`, and never writes anything back.
 // - Node names come from `TABLE.nodes.colFlipperL/R` and
@@ -24,8 +25,16 @@
 //   direction, measured about `toScene(table +Z)` -- no hand-written axis
 //   flip or unit factor anywhere in this file.
 //
-// Only the three moving families are animated here. The spinner and the
-// Dragon's mouth belong to Stories 5.4 and 5.1.
+// Story 5.4 adds the fourth moving part, the Left Loop spinner's blade
+// (`vis_spinner_l_blade`, a child of the static bracket `vis_spinner_l`,
+// whose origin is on the spin axis). The snapshot carries only the spinner's
+// SPEED (deg/s), never an angle, so its angle is view state (AD-4): one
+// per-scene accumulator, `angleDeg += speed * dtick * SECONDS_PER_TICK`,
+// advanced only when `snapshot.tick` has moved forward since the last sync
+// (an idle frame that re-syncs the same snapshot leaves it unchanged), and
+// reset to the rest pose whenever the speed is 0. Positive angles turn the
+// blade about table +X, carried to the scene by `toScene()`. The Dragon's
+// mouth belongs to Story 5.1.
 
 import type { Scene } from '@babylonjs/core/scene';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -35,8 +44,9 @@ import { Angle } from '@babylonjs/core/Maths/math.path';
 import { TABLE } from '../../sim/table/dragonwar';
 import { fromPhysics, toScene, type Vec3 } from '../../sim/table/frames';
 import type { Snapshot } from '../../sim/contracts/snapshot';
+import { SECONDS_PER_TICK } from '../../sim/contracts/time';
 import { getRequiredNode } from '../scene/playfield';
-import { VIS_PLUNGER_NODE_NAME, visTwinName } from '../scene/vis-names';
+import { VIS_PLUNGER_NODE_NAME, VIS_SPINNER_BLADE_NODE_NAME, VIS_SPINNER_NODE_NAME, visTwinName } from '../scene/vis-names';
 
 type FlipperSide = 'l' | 'r';
 
@@ -62,10 +72,24 @@ interface PlungerEntry {
 	readonly authoredPosition: Vector3;
 }
 
+interface SpinnerEntry {
+	/** The `TABLE.spinnerWiring` key -- the `Snapshot.mechanisms.spinner` record key this blade follows. */
+	readonly key: string;
+	readonly blade: AbstractMesh;
+	/** The blade's own loaded rotation (the authored rest pose, hanging toward table -Z). */
+	readonly authoredRotation: Quaternion;
+	/** Unit direction of table +X in the blade's PARENT (bracket) frame -- the spin axis through the bracket's origin. */
+	readonly axis: Vector3;
+	/** View state (AD-4): the accumulated angle, degrees, and the snapshot tick it was last advanced to. */
+	angleDeg: number;
+	lastTick: number | undefined;
+}
+
 export interface MechanismNodes {
 	readonly flippers: readonly FlipperEntry[];
 	readonly dropTargets: readonly DropTargetEntry[];
 	readonly plunger: PlungerEntry;
+	readonly spinner: SpinnerEntry;
 }
 
 const mechanismsByScene = new WeakMap<Scene, MechanismNodes>();
@@ -94,6 +118,40 @@ function requireMechanismMesh(scene: Scene, name: string, playfieldRoot: Transfo
 		throw new Error(`sync-mechanisms.ts: "${name}" is not a child of "${playfieldRoot.name}" -- its pose is only valid in playfield_root's local frame`);
 	}
 	return node;
+}
+
+/** Like `requireMechanismMesh()`, for a sub-part: a mesh named `name` whose parent is `parent`. */
+function requireChildMesh(scene: Scene, name: string, parent: AbstractMesh): AbstractMesh {
+	const node = getRequiredNode(scene, name);
+	if (!(node instanceof AbstractMesh)) {
+		throw new Error(`sync-mechanisms.ts: "${name}" resolved to a node with no mesh -- a mechanism part must carry geometry`);
+	}
+	if (node.parent !== parent) {
+		throw new Error(`sync-mechanisms.ts: "${name}" is not a child of "${parent.name}" -- it must turn about its parent's own origin`);
+	}
+	return node;
+}
+
+/** The one spinner `TABLE.spinnerWiring` declares, and its blade under the bracket. */
+function resolveSpinner(scene: Scene, playfieldRoot: TransformNode): SpinnerEntry {
+	const keys = Object.keys(TABLE.spinnerWiring);
+	if (keys.length !== 1) {
+		throw new Error(`sync-mechanisms.ts: TABLE.spinnerWiring declares ${keys.length} spinners, but the glb carries one spinner blade (${VIS_SPINNER_BLADE_NODE_NAME})`);
+	}
+	const bracket = requireMechanismMesh(scene, VIS_SPINNER_NODE_NAME, playfieldRoot);
+	const blade = requireChildMesh(scene, VIS_SPINNER_BLADE_NODE_NAME, bracket);
+	const bracketRotation = bracket.rotationQuaternion ?? Quaternion.FromEulerVector(bracket.rotation);
+	const axisInRoot = toVector3(toScene({ x: 1, y: 0, z: 0 })).normalize();
+	const axis = Vector3.Zero();
+	axisInRoot.rotateByQuaternionToRef(Quaternion.Inverse(bracketRotation), axis);
+	return {
+		key: keys[0]!,
+		blade,
+		authoredRotation: blade.rotationQuaternion?.clone() ?? Quaternion.FromEulerVector(blade.rotation),
+		axis: axis.normalize(),
+		angleDeg: 0,
+		lastTick: undefined,
+	};
 }
 
 function resolveFlipper(scene: Scene, side: FlipperSide, colName: string, playfieldRoot: TransformNode, axis: Vector3): FlipperEntry {
@@ -147,6 +205,7 @@ export function resolveMechanismNodes(scene: Scene, playfieldRoot: TransformNode
 		flippers,
 		dropTargets,
 		plunger: { node: plungerNode, authoredPosition: plungerNode.position.clone() },
+		spinner: resolveSpinner(scene, playfieldRoot),
 	};
 	mechanismsByScene.set(scene, resolved);
 	return resolved;
@@ -174,9 +233,29 @@ function signedAngleAbout(from: Vector3, to: Vector3, axis: Vector3): number {
 }
 
 /**
- * Poses the flipper, drop-target and plunger twins from `snapshot` (AD-4:
- * the latest snapshot, no interpolation). Throws on the first sync if a twin
- * is missing from the loaded scene, naming it.
+ * Advances the spinner's view-state angle to `snapshot` and poses the blade:
+ * speed 0 is the rest pose; otherwise the angle grows by `speed` (deg/s)
+ * over the ticks elapsed since the last sync, and only when `snapshot.tick`
+ * moved forward (a repeated or rewound tick advances nothing).
+ */
+function syncSpinner(spinner: SpinnerEntry, snapshot: Snapshot): void {
+	const speed = snapshot.mechanisms.spinner[spinner.key]?.speed ?? 0;
+	const tick = snapshot.tick;
+	if (speed === 0) {
+		spinner.angleDeg = 0;
+	} else if (spinner.lastTick !== undefined && tick > spinner.lastTick) {
+		spinner.angleDeg = (spinner.angleDeg + speed * (tick - spinner.lastTick) * SECONDS_PER_TICK) % 360;
+	}
+	spinner.lastTick = tick;
+	const turn = Quaternion.RotationAxis(spinner.axis, Angle.FromDegrees(spinner.angleDeg).radians());
+	spinner.blade.rotationQuaternion = turn.multiply(spinner.authoredRotation);
+}
+
+/**
+ * Poses the flipper, drop-target and plunger twins and the spinner blade
+ * from `snapshot` (AD-4: the latest snapshot, no interpolation; the
+ * spinner's angle is the one piece of view state). Throws on the first sync
+ * if a node is missing from the loaded scene, naming it.
  */
 export function syncMechanisms(scene: Scene, playfieldRoot: TransformNode, snapshot: Snapshot): void {
 	const nodes = resolveMechanismNodes(scene, playfieldRoot);
@@ -197,4 +276,6 @@ export function syncMechanisms(scene: Scene, playfieldRoot: TransformNode, snaps
 
 	const travel = toVector3(toScene({ x: 0, y: -mechanisms.plunger.posMm, z: 0 }));
 	nodes.plunger.node.position = nodes.plunger.authoredPosition.add(travel);
+
+	syncSpinner(nodes.spinner, snapshot);
 }

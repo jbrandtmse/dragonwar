@@ -4007,6 +4007,60 @@
     {
       "bboxMm": {
         "max": {
+          "x": 478.4,
+          "y": 948.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 470.4,
+          "y": 940.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 470.4,
+          "y": 944.0
+        },
+        {
+          "x": 471.5716,
+          "y": 941.1716
+        },
+        {
+          "x": 474.4,
+          "y": 940.0
+        },
+        {
+          "x": 477.2284,
+          "y": 941.1716
+        },
+        {
+          "x": 478.4,
+          "y": 944.0
+        },
+        {
+          "x": 477.2284,
+          "y": 946.8284
+        },
+        {
+          "x": 474.4,
+          "y": 948.0
+        },
+        {
+          "x": 471.5716,
+          "y": 946.8284
+        }
+      ],
+      "name": "col_post_wall_lane_cap",
+      "physMaterial": "rubber_post",
+      "shape": "wall",
+      "surface": "rubber_post",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
           "x": 402.0,
           "y": 795.0,
           "z": 50.0
@@ -4036,6 +4090,48 @@
         }
       ],
       "name": "col_ramp_return_1",
+      "physMaterial": "default",
+      "shape": "wall",
+      "surface": "plastic",
+      "zHighMm": 50.0,
+      "zLowMm": 0.0
+    },
+    {
+      "bboxMm": {
+        "max": {
+          "x": 390.4,
+          "y": 750.0,
+          "z": 50.0
+        },
+        "min": {
+          "x": 366.4,
+          "y": 485.0,
+          "z": 0.0
+        }
+      },
+      "footprintMm": [
+        {
+          "x": 366.4,
+          "y": 485.0
+        },
+        {
+          "x": 385.5613,
+          "y": 485.0
+        },
+        {
+          "x": 390.4,
+          "y": 500.0
+        },
+        {
+          "x": 390.4,
+          "y": 750.0
+        },
+        {
+          "x": 366.4,
+          "y": 740.0
+        }
+      ],
+      "name": "col_ramp_slot_fill",
       "physMaterial": "default",
       "shape": "wall",
       "surface": "plastic",
