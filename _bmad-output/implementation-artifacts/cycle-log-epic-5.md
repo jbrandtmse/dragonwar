@@ -38,3 +38,6 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-09-30T04:50:09Z	Epic 5	rule5_amendments	file=epics.md lines=2479,2486,2490,2494,2506,2519,2533,2565,2582,2586 tier=author-decided note=hand-painted/sculpted->stylized_painted-look_generated_or_author-painted;5.1_AC2_rig->jaw-node_contract;5.3_Walk-up_moved;5.5_triggers_moved;human_checks_pending_author;DW-292_bullet_added_to_5.4
 2026-09-30T04:50:09Z	Epic 5	ledger_routed_planned	story=5-4-mechanisms-plastics-ramp-and-guides entries=1 excess=0 by=clarification dw=DW-292
 2026-09-30T04:50:09Z	Epic 5	spine_updated	ad=conv reason=clarification by=runner story=none lint=ok row=Assets note=v1_art_pipeline-generated_behind_AD-11_names
+2026-09-30T04:51:52Z	Epic 5	ci_resolved	story=merge_f795cef run=36670498161 result=success resolved_at=next_plan
+2026-09-30T04:51:52Z	Epic 5	epic_context_compiled	reason=planning_artifact_newer model=opus note=amended_epics_and_spine
+2026-09-30T04:51:52Z	Story 5.4	stage_spawned	stage=plan spawn_at=2026-09-30T04:51:52Z model=opus agent_name=5-4-mechanisms-plastics-ramp-and-guides-plan-1 cycle_iteration=1
