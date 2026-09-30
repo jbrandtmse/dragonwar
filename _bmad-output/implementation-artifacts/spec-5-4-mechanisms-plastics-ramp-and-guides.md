@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-29'
 status: 'done'
 baseline_revision: 'a0f93eddf5d5f848c9180c46d3759dea7a0c4e5e'
+baseline_commit: 'a0f93eddf5d5f848c9180c46d3759dea7a0c4e5e'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -286,6 +287,8 @@ deferred: []
 - Record the node used for each part.
 
 ## Spec Change Log
+
+- 2026-09-30 (lead, after dev_complete, Rule 5 apply-and-report): (1) the display constant is `SHOOTER_ROD_STROKE_MM`, not `PLUNGER_STROKE_MM` -- a name-only correction forced by `test/backglass-frame.test.ts`'s existing ban on the substring PLUNGE in src/sim code; value, formula and role unchanged. (2) Accepted: `test/shot-reachability.test.ts` `MEASURED_RIGHT_FEED_MARGIN_MM` re-recorded 0.0361 -> 0.0153 mm; the DW-142 lane-cap post (author-routed collision change) shifts two Left Loop orbit paths near the lane wall; the ball still clears and every routing case passes. Not a golden; goldens verified per field by the lead: only header.assetHash (ab163ff -> ea9d01d6) and notes moved.
 
 - 2026-09-30 (lead spec gate, epic-runner-5): task 5 gains the golden `notes` sentence (the header-only precedent every earlier refresh followed). Rule 20: the plan's 'Art parts' conventions (children `<parent>_<part>`, `mat_art_*`, ball-band containment, derived from the footprint in the same run) were written into the spine as a Consistency Conventions row. Accepted the plan's two readings (collision additions limited to the two routed DW bodies; plunger travel derived from the hold fraction, since physics tracks only holdTicks) as within the author's 2026-09-29 decisions.
 
