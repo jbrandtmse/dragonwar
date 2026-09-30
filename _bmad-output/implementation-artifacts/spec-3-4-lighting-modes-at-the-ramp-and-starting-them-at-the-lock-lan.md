@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-29'
 status: 'done'
 baseline_revision: 'a33eb664e89fb141d191b5f7bfd4e74d7db73e2c'
+baseline_commit: 'a33eb664e89fb141d191b5f7bfd4e74d7db73e2c'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -235,6 +236,35 @@ Measured at `b82acef435b0e9ac7073a513724ff0feffcb57a4` on `DW-1-epic3`. No sourc
 - AC7 (Integration, Rules 1/2): Given a real `createRules()` in `runRulesScript`, one player and three balls, when each ball makes the Ramp and then enters the Lock lane, then Hurry-up, Quick multiball and Joust start on balls 1, 2 and 3, in that order. At every tick, `lockCredits` and `letters` equal a control run with the Ramp closures removed.
 - AC8: Given the story, when the gates run, then every gate passes and the goldens differ only in their headers. The gates are `pnpm test`, `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size`.
 
+### Review Findings
+
+_Code review 2026-09-30 (`bmad-code-review`, full mode, first review of this story). Scope: `git diff a33eb66` (build commit `2e9d6c6`) plus QA's untracked `test/mode-select-slam-physics.test.ts`, `test/rules-campaign-qa.test.ts` and `test/rules-campaign-qa-integration.test.ts`, run from `C:/git/dragonwar/.worktrees/epic-3` (verified with `git rev-parse --show-toplevel`). Review tier: `full-opus`; all four layers ran with no model override: blind-hunter, edge-case-hunter, verification-gap and acceptance-auditor. None failed, and no layer edited a file. Raw rows: 23 (blind 12, edge 4, verification 3, acceptance 4), grouped into 18 entries: 6 patched, 3 closed at emission and ledgered, 9 rejected. Severity: high 0, medium 2, low 7 (both mediums dispositioned: DW-296 patched, DW-309 decision-pending). After the patches: `pnpm test` passes 150 files / 2424 tests. `typecheck`, `lint:boundaries` and `check:headers` each exit 0. The review's added lines are ASCII-only. Rule 3: the real-runtime tier is QA's real `createMachine()` + `createRules()` runs (`mode-select-slam-physics`) and the real `createRules()` run folded through `advanceBackglass()`/`renderFrame()`/`rasterise()` (`rules-campaign-qa-integration`), per the Story 2.11/3.0a/3.1 precedent; panel pixels are the lead's browser smoke. Rule 6: AD-18, AD-8, AD-7, AD-6, AD-9 and AD-19 were checked against the diff, with no mismatch. The DW-296 fix refines AD-6 and does not contradict it. See the Rule 20 sentence below._
+
+Each entry: severity / fix-risk / footprint / spec-status.
+
+- [x] [Review][Patch] **DW-296: a Start inside the Mouth's lead after a Slam started a new game with the eject still owed.** med / low / in-story / clear. The pulse fired into the new game, and the Slam-era ball's drain ended its ball 1 (QA measured this on real physics). 3.4's Slam fix widened the exposure to the whole 10 s window. `handleStartButton` now creates no new game while a Mouth eject is pending (`mouthEjectPending(ctx)`). The refusal ends with the sequence's last pulse, which runs in any phase. A Start from the next tick on finds the spat ball loose, and the stray clear recovers it. This follows Story 2.13's precedent that a Start during the reveal is ignored. Pinned on real physics (Start 1 tick after the Slam is refused; Start at pulse+1 is honoured, `recovered` 1, one serve, no `c_mouth` and no `ball_ended` over 4000 ticks). Also pinned headless for both root paths (window Slam and 3.2's uncredited spit), with the no-Mouth control (a Slam in a locked window, where Start is honoured at once). Ledger DW-296 `resolved-by`. (blind+verification-gap+acceptance) [src/sim/rules/ball-controller/start.ts:166]
+- [x] [Review][Patch] **No window test ran for a player other than player 0.** low / low / in-story / clear. Swapping `selection.player` for `0` passed every test. Added the Hot-seat row: player 2's window moves, confirms and starts for player 2, and player 1 is untouched. (blind) [test/rules-campaign.test.ts]
+- [x] [Review][Patch] **`LockLaneSpitEvent`'s doc promised a spit for every non-locking entry.** low / low / in-story / clear. It now names 3.4's two-credit Mode start (no spit) and the Lock-filling pair. (blind) [src/sim/contracts/events.ts:333]
+- [x] [Review][Patch] **The `lock-arbiter.ts` file header was stale.** low / low / in-story / clear. It claimed "exactly one locked or spit" and listed only three any-phase exceptions. It now names the two-credit Mode start, the Slam's owed eject and the DW-296 Start refusal. (blind) [src/sim/rules/ball-controller/lock-arbiter.ts:14]
+- [x] [Review][Patch] **AC1's `unverified` clause had no `mutation:` line.** low / low / in-story / clear. The mutation was applied, observed red and reverted; the line is recorded in `## Verification`. (verification-gap) [test/tuning.test.ts:357]
+- [x] [Review][Patch] **A doubled blank line before the first `describe`.** low / low / in-story / clear. (blind) [test/mode-select-slam-physics.test.ts:236]
+- [x] [Review][Defer] **A Tilt in a windowed LOCK serves a ball that S7 never autolaunches while tilted.** med / low / in-story / spec-bound. The tilted player's ball rests in the shooter lane until they plunge it by hand (the manual plunger stays live, AD-5). DW-281 called this shape a stall. The spec's Design Notes assumed a tilted serve drains on its own. AD-18 (3.4) says a Tilt "still runs the release", so ending the ball at once needs an AD-18 amendment: a product call. Ledger **DW-309** `decision-pending owner=burndown`. 3.2 has the same shape in a narrow window. (blind) [src/sim/rules/ball-controller/lock-arbiter.ts:319]
+- [x] [Review][Defer] **An open window is invisible to the drain gate, the Lock overflow answer and the ball-end rotation.** low / med / in-story / clear. It is theoretical: every path needs a second loose ball while the window holds the only one. Single-ball play never produces that with DW-296 closed, and neither does 3.7's multiball (no candidates while `machine.multiball` is set). Ledger **DW-310** `wontfix-theoretical`. It becomes real if a story puts a second ball in play while `cs.modeSelect` is open. (blind+edge-case-hunter, three rows) [src/sim/rules/ball-controller/index.ts:264]
+- [x] [Review][Defer] **The `<MODE> LIT` line is dropped when 2+ player lines and a fields line fill the panel.** low / med / in-epic / clear. It is unreachable until 3.5 publishes Hurry-up's fields line, and the layout choice belongs to 3.5. Ledger **DW-311** `wontfix-accepted`, reopen_if = a 2+ player game with Hurry-up's fields line live and a Mode lit renders no LIT row. (acceptance) [src/presentation/backglass/frame.ts]
+
+**Rejected** (one line each):
+- `low` (blind) The spec's intent block does not record the Slam's owed eject. The fix would edit the spec under review, so it is rejected here. The lead's Rule 20 sentence below carries it into the spine.
+- `false` (blind+acceptance) The spec says `done` while sprint-status says `review`. That is pipeline state, which this stage's sprint sync sets. It is not a code defect.
+- `low` (blind) The Auto Run Result and `test-summary.md` predate QA. Both are tracking prose, and the fix edits the spec.
+- `low` (blind) A flipper hold can never confirm the already-selected Mode, because every press moves first. This is by design: the intent's "the move included", Matrix row "Window, hold", and author decision 3.
+- `low` (blind) The `mode_select` screen shows no countdown or controls hint. This is by design: the intent defines the screen's content, and adding either is new scope.
+- `low` (edge) A Start on the exact tick a Slam voids a windowed game is dropped. It needs a same-millisecond coincidence. The proposed guard would let S6 create a game that SL then continues the OLD window into. Dropping the press is also consistent with the DW-296 refusal.
+- `low` (verification-gap) `expect(campaign.duration).toBe(control.duration)` cannot fail. It guards the test's own construction, not an AC. AC7's per-tick mismatch list is the pin, and it has a mutation.
+- `false` (acceptance) DW-308 (ball save expires during the window): this story leaves it undecided, per the lead's instruction. The implementation matches the description: the confirm's serve is marked a re-serve and never re-arms, and the `'mouth'` release returns the same ball, so nothing makes it worse.
+- `false` (acceptance) The two contract deviations (`CampaignModeName` declared in `state.ts`, `modeWiring.lightShot`) are documented and required by `no-circular` and AD-16.
+
+**Rule 20 sentence for the lead (AD-6 / AD-18, not written here; the spine is the lead's):** "No new game starts while a Mouth eject is pending: its ball is parked in `bd_lock`, out of the Start-time stray clear's reach. A Start pressed meanwhile is ignored, and the refusal ends with the sequence's last pulse. A Slam in an unlocked capture's mode-select window still requests that capture's owed Mouth eject (DW-296, Story 3.4 code review)."
+
 ## Spec Change Log
 
 - 2026-09-30, lead spec gate (cycle 2): the Rule 20 sentences were written into the spine (AD-18, AD-8, AD-7). Second read done on the lead's own answer text; no spec text changed.
@@ -425,6 +455,11 @@ Mutations added by the review pass (2026-09-30; each applied, observed red, reve
 - mutation: AC6 (WARNING carry) -- drop `warningShowing ||` in `advanceBackglass`'s `mode_select` branch → `backglass-mode-select` "a WARNING already showing when the window opens is carried too" red.
 - mutation: AC6 (lit line) -- drop `nextFreeRow += LINE_PITCH_ROWS` → `backglass-mode-select` "with a fields line ... it sits one line further down" (and the crowded row) red; drop `&& nextFreeRow < DMD_ROWS` → "two player lines plus a fields line leave no free line" red.
 
+Mutations added by the code review (2026-09-30; each applied, observed red, reverted; `git status --short` and `git diff --stat` byte-identical after):
+- mutation: AC4 (DW-296) -- `if (false && mouthEjectPending(ctx))` in `handleStartButton` (a Start honoured while a Mouth eject is pending) → `mode-select-slam-physics` "DW-296: a Start INSIDE the Mouth's lead after the Slam starts no game ..." red, and `rules-campaign` "DW-296: after a Slam in an unlocked capture's window ..." and "DW-296 (Story 3.2's path) ..." red.
+- mutation: AC4/AC5 (AD-7, per player) -- `startMode(ctx, state, mode, 0, tick, out)` in `endWindow` → `rules-campaign` "AD-7: a window opened by player 2 (Hot seat) ..." red.
+- mutation: AC1 (`unverified`) -- `modeSelectHoldMs` confidence `'unverified'` -> `'low'` → `tuning` "Story 3.4 AC1: modeSelectMs (10000) and modeSelectHoldMs (500) are unverified ..." red.
+
 Implementation notes for review (choices the spec left open, or small deviations):
 - `CampaignModeName` is declared in `contracts/state.ts` and re-exported from `contracts/events.ts`. `events.ts` already imports `state.ts`; declaring it in `events.ts` would need a type-only import back, which `no-circular` counts as a cycle.
 - `TABLE.modeWiring` also carries `lightShot: 'shot_ramp'`, so the base mode builds `${lightShot}_made` instead of spelling a `shot_` literal (AD-16's `no-device-name-literal`).
@@ -433,6 +468,27 @@ Implementation notes for review (choices the spec left open, or small deviations
 - The `mode_select` screen: `SELECT MODE`, then one row per candidate; the selected row is marked with `emphasis` (inverse video in `raster.ts` -- the font has no marker glyph). It yields to an armed or live `ball_ended` hold and wins over TILT/WARNING; a `tilt_warning` inside the window is carried as `pendingTiltWarning` and shows on the first frame after it (`holdUntilTick` is the frame's own tick, keeping the reset-safety bound).
 - Campaign display names live in a separate `CAMPAIGN_DISPLAY_NAMES` table, not `MODE_DISPLAY_NAMES`: an entry there would give an active shell a status-line name, which Stories 3.5-3.7 decide. The lit line sits on the first free line below the status and fields lines and is dropped when no line is left (two or more player lines plus a fields line).
 - A capture while a window is already open (unreachable: no ball is in play meanwhile) starts nothing, keeping at most one window.
+
+**QA stage (2026-09-30, `bmad-qa-generate-e2e-tests`, at `2e9d6c6` + working tree; no production file changed).**
+
+Files (QA):
+- `test/mode-select-slam-physics.test.ts` (QA) -- 3 tests on real physics (`createMachine()` + `createRules()` composed in `sim/loop`'s step order, a genuine ten-edge nudge Slam, the loop's own `buttonSwitchEdges()` for Start and the flippers).
+- `test/rules-campaign-qa.test.ts` (QA) -- 9 headless tests, added to `test/rules-devices-headless.test.ts`'s `ENTRY_FILES`.
+- `test/rules-campaign-qa-integration.test.ts` (QA) -- 7 tests: a real `createRules()` run folded through `advanceBackglass()`/`renderFrame()`, rasterised and read back from the dots.
+- `test/rules-devices-headless.test.ts` (QA) -- `ENTRY_FILES` gains `rules-campaign-qa.test.ts`.
+
+Gates: `pnpm test` 150 files / 2419 tests green (was 147 / 2400). `typecheck`, `lint:boundaries` and `check:headers` exit 0. New test files are ASCII-only.
+
+Mutations (each applied, observed red, reverted; `git status --short -- src` empty and `git diff --stat -- src` empty after each):
+- mutation: AC4 (Slam, real physics) -- drop the `'mouth'` window's `requestMouthEject()` in `stepModeSelect`'s phase-change discard → `mode-select-slam-physics` "the window opens on a real capture, a real nudge burst Slams ... then Start: the Lock is empty ..." and "Start while the spat ball is still loose ..." red.
+- mutation: AC4 (windowed lock, real physics) -- run the serve when a `'serve'` window opens → `mode-select-slam-physics` "the capture locks and opens the window ... only then is the next ball served" red (`c_trough_eject` at the open and the confirm).
+- mutation: AC2 (restart through play) -- `const round = 0 * campaignRound(player)` in `nextModeToLight` → `rules-campaign-qa` "ball 4's Ramp lights Hurry-up again ..." red.
+- mutation: AC3/AC7 (per player, AD-7) -- `candidatesFor(nextState, 0)` in `decideEntry` → `rules-campaign-qa` "player 2's first capture ... player 1's lit Hurry-up survives it" and "player 2's own Ramp ... starts it for player 2" red.
+- mutation: AC7 (per-tick control, per player) -- `startCampaignMode` also writes `letters: ''` → `rules-campaign-qa` "at every tick, each player's lockCredits and letters equal the control run's" red (ticks 1400-1500).
+- mutation: AC6 (lit line, dots) -- `modesLit[modesLit.length - 1]` in the score screen's lit line → `rules-campaign-qa-integration` "the first Ramp puts HURRY-UP LIT on the panel's dots ... the second leaves it naming the FIRST lit Mode" red (`QUICK MB LIT`).
+- mutation: AC6 (marker, dots) -- `emphasis: index === 0` in `buildModeSelectRows` → `rules-campaign-qa-integration` "the right flipper moves the inverse marker to QUICK MB on the move tick" red.
+
+QA finding (not pinned; product code unchanged): a Start pressed INSIDE the Mouth's lead after a Slam (measured on real physics: Slam at 617, Start at 618, `mouthOpenLeadTicks` 1000) starts the new game and serves its ball, then the owed eject pulses `c_mouth` at 1617 INTO the new game -- two balls on the table, and the Slam-era ball's drain (tick 3027) ends the new game's ball 1 while its served ball still rests unplunged in the shooter lane. Story 3.2's credited-out spit (two credits, nothing lit) shows the same thing (pulse 1512, `ball_ended` 2899): the root cause is AD-18's "a Mouth sequence runs in any phase" meeting AD-6's Start-time stray clear, which recovers only loose balls, never a parked one waiting on the Mouth. Story 3.4's Slam fix makes it reachable across the whole 10 s window instead of only the 1 s lead after a spit. For the lead to ledger.
 
 ## Auto Run Result
 

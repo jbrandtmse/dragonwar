@@ -132,3 +132,44 @@ Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The headless rows drive a 
 ### Next Steps
 - The lead's browser smoke (spec Design Notes).
 - Story 3.3b (the rig) consumes these three shows from `FrameOutput.commands`. The loop-fidelity test is the seam it relies on.
+
+## Story 3.4
+
+Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The headless rows drive a whole `createRules()` through `runRulesScript()` from Attract with a real Start. The physics rows compose a real `createMachine()` and `createRules()` in `sim/loop`'s own step order: the Slam is a genuine nudge burst through the cabinet, and Start and the flippers arrive as the loop's own `buttonSwitchEdges()`. `createLoop()` cannot seed two lit Modes and two credits. The DMD rows fold a real run through `advanceBackglass()`, `renderFrame()` and `rasterise()`, and read the text back from the lit dots.
+
+### Generated Tests (integration, real runtime)
+- [x] `test/mode-select-slam-physics.test.ts` (3 tests, real physics)
+  - The implement stage's named risk. A Slam in an unlocked capture's window (two credits, two lit Modes) discards the window with no event and no start. The owed Mouth eject really releases the parked ball in Attract (`c_mouth` at Slam + LEAD, then `s_lock_1` opens). The ball drains, and at the next Start the Lock is empty in both views. The stray clear recovers 0, exactly one ball is served, and the Mouth never fires into the new game.
+  - The same, with Start pressed while the spat ball is still loose on the playfield. The stray clear recovers it (1), and the new game has exactly one ball and an empty Lock.
+  - A windowed lock on the real input path. A right-flipper frame moves to Quick multiball and a Start frame confirms it, adding no player. The trough serves only at the confirm, the new ball is autolaunched, and the locked ball stays locked.
+- [x] `test/rules-campaign-qa.test.ts` (9 tests; headless, gated in `ENTRY_FILES`)
+  - The order restarts through real play. In a four-ball game, balls 1-3 start Hurry-up, Quick multiball and Joust. Ball 4 starts with nothing lit, its Ramp lights Hurry-up again, and its capture starts it a second time, so `modesPlayed` is `[hurryup, quickmb, joust, hurryup]`. The control has no ball-4 Ramp and gives 3.2's uncredited spit.
+  - Per player (Hot seat, AD-7):
+    - player 1's Ramp lights only player 1's Mode;
+    - player 2's capture, with nothing of their own lit, is a plain lock and leaves player 1's lit Mode untouched;
+    - player 2's own Ramp and capture start player 2's Hurry-up.
+    - At every tick, each player's `lockCredits` and `letters` equal the no-Ramp control's.
+- [x] `test/rules-campaign-qa-integration.test.ts` (7 tests; rasterised DMD)
+  - A glyph-reader sanity row.
+  - Then, on a real run:
+    - no lit line before any Ramp;
+    - `HURRY-UP LIT` from the first Ramp's tick, still naming the first lit Mode after the second Ramp;
+    - `SELECT MODE` on the capture tick, with `HURRY-UP` in inverse video;
+    - the marker moves to `QUICK MB` on the flipper tick;
+    - the screen drops on the confirm tick, and the lit line returns naming the Mode still lit.
+
+### Coverage
+- 7 mutations were demonstrated, each recorded in the spec's `## Verification` (QA stage). Every one turns a QA row red:
+  - the Slam's owed eject dropped;
+  - the serve run at the window's open;
+  - the round frozen at 0;
+  - the candidates read from player 1;
+  - a start clearing letters;
+  - the lit line naming the last lit Mode;
+  - the marker on the first candidate.
+- AC1, AC3's entry rows, AC4's hold, expiry, Tilt and lane rows, and AC8 were audited against `test/rules-campaign.test.ts`, `table.test.ts`, `tuning.test.ts` and the goldens. They are already pinned with recorded mutations, and no gap was found.
+- Gates: `pnpm test` 150 files / 2419 tests, all passing. `typecheck`, `lint:boundaries` and `check:headers` each exit 0. No production file changed.
+
+### Next Steps
+- The lead should ledger the QA finding in the spec's `## Verification`. A Start pressed inside the Mouth's lead after a Slam lets the owed eject fire into the new game, whose ball 1 is then ended by the Slam-era ball's drain. Story 3.2's spit shares the root cause (AD-18 Mouth-in-any-phase vs AD-6's stray clear).
+- The lead's browser smoke (spec Design Notes).

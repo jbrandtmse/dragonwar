@@ -330,9 +330,13 @@ export interface LockLaneLockedEvent {
 }
 
 /**
- * Story 3.2 (AD-18, AD-9): the Lock arbiter's outcome for every Lock-lane
+ * Story 3.2 (AD-18, AD-9): the Lock arbiter's outcome for a Lock-lane
  * entry that does not lock -- the ball is spat back out through the Mouth
- * (or, for a full-device entry, was never parked at all). `credited` is
+ * (or, for a full-device entry, was never parked at all). Story 3.4: a
+ * captured entry with lit Modes and two credits already is NOT a spit -- its
+ * one outcome is `lock_lane_mode_start`, although the Mouth still returns
+ * the ball; a capture that fills the Lock with lit Modes emits this event
+ * `{ credited: true }` and then `lock_lane_mode_start`. `credited` is
  * whether this entry raised the player's credit: `true` when the Lock was
  * already full of other balls (the credit still counts), `false` when the
  * entry earns nothing (two credits already, Tilt, or a multiball). `credits`

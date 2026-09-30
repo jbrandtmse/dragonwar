@@ -503,6 +503,77 @@ describe('Story 3.4 -- AC 4: two or more candidates hold the ball in bd_lock for
 		expect(pulseTicks(result, TROUGH_EJECT_COIL)).toEqual([]);
 	});
 
+	// Code review (DW-296, AD-6/AD-18): the owed eject's ball is parked in
+	// bd_lock, out of the Start-time stray clear's reach, so no new game may
+	// start while that eject is pending -- else the pulse fires into it.
+	it('DW-296: after a Slam in an unlocked capture\'s window, a Start inside the Mouth\'s lead starts no game; a Start on the tick after the pulse does', () => {
+		const t = 300;
+		const pulse = t + 5 + L;
+		const script = [
+			...capture('s_lock_3', t),
+			...close('s_slam_tilt').at(t + 5).open().at(t + 6).build(),
+			...press('s_start', t + 10, t + 15),
+			...press('s_start', pulse + 1, pulse + 6),
+		];
+		const result = runRulesScript(script, { durationTicks: pulse + 20, initialState: WINDOW_MOUTH() });
+		expect(pulseTicks(result, MOUTH_COIL), 'the premise: the owed eject pulses in Attract').toEqual([pulse]);
+		expect(result.statesByTick.get(t + 10)!.phase, 'the Start inside the lead is ignored').toBe('attract');
+		expect(result.statesByTick.get(pulse)!.phase, 'and nothing starts before the pulse').toBe('attract');
+		expect(result.events.filter((event) => event.type === 'ball_will_start').map((event) => event.tick), 'the only ball start is the Start after the pulse').toEqual([pulse + 1]);
+		expect(pulseTicks(result, TROUGH_EJECT_COIL), 'one serve, at that Start').toEqual([pulse + 1]);
+		expect(result.statesByTick.get(pulse + 1)!.phase).toBe('game');
+		expect(result.recoverCommands.map((command) => command.tick), 'its stray clear is issued after the pulse, so it reaches the spat ball').toEqual([pulse + 1]);
+	});
+
+	it('DW-296 control: after a Slam in a LOCKED capture\'s window (no Mouth eject owed), the same Start inside the lead starts the game at once', () => {
+		const t = 300;
+		const script = [...capture('s_lock_1', t), ...close('s_slam_tilt').at(t + 5).open().at(t + 6).build(), ...press('s_start', t + 10, t + 15)];
+		const result = runRulesScript(script, { durationTicks: t + 30, initialState: gameState({ player: { modesLit: ['hurryup', 'quickmb'] } }) });
+		expect(pulseTicks(result, MOUTH_COIL), 'the premise: nothing is owed to the Mouth').toEqual([]);
+		expect(result.statesByTick.get(t + 10)!.phase).toBe('game');
+		expect(pulseTicks(result, TROUGH_EJECT_COIL)).toEqual([t + 10]);
+	});
+
+	it('DW-296 (Story 3.2\'s path): after a Slam that follows an uncredited spit, a Start inside the Mouth\'s lead starts no game; a Start on the tick after the pulse does', () => {
+		const t = 300;
+		const pulse = t + L;
+		const script = [
+			...capture('s_lock_1', t),
+			...close('s_slam_tilt').at(t + 5).open().at(t + 6).build(),
+			...press('s_start', t + 10, t + 15),
+			...press('s_start', pulse + 1, pulse + 6),
+		];
+		const result = runRulesScript(script, { durationTicks: pulse + 20, initialState: gameState({ player: { lockCredits: 2 } }) });
+		expect(arbiterEvents(result).map((event) => event.type), 'the premise: two credits, nothing lit -- the spit').toEqual(['lock_lane_spit']);
+		expect(pulseTicks(result, MOUTH_COIL)).toEqual([pulse]);
+		expect(result.statesByTick.get(t + 10)!.phase).toBe('attract');
+		expect(pulseTicks(result, TROUGH_EJECT_COIL)).toEqual([pulse + 1]);
+		expect(result.statesByTick.get(pulse + 1)!.phase).toBe('game');
+	});
+
+	it('AD-7: a window opened by player 2 (Hot seat) moves, confirms and starts for player 2 -- player 1\'s lit and played Modes are untouched', () => {
+		const t = 300;
+		const single = gameState({ held: 2 });
+		const initialState: GameState = {
+			...single,
+			players: [player({ modesLit: ['joust'] }), player({ modesLit: ['hurryup', 'quickmb'], lockCredits: 2 })],
+			currentPlayer: 1,
+			modes: [{ ...BASE_ENTRY, player: 1 }],
+		};
+		const script = [...capture('s_lock_3', t), ...press('s_flipper_r', t + 10, t + 12), ...press('s_start', t + 20, t + 22)];
+		const result = runRulesScript(script, { durationTicks: t + 30, initialState });
+		expect(arbiterEvents(result)).toEqual([
+			{ type: 'lock_lane_mode_start', player: 1, candidates: ['hurryup', 'quickmb'], selected: 'hurryup', tick: t },
+			{ type: 'mode_select_moved', player: 1, candidates: ['hurryup', 'quickmb'], selected: 'quickmb', tick: t + 10 },
+			{ type: 'mode_select_ended', player: 1, mode: 'quickmb', reason: 'start', tick: t + 20 },
+		]);
+		const after = result.statesByTick.get(t + 20)!;
+		expect(after.players[1], 'player 2 is credited').toMatchObject({ modesPlayed: ['quickmb'], modesLit: ['hurryup'] });
+		expect(after.players[0], 'player 1 is untouched').toMatchObject({ modesPlayed: [], modesLit: ['joust'] });
+		expect(after.modes.find((entry) => entry.mode === 'quickmb')?.player, 'the Mode runs for player 2').toBe(1);
+		expect(after.players, 'the window\'s Start added no player').toHaveLength(2);
+	});
+
 	it('Matrix "Lane change in window": a flipper press inside the window leaves lanes.lit unchanged -- on the opening tick and mid-window', () => {
 		const t = 300;
 		const lanes = { lit: { top_1: true }, completedSets: [] };

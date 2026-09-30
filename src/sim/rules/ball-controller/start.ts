@@ -16,6 +16,7 @@ import { TABLE } from '../../table/dragonwar';
 import { EMPTY_BALL_SAVE, enableBallSave } from '../ball-save';
 import { BONUS_EMPTY } from '../bonus';
 import { gameOverResolved } from './game-over';
+import { mouthEjectPending } from './lock-arbiter';
 import { BALL_SAVE_SOURCE, HARDWARE_COILS, START_BUTTON, type ControllerContext, type StartBallResult, type TickOutput } from './shared';
 import type { DeviceEvent } from '../devices';
 import type { RecoverCommand } from '../../contracts/commands';
@@ -164,6 +165,19 @@ export function handleStartButton(ctx: ControllerContext, state: GameState, devi
 	let newGameStartedThisTick = false;
 	if (startPressed) {
 		if (nextState.phase === 'attract' || gameOverResolved(ctx, nextState, tick)) {
+			// Code review of Story 3.4 (DW-296, AD-6/AD-18): no new game while a
+			// Mouth eject is pending. Its ball is parked in `bd_lock`, where the
+			// Start-time stray clear cannot reach it, and the pulse falls due up to
+			// `mouthOpenLeadTicks` later -- INTO the new game, a second ball whose
+			// drain would end the new ball 1. The press is ignored (Story 2.13's
+			// "Start during the reveal" precedent). A Mouth sequence runs in any
+			// phase, so the refusal ends with its last pulse; a Start from the
+			// next tick on finds the spat ball loose, and the stray clear
+			// recovers it. Reached after a Slam that follows a Lock spit, or a
+			// Slam in an unlocked capture's mode-select window.
+			if (mouthEjectPending(ctx)) {
+				return { state: nextState, newGameStartedThisTick };
+			}
 			const created: GameState = {
 				...nextState,
 				phase: 'game',

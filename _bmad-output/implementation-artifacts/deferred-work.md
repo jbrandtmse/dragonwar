@@ -1921,6 +1921,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-3-1-the-mode-stack.md | severity: med | fix-risk: low | footprint: in-epic
 - evidence: src/sim/rules/ball-controller/ball-end.ts copies nextState.modes names into the ending player's modesPlayed; test/rules-lifecycle.test.ts pins it with a stub mode; Story 3.10 reads modesPlayed containing all three Modes
 - 2026-09-29T15:43:06Z status=routed owner=3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=harvest note=in-epic MED: Story 3.4 owns modesPlayed (its AC: added to modesPlayed at mode_<name>_started); remove the ball-end credit there
+- 2026-09-30T09:15:29Z status=resolved-by:3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=adjudication note=2e9d6c6 ball-end.ts no longer writes modesPlayed; startCampaignMode() appends the Mode at mode_<name>_started, so base and skill_shot never enter it (AC5 and the ball-end row pinned; the Story 2.x stub-mode pin updated)
 
 ### DW-294: lampsOf()'s machine-lamp guard (no mode may override l_lock or l_ball_save) has no pinning test: deleting !isMachineLamp() keeps the suite green, because no production lamps hook names a machine lamp
 - source: spec-3-1-the-mode-stack.md | severity: low | fix-risk: low | footprint: in-story
@@ -1937,6 +1938,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: 3.2 design: pending Mouth ejects are never cancelled once their show is emitted; the stray clear runs at startBall's t+1, before a pulse due up to mouthOpenLeadTicks later; needs Slam and Start within ~1 s of a Lock entry
 - 2026-09-29T17:45:47Z status=wontfix-accepted owner=3-2-locking-balls-and-the-lock-arbiter by=harvest note=reopen_if=a replay or the 3.11 playtest shows a second loose ball on a new game's first serve after a Slam
 - 2026-09-29T18:27:40Z occurrence=3-2-locking-balls-and-the-lock-arbiter
+- 2026-09-30T08:57:06Z status=open owner=3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=adjudication note=REOPENED -- reopen_if met: Story 3.4 QA measured it on real physics (Slam t617, Start t618: the owed Mouth eject fires into the new game at t1617, two balls on the table, the Slam-era ball drains at t3027 and ends the new ball 1 while the served ball sits unplunged). Story 3.4's Slam fix widens the exposure from the 1 s after a spit to the whole 10 s mode-select window; root cause AD-18 Mouth-in-any-phase vs AD-6's Start stray clear, which never recovers a ball parked in the Lock awaiting its eject. In-story MED for 3.4's code review.
+- 2026-09-30T09:12:55Z status=resolved-by:3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=cr note=start.ts refuses a new game while a Mouth eject is pending; pinned real-physics Slam->Start@+1 (red w/o guard) + Start@pulse+1 positive
 
 ### DW-297: A Mouth pulse that ejects nothing (eject_failed) still clears the pending sequence, so if the rules-side bd_lock view ever disagrees with physics ballsInPlay can stay 0 with no drain gate and no ball search, stalling the game
 - source: spec-3-2-locking-balls-and-the-lock-arbiter.md | severity: med | fix-risk: low | footprint: in-story
@@ -1970,3 +1973,23 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: src/sim/table/tuning.ts mouthOpenLeadMs source, copied into all five golden headers; stale since the 3.3/3.3b split
 - 2026-09-30T05:38:46Z status=open owner=3-3-the-dragon-s-mouth-and-hit-reaction by=harvest note=two-way door: code review patches it with a header-only golden re-record (pre-authorised)
 - 2026-09-30T06:06:26Z status=resolved-by:3-3-the-dragon-s-mouth-and-hit-reaction by=cr note=tuning.ts:347 now names Story 3.3b; 5 goldens re-recorded by hand, leaf diff: only mouthOpenLead{Ms,Ticks}.source moved
+
+### DW-308: Ball save keeps expiring while a mode-select window holds the ball in bd_lock, so a 10 s window can outlast the 8 s save and the released ball returns unsaved
+- source: spec-3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: save-serve.ts expireBallSave clears machine.ballSave by tick whatever ballsInPlay is; a window lasts up to modeSelectMs 10000 against ballSaveMs 8000
+- 2026-09-30T08:43:03Z status=decision-pending owner=burndown by=harvest note=product call for the decision sheet: should ball save pause while the mode-select window holds the ball? (both values are 3.11 playtest tunables)
+
+### DW-309: A Tilt inside a windowed LOCK's mode-select window runs the serve release, but S7 never autolaunches while tilted, so the tilted player's fresh ball rests in the shooter lane until they plunge it by hand
+- source: spec-3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan.md | severity: med | fix-risk: low | footprint: in-story
+- evidence: endWindow(tilt) -> runRelease('serve') -> serveAfterLock trough pulse; armSaveOrAutolaunch skips c_autolaunch while tilted; ballsInPlay 0 so ball search is idle. The manual plunger stays live (AD-5), so it ends only on a player plunge. DW-281 called the same shape a stall; spec Design Notes assumed the tilted serve drains on its own
+- 2026-09-30T09:12:55Z status=decision-pending owner=burndown by=cr note=product call: AD-18 (3.4) says a Tilt still runs the release; ending the tilted ball at once instead needs an AD-18 amendment. 3.2 has the same shape in a narrow window
+
+### DW-310: The open mode-select window is invisible to the drain gate, the Lock overflow answer and the ball-end rotation, so a SECOND loose ball draining or overflowing while a window holds the player's ball would end the ball or spit a locked ball
+- source: spec-3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: ballEndGateOpen's mouthEjectPending omits a 'mouth' window's owed eject; endBall never closes cs.modeSelect; the overflow answer ignores the window. Every path needs a second ball in play while the window holds the only one, which single-ball play (with DW-296 closed) and 3.7's multiball (no candidates while machine.multiball is set) never produce
+- 2026-09-30T09:12:56Z status=wontfix-theoretical owner=3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=cr note=real if any story puts a second ball in play while cs.modeSelect is open (3.7/3.8 multiball starting outside the confirm)
+
+### DW-311: The score screen's <MODE> LIT line is dropped when two or more player lines and a mode fields line fill the four-line DMD panel
+- source: spec-3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan.md | severity: low | fix-risk: med | footprint: in-epic
+- evidence: frame.ts buildScoreRows draws the lit line only while nextFreeRow < DMD_ROWS; unreachable today (no mode publishes ModeView fields), reachable once 3.5's Hurry-up timer fields line runs in a Hot-seat game with another Mode lit
+- 2026-09-30T09:12:56Z status=wontfix-accepted owner=3-4-lighting-modes-at-the-ramp-and-starting-them-at-the-lock-lan by=cr note=reopen_if=a 2+ player game with Hurry-up's fields line live and a Mode lit renders no LIT row (3.5 layout)

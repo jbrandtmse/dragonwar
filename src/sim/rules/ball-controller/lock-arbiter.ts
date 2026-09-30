@@ -13,9 +13,10 @@
 //   `device_ball_entered` with no `lock_lane_entered`, DW-171);
 // - it DECIDES each entry, emitting exactly one `lock_lane_locked` or
 //   `lock_lane_spit` and writing the player-scoped `lockCredits` (AD-7);
-//   Story 3.4: a captured entry with lit Modes also emits
-//   `lock_lane_mode_start` (after the credit's own event when a credit
-//   applies -- the only two-event outcomes) and starts the one candidate, or
+//   Story 3.4: a captured entry with lit Modes emits `lock_lane_mode_start`
+//   -- after the credit's own event when a credit applies (the only
+//   two-event outcomes), or alone, in place of the spit, when the player
+//   already holds two credits -- and starts the one candidate, or
 //   holds the ball in `bd_lock` for a mode-select window
 //   (`ControllerState.modeSelect`) that flipper presses move and Start, a
 //   flipper hold or its expiry confirm;
@@ -34,9 +35,13 @@
 // The arbiter acts only in `phase === 'game'`; in Attract and `game_over` a
 // captured ball stays parked, exactly as before this story. The Mouth's due
 // pulse, its due close (Story 3.3) and the overflow answer are the
-// exceptions: they run in any phase. A pending Mouth sequence and a pending
-// close are never cancelled by a ball end, a Slam or a phase change -- each
-// is discarded only when `tick` runs backwards (`tilt.ts`'s precedent).
+// exceptions: they run in any phase. So does, from Story 3.4, the eject a
+// Slam leaves owed to an unlocked capture's mode-select window
+// (`stepModeSelect()`). A pending Mouth sequence and a pending close are
+// never cancelled by a ball end, a Slam or a phase change -- each is
+// discarded only when `tick` runs backwards (`tilt.ts`'s precedent) -- and
+// while a sequence is pending no new game starts (`./start.ts`, DW-296): its
+// ball is parked beyond the Start-time stray clear's reach.
 //
 // Device and show names are reached only through `TABLE` (AD-16).
 
