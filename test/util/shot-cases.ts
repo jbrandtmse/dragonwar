@@ -984,6 +984,11 @@ export const SHOT_CASES: readonly ShotCase[] = [
 	// mutation: revert LANE_WALL_CAP_DROP_MM to 0.0 (a dead-flat cap) and
 	// re-export -> this column goes red in assertNotStranded naming the
 	// permanent rest at (474.40, 963.49).
+	// [STORY 5.4, code review] The figures and the mutation above predate
+	// col_post_wall_lane_cap (DW-142) and were not re-measured: this column
+	// now lands on that post, and the post's own y is derived from
+	// LANE_WALL_CAP_DROP_MM, so the mutation above now moves the post too.
+	// The DW-142 columns below carry the current record.
 	{
 		id: 'descend-wall-lane-cap',
 		label: 'Descending release onto col_wall_lane\'s bevelled north cap (DW-119)',
@@ -996,7 +1001,7 @@ export const SHOT_CASES: readonly ShotCase[] = [
 		reachability: { kind: 'reachable', witness: 'plunge-full' },
 	},
 	// [STORY 5.4, DW-142] col_post_wall_lane_cap now terminates this same cap,
-	// sited 3.0 mm down-table of the cap's own midpoint (474.40, 944.00)
+	// sited at (474.40, 944.00), 3.0 mm down-table of the cap's own midpoint,
 	// because a post centred ON the midpoint (474.40, 947.00) strands a
 	// descending ball at (474.40, 964.51) -- measured at the Story 5.4 plan
 	// stage. One column at the cap's centre cannot pin that: a post that

@@ -402,13 +402,21 @@ describe('Story 5.4 AC 2 -- art scope, naming, parents and the mesh contract', (
 	});
 
 	it('vis_playfield, vis_backbox and the l_ inserts carry no art material (they stay as they were)', () => {
+		const seen: string[] = [];
 		for (const node of glb.doc.nodes) {
 			if (node.name === 'vis_playfield' || node.name === 'vis_backbox' || node.name?.startsWith('l_')) {
+				seen.push(node.name);
 				const materials = glb.doc.meshes[node.mesh!]!.primitives.map((p) => materialNameOf(glb.doc, p));
 				expect(materials.filter((m) => m.startsWith('mat_art_')), `${node.name}`).toEqual([]);
 				expect(node.children, `${node.name}: gains no art children`).toBeUndefined();
 			}
 		}
+		// [Story 5.4 QA] Non-vacuity (Rule 19): the loop above passes over an
+		// empty set if these nodes were renamed or dropped: vis_playfield,
+		// vis_backbox and the 15 l_ inserts the spec's Verification names.
+		// mutation: rename vis_backbox inside the glb JSON chunk -> red here.
+		expect(seen, 'vis_playfield and vis_backbox are among the untouched nodes').toEqual(expect.arrayContaining(['vis_playfield', 'vis_backbox']));
+		expect(seen.filter((n) => n.startsWith('l_')).length, 'the 15 l_ inserts').toBe(15);
 	});
 
 	it('every sub-part is a child named <parent>_<part>, and every art mesh keeps AD-11/AD-12\'s contract: one primitive, TEXCOORD_1, lg_playfield', () => {
@@ -700,6 +708,28 @@ describe('Story 5.4 AC 2 -- the moving parts keep the follower\'s contract', () 
 		expect(Math.abs((box.min.z + box.max.z) / 2 - shooter.z), `vis_plunger centre z ${((box.min.z + box.max.z) / 2).toFixed(3)} vs bd_shooter ${shooter.z}`).toBeLessThanOrEqual(PIN_TOLERANCE_MM);
 		expect(box.min.z, 'the rod and knob stay above the deck').toBeGreaterThanOrEqual(0);
 		expect(box.min.y, 'the knob reaches south of the playfield').toBeLessThan(0);
+		// [Story 5.4 code review] The knob is an art mesh too ("Art
+		// materials"), and the rod and knob are round parts: at most 16
+		// segments per ring, counted as distinct angles about bd_shooter's own
+		// table-y axis per y level (an on-axis cap centre carries no angle).
+		expect(meshes.find((m) => m.node === `${VIS_PLUNGER_NODE_NAME}_knob`)!.material).toBe('mat_art_plunger_knob');
+		let rings = 0;
+		for (const mesh of meshes) {
+			const byY = new Map<string, Set<string>>();
+			for (const v of mesh.vertices) {
+				if (Math.hypot(v.x - shooter.x, v.z - shooter.z) < 1e-3) {
+					continue;
+				}
+				const angles = byY.get(v.y.toFixed(2)) ?? new Set<string>();
+				angles.add(((Math.round((Math.atan2(v.z - shooter.z, v.x - shooter.x) * 180) / Math.PI * 2) / 2 + 360) % 360).toFixed(1));
+				byY.set(v.y.toFixed(2), angles);
+			}
+			for (const [y, angles] of byY) {
+				rings++;
+				expect(angles.size, `${mesh.node}: ring at y ${y} carries ${angles.size} segments`).toBeLessThanOrEqual(MAX_ROUND_SEGMENTS);
+			}
+		}
+		expect(rings, 'non-vacuity: plunger rings counted').toBeGreaterThan(4);
 	});
 
 	it('the spinner: a static bracket whose origin is on the spin axis at SPINNER_Y_MM, over sw_spinner, and a blade child hanging toward table -Z whose every vertex sweeps a circle wholly above ballMm + 1', () => {
@@ -719,6 +749,10 @@ describe('Story 5.4 AC 2 -- the moving parts keep the follower\'s contract', () 
 		const blade = glb.doc.nodes[bladeIndex]!;
 		expect(blade.translation ?? [0, 0, 0], 'the blade turns about the bracket\'s own origin').toEqual([0, 0, 0]);
 		expect(blade.rotation).toBeUndefined();
+		// [Story 5.4 code review] Both are art meshes ("Art materials"); the
+		// scope case covers only the col_ twins, so pin them here.
+		expect(materialNameOf(glb.doc, glb.doc.meshes[bracket.mesh!]!.primitives[0]!), 'the bracket\'s material').toBe('mat_art_spinner');
+		expect(materialNameOf(glb.doc, glb.doc.meshes[blade.mesh!]!.primitives[0]!), 'the blade\'s material').toBe('mat_art_spinner_blade');
 
 		const meshes = meshesOf(VIS_SPINNER_NODE_NAME);
 		const bladeVertices = meshes.filter((m) => m.node === VIS_SPINNER_BLADE_NODE_NAME).flatMap((m) => m.vertices);

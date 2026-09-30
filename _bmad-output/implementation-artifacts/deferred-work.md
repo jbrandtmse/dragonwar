@@ -957,6 +957,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-04T06:17:26Z status=escalated owner=burndown by=cr note=FR-31 judgement for the author at the epic decision sheet: terminate the tip, or exempt it on the two-directional allowlist with a stated reason
 - 2026-09-04T14:52:48Z occurrence=2-1d-device-behaviour-and-guide-terminations
 - 2026-09-28T14:07:21Z status=routed owner=5-4-mechanisms-plastics-ramp-and-guides by=merge_gate note=Epic 2 decision sheet 2026-09-28: route to 5.4 alongside DW-249; seal col_wall_lane's bare free edge along the plunge path when the mechanisms are built
+- 2026-09-30T06:59:39Z status=resolved-by:5-4-mechanisms-plastics-ramp-and-guides by=adjudication note=col_post_wall_lane_cap terminates col_wall_lane's free end; FR-31 gate checks it by name; deletion mutation red
 
 ### DW-143: buildClearBeyond() projects the eject-clear threshold onto the eject direction's single dominant axis, so a device whose ejectPose.dir is diagonal could satisfy the threshold while still inside its own slot-zone union on another axis
 - source: spec-2-1d-device-behaviour-and-guide-terminations.md | severity: low | fix-risk: low | footprint: in-story
@@ -1623,6 +1624,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: high | fix-risk: med | footprint: out-of-epic
 - evidence: 2.11 browser smoke (orchestrator backstop, 2026-09-11): no flipper visible in any capture; mechanisms/.gitkeep reads 'Filled by Story 1.6 ... the flipper and plunger presentation', never delivered; playfield.ts:53-61 confirms the flipper col_ nodes never reach the glb; Story 5.4's AC says mechanism visuals 'replace the primitives', which do not exist
 - 2026-09-11T01:04:56Z status=routed owner=5-4-mechanisms-plastics-ramp-and-guides by=smoke note=Routed to 5.4 because its AC 1 already requires flipper angle and plunger travel to follow the snapshot. But 5.4 assumes primitives exist to replace, and they don't, so its plan must build them from nothing. Until then every browser smoke of flipper behaviour (Tilt's dead flippers, AD-5's hardware set) can only be proven by unit tests. Author may want this pulled earlier than Epic 5.
+- 2026-09-30T06:59:39Z status=resolved-by:5-4-mechanisms-plastics-ramp-and-guides by=adjudication note=mechanism art parts drawn and posed from the snapshot (flippers, targets, plunger travel, spinner); browser-sampled 2026-09-30
 
 ### DW-250: A ball_ended arriving while the WARNING screen is already SHOWING replaces it with no memory of the warning -- the reverse direction of DW-247's carry (a new drain racing an already-displayed warning)
 - source: _bmad-output/implementation-artifacts/spec-2-11-tilt-warnings-tilt-and-slam-tilt.md | severity: low | fix-risk: low | footprint: in-story
@@ -1680,6 +1682,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: Plan-stage grid probe at ddbd946: 11 of 2346 placements rest there, 24.5 mm from s_ramp_enter; placed at (370.9, 508.5) z fell below -200 mm by tick 3515-5756; real-play reachability not measured; 2.12's recover now frees either outcome
 - 2026-09-11T14:48:57Z status=escalated owner=burndown by=harvest note=For the author at the decision sheet: a deck-gap geometry fix moves the collision asset hash every golden pins, and whether a failed Ramp shot actually reaches the spot is unmeasured
 - 2026-09-28T14:07:26Z status=routed owner=5-4-mechanisms-plastics-ramp-and-guides by=merge_gate note=Epic 2 decision sheet 2026-09-28: route to 5.4, which builds the Ramp; a ball at the Ramp entrance must neither rattle nor sink
+- 2026-09-30T06:59:40Z status=resolved-by:5-4-mechanisms-plastics-ramp-and-guides by=adjudication note=col_ramp_slot_fill closes the 24 mm slot; gap-grid case red with 5543 open points when deleted
 
 ### DW-259: A commanded pop pulse kicks only the first ball its scan finds in the pulsed pop's skirt zone; a second co-located ball is silently left alone
 - source: spec-2-12-ball-search.md | severity: low | fix-risk: low | footprint: in-story
@@ -1862,6 +1865,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: plunger.ts:100-104 returns { posMm: 0, holdTicks }; Story 5.0a's vis_plunger follows posMm faithfully but is static in real play; 5.4 AC1 'plunger travel' depends on it; src/sim is outside Epic 5
 - 2026-09-29T11:14:24Z status=routed owner=burndown by=harvest note=src/sim work Epic 5 cannot do; re-own to a sim-owning story at the burn-down gate
 - 2026-09-30T04:49:57Z owner=5-4-mechanisms-plastics-ramp-and-guides by=clarification note=author decision 2026-09-29: fix in 5.4 on the unchanged-goldens condition
+- 2026-09-30T06:59:40Z status=resolved-by:5-4-mechanisms-plastics-ramp-and-guides by=adjudication note=plunger.ts reports posMm = SHOOTER_ROD_STROKE_MM x hold fraction; goldens unchanged per field; browser hold moved vis_plunger
 
 ### DW-293: src/host/boot.ts's per-frame syncMechanisms wiring has no automated test; deleting the call, or moving resolveMechanismNodes below the latestSnapshot guard, leaves every test green
 - source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: in-story
@@ -1874,3 +1878,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: col_dragon_bank_backstop surface=target x202.4-286.4 y708-723 z0-50; targets y700-708 same red, same 52 mm top; AC2 promises a dropped target is shown down
 - 2026-09-29T11:14:27Z status=open owner=5-0a-visible-placeholder-geometry by=harvest note=lead measures in the browser before prescribing; fix (backstop to wall family) is intent-preserving for AC2
 - 2026-09-29T11:38:53Z status=resolved-by:5-0a-visible-placeholder-geometry by=adjudication note=backstop now mat_vis_wall 50mm top; placeholder-geometry DW-294 case, mutation red; spec+spine amended
+
+### DW-306: The spinner blade spans the whole Left Loop lane (x 3-63) but only sw_spinner (x 5-45) spins it, so every Right Loop orbit visibly passes under a blade that stays still
+- source: spec-5-4-mechanisms-plastics-ramp-and-guides.md | severity: med | fix-risk: med | footprint: in-story
+- evidence: _art_spinner() sizes the blade lane-wall to lane-wall (tools/make-placeholder-blend.py); docs/feel-test.md records the Right Loop return crossing the spinner's y at x 52.2-52.3, 7 mm outside sw_spinner, so s_spinner never closes on it. Story 5.4's full-width blade makes that known asymmetry visible on every orbit.
+- 2026-09-30T06:57:32Z status=decision-pending owner=burndown by=cr note=product call: narrow the blade to sw_spinner's x span (in-story art, re-export) OR widen sw_spinner to the lane (sim, moves goldens); rec: widen

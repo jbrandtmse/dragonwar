@@ -50,7 +50,10 @@
 // the art forms of the z-band and south-end pins), and the cap pin (a
 // ceiling of min(zHigh, WALL_H_MM) plus a lip on every art part). The
 // coplanar-top mutation above now reddens nothing (vis_post_divider_l_hi is
-// an art part); its placeholder-era form is recorded in the 5.0a spec.
+// an art part); its placeholder-era form is recorded in the 5.0a spec. The
+// colour and DW-294 mutations above are placeholder-era too: `mat_vis_post`
+// no longer exists and the DW-294 case moved to test/mechanism-art.test.ts,
+// so their current mutation lines are the spec's (Story 5.4, Verification).
 
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';

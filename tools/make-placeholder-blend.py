@@ -449,6 +449,13 @@ PLUNGE_DEFLECTOR_DROP_MM = 50.0  # 34 mm run (the shooter lane's own clear width
 # = 38 mm, above the 26.99 mm reference ball) -- this story draws the gate
 # body and its sw_spinner zone only; the mechanical spin/revolution count is
 # Story 2.3's (AD-6).
+# [STORY 5.4, code review] HISTORICAL: nothing is sized from this constant
+# any more. The x 0..12 stub it sized was removed by Story 5.4's art pass
+# (see the [STORY 5.4, DW-249] note at the old stub's site in main()); the
+# spinner is now a bracket and blade above the ball band, from the
+# SPINNER_* art constants beside add_mechanism_art(). It is kept only so the
+# measured records that cite it (the [FLAGGED 2026-09-03] comment in main())
+# still resolve.
 SPINNER_PROTRUDE_MM = 12.0
 SPINNER_Y_MM = 648.0  # authored -- roughly midway along the Left Loop's straight run, between sw_loop_l_in and sw_loop_l_out
 
@@ -3378,8 +3385,11 @@ def main():
 	# [STORY 5.4, DW-258] col_ramp_slot_fill -- the 24 mm dead slot between
 	# col_ramp_wall_r's own east face (x = ramp_lane_x1 + WALL_T_MM = 366.4)
 	# and col_loop_r_lower's own west face (loop_r_x0 = 390.4), closed from
-	# the Ramp entrance (RAMP_ENTER_Y_MM = 485) up to the crossing, flush
-	# with every neighbour so no new face or corner is created:
+	# the Ramp entrance (RAMP_ENTER_Y_MM = 485) up to the crossing. Every
+	# vertex sits ON a neighbour's boundary, so it has no free tip; its two
+	# exposed faces (south at y 485, and north from (366.4, 740) to
+	# (390.4, 750), a new face meeting col_loop_r_lower's top edge in a new
+	# apex at (390.4, 750)) each span between two neighbours. Its edges:
 	#   - its west edge is col_ramp_wall_r's east face (366.4, 485..740);
 	#   - its south-east edge runs ALONG col_loop_r_funnel's own west face,
 	#     the line (inlane_r_x0, LOOP_FUNNEL_Y0_MM) -> (loop_r_x0,
