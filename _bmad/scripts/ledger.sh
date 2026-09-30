@@ -98,6 +98,39 @@ scan() {
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# Parallel epics (/epic-cycle orchestrator mode) share ONE DW number space across worktrees,
+# each holding its own copy of this file. "Highest id in THIS file + 1" let two concurrent
+# worktrees mint the same DW-n for different findings (DragonWar, 2026-09-29: both epics
+# minted DW-292..294), which the union merge then turns into duplicate headings. So when a
+# shared counter exists, `new` claims its number there under an atomic mkdir lock -- the
+# mechanism spine-next-id already uses for AD ids -- and never below this file's own
+# high-water mark. No counter (a sequential run): unchanged behaviour, max + 1.
+# Counter: $LEDGER_NEXT_ID_FILE, else <main checkout>/.worktrees/.coordination/ledger-next-id
+# (found through git's common dir, so it resolves identically from any linked worktree).
+counter_file() {
+  if [ -n "${LEDGER_NEXT_ID_FILE:-}" ]; then printf '%s' "$LEDGER_NEXT_ID_FILE"; return 0; fi
+  gcd="$(git -C "$(dirname "$FILE")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  [ -n "$gcd" ] && printf '%s' "$(dirname "$gcd")/.worktrees/.coordination/ledger-next-id"
+  return 0
+}
+claim_id() {
+  local_next="$(scan next-id)"
+  cf="$(counter_file)"
+  if [ -z "$cf" ] || [ ! -f "$cf" ]; then printf '%s' "$local_next"; return 0; fi
+  lk="$cf.lock"; tries=0
+  until mkdir "$lk" 2>/dev/null; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 120 ]; then echo "ERROR: ledger id counter lock $lk held for over 60 s; not stealing it" >&2; return 1; fi
+    sleep 0.5
+  done
+  n="$(tr -dc '0-9' < "$cf")"
+  if [ -z "$n" ]; then rmdir "$lk"; echo "ERROR: ledger id counter $cf is empty or not a number" >&2; return 1; fi
+  [ "$local_next" -gt "$n" ] && n="$local_next"
+  printf '%s\n' "$((n + 1))" > "$cf"
+  rmdir "$lk"
+  printf '%s' "$n"
+}
+
 # Owner validation (Rule 15/17). The tracker lives next to the ledger; its `development_status:` keys are the
 # only legal owners besides `burndown`. Field report 2026-08-30: two entries sat on a retitled story's old
 # key and were invisible to every drain, with no error and no count anomaly.
@@ -144,7 +177,8 @@ case "$CMD" in
     SUMMARY="$3"; SOURCE="$4"; SEV="$5"; RISK="$6"; FOOT="$7"; EVID="$8"; STATUS="$9"; OWNER="${10}"; BY="${11}"; NOTE="${12}"
     case "$SUMMARY$SOURCE$EVID$NOTE" in *$'\n'*) echo "ERROR: arguments must be single-line" >&2; exit 1 ;; esac
     check_owner "$OWNER" || exit 1
-    ID="DW-$(scan next-id)"
+    NUM="$(claim_id)" || exit 1
+    ID="DW-$NUM"
     {
       printf '\n### %s: %s\n' "$ID" "$SUMMARY"
       printf -- '- source: %s | severity: %s | fix-risk: %s | footprint: %s\n' "$SOURCE" "$SEV" "$RISK" "$FOOT"
