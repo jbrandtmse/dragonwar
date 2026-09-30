@@ -133,3 +133,4 @@ TAB-separated: `<UTC>	<Story <id> | Epic <N>>	<stage>	<metadata>`
 2026-09-30T07:48:31Z	Epic 3	ci_resolved	story=head_732960b run=36677968031 result=success resolved_at=next_plan
 2026-09-30T07:48:31Z	Story 3.4	plan_clarification_answered	answered_by=orchestrator(author_decision) answer=B:inserts_to_new_Story_3.3c(after_Epic_5,after_3.3b);3.4-3.10_insert_clauses_moved(9_AMENDED_markers);Q2_all_accepted(Ramp_lights_next_Mode_per_FR-33;modeSelectHoldMs;full_Lock_never_starts_Mode;QMB_shell_single-ball) order=3.4-3.10_now,then_3.3b,3.3c,3.11
 2026-09-30T07:48:32Z	Story 3.4	stage_spawned	stage=plan spawn_at=2026-09-30T07:48:31Z model=opus agent_name=3-4-lighting-modes-plan-2 cycle_iteration=2
+2026-09-30T07:49:50Z	Epic 3	epic_context_compiled	reason=planning_artifact_newer(3.3c) model=opus
