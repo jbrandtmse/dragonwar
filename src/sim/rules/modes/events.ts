@@ -52,9 +52,26 @@ export interface ModeLifecycleEvent {
 }
 
 /**
+ * Story 3.5 (FR-34): Hurry-up's own event -- fired once, on the tick a Ramp
+ * collects a running Hurry-up, before that Mode's stop triple. `player` is the
+ * Hurry-up entry's own player (the one paid) and `value` exactly what
+ * `awardScore()` added. It deliberately has NO `mode` field, so the filters
+ * that read `'mode' in event` to find lifecycle events never count it. It
+ * stays on this channel, off `SemanticEvent`: no presentation reader exists
+ * yet (the `lanes_completed` criterion) -- the first story that adds one (a
+ * DMD collect screen, an Epic 4 cue) moves it.
+ */
+export interface HurryUpCollectedEvent {
+	readonly type: 'hurryup_collected';
+	readonly player: number;
+	readonly value: number;
+	readonly tick: number;
+}
+
+/**
  * The mode stack's whole event vocabulary (AD-19/AD-9): a mode never emits a
  * `SwitchEvent`, a raw `DeviceEvent` or a `CoilCommand` (AD-8: "it never
  * emits a CoilCommand"), and this union is never merged into the closed
  * `SemanticEvent` union presentation reads.
  */
-export type ModeEvent = LanesCompletedEvent | ModeLifecycleEvent;
+export type ModeEvent = LanesCompletedEvent | ModeLifecycleEvent | HurryUpCollectedEvent;

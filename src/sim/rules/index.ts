@@ -117,7 +117,7 @@ export type { LampState };
  * mode stack's own event type without reaching past `./modes` -- mirrors the
  * `bootDeviceSlots` re-export above.
  */
-export type { LaneSetName, LanesCompletedEvent, ModeEvent } from './modes';
+export type { HurryUpCollectedEvent, LaneSetName, LanesCompletedEvent, ModeEvent } from './modes';
 
 export interface RulesStepResult {
 	readonly state: GameState;

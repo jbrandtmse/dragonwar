@@ -266,6 +266,26 @@
           "source": "authored: the author's 2026-09-30 decision makes a flipper HOLD confirm the mode selection (FR-33's 'Start or either flipper confirms'), but no artifact states how long the hold is. An authored placeholder: longer than a deliberate tap, short enough to feel immediate; the Story 3.11 playtest owns the value",
           "confidence": "unverified"
         },
+        "hurryUpStartValue": {
+          "value": 250000,
+          "source": "PRD FR-34 [ASSUMPTION: values]: \"start 250,000 decaying to a 50,000 floor over 20 s\" -- transcribed from that named figure, not authored here. The spine defers every scoring value to the post-playtest freeze, so the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
+        "hurryUpFloor": {
+          "value": 50000,
+          "source": "PRD FR-34 [ASSUMPTION: values]: \"start 250,000 decaying to a 50,000 floor over 20 s\" -- transcribed from that named figure, not authored here. The spine defers every scoring value to the post-playtest freeze, so the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
+        "hurryUpMs": {
+          "value": 20000,
+          "source": "PRD FR-34 [ASSUMPTION: values]: \"start 250,000 decaying to a 50,000 floor over 20 s\" -- transcribed from that named figure, not authored here. The Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
+        "hurryUpUrgentMs": {
+          "value": 5000,
+          "source": "authored: an authored placeholder, the last quarter of hurryUpMs (5000 of 20000 ms). PRD FR-34 states no urgent phase. Story 3.3c is the consumer (the Ramp insert steps to urgent in this last stretch of the decay); the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
         "ballSaveMs": {
           "value": 8000,
           "source": "authored: PRD FR-19 names the ball-save window as a mechanism (enable at ball start, timer starts at the plunge) but states no duration for it -- 8 s is a common early-ball-save figure on real machines and is authored here pending Epic 3's playtest freeze, never transcribed from any artifact",
@@ -572,6 +592,16 @@
           "source": "authored: the author's 2026-09-30 decision makes a flipper HOLD confirm the mode selection (FR-33's 'Start or either flipper confirms'), but no artifact states how long the hold is. An authored placeholder: longer than a deliberate tap, short enough to feel immediate; the Story 3.11 playtest owns the value",
           "confidence": "unverified"
         },
+        "hurryUpTicks": {
+          "value": 20000,
+          "source": "PRD FR-34 [ASSUMPTION: values]: \"start 250,000 decaying to a 50,000 floor over 20 s\" -- transcribed from that named figure, not authored here. The Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
+        "hurryUpUrgentTicks": {
+          "value": 5000,
+          "source": "authored: an authored placeholder, the last quarter of hurryUpMs (5000 of 20000 ms). PRD FR-34 states no urgent phase. Story 3.3c is the consumer (the Ramp insert steps to urgent in this last stretch of the decay); the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
         "ballSaveTicks": {
           "value": 8000,
           "source": "authored: PRD FR-19 names the ball-save window as a mechanism (enable at ball start, timer starts at the plunge) but states no duration for it -- 8 s is a common early-ball-save figure on real machines and is authored here pending Epic 3's playtest freeze, never transcribed from any artifact",
@@ -695,7 +725,7 @@
     },
     "physicsSeed": 999,
     "tickHz": 1000,
-    "tableHash": "da937508",
+    "tableHash": "a0340e8c",
     "assetHash": "ab163ff",
     "physicsVersion": "v1-ce6772ef"
   },

@@ -2,8 +2,8 @@
 title: 'Story 3.5: Hurry-up -- answer the call'
 type: 'feature'
 created: '2026-09-30'
-status: 'ready-for-dev'
-baseline_revision: '50c97ce8522f7915ead265849eca5f04c9e7342d'
+status: 'done'
+baseline_revision: 'eb7e82ca610c0fdf7d3df990d4b34f683d45a742'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -193,6 +193,35 @@ Measured at `50c97ce8522f7915ead265849eca5f04c9e7342d` on `DW-1-epic3`.
 
 ## Review Triage Log
 
+### 2026-09-30 — Review pass
+- verdicts: 25 findings — high 0, medium 0, low 17, false 8, maybe-false 0
+- findings:
+  - `[low]` `[reject]` (blind) A `hurryup` entry with no `startTick` never decays: `elapsed()` falls back to the current tick, so it publishes S and T forever. — Only `lifecycle.ts` adds entries, and `onStart` always stamps `startTick`, so production cannot reach this. It shows only in hand-built 3.4 fixtures (`rules-campaign.test.ts:284`, `:718`), which never read the value. Every fix (stamp on first sight, or throw) adds a branch or breaks those fixtures.
+  - `[low]` `[reject]` (blind) The `tick` hook builds a new `modes[]`/state every tick, even on the floor. — The decay rebuilds the entry every tick anyway, and no reader depends on the identity of `modes`. The only cost is one small array allocation per tick. The fix is an extra guard branch.
+  - `[low]` `[reject]` (blind) `formatSecondsFromTicks` rounds to nearest, so the last 49 ticks of a running timer show `0.0`. — Real, but pre-existing shared formatter code (Stories 2.6/2.13). 49 ms is about 3 display frames at 60 fps. Changing it would alter every other mode's timer display. This is not the "frozen 0.0 for the rest of the ball" the Design Notes reject.
+  - `[false]` `[reject]` (blind) The duplicated `'HURRY-UP'` literal could diverge with no test failing. — Both copies are pinned by literal tests: the status line in `backglass-hurry-up.test.ts`, and the lit line in `backglass-mode-select.test.ts:130-177`. The literal is also the Code Map's sanctioned option.
+  - `[low]` `[reject]` (blind) The Ball end row never compares the stop triple against `ball_ended` directly, because they are on different channels. — The two channels have no cross-channel order you can observe within a tick. The test pins what can be observed: both on the drain tick, the entry gone at that tick, and the score change equal to `ball_ended.total`. Story 3.4's Ball end test measures it the same way.
+  - `[false]` `[reject]` (blind) There are no tests for a capture, drain or tilt landing on the same tick as a Ramp. — The finding shows no defect. It describes the current outcomes as the correct ones and asks for extra coverage no AC or Matrix row names.
+  - `[low]` `[reject]` (blind) No invariant enforces `hurryUpFloor <= hurryUpStartValue` or `hurryUpUrgentMs <= hurryUpMs`. — The values are authored constants that tests pin exactly (AC1). A bad 3.11 retune would show up in the AC2 decay rows. Adding the invariant means adding new guards or asserts.
+  - `[low]` `[reject]` (blind) `hurryUpUrgentMs`'s source hard-codes "(5000 of 20000 ms)", which will go stale. — The source records why the value was authored, which the Boundaries require ("the last quarter of hurryUpMs"). A retune rewrites the source, as for every other entry, and 3.11 owns that.
+  - `[low]` `[reject]` (blind) The new tests copy `rules-campaign.test.ts`'s helpers instead of importing them. — Test files export nothing, and importing a `.test.ts` would register its suites twice. Moving the helpers into `test/util/` would refactor tests from Stories 3.2 and 3.4 as well, which is more than a direct fix.
+  - `[low]` `[patch]` (blind) The AC7 integration test never proves the run started in Attract. — Fixed: the premise test now asserts `phase === 'attract'` at tick 9, before the Start press at tick 10.
+  - `[false]` `[reject]` (blind) The spec's bookkeeping is stale: `## Auto Run Result`, no gate results in `## Verification`. — Finalize writes those. The fix would also be an edit to this build's own spec.
+  - `[low]` `[reject]` (blind) `hurryup_collected` has no reader and no owner for collect feedback. — The intent excludes it: "It stays off `SemanticEvent`: no presentation reader exists". Design Notes list "the first presentation reader" under Consumed-by.
+  - `[low]` `[reject]` (edge) An entry with no numeric `startTick` stays at S/T forever. — Same root cause and reason as the first blind finding.
+  - `[low]` `[reject]` (edge) Nothing validates `hurryUpStartValue`/`hurryUpFloor`: start below the floor, negative, or non-integer. — Same root cause as the tunable-invariant finding. The values are authored constants pinned by AC1, and the proposed fix is a new throw guard.
+  - `[false]` `[reject]` (edge) `hurryup_collected` could report a value that `awardScore` never added. — With any reachable tuning, `value >= F >= 0` and `entry.player` is set by the lifecycle, so the reported value is always the amount added (`0` adds `0`, as in the Rounding row). Only a negative authored floor could break this, and that is a config error.
+  - `[low]` `[reject]` (edge) The state is rebuilt every tick on the floor. — Same root cause and reason as the second blind finding.
+  - `[low]` `[reject]` (verification-gap) An entry with no `startTick` never decays. — Same root cause and reason as the first blind finding.
+  - `[low]` `[patch]` (verification-gap) The Collect control's `expect(collected(result)).toEqual([])` cannot fail, because no Hurry-up ever runs in it (Rule 19). — Fixed: the unfalsifiable assertion is deleted. The control keeps its `modesLit` and `score === 0` assertions, which can fail.
+  - `[false]` `[reject]` (verification-gap) The spec's frontmatter `status` and `## Auto Run Result` disagree. — Finalize rewrites `## Auto Run Result`. The fix would also be an edit to this build's own spec.
+  - `[low]` `[reject]` (intent) The running game is not exercised; the host loop copy in the AC7 fold is not `boot.ts`. — The Matrix names the headless surface, and AC7 reads the real rasterised dots. Design Notes give the browser smoke to the lead (Rule 3's lead smoke is a separate gate).
+  - `[low]` `[reject]` (intent) The Slam, Attract-entry and outside-a-game paths are untested. — The no-award outcome is structural: there are no `onStopping`/`onStopped` hooks, and `stopAllModes` is 3.1's, already tested. `scoringOpen`'s phase branch is pinned by Story 3.0a. Adding rows would be new tests that no AC names.
+  - `[false]` `[reject]` (intent) In "Quick MB on top", `quickmb` is a shell with no `tick` hook. — That is by the Matrix's design: the "3.7 stand-in" row exists to cover a real higher-priority `tick` hook, and it does.
+  - `[false]` `[reject]` (intent) The `switch-script.ts` change edits test infrastructure whose premise was not true. — The Code Map ordered the change, and `typecheck` requires it. After the change the helper does what the intent says it does.
+  - `[low]` `[reject]` (intent) The `elapsed()` fallback adds behaviour the intent does not specify. — Same root cause and reason as the first blind finding.
+  - `[false]` `[reject]` (intent) The Rule 19 `mutation:` lines were not verified by the auditor. — This is a statement of scope, not a defect. The implement stage applied all 16 mutations and observed each one red.
+
 ## Design Notes
 
 **Governing ADs:**
@@ -283,10 +312,72 @@ No AC contradicts an AD's Rule.
 - AC8: publish `timerTicks: 0` on the floor instead of dropping it; the positive row goes red.
 - AC9: change one golden header's `hurryUpMs` value; `test/replay-goldens.test.ts` goes red.
 
+**Applied** (implement stage, 2026-09-30; each applied, observed red, reverted, and the tree re-checked identical by a fingerprint of `git status --short`, `git diff` and the three new files):
+- mutation: `hurryUpMs` confidence `'unverified'` -> `'low'` (`tuning.ts`) → red `tuning.test.ts` "Story 3.5 AC1: the four Hurry-up tunables are unverified ..." and "Story 3.5 AC1 -- hurryUpMs: confidence 'unverified' ...".
+- mutation: `hurryUpStartValue`'s source with the FR-34 phrase unquoted → red `tuning.test.ts` "Story 3.5 AC1 -- hurryUpStartValue: ... every quoted phrase is FR-34's own words (at least one)".
+- mutation: timer published while `e <= T` (dropped only at `e > T`) → red `rules-hurry-up.test.ts` "Decay end: at t0+T: value F, and no timerTicks key at all" (and the every-tick row, Rounding, Zero ms).
+- mutation: `Math.round` for `Math.floor` in `value(e)` → red `rules-hurry-up.test.ts` "Matrix Rounding" (67 at e = 1).
+- mutation: `decayTicks = shotWindowTicks('hurryUpMs', tuning)` without `Math.max(1, ...)` → red `rules-hurry-up.test.ts` "Matrix Zero ms".
+- mutation: `stop: true` dropped from the collect → red `rules-hurry-up.test.ts` "Collect: modeEvents on that tick ... hurryup has left modes[]" (and Floor collect, Quick MB on top, 3.7 stand-in).
+- mutation: `scoringOpen(state)` guard dropped from the collect → red `rules-hurry-up.test.ts` "Tilted Ramp: the score is unchanged, no hurryup_collected, Hurry-up still active".
+- mutation: `awardScore(state, 0, value)` (pay player 0) → red `rules-hurry-up.test.ts` "Matrix Hot seat".
+- mutation: the stack `break`s after a handler returning `stop` (`modes/index.ts` fan-out) → red `rules-hurry-up.test.ts` "Collect: the base mode still receives the same Ramp: modesLit is [quickmb]" (and Quick MB on top's `[joust]`).
+- mutation: the `tick` hook returns `stop: true` once `e >= T` → red `rules-hurry-up.test.ts` "Matrix Floor collect" (and Decay end, AC 8's control).
+- mutation: an `onStopping` that awards the entry's `value` → red `rules-hurry-up.test.ts` "Ball end: the score's change at the drain tick equals ball_ended.total" (and every collect row).
+- mutation: Hurry-up's `tick` hook skipped while a higher-priority mode is active → red `rules-hurry-up.test.ts` "Quick MB on top: at t1+k, Hurry-up's published value is still v(t1+k-t0)" and "3.7 stand-in: Hurry-up's value is still v(e) under the stub".
+- mutation: `MODE_DISPLAY_NAMES.hurryup` removed (`frame.ts`) → red `backglass-hurry-up.test.ts` "e = 0: the status line reads HURRY-UP ..." (and e = 1000, floor, DW-311 two players).
+- mutation: the collect pays `value(e - 1)` → red `rules-hurry-up-integration.test.ts` "the score rises by exactly v(1000) (240000) at the collect" (and the post-collect dots, `240,010`).
+- mutation: `timerTicks: 0` published on the floor instead of dropping it → red `rules-hurry-up.test.ts` "AC 8 control: on the floor at the Lock stage ... opens the Mouth at slotTick(O, 6)" (`expected [] to deeply equal [16600]`).
+- mutation: `full-plunge.golden.json` header `hurryUpMs.value` 20000 -> 20001 → red `replay-goldens.test.ts` "full-plunge: finalHash and finalGameStateHash match the recorded goldens" (`StaleReplayHeaderError`).
+
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Implement and review run (2026-09-30, `bmad-build-auto`, resumed at step 03).**
+- The worktree was verified as `C:/git/dragonwar/.worktrees/epic-3` on `DW-1-epic3`, and the tree was clean on entry. `baseline_revision` is `eb7e82ca610c0fdf7d3df990d4b34f683d45a742`.
+- **Summary.** Hurry-up is filled in per FR-34.
+  - Its value decays from 250,000 to 50,000 over 20 s, rounded down, and is published on its own `modes[]` entry with `timerTicks`. The timer drops at the floor while the Mode stays active.
+  - A Ramp shot (`modeWiring.hurryUpCollectShot`) pays the value through `awardScore`, emits `hurryup_collected` and stops the Mode, but only while scoring is open. The base mode lights the next Mode on the same tick.
+  - The ball end pays nothing.
+  - The Backglass shows `HURRY-UP` and the decaying fields line.
+- **Files changed:**
+  - `src/sim/rules/modes/hurry-up.ts`: `createHurryUpMode(tuning)` with `onStart`, `tick` and `onEvent`, and a rewritten header.
+  - `src/sim/rules/modes/index.ts`: passes `tuning` to Hurry-up, re-exports `HurryUpCollectedEvent`, and updates its comments.
+  - `src/sim/rules/modes/events.ts`: adds `HurryUpCollectedEvent`, with no `mode` field, to the `ModeEvent` union.
+  - `src/sim/rules/index.ts`: re-exports `HurryUpCollectedEvent`.
+  - `src/sim/table/tuning.ts`: adds `hurryUpStartValue`, `hurryUpFloor` and `hurryUpMs` (each quoting FR-34), and `hurryUpUrgentMs` (authored, for Story 3.3c). All four are `unverified` and owned by Story 3.11.
+  - `src/sim/table/dragonwar.ts`: `modeWiring.hurryUpCollectShot: 'shot_ramp'`.
+  - `src/presentation/backglass/frame.ts`: `MODE_DISPLAY_NAMES.hurryup = 'HURRY-UP'`. The only other changes are comments.
+  - `test/rules-hurry-up.test.ts` (new, headless, added to `ENTRY_FILES`): all 12 Matrix rows, covering AC2-AC5 and AC8.
+  - `test/rules-hurry-up-integration.test.ts` (new): AC7. A real Start, a Ramp that lights Hurry-up, a capture that starts it, a Ramp that collects it, and the score and DMD dots read back.
+  - `test/backglass-hurry-up.test.ts` (new): AC6, including the three DW-311 layout cases.
+  - `test/tuning.test.ts` and `test/table.test.ts`: AC1, including the FR-34 quote audit with a misquote control.
+  - `test/util/switch-script.ts`: `assertModesChangedOnlyByLifecycle` now skips every event that has no `mode` field.
+  - `test/rules-devices-headless.test.ts`: `ENTRY_FILES` gains `rules-hurry-up.test.ts`.
+  - `test/replays/*.golden.json` (5 files): header only.
+- **Review findings.** 25 findings from four layers: blind 12, edge 4, verification-gap 3 (no gaps), intent 6.
+  - Verdicts: high 0, medium 0, low 17, false 8.
+  - **Patches applied (2, both low):**
+    - The AC7 premise now asserts Attract before the Start press.
+    - An unfalsifiable `collected(result)` assertion was removed from the Collect control.
+  - **Deferred:** none.
+  - **Rejected:** every other finding, each with its reason in the `## Review Triage Log`. The one root cause raised by several layers is the `startTick` fallback. It is rejected because only a hand-built fixture can reach it; production cannot.
+- **Follow-up review:** `false`. The patched counts by verdict are high 0, medium 0, low 2.
+- **Verification** (on the patched tree):
+  - `pnpm test`: 153 files / 2473 tests, all passed. The baseline was 150 / 2424, so this is 3 more files as expected.
+  - `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` (0.890 MB of 2.750 MB) all exit 0.
+  - **Goldens:** each file was JSON-parsed and compared field by field with `HEAD`. Each of the 5 has exactly 7 changed paths: `tableHash` and the six new tuning keys. `expectedHash`, `expectedGameStateHash` and `transitions` are unchanged.
+  - **Matrix Test Audit:** all 12 rows are covered by tests that ran (29 tests, none skipped).
+  - **Rule 19:** all 16 planned mutations were applied, observed red and reverted (see `## Verification`).
+- **By-design pins (Code Map):** `test/tuning.test.ts` `scalarKeys` +4. No `modeWiring` shape pin existed in `table.test.ts`, and no 3.4 DMD test changed; `rules-campaign-qa-integration.test.ts` still passes unchanged.
+- **Residual risks:**
+  - A hand-built `hurryup` fixture with no `startTick` shows S/T frozen. Story 3.4's `rules-campaign.test.ts:284` and `:718` do this and do not read the value.
+  - The shared seconds formatter shows `0.0` during the last 49 ticks of the timer.
+  - DW-311: the LIT row is dropped in games with 2 or more players while Hurry-up runs. This is pinned by AC6, and the lead decides.
+  - The browser smoke belongs to the lead (Design Notes).
+- **Footprint extensions (uncontended):** `src/presentation/backglass/frame.ts`, and under `test/**` the three new files, `util/switch-script.ts`, `rules-devices-headless.test.ts`, `tuning.test.ts` and `table.test.ts`. No contended path was touched, and neither were `contracts/**` or `loop/**`.
 
 **Planning run (2026-09-30, `bmad-build-auto`, halt after planning).**
 - Planned at `50c97ce8522f7915ead265849eca5f04c9e7342d` on `DW-1-epic3`.

@@ -8,10 +8,11 @@
 //   (`./registry.ts`) that throws at construction on a duplicate name, a
 //   duplicate priority, or a priority that is not the table's. Production
 //   passes no definitions and gets the base mode (100) and the skill shot
-//   (200), plus -- Story 3.4 -- the three campaign Mode shells (Hurry-up
-//   300, Joust 310, Quick multiball 400), which only the Lock arbiter starts
-//   (`./campaign.ts`); a test may pass stub definitions, which must use the
-//   table's names and priorities too.
+//   (200), plus -- Story 3.4 -- the three campaign Modes (Hurry-up 300,
+//   filled in by Story 3.5; Joust 310 and Quick multiball 400, still
+//   shells), which only the Lock arbiter starts (`./campaign.ts`); a test
+//   may pass stub definitions, which must use the table's names and
+//   priorities too.
 // - A mode starts and stops only through `./lifecycle.ts`: `mode_<name>_
 //   will_start / _starting / _started`, and `_will_stop / _stopping /
 //   _stopped`, on the `ModeEvent` channel. A mode that resolves itself
@@ -57,7 +58,7 @@ import { createJoustMode } from './joust';
 import type { ModeEvent } from './events';
 import type { ModeName } from './priorities';
 
-export type { LaneSetName, LanesCompletedEvent, ModeEvent, ModeLifecycleEvent, ModeLifecyclePhase } from './events';
+export type { HurryUpCollectedEvent, LaneSetName, LanesCompletedEvent, ModeEvent, ModeLifecycleEvent, ModeLifecyclePhase } from './events';
 export type { ModeDefinition, ModeHookResult, ModeLampHook, ModeLampRoles, ModeLookup, ModeRegistry } from './registry';
 export type { ModeName } from './priorities';
 export { MODE_PRIORITIES } from './priorities';
@@ -83,12 +84,13 @@ export const MODE_LAMP_ROLES: Readonly<Partial<Record<ModeName, ModeLampHook>>> 
 
 /**
  * The production mode definitions -- the base mode and the skill shot, then
- * (Story 3.4) the three campaign Mode shells, Hurry-up, Quick multiball and
- * Joust. The shells never join `BALL_START_MODES`: they start only through
+ * (Story 3.4) the three campaign Modes, Hurry-up (Story 3.5: its value,
+ * timer and Ramp collect, built from `tuning`), Quick multiball and Joust.
+ * They never join `BALL_START_MODES`: they start only through
  * `./campaign.ts`'s `startCampaignMode()`, called by the Lock arbiter.
  */
 export function createProductionModeDefinitions(tuning: ResolvedTuning): readonly ModeDefinition[] {
-	return [createBaseMode(tuning), createSkillShotMode(tuning), createHurryUpMode(), createQuickMultiballMode(), createJoustMode()];
+	return [createBaseMode(tuning), createSkillShotMode(tuning), createHurryUpMode(tuning), createQuickMultiballMode(), createJoustMode()];
 }
 
 /** A registry of the production definitions, table priorities enforced -- what a ball or tilt controller built without the stack's own registry uses. */

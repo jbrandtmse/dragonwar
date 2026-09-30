@@ -240,6 +240,8 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-campaign.test.ts'),
 	// Story 3.4 QA: same reasoning -- ungated otherwise.
 	path.join(__dirname, 'rules-campaign-qa.test.ts'),
+	// Story 3.5: Hurry-up's headless matrix -- ungated otherwise.
+	path.join(__dirname, 'rules-hurry-up.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

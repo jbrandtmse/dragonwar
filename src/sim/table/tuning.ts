@@ -384,6 +384,36 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 3.5 (AD-3/AD-15, FR-34): Hurry-up's value and its decay. The Mode
+	 * (`sim/rules/modes/hurry-up.ts`) starts at `hurryUpStartValue` and falls
+	 * on a straight line, rounded down, to `hurryUpFloor` over `hurryUpMs`
+	 * (read once, through `shotWindowTicks()`, clamped to at least 1 tick),
+	 * then holds the floor until the Ramp collects it or the ball ends.
+	 * `hurryUpUrgentMs` is the last stretch of that decay in which Story 3.3c's
+	 * Ramp insert steps to urgent; nothing reads it before 3.3c.
+	 */
+	hurryUpStartValue: entry(
+		250000,
+		'PRD FR-34 [ASSUMPTION: values]: "start 250,000 decaying to a 50,000 floor over 20 s" -- transcribed from that named figure, not authored here. The spine defers every scoring value to the post-playtest freeze, so the Story 3.11 playtest owns the value',
+		'unverified',
+	),
+	hurryUpFloor: entry(
+		50000,
+		'PRD FR-34 [ASSUMPTION: values]: "start 250,000 decaying to a 50,000 floor over 20 s" -- transcribed from that named figure, not authored here. The spine defers every scoring value to the post-playtest freeze, so the Story 3.11 playtest owns the value',
+		'unverified',
+	),
+	hurryUpMs: entry(
+		20000,
+		'PRD FR-34 [ASSUMPTION: values]: "start 250,000 decaying to a 50,000 floor over 20 s" -- transcribed from that named figure, not authored here. The Story 3.11 playtest owns the value',
+		'unverified',
+	),
+	hurryUpUrgentMs: entry(
+		5000,
+		'authored: an authored placeholder, the last quarter of hurryUpMs (5000 of 20000 ms). PRD FR-34 states no urgent phase. Story 3.3c is the consumer (the Ramp insert steps to urgent in this last stretch of the decay); the Story 3.11 playtest owns the value',
+		'unverified',
+	),
+
+	/**
 	 * Story 2.9 (AD-18): the three ball-save durations `machine.ballSave`
 	 * resolves through `shotWindowTicks('<key>Ms', tuning)`. PRD FR-19 names
 	 * the mechanism (enable / timer-start / hurry-up / grace) but states a

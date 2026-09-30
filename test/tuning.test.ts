@@ -70,6 +70,12 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			// Story 3.4 (AD-18, AD-15): the mode-select window and its flipper hold.
 			'modeSelectMs',
 			'modeSelectHoldMs',
+			// Story 3.5 (AD-3/AD-15, FR-34): Hurry-up's start value, floor,
+			// decay and urgent stretch.
+			'hurryUpStartValue',
+			'hurryUpFloor',
+			'hurryUpMs',
+			'hurryUpUrgentMs',
 			// Story 2.7 (AD-15): the first scoring value in the file.
 			'skillShotAward',
 			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.
@@ -369,6 +375,31 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		expect(resolved.modeSelectHoldTicks.value).toBe(Math.round((500 * TICK_HZ) / 1000));
 		expect(resolved.modeSelectTicks.confidence).toBe('unverified');
 		expect(resolved.modeSelectHoldTicks.confidence).toBe('unverified');
+	});
+
+	// Story 3.5 (AC1, AD-3/AD-15, FR-34): Hurry-up's four tunables. The three
+	// FR-34 figures are transcribed (their quote audit is below, beside Story
+	// 3.0a's); the urgent stretch is an authored placeholder Story 3.3c reads.
+	it('Story 3.5 AC1: the four Hurry-up tunables are unverified and name Story 3.11; hurryUpUrgentMs is 5000 and names Story 3.3c; hurryUpTicks is 20000 and hurryUpUrgentTicks 5000', () => {
+		for (const [key, value] of [
+			['hurryUpStartValue', 250000],
+			['hurryUpFloor', 50000],
+			['hurryUpMs', 20000],
+			['hurryUpUrgentMs', 5000],
+		] as const) {
+			const entry = TUNING[key];
+			expect(entry.value, key).toBe(value);
+			expect(entry.confidence, `${key} is unverified`).toBe('unverified');
+			expect(entry.source, `${key}'s source names its owner`).toContain('Story 3.11');
+		}
+		expect(TUNING.hurryUpUrgentMs.source, 'an authored placeholder').toMatch(/^authored: /);
+		expect(TUNING.hurryUpUrgentMs.source, 'names its consumer').toContain('Story 3.3c');
+		expect(TUNING.hurryUpUrgentMs.source, 'FR-34 states no urgent phase, so nothing is quoted').not.toMatch(/"/);
+		expect(TICK_HZ, 'the premise of the literal tick counts below').toBe(1000);
+		expect(resolved.hurryUpTicks.value).toBe(20000);
+		expect(resolved.hurryUpUrgentTicks.value).toBe(5000);
+		expect(resolved.hurryUpTicks.confidence).toBe('unverified');
+		expect(resolved.hurryUpUrgentTicks.confidence).toBe('unverified');
 	});
 
 	it('produces switchSettleTicksByClass with every class converted, preserving source/confidence', () => {
@@ -872,5 +903,24 @@ describe('Story 3.0a AC 8 (AD-15) -- the four playfield scoring values are unver
 	it('control: the audit flags a misquote of FR-28', () => {
 		const result = quoteAudit('authored: PRD FR-28 states the mechanism ("all six down spells DRAGON and awards a jackpot").', frSection(28));
 		expect(result.missing).toEqual(['all six down spells DRAGON and awards a jackpot']);
+	});
+
+	// Story 3.5 (AC1): the same audit, extended to FR-34 for Hurry-up's three
+	// transcribed figures. They are FR-34's own numbers, not authored ones, so
+	// no 'authored:' prefix and no skillShotAward scale is asked of them.
+	for (const key of ['hurryUpStartValue', 'hurryUpFloor', 'hurryUpMs'] as const) {
+		it(`Story 3.5 AC1 -- ${key}: confidence 'unverified', source names PRD FR-34, and every quoted phrase is FR-34's own words (at least one)`, () => {
+			const entry = TUNING[key];
+			expect(entry.confidence).toBe('unverified');
+			expect(entry.source).toContain('PRD FR-34');
+			const result = quoteAudit(entry.source, frSection(34));
+			expect(result.quotes.length, 'the source must quote FR-34 at least once').toBeGreaterThan(0);
+			expect(result.missing, "every quoted phrase must be FR-34's own words").toEqual([]);
+		});
+	}
+
+	it('Story 3.5 control: the audit flags a misquote of FR-34', () => {
+		const result = quoteAudit('PRD FR-34: "start 250,000 decaying to a 25,000 floor over 20 s"', frSection(34));
+		expect(result.missing).toEqual(['start 250,000 decaying to a 25,000 floor over 20 s']);
 	});
 });

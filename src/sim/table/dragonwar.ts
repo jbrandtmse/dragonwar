@@ -621,11 +621,14 @@ export const TABLE = deepFreeze({
 	 * `sim/rules/modes/campaign.ts`'s start path), and `lightShot` is the shot
 	 * whose completion lights the next Mode (the base mode reads
 	 * `${lightShot}_made`). Named here so rules never spell a `show_` or
-	 * `shot_` literal (AD-16).
+	 * `shot_` literal (AD-16). Story 3.5 (FR-34): `hurryUpCollectShot` is the
+	 * shot whose completion collects a running Hurry-up
+	 * (`sim/rules/modes/hurry-up.ts` reads `${hurryUpCollectShot}_made`).
 	 */
 	modeWiring: {
 		startShow: 'show_mode_start',
 		lightShot: 'shot_ramp',
+		hurryUpCollectShot: 'shot_ramp',
 	},
 
 	/**

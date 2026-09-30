@@ -285,6 +285,15 @@ describe('TABLE.shots -- Story 2.4 populates the three declared shots (AD-19)', 
 		expect(Object.keys(TABLE.shots).sort()).toEqual(['shot_left_loop', 'shot_ramp', 'shot_right_loop']);
 	});
 
+	// Story 3.5 (AC1, AD-16, FR-34): the shot that collects Hurry-up is named
+	// once, in `modeWiring`, and is a declared shot -- the Ramp.
+	it('Story 3.5 AC1: modeWiring.hurryUpCollectShot names a declared shot (the Ramp), as modeWiring.lightShot does', () => {
+		expect(TABLE.modeWiring.hurryUpCollectShot).toBe('shot_ramp');
+		for (const wired of [TABLE.modeWiring.lightShot, TABLE.modeWiring.hurryUpCollectShot]) {
+			expect(Object.keys(TABLE.shots), `the wiring names a declared shot: ${wired}`).toContain(wired);
+		}
+	});
+
 	it('every sequence member names a real switch in TABLE.switches', () => {
 		for (const [name, shot] of Object.entries(TABLE.shots)) {
 			for (const switchName of shot.sequence) {

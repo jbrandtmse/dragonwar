@@ -787,9 +787,15 @@ function formatScore(n: number): string {
  * protects every future mode Story 3.1+ adds: an unlabelled mode id can
  * never leak onto the panel by omission, it can only be silently absent
  * until someone deliberately authors an entry for it here.
+ *
+ * Story 3.5 (FR-34): a running Hurry-up owns the status line (`HURRY-UP`)
+ * and its fields line shows its `timerTicks` and decaying `value`. The
+ * literal matches `CAMPAIGN_DISPLAY_NAMES.hurryup` below, which is declared
+ * after this table.
  */
 const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	skill_shot: 'ARM YOURSELF',
+	hurryup: 'HURRY-UP',
 };
 
 /**
@@ -797,8 +803,8 @@ const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
  * candidate rows and the score screen's lit line (`<NAME> LIT`). A separate
  * table from `MODE_DISPLAY_NAMES` on purpose: an entry there would give an
  * ACTIVE campaign shell a status-line name (`hasSomethingToShow()`), which
- * Stories 3.5-3.7 decide when they give each Mode its `ModeView`. English
- * lives here only (AD-9).
+ * Stories 3.5-3.7 decide when they give each Mode its `ModeView` (Story 3.5
+ * gave Hurry-up one). English lives here only (AD-9).
  */
 const CAMPAIGN_DISPLAY_NAMES: Readonly<Record<CampaignModeName, string>> = {
 	hurryup: 'HURRY-UP',
