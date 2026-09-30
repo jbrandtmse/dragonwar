@@ -46,7 +46,7 @@ deferred: []
   - If the ceiling cannot be met, reduce the noise first. Dropping to 256×512 is allowed only if recorded.
 - **Material.** `mat_playfield` keeps its name and its alpha-from-image wiring. The image's Color drives Base Color and its Alpha drives Alpha.
 - **Mesh contract.** `vis_playfield` keeps its name, its parent, `TEXCOORD_1` (`uv_lightmap`) and `lightgroup: 'lg_playfield'`. Its `uv_base` top face maps table (x, y) affinely and axis-aligned onto [0, 1]².
-- **Mask derivation.** The mask is derived in the same run from the same `(cx, cy, half_lens)` values each `add_insert(...)` call receives, never re-typed.
+- **Mask derivation.** The mask is derived in the same run from the same `(cx, cy, half_lens)` values each `add_insert(...)` call receives, never re-typed. [AMENDED 2026-09-30, lead spec gate -- author decision] `add_insert(...)` records every lens it creates in one generator-level lens list, and the mask pass iterates THAT list -- never a hard-coded set of today's 15 -- so an `l_` lens added later (Epic 3's Story 3.3c adds Hurry-up, Quick multiball, Joust, Ramp, both Loops, War and Jackpot-ladder inserts after Epic 5 merges) opens the mask automatically. The tests likewise iterate every `l_` node in the exported glb, never a literal count or name list.
   - Alpha is 0 for every texel whose centre lies inside a lens rectangle inset by 1 texel.
   - Alpha is 255 for every texel whose centre lies at least 1 texel outside every lens rectangle.
   - Anything in between may be intermediate.
@@ -139,7 +139,8 @@ deferred: []
 6. **Tests.** All run in the default suite, and PNG decoding uses `node:zlib` only, with no new dependency.
    - New `test/playfield-art.test.ts` covers:
      - the UV mapping, derived from the glb's top-face corners;
-     - the mask texels for all 15 lenses, plus the no-stray-opening rule;
+     - the mask texels for every `l_` lens node in the exported glb (15 today; the test derives the set from the glb, never a literal list or count), plus the no-stray-opening rule;
+     - the lens-coverage checker as a pure function with its own positive/negative pair: fed the real glb's lenses and mask it passes; fed the same mask with one synthetic extra lens at a position where the mask is solid, it fails naming that lens (so a future lens under a solid mask is caught);
      - `TEXCOORD_1` and the lightgroup;
      - the image count and byte ceiling, with no extension;
      - the not-a-flat-fill check;
@@ -151,7 +152,7 @@ deferred: []
 
 **Acceptance Criteria:**
 - **AC 1.** Given the regenerated glb and collision document, when `test/playfield-art.test.ts` and a scratchpad structural diff run, then:
-  - each of the 15 lens openings matches its lens under the mask rule;
+  - every `l_` lens in the exported glb (15 today, derived from the glb) has its opening under the mask rule, and the coverage checker fails on a lens placed where the mask is solid (its paired negative) [AMENDED 2026-09-30, lead spec gate -- author decision: openings derive from the generator's lens list];
   - `vis_playfield` keeps `TEXCOORD_1` and `lg_playfield`;
   - every `col_` node is deep-equal to the baseline;
   - `switchZones` differ only in the three facing edges.
@@ -181,6 +182,8 @@ deferred: []
   - Given the lead's browser session, when 5.4's AC 7 part-against-adjacent-playfield sampling is re-run on the new art, then every part differs by more than Δ, and two playfield-only regions (the negative control) differ by less than Δ.
 
 ## Spec Change Log
+
+- 2026-09-30 (lead spec gate, epic-runner-5; author decision via orchestrator, Option A): AD-12 clause 3 amended in the spine -- Story 5.2 authors the translucency mask as the alpha channel of its generated playfield texture; Story 4.2 keeps the spill. Added the author's constraint: mask openings derive from the generator's own lens list (Epic 3's Story 3.3c adds inserts after the merge), tests iterate the glb's `l_` nodes, and the coverage checker carries a positive/negative pair. DW-159 was set aside `decision-pending` for the decision sheet (not declined-and-dropped).
 
 ## Review Triage Log
 
@@ -249,6 +252,7 @@ deferred: []
 
 **Mutations (Rule 19** — apply, observe red, revert; `git status --short` and `git diff --stat` unchanged afterwards):
 - AC 1: `mutation: offset the l_top_2 opening by 3 texels in make_playfield_art and re-export → playfield-art mask case red`.
+- AC 1 (lens list): `mutation: make the mask pass iterate a hard-coded copy of today's lens names minus l_top_3 (instead of the generator's lens list) and re-export → playfield-art every-lens-open case red naming l_top_3`.
 - AC 2: `mutation: set mat_insert back to (0.9,0.9,0.95) → playfield-art lens case red`.
 - AC 2 (lead): `mutation: onBeforeRender override of l_top_* albedo to 0.9 → the (a) difference falls to ≤ 22 (red)`.
 - AC 3: `mutation: full-amplitude per-texel noise → PNG byte-ceiling case red`.
