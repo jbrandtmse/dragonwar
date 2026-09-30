@@ -266,13 +266,15 @@ describe('TABLE\'s empty collections -- Design Notes "Scope decisions on the clo
 	// show every Mouth eject is preceded by, and `lockLaneWiring` names it so
 	// the Lock arbiter never spells a `show_` literal (AD-16). Story 3.3 (AC1)
 	// adds the close that ends each Mouth sequence and the Dragon body's hit
-	// reaction, each named by its own wiring field.
-	it('shows holds exactly the three Dragon shows (Stories 3.2/3.3), and lockLaneWiring.mouthOpenShow, lockLaneWiring.mouthCloseShow and dragonBodyWiring.hitShow each name a declared show', () => {
-		expect(Object.keys(TABLE.shows).sort()).toEqual(['show_dragon_hit', 'show_dragon_mouth_close', 'show_dragon_mouth_open']);
+	// reaction, each named by its own wiring field. Story 3.4 (AC1) adds the
+	// campaign Mode start, named by `modeWiring.startShow`.
+	it('shows holds exactly the three Dragon shows (Stories 3.2/3.3) and show_mode_start (Story 3.4), and lockLaneWiring.mouthOpenShow, lockLaneWiring.mouthCloseShow, dragonBodyWiring.hitShow and modeWiring.startShow each name a declared show', () => {
+		expect(Object.keys(TABLE.shows).sort()).toEqual(['show_dragon_hit', 'show_dragon_mouth_close', 'show_dragon_mouth_open', 'show_mode_start']);
 		expect(TABLE.lockLaneWiring.mouthOpenShow).toBe('show_dragon_mouth_open');
 		expect(TABLE.lockLaneWiring.mouthCloseShow).toBe('show_dragon_mouth_close');
 		expect(TABLE.dragonBodyWiring.hitShow).toBe('show_dragon_hit');
-		for (const wired of [TABLE.lockLaneWiring.mouthOpenShow, TABLE.lockLaneWiring.mouthCloseShow, TABLE.dragonBodyWiring.hitShow]) {
+		expect(TABLE.modeWiring.startShow).toBe('show_mode_start');
+		for (const wired of [TABLE.lockLaneWiring.mouthOpenShow, TABLE.lockLaneWiring.mouthCloseShow, TABLE.dragonBodyWiring.hitShow, TABLE.modeWiring.startShow]) {
 			expect(Object.keys(TABLE.shows), `the wiring names a declared show: ${wired}`).toContain(wired);
 		}
 	});

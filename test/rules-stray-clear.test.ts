@@ -81,6 +81,7 @@ function midGameState(laneOccupied: boolean, ballNumber: number): GameState {
 				jackpotSeed: 0,
 				warsStarted: 0,
 				modesPlayed: [],
+				modesLit: [],
 				ballNumber,
 			},
 		],

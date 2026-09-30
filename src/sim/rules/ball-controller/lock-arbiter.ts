@@ -13,6 +13,12 @@
 //   `device_ball_entered` with no `lock_lane_entered`, DW-171);
 // - it DECIDES each entry, emitting exactly one `lock_lane_locked` or
 //   `lock_lane_spit` and writing the player-scoped `lockCredits` (AD-7);
+//   Story 3.4: a captured entry with lit Modes also emits
+//   `lock_lane_mode_start` (after the credit's own event when a credit
+//   applies -- the only two-event outcomes) and starts the one candidate, or
+//   holds the ball in `bd_lock` for a mode-select window
+//   (`ControllerState.modeSelect`) that flipper presses move and Start, a
+//   flipper hold or its expiry confirm;
 // - it SERVES a new ball after a lock, through the save re-serve path
 //   (`./save-serve.ts`), so the launch never arms ball save;
 // - it owns the one Mouth: every eject is `ShowCommand
@@ -35,10 +41,13 @@
 // Device and show names are reached only through `TABLE` (AD-16).
 
 import { TABLE } from '../../table/dragonwar';
-import { SHOOTER_LAUNCH_COIL, type ControllerContext, type MouthClose, type MouthSequence, type TickOutput } from './shared';
-import type { DeviceEvent } from '../devices';
+import { candidatesFor, startCampaignMode } from '../modes/campaign';
+import { SHOOTER_LAUNCH_COIL, START_BUTTON, type ControllerContext, type ModeSelectWindow, type MouthClose, type MouthSequence, type TickOutput } from './shared';
+import type { DeviceEvent, FlipperSide } from '../devices';
 import type { LockLaneEnteredEvent } from '../devices/lock-lane-event';
-import type { BallDeviceName, CoilName, GameState, MachineReport } from '../../table/names';
+import type { ModeSelectEndReason } from '../../contracts/events';
+import type { CampaignModeName } from '../../contracts/state';
+import type { BallDeviceName, CoilName, GameState, MachineReport, SwitchName } from '../../table/names';
 
 /** The Lock's own `TABLE.ballDevices` entry, reached through `TABLE.lockLaneWiring` -- never a literal. */
 const LOCK_DEVICE_ENTRY = TABLE.ballDevices[TABLE.lockLaneWiring.device];
@@ -62,6 +71,11 @@ const MAX_HELD_AFTER_LOCK = 2;
 
 /** The most `lockCredits` a player may hold (AD-18: a third entry earns nothing). */
 const MAX_LOCK_CREDITS = 2;
+
+/** Story 3.4 (AD-18): each flipper button's side, from `TABLE.flipperButtonWiring` -- never a switch literal. */
+const FLIPPER_SIDE_BY_BUTTON: ReadonlyMap<SwitchName, FlipperSide> = new Map(
+	(Object.keys(TABLE.flipperButtonWiring) as FlipperSide[]).map((side) => [TABLE.flipperButtonWiring[side].switch as SwitchName, side]),
+);
 
 function isLockLaneEntered(event: DeviceEvent): event is LockLaneEnteredEvent {
 	return event.type === 'lock_lane_entered';
@@ -105,6 +119,11 @@ export function discardStaleMouth(ctx: ControllerContext, tick: number): void {
 	}
 	if (cs.mouthClose !== null && tick < cs.mouthClose.lastPulseTick) {
 		cs.mouthClose = null;
+	}
+	// Story 3.4: a mode-select window opened at a later tick belongs to a
+	// restarted timeline -- discarded with no event.
+	if (cs.modeSelect !== null && tick < cs.modeSelect.openTick) {
+		cs.modeSelect = null;
 	}
 }
 
@@ -198,6 +217,134 @@ function serveAfterLock(ctx: ControllerContext, state: GameState, tick: number, 
 	cs.awaitingSaveRelaunch = { startTick: tick };
 }
 
+/**
+ * Story 3.4 (AD-8, AD-18): starts campaign Mode `mode` for `playerIndex`
+ * through `startCampaignMode()` -- the ONLY campaign start path -- putting its
+ * lifecycle triple on this tick's `modeEvents`, and pushes `ShowCommand
+ * { show: TABLE.modeWiring.startShow }`. Every caller runs this BEFORE the
+ * capture's Mouth request, so the show precedes any Mouth open for the same
+ * capture.
+ */
+function startMode(ctx: ControllerContext, state: GameState, mode: CampaignModeName, playerIndex: number, tick: number, out: TickOutput): GameState {
+	const started = startCampaignMode(state, ctx.modes, mode, playerIndex, tick);
+	out.modeEvents.push(...started.events);
+	out.showCommands.push({ type: 'show', show: TABLE.modeWiring.startShow, tick });
+	return started.state;
+}
+
+/** Story 3.4: the release a capture owes -- the trough serve after a lock, or the Mouth eject for an unlocked capture. */
+function runRelease(ctx: ControllerContext, state: GameState, release: ModeSelectWindow['release'], tick: number, out: TickOutput): void {
+	if (release === 'serve') {
+		serveAfterLock(ctx, state, tick, out);
+	} else {
+		requestMouthEject(ctx, tick, out);
+	}
+}
+
+/**
+ * Story 3.4 (AD-18): a capture with candidates. With one, that Mode starts on
+ * this tick and the release runs at once. With two or more, the mode-select
+ * window opens (`ControllerState.modeSelect`), the ball stays parked in
+ * `bd_lock`, and the start and the release wait for the confirm.
+ */
+function startOrOpenWindow(
+	ctx: ControllerContext,
+	state: GameState,
+	playerIndex: number,
+	candidates: readonly CampaignModeName[],
+	release: ModeSelectWindow['release'],
+	tick: number,
+	out: TickOutput,
+): GameState {
+	if (candidates.length === 1) {
+		const next = startMode(ctx, state, candidates[0]!, playerIndex, tick, out);
+		runRelease(ctx, next, release, tick, out);
+		return next;
+	}
+	ctx.cs.modeSelect = {
+		player: playerIndex,
+		candidates,
+		selected: candidates[0]!,
+		openTick: tick,
+		dueTick: tick + ctx.modeSelectTicks,
+		release,
+		pressedAt: null,
+	};
+	return state;
+}
+
+/** Story 3.4: ends the window -- `mode_select_ended`, then the selected Mode's start (none for a Tilt), then the release. */
+function endWindow(ctx: ControllerContext, state: GameState, selection: ModeSelectWindow, reason: ModeSelectEndReason, tick: number, out: TickOutput): GameState {
+	ctx.cs.modeSelect = null;
+	const mode = reason === 'tilt' ? null : selection.selected;
+	out.events.push({ type: 'mode_select_ended', player: selection.player, mode, reason, tick });
+	const next = mode === null ? state : startMode(ctx, state, mode, selection.player, tick, out);
+	runRelease(ctx, next, selection.release, tick, out);
+	return next;
+}
+
+/**
+ * Story 3.4 (AD-18): one tick of the open mode-select window, in the SL seam
+ * before this tick's entries are classified. Outside `phase === 'game'` (a
+ * Slam) the window is discarded with no event and no start; an unlocked
+ * capture's owed Mouth eject is still requested. A Tilt ends it with no start
+ * but still runs the release. Otherwise this tick's device events are read in
+ * batch order: a Start press confirms (`'start'`); a flipper button's press
+ * moves the selection one step (right forward, left back, wrapping), emits
+ * `mode_select_moved` and records the press; that side's release clears it.
+ * Then a press held `modeSelectHoldTicks` confirms (`'flipper_held'`), and
+ * the window's `dueTick` confirms (`'expired'`). A press made before the
+ * window opened was never recorded, so it never confirms.
+ */
+function stepModeSelect(ctx: ControllerContext, state: GameState, deviceEvents: readonly DeviceEvent[], tick: number, out: TickOutput): GameState {
+	let selection: ModeSelectWindow | null = ctx.cs.modeSelect;
+	if (selection === null) {
+		return state;
+	}
+	if (state.phase !== 'game') {
+		// A Slam discards the window with no event and no start. An unlocked
+		// capture's ball (`release: 'mouth'`) is still owed its Mouth eject --
+		// a Mouth sequence runs in any phase (AD-18) and "a ball waiting to be
+		// spat is still on the machine" (`MouthSequence`'s own rule); without
+		// it the ball stays in the staging slot and the Lock stays full. A
+		// locked ball (`'serve'`) stays locked, and a voided game serves
+		// nothing.
+		ctx.cs.modeSelect = null;
+		if (selection.release === 'mouth') {
+			requestMouthEject(ctx, tick, out);
+		}
+		return state;
+	}
+	if (state.machine.tilt.tilted) {
+		return endWindow(ctx, state, selection, 'tilt', tick, out);
+	}
+	for (const event of deviceEvents) {
+		if (event.type === 'button_pressed') {
+			if (event.button === START_BUTTON) {
+				return endWindow(ctx, state, selection, 'start', tick, out);
+			}
+			const side = FLIPPER_SIDE_BY_BUTTON.get(event.button);
+			if (side !== undefined) {
+				const count: number = selection.candidates.length;
+				const index: number = selection.candidates.indexOf(selection.selected);
+				const selected: CampaignModeName = selection.candidates[(((index + (side === 'right' ? 1 : -1)) % count) + count) % count]!;
+				selection = { ...selection, selected, pressedAt: { side, tick } };
+				out.events.push({ type: 'mode_select_moved', player: selection.player, candidates: selection.candidates, selected, tick });
+			}
+		} else if (event.type === 'button_released' && selection.pressedAt !== null && FLIPPER_SIDE_BY_BUTTON.get(event.button) === selection.pressedAt.side) {
+			selection = { ...selection, pressedAt: null };
+		}
+	}
+	ctx.cs.modeSelect = selection;
+	if (selection.pressedAt !== null && tick - selection.pressedAt.tick >= ctx.modeSelectHoldTicks) {
+		return endWindow(ctx, state, selection, 'flipper_held', tick, out);
+	}
+	if (tick >= selection.dueTick) {
+		return endWindow(ctx, state, selection, 'expired', tick, out);
+	}
+	return state;
+}
+
 /** One classified Lock-lane entry, in batch order. */
 type LockLaneEntry = { readonly kind: 'captured' } | { readonly kind: 'fullDevice' };
 
@@ -244,6 +391,11 @@ export function arbitrateLockLane(
 	const mouthPulsedThisTick = pulseDueMouth(ctx, tick, out);
 	closeDueMouth(ctx, tick, out);
 
+	// Story 3.4 (AD-18): the open mode-select window steps first, before this
+	// tick's entries are classified (and before the overflow answer, which
+	// then sees a Mouth eject the window's release requested as pending).
+	const stateAfterWindow = stepModeSelect(ctx, state, deviceEvents, tick, out);
+
 	// DW-174: a Lock overflow requests one eject only when none is pending.
 	// A pending eject already releases the highest slot (the staging ball);
 	// a second would release a legitimately held ball.
@@ -253,12 +405,12 @@ export function arbitrateLockLane(
 		}
 	}
 
-	if (state.phase !== 'game') {
-		return { state, mouthPulsedThisTick };
+	if (stateAfterWindow.phase !== 'game') {
+		return { state: stateAfterWindow, mouthPulsedThisTick };
 	}
 
 	const { entries, parks } = classify(deviceEvents);
-	let nextState = state;
+	let nextState = stateAfterWindow;
 	for (const entry of entries) {
 		nextState = decideEntry(ctx, nextState, entry, tick, out);
 	}
@@ -275,6 +427,19 @@ export function arbitrateLockLane(
  * current player's (AD-7: player-scoped). `multiball !== null` is
  * unreachable in this story and takes the uncredited spit until Stories
  * 3.7/3.8 refine it.
+ *
+ * Story 3.4 (AD-18): a CAPTURED entry, untilted and with no multiball, also
+ * reads the player's candidates (`candidatesFor()`). With candidates:
+ * - the lock applies: `lock_lane_locked`, then `lock_lane_mode_start`; the
+ *   release is the serve;
+ * - this capture fills the Lock: `lock_lane_spit { credited: true }`, then
+ *   `lock_lane_mode_start`; the release is the Mouth;
+ * - two credits: `lock_lane_mode_start` alone; the release is the Mouth.
+ * One candidate starts on this tick and the release runs at once; two or
+ * more open the mode-select window and both wait for its confirm. A
+ * full-device entry (never captured) never starts a Mode, and the lit Modes
+ * stay lit. While a window is already open (unreachable: no ball is in play
+ * meanwhile) a new capture starts nothing, so there is at most one window.
  */
 function decideEntry(ctx: ControllerContext, state: GameState, entry: LockLaneEntry, tick: number, out: TickOutput): GameState {
 	const playerIndex = state.currentPlayer;
@@ -282,17 +447,38 @@ function decideEntry(ctx: ControllerContext, state: GameState, entry: LockLaneEn
 	if (!player) {
 		return state;
 	}
-	const canCredit = !state.machine.tilt.tilted && state.machine.multiball === null && player.lockCredits < MAX_LOCK_CREDITS;
+	const live = !state.machine.tilt.tilted && state.machine.multiball === null;
+	const canCredit = live && player.lockCredits < MAX_LOCK_CREDITS;
 	const credits = canCredit ? player.lockCredits + 1 : player.lockCredits;
 	const nextState: GameState = canCredit
 		? { ...state, players: state.players.map((existing, index) => (index === playerIndex ? { ...existing, lockCredits: credits } : existing)) }
 		: state;
+	// Story 3.4: only a captured, live entry reads candidates -- a full-device
+	// entry was never parked, so it can never wait out a window.
+	const candidates = entry.kind === 'captured' && live && ctx.cs.modeSelect === null ? candidatesFor(nextState, playerIndex) : [];
 
 	const held = state.machine.deviceSlots[LOCK_DEVICE].filter(Boolean).length;
 	if (entry.kind === 'captured' && canCredit && held <= MAX_HELD_AFTER_LOCK) {
 		out.events.push({ type: 'lock_lane_locked', player: playerIndex, credits, tick });
+		if (candidates.length > 0) {
+			out.events.push({ type: 'lock_lane_mode_start', player: playerIndex, candidates, selected: candidates[0]!, tick });
+			return startOrOpenWindow(ctx, nextState, playerIndex, candidates, 'serve', tick, out);
+		}
 		serveAfterLock(ctx, nextState, tick, out);
 		return nextState;
+	}
+
+	if (candidates.length > 0) {
+		// Story 3.4: a captured, live entry that does not lock -- this capture
+		// fills the Lock (the credit still counts, AD-18: the credited spit
+		// first) or the player already holds two credits (the Mode start is
+		// the entry's only outcome). The Mouth releases the ball, now or at the
+		// window's confirm.
+		if (canCredit) {
+			out.events.push({ type: 'lock_lane_spit', player: playerIndex, credits, credited: true, tick });
+		}
+		out.events.push({ type: 'lock_lane_mode_start', player: playerIndex, candidates, selected: candidates[0]!, tick });
+		return startOrOpenWindow(ctx, nextState, playerIndex, candidates, 'mouth', tick, out);
 	}
 
 	out.events.push({ type: 'lock_lane_spit', player: playerIndex, credits, credited: canCredit, tick });

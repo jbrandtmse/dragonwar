@@ -20,6 +20,8 @@ import type { CoilCommand, CoilName, GameState, MachineReport, SemanticEvent, Sh
 import type { ResolvedTuning } from '../../table/tuning';
 import type { ModeEvent } from '../modes/events';
 import type { ModeLookup } from '../modes/registry';
+import type { FlipperSide } from '../devices';
+import type { CampaignModeName } from '../../contracts/state';
 
 /**
  * `s_start` -- assembled as a template literal purely so neither static chunk
@@ -143,8 +145,17 @@ export interface BallControllerStepResult {
 	readonly bankResetRequests: readonly BankResetRequest[];
 	/** Story 3.1 (AD-8): the stop triples of every mode this tick's ball end or Attract transition stopped, in execution order -- `sim/rules/index.ts` places them after the tilt controller's and before the mode stack's in `RulesStepResult.modeEvents`. */
 	readonly modeEvents: readonly ModeEvent[];
-	/** Stories 3.2/3.3 (AD-9, AD-18): the Lock arbiter's Mouth shows this tick, in seam order -- `show_dragon_mouth_open` and, from Story 3.3, `show_dragon_mouth_close` (a request inside the hold gives [close, open] on one tick) -- which `sim/rules/index.ts` returns first in `RulesStepResult.commands`. */
+	/** Stories 3.2/3.3 (AD-9, AD-18): the Lock arbiter's Mouth shows this tick, in seam order -- `show_dragon_mouth_open` and, from Story 3.3, `show_dragon_mouth_close` (a request inside the hold gives [close, open] on one tick) -- which `sim/rules/index.ts` returns first in `RulesStepResult.commands`. Story 3.4: also `show_mode_start`, pushed on each campaign Mode start, before any Mouth open for the same capture. */
 	readonly showCommands: readonly ShowCommand[];
+	/**
+	 * Story 3.4 (AD-18): `true` when a mode-select window was open at the
+	 * start of this tick or is open at its end. While it is, `sim/rules/index.ts`
+	 * drops `lane_change_pressed` from the mode stack's device events, so a
+	 * flipper press that moves the selection never rotates the lanes -- on
+	 * the window's opening and confirm ticks included. The rules root reads
+	 * this flag, never the controller's closure state.
+	 */
+	readonly modeSelectOpen: boolean;
 }
 
 export interface BallController {
@@ -203,6 +214,28 @@ export interface MouthSequence {
 export interface MouthClose {
 	readonly lastPulseTick: number;
 	readonly dueTick: number;
+}
+
+/**
+ * Story 3.4 (AD-7, AD-18): the open mode-select window -- see
+ * `ControllerState.modeSelect` below. `player` is the capturing player;
+ * `candidates` their lit Modes not active for them, in campaign order (two or
+ * more); `selected` the Mode the confirm starts (`candidates[0]` at opening,
+ * moved by flipper presses); `openTick` the capture tick (the window's
+ * reset-safety mark); `dueTick` is `openTick + modeSelectTicks`, the expiry;
+ * `release` what runs at the confirm (`'serve'` for a locked ball, the trough
+ * serve; `'mouth'` for an unlocked capture, `requestMouthEject()`);
+ * `pressedAt` the latest in-window flipper press still held (cleared by that
+ * side's release), which confirms once held for `modeSelectHoldTicks`.
+ */
+export interface ModeSelectWindow {
+	readonly player: number;
+	readonly candidates: readonly CampaignModeName[];
+	readonly selected: CampaignModeName;
+	readonly openTick: number;
+	readonly dueTick: number;
+	readonly release: 'serve' | 'mouth';
+	readonly pressedAt: { readonly side: FlipperSide; readonly tick: number } | null;
 }
 
 /**
@@ -391,6 +424,20 @@ export interface ControllerState {
 	 * tick) only.
 	 */
 	mouthClose: MouthClose | null;
+
+	/**
+	 * Story 3.4 (AD-7, AD-18): the open mode-select window, owned by the Lock
+	 * arbiter (`./lock-arbiter.ts`), `null` when none is open. At most one.
+	 * Opened by a captured Lock-lane entry with two or more candidates, while
+	 * the ball stays parked in `bd_lock`; stepped each tick in the SL seam
+	 * before new entries are classified; closed by its confirm (Start, a
+	 * flipper hold, the expiry) or a Tilt, each emitting `mode_select_ended`.
+	 * Discarded with no event on a phase change (a Slam -- a `'mouth'`
+	 * window's owed Mouth eject is still requested) or when `tick` runs
+	 * backwards (`discardStaleMouth()`). Bounded by `dueTick`. Closure state,
+	 * not `GameState`, for the reason every field above gives.
+	 */
+	modeSelect: ModeSelectWindow | null;
 }
 
 /**
@@ -413,8 +460,11 @@ export interface ControllerContext {
 	readonly mouthEjectIntervalTicks: number;
 	/** Story 3.3 (AD-18): the Mouth's hold after a sequence's last pulse, resolved once from `mouthCloseHoldMs`. */
 	readonly mouthCloseHoldTicks: number;
+	/** Story 3.4 (AD-18): the mode-select window's length and the flipper hold that confirms it, resolved once from `modeSelectMs`/`modeSelectHoldMs`, each at least 1 tick. */
+	readonly modeSelectTicks: number;
+	readonly modeSelectHoldTicks: number;
 	readonly ballSearch: BallSearch;
-	/** Story 3.1 (AD-8): the mode registry whose stop hooks the ball end and the Attract transition run -- the stack's own (`sim/rules/index.ts`). */
+	/** Story 3.1 (AD-8): the mode registry whose stop hooks the ball end and the Attract transition run -- the stack's own (`sim/rules/index.ts`). Story 3.4: also the one the Lock arbiter's `startCampaignMode()` resolves a campaign Mode's definition through. */
 	readonly modes: ModeLookup;
 	readonly cs: ControllerState;
 }

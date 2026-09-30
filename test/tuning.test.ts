@@ -67,6 +67,9 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'mouthEjectIntervalMs',
 			// Story 3.3 (AD-18, AD-15): the Mouth's hold after its last pulse.
 			'mouthCloseHoldMs',
+			// Story 3.4 (AD-18, AD-15): the mode-select window and its flipper hold.
+			'modeSelectMs',
+			'modeSelectHoldMs',
 			// Story 2.7 (AD-15): the first scoring value in the file.
 			'skillShotAward',
 			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.
@@ -346,6 +349,26 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 	// Match sequence starting underneath them.
 	it('AC 12: production matchDelayTicks (5000) exceeds BALL_ENDED_HOLD_TICKS (3000)', () => {
 		expect(resolved.matchDelayTicks.value).toBeGreaterThan(3000);
+	});
+
+	// Story 3.4 (AC1, AD-18, AD-15): the mode-select window and the flipper
+	// hold that confirms it -- authored placeholders, so `unverified`, with a
+	// source that says so and names Story 3.11 as the owner.
+	it('Story 3.4 AC1: modeSelectMs (10000) and modeSelectHoldMs (500) are unverified authored placeholders naming Story 3.11, and derive modeSelectTicks/modeSelectHoldTicks', () => {
+		for (const [key, value] of [
+			['modeSelectMs', 10000],
+			['modeSelectHoldMs', 500],
+		] as const) {
+			const entry = TUNING[key];
+			expect(entry.value, key).toBe(value);
+			expect(entry.confidence, `${key} is unverified`).toBe('unverified');
+			expect(entry.source, `${key}'s source is honest about being authored`).toMatch(/^authored: /);
+			expect(entry.source, `${key}'s source names its owner`).toContain('Story 3.11');
+		}
+		expect(resolved.modeSelectTicks.value).toBe(Math.round((10000 * TICK_HZ) / 1000));
+		expect(resolved.modeSelectHoldTicks.value).toBe(Math.round((500 * TICK_HZ) / 1000));
+		expect(resolved.modeSelectTicks.confidence).toBe('unverified');
+		expect(resolved.modeSelectHoldTicks.confidence).toBe('unverified');
 	});
 
 	it('produces switchSettleTicksByClass with every class converted, preserving source/confidence', () => {

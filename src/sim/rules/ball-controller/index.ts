@@ -51,6 +51,13 @@
 // ignores the Lock's entries and stays closed while a Mouth eject is
 // pending; S11 hands ball search's Lock-stage requests to the same
 // arbiter. The Mouth sequence's reset-safety check joins S2.
+//
+// Story 3.4 (AD-18): the arbiter also starts lit campaign Modes on a
+// captured entry, and with two or more candidates holds the ball in
+// `bd_lock` for a mode-select window (`ControllerState.modeSelect`), stepped
+// in SL. While a window is open S6 never sees a Start press, and the step
+// result's `modeSelectOpen` flag tells `sim/rules/index.ts` to keep
+// `lane_change_pressed` from the mode stack.
 
 import { createBallSearch } from '../ball-search';
 import { createProductionModeRegistry, type ModeLookup } from '../modes';
@@ -62,7 +69,7 @@ import { armSaveOrAutolaunch, expireBallSave, serveBallSave } from './save-serve
 import { answerOverflows, discardStaleStrayClear, reportRecovery, stepBallSearch } from './serve-recovery';
 import { arbitrateLockLane, discardStaleMouth, pendingMouthEjects } from './lock-arbiter';
 import { handleStartButton } from './start';
-import type { BallController, BallControllerStepResult, ControllerContext, ControllerState, TickOutput } from './shared';
+import { START_BUTTON, type BallController, type BallControllerStepResult, type ControllerContext, type ControllerState, type TickOutput } from './shared';
 import type { DeviceEvent } from '../devices';
 import type { GameAdjustments } from '../../contracts/replay';
 import type { GameState, MachineReport } from '../../table/names';
@@ -70,6 +77,12 @@ import type { GameState, MachineReport } from '../../table/names';
 export { applyDeviceEvents, applyRecovery, deriveDeviceSlots } from './accounting';
 export { BALL_SAVE_SOURCE, enterAttract, HARDWARE_COILS } from './shared';
 export type { BallController, BallControllerStepResult } from './shared';
+
+/** Story 3.4 (AD-18): `events` without any Start press -- what S6 receives while a mode-select window is open. Returns `events` itself when there is none. */
+function withoutStartPresses(events: readonly DeviceEvent[]): readonly DeviceEvent[] {
+	const isStartPress = (event: DeviceEvent): boolean => event.type === 'button_pressed' && event.button === START_BUTTON;
+	return events.some(isStartPress) ? events.filter((event) => !isStartPress(event)) : events;
+}
 
 /**
  * `createBallController(adjustments, tuning)` mirrors `createDevicesLayer(tuning)`:
@@ -162,6 +175,14 @@ export function createBallController(
 	// clamp: the close check runs in the same seam right after the pulse
 	// check, so a 0 hold closes on the pulse tick itself, after the pulse.
 	const mouthCloseHoldTicks = shotWindowTicks('mouthCloseHoldMs', tuning);
+	// Story 3.4 (AD-18): the mode-select window and the flipper hold that
+	// confirms it. Both clamped to at least 1 tick, for the reason the Mouth's
+	// lead is: a `...Ms` of 0 resolves and the dev tuning panel hot-applies
+	// it. A 0 window would fall due on its own opening tick, after that tick's
+	// window step already ran; a 0 hold would confirm on the press tick
+	// itself, so a flipper could never move the selection without confirming.
+	const modeSelectTicks = Math.max(1, shotWindowTicks('modeSelectMs', tuning));
+	const modeSelectHoldTicks = Math.max(1, shotWindowTicks('modeSelectHoldMs', tuning));
 
 	// Story 2.12 (AD-18): the search's own seat -- ONE instance for the life
 	// of this controller (mirrors every other cross-tick component this
@@ -178,6 +199,7 @@ export function createBallController(
 		pendingStrayClear: null,
 		mouth: null,
 		mouthClose: null,
+		modeSelect: null,
 	};
 
 	const ctx: ControllerContext = {
@@ -192,6 +214,8 @@ export function createBallController(
 		mouthOpenLeadTicks,
 		mouthEjectIntervalTicks,
 		mouthCloseHoldTicks,
+		modeSelectTicks,
+		modeSelectHoldTicks,
 		ballSearch,
 		modes,
 		cs,
@@ -210,12 +234,20 @@ export function createBallController(
 
 		drainBonusCountSteps(ctx, nextState, tick, out); // S1 (reads the INPUT phase)
 		discardStaleGameOverSequence(ctx, tick); // S2
-		discardStaleMouth(ctx, tick); // S2 (Stories 3.2/3.3: the Mouth sequence's and its pending close's reset-safety)
+		discardStaleMouth(ctx, tick); // S2 (Stories 3.2/3.3/3.4: the Mouth sequence's, its pending close's and the mode-select window's reset-safety)
+		// Story 3.4 (AD-18): a mode-select window open at the start of this
+		// tick -- read by S6's Start filter below and by the lane-change flag.
+		const modeSelectOpenAtStart = cs.modeSelect !== null;
 		const pendingStrayClearAtStart = discardStaleStrayClear(ctx, tick); // S2 + the DW-269 snapshot
 		nextState = stepGameOverSequence(ctx, nextState, tick, out); // S3
 		nextState = expireBallSave(ctx, nextState, tick); // S4
 		nextState = foldDragonLetters(nextState, deviceEvents); // S5
-		const started = handleStartButton(ctx, nextState, deviceEvents, tick, out); // S6
+		// Story 3.4 (AD-18): while a mode-select window is open, a Start press
+		// belongs to the window (it confirms the selection, in SL below) and
+		// never reaches S6, so no Hot-seat player is added. S6 runs before SL,
+		// so it reads the window as it stood at the start of the tick.
+		const startEvents = modeSelectOpenAtStart ? withoutStartPresses(deviceEvents) : deviceEvents;
+		const started = handleStartButton(ctx, nextState, startEvents, tick, out); // S6
 		nextState = started.state;
 		const newGameStartedThisTick = started.newGameStartedThisTick;
 		nextState = armSaveOrAutolaunch(ctx, nextState, deviceEvents, tick, out); // S7
@@ -245,6 +277,7 @@ export function createBallController(
 					bankResetRequests: out.bankResetRequests,
 					modeEvents: out.modeEvents,
 					showCommands: out.showCommands,
+					modeSelectOpen: modeSelectOpenAtStart || cs.modeSelect !== null,
 				};
 			}
 			nextState = endBall(ctx, nextState, tick, out); // S8b-S8d
@@ -263,6 +296,7 @@ export function createBallController(
 			bankResetRequests: out.bankResetRequests,
 			modeEvents: out.modeEvents,
 			showCommands: out.showCommands,
+			modeSelectOpen: modeSelectOpenAtStart || cs.modeSelect !== null,
 		};
 	}
 

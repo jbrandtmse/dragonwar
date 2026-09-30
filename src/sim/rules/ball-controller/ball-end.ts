@@ -192,19 +192,19 @@ export function endBall(ctx: ControllerContext, state: GameState, tick: number, 
 	const total = tilted ? 0 : bonusTotal(player.bonus, tuning);
 
 	// Mode teardown, STRICTLY before ball_ended (AC 5; epics.md:1383-1392's
-	// narrowed _will_stop clause): every active mode's name is credited to
-	// the ENDING player's modesPlayed -- captured from `endingPlayer` here,
-	// before any rotation below could move `currentPlayer`, and before the
-	// stop below empties the list. AD-7: "modes[] is empty between balls".
-	// Story 2.10, task 7(d): the SAME map now also pays `total` onto the
-	// ending player's own score -- the ball controller's first score write
-	// (Design Notes, "The score-ownership decision, made deliberately") -- so
-	// the two can never diverge into separate passes over `players`.
-	const modeNames = nextState.modes.map((mode) => mode.mode);
+	// narrowed _will_stop clause). AD-7: "modes[] is empty between balls".
+	// Story 2.10, task 7(d): the ENDING player (captured from `endingPlayer`
+	// here, before any rotation below could move `currentPlayer`) is paid
+	// `total` -- the ball controller's first score write (Design Notes, "The
+	// score-ownership decision, made deliberately").
+	//
+	// Story 3.4 (DW-293): the ball end no longer credits `modesPlayed`. It
+	// used to append every active mode's name here, so `base` and
+	// `skill_shot` entered the log on every ball; `modesPlayed` is now the
+	// append-only log of campaign Mode starts, written only by
+	// `startCampaignMode()` (`../modes/campaign.ts`) when a Mode starts.
 	const playersAfterTeardown = nextState.players.map((existing, index) =>
-		index === endingPlayer
-			? { ...existing, modesPlayed: [...existing.modesPlayed, ...modeNames], score: existing.score + total }
-			: existing,
+		index === endingPlayer ? { ...existing, score: existing.score + total } : existing,
 	);
 	nextState = { ...nextState, players: playersAfterTeardown };
 	// Story 3.1 (AD-8, AC 5): every active mode receives its stop triple

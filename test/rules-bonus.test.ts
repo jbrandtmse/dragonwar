@@ -81,6 +81,7 @@ function player(overrides: PlayerOverrides = {}): PlayerState {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber: overrides.ballNumber ?? 1,
 	};
 }

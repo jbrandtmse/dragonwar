@@ -106,7 +106,11 @@ describe('AC1 -- the registry: one priority table, and a duplicate name or prior
 		expect(BASE_MODE_PRIORITY).toBe(MODE_PRIORITIES.base);
 		expect(SKILL_SHOT_MODE_PRIORITY).toBe(MODE_PRIORITIES.skill_shot);
 		const production = createModeStack(TUNING).registry.definitions.map((definition) => [definition.name, definition.priority]);
+		// Story 3.4: the three campaign Mode shells join the production registry.
 		expect(production, 'the production registry, descending priority').toEqual([
+			['quickmb', MODE_PRIORITIES.quickmb],
+			['joust', MODE_PRIORITIES.joust],
+			['hurryup', MODE_PRIORITIES.hurryup],
 			['skill_shot', MODE_PRIORITIES.skill_shot],
 			['base', MODE_PRIORITIES.base],
 		]);

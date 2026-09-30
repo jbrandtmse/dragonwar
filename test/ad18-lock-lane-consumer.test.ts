@@ -121,6 +121,7 @@ function capturingState(): GameState {
 				jackpotSeed: 0,
 				warsStarted: 0,
 				modesPlayed: [],
+				modesLit: [],
 				ballNumber: 1,
 			},
 		],

@@ -311,6 +311,7 @@ describe('AC 3 -- the end-of-ball screen names the player from the event payload
 			heldBallEnded: { player: 0, preBonusScore: 1111, finalScore: 1111, bonusRemaining: null, complete: true },
 			pendingTiltWarning: false,
 			heldMatch: null,
+			heldModeSelect: null,
 		};
 		const game: GameState = {
 			...BASE_GAME_STATE,
@@ -415,6 +416,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 			heldBallEnded: null,
 			pendingTiltWarning: false,
 			heldMatch: null,
+			heldModeSelect: null,
 		};
 		const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
 		expect(afterReset.screen, 'a tick from before the hold was armed must not be treated as "still holding"').toBe('score');
@@ -617,6 +619,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 				heldBallEnded: { player: 0, preBonusScore: 1234, finalScore: 1234, bonusRemaining: null, complete: true },
 				pendingTiltWarning: true,
 				heldMatch: null,
+				heldModeSelect: null,
 			};
 			const afterReset = advanceBackglass(staleFromLongGame, frameOutput({ snapshot: buildSnapshot({ tick: 0, game: gameInPlay }), events: [] }));
 			expect(afterReset.screen, 'a stale carried warning paired with a stale, far-future holdUntilTick must not resurface just because tick is small again (mutation: dropping the `tick >= view.holdUntilTick` bound on the carried flag shows tilt_warning here instead of score)').toBe('score');
@@ -868,7 +871,7 @@ describe('Story 2.11 -- AC 9: the Backglass shows WARNING from the event and TIL
 
 			// Reset-safety (this file's half-open discipline): a WARNING view from a
 			// PREVIOUS, longer timeline is not "still showing" on a new one.
-			const staleWarning: BackglassView = { screen: 'tilt_warning', holdUntilTick: 500_000, attractCycleOriginTick: 0, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null };
+			const staleWarning: BackglassView = { screen: 'tilt_warning', holdUntilTick: 500_000, attractCycleOriginTick: 0, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null, heldModeSelect: null };
 			const afterReset = advanceBackglass(staleWarning, frameOutput({ snapshot: buildSnapshot({ tick: 40, game: gameInPlay }), events: [endedAt(40)] }));
 			const afterResetEnd = advanceBackglass(afterReset, frameOutput({ snapshot: buildSnapshot({ tick: afterReset.holdUntilTick!, game: gameInPlay }), events: [] }));
 			expect(afterResetEnd.screen, 'a stale WARNING from a previous timeline must not be carried into a new one').toBe('score');

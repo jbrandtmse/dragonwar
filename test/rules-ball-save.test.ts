@@ -88,6 +88,7 @@ function emptyPlayer(ballNumber: number) {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [] as string[],
+		modesLit: [],
 		ballNumber,
 	};
 }

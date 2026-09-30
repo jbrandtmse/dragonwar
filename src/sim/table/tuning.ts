@@ -365,6 +365,25 @@ export const TUNING = deepFreeze({
 	),
 
 	/**
+	 * Story 3.4 (AD-18, AD-3/AD-15): the Lock arbiter's mode-select window.
+	 * With two or more lit Modes on a captured Lock-lane entry, the ball stays
+	 * in `bd_lock` for at most `modeSelectMs`; a flipper held continuously for
+	 * `modeSelectHoldMs` confirms the selection early. Both read once in
+	 * `createBallController()` through `shotWindowTicks()`, each clamped to at
+	 * least 1 tick.
+	 */
+	modeSelectMs: entry(
+		10000,
+		"authored: AD-3 names the mode-select window as a display-paced rules timer and AD-18 makes it the Lock arbiter's, but no artifact states its length. An authored placeholder: long enough to read the candidates and move between them; the Story 3.11 playtest owns the value",
+		'unverified',
+	),
+	modeSelectHoldMs: entry(
+		500,
+		"authored: the author's 2026-09-30 decision makes a flipper HOLD confirm the mode selection (FR-33's 'Start or either flipper confirms'), but no artifact states how long the hold is. An authored placeholder: longer than a deliberate tap, short enough to feel immediate; the Story 3.11 playtest owns the value",
+		'unverified',
+	),
+
+	/**
 	 * Story 2.9 (AD-18): the three ball-save durations `machine.ballSave`
 	 * resolves through `shotWindowTicks('<key>Ms', tuning)`. PRD FR-19 names
 	 * the mechanism (enable / timer-start / hurry-up / grace) but states a

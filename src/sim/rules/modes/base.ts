@@ -46,18 +46,23 @@
 //   NOT cleared: DRAGON stays spelled until Story 3.9's War end (FR-28,
 //   FR-40).
 // Every write goes through `sim/rules/scoring.ts`'s `awardScore()`, so none
-// pays while Tilted or outside a game (FR-15 as decided at DW-246). The
+// pays while Tilted or outside a game (FR-15 as decided at DW-246).
+//
+// Story 3.4 (FR-33): each Ramp completion (`${TABLE.modeWiring.lightShot}_made`)
+// lights the next campaign Mode into the entry's player's `modesLit`, under
+// `./campaign.ts`'s round rule, behind the same `scoringOpen()` gate. The
 // tunables come from the `ResolvedTuning` passed at construction, never the
 // raw `TUNING` singleton, so a test's `resolveTuning(override)` reaches them.
 
 import { TABLE } from '../../table/dragonwar';
-import { awardScore } from '../scoring';
+import { awardScore, scoringOpen } from '../scoring';
+import { nextModeToLight } from './campaign';
 import { soloModeDriver, type SoloModeDriver } from './lifecycle';
 import { MODE_PRIORITIES } from './priorities';
 import type { DeviceEvent, FlipperSide, LaneName } from '../devices';
 import type { ActiveModeState, PlayerLaneState } from '../../contracts/state';
 import type { LampProjectionEntry } from '../../contracts';
-import type { GameState, LampName, SwitchName } from '../../table/names';
+import type { GameState, LampName, ShotName, SwitchName } from '../../table/names';
 import type { ResolvedTuning } from '../../table/tuning';
 import type { LaneSetName, ModeEvent } from './events';
 import type { ModeDefinition, ModeHookResult, ModeLampRoles } from './registry';
@@ -95,6 +100,9 @@ const POP_SWITCHES = wiredSwitches(TABLE.popWiring);
 
 /** Story 3.0a (FR-31): the slingshots' own switches, from `TABLE.slingWiring`. */
 const SLING_SWITCHES = wiredSwitches(TABLE.slingWiring);
+
+/** Story 3.4 (FR-33): the device event that lights the next campaign Mode -- `${TABLE.modeWiring.lightShot}_made` (the Ramp), never a spelled-out shot name (AD-16). */
+const LIGHT_MODE_EVENT: `${ShotName}_made` = `${TABLE.modeWiring.lightShot}_made`;
 
 /**
  * Rotates every set's lit flags by one `order` position independently --
@@ -214,6 +222,20 @@ export function createBaseMode(tuning: ResolvedTuning): BaseMode {
 		return { ...state, players };
 	}
 
+	/** Story 3.4 (FR-33): appends `nextModeToLight()` to `players[player].modesLit`. Returns `state` itself when scoring is closed (`scoringOpen()`), the player is missing, or the round rule lights nothing. */
+	function lightNextMode(state: GameState, player: number): GameState {
+		const target = state.players[player];
+		if (!scoringOpen(state) || !target) {
+			return state;
+		}
+		const mode = nextModeToLight(target);
+		if (mode === null) {
+			return state;
+		}
+		const players = state.players.map((existing, index) => (index === player ? { ...existing, modesLit: [...existing.modesLit, mode] } : existing));
+		return { ...state, players };
+	}
+
 	/** One device event for the active entry (the stack's event-major fan-out calls this once per event). Returns `state` itself when the event is not the base mode's. */
 	function onEvent(state: GameState, entry: ActiveModeState, event: DeviceEvent, tick: number): ModeHookResult {
 		const player = entry.player;
@@ -237,6 +259,13 @@ export function createBaseMode(tuning: ResolvedTuning): BaseMode {
 		if (event.type === 'spinner_spin') {
 			// Story 3.0a (FR-26): "the Spinner awards per rotation".
 			return { state: awardScore(state, player, event.count * tuning.spinnerScore.value) };
+		}
+		if (event.type === LIGHT_MODE_EVENT) {
+			// Story 3.4 (FR-33): every Ramp completion lights the next campaign
+			// Mode for this entry's own player, under the round rule
+			// (`./campaign.ts`), behind the same gate as the DRAGON letters: no
+			// lighting under Tilt or outside a game.
+			return { state: lightNextMode(state, player) };
 		}
 		if (event.type === 'bank_completed') {
 			// Story 3.0a (FR-28): the award, once per completion. Story 3.9

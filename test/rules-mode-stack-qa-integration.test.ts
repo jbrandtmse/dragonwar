@@ -77,6 +77,7 @@ function player(ballNumber: number, overrides: Partial<PlayerState> = {}): Playe
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber,
 		...overrides,
 	};

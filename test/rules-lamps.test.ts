@@ -42,6 +42,7 @@ function player(overrides: {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [] as string[],
+		modesLit: [],
 		ballNumber: 1,
 	};
 }

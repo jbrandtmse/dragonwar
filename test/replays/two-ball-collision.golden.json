@@ -256,6 +256,16 @@
           "source": "authored: no artifact states how long the Mouth stays open after its last eject. Measured 2026-09-29 at Story 3.3's planning (real createLoop() runs at 4a94d96, the ejected ball leaving the Mouth pose (170, 460) straight down x = 170 at about 300 mm/s): 27.3 mm from the pose 100 ticks after the pulse, 60.6 mm at 200, 101.5 mm at 300 and 206 mm at 500. At 300 ms the ball sits about 58 mm south of the Dragon body's switch zones (y 430-465), about 2.1 ball diameters clear, and no switch closes during the eject. Story 3.3b's jaw geometry and the Story 3.11 playtest own the value",
           "confidence": "unverified"
         },
+        "modeSelectMs": {
+          "value": 10000,
+          "source": "authored: AD-3 names the mode-select window as a display-paced rules timer and AD-18 makes it the Lock arbiter's, but no artifact states its length. An authored placeholder: long enough to read the candidates and move between them; the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
+        "modeSelectHoldMs": {
+          "value": 500,
+          "source": "authored: the author's 2026-09-30 decision makes a flipper HOLD confirm the mode selection (FR-33's 'Start or either flipper confirms'), but no artifact states how long the hold is. An authored placeholder: longer than a deliberate tap, short enough to feel immediate; the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
         "ballSaveMs": {
           "value": 8000,
           "source": "authored: PRD FR-19 names the ball-save window as a mechanism (enable at ball start, timer starts at the plunge) but states no duration for it -- 8 s is a common early-ball-save figure on real machines and is authored here pending Epic 3's playtest freeze, never transcribed from any artifact",
@@ -552,6 +562,16 @@
           "source": "authored: no artifact states how long the Mouth stays open after its last eject. Measured 2026-09-29 at Story 3.3's planning (real createLoop() runs at 4a94d96, the ejected ball leaving the Mouth pose (170, 460) straight down x = 170 at about 300 mm/s): 27.3 mm from the pose 100 ticks after the pulse, 60.6 mm at 200, 101.5 mm at 300 and 206 mm at 500. At 300 ms the ball sits about 58 mm south of the Dragon body's switch zones (y 430-465), about 2.1 ball diameters clear, and no switch closes during the eject. Story 3.3b's jaw geometry and the Story 3.11 playtest own the value",
           "confidence": "unverified"
         },
+        "modeSelectTicks": {
+          "value": 10000,
+          "source": "authored: AD-3 names the mode-select window as a display-paced rules timer and AD-18 makes it the Lock arbiter's, but no artifact states its length. An authored placeholder: long enough to read the candidates and move between them; the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
+        "modeSelectHoldTicks": {
+          "value": 500,
+          "source": "authored: the author's 2026-09-30 decision makes a flipper HOLD confirm the mode selection (FR-33's 'Start or either flipper confirms'), but no artifact states how long the hold is. An authored placeholder: longer than a deliberate tap, short enough to feel immediate; the Story 3.11 playtest owns the value",
+          "confidence": "unverified"
+        },
         "ballSaveTicks": {
           "value": 8000,
           "source": "authored: PRD FR-19 names the ball-save window as a mechanism (enable at ball start, timer starts at the plunge) but states no duration for it -- 8 s is a common early-ball-save figure on real machines and is authored here pending Epic 3's playtest freeze, never transcribed from any artifact",
@@ -675,7 +695,7 @@
     },
     "physicsSeed": 999,
     "tickHz": 1000,
-    "tableHash": "e13b7b0f",
+    "tableHash": "da937508",
     "assetHash": "ab163ff",
     "physicsVersion": "v1-ce6772ef"
   },

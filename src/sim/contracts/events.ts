@@ -11,7 +11,12 @@
 // `GameState` field it reports on. `./state` names no seam type back, so
 // this is a one-way import, not a cycle.
 
-import type { BonusCategory } from './state';
+import type { BonusCategory, CampaignModeName } from './state';
+
+// Story 3.4: `CampaignModeName` is declared in `./state` (see its own doc
+// comment for why) and re-exported here, beside the three events that carry
+// it, so a consumer of the event vocabulary names it from either module.
+export type { CampaignModeName } from './state';
 
 /**
  * One edge of one named switch. Physics emits playfield and cabinet-mechanism
@@ -342,6 +347,55 @@ export interface LockLaneSpitEvent {
 }
 
 /**
+ * Story 3.4 (AD-18, AD-9): the Lock arbiter starts a lit campaign Mode on a
+ * captured Lock-lane entry. `candidates` is the player's lit Modes not
+ * already active for them, in campaign order (never empty); `selected` is
+ * `candidates[0]`. With one candidate the Mode starts on this same tick;
+ * with two or more a mode-select window opens and the Mode starts at its
+ * confirm (`ModeSelectEndedEvent`). When a lock credit also applies it
+ * follows that credit's own outcome event on the same tick
+ * (`lock_lane_locked`, or `lock_lane_spit { credited: true }`).
+ * Payload-complete (AD-9): `player` is the index into `GameState.players`.
+ */
+export interface LockLaneModeStartEvent {
+	readonly type: 'lock_lane_mode_start';
+	readonly player: number;
+	readonly candidates: readonly CampaignModeName[];
+	readonly selected: CampaignModeName;
+	readonly tick: number;
+}
+
+/**
+ * Story 3.4 (AD-18, AD-9): a flipper press inside the mode-select window
+ * moved the selection one step (right: forward, left: back, both wrapping).
+ * Payload-complete: the whole candidate list and the new `selected`.
+ */
+export interface ModeSelectMovedEvent {
+	readonly type: 'mode_select_moved';
+	readonly player: number;
+	readonly candidates: readonly CampaignModeName[];
+	readonly selected: CampaignModeName;
+	readonly tick: number;
+}
+
+/** Story 3.4 (AD-18): why a mode-select window ended -- a Start press, a flipper held for `modeSelectHoldMs`, the `modeSelectMs` expiry, or a Tilt. */
+export type ModeSelectEndReason = 'start' | 'flipper_held' | 'expired' | 'tilt';
+
+/**
+ * Story 3.4 (AD-18, AD-9): the mode-select window ended. `mode` is the Mode
+ * that starts on this tick, or `null` when a Tilt ended the window (no Mode
+ * starts and the lit Modes stay lit). The ball's release (the serve, or the
+ * Mouth) runs on this tick either way.
+ */
+export interface ModeSelectEndedEvent {
+	readonly type: 'mode_select_ended';
+	readonly player: number;
+	readonly mode: CampaignModeName | null;
+	readonly reason: ModeSelectEndReason;
+	readonly tick: number;
+}
+
+/**
  * Device-failure vocabulary (AD-9 Conventions): named so the vocabulary
  * exists, even though nothing in Epic 1 emits them. No artifact states a
  * payload beyond the device that failed, so none is invented here.
@@ -409,6 +463,9 @@ export type SemanticEvent<TBallDevice extends string = string, TDevice extends s
 	| MatchRevealStepEvent
 	| LockLaneLockedEvent
 	| LockLaneSpitEvent
+	| LockLaneModeStartEvent
+	| ModeSelectMovedEvent
+	| ModeSelectEndedEvent
 	| EjectFailedEvent<TBallDevice>
 	| BrokenEvent<TDevice>
 	| DeviceOverflowEvent<TBallDevice>;

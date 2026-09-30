@@ -235,6 +235,9 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-dragon-shows.test.ts'),
 	// Story 3.3 QA: same reasoning -- ungated otherwise.
 	path.join(__dirname, 'rules-dragon-shows-qa.test.ts'),
+	// Story 3.4: the campaign (lighting at the Ramp, starting at the Lock
+	// lane, the mode-select window, DW-293) -- ungated otherwise.
+	path.join(__dirname, 'rules-campaign.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

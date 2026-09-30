@@ -94,6 +94,17 @@ export interface PlayerLaneState {
 }
 
 /**
+ * Story 3.4 (AD-7, AD-18): the three campaign Modes, by their
+ * `MODE_PRIORITIES` names (`sim/rules/modes/priorities.ts`). Campaign order
+ * is declared once, in `sim/rules/modes/campaign.ts`. Declared HERE rather
+ * than in `./events.ts` because `PlayerState.modesLit` below needs it and
+ * `./events.ts` already imports this file (a type-only import back would be
+ * a cycle `no-circular` rejects); `./events.ts` re-exports it, so both
+ * modules name the one type.
+ */
+export type CampaignModeName = 'hurryup' | 'quickmb' | 'joust';
+
+/**
  * Player-scoped state (AD-7): score, DRAGON letters, Lock credits, modes
  * played, tilt warnings, bonus by category and multiplier, extra balls,
  * lanes, Jackpot seed and Wars started.
@@ -110,8 +121,23 @@ export interface PlayerState {
 	readonly extraBalls: number;
 	readonly jackpotSeed: number;
 	readonly warsStarted: number;
-	/** Names of the modes this player has played this game. */
+	/**
+	 * Story 3.4 (AD-7, DW-293): the append-only log of this player's campaign
+	 * Mode starts this game, one name per start, repeats allowed -- written
+	 * only by `sim/rules/modes/campaign.ts`'s `startCampaignMode()`, on each
+	 * `mode_<campaign>_started`. The ball end no longer credits anything
+	 * here, so `base` and `skill_shot` never appear. Story 3.10 reads "all
+	 * three Modes played" from it.
+	 */
 	readonly modesPlayed: readonly string[];
+	/**
+	 * Story 3.4 (AD-7, FR-33): the campaign Modes lit for this player and not
+	 * yet started, in the order they were lit. The base mode appends one on
+	 * each Ramp completion (`shot_ramp_made`, behind `scoringOpen()`);
+	 * `startCampaignMode()` removes a Mode when it starts. Persists across
+	 * balls, like `lockCredits`.
+	 */
+	readonly modesLit: readonly CampaignModeName[];
 	/**
 	 * Story 2.5: the ball number currently (or most recently) in play for
 	 * THIS player, 1-indexed -- `0` before their first ball has started.

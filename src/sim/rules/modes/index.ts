@@ -8,8 +8,10 @@
 //   (`./registry.ts`) that throws at construction on a duplicate name, a
 //   duplicate priority, or a priority that is not the table's. Production
 //   passes no definitions and gets the base mode (100) and the skill shot
-//   (200); a test may pass stub definitions, which must use the table's
-//   names and priorities too.
+//   (200), plus -- Story 3.4 -- the three campaign Mode shells (Hurry-up
+//   300, Joust 310, Quick multiball 400), which only the Lock arbiter starts
+//   (`./campaign.ts`); a test may pass stub definitions, which must use the
+//   table's names and priorities too.
 // - A mode starts and stops only through `./lifecycle.ts`: `mode_<name>_
 //   will_start / _starting / _started`, and `_will_stop / _stopping /
 //   _stopped`, on the `ModeEvent` channel. A mode that resolves itself
@@ -49,6 +51,9 @@ import { baseModeLamps, createBaseMode } from './base';
 import { locateEntry, startModes, stopModes } from './lifecycle';
 import { createModeRegistry, type ModeDefinition, type ModeHookResult, type ModeLampHook, type ModeRegistry } from './registry';
 import { createSkillShotMode, skillShotLamps } from './skill-shot';
+import { createHurryUpMode } from './hurry-up';
+import { createQuickMultiballMode } from './quick-multiball';
+import { createJoustMode } from './joust';
 import type { ModeEvent } from './events';
 import type { ModeName } from './priorities';
 
@@ -60,6 +65,7 @@ export { createModeRegistry } from './registry';
 export { startModes, stopAllModes, stopModes } from './lifecycle';
 export { BASE_MODE_PRIORITY } from './base';
 export { SKILL_SHOT_MODE_PRIORITY } from './skill-shot';
+export { CAMPAIGN_ORDER, campaignRound, candidatesFor, isCampaignMode, nextModeToLight, startCampaignMode } from './campaign';
 
 /** The modes a ball start starts, for `currentPlayer`, in the stack's ascending-priority order. */
 const BALL_START_MODES: readonly ModeName[] = ['base', 'skill_shot'];
@@ -75,9 +81,14 @@ export const MODE_LAMP_ROLES: Readonly<Partial<Record<ModeName, ModeLampHook>>> 
 	skill_shot: skillShotLamps,
 };
 
-/** The production mode definitions -- the base mode and the skill shot. */
+/**
+ * The production mode definitions -- the base mode and the skill shot, then
+ * (Story 3.4) the three campaign Mode shells, Hurry-up, Quick multiball and
+ * Joust. The shells never join `BALL_START_MODES`: they start only through
+ * `./campaign.ts`'s `startCampaignMode()`, called by the Lock arbiter.
+ */
 export function createProductionModeDefinitions(tuning: ResolvedTuning): readonly ModeDefinition[] {
-	return [createBaseMode(tuning), createSkillShotMode(tuning)];
+	return [createBaseMode(tuning), createSkillShotMode(tuning), createHurryUpMode(), createQuickMultiballMode(), createJoustMode()];
 }
 
 /** A registry of the production definitions, table priorities enforced -- what a ball or tilt controller built without the stack's own registry uses. */

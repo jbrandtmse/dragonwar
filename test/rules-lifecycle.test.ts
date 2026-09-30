@@ -51,6 +51,7 @@ function emptyPlayer(ballNumber: number) {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [] as string[],
+		modesLit: [],
 		ballNumber,
 	};
 }
@@ -206,7 +207,9 @@ describe('Story 2.5 -- AC 5: drain, mode teardown, ball end and rotation', () =>
 		const stubStop = ['mode_stub_will_stop', 'mode_stub_stopping', 'mode_stub_stopped'];
 		const p1Start = ['base', 'skill_shot'].flatMap((mode) => [`mode_${mode}_will_start`, `mode_${mode}_starting`, `mode_${mode}_started`]);
 		expect(result.modeEvents.map((e) => e.type), 'the stub\'s stop triple precedes player 1\'s start triples').toEqual([...stubStop, ...p1Start]);
-		expect(after.players[0]!.modesPlayed, 'the ENDING player (0) is credited').toEqual(['stub']);
+		// Story 3.4 (DW-293): the ball end credits nothing -- `modesPlayed` is
+		// the log of campaign Mode starts, written only at a start.
+		expect(after.players[0]!.modesPlayed, 'the ENDING player (0) is credited nothing at the ball end (DW-293)').toEqual([]);
 		expect(after.players[1]!.modesPlayed, 'the other player is NOT credited').toEqual([]);
 
 		const ballEnded = result.events.filter((e) => e.type === 'ball_ended');

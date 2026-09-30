@@ -87,6 +87,7 @@ function player(ballNumber: number, overrides: Partial<PlayerState> = {}): Playe
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber,
 		...overrides,
 	};
@@ -251,7 +252,8 @@ describe('AC5 -- the ball end: every active mode gets its stop triple, the contr
 		expect(result.events.map((event) => event.type)).toContain('ball_ended');
 		expect(result.state.modes).toEqual([]);
 		expect(result.modeEvents.map((event) => event.type)).toEqual([...triple('skill_shot', 'stop'), ...triple('base', 'stop')]);
-		expect(result.state.players[0]!.modesPlayed, 'modesPlayed credited exactly as before, names captured before the stop').toEqual(['base', 'skill_shot']);
+		// Story 3.4 (DW-293): the ball end no longer credits the active modes' names.
+		expect(result.state.players[0]!.modesPlayed, 'the ball end credits nothing to modesPlayed (DW-293)').toEqual([]);
 	});
 
 	it('Matrix row "Ball end, rotation" (rules level): that tick\'s modeEvents are the stop triples then player 1\'s start triples; the end state holds player 1\'s entries only', () => {

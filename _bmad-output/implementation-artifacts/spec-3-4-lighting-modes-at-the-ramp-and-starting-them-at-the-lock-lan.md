@@ -2,13 +2,21 @@
 title: 'Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane'
 type: 'feature'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'a33eb664e89fb141d191b5f7bfd4e74d7db73e2c'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
 warnings: [oversized]
-deferred: []
+deferred:
+  - summary: >-
+      Ball save keeps expiring while a mode-select window holds the ball in bd_lock, so a 10 s window can outlast the 8 s save and the released ball returns unsaved.
+    evidence: |-
+      save-serve.ts expireBallSave clears machine.ballSave by tick (hasGraceLapsed), whatever ballsInPlay is; a window lasts up to modeSelectMs (10000) against ballSaveMs 8000. Whether the save pauses during the window is a product call the intent does not make (decision-pending for the epic decision sheet; Story 3.11's playtest owns both values).
+    location: >-
+      src/sim/rules/ball-controller/save-serve.ts:24 and src/sim/rules/ball-controller/lock-arbiter.ts (stepModeSelect)
+    severity: medium
 ---
 
 <intent-contract>
@@ -251,6 +259,47 @@ Measured at `b82acef435b0e9ac7073a513724ff0feffcb57a4` on `DW-1-epic3`. No sourc
 
 ## Review Triage Log
 
+### 2026-09-30 — Review pass
+- verdicts: 37 findings — high 0, medium 7, low 25, false 4, maybe-false 1
+- findings:
+  - `[low]` `[patch]` (blind) `withoutStartPresses()` sits between `createBallController`'s JSDoc and the function, orphaning the export's doc — moved the helper above the doc block in `ball-controller/index.ts`.
+  - `[medium]` `[patch]` (blind) a Slam during a `'mouth'` window discards the window and drops the owed Mouth eject, so the unlocked staging ball stays in `bd_lock` and the Lock stays full into later games (contradicts AD-18 "a Mouth sequence ... in any phase" and `MouthSequence`'s "never cancelled by a Slam") — `stepModeSelect`'s phase-change discard now still calls `requestMouthEject()` for `release: 'mouth'` (no event, no start; a `'serve'` window requests nothing); Slam test rewritten plus a locked-window control; docs in `lock-arbiter.ts` and `shared.ts` updated.
+  - `[low]` `[reject]` (blind) `show_mode_start` is pushed even if `startCampaignMode()` starts nothing — unreachable in production: candidates exclude Modes active for the player, only one window exists, and the production registry (the stack's own) registers all three shells; only a stub registry could reach it, and the fix guards state not demonstrated.
+  - `[medium]` `[patch]` (blind) flipper direction and wrapping are never exercised — every rules window has two candidates — added a three-candidate `rules-campaign` row (left back and wrap, right forward and wrap, Start confirms the selected Mode).
+  - `[medium]` `[patch]` (blind) the backwards-tick discard of `cs.modeSelect` in `discardStaleMouth()` has no test — added a `runTimeline` restart test on 3.2's pattern (uninterrupted expires at t+W; restarted at tick 1 never confirms).
+  - `[low]` `[patch]` (blind) the 1-tick floor on `modeSelectHoldTicks` is untested — added a `modeSelectHoldMs: 0` row (moves on the press tick, confirms one tick later).
+  - `[low]` `[patch]` (blind) hold edge cases untested: re-press, exact-Hd release, overlapping flippers — added the re-press row (the hold counts from the second edge); the exact-Hd boundary and overlapping flippers are dispositioned below (EC6, EC7).
+  - `[low]` `[reject]` (blind) a Start press on the capture tick itself reaches S6 — by design: the Code Map states S6 runs before SL and reads the window as it stood at the start of the tick; it needs a Start on the exact capture millisecond, and moving S6 after SL reorders the controller's seams.
+  - `[low]` `[patch]` (blind) the Backglass tests miss the `warningShowing` carry, the `ball_ended` precedence and the lit line's placement and drop — added the WARNING-already-showing row (with its control) and the lit-line fields-line and crowded-panel rows; `ball_ended` precedence is the pre-existing branch-2 order, and no ball end can happen while a window holds the only ball.
+  - `[low]` `[patch]` (blind) the lit-line test hard-codes row 16 — rewritten to derive the row from the rendered status line and pitch.
+  - `[low]` `[reject]` (blind) `rules-lifecycle`'s "the other player is NOT credited" negative lost its positive — it still pins per-player isolation, and the positive (a campaign start credits only the starting player's `modesPlayed`) is pinned in `rules-campaign` "One lit, lock applies".
+  - `[low]` `[patch]` (blind) window tests assert `arbiterEvents(result).slice(1)` / `.slice(2)` without checking the skipped `lock_lane_mode_start` — every such assertion (Window hold, Tilt in window, Tilt in windowed lock, Slam, and the new confirm-tick and hold-floor rows) now asserts the full list.
+  - `[low]` `[reject]` (blind) `modesPlayed` stays `readonly string[]` — the spec restates only its doc; its only writer types the value `CampaignModeName`; narrowing is a contract change touching every test literal.
+  - `[false]` `[reject]` (blind) `discardStaleMouth()`'s name no longer covers the window, and the Auto Run Result is stale — the Code Map itself assigns the window's discard to `discardStaleMouth`, and the Auto Run Result is rewritten at finalize.
+  - `[low]` `[reject]` (edge) `heldModeSelect` has no backwards-tick bound in `advanceBackglass` — a restarted timeline passes through Attract, which drops the payload; only a replay seek straight into a mid-game checkpoint could hit it, and the fix adds a new guard field. reopen_if: a replay seek backwards within `phase: 'game'` leaves the DMD on `mode_select`.
+  - `[false]` `[reject]` (edge) a `mode_select_moved` without a held window is ignored, so the DMD could miss the window — `sim/loop/index.ts:454` pushes every tick's events into the frame's `events`, and every `FrameOutput` is folded in order, so the opening event is never skipped.
+  - `[low]` `[reject]` (edge) a Start on the capture tick adds a Hot-seat player and does not confirm — same root cause as the blind finding above; by design per the Code Map.
+  - `[medium]` `[defer]` (edge) ball save keeps expiring while a window holds the ball, so a 10 s window can outlast the 8 s save — real (`hasGraceLapsed` is time-based), but whether the save pauses during the window is a product call the intent does not make; recorded in `deferred:` for the decision sheet.
+  - `[low]` `[reject]` (edge) `show_mode_start` when `startCampaignMode()` returns no events — same root cause as the blind finding; unreachable in production.
+  - `[low]` `[reject]` (edge) a flipper released on exactly `pressedAt + Hd` never confirms — a one-tick (1 ms) boundary where both readings are defensible; the Hd-1 control and the held row pin the rule.
+  - `[low]` `[reject]` (edge) left held, right tapped and released: the left hold never confirms — per the Design Notes, `pressedAt` is the latest in-window press, cleared by that side's release; Start, a re-press and the expiry still confirm, and per-side tracking is new state the spec does not ask for.
+  - `[maybe-false]` `[reject]` (edge) a second capture in the same batch after a window opened would eject the window's ball — it needs two balls captured on one tick with `machine.multiball === null`, which single-ball play does not produce; it would settle with a same-tick two-capture witness. If true it would be low (3.7 owns multiball).
+  - `[false]` `[reject]` (edge) the lit line names a Mode that is still active — the intent defines the line as the first entry of `modesLit`; a Mode re-lit by the round rule is lit while its earlier start still runs.
+  - `[low]` `[reject]` (edge) AC4 "Start adds no player" fails on the capture tick — same root cause as the blind Start finding; by design.
+  - `[medium]` `[patch]` (verification-gap) the lane-change flag's open-at-start half is untested, and the lane test's title claimed the confirm tick — added a flipper press on the expiry (confirm) tick asserting `lanes.lit` unchanged, and corrected the title.
+  - `[medium]` `[patch]` (verification-gap) selection direction and wrapping never tested — same root cause as the blind finding; the three-candidate row.
+  - `[medium]` `[patch]` (verification-gap) the window's backwards-tick discard has no test — same root cause as the blind finding; the restart test.
+  - `[low]` `[patch]` (verification-gap) the hold's 1-tick clamp is untested — same root cause as the blind finding; the hold-0 row.
+  - `[low]` `[patch]` (verification-gap) the Backglass `warningShowing` term and the lit-line placement and drop are untested — same root cause as the blind Backglass finding; the rows above.
+  - `[low]` `[reject]` (verification-gap) `expect(campaign.duration).toBe(control.duration)` cannot fail against product code — it guards the test's own construction, not an AC; the AC7 pins (per-tick mismatch list, credits 2) can fail.
+  - `[low]` `[reject]` (verification-gap) some AC clauses have no `mutation:` line of their own — Rule 19 requires one per AC and all eight have one; the review pass added seven more lines for the clauses it pinned.
+  - `[low]` `[reject]` (intent) the overlapping-flipper hold diverges from the literal "held continuously from an in-window press" — same root cause as the edge finding; the Design Notes settle it.
+  - `[low]` `[reject]` (intent) the capture tick is closed for Start and moves but open for lane changes — same root cause as the blind Start finding; the Code Map and Design Notes settle both halves.
+  - `[low]` `[reject]` (intent) the lit line is dropped with two or more player lines plus a fields line — a transient limit of the four-line panel; the line returns when the fields line clears, and the behaviour is now pinned.
+  - `[false]` `[reject]` (intent) the contract shapes diverge (`modeWiring.lightShot`, `CampaignModeName` declared in `state.ts`) — `events.ts` exports `CampaignModeName` and `modeWiring.startShow` exists as specified; `lightShot` is what AD-16's `no-device-name-literal` requires.
+  - `[low]` `[reject]` (intent) the Backglass tests feed hand-made events, not real `createRules()` output — the event types are shared contracts under `typecheck`, and the lead's browser smoke covers the real hand-off.
+  - `[low]` `[patch]` (intent) no row covers the Lock-filling capture with two candidates, or `[controller shows, hit shows]` on one tick — added the Lock-filling window row; the command order is `sim/rules/index.ts`'s unchanged 3.3 path, pinned there.
+
 ## Design Notes
 
 **Q1 and Q2 were answered by the author on 2026-09-30.** The intent block's "Author decisions" is the record. The earlier HALT text is in git history at `732960b`.
@@ -349,10 +398,75 @@ Measured at `b82acef435b0e9ac7073a513724ff0feffcb57a4` on `DW-1-epic3`. No sourc
 - AC7: remove the arbiter's `startCampaignMode` call. The AC 7 run goes red.
 - AC8: the golden replay tests.
 
+**Implementation record (implement stage, 2026-09-30, at `a33eb66` + working tree).**
+
+Gates: `pnpm test` 147 files / 2389 tests green (baseline 145 / 2341; +2 files: `test/rules-campaign.test.ts` 34 tests, `test/backglass-mode-select.test.ts` 13 tests; +1 test in `test/tuning.test.ts` for AC1's `unverified` pin). `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size` each exit 0. `git diff -- test/replays`: per golden, only `tableHash` (`e13b7b0f` -> `da937508`) and the four new `gameStart.tuning` keys; no `expectedHash`, `expectedGameStateHash`, `transitions` or `checkpointTicks` moved.
+
+Mutations (each applied, observed red, reverted; suite green after):
+- mutation: AC1 -- delete `show_mode_start` from `TABLE.shows` → `test/table.test.ts` "shows holds exactly the three Dragon shows ... and show_mode_start" red.
+- mutation: AC2 -- drop the `scoringOpen()` conjunct in `base.ts`'s `lightNextMode` → `rules-campaign` "control: the same Ramp while tilted lights nothing" and "... outside a game ..." red.
+- mutation: AC2 -- `playedCount(...) > round` in `nextModeToLight` → `rules-campaign` "Matrix Restart" (and its control, First Ramp, Order) red.
+- mutation: AC3 -- push `lock_lane_mode_start` before `lock_lane_locked` → `rules-campaign` "Matrix One lit, lock applies" (and Active excluded, Window with lock) red.
+- mutation: AC3 -- let a `fullDevice` entry read candidates → `rules-campaign` "entry row full-device" red.
+- mutation: AC4 -- run the release when the window opens → `rules-campaign` "Matrix Window with lock" (trough pulse at t) and five other window rows red.
+- mutation: AC4 -- hand S6 the unfiltered events (Start reaches S6 in the window) → `rules-campaign` "Matrix Window, Start" red (`players` length 2).
+- mutation: AC5 -- restore the ball-end credit of every active mode's name → `rules-campaign` "Matrix Ball end" and the AC7 run red.
+- mutation: AC5 -- drop the `modesLit` removal in `startCampaignMode` → `rules-campaign` "Matrix One lit, lock applies" (and five more) red.
+- mutation: AC6 -- mark the first candidate (`index === 0`) instead of `selected` → `backglass-mode-select` "it follows mode_select_moved" red.
+- mutation: AC7 -- replace the arbiter's `startCampaignMode()` call with a no-op → `rules-campaign` AC7 "each ball's Lock capture starts the Mode its Ramp lit" (and eight rows) red.
+- mutation: AC8 -- `modeSelectHoldMs` 500 -> 501 in one golden header → `test/replay-goldens.test.ts` roll-and-drain rows red (`StaleReplayHeaderError`).
+
+Mutations added by the review pass (2026-09-30; each applied, observed red, reverted; `git status --short` and `git diff --stat` byte-identical after):
+- mutation: AC4 (Slam) -- drop the `'mouth'` window's owed `requestMouthEject()` in `stepModeSelect`'s phase-change discard → `rules-campaign` "a Slam in an unlocked capture's window ... owed Mouth eject still runs" red.
+- mutation: AC4 (direction) -- step `+1` for both flippers instead of `side === 'right' ? 1 : -1` → `rules-campaign` "three candidates: the right flipper steps forward, the left steps back, and both wrap" red.
+- mutation: AC4 (reset-safety) -- delete the `cs.modeSelect` discard in `discardStaleMouth()` → `rules-campaign` "an uninterrupted timeline expires at t+W; a timeline restarted at tick 1 never confirms" red.
+- mutation: AC4 (hold floor) -- drop `Math.max(1, ...)` on `modeSelectHoldTicks` → `rules-campaign` "mode-select hold 0 ms: the hold is floored at 1 tick" red.
+- mutation: AC4 (lanes) -- `modeSelectOpen: cs.modeSelect !== null` (drop the open-at-start half) → `rules-campaign` "a flipper press on the window's CONFIRM tick ... never rotates the lanes" red.
+- mutation: AC6 (WARNING carry) -- drop `warningShowing ||` in `advanceBackglass`'s `mode_select` branch → `backglass-mode-select` "a WARNING already showing when the window opens is carried too" red.
+- mutation: AC6 (lit line) -- drop `nextFreeRow += LINE_PITCH_ROWS` → `backglass-mode-select` "with a fields line ... it sits one line further down" (and the crowded row) red; drop `&& nextFreeRow < DMD_ROWS` → "two player lines plus a fields line leave no free line" red.
+
+Implementation notes for review (choices the spec left open, or small deviations):
+- `CampaignModeName` is declared in `contracts/state.ts` and re-exported from `contracts/events.ts`. `events.ts` already imports `state.ts`; declaring it in `events.ts` would need a type-only import back, which `no-circular` counts as a cycle.
+- `TABLE.modeWiring` also carries `lightShot: 'shot_ramp'`, so the base mode builds `${lightShot}_made` instead of spelling a `shot_` literal (AD-16's `no-device-name-literal`).
+- `test/rules-mode-stack.test.ts` "the table is AD-8's" pinned the production registry to `[skill_shot, base]`; it now lists the three shells too (a by-design pin change the Code Map did not list).
+- `BackglassView` gains a required `heldModeSelect`; the four full `BackglassView` literals in `test/backglass-frame.test.ts` gain `heldModeSelect: null`.
+- The `mode_select` screen: `SELECT MODE`, then one row per candidate; the selected row is marked with `emphasis` (inverse video in `raster.ts` -- the font has no marker glyph). It yields to an armed or live `ball_ended` hold and wins over TILT/WARNING; a `tilt_warning` inside the window is carried as `pendingTiltWarning` and shows on the first frame after it (`holdUntilTick` is the frame's own tick, keeping the reset-safety bound).
+- Campaign display names live in a separate `CAMPAIGN_DISPLAY_NAMES` table, not `MODE_DISPLAY_NAMES`: an entry there would give an active shell a status-line name, which Stories 3.5-3.7 decide. The lit line sits on the first free line below the status and fields lines and is dropped when no line is left (two or more player lines plus a fields line).
+- A capture while a window is already open (unreachable: no ball is in play meanwhile) starts nothing, keeping at most one window.
+
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Implementation and review run (2026-09-30, `bmad-build-auto`, resumed at implement).**
+- Baseline `a33eb664e89fb141d191b5f7bfd4e74d7db73e2c` on `DW-1-epic3`; worktree verified as `C:/git/dragonwar/.worktrees/epic-3`. One implementation-handoff subagent, then four review layers (blind, edge-case, verification-gap, intent-alignment). No subagent committed or pushed (HEAD unchanged until finalize).
+- **What changed.** Each Ramp completion lights the next campaign Mode into the new player-scoped `modesLit` (round rule, behind `scoringOpen()`). The Lock arbiter starts a lit Mode on a captured entry, crediting the lock first (`[locked, mode_start]` or `[spit{credited}, mode_start]`), and with two or more candidates holds the ball in `bd_lock` for the mode-select window: flipper edges move, Start or a `modeSelectHoldMs` hold or the `modeSelectMs` expiry confirm, and a Tilt ends it with no start but runs the release. Every start goes through `startCampaignMode()`, which credits `modesPlayed` and un-lights the Mode; the arbiter pushes `show_mode_start`. DW-293: the ball end no longer writes `modesPlayed`. Three registered shells (Hurry-up, Quick multiball, Joust). The Backglass gains the `mode_select` screen and the `<MODE> LIT` score-screen line.
+- **Files.**
+  - `src/sim/contracts/state.ts` -- `CampaignModeName`, `PlayerState.modesLit`, `modesPlayed` doc restated.
+  - `src/sim/contracts/events.ts` -- the three events and `ModeSelectEndReason`, in `SemanticEvent`; re-exports `CampaignModeName`.
+  - `src/sim/table/dragonwar.ts` -- `show_mode_start`, `modeWiring { startShow, lightShot }`.
+  - `src/sim/table/tuning.ts` -- `modeSelectMs` 10000 and `modeSelectHoldMs` 500, `unverified`, owned by Story 3.11.
+  - `src/sim/rules/modes/campaign.ts` (new) -- campaign order, round rule, candidates, `startCampaignMode()`.
+  - `src/sim/rules/modes/{hurry-up,quick-multiball,joust}.ts` (new) -- the shells.
+  - `src/sim/rules/modes/index.ts` -- registers the shells; `src/sim/rules/modes/base.ts` -- lights on `shot_ramp_made`.
+  - `src/sim/rules/ball-controller/lock-arbiter.ts` -- the start branches, the window, the Slam's owed eject, the backwards-tick discard.
+  - `src/sim/rules/ball-controller/{shared,index,start,ball-end}.ts` -- `modeSelect` closure and ticks, S6's Start filter, the `modeSelectOpen` flag, `emptyPlayer`, DW-293.
+  - `src/sim/rules/index.ts` -- drops `lane_change_pressed` from the stack while the flag is set.
+  - `src/presentation/backglass/frame.ts` -- `mode_select` screen, `heldModeSelect`, lit line.
+  - Tests: `test/rules-campaign.test.ts` (new, headless, in `ENTRY_FILES`), `test/backglass-mode-select.test.ts` (new); `modesLit: []` in every `PlayerState` literal; by-design pin edits in `contracts`, `table`, `tuning`, `rules-lifecycle`, `rules-mode-stack`, `rules-mode-stack-integration`, `backglass-frame`; the five goldens' headers.
+- **Review findings.** 37 findings: 0 high, 7 medium, 25 low, 4 false, 1 maybe-false (full rows in the Review Triage Log).
+  - Patched (15 rows; entries by verdict: 4 medium, 7 low): the Slam's owed Mouth eject for an unlocked capture's window (the one product-code fix); the orphaned JSDoc; tests for flipper direction and wrapping, the backwards-tick discard, the hold floor, the re-press hold, the confirm-tick lane flag, the Lock-filling window, the Backglass WARNING carry and lit-line placement and drop; full-list assertions in place of `slice(n)`.
+  - Deferred (1): ball save keeps expiring during a window (medium, a product call, in `deferred:`).
+  - Rejected (21), each with its reason in the triage log: `show_mode_start` on a no-op start (unreachable in production, x2); the capture-tick Start reaching S6 (by design per the Code Map, x4); the exact-Hd release boundary; overlapping-flipper holds (per the Design Notes, x2); the Backglass backwards-tick bound (reopen_if recorded); `moved` without an open (false); the lit line naming an active Mode (false); the second same-batch capture (maybe-false, low if true); the multiplayer lit-line drop; the contract shapes (false); hand-made Backglass events; the lifecycle negative's pair; `modesPlayed`'s type; `discardStaleMouth`'s name and the stale Auto Run Result (false); the test-construction guard; the per-clause mutation lines.
+- **Follow-up review recommended: true.** Patched on this first pass: 0 high, 4 medium, 7 low entries (two or more medium). The named unverified risk is the one product-code patch: after a Slam, an unlocked capture's owed Mouth eject is now requested in Attract. It is pinned headless (`runRulesScript`) but not on real physics, and not against the next game's Start-time stray clear (AD-6), which could meet that ejected ball.
+- **Verification.** Final tree: `pnpm test` 147 files / 2400 tests, all green (baseline 145 / 2341). `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` each exit 0 (size 0.890 MB of 2.750 MB). Goldens compared by JSON parse, field by field against the baseline: only `header.tableHash` and `header.gameStart.tuning.{modeSelectMs, modeSelectHoldMs, modeSelectTicks, modeSelectHoldTicks}` differ in all five; no `expectedHash`, `expectedGameStateHash`, `transitions` or `checkpointTicks` moved. Matrix Test Audit: all 15 rows are covered by `test/rules-campaign.test.ts` tests that ran green. Rule 19: 12 implement-stage mutations and 7 review-pass mutations recorded in `## Verification`, each observed red and reverted with the tree byte-identical. Added lines are ASCII-only; LF throughout.
+- **Residual risks.**
+  - The deferred ball-save question.
+  - The Slam-eject interaction above.
+  - A Start pressed on the exact capture tick still reaches S6 (by design).
+  - The lit line is hidden while two or more player lines and a fields line fill the panel.
+  - The browser smoke (lead) is not run here.
 
 **Planning run 2 (2026-09-30, `bmad-build-auto`, halt after planning).**
 - Planned at `b82acef435b0e9ac7073a513724ff0feffcb57a4` on `DW-1-epic3`.

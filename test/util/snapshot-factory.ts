@@ -48,6 +48,7 @@ export function buildPlayer(overrides: Partial<PlayerState> = {}): PlayerState {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber: 0,
 		...overrides,
 	};

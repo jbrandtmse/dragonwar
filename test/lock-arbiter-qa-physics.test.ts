@@ -128,6 +128,7 @@ function gameState(machine: Partial<GameState['machine']> = {}, lockCredits = 0)
 				jackpotSeed: 0,
 				warsStarted: 0,
 				modesPlayed: [],
+				modesLit: [],
 				ballNumber: 1,
 			},
 		],

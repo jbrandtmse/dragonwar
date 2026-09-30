@@ -285,6 +285,12 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 					return `lock locked ${event.player} credits ${event.credits}`;
 				case 'lock_lane_spit':
 					return `lock spit ${event.player} credits ${event.credits} credited ${event.credited}`;
+				case 'lock_lane_mode_start':
+					return `mode start ${event.player} [${event.candidates.join(',')}] selected ${event.selected}`;
+				case 'mode_select_moved':
+					return `mode select moved ${event.player} [${event.candidates.join(',')}] selected ${event.selected}`;
+				case 'mode_select_ended':
+					return `mode select ended ${event.player} ${event.mode ?? 'none'} ${event.reason}`;
 				default: {
 					// Exhaustiveness: if a new event variant is ever added without a
 					// case above, this line fails `pnpm typecheck`.
@@ -367,6 +373,16 @@ describe('sim/contracts -- SemanticEvent is discriminated on type and every vari
 		expect(describeEvent({ type: 'lock_lane_locked', player: 3, credits: 1, tick: 300 })).toBe('lock locked 3 credits 1');
 		expect(describeEvent({ type: 'lock_lane_spit', player: 2, credits: 1, credited: true, tick: 301 })).toBe('lock spit 2 credits 1 credited true');
 		expect(describeEvent({ type: 'lock_lane_spit', player: 1, credits: 2, credited: false, tick: 302 })).toBe('lock spit 1 credits 2 credited false');
+		// Story 3.4: the three new arms, each executed -- distinct player and
+		// tick values, so a field swap reddens rather than passes by coincidence.
+		expect(describeEvent({ type: 'lock_lane_mode_start', player: 2, candidates: ['hurryup', 'quickmb'], selected: 'hurryup', tick: 400 })).toBe(
+			'mode start 2 [hurryup,quickmb] selected hurryup',
+		);
+		expect(describeEvent({ type: 'mode_select_moved', player: 3, candidates: ['quickmb', 'joust'], selected: 'joust', tick: 401 })).toBe(
+			'mode select moved 3 [quickmb,joust] selected joust',
+		);
+		expect(describeEvent({ type: 'mode_select_ended', player: 1, mode: 'joust', reason: 'flipper_held', tick: 402 })).toBe('mode select ended 1 joust flipper_held');
+		expect(describeEvent({ type: 'mode_select_ended', player: 0, mode: null, reason: 'tilt', tick: 403 })).toBe('mode select ended 0 none tilt');
 	});
 });
 

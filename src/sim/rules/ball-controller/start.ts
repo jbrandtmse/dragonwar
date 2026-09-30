@@ -35,6 +35,7 @@ export function emptyPlayer(): PlayerState {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber: 0,
 	};
 }

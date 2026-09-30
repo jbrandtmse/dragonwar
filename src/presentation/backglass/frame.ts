@@ -22,7 +22,17 @@
 // event to a later snapshot" is not in tension with it.
 
 import { ticksToMs, TICK_HZ } from '../../sim/contracts/time';
-import type { BallEndedEvent, BonusCountStepEvent, MatchDrawnEvent, MatchRevealStepEvent, TiltWarningEvent } from '../../sim/contracts/events';
+import type {
+	BallEndedEvent,
+	BonusCountStepEvent,
+	CampaignModeName,
+	LockLaneModeStartEvent,
+	MatchDrawnEvent,
+	MatchRevealStepEvent,
+	ModeSelectEndedEvent,
+	ModeSelectMovedEvent,
+	TiltWarningEvent,
+} from '../../sim/contracts/events';
 import type { InputAction } from '../../sim/contracts/input';
 import type { ModeView } from '../../sim/contracts/mode-view';
 import type { FrameOutput, GameState, Snapshot } from '../../sim/table/names';
@@ -51,6 +61,21 @@ function isMatchDrawnEvent(event: { readonly type: string }): event is MatchDraw
 /** Story 2.13 (AD-9): one paced reveal step -- the Backglass shows only `shown`, never `match_drawn.number` itself (the "never reveals early" rule). */
 function isMatchRevealStepEvent(event: { readonly type: string }): event is MatchRevealStepEvent {
 	return event.type === 'match_reveal_step';
+}
+
+/** Story 3.4 (AD-9): a Lock capture's Mode start -- `foldModeSelect()` arms the `mode_select` screen from it when it carries two or more candidates. */
+function isLockLaneModeStartEvent(event: { readonly type: string }): event is LockLaneModeStartEvent {
+	return event.type === 'lock_lane_mode_start';
+}
+
+/** Story 3.4 (AD-9): the mode-select window's selection moved. */
+function isModeSelectMovedEvent(event: { readonly type: string }): event is ModeSelectMovedEvent {
+	return event.type === 'mode_select_moved';
+}
+
+/** Story 3.4 (AD-9): the mode-select window ended. */
+function isModeSelectEndedEvent(event: { readonly type: string }): event is ModeSelectEndedEvent {
+	return event.type === 'mode_select_ended';
 }
 
 /** The DMD's physical dot grid -- 128 columns by 32 rows, the shape `raster.ts` rasterises into. */
@@ -90,7 +115,7 @@ export interface DmdRow {
  * default in `renderFrame()` is what forces every new member to be handled
  * here, not silently rendered as the score screen).
  */
-export type DmdScreen = 'attract_prompt' | 'attract_scores' | 'attract_keys' | 'score' | 'ball_ended' | 'tilt_warning' | 'tilt' | 'game_over';
+export type DmdScreen = 'attract_prompt' | 'attract_scores' | 'attract_keys' | 'score' | 'ball_ended' | 'tilt_warning' | 'tilt' | 'game_over' | 'mode_select';
 
 /** One rendered frame: which screen, and the rows to rasterise. */
 export interface DmdFrame {
@@ -133,6 +158,41 @@ function foldMatchEvents(current: HeldMatch | null, events: FrameOutput['events'
 			next = { shown: next?.shown ?? null, resolved: next?.resolved ?? false, winners: event.winners };
 		} else if (isMatchRevealStepEvent(event)) {
 			next = { shown: event.shown, resolved: event.step >= event.steps, winners: next?.winners ?? [] };
+		}
+	}
+	return next;
+}
+
+/**
+ * Story 3.4 (AD-9, AD-18): the mode-select window's held payload, armed from
+ * a `lock_lane_mode_start` with two or more candidates, folded by each
+ * `mode_select_moved` and dropped by `mode_select_ended` -- read from the
+ * events alone, never from the snapshot (the window is the Lock arbiter's
+ * closure state, which the snapshot does not carry). Presentation state
+ * only, never `GameState` -- no golden moves.
+ */
+export interface HeldModeSelect {
+	readonly player: number;
+	readonly candidates: readonly CampaignModeName[];
+	readonly selected: CampaignModeName;
+}
+
+/**
+ * Story 3.4: folds this frame's own `lock_lane_mode_start` (two or more
+ * candidates arm), `mode_select_moved` (the selection follows) and
+ * `mode_select_ended` (drops) into `current`, in event order -- one
+ * `FrameOutput` can carry a whole window. Returns `current` itself when no
+ * event applies. Pure.
+ */
+function foldModeSelect(current: HeldModeSelect | null, events: FrameOutput['events']): HeldModeSelect | null {
+	let next = current;
+	for (const event of events) {
+		if (isLockLaneModeStartEvent(event)) {
+			next = event.candidates.length >= 2 ? { player: event.player, candidates: event.candidates, selected: event.selected } : next;
+		} else if (isModeSelectMovedEvent(event)) {
+			next = next === null ? null : { player: event.player, candidates: event.candidates, selected: event.selected };
+		} else if (isModeSelectEndedEvent(event)) {
+			next = null;
 		}
 	}
 	return next;
@@ -246,6 +306,8 @@ export interface BackglassView {
 	readonly pendingTiltWarning: boolean;
 	/** Story 2.13: the game-over sequence's own held Match payload -- see `HeldMatch`'s own doc comment. `null` on every screen except the live `ball_ended` hold (accumulating ahead of time) and `game_over` itself. */
 	readonly heldMatch: HeldMatch | null;
+	/** Story 3.4: the open mode-select window's payload -- see `HeldModeSelect`. Folded on every `game` frame, whatever screen shows; `null` in any other phase. */
+	readonly heldModeSelect: HeldModeSelect | null;
 }
 
 /** The view a fresh boot (or a fresh test) starts from: the Attract keys screen (Story 2.13), nothing held, cycle counting from tick 0. */
@@ -256,6 +318,7 @@ export const INITIAL_BACKGLASS_VIEW: BackglassView = {
 	heldBallEnded: null,
 	pendingTiltWarning: false,
 	heldMatch: null,
+	heldModeSelect: null,
 };
 
 const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
@@ -367,6 +430,16 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  *    here too, ahead of the `game_over` screen ever showing -- a
  *    hypothetically retuned `matchDelayMs` shorter than this hold could
  *    otherwise lose them.
+ * 2a. Story 3.4: a mode-select window held (`heldModeSelect`, folded at the
+ *    top from this frame's `lock_lane_mode_start` / `mode_select_moved` /
+ *    `mode_select_ended`, and only in `phase === 'game'`) shows the
+ *    `mode_select` screen. It yields to an armed or live `ball_ended` hold
+ *    (the fold still runs underneath it) and wins over TILT and WARNING: a
+ *    Tilt ends the window in the sim on its own tick, and a `tilt_warning`
+ *    inside the window is carried as `pendingTiltWarning` (its `holdUntilTick`
+ *    is the frame's own tick, so the warning shows on the first frame after
+ *    the window, and a restarted timeline drops it -- the reset-safety bound
+ *    branch 4 already applies).
  * 3. Story 2.11: `machine.tilt.tilted` in `phase: 'game'` shows the TILT
  *    screen -- a CONTINUOUS condition read off the snapshot (AD-9: that is
  *    what the snapshot is for), superseding even a live warning hold (a
@@ -401,12 +474,17 @@ function attractScreenAt(tick: number, originTick: number, hasScores: boolean): 
  *    story's union names.
  *
  * Every branch other than item 2 (the live `ball_ended` hold) and item 6
- * (`game_over`) returns `heldMatch: null` explicitly.
+ * (`game_over`) returns `heldMatch: null` explicitly. Every branch carries
+ * the frame's folded `heldModeSelect` (Story 3.4), which is `null` outside
+ * `game`.
  */
 export function advanceBackglass(view: BackglassView, input: FrameOutput): BackglassView {
 	const tick = input.snapshot.tick;
 	const game = input.snapshot.game;
 	const tiltWarningEvent = input.events.find(isTiltWarningEvent);
+	// Story 3.4: the window's payload is dropped on any phase other than
+	// `game` (a Slam discards the window in the sim with no event).
+	const heldModeSelect = game.phase === 'game' ? foldModeSelect(view.heldModeSelect, input.events) : null;
 
 	const ballEndedEvent = input.events.find(isBallEndedEvent);
 	// Code review (Story 2.11, cycle 2): never in Attract. A `ball_ended` and a
@@ -464,6 +542,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 			// exceeds this hold's own length by construction (AC 12), so no
 			// match event can ever share this exact arming tick.
 			heldMatch: null,
+			heldModeSelect,
 		};
 	}
 
@@ -518,10 +597,37 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		// three returns below otherwise touch `heldMatch` at all.
 		const heldMatch = foldMatchEvents(view.heldMatch, input.events);
 		const heldBallEnded = view.heldBallEnded ? foldBonusCountSteps(view.heldBallEnded, input.events) : null;
-		if (heldBallEnded !== view.heldBallEnded || pendingTiltWarning !== view.pendingTiltWarning || heldMatch !== view.heldMatch) {
-			return { ...view, heldBallEnded, pendingTiltWarning, heldMatch };
+		if (
+			heldBallEnded !== view.heldBallEnded ||
+			pendingTiltWarning !== view.pendingTiltWarning ||
+			heldMatch !== view.heldMatch ||
+			heldModeSelect !== view.heldModeSelect
+		) {
+			return { ...view, heldBallEnded, pendingTiltWarning, heldMatch, heldModeSelect };
 		}
 		return view;
+	}
+
+	// Story 3.4 (AD-18): the mode-select window, held from a
+	// `lock_lane_mode_start` with two or more candidates until its
+	// `mode_select_ended` (order item 2a). A warning arriving while it shows,
+	// or a WARNING screen still showing when it opens (DW-250's reading), is
+	// carried rather than lost, and surfaces on the first frame after it.
+	if (heldModeSelect !== null) {
+		const warningShowing =
+			view.screen === 'tilt_warning' &&
+			view.holdUntilTick !== null &&
+			tick < view.holdUntilTick &&
+			tick >= view.holdUntilTick - TILT_WARNING_HOLD_TICKS;
+		return {
+			screen: 'mode_select',
+			holdUntilTick: tick,
+			attractCycleOriginTick: view.attractCycleOriginTick,
+			heldBallEnded: null,
+			pendingTiltWarning: view.pendingTiltWarning || warningShowing || Boolean(tiltWarningEvent),
+			heldMatch: null,
+			heldModeSelect,
+		};
 	}
 
 	// Story 2.11: the TILT condition, read off the SNAPSHOT (a continuous
@@ -533,7 +639,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 	// that hold -- a genuine Tilt supersedes a warning that never got shown,
 	// exactly as it supersedes one already showing.
 	if (game.phase === 'game' && game.machine.tilt.tilted) {
-		return { screen: 'tilt', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null };
+		return { screen: 'tilt', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null, heldModeSelect };
 	}
 
 	// Code review finding (Blind Hunter / Edge Case Hunter, converged
@@ -597,6 +703,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 			heldBallEnded: null,
 			pendingTiltWarning: false,
 			heldMatch: null,
+			heldModeSelect,
 		};
 	}
 
@@ -613,7 +720,7 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 		tick < view.holdUntilTick &&
 		tick >= view.holdUntilTick - TILT_WARNING_HOLD_TICKS
 	) {
-		return view;
+		return heldModeSelect === view.heldModeSelect ? view : { ...view, heldModeSelect };
 	}
 
 	// Story 2.13 (Design Notes, `advanceBackglass()` order item 4): the
@@ -632,16 +739,17 @@ export function advanceBackglass(view: BackglassView, input: FrameOutput): Backg
 			heldBallEnded: null,
 			pendingTiltWarning: false,
 			heldMatch: foldMatchEvents(view.heldMatch, input.events),
+			heldModeSelect,
 		};
 	}
 
 	if (game.phase === 'attract') {
 		const originTick = isAttractScreen(view.screen) ? view.attractCycleOriginTick : tick;
 		const screen = attractScreenAt(tick, originTick, game.players.length > 0);
-		return { screen, holdUntilTick: null, attractCycleOriginTick: originTick, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null };
+		return { screen, holdUntilTick: null, attractCycleOriginTick: originTick, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null, heldModeSelect };
 	}
 
-	return { screen: 'score', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null };
+	return { screen: 'score', holdUntilTick: null, attractCycleOriginTick: view.attractCycleOriginTick, heldBallEnded: null, pendingTiltWarning: false, heldMatch: null, heldModeSelect };
 }
 
 const LEFT_MARGIN_COL = 2;
@@ -682,6 +790,20 @@ function formatScore(n: number): string {
  */
 const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	skill_shot: 'ARM YOURSELF',
+};
+
+/**
+ * Story 3.4: the campaign Modes' display names -- the `mode_select` screen's
+ * candidate rows and the score screen's lit line (`<NAME> LIT`). A separate
+ * table from `MODE_DISPLAY_NAMES` on purpose: an entry there would give an
+ * ACTIVE campaign shell a status-line name (`hasSomethingToShow()`), which
+ * Stories 3.5-3.7 decide when they give each Mode its `ModeView`. English
+ * lives here only (AD-9).
+ */
+const CAMPAIGN_DISPLAY_NAMES: Readonly<Record<CampaignModeName, string>> = {
+	hurryup: 'HURRY-UP',
+	quickmb: 'QUICK MB',
+	joust: 'JOUST',
 };
 
 /** `snake_case` mode id -> `UPPER CASE WORDS` display text -- the only place a mode's name becomes English (AD-9: "rules never format text"). Returns `undefined` for a mode with no authored entry (DW-200) -- `buildScoreRows()` (Story 2.13: the status/fields line replacing the old `buildModeRows()`) reads that as "render nothing for this mode", not as licence to derive one mechanically. */
@@ -840,13 +962,39 @@ function buildScoreRows(state: GameState): DmdRow[] {
 		rows.push({ text: ballText, col: rightAlignCol(ballText), row: statusRow, emphasis: false });
 	}
 
+	let nextFreeRow = (blockLines + 1) * LINE_PITCH_ROWS;
 	if (topMode) {
 		const fieldsText = buildFieldsText(topMode);
 		if (fieldsText.length > 0) {
-			rows.push({ text: fieldsText, col: LEFT_MARGIN_COL, row: (blockLines + 1) * LINE_PITCH_ROWS, emphasis: false });
+			rows.push({ text: fieldsText, col: LEFT_MARGIN_COL, row: nextFreeRow, emphasis: false });
+			nextFreeRow += LINE_PITCH_ROWS;
 		}
 	}
 
+	// Story 3.4 (AD-9: continuous display, read off the snapshot): the
+	// current player's first lit campaign Mode, on the first line free below
+	// the status and fields lines -- dropped rather than drawn off the panel
+	// when none is left (two or more player lines plus a fields line).
+	const lit = current?.modesLit[0];
+	if (lit !== undefined && nextFreeRow < DMD_ROWS) {
+		rows.push({ text: `${CAMPAIGN_DISPLAY_NAMES[lit]} LIT`, col: LEFT_MARGIN_COL, row: nextFreeRow, emphasis: false });
+	}
+
+	return rows;
+}
+
+/**
+ * Story 3.4 (AD-18): the mode-select screen -- `SELECT MODE`, then one row
+ * per candidate by its display name, in the window's candidate order (at most
+ * three, which with the heading fill the panel's four lines). The selected
+ * candidate is marked by `emphasis`, which `raster.ts` draws as inverse
+ * video.
+ */
+function buildModeSelectRows(held: HeldModeSelect): DmdRow[] {
+	const rows: DmdRow[] = [{ text: 'SELECT MODE', col: LEFT_MARGIN_COL, row: 0, emphasis: false }];
+	held.candidates.forEach((mode, index) => {
+		rows.push({ text: CAMPAIGN_DISPLAY_NAMES[mode], col: LEFT_MARGIN_COL, row: (index + 1) * LINE_PITCH_ROWS, emphasis: mode === held.selected });
+	});
 	return rows;
 }
 
@@ -1004,6 +1152,8 @@ export function renderFrame(view: BackglassView, snapshot: Snapshot, viewConfig:
 			return { screen: 'tilt_warning', rows: buildTiltWarningRows() };
 		case 'game_over':
 			return { screen: 'game_over', rows: buildGameOverRows(snapshot.game, view.heldMatch) };
+		case 'mode_select':
+			return { screen: 'mode_select', rows: view.heldModeSelect ? buildModeSelectRows(view.heldModeSelect) : [] };
 		case 'score':
 			return { screen: 'score', rows: buildScoreRows(snapshot.game) };
 		default: {

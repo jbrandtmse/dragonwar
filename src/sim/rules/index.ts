@@ -203,6 +203,11 @@ function isBallLaunched(event: DeviceEvent): event is BallLaunchedEvent {
 	return event.type === 'ball_launched';
 }
 
+/** Story 3.4 (AD-18): `events` without `lane_change_pressed` -- what the mode stack receives while a mode-select window is open. Returns `events` itself when there is none. */
+function withoutLaneChangePressed(events: readonly DeviceEvent[]): readonly DeviceEvent[] {
+	return events.some((event) => event.type === 'lane_change_pressed') ? events.filter((event) => event.type !== 'lane_change_pressed') : events;
+}
+
 /**
  * Default sim adjustments for a `Rules` instance built WITHOUT a `GameStart`
  * (every pre-existing single-argument `createRules(tuning)` call site --
@@ -344,7 +349,19 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		// Story 3.2 (AD-18): the stack receives this tick's device events
 		// WITHOUT `lock_lane_entered` -- the Lock arbiter, inside the ball
 		// controller above, is that event's only consumer.
-		const modeStackResult = modeStack.step(controllerResult.state, withoutLockLaneEntered(deviceResult.events), controllerResult.events, tick);
+		//
+		// Story 3.4 (AD-18): and, while the controller reports a mode-select
+		// window open at the start or the end of this tick, WITHOUT
+		// `lane_change_pressed` -- a flipper press there moves the selection,
+		// so it never rotates the lanes. The flag is the controller's step
+		// result; this file never reads the controller's closure state.
+		const stackDeviceEvents = withoutLockLaneEntered(deviceResult.events);
+		const modeStackResult = modeStack.step(
+			controllerResult.state,
+			controllerResult.modeSelectOpen ? withoutLaneChangePressed(stackDeviceEvents) : stackDeviceEvents,
+			controllerResult.events,
+			tick,
+		);
 
 		// Story 2.10 (AD-19, DW-208's fix, part 2): `RulesStepResult.modeEvents`
 		// gains its first production consumer here -- `lanes_completed` does not

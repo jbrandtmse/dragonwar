@@ -64,6 +64,7 @@ function player(overrides: Partial<Player> = {}): Player {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber: 1,
 		...overrides,
 	};

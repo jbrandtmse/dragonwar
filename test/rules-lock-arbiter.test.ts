@@ -58,6 +58,7 @@ function player(overrides: Partial<PlayerState> = {}): PlayerState {
 		jackpotSeed: 0,
 		warsStarted: 0,
 		modesPlayed: [],
+		modesLit: [],
 		ballNumber: 1,
 		...overrides,
 	};

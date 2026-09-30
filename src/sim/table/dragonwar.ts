@@ -616,6 +616,19 @@ export const TABLE = deepFreeze({
 	},
 
 	/**
+	 * Story 3.4 (AD-18, AD-9, FR-33): the campaign Modes' wiring. `startShow`
+	 * is the show every campaign Mode start pushes (the Lock arbiter, through
+	 * `sim/rules/modes/campaign.ts`'s start path), and `lightShot` is the shot
+	 * whose completion lights the next Mode (the base mode reads
+	 * `${lightShot}_made`). Named here so rules never spell a `show_` or
+	 * `shot_` literal (AD-16).
+	 */
+	modeWiring: {
+		startShow: 'show_mode_start',
+		lightShot: 'shot_ramp',
+	},
+
+	/**
 	 * Story 2.4 (AD-19, task 2): the two flipper buttons, wired for
 	 * `lane_change_pressed { side }` (Story 2.7's own shot) alongside the
 	 * bare `button_pressed { button }` every cabinet button reports.
@@ -718,11 +731,15 @@ export const TABLE = deepFreeze({
 	// mouth opening before every Mouth eject (`lockLaneWiring.mouthOpenShow`).
 	// Story 3.3 adds the close that ends each Mouth sequence
 	// (`lockLaneWiring.mouthCloseShow`) and the Dragon body's hit reaction
-	// (`dragonBodyWiring.hitShow`).
+	// (`dragonBodyWiring.hitShow`); Story 3.4 the campaign Mode start
+	// (`modeWiring.startShow`).
 	shows: {
 		show_dragon_mouth_open: {} as Record<string, never>,
 		show_dragon_mouth_close: {} as Record<string, never>,
 		show_dragon_hit: {} as Record<string, never>,
+		// Story 3.4 (AD-9, AD-18): pushed on every campaign Mode start
+		// (`modeWiring.startShow`).
+		show_mode_start: {} as Record<string, never>,
 	},
 
 	// AD-12: every static mesh the placeholder `.blend` exports carries a
