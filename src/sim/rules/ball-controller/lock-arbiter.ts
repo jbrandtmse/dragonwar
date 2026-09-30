@@ -20,17 +20,22 @@
 //   later, with successive ejects `mouthEjectIntervalTicks` apart. Ball
 //   search's Lock stages (`./serve-recovery.ts`), the `bd_lock` overflow
 //   answer (below) and the DW-171 park all go through `requestMouthEject()`.
+//   Story 3.3 ends each sequence: `show_dragon_mouth_close` exactly
+//   `mouthCloseHoldTicks` after its last pulse, or at once, ahead of the new
+//   open, when a request arrives while that close is pending -- so open and
+//   close strictly alternate and every pulse falls between a pair.
 //
 // The arbiter acts only in `phase === 'game'`; in Attract and `game_over` a
-// captured ball stays parked, exactly as before this story. The overflow
-// answer is the one exception: it runs in any phase. A pending Mouth
-// sequence is never cancelled by a ball end, a Slam or a phase change -- it
+// captured ball stays parked, exactly as before this story. The Mouth's due
+// pulse, its due close (Story 3.3) and the overflow answer are the
+// exceptions: they run in any phase. A pending Mouth sequence and a pending
+// close are never cancelled by a ball end, a Slam or a phase change -- each
 // is discarded only when `tick` runs backwards (`tilt.ts`'s precedent).
 //
 // Device and show names are reached only through `TABLE` (AD-16).
 
 import { TABLE } from '../../table/dragonwar';
-import { SHOOTER_LAUNCH_COIL, type ControllerContext, type MouthSequence, type TickOutput } from './shared';
+import { SHOOTER_LAUNCH_COIL, type ControllerContext, type MouthClose, type MouthSequence, type TickOutput } from './shared';
 import type { DeviceEvent } from '../devices';
 import type { LockLaneEnteredEvent } from '../devices/lock-lane-event';
 import type { BallDeviceName, CoilName, GameState, MachineReport } from '../../table/names';
@@ -89,13 +94,24 @@ export function pendingMouthEjects(ctx: ControllerContext): number {
 /**
  * S2 (the Mouth's half). Reset-safety: a sequence opened at a tick later
  * than this one belongs to a restarted timeline and is discarded
- * (`tilt.ts:88-97`'s precedent). Nothing else ever discards it.
+ * (`tilt.ts:88-97`'s precedent). Story 3.3: so is a pending close whose
+ * last pulse fired at a tick later than this one. Nothing else ever
+ * discards either.
  */
 export function discardStaleMouth(ctx: ControllerContext, tick: number): void {
 	const { cs } = ctx;
 	if (cs.mouth !== null && tick < cs.mouth.openTick) {
 		cs.mouth = null;
 	}
+	if (cs.mouthClose !== null && tick < cs.mouthClose.lastPulseTick) {
+		cs.mouthClose = null;
+	}
+}
+
+/** Story 3.3 (AD-18): pushes the pending `show_dragon_mouth_close` on this tick and clears it. */
+function emitMouthClose(ctx: ControllerContext, tick: number, out: TickOutput): void {
+	out.showCommands.push({ type: 'show', show: TABLE.lockLaneWiring.mouthCloseShow, tick });
+	ctx.cs.mouthClose = null;
 }
 
 /**
@@ -105,11 +121,17 @@ export function discardStaleMouth(ctx: ControllerContext, tick: number): void {
  * pending, emits no show and schedules the new pulse
  * `mouthEjectIntervalTicks` after the last one -- one show, one sequence.
  * A request beyond the Lock's capacity is dropped (see `MAX_PENDING_EJECTS`).
+ * Story 3.3: with a close pending (the last pulse fired, its hold not yet
+ * over), the close is pushed first, on this tick, and then a new sequence
+ * opens exactly as above -- open and close strictly alternate.
  * Stories 3.8 and 3.9 fire the Lock through this same call.
  */
 export function requestMouthEject(ctx: ControllerContext, tick: number, out: TickOutput): void {
 	const { cs, mouthOpenLeadTicks, mouthEjectIntervalTicks } = ctx;
 	if (cs.mouth === null) {
+		if (cs.mouthClose !== null) {
+			emitMouthClose(ctx, tick, out);
+		}
 		out.showCommands.push({ type: 'show', show: TABLE.lockLaneWiring.mouthOpenShow, tick });
 		cs.mouth = { openTick: tick, dueTicks: [tick + mouthOpenLeadTicks] };
 		return;
@@ -123,13 +145,15 @@ export function requestMouthEject(ctx: ControllerContext, tick: number, out: Tic
 
 /**
  * The Mouth's scheduler: pushes one `pulse` on the Mouth coil when the next
- * scheduled pulse is due, and clears the sequence after its last pulse.
- * Returns `true` when it pulsed this tick -- the drain gate treats that tick
- * as still pending, because the spat ball's `device_ball_left` (and so its
- * `ballsInPlay` +1) only reaches rules on the next tick (AD-4).
+ * scheduled pulse is due, and clears the sequence after its last pulse --
+ * recording, from Story 3.3, the pending close `mouthCloseHoldTicks` after
+ * that last pulse. Returns `true` when it pulsed this tick -- the drain gate
+ * treats that tick as still pending, because the spat ball's
+ * `device_ball_left` (and so its `ballsInPlay` +1) only reaches rules on the
+ * next tick (AD-4).
  */
 function pulseDueMouth(ctx: ControllerContext, tick: number, out: TickOutput): boolean {
-	const { cs } = ctx;
+	const { cs, mouthCloseHoldTicks } = ctx;
 	const sequence: MouthSequence | null = cs.mouth;
 	if (sequence === null || sequence.dueTicks[0]! > tick) {
 		return false;
@@ -138,8 +162,21 @@ function pulseDueMouth(ctx: ControllerContext, tick: number, out: TickOutput): b
 	sequence.dueTicks.shift();
 	if (sequence.dueTicks.length === 0) {
 		cs.mouth = null;
+		cs.mouthClose = { lastPulseTick: tick, dueTick: tick + mouthCloseHoldTicks };
 	}
 	return true;
+}
+
+/**
+ * Story 3.3 (AD-18): emits the pending close on the first tick at or past
+ * its due tick. Runs in the SL seam right after `pulseDueMouth()`, so a
+ * hold of 0 closes on the last pulse's own tick, after the pulse.
+ */
+function closeDueMouth(ctx: ControllerContext, tick: number, out: TickOutput): void {
+	const pending: MouthClose | null = ctx.cs.mouthClose;
+	if (pending !== null && pending.dueTick <= tick) {
+		emitMouthClose(ctx, tick, out);
+	}
 }
 
 /**
@@ -190,9 +227,10 @@ function classify(deviceEvents: readonly DeviceEvent[]): { readonly entries: rea
 
 /**
  * The arbiter's seam, after S7 and before the S8 drain gate. In order:
- * the Mouth's due pulse (any phase); the `bd_lock` overflow answer (any
- * phase, DW-174); then, in `phase === 'game'` only, each entry's decision
- * and each uncredited park's eject. Returns the next state (only
+ * the Mouth's due pulse (any phase); its due close (any phase, Story 3.3);
+ * the `bd_lock` overflow answer (any phase, DW-174); then, in
+ * `phase === 'game'` only, each entry's decision and each uncredited park's
+ * eject. Returns the next state (only
  * `players[currentPlayer].lockCredits` ever changes) and whether the Mouth
  * pulsed this tick.
  */
@@ -205,6 +243,7 @@ export function arbitrateLockLane(
 	out: TickOutput,
 ): { readonly state: GameState; readonly mouthPulsedThisTick: boolean } {
 	const mouthPulsedThisTick = pulseDueMouth(ctx, tick, out);
+	closeDueMouth(ctx, tick, out);
 
 	// DW-174: a Lock overflow requests one eject only when none is pending.
 	// A pending eject already releases the highest slot (the staging ball);

@@ -264,12 +264,17 @@ describe('TABLE\'s empty collections -- Design Notes "Scope decisions on the clo
 
 	// Story 3.2 (AD-9, AD-18): `shows` gains its first entry, the Mouth-open
 	// show every Mouth eject is preceded by, and `lockLaneWiring` names it so
-	// the Lock arbiter never spells a `show_` literal (AD-16). Story 3.3 adds
-	// the close and hit shows.
-	it('shows holds exactly show_dragon_mouth_open (Story 3.2), and lockLaneWiring.mouthOpenShow names it', () => {
-		expect(Object.keys(TABLE.shows)).toEqual(['show_dragon_mouth_open']);
+	// the Lock arbiter never spells a `show_` literal (AD-16). Story 3.3 (AC1)
+	// adds the close that ends each Mouth sequence and the Dragon body's hit
+	// reaction, each named by its own wiring field.
+	it('shows holds exactly the three Dragon shows (Stories 3.2/3.3), and lockLaneWiring.mouthOpenShow, lockLaneWiring.mouthCloseShow and dragonBodyWiring.hitShow each name a declared show', () => {
+		expect(Object.keys(TABLE.shows).sort()).toEqual(['show_dragon_hit', 'show_dragon_mouth_close', 'show_dragon_mouth_open']);
 		expect(TABLE.lockLaneWiring.mouthOpenShow).toBe('show_dragon_mouth_open');
-		expect(Object.keys(TABLE.shows), 'the wiring names a declared show').toContain(TABLE.lockLaneWiring.mouthOpenShow);
+		expect(TABLE.lockLaneWiring.mouthCloseShow).toBe('show_dragon_mouth_close');
+		expect(TABLE.dragonBodyWiring.hitShow).toBe('show_dragon_hit');
+		for (const wired of [TABLE.lockLaneWiring.mouthOpenShow, TABLE.lockLaneWiring.mouthCloseShow, TABLE.dragonBodyWiring.hitShow]) {
+			expect(Object.keys(TABLE.shows), `the wiring names a declared show: ${wired}`).toContain(wired);
+		}
 	});
 });
 

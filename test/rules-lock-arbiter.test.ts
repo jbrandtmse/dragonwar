@@ -42,6 +42,9 @@ const MOUTH_COIL = 'c_mouth';
 const TROUGH_EJECT_COIL = 'c_trough_eject';
 const AUTOLAUNCH_COIL = 'c_autolaunch';
 const MOUTH_SHOW = 'show_dragon_mouth_open';
+// Story 3.3 (AD-18): the close that ends each Mouth sequence, and its hold.
+const MOUTH_CLOSE_SHOW = 'show_dragon_mouth_close';
+const HOLD = shotWindowTicks('mouthCloseHoldMs', TUNING);
 
 function player(overrides: Partial<PlayerState> = {}): PlayerState {
 	return {
@@ -503,6 +506,18 @@ describe('Story 3.2 -- AC 7: ball search reaches the Lock through the Mouth', ()
 		expect(shows).toEqual([firstShow, secondShow]);
 		expect(pulseTicks(result, MOUTH_COIL)).toEqual([firstShow + LEAD, secondShow + LEAD]);
 		expect(shows[1]! - (firstShow + LEAD), 'the second stage comes due only after the first pulse, a full STEP of quiet ticks later').toBe(STEP);
+		// Story 3.3 (AC3, AD-18): the second Lock stage lands STEP after the
+		// first pulse, inside the hold, so it closes the first sequence and
+		// opens the second on the same tick -- close first, then open.
+		expect(STEP, 'the premise: the second stage lands inside the hold').toBeLessThan(HOLD);
+		const mouthShows = result.commands
+			.filter((command) => (command.show === MOUTH_SHOW || command.show === MOUTH_CLOSE_SHOW) && command.tick <= secondShow)
+			.map((command) => [command.show, command.tick]);
+		expect(mouthShows, 'the second search stage: close, then open, on its own tick').toEqual([
+			[MOUTH_SHOW, firstShow],
+			[MOUTH_CLOSE_SHOW, secondShow],
+			[MOUTH_SHOW, secondShow],
+		]);
 		const autolaunch = pulseTicks(result, AUTOLAUNCH_COIL);
 		expect(autolaunch, 'the autolaunch stage still runs -- after the second pulse').toHaveLength(1);
 		expect(autolaunch[0]!).toBeGreaterThan(secondShow + LEAD);

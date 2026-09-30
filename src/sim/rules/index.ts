@@ -66,6 +66,7 @@
 import { applyDeviceEvents, applyRecovery, createBallController, deriveDeviceSlots } from './ball-controller';
 import { withoutLockLaneEntered } from './ball-controller/lock-arbiter';
 import { advanceBonusMultiplier, creditBonusFromDeviceEvents } from './bonus';
+import { dragonHitShows } from './dragon-hit';
 import { bootDeviceSlots, createDevicesLayer, type BankResetRequest, type DeviceEvent, type DevicesLayer } from './devices';
 import { createModeStack, type ModeEvent } from './modes';
 import { lampsOf } from './lamps';
@@ -126,8 +127,10 @@ export interface RulesStepResult {
 	 * `FrameOutput.commands` to `(Lamp | Gi | Flasher | Show)Command[]`).
 	 * Story 3.2 (AD-9, AD-18) widens it from `readonly never[]` to the bound
 	 * `ShowCommand`: the Lock arbiter's `show_dragon_mouth_open`, fed from
-	 * the ball controller's `showCommands`. `sim/loop/index.ts` already
-	 * forwards this channel into `FrameOutput.commands`. It still carries no
+	 * the ball controller's `showCommands`. Story 3.3 adds the arbiter's
+	 * `show_dragon_mouth_close` on the same channel, then
+	 * `./dragon-hit.ts`'s `show_dragon_hit` after it. `sim/loop/index.ts`
+	 * already forwards this channel into `FrameOutput.commands`. It still carries no
 	 * `LampCommand`: AD-9 and Story 2.8's AC 1 place the lamp DIFF in
 	 * `sim/loop` (rules export the pure projection, `lampsOf`, re-exported
 	 * above). `TABLE.flashers` is still empty and `GiCommand` still has no
@@ -361,7 +364,10 @@ export function createRules(tuning: ResolvedTuning, adjustments: GameAdjustments
 		return {
 			state: nextState,
 			events,
-			commands: controllerResult.showCommands,
+			// Story 3.3 (AD-18, AD-19): the ball controller's Mouth shows, in
+			// seam order, then one `show_dragon_hit` per `dragon_hit` in this
+			// tick's device events -- in every phase and under Tilt (FR-30).
+			commands: [...controllerResult.showCommands, ...dragonHitShows(deviceResult.events)],
 			coilCommands: [...deviceResult.coilCommands, ...tiltResult.coilCommands, ...controllerResult.coilCommands],
 			recoverCommands: controllerResult.recoverCommands,
 			// Story 3.1 (AD-8): in execution order -- the Slam's stop triples

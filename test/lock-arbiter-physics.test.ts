@@ -45,6 +45,7 @@ function loadDoc(): unknown {
 
 const TUNING = resolveTuning();
 const LEAD = shotWindowTicks('mouthOpenLeadMs', TUNING);
+const HOLD = shotWindowTicks('mouthCloseHoldMs', TUNING);
 const ADJUSTMENTS: GameAdjustments = { pitchDeg: TABLE.reference.pitchDeg, tiltWarnings: 3, ballsPerGame: 3, matchProbability: 0 };
 
 /** `plunge-then-bat-l-3945`'s own recipe (`test/util/reachability.ts`). */
@@ -219,7 +220,13 @@ describe('Story 3.2, AC 12 -- the spit run: real physics spits a ball through th
 		expect(events.filter((event) => event.type === 'ball_launched'), 'the premise: the launched ball is in play').toHaveLength(1);
 		const outcomes = events.filter((event) => event.type === 'lock_lane_locked' || event.type === 'lock_lane_spit');
 		expect(outcomes).toEqual([{ type: 'lock_lane_spit', player: 0, credits: 2, credited: false, tick: captureTick }]);
-		expect(shows, 'the show is issued on the capture tick').toEqual([{ type: 'show', show: 'show_dragon_mouth_open', tick: captureTick }]);
+		// Story 3.3 (AC2, AD-18): the sequence's one close follows its one
+		// pulse by exactly mouthCloseHoldTicks -- a real-physics pin; this run
+		// continues to ball_ended, far past the close.
+		expect(shows, 'the open on the capture tick, the close HOLD after the pulse').toEqual([
+			{ type: 'show', show: 'show_dragon_mouth_open', tick: captureTick },
+			{ type: 'show', show: 'show_dragon_mouth_close', tick: captureTick + LEAD + HOLD },
+		]);
 		expect(mouthPulses, 'c_mouth exactly mouthOpenLeadTicks later').toEqual([captureTick + LEAD]);
 		expect(ballsInPlayByTick.get(captureTick), 'the capture takes the ball out of play').toBe(0);
 		expect(lockSlotOpens, 'physics opens s_lock_1 on the tick it consumes the pulse').toEqual([captureTick + LEAD + 1]);

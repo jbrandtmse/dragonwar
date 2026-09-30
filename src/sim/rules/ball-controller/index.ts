@@ -158,6 +158,10 @@ export function createBallController(
 	// is 500.
 	const mouthOpenLeadTicks = Math.max(1, shotWindowTicks('mouthOpenLeadMs', tuning));
 	const mouthEjectIntervalTicks = shotWindowTicks('mouthEjectIntervalMs', tuning);
+	// Story 3.3 (AD-18): the Mouth's hold after a sequence's last pulse. No
+	// clamp: the close check runs in the same seam right after the pulse
+	// check, so a 0 hold closes on the pulse tick itself, after the pulse.
+	const mouthCloseHoldTicks = shotWindowTicks('mouthCloseHoldMs', tuning);
 
 	// Story 2.12 (AD-18): the search's own seat -- ONE instance for the life
 	// of this controller (mirrors every other cross-tick component this
@@ -173,6 +177,7 @@ export function createBallController(
 		gameOverSequence: null,
 		pendingStrayClear: null,
 		mouth: null,
+		mouthClose: null,
 	};
 
 	const ctx: ControllerContext = {
@@ -186,6 +191,7 @@ export function createBallController(
 		attractTicks,
 		mouthOpenLeadTicks,
 		mouthEjectIntervalTicks,
+		mouthCloseHoldTicks,
 		ballSearch,
 		modes,
 		cs,
@@ -204,7 +210,7 @@ export function createBallController(
 
 		drainBonusCountSteps(ctx, nextState, tick, out); // S1 (reads the INPUT phase)
 		discardStaleGameOverSequence(ctx, tick); // S2
-		discardStaleMouth(ctx, tick); // S2 (Story 3.2: the Mouth sequence's reset-safety)
+		discardStaleMouth(ctx, tick); // S2 (Stories 3.2/3.3: the Mouth sequence's and its pending close's reset-safety)
 		const pendingStrayClearAtStart = discardStaleStrayClear(ctx, tick); // S2 + the DW-269 snapshot
 		nextState = stepGameOverSequence(ctx, nextState, tick, out); // S3
 		nextState = expireBallSave(ctx, nextState, tick); // S4

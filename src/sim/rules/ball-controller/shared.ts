@@ -193,6 +193,19 @@ export interface MouthSequence {
 }
 
 /**
+ * Story 3.3 (AD-7, AD-18): the pending Mouth close -- see
+ * `ControllerState.mouthClose` below. `lastPulseTick` is the tick the
+ * sequence's last `c_mouth` pulse fired (its reset-safety mark); `dueTick`
+ * is `lastPulseTick + mouthCloseHoldTicks`, the tick the close falls due.
+ * A Mouth request that arrives before `dueTick` emits the close early, on
+ * the request tick, ahead of its new open (`requestMouthEject()`).
+ */
+export interface MouthClose {
+	readonly lastPulseTick: number;
+	readonly dueTick: number;
+}
+
+/**
  * Story 2.13 (AD-7, the closure-state class): the game-over sequence's own
  * tick marks, drawn number and winners -- closure state for the identical
  * reason `pendingBonusCountSteps` is (a `GameState`-scoped field would move
@@ -363,6 +376,21 @@ export interface ControllerState {
 	 * hashed into every golden.
 	 */
 	mouth: MouthSequence | null;
+
+	/**
+	 * Story 3.3 (AD-7, AD-18): the pending `show_dragon_mouth_close`, owned
+	 * by the Lock arbiter (`./lock-arbiter.ts`), `null` when no close is
+	 * owed. Recorded when a sequence's last pulse fires (so `mouth` and
+	 * `mouthClose` are never both set), emitted on the first tick at or past
+	 * its `dueTick`, or at once, ahead of the new open, when a Mouth request
+	 * arrives while it is pending -- so open and close strictly alternate.
+	 * At most one. Like `mouth`, never cancelled by a ball end, a Slam or a
+	 * phase change, and discarded only if `tick` runs backwards
+	 * (`discardStaleMouth()`). Deliberately NOT part of "pending": the drain
+	 * gate, ball search and the overflow answer read `mouth` (and the pulse
+	 * tick) only.
+	 */
+	mouthClose: MouthClose | null;
 }
 
 /**
@@ -383,6 +411,8 @@ export interface ControllerContext {
 	/** Story 3.2 (AD-18): the Mouth's open lead and eject spacing, resolved once from `mouthOpenLeadMs`/`mouthEjectIntervalMs`. */
 	readonly mouthOpenLeadTicks: number;
 	readonly mouthEjectIntervalTicks: number;
+	/** Story 3.3 (AD-18): the Mouth's hold after a sequence's last pulse, resolved once from `mouthCloseHoldMs`. */
+	readonly mouthCloseHoldTicks: number;
 	readonly ballSearch: BallSearch;
 	/** Story 3.1 (AD-8): the mode registry whose stop hooks the ball end and the Attract transition run -- the stack's own (`sim/rules/index.ts`). */
 	readonly modes: ModeLookup;

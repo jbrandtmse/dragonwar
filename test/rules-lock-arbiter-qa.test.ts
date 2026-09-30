@@ -12,7 +12,7 @@
 //    1's ball 1, and player 2 becomes current through the ball controller's
 //    own rotation on player 1's drain -- never a hand-set `players[]` or
 //    `currentPlayer`.
-// 2. The Mouth sequence's timing: one show, the first `c_mouth` exactly
+// 2. The Mouth sequence's timing: one open show, the first `c_mouth` exactly
 //    `mouthOpenLeadTicks` later, each further pulse exactly
 //    `mouthEjectIntervalTicks` after the previous one (anchored on the last
 //    due pulse, never on the request tick), a request on the very tick a
@@ -199,7 +199,7 @@ describe('Story 3.2 QA -- AC 6 (UJ-3) through a real Hot-seat: Start creates the
 // 2. The Mouth sequence's timing.
 // ---------------------------------------------------------------------------
 
-describe('Story 3.2 QA -- the Mouth sequence: one show, the pulse exactly the lead later, further pulses exactly the interval apart', () => {
+describe('Story 3.2 QA -- the Mouth sequence: one open show, the pulse exactly the lead later, further pulses exactly the interval apart', () => {
 	it('three uncredited parks (at t, at t+LEAD-1 and on the first pulse tick itself) are ONE sequence: one show at t, c_mouth at t+LEAD, t+LEAD+INTERVAL, t+LEAD+2*INTERVAL; a park after the last pulse opens a NEW sequence with its own show and the full lead', () => {
 		const t = 300;
 		const firstPulse = t + LEAD;
@@ -220,7 +220,9 @@ describe('Story 3.2 QA -- the Mouth sequence: one show, the pulse exactly the le
 		const result = runRulesScript(script, { durationTicks: again + LEAD + 10, initialState: gameState({ ballsInPlay: 3 }) });
 
 		expect(result.commands.filter((command) => command.tick === t), 'the show is a payload-complete ShowCommand').toEqual([{ type: 'show', show: MOUTH_SHOW, tick: t }]);
-		expect(showTicks(result), 'one show per sequence').toEqual([t, again]);
+		// Story 3.3: `showTicks` reads the open show only; each sequence also
+		// ends with a close (test/rules-dragon-shows.test.ts).
+		expect(showTicks(result), 'one open show per sequence').toEqual([t, again]);
 		expect(pulseTicks(result, MOUTH_COIL), 'the lead, then the interval after the LAST due pulse -- never after the request tick').toEqual([
 			firstPulse,
 			firstPulse + INTERVAL,

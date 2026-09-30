@@ -230,6 +230,9 @@ const ENTRY_FILES = [
 	path.join(__dirname, 'rules-lock-arbiter.test.ts'),
 	// Story 3.2 QA: same reasoning -- ungated otherwise.
 	path.join(__dirname, 'rules-lock-arbiter-qa.test.ts'),
+	// Story 3.3: the Dragon's shows (the Mouth close and the hit reaction) --
+	// ungated otherwise.
+	path.join(__dirname, 'rules-dragon-shows.test.ts'),
 	path.join(__dirname, 'util', 'switch-script.ts'),
 ];
 

@@ -352,6 +352,17 @@ export const TUNING = deepFreeze({
 		"authored: no artifact states the spacing between two successive Mouth ejects. Measured 2026-09-29 at Story 3.2's planning (real createMachine() runs, bd_lock ejecting at 300 mm/s from the Mouth pose (170, 460)): two c_mouth pulses in one tick drop a ball through the playfield, 1 tick apart one ball stalls, 3-10 ticks apart the second ball is shoved back over s_lock_lane, and 100 ticks apart the two balls separate by 27.03 mm against a 26.99 mm ball -- so about 100 ticks is the floor. 500 ms sits well above it, pending the Story 3.11 playtest",
 		'unverified',
 	),
+	/**
+	 * Story 3.3 (AD-18, AD-3/AD-15): how long the Mouth stays open after a
+	 * sequence's LAST `c_mouth` pulse before the Lock arbiter emits
+	 * `show_dragon_mouth_close`. Read once in `createBallController()`
+	 * through `shotWindowTicks()`, beside the two Mouth durations above.
+	 */
+	mouthCloseHoldMs: entry(
+		300,
+		"authored: no artifact states how long the Mouth stays open after its last eject. Measured 2026-09-29 at Story 3.3's planning (real createLoop() runs at 4a94d96, the ejected ball leaving the Mouth pose (170, 460) straight down x = 170 at about 300 mm/s): 27.3 mm from the pose 100 ticks after the pulse, 60.6 mm at 200, 101.5 mm at 300 and 206 mm at 500. At 300 ms the ball sits about 58 mm south of the Dragon body's switch zones (y 430-465), about 2.1 ball diameters clear, and no switch closes during the eject. Story 3.3b's jaw geometry and the Story 3.11 playtest own the value",
+		'unverified',
+	),
 
 	/**
 	 * Story 2.9 (AD-18): the three ball-save durations `machine.ballSave`

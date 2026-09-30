@@ -128,8 +128,9 @@ export function deepFreeze<T>(value: T, visited: WeakSet<object> = new WeakSet()
  * list. `flashers` stays empty, so its derived name union is still `never`
  * until a later story populates it (Design Notes, "Scope decisions on the
  * closed unions"); Story 3.2 gives `shows` its first entry,
- * `show_dragon_mouth_open`. `shots` (Story 2.4, AD-19) is populated with the
- * three declared shots.
+ * `show_dragon_mouth_open`, and Story 3.3 its other two,
+ * `show_dragon_mouth_close` and `show_dragon_hit`. `shots` (Story 2.4,
+ * AD-19) is populated with the three declared shots.
  */
 /**
  * Story 2.3 (AD-6, AD-11 "TABLE owns ... wiring", task 1): each DRAGON-bank
@@ -584,6 +585,11 @@ export const TABLE = deepFreeze({
 	/** Story 2.4 (AD-19, task 2): the Dragon body's own standup face -- a bare `dragon_hit` report, no letter or bank bookkeeping (that is `dropBankWiring` above). */
 	dragonBodyWiring: {
 		switch: 's_dragon_body',
+		// Story 3.3 (AD-19, AD-9): the show `sim/rules/dragon-hit.ts` emits
+		// once per `dragon_hit`, in every phase and under Tilt (FR-30: the
+		// Dragon "reacts visibly to every hit"). Named here so rules reach it
+		// through `TABLE`, never a `show_` literal (AD-16).
+		hitShow: 'show_dragon_hit',
 	},
 
 	/**
@@ -602,8 +608,11 @@ export const TABLE = deepFreeze({
 		// Story 3.2 (AD-18, AD-9): the show every Mouth eject is preceded by,
 		// `mouthOpenLeadMs` (`tuning.ts`) before its first `c_mouth` pulse.
 		// Named here so the Lock arbiter reaches it through `TABLE`, never a
-		// `show_` literal (AD-16). Story 3.3 adds the close and hit shows.
+		// `show_` literal (AD-16).
 		mouthOpenShow: 'show_dragon_mouth_open',
+		// Story 3.3 (AD-18, AD-9): the show that ends every Mouth sequence,
+		// `mouthCloseHoldMs` (`tuning.ts`) after its last `c_mouth` pulse.
+		mouthCloseShow: 'show_dragon_mouth_close',
 	},
 
 	/**
@@ -707,9 +716,13 @@ export const TABLE = deepFreeze({
 	flashers: {},
 	// Story 3.2 (AD-9, AD-13, AD-18): the first named show -- the Dragon's
 	// mouth opening before every Mouth eject (`lockLaneWiring.mouthOpenShow`).
-	// Story 3.3 adds `show_dragon_mouth_close` and `show_dragon_hit`.
+	// Story 3.3 adds the close that ends each Mouth sequence
+	// (`lockLaneWiring.mouthCloseShow`) and the Dragon body's hit reaction
+	// (`dragonBodyWiring.hitShow`).
 	shows: {
 		show_dragon_mouth_open: {} as Record<string, never>,
+		show_dragon_mouth_close: {} as Record<string, never>,
+		show_dragon_hit: {} as Record<string, never>,
 	},
 
 	// AD-12: every static mesh the placeholder `.blend` exports carries a

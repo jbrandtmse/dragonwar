@@ -2,7 +2,8 @@
 title: "Story 3.3: The Dragon's mouth and hit reaction"
 type: 'feature'
 created: '2026-09-29'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '4331da004fe86fbf47c0fe50d12810c5aaac0a3f'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -17,6 +18,13 @@ deferred:
     evidence: 'Planning, 2026-09-29: one close rule for every sequence (Boundaries). The War fires the Lock through requestMouthEject (3.2), so it inherits the 300 ms hold unless 3.8 changes it.'
     location: 'src/sim/rules/ball-controller/lock-arbiter.ts; Story 3.8'
     severity: 'low'
+  - summary: >-
+      The mouthOpenLeadMs tuning source string (Story 3.2) still says "Story 3.3's Dragon rig must be fully open inside it", but the rig is now Story 3.3b.
+    evidence: |-
+      src/sim/table/tuning.ts:347, copied into all five golden headers. Pre-existing text made stale by the 3.3/3.3b story split, not by this diff. This spec limits the golden header refresh to tableHash and the two new keys, so the fix belongs to the next story that refreshes the headers (3.3b owns the rig).
+    location: >-
+      src/sim/table/tuning.ts:347
+    severity: low
 ---
 
 <intent-contract>
@@ -142,6 +150,34 @@ L = `mouthOpenLeadTicks`, I = `mouthEjectIntervalTicks`, H = `mouthCloseHoldTick
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass
+- verdicts: 24 findings — high 0, medium 0, low 14, false 10, maybe-false 0
+- findings:
+  - `[low]` `[patch]` (blind) The `mouthCloseHoldMs` source says the ball is 58 mm from the switch zones, "3.7 ball diameters out"; 58 mm is about 2.1 diameters (3.7 matches the 101.5 mm from the pose) — changed to "about 2.1 ball diameters clear" in `tuning.ts` and all five golden headers (a new key, so inside this story's header refresh).
+  - `[low]` `[patch]` (blind) The same source says "Measured ... at this tree" without a commit, and its clearance argument does not by itself size 300 ms — "at this tree" changed to "at 4a94d96" (the spec's planning commit). The sizing argument is the spec's own Design Notes, and the value is `unverified` and owned by 3.3b/3.11, so that part stays.
+  - `[low]` `[defer]` (blind) The `mouthOpenLeadMs` source still names "Story 3.3's Dragon rig" (now 3.3b) — Story 3.2's text, made stale by the story split. This spec limits the golden header refresh to the new keys, so it is recorded in frontmatter `deferred:`.
+  - `[low]` `[patch]` (blind) The main production path for close-then-open, ball search's second Lock stage (STEP 250 < H 300), has no close assertion; `rules-lock-arbiter.test.ts:484` read opens only — added an exact `[open@first, close@second, open@second]` pin plus a STEP<H premise to that test, with its mutation line. Grouped with the verification-gap "Other" finding below.
+  - `[low]` `[patch]` (blind) `rules-lock-arbiter-qa.test.ts` still says "one show per sequence", but a sequence now has an open and a close — relabelled "one open show" (header item 2, the describe title, and the assertion message), with a note that `showTicks` reads opens only.
+  - `[false]` `[reject]` (blind) Only the Slam is tested for "the close survives a ball end, a Slam or a phase change" — `mouthClose` is written only at `lock-arbiter.ts:107/114/165` and `index.ts:180`. No ball-end or phase code touches it, and `closeDueMouth` has no phase gate, so there is no path that cancels it. The Slam row covers the phase change.
+  - `[low]` `[reject]` (blind) A tick-backwards restart can leave an open with no close, or carry an old close into the new timeline — the intent fixes the discard rule (`tick < lastPulseTick`, `discardStaleMouth`'s rule, 3.2's `mouth` precedent). A backwards tick is a timeline restart that its consumers restart with, and the fix would add branches.
+  - `[low]` `[patch]` (blind) `MouthClose.dueTick`'s doc calls it "the first tick the close may be emitted", but a request emits it earlier — reworded to "the tick the close falls due", plus a sentence on the early close.
+  - `[low]` `[reject]` (blind) `dragon-shows-physics.test.ts` repeats the plunge and flipper numbers instead of deriving them from the recipe, and AC5 does not re-check the game premise — the numbers are exactly the spec's AC5/AC6 inputs, and any drift fails loudly at the measured-tick pins. The uncredited park that AC5 pins only happens in `phase === 'game'`, and the fix would be a refactor, not a correction.
+  - `[low]` `[reject]` (blind) `commands` now allocates two small arrays per tick — negligible at 1000 Hz, and `check:size` and the suite are unaffected. Avoiding it would add a branch.
+  - `[low]` `[patch]` (blind) Stale or unwrapped comments: the `lock-arbiter.ts` header calls the overflow answer "the one exception" to game-only, and says "is" where it should say "are"; three long lines (`dragonwar.ts:132`, the `arbitrateLockLane` JSDoc, `rules/index.ts:132`) — the header now lists the due pulse, due close and overflow answer as the any-phase exceptions, the grammar is fixed, and the three lines are rewrapped.
+  - `[false]` `[reject]` (blind) DW-298 is still `routed` in the ledger — `bmad-build-auto` never writes the ledger (Rule 15). Adjudicating DW-298 against AC5 is the lead's `ledger_adjudicated` gate (Rule 17).
+  - `[false]` `[reject]` (edge) A request on the same tick P as the last pulse closes with zero hold — the intent defines exactly this: "A request while a close is pending (the last pulse has fired and the close has not)" pushes the close and then the open on the request tick. Design Notes define a same-tick close+open as "the Mouth stays open for a new sequence", so the jaw is never shown closed.
+  - `[low]` `[patch]` (verification-gap) "Nothing scores in Attract" (`rules-dragon-shows.test.ts:292`) cannot fail: the Attract state has no active mode and `scoringOpen` needs phase game — the vacuous assertion is removed and replaced by a comment naming the Tilt run as the clause's falsifiable half. The row's pin (the hit show in Attract) and its `scoringOpen` mutation are unchanged.
+  - `[low]` `[reject]` (verification-gap) Assertions that repeat an exact `toEqual` just before them (the "no close before" filters, `expectAlternatingWithPulsesInside`, the `toContain` loop) — harmless: they can never mask a failure, and the exact checks carry the mutations. Removing them is churn.
+  - `[low]` `[patch]` (verification-gap, Other) The ball-search path never has its closes checked — grouped with the blind-hunter finding above, and patched there.
+  - `[low]` `[reject]` (intent-alignment) Nothing on screen changes, so the Mouth still "never closes" visibly — out of scope by the intent itself: the Never list bars the presentation paths, and the rig is Story 3.3b.
+  - `[false]` `[reject]` (intent-alignment) At hold 0 the physical eject (t+L+1) comes after the close (t+L) — the intent's hold-0 row defines the close at t+L after that tick's `c_mouth`, at the rules tick. Hold 0 is dev tuning only.
+  - `[false]` `[reject]` (intent-alignment) The host's multi-tick `advance(elapsedMs)` batches commands — the loop forwards `commands` in tick order and within a tick in rules order (headless "Same-tick hit and open" row). No bad outcome is shown.
+  - `[false]` `[reject]` (intent-alignment) Real-loop coverage is narrower than the matrix — the intent prescribes this split: matrix rows headless, AC5/AC6 on `createLoop()`.
+  - `[false]` `[reject]` (intent-alignment) The tick-backwards row drives `createRules().step` rather than `runRulesScript` — `runRulesScript` cannot run the tick backwards; both are the same rules surface.
+  - `[false]` `[reject]` (intent-alignment) Tilt and Attract are set by hand in the starting state — this matches the matrix wording ("tilted game; or phase `attract`").
+  - `[false]` `[reject]` (intent-alignment) The spit-run close pin sits at the rules level, not at `FrameOutput` — it is an extra pin. AC5/AC6 are the loop-seam pins.
+  - `[false]` `[reject]` (intent-alignment) `## Verification` is not in the diff — the spec was left out of the review diff on purpose; its 19 `mutation:` lines are there.
+
 ## Design Notes
 
 **Measured at this tree** (`4a94d96`, two read-only probe agents; every probe was deleted and the tree left clean).
@@ -219,10 +255,69 @@ L = `mouthOpenLeadTicks`, I = `mouthEjectIntervalTicks`, H = `mouthCloseHoldTick
 - AC6: drop the hit shows from `commands` in `sim/rules/index.ts` → the AC6 run red.
 - AC7: the golden replay tests (per-field header parse).
 
+**Mutations applied** (implement stage, 2026-09-29; each applied, observed red, reverted, and `git diff` + new-file content hash and `git status --short` confirmed identical to before the mutation):
+- mutation: deleted `show_dragon_hit` from `TABLE.shows` → `test/table.test.ts` "shows holds exactly the three Dragon shows ..." red; `tsc -p tsconfig.sim.json` red (`dragon-hit.ts`: `"show_dragon_hit"` not assignable to `ShowName`).
+- mutation: recorded the close due at `tick + mouthCloseHoldTicks - 1` in `pulseDueMouth` → `test/rules-dragon-shows.test.ts` "One eject" red (with 6 other Mouth rows).
+- mutation: recorded `mouthClose` after EVERY pulse, not only the last → "Two ejects, one sequence" red.
+- mutation: ran `closeDueMouth` before `pulseDueMouth` in `arbitrateLockLane` → "Hold 0 (dev tuning)" red (the close slipped to t+L+1).
+- mutation: dropped the pending-close push in `requestMouthEject` → "Request inside the hold" red (two opens meet).
+- mutation: pushed a close on every open request (`cs.mouthClose !== null || tick > 0`) → "Request after the hold" red (with every other Mouth row).
+- mutation: gated `closeDueMouth` on `state.phase === 'game'` → "Close survives a Slam" red.
+- mutation: removed the `mouthClose` discard from `discardStaleMouth` → "Tick runs backwards" red.
+- mutation: wrapped the hit-show composition in `sim/rules/index.ts` in `scoringOpen(nextState) ? ... : []` (with its import) → "Hit under Tilt and in Attract" red.
+- mutation: `dragonHitShows` also emits on `bank_target_down` → "Hit ... Control: s_dragon_d closing at t gives none" red (and "Two hits in one batch" red).
+- mutation: `break` after the first hit in `dragonHitShows` → "Two hits in one batch" red.
+- mutation: composed the hit shows BEFORE the controller's shows → "Same-tick hit and open" red.
+- mutation: deleted `commands.push(...rulesResult.commands)` in `sim/loop/index.ts` → `test/dragon-shows-physics.test.ts` AC5 red (and AC6 red) (DW-298).
+- mutation: `mouthCloseHoldTicks = shotWindowTicks('mouthCloseHoldMs', tuning) + 1` → AC5 red, and `test/lock-arbiter-physics.test.ts` spit run red (its new `[open@c, close@c+L+H]` pin).
+- mutation: `commands: [...controllerResult.showCommands]` (hit shows dropped) in `sim/rules/index.ts` → AC6 red.
+- mutation: removed `'mouthCloseHoldMs'` from `test/tuning.test.ts`'s `scalarKeys` → "every top-level scalar entry is a TuningEntry" red (the completeness ratchet).
+- mutation: removed `rules-dragon-shows.test.ts` from `ENTRY_FILES` → `test/rules-devices-headless.test.ts` completeness ratchet red.
+- mutation (review pass, 2026-09-29): deleted the pending-close push (`if (cs.mouthClose !== null) { emitMouthClose(...) }`) in `requestMouthEject` → `test/rules-lock-arbiter.test.ts` "Search reaches the Lock (L holds 2)" red (its new close-then-open pin for ball search's second Lock stage); reverted, `git diff` + `git status --short` hashes identical.
+- mutation: restored `test/replays/full-plunge.golden.json` to its HEAD header → `test/replay-goldens.test.ts` red (6 full-plunge tests, `StaleReplayHeaderError`); restored → 52/52 green.
+
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Implement + review run (2026-09-29, `bmad-build-auto`, baseline `4331da004fe86fbf47c0fe50d12810c5aaac0a3f` on `DW-1-epic3`).**
+- **Summary:** each Mouth sequence now ends with `show_dragon_mouth_close`, `mouthCloseHoldTicks` (300 ms, `unverified`) after its last `c_mouth` pulse. A request inside the hold closes, then reopens, so open and close strictly alternate. A new pure `dragonHitShows()` turns every `dragon_hit` into one `show_dragon_hit` in every phase and under Tilt. Both reach `FrameOutput.commands` through `RulesStepResult.commands`, pinned on a real `createLoop()` by AC5 (DW-298) and AC6.
+- **Files changed:**
+  - `src/sim/table/tuning.ts`: the new `mouthCloseHoldMs` tunable.
+  - `src/sim/table/dragonwar.ts`: the two new shows, `lockLaneWiring.mouthCloseShow` and `dragonBodyWiring.hitShow`.
+  - `src/sim/rules/ball-controller/shared.ts`: `MouthClose`, `ControllerState.mouthClose` and `ControllerContext.mouthCloseHoldTicks`.
+  - `src/sim/rules/ball-controller/index.ts`: resolves the hold and seeds `mouthClose: null`.
+  - `src/sim/rules/ball-controller/lock-arbiter.ts`: records the close, emits it, closes before a new open, and discards it on a reset.
+  - `src/sim/rules/dragon-hit.ts` (new): `dragonHitShows()`.
+  - `src/sim/rules/index.ts`: composes the hit shows after the Mouth shows.
+  - `test/rules-dragon-shows.test.ts` (new): the 11 matrix rows.
+  - `test/dragon-shows-physics.test.ts` (new): AC5 and AC6.
+  - `test/table.test.ts`, `test/tuning.test.ts`, `test/lock-arbiter-physics.test.ts` and `test/rules-devices-headless.test.ts`: the planned pin edits.
+  - `test/rules-lock-arbiter.test.ts` (review patch): the close-then-open pin for ball search.
+  - `test/rules-lock-arbiter-qa.test.ts` (review patch): "one open show" labels.
+  - `test/replays/*.golden.json` (5): header-only (`tableHash`, `mouthCloseHoldMs`, `mouthCloseHoldTicks`).
+- **Review findings:** 24 findings from 4 layers. Patches applied: 8 entries, 9 rows, all low:
+  - the source-string arithmetic and commit reference;
+  - the ball-search close pin;
+  - the QA test labels;
+  - the `MouthClose.dueTick` doc;
+  - the arbiter header, grammar and rewraps;
+  - removing the vacuous Attract score assertion.
+
+  Deferred: 1 low (the stale `mouthOpenLeadMs` source text, 3.2's). Rejected: 14. The 10 false ones are refuted in the triage log. The 4 low ones: the tick-backwards open without a close (the intent fixes the discard rule), the physics-test literals (the spec's own inputs, which fail loudly on drift), the per-tick allocation (negligible), and redundant assertions (harmless). The intent excludes the on-screen close (3.3b). No intent_gap and no bad_spec.
+- **Follow-up review recommended:** false. The patches were all low: 0 high, 0 medium.
+- **Verification:**
+  - After the review patches, `pnpm test` gives 143 files / 2321 tests, all passing (baseline 141 / 2308).
+  - `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist` and `check:size` each exit 0.
+  - A per-field JSON comparison of all five goldens against the baseline shows only `header.tableHash`, `header.gameStart.tuning.mouthCloseHoldMs` and `header.gameStart.tuning.mouthCloseHoldTicks` differ. No `expectedHash`, `expectedGameStateHash`, `transitions` or `checkpointTicks` moved.
+  - Added lines are ASCII-only and LF.
+  - Matrix Test Audit: all 11 rows are covered in `test/rules-dragon-shows.test.ts` and ran green. 19 `mutation:` lines are recorded in `## Verification`.
+- **Residual risks:**
+  - AC5 and AC6 pin two measured physics ticks (5506 and 4990). Any physics or geometry change breaks them on purpose, and they must be re-measured.
+  - `mouthCloseHoldMs` 300 is `unverified`: 3.3b's jaw geometry and the 3.11 playtest own it.
+  - The two planned deferrals (3.8's War hold and 3.9's Lock-lane Strike reaction) stand.
+- **For the lead:** footprint extensions are `test/*.test.ts` only. `src/sim/loop/index.ts` is untouched. DW-298 is ready for adjudication against AC5 (`test/dragon-shows-physics.test.ts`). The spec's own Design Notes still carry the "3.7 ball diameters" figure; the code now says about 2.1.
 
 Planned at `4a94d96db0a357cc2a74772a0ca5f323d8d6f0d7` on `DW-1-epic3`. The run halted after planning, as the invocation asked.
 - It used the committed `epic-3-context.md` without recompiling it, and Story 3.2's spec (`done`) for continuity.
@@ -237,3 +332,16 @@ Planned at `4a94d96db0a357cc2a74772a0ca5f323d8d6f0d7` on `DW-1-epic3`. The run h
   - `show_dragon_hit` fires in every phase and under Tilt, one per `dragon_hit` (FR-30: "every hit").
 - The frontmatter defers two items: the War's Mouth hold (3.8) and the Lock-lane Strike's visible reaction (3.9).
 - The lead has three items (Design Notes): the Rule 20 spine sentences (AD-18, AD-7, AD-9/AD-19), and the footprint extension `test/*.test.ts`. No presentation path is touched.
+
+**Implement stage (2026-09-29, on `DW-1-epic3` at `4331da0`).**
+- Source: `tuning.ts` (`mouthCloseHoldMs` 300, `unverified`, after `mouthEjectIntervalMs`); `dragonwar.ts` (the two shows, `lockLaneWiring.mouthCloseShow`, `dragonBodyWiring.hitShow`, comments); `ball-controller/shared.ts` (`MouthClose`, `ControllerState.mouthClose`, `ControllerContext.mouthCloseHoldTicks`); `ball-controller/index.ts` (resolve the hold, `mouthClose: null`); `ball-controller/lock-arbiter.ts` (record on the last pulse, `closeDueMouth` right after `pulseDueMouth`, the pending-close branch in `requestMouthEject`, the discard); `rules/dragon-hit.ts` (new); `rules/index.ts` (compose the hit shows after the controller's). `sim/loop/index.ts` untouched.
+- Test edits:
+  - `test/rules-dragon-shows.test.ts` (new, headless): every Matrix row, 11 tests.
+  - `test/dragon-shows-physics.test.ts` (new): AC5 (T measured 5506, as planned) and AC6 (4990), real `createLoop()`.
+  - `test/table.test.ts`: the `shows` pin, one show to three, plus the three wiring names.
+  - `test/tuning.test.ts`: `scalarKeys` gains `mouthCloseHoldMs`.
+  - `test/lock-arbiter-physics.test.ts`: the spit run's `shows` `[open@c]` becomes `[open@c, close@c+L+H]` (adds `HOLD`).
+  - `test/rules-devices-headless.test.ts`: `ENTRY_FILES` lists the new headless file.
+  - `test/rules-ball-search.test.ts:314` needed no change (its run ends at the report tick + 5, before any close).
+- Goldens: header-only refresh of all five. Per-field JSON comparison against HEAD shows only `header.tableHash`, `gameStart.tuning.mouthCloseHoldMs` (new) and `gameStart.tuning.mouthCloseHoldTicks` (new) changed; `expectedHash`, `expectedGameStateHash`, `transitions`, `coilPrologue`, `durationTicks` and `notes` are byte-identical in value.
+- Gates: `pnpm test` 143 files / 2321 tests green (baseline 141 / 2308); `typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size` all exit 0.
