@@ -26,10 +26,14 @@
 //     drop bank, the Ramp lane or a Loop lane;
 //   - <= 2,000 triangles per twin with its descendants;
 //   - the flipper, drop-target, ramp and guide materials each differ from
-//     mat_playfield by >= 0.25 in some channel, and a dropped target still
+//     the playfield art around them by >= 0.25 in some channel -- [AMENDED
+//     2026-09-30, Story 5.2] the mean of the opaque texels 2-12 mm outside
+//     the part's col_ footprint, since mat_playfield is now the generated
+//     texture rather than a flat colour -- and a dropped target still
 //     reveals a different colour behind it (DW-294's art equivalent);
 //   - the plunger pins, the spinner geometry, the two DW bodies' footprints;
-//   - no external asset: exactly one image (the playfield mask), no
+//   - no external asset: exactly one image (the playfield mask -- from
+//     Story 5.2 the generated playfield texture whose alpha IS the mask), no
 //     glTF extension.
 //
 // Falsifiability (Rule 19, the spec's Verification section): moving one
@@ -42,6 +46,7 @@ import { describe, expect, it } from 'vitest';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { glbToTable } from '../src/sim/table/frames';
 import { VIS_DRAGON_NODE_NAME, VIS_PLUNGER_NODE_NAME, VIS_SPINNER_BLADE_NODE_NAME, VIS_SPINNER_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
+import { artRingMean, loadPlayfieldTexture } from './util/playfield-texture';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -54,7 +59,6 @@ const Z_EPSILON_MM = 1e-3;
 const PIN_TOLERANCE_MM = 0.01;
 const TRIANGLE_BUDGET = 2000;
 const MIN_PLAYFIELD_SEPARATION = 0.25;
-const PLAYFIELD_MATERIAL = 'mat_playfield';
 const RUBBER_MATERIAL = 'mat_art_rubber';
 /** `tools/make-placeholder-blend.py`'s `SPINNER_Y_MM`: the spinner's authored table y. Mirrored (the collision document does not carry it) -- cross-checked below against `sw_spinner`'s own zone. */
 const SPINNER_Y_MM = 648;
@@ -871,22 +875,36 @@ describe('Story 5.4 AC 2 -- the art materials', () => {
 		}
 	});
 
-	it('the flipper, drop-target, ramp and guide materials each differ from mat_playfield by >= 0.25 in some linear channel', () => {
-		const playfield = baseColour(glb.doc, PLAYFIELD_MATERIAL);
-		const pick = (predicate: (body: CollisionNode) => boolean): string[] => [
-			...new Set(artTwins(collision).filter((t) => predicate(t.body)).flatMap((t) => meshesOf(t.twin).map((m) => m.material))),
-		];
+	// [AMENDED 2026-09-30, Story 5.2] mat_playfield is no longer a flat
+	// colour: its base colour is the generated playfield texture. 5.4's
+	// separation rule comes back in its ART-RING form (the spec's "Parts stay
+	// legible against the art"): each part's every material differs from the
+	// MEAN linear colour of the opaque playfield texels 2-12 mm outside its
+	// own col_ footprint by >= 0.25 in some channel -- the art actually under
+	// the part's surroundings, not one representative tone.
+	// mutation: paint the ring around col_flipper_l in mat_art_flipper's
+	// colour in make_playfield_art() and re-export -> red here.
+	it('art-ring legibility: every flipper, drop-target, ramp and guide part differs from the mean of the opaque playfield texels 2-12 mm outside its col_ footprint by >= 0.25 in some linear channel', () => {
+		const texture = loadPlayfieldTexture();
+		const pick = (predicate: (body: CollisionNode) => boolean): Array<{ twin: string; body: CollisionNode }> => artTwins(collision).filter((t) => predicate(t.body));
 		const groups = {
 			flipper: pick((b) => b.surface === 'flipper'),
 			'drop target': pick((b) => DROP_TARGET_NODES.has(b.name)),
 			ramp: pick((b) => b.surface === 'ramp'),
 			guide: pick((b) => b.surface === 'plastic'),
 		};
-		for (const [group, names] of Object.entries(groups)) {
-			expect(names.length, `non-vacuity: ${group} parts carry materials`).toBeGreaterThan(0);
-			for (const name of names) {
-				const colour = baseColour(glb.doc, name);
-				expect(channelSeparation(colour, playfield), `${group}: ${name} ${JSON.stringify(colour.slice(0, 3))} vs mat_playfield ${JSON.stringify(playfield.slice(0, 3))}`).toBeGreaterThanOrEqual(MIN_PLAYFIELD_SEPARATION);
+		for (const [group, parts] of Object.entries(groups)) {
+			expect(parts.length, `non-vacuity: ${group} parts`).toBeGreaterThan(0);
+			for (const { twin, body } of parts) {
+				const ring = artRingMean(texture, [footprintOf(body)]);
+				expect(ring.count, `${twin}: non-vacuity -- opaque texels in its art ring`).toBeGreaterThan(20);
+				const materials = [...new Set(meshesOf(twin).map((m) => m.material))];
+				expect(materials.length, `${twin}: carries materials`).toBeGreaterThan(0);
+				for (const name of materials) {
+					const colour = baseColour(glb.doc, name);
+					const ringText = JSON.stringify(ring.mean.map((c) => Number(c.toFixed(3))));
+					expect(channelSeparation(colour, ring.mean), `${group}: ${twin} ${name} ${JSON.stringify(colour.slice(0, 3))} vs its art ring's mean ${ringText} (${ring.count} texels)`).toBeGreaterThanOrEqual(MIN_PLAYFIELD_SEPARATION);
+				}
 			}
 		}
 	});

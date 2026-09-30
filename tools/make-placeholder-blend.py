@@ -46,8 +46,11 @@
 
 import math
 import os
+import struct
+import zlib
 
 import bpy
+import numpy as np
 import bmesh
 from mathutils import Matrix, Vector
 
@@ -1224,6 +1227,14 @@ POP_BUMPER_RADIUS_MM = 20.0  # authored -- a common pop-bumper body radius
 # beside them). 38 mm clears the 33.495 mm reach limit on every edge, not
 # only at the corners.
 POP_ZONE_HALF_MM = 38.0
+# Story 5.2 (DW-161): the gap left between the FACING edges of the lower
+# pair's zones (sw_pop_1, sw_pop_2) and sw_pop_3's, split about the midpoint
+# of the two rows (see the sw_pop_* zones in main()), so no two pop zones
+# overlap and one ball can never make two pop switches on one tick. Authored.
+POP_ZONE_SPLIT_GAP_MM = 1.0
+# The least clearance every pop zone keeps beyond its own pop's contact disc
+# (radius POP_BUMPER_RADIUS_MM + BALL_MM / 2), asserted at authoring time.
+POP_ZONE_CONTACT_SPARE_MM = 0.5
 
 # ---------------------------------------------------------------------------
 # Story 2.1a task 22 (DW-119): the below-deck outlane return channel. Both
@@ -1544,20 +1555,25 @@ def set_props(obj, **props):
 		obj[key] = value
 
 
-def new_image(name, size=16, rgba=(0.6, 0.6, 0.6, 0.5)):
+def new_image(name, size=16, rgba=(0.6, 0.6, 0.6, 0.5), pack=True):
 	"""A small generated image -- AD-11's placeholder allowance ("a small
-	generated image is sufficient"); no third-party texture involved."""
+	generated image is sufficient"); no third-party texture involved.
+	`pack=False` (Story 5.2): left unpacked, a placeholder that
+	fill_playfield_image() later replaces with the generated playfield PNG."""
 	img = bpy.data.images.new(name, width=size, height=size, alpha=True)
 	pixels = list(rgba) * (size * size)
 	img.pixels = pixels
-	img.pack()
+	if pack:
+		img.pack()
 	return img
 
 
-def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from_image=False, roughness=None, metallic=None):
+def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from_image=False, roughness=None, metallic=None, color_from_image=False):
 	"""`roughness`/`metallic` (Story 5.4, the `mat_art_*` materials): left at
 	the Principled BSDF's defaults when None, so every earlier caller is
-	unchanged."""
+	unchanged. `color_from_image` (Story 5.2, `mat_playfield`): the image's
+	Color also drives Base Color, so one image carries both the art (RGB)
+	and the translucency mask (alpha)."""
 	mat = bpy.data.materials.new(name)
 	mat.use_nodes = True
 	tree = mat.node_tree
@@ -1571,6 +1587,8 @@ def new_material(name, base_color=(0.55, 0.35, 0.2, 1.0), image=None, alpha_from
 		tex_node = tree.nodes.new('ShaderNodeTexImage')
 		tex_node.image = image
 		tex_node.label = 'translucency_mask'
+		if color_from_image:
+			tree.links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
 		if alpha_from_image:
 			tree.links.new(tex_node.outputs['Alpha'], bsdf.inputs['Alpha'])
 			mat.blend_method = 'BLEND'
@@ -2474,6 +2492,346 @@ def add_mechanism_art(playfield_root, twins, plunger, drop_target_names):
 	return created
 
 
+# ---------------------------------------------------------------------------
+# Story 5.2 (DW-271, DW-4, DW-161): playfield art and materials.
+#
+# The playfield's one image, `img_playfield_translucency`, is GENERATED here
+# by numpy from a fixed seed -- no third-party image, brush, font or asset of
+# any kind (ATTRIBUTIONS.md rows 71-73 carry the Story 5.2 note). Its RGB is a
+# stylized painted playfield in a rustic register -- the dragon-and-knight
+# war: a wood-grain ground, a dragon silhouette over the Dragon with flames
+# from its Mouth, crossed-lance shields for the knights, painted arrows up the
+# shot lanes and a dark ring round every insert -- soft-edged flat colour
+# regions with low-amplitude brush-like noise at a feature scale of >= 5 mm,
+# drawn from procedural shapes only, with no text. Its ALPHA is the binary
+# translucency mask (AD-11, AD-12 clause 3 as amended 2026-09-30): 0 at every
+# texel whose centre lies inside an `l_` lens rectangle, 255 everywhere else,
+# derived from the lens list add_insert() fills in main() -- never a
+# hard-coded set of today's inserts.
+#
+# `vis_playfield`'s `uv_base` maps table (x, y) affinely and axis-aligned onto
+# [0, 1]^2 (set_planar_table_uv()), so texel column i spans table
+# x in [i, i + 1] * PLAYFIELD_W_MM / PLAYFIELD_IMAGE_W and PNG row r (top
+# row first, glTF's v = 0) spans table y in PLAYFIELD_H_MM * [1 - (r + 1) / H,
+# 1 - r / H]. Everything stays behind the fixed names (`vis_playfield`,
+# `mat_playfield`, `img_playfield_translucency`, `l_*`), so author-made art
+# can replace this image later with no code change.
+#
+# test/playfield-art.test.ts proves the UV mapping, the mask against every
+# `l_` lens in the EXPORTED glb, the byte ceiling, the not-a-flat-fill rule,
+# the lens materials and the art-ring legibility of the parts, all from the
+# committed glb and collision document -- never from this text.
+# ---------------------------------------------------------------------------
+
+PLAYFIELD_IMAGE_NAME = 'img_playfield_translucency'
+PLAYFIELD_IMAGE_W, PLAYFIELD_IMAGE_H = 512, 1024  # about 1 px/mm over 514.4 x 1066.8 mm
+PLAYFIELD_PNG_MAX_BYTES = 512 * 1024  # this story's own ceiling for the embedded PNG
+PLAYFIELD_ART_SEED = 5_2_2026_0930  # fixed: the same run gives the same PNG bytes
+
+# Story 5.2 (DW-271): the insert lens. A lens is DARK when unlit -- a real
+# insert's "off" state -- and tinted by its HOME role, the role `lampsOf()`
+# (src/sim/rules/lamps.ts) lights it in today: `lane` and `ball_save`
+# subjects light `lit`, `letter` and `lock` subjects light `dragon`. The lit
+# colour stays the grammar's saturated emissive, driven by lamp-driver.ts.
+# Base colour = LAMP_GRAMMAR[homeRole] x LENS_TINT_LEVEL.
+#
+# LAMP_GRAMMAR_MIRROR copies the two home-role colours of
+# src/presentation/lighting/grammar.ts's LAMP_GRAMMAR (this script cannot
+# import TypeScript); test/playfield-art.test.ts pins every lens material's
+# proportionality against the LIVE LAMP_GRAMMAR, so a drift here goes red.
+# LENS_TINT_LEVEL is the lead's measured envelope (the 5.2 plan): at the old
+# pale lens (0.9, 0.9, 0.95) a lit Top lane read only ~11 levels above an
+# unlit one.
+LAMP_GRAMMAR_MIRROR = {'lit': (1.0, 1.0, 1.0), 'dragon': (1.0, 0.5, 0.0)}
+LENS_TINT_LEVEL = 0.08
+LENS_MATERIAL_BY_ROLE = {'lit': 'mat_insert', 'dragon': 'mat_insert_dragon'}
+
+
+def lens_tint_rgb(role):
+	"""A home role's dark lens base colour, linear RGB."""
+	return tuple(channel * LENS_TINT_LEVEL for channel in LAMP_GRAMMAR_MIRROR[role])
+
+
+def set_planar_table_uv(obj, layer_name):
+	"""Every loop of `obj`'s `layer_name` UV layer gets u = x / W,
+	v = y / H from its vertex's table position (the mesh's local frame IS
+	the table frame -- this file's header), so the top face maps the
+	playfield onto [0, 1]^2 exactly."""
+	mesh = obj.data
+	layer = mesh.uv_layers[layer_name]
+	for loop in mesh.loops:
+		co = mesh.vertices[loop.vertex_index].co
+		layer.data[loop.index].uv = (co.x / MM / PLAYFIELD_W_MM, co.y / MM / PLAYFIELD_H_MM)
+
+
+def _smoothstep(edge0, edge1, x):
+	t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+class _Canvas:
+	"""The texel-centre grid in table mm, row 0 = the far (top) end."""
+
+	def __init__(self, seed):
+		self.rng = np.random.default_rng(seed)
+		xs = (np.arange(PLAYFIELD_IMAGE_W) + 0.5) * (PLAYFIELD_W_MM / PLAYFIELD_IMAGE_W)
+		ys = PLAYFIELD_H_MM - (np.arange(PLAYFIELD_IMAGE_H) + 0.5) * (PLAYFIELD_H_MM / PLAYFIELD_IMAGE_H)
+		self.x, self.y = np.meshgrid(xs, ys)
+		self.texel_x_mm = PLAYFIELD_W_MM / PLAYFIELD_IMAGE_W
+		self.texel_y_mm = PLAYFIELD_H_MM / PLAYFIELD_IMAGE_H
+
+	def value_noise(self, cell_x_mm, cell_y_mm):
+		"""Smooth value noise in [-1, 1], one random value per cell corner,
+		smoothstep-interpolated -- its features are never finer than a
+		cell (every cell here is >= 5 mm)."""
+		gx = int(math.ceil(PLAYFIELD_W_MM / cell_x_mm)) + 2
+		gy = int(math.ceil(PLAYFIELD_H_MM / cell_y_mm)) + 2
+		grid = self.rng.uniform(-1.0, 1.0, (gy, gx))
+		fx = self.x / cell_x_mm
+		fy = self.y / cell_y_mm
+		ix = np.floor(fx).astype(np.int64)
+		iy = np.floor(fy).astype(np.int64)
+		tx = _smoothstep(0.0, 1.0, fx - ix)
+		ty = _smoothstep(0.0, 1.0, fy - iy)
+		top = grid[iy, ix] * (1 - tx) + grid[iy, ix + 1] * tx
+		bottom = grid[iy + 1, ix] * (1 - tx) + grid[iy + 1, ix + 1] * tx
+		return top * (1 - ty) + bottom * ty
+
+	# Signed distance fields, table mm, negative inside.
+	def sdf_ellipse(self, cx, cy, rx, ry):
+		return (np.hypot((self.x - cx) / rx, (self.y - cy) / ry) - 1.0) * min(rx, ry)
+
+	def sdf_circle(self, cx, cy, r):
+		return np.hypot(self.x - cx, self.y - cy) - r
+
+	def sdf_segment(self, a, b, r):
+		ax, ay = a
+		bx, by = b
+		dx, dy = bx - ax, by - ay
+		t = np.clip(((self.x - ax) * dx + (self.y - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+		return np.hypot(self.x - (ax + t * dx), self.y - (ay + t * dy)) - r
+
+	def sdf_rect(self, cx, cy, hx, hy):
+		qx = np.abs(self.x - cx) - hx
+		qy = np.abs(self.y - cy) - hy
+		outside = np.hypot(np.maximum(qx, 0.0), np.maximum(qy, 0.0))
+		return outside + np.minimum(np.maximum(qx, qy), 0.0)
+
+	def sdf_polygon(self, points):
+		"""Exact distance to the polygon's edges, negative inside (even-odd)."""
+		nearest = np.full(self.x.shape, np.inf)
+		inside = np.zeros(self.x.shape, dtype=bool)
+		count = len(points)
+		for k in range(count):
+			ax, ay = points[k]
+			bx, by = points[(k + 1) % count]
+			dx, dy = bx - ax, by - ay
+			t = np.clip(((self.x - ax) * dx + (self.y - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+			nearest = np.minimum(nearest, np.hypot(self.x - (ax + t * dx), self.y - (ay + t * dy)))
+			crosses = (ay > self.y) != (by > self.y)
+			with np.errstate(divide='ignore', invalid='ignore'):
+				x_at = ax + (self.y - ay) * dx / (by - ay if by != ay else 1.0)
+			inside ^= crosses & (self.x < x_at)
+		return np.where(inside, -nearest, nearest)
+
+
+# Painted-art palette, LINEAR RGB. Authored figures, not sampled from any
+# machine or image. The ground is PLAYFIELD_BASE_COLOUR, mat_playfield's own
+# historical flat tone.
+ART_PAINT = {
+	'dragon': (0.20, 0.022, 0.018),        # dark crimson silhouette
+	'dragon_wing': (0.30, 0.045, 0.030),   # the wing membranes, a shade lighter
+	'flame': (0.88, 0.20, 0.015),          # flame tongues from the Mouth
+	'flame_core': (0.95, 0.60, 0.07),
+	'shield_blue': (0.035, 0.09, 0.36),
+	'shield_red': (0.38, 0.028, 0.028),
+	'gold': (0.74, 0.50, 0.11),            # shield rims and charges
+	'charge': (0.80, 0.73, 0.58),          # the pale cross
+	'lance': (0.70, 0.60, 0.40),
+	'arrow': (0.85, 0.58, 0.11),           # shot-lane arrows
+	'banner': (0.28, 0.032, 0.026),        # the band behind the Top lanes
+	'lens_ring': (0.022, 0.018, 0.016),    # the dark ring round every insert
+}
+ART_EDGE_SOFT_MM = 1.2         # every painted shape's soft edge
+ART_LENS_RING_MM = 4.0         # the dark ring's width outside each lens
+ART_GRAIN_PERIOD_MM = 11.0     # wood-grain stripe period (half-period 5.5 mm)
+ART_GRAIN_AMPLITUDE = 0.07
+ART_BRUSH_AMPLITUDE = 0.035
+ART_BLOTCH_AMPLITUDE = 0.08
+ART_VIGNETTE_MM, ART_VIGNETTE_FLOOR = 60.0, 0.72
+
+
+def _paint(colour, shape_sdf, rgb):
+	"""Lays one flat colour over `colour` (H x W x 3, linear) where the
+	shape's signed distance is negative, with a soft edge."""
+	coverage = np.clip(0.5 - shape_sdf / ART_EDGE_SOFT_MM, 0.0, 1.0)[..., None]
+	colour *= 1.0 - coverage
+	colour += coverage * np.asarray(rgb, dtype=np.float64)
+
+
+def _chevron(cx, cy):
+	"""An arrow chevron pointing up-table (+y), 24 mm wide, 8 mm thick."""
+	return [(cx - 12, cy - 6), (cx, cy + 6), (cx + 12, cy - 6), (cx + 12, cy + 2), (cx, cy + 14), (cx - 12, cy + 2)]
+
+
+def _shield(cx, cy):
+	"""A heater shield, 50 mm across, point down-table."""
+	return [(cx - 25, cy + 38), (cx + 25, cy + 38), (cx + 25, cy), (cx + 19, cy - 20), (cx, cy - 42), (cx - 19, cy - 20), (cx - 25, cy)]
+
+
+def make_playfield_art(lens_rects):
+	"""The generated playfield image as an (H, W, 4) uint8 array, PNG row
+	order (row 0 = the far end, table y = PLAYFIELD_H_MM). `lens_rects` is
+	main()'s own lens list -- (name, cx, cy, half) per add_insert() call --
+	and is the ONLY source of the mask's openings."""
+	if not lens_rects:
+		raise RuntimeError('[make-placeholder-blend] make_playfield_art(): no insert lens was recorded')
+	canvas = _Canvas(PLAYFIELD_ART_SEED)
+	x, y = canvas.x, canvas.y
+
+	# The ground: PLAYFIELD_BASE_COLOUR, wood grain running up the table
+	# (stripes warped by slow noise), broad tonal blotches and a darker rim.
+	warp = canvas.value_noise(40.0, 120.0) * 6.0
+	grain = np.sin(2.0 * math.pi * (x + warp) / ART_GRAIN_PERIOD_MM)
+	blotch = canvas.value_noise(90.0, 90.0)
+	edge = np.minimum(np.minimum(x, PLAYFIELD_W_MM - x), np.minimum(y, PLAYFIELD_H_MM - y))
+	vignette = ART_VIGNETTE_FLOOR + (1.0 - ART_VIGNETTE_FLOOR) * _smoothstep(0.0, ART_VIGNETTE_MM, edge)
+	tone = (1.0 + ART_GRAIN_AMPLITUDE * grain + ART_BLOTCH_AMPLITUDE * blotch) * vignette
+	colour = np.asarray(PLAYFIELD_BASE_COLOUR, dtype=np.float64)[None, None, :] * tone[..., None]
+
+	# The banner behind the Top lanes.
+	banner_x0, banner_x1 = TOP_LANE_DIVIDER_XS_MM[0], TOP_LANE_DIVIDER_XS_MM[-1]
+	_paint(colour, canvas.sdf_rect((banner_x0 + banner_x1) / 2, (TOP_LANE_Y0_MM + TOP_LANE_Y1_MM) / 2, (banner_x1 - banner_x0) / 2, (TOP_LANE_Y1_MM - TOP_LANE_Y0_MM) / 2 - 4.0) - 3.0, ART_PAINT['banner'])
+
+	# The dragon: a silhouette over the Dragon's own body, its head at the
+	# Mouth (bd_lock's pose), wings spread either side and a curling tail.
+	dcx, mouth_y = DRAGON_CENTER_X_MM, DRAGON_MOUTH_Y_MM
+	wing_l = [(dcx - 50, 640), (dcx - 110, 690), (dcx - 150, 790), (dcx - 118, 762), (dcx - 100, 792), (dcx - 80, 748), (dcx - 55, 770), (dcx - 38, 700)]
+	wing_r = [(dcx + 36, 630), (dcx + 62, 590), (dcx + 92, 548), (dcx + 112, 530), (dcx + 114, 575), (dcx + 102, 600), (dcx + 110, 622), (dcx + 86, 615), (dcx + 76, 640), (dcx + 56, 628), (dcx + 44, 650)]
+	_paint(colour, canvas.sdf_polygon(wing_l), ART_PAINT['dragon_wing'])
+	_paint(colour, canvas.sdf_polygon(wing_r), ART_PAINT['dragon_wing'])
+	dragon = canvas.sdf_ellipse(dcx - 20, 585, 62, 100)
+	dragon = np.minimum(dragon, canvas.sdf_segment((dcx - 10, 560), (dcx, mouth_y + 40), 18))
+	dragon = np.minimum(dragon, canvas.sdf_ellipse(dcx, mouth_y + 18, 20, 26))
+	dragon = np.minimum(dragon, canvas.sdf_segment((dcx - 12, mouth_y + 35), (dcx - 30, mouth_y + 66), 4))
+	dragon = np.minimum(dragon, canvas.sdf_segment((dcx + 12, mouth_y + 35), (dcx + 30, mouth_y + 66), 4))
+	tail = [(dcx - 70, 540, 11.0), (dcx - 88, 522, 9.0), (dcx - 104, 526, 7.0), (dcx - 116, 542, 5.5), (dcx - 128, 540, 4.5)]
+	for (ax, ay, ar), (bx, by, _) in zip(tail, tail[1:]):
+		dragon = np.minimum(dragon, canvas.sdf_segment((ax, ay), (bx, by), ar))
+	_paint(colour, dragon, ART_PAINT['dragon'])
+
+	# Flames from the Mouth, licking down-table toward the flippers.
+	flames = None
+	for fx, fy, r, tip in ((dcx, mouth_y - 20, 14.0, (dcx, mouth_y - 75)), (dcx - 15, mouth_y - 15, 9.0, (dcx - 25, mouth_y - 60)), (dcx + 15, mouth_y - 15, 9.0, (dcx + 25, mouth_y - 60))):
+		tongue = np.minimum(canvas.sdf_circle(fx, fy, r), canvas.sdf_polygon([(fx - r * 0.9, fy - r * 0.4), (fx + r * 0.9, fy - r * 0.4), tip]))
+		flames = tongue if flames is None else np.minimum(flames, tongue)
+	_paint(colour, flames, ART_PAINT['flame'])
+	_paint(colour, flames + 5.0, ART_PAINT['flame_core'])
+
+	# The knights: a crossed-lance shield either side of the centre line.
+	for scx, field, charge in ((166.0, 'shield_blue', 'cross'), (325.0, 'shield_red', 'chevron')):
+		scy = 300.0
+		for a, b in (((scx - 40, scy - 50), (scx + 40, scy + 55)), ((scx + 40, scy - 50), (scx - 40, scy + 55))):
+			_paint(colour, canvas.sdf_segment(a, b, 3.0), ART_PAINT['lance'])
+		shield = canvas.sdf_polygon(_shield(scx, scy))
+		_paint(colour, shield, ART_PAINT['gold'])
+		_paint(colour, shield + 3.0, ART_PAINT[field])
+		if charge == 'cross':
+			mark = np.minimum(canvas.sdf_rect(scx, scy + 5, 5.0, 26.0), canvas.sdf_rect(scx, scy + 12, 18.0, 5.0))
+			_paint(colour, np.maximum(mark, shield + 3.0), ART_PAINT['charge'])
+		else:
+			mark = canvas.sdf_polygon([(scx - 20, scy - 2), (scx, scy + 18), (scx + 20, scy - 2), (scx + 20, scy + 8), (scx, scy + 28), (scx - 20, scy + 8)])
+			_paint(colour, np.maximum(mark, shield + 3.0), ART_PAINT['gold'])
+
+	# Painted arrows up the shot lanes: both Loops and the Ramp.
+	left_loop_x = LOOP_LANE_CLEAR_MM / 2
+	right_loop_x = LANE_X0_MM - LOOP_LANE_CLEAR_MM / 2
+	for cx, cys in ((left_loop_x, (555.0, 590.0)), (right_loop_x, (555.0, 590.0)), (RAMP_ENTER_X_MM, (560.0, 600.0, 640.0))):
+		for cy in cys:
+			_paint(colour, canvas.sdf_polygon(_chevron(cx, cy)), ART_PAINT['arrow'])
+
+	# Low-amplitude brush-like noise over everything painted so far --
+	# streaks along the table plus a rounder dab, both >= 6 mm features.
+	brush = 1.0 + ART_BRUSH_AMPLITUDE * (canvas.value_noise(6.0, 18.0) + 0.8 * canvas.value_noise(12.0, 12.0))
+	colour *= brush[..., None]
+
+	# A dark ring round every insert lens, and the lens itself dark, so the
+	# lit lens reads against it; then the mask. Both come from lens_rects.
+	alpha = np.full(x.shape, 255, dtype=np.uint8)
+	for name, cx, cy, half in lens_rects:
+		lens = canvas.sdf_rect(cx, cy, half, half)
+		_paint(colour, lens - ART_LENS_RING_MM, ART_PAINT['lens_ring'])
+		opening = (np.abs(x - cx) <= half) & (np.abs(y - cy) <= half)
+		if not opening.any():
+			raise RuntimeError(f'[make-placeholder-blend] the mask opens no texel for lens {name}')
+		alpha[opening] = 0
+
+	# Linear -> sRGB 8-bit (the PNG, like glTF's baseColorTexture, is sRGB).
+	linear = np.clip(colour, 0.0, 1.0)
+	srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.power(linear, 1.0 / 2.4) - 0.055)
+	rgb8 = np.clip(np.round(srgb * 255.0), 0, 255).astype(np.uint8)
+	return np.dstack([rgb8, alpha])
+
+
+def _png_filter_rows(rgba):
+	"""PNG filtering, per row the filter with the least sum of absolute
+	signed residuals (the libpng heuristic), every filter reading RAW
+	neighbours so each row vectorises."""
+	height, width, bpp = rgba.shape
+	raw = rgba.reshape(height, width * bpp).astype(np.int16)
+	out = bytearray()
+	prior = np.zeros(width * bpp, dtype=np.int16)
+	for row in raw:
+		left = np.concatenate([np.zeros(bpp, dtype=np.int16), row[:-bpp]])
+		up_left = np.concatenate([np.zeros(bpp, dtype=np.int16), prior[:-bpp]])
+		p = left + prior - up_left
+		pa, pb, pc = np.abs(p - left), np.abs(p - prior), np.abs(p - up_left)
+		paeth = np.where((pa <= pb) & (pa <= pc), left, np.where(pb <= pc, prior, up_left))
+		candidates = (row, row - left, row - prior, row - ((left + prior) // 2), row - paeth)
+		filtered = [np.mod(c, 256).astype(np.uint8) for c in candidates]
+		scores = [int(np.abs(f.astype(np.int8).astype(np.int32)).sum()) for f in filtered]
+		best = scores.index(min(scores))
+		out.append(best)
+		out += filtered[best].tobytes()
+		prior = row
+	return bytes(out)
+
+
+def _png_bytes(rgba):
+	"""A minimal, deterministic PNG (IHDR, one IDAT, IEND; 8-bit RGBA, no
+	ancillary chunk, no timestamp) -- written here so the bytes the glb
+	embeds are exactly these, the same on every run."""
+	height, width, channels = rgba.shape
+	if channels != 4:
+		raise RuntimeError('[make-placeholder-blend] _png_bytes() expects RGBA')
+
+	def chunk(kind, body):
+		return struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body) & 0xFFFFFFFF)
+
+	ihdr = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
+	return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(_png_filter_rows(rgba), 9)) + chunk(b'IEND', b'')
+
+
+def fill_playfield_image(image, rgba):
+	"""Replaces `image`'s placeholder pixels with the generated PNG, PACKED
+	as that PNG's own bytes (tools/export.py's glTF exporter embeds a packed,
+	unmodified PNG as-is), and enforces this story's byte ceiling."""
+	png = _png_bytes(rgba)
+	if len(png) > PLAYFIELD_PNG_MAX_BYTES:
+		raise RuntimeError(f'[make-placeholder-blend] the playfield PNG is {len(png)} B, over the {PLAYFIELD_PNG_MAX_BYTES} B ceiling')
+	if image.packed_file is not None:
+		raise RuntimeError('[make-placeholder-blend] the playfield image must be an unpacked placeholder until it is filled')
+	image.pack(data=png, data_len=len(png))
+	image.source = 'FILE'
+	image.filepath_raw = '//' + PLAYFIELD_IMAGE_NAME + '.png'
+	image.file_format = 'PNG'
+	image.alpha_mode = 'STRAIGHT'
+	image.colorspace_settings.name = 'sRGB'
+	if tuple(image.size) != (PLAYFIELD_IMAGE_W, PLAYFIELD_IMAGE_H):
+		raise RuntimeError(f'[make-placeholder-blend] the packed playfield image reads back as {tuple(image.size)}')
+	print(f'[make-placeholder-blend] {PLAYFIELD_IMAGE_NAME}: {PLAYFIELD_IMAGE_W}x{PLAYFIELD_IMAGE_H} PNG, {len(png)} B, {int((rgba[..., 3] == 0).sum())} mask texels open')
+
+
 def main():
 	clear_scene()
 
@@ -2489,11 +2847,21 @@ def main():
 	# backbox does while the playfield tilts underneath it.
 
 	# ---- Materials -----------------------------------------------------
-	translucency_img = new_image('img_playfield_translucency')
+	# Story 5.2: the image is a placeholder here and is replaced by the
+	# generated playfield texture once every insert exists (see
+	# fill_playfield_image() near the end of main()); mat_playfield keeps its
+	# name and its alpha-from-image wiring, and now also takes its Base
+	# Color from the same image.
+	translucency_img = new_image(PLAYFIELD_IMAGE_NAME, pack=False)
 	mat_playfield = new_material(
-		'mat_playfield', base_color=(0.45, 0.30, 0.15, 1.0), image=translucency_img, alpha_from_image=True,
+		'mat_playfield', base_color=(*PLAYFIELD_BASE_COLOUR, 1.0), image=translucency_img, alpha_from_image=True,
+		color_from_image=True,
 	)
-	mat_insert = new_material('mat_insert', base_color=(0.9, 0.9, 0.95, 1.0))
+	# Story 5.2 (DW-271): one dark lens per home role -- see LENS_TINT_LEVEL.
+	lens_materials = {
+		role: new_material(name, base_color=(*lens_tint_rgb(role), 1.0), metallic=0.0)
+		for role, name in LENS_MATERIAL_BY_ROLE.items()
+	}
 
 	# ---- col_playfield: plane shape, real thickness, full reference dims ----
 	col_playfield = new_box_mesh(
@@ -4179,12 +4547,43 @@ def main():
 	sling_zone_y0 = sling_zone_y1 - 25.0
 	add_switch_zone('sw_sling_l', 's_sling_l', (SLING_L_X0_MM - 4, sling_zone_y0, 0), (SLING_L_X1_MM + 4, sling_zone_y1, 30))
 	add_switch_zone('sw_sling_r', 's_sling_r', (SLING_R_X0_MM - 4, sling_zone_y0, 0), (SLING_R_X1_MM + 4, sling_zone_y1, 30))
+	# Story 5.2 (DW-161): at POP_ZONE_HALF_MM on every edge, sw_pop_1/sw_pop_3
+	# and sw_pop_2/sw_pop_3 overlapped by 26 x 6 mm, so one ball in the
+	# overlap made two pop switches -- and fired two pop coils -- on one tick.
+	# The FACING edges now split the gap between the two rows' contact limits
+	# at y_split = (pop_1.y + pop_3.y) / 2 = 835, POP_ZONE_SPLIT_GAP_MM apart;
+	# every other edge keeps POP_ZONE_HALF_MM. Both properties the zones exist
+	# for are asserted below: each still contains its own pop's full contact
+	# disc (the reach limit above) with >= POP_ZONE_CONTACT_SPARE_MM to spare,
+	# and the three are pairwise disjoint. The plan's probe measured no golden
+	# finalHash/finalGameStateHash moving under this split.
+	pop_low_row_y = POP_POSITIONS_MM[0][1]
+	pop_high_row_y = POP_POSITIONS_MM[2][1]
+	assert POP_POSITIONS_MM[1][1] == pop_low_row_y, 'DW-161: the facing-edge split assumes pop_1 and pop_2 share one row'
+	pop_zone_split_y = (pop_low_row_y + pop_high_row_y) / 2  # 835.0
+	pop_zone_boxes = []
 	for i, center in enumerate(POP_POSITIONS_MM):
-		add_switch_zone(
-			f'sw_pop_{i + 1}', f's_pop_{i + 1}',
-			(center[0] - POP_ZONE_HALF_MM, center[1] - POP_ZONE_HALF_MM, 0),
-			(center[0] + POP_ZONE_HALF_MM, center[1] + POP_ZONE_HALF_MM, 30),
+		zone_min_y = center[1] - POP_ZONE_HALF_MM
+		zone_max_y = center[1] + POP_ZONE_HALF_MM
+		if center[1] == pop_low_row_y:
+			zone_max_y = pop_zone_split_y - POP_ZONE_SPLIT_GAP_MM / 2  # 834.5
+		else:
+			zone_min_y = pop_zone_split_y + POP_ZONE_SPLIT_GAP_MM / 2  # 835.5
+		zone_min = (center[0] - POP_ZONE_HALF_MM, zone_min_y, 0)
+		zone_max = (center[0] + POP_ZONE_HALF_MM, zone_max_y, 30)
+		contact_reach = POP_BUMPER_RADIUS_MM + BALL_MM / 2  # 33.495
+		spare = min(
+			center[0] - contact_reach - zone_min[0], zone_max[0] - (center[0] + contact_reach),
+			center[1] - contact_reach - zone_min[1], zone_max[1] - (center[1] + contact_reach),
 		)
+		assert spare >= POP_ZONE_CONTACT_SPARE_MM, f'DW-161: sw_pop_{i + 1} leaves only {spare:.3f} mm beyond its contact disc'
+		pop_zone_boxes.append((zone_min, zone_max))
+		add_switch_zone(f'sw_pop_{i + 1}', f's_pop_{i + 1}', zone_min, zone_max)
+	for i in range(len(pop_zone_boxes)):
+		for j in range(i + 1, len(pop_zone_boxes)):
+			(a0, a1), (b0, b1) = pop_zone_boxes[i], pop_zone_boxes[j]
+			overlaps = min(a1[0], b1[0]) > max(a0[0], b0[0]) and min(a1[1], b1[1]) > max(a0[1], b0[1])
+			assert not overlaps, f'DW-161: sw_pop_{i + 1} and sw_pop_{j + 1} overlap'
 
 	# Drain -- the "ball reached the aperture" edge, distinct from
 	# sw_trough_1..4 (the PARKING device's own slot switches, excluded from
@@ -4260,6 +4659,11 @@ def main():
 		parent=playfield_root, material=mat_playfield, second_uv=True,
 	)
 	set_props(vis_playfield, lightgroup='lg_playfield')
+	# Story 5.2: `uv_base` maps table (x, y) affinely and axis-aligned onto
+	# [0, 1]^2 (the top face is the one that shows), so the generated
+	# playfield texture's texel (i, j) sits over one known table rectangle and
+	# the mask's openings land on the lenses. `uv_lightmap` is untouched.
+	set_planar_table_uv(vis_playfield, 'uv_base')
 
 	# ---- Story 2.8: the fourteen insert lamps (AD-9, AD-11), replacing
 	# Story 1.4's one placeholder `l_insert_left`. Every centre below is
@@ -4292,13 +4696,21 @@ def main():
 	LETTER_INSERT_HALF_MM = 4.5  # 9 x 9 mm lens
 	LETTER_CUP_HALF_MM = 5.0     # 10 x 10 mm cup -- DRAGON_BANK_PITCH_MM (11.0) leaves exactly 1 mm between neighbouring cups
 
-	def add_insert(name, cx, cy, half_lens, half_cup):
+	# Story 5.2 (the author's design constraint): every lens add_insert()
+	# creates is recorded HERE, from the very (cx, cy, half_lens) values the
+	# call receives, and the playfield mask pass (make_playfield_art(), below)
+	# iterates this list -- never a hard-coded set of today's inserts -- so an
+	# `l_` lens a later story adds opens the mask automatically.
+	insert_lenses = []
+
+	def add_insert(name, cx, cy, half_lens, half_cup, home_role):
 		lens_min = (cx - half_lens, cy - half_lens, INSERT_LENS_Z0_MM)
 		lens_max = (cx + half_lens, cy + half_lens, INSERT_LENS_Z1_MM)
 		cup_min = (cx - half_cup, cy - half_cup, INSERT_CUP_Z0_MM)
 		cup_max = (cx + half_cup, cy + half_cup, INSERT_CUP_Z1_MM)
-		obj = new_insert_mesh(name, lens_min, lens_max, cup_min, cup_max, mat_insert, parent=playfield_root)
+		obj = new_insert_mesh(name, lens_min, lens_max, cup_min, cup_max, lens_materials[home_role], parent=playfield_root)
 		set_props(obj, lightgroup='lg_inserts')
+		insert_lenses.append((name, cx, cy, half_lens))
 		return obj
 
 	# Top lanes -- same divider math as the sw_top_* zones above.
@@ -4308,26 +4720,26 @@ def main():
 		lane_x1 = TOP_LANE_DIVIDER_XS_MM[i + 1] - TOP_LANE_DIVIDER_T_MM / 2
 		cx = (lane_x0 + lane_x1) / 2
 		cy = (TOP_LANE_Y0_MM + 5 + TOP_LANE_Y1_MM - 5) / 2
-		top_lane_inserts.append(add_insert(f'l_top_{i + 1}', cx, cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM))
+		top_lane_inserts.append(add_insert(f'l_top_{i + 1}', cx, cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'lit'))
 
 	# Inlanes / outlanes -- same zone corners as sw_inlane_*/sw_outlane_* above
 	# (code review: the y-centre now derives from the SAME INOUT_LANE_Y0_MM/
 	# Y1_MM those zones use, never a re-typed 150/200 pair).
 	inout_lane_cy = (INOUT_LANE_Y0_MM + INOUT_LANE_Y1_MM) / 2
-	l_inlane_l = add_insert('l_inlane_l', (left_divider_x1 + 2 + left_divider_x1 + 40) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
-	l_inlane_r = add_insert('l_inlane_r', (right_divider_x0 - 40 + right_divider_x0 - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
-	l_outlane_l = add_insert('l_outlane_l', (2 + left_divider_x0 - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
-	l_outlane_r = add_insert('l_outlane_r', (right_divider_x1 + 2 + LANE_X0_MM - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+	l_inlane_l = add_insert('l_inlane_l', (left_divider_x1 + 2 + left_divider_x1 + 40) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'lit')
+	l_inlane_r = add_insert('l_inlane_r', (right_divider_x0 - 40 + right_divider_x0 - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'lit')
+	l_outlane_l = add_insert('l_outlane_l', (2 + left_divider_x0 - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'lit')
+	l_outlane_r = add_insert('l_outlane_r', (right_divider_x1 + 2 + LANE_X0_MM - 2) / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'lit')
 
 	# DRAGON bank -- same cx formula and zone y band as the sw_dragon_* zones above.
 	dragon_letter_inserts = {}
 	for i, letter in enumerate(DRAGON_LETTERS):
 		cx = DRAGON_BANK_X0_MM + i * DRAGON_BANK_PITCH_MM + DRAGON_BANK_TARGET_W_MM / 2
 		cy = (dragon_bank_zone_y0 + dragon_bank_zone_y1) / 2
-		dragon_letter_inserts[letter] = add_insert(f'l_dragon_{letter}', cx, cy, LETTER_INSERT_HALF_MM, LETTER_CUP_HALF_MM)
+		dragon_letter_inserts[letter] = add_insert(f'l_dragon_{letter}', cx, cy, LETTER_INSERT_HALF_MM, LETTER_CUP_HALF_MM, 'dragon')
 
 	# Lock -- same zone corners as sw_lock_lane above.
-	l_lock = add_insert('l_lock', (lock_lane_x0 + 2 + lock_lane_x1 - 2) / 2, (SW_LOCK_LANE_Y0_MM + SW_LOCK_LANE_Y1_MM) / 2, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+	l_lock = add_insert('l_lock', (lock_lane_x0 + 2 + lock_lane_x1 - 2) / 2, (SW_LOCK_LANE_Y0_MM + SW_LOCK_LANE_Y1_MM) / 2, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'dragon')
 
 	# Ball Save (Story 2.9) -- bottom centre of the playfield, no sw_ zone of
 	# its own to sit over (Ball Save has no switch). cx is exactly
@@ -4346,7 +4758,13 @@ def main():
 	# `no two inserts' cup footprints overlap` assertion covers it
 	# independently of this comment.]
 	# DW-149: both cx and cy derived from existing locals, never a fresh literal.
-	l_ball_save = add_insert('l_ball_save', PLAYFIELD_W_MM / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM)
+	l_ball_save = add_insert('l_ball_save', PLAYFIELD_W_MM / 2, inout_lane_cy, LANE_INSERT_HALF_MM, LANE_CUP_HALF_MM, 'lit')
+
+	# ---- Story 5.2 (DW-271, DW-4): the generated playfield texture -- RGB
+	# the painted art, alpha the translucency mask opened at exactly every
+	# lens add_insert() recorded above. Filled here, after the last insert
+	# exists, so the mask can never miss one. ----
+	fill_playfield_image(translucency_img, make_playfield_art(insert_lenses))
 
 	# ---- vis_backbox: Story 2.6's DMD Backglass mounting quad, the first
 	# child of cabinet_root (AD-11: Blender is the sole owner of every

@@ -1884,3 +1884,8 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-5-4-mechanisms-plastics-ramp-and-guides.md | severity: med | fix-risk: med | footprint: in-story
 - evidence: _art_spinner() sizes the blade lane-wall to lane-wall (tools/make-placeholder-blend.py); docs/feel-test.md records the Right Loop return crossing the spinner's y at x 52.2-52.3, 7 mm outside sw_spinner, so s_spinner never closes on it. Story 5.4's full-width blade makes that known asymmetry visible on every orbit.
 - 2026-09-30T06:57:32Z status=decision-pending owner=burndown by=cr note=product call: narrow the blade to sw_spinner's x span (in-story art, re-export) OR widen sw_spinner to the lane (sim, moves goldens); rec: widen
+
+### DW-307: Rectangular sw_pop_N zones kick any ball whose swept segment enters them, even ~50 mm from the pop; with some facing-edge values a ball strands in sw_pop_1's NW corner against col_loop_l's east face under repeated kicks
+- source: spec-5-2-playfield-art-and-materials.md | severity: med | fix-risk: med | footprint: out-of-footprint
+- evidence: 5.2 implement: shot-routing 'Top lanes > lane 1' stranded at (93.56, 834.72), 0.30 mm progress over 500 ticks, with maxMm.y 834.5/835.5 and 835.0/836.0 and 833.995/836.005; green at 834.0/835.0 by chance; fix needs pops.ts contact test or non-rectangular zones (src/sim)
+- 2026-09-30T08:34:26Z status=escalated owner=burndown by=harvest note=for the decision sheet: pops.ts should kick only on contact, or zones become discs; out of Epic 5's footprint

@@ -26,7 +26,10 @@
 //     is not a drop target (not a `node` of `TABLE.dropBankWiring`) takes the
 //     wall family, so a dropped target reveals a different colour behind it;
 //   - the nine family colours (and each against `mat_playfield`) at least
-//     0.25 apart in some linear-RGB channel.
+//     0.25 apart in some linear-RGB channel. [AMENDED 2026-09-30, Story 5.2]
+//     For the one remaining placeholder, vis_dragon, "against mat_playfield"
+//     now means against the mean of the generated playfield art's opaque
+//     texels 2-12 mm outside the dragon bodies (the art ring).
 //
 // Falsifiability (Rule 19, the spec's Verification section): renaming
 // `vis_post_sling_l` inside the glb JSON chunk reddens the missing-twin case;
@@ -63,6 +66,7 @@ import { glbToTable } from '../src/sim/table/frames';
 import { loadCollision } from '../src/sim/physics/loader';
 import { assetHash } from '../src/sim/loop/replay';
 import { VIS_DRAGON_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
+import { artRingMean, loadPlayfieldTexture } from './util/playfield-texture';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -395,27 +399,29 @@ describe('Story 5.0a AC 1 -- every visible col_ body has exactly one vis_ twin u
 	// resting ball) moved to test/mechanism-art.test.ts with the art rod.
 });
 
-describe('Story 5.0a -- the placeholder\'s colour is separable (AC 4\'s headless half; Story 5.4 restricts it to vis_dragon)', () => {
-	it('mat_vis_dragon differs from mat_playfield by >= 0.25 in some linear-RGB channel and is not textured; no other mat_vis_* material remains in the glb', () => {
+describe('Story 5.0a -- the placeholder\'s colour is separable (AC 4\'s headless half; Story 5.4 restricts it to vis_dragon; Story 5.2 measures it against the art)', () => {
+	// [AMENDED 2026-09-30, Story 5.2] mat_playfield is no longer a flat
+	// colour -- its base colour is the generated playfield texture -- so 5.0a's
+	// vis_dragon rule comes back in its ART-RING form: mat_vis_dragon differs
+	// from the MEAN linear colour of the opaque playfield texels 2-12 mm
+	// outside the union of the four `surface: 'dragon'` bodies' footprints by
+	// >= 0.25 in some channel. mutation: paint that ring in mat_vis_dragon's
+	// colour in make_playfield_art() and re-export -> red here.
+	it('mat_vis_dragon differs from the mean of the opaque playfield texels 2-12 mm outside the dragon bodies by >= 0.25 in some linear-RGB channel and is not textured; no other mat_vis_* material remains in the glb', () => {
 		const doc = readGlbJson();
-		const colourOf = (name: string): readonly number[] => {
-			const material = doc.materials.find((m) => m.name === name);
-			expect(material, `material "${name}" missing from the glb`).toBeDefined();
-			const factor = material!.pbrMetallicRoughness?.baseColorFactor;
-			expect(factor, `${name}: baseColorFactor`).toBeDefined();
-			return factor!;
-		};
-		const named = ['mat_vis_dragon', 'mat_playfield'];
 		expect(doc.materials.filter((m) => m.name?.startsWith('mat_vis_')).map((m) => m.name), 'only the placeholder\'s family material is left').toEqual(['mat_vis_dragon']);
-		expect(doc.materials.find((m) => m.name === 'mat_vis_dragon')!.pbrMetallicRoughness?.baseColorTexture, 'mat_vis_dragon must carry no texture').toBeUndefined();
-		for (let i = 0; i < named.length; i++) {
-			for (let j = i + 1; j < named.length; j++) {
-				const a = colourOf(named[i]!);
-				const b = colourOf(named[j]!);
-				const separation = Math.max(...[0, 1, 2].map((k) => Math.abs(a[k]! - b[k]!)));
-				expect(separation, `${named[i]} ${JSON.stringify(a.slice(0, 3))} vs ${named[j]} ${JSON.stringify(b.slice(0, 3))}`).toBeGreaterThanOrEqual(MIN_CHANNEL_SEPARATION);
-			}
-		}
+		const dragonMaterial = doc.materials.find((m) => m.name === 'mat_vis_dragon')!;
+		expect(dragonMaterial.pbrMetallicRoughness?.baseColorTexture, 'mat_vis_dragon must carry no texture').toBeUndefined();
+		const colour = dragonMaterial.pbrMetallicRoughness?.baseColorFactor;
+		expect(colour, 'mat_vis_dragon: baseColorFactor').toBeDefined();
+		const collision = JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as { nodes: Array<CollisionNode & { footprintMm?: Array<{ x: number; y: number }> }> };
+		const footprints = collision.nodes.filter((n) => n.surface === 'dragon').map((n) => n.footprintMm ?? []);
+		expect(footprints.length, 'non-vacuity: the dragon bodies').toBeGreaterThan(0);
+		expect(footprints.every((f) => f.length >= 3), 'every dragon body carries a footprint').toBe(true);
+		const ring = artRingMean(loadPlayfieldTexture(), footprints);
+		expect(ring.count, 'non-vacuity: opaque texels in vis_dragon\'s art ring').toBeGreaterThan(20);
+		const separation = Math.max(...[0, 1, 2].map((k) => Math.abs(colour![k]! - ring.mean[k]!)));
+		expect(separation, `mat_vis_dragon ${JSON.stringify(colour!.slice(0, 3))} vs its art ring's mean ${JSON.stringify(ring.mean.map((c) => Number(c.toFixed(3))))} (${ring.count} texels)`).toBeGreaterThanOrEqual(MIN_CHANNEL_SEPARATION);
 	});
 });
 

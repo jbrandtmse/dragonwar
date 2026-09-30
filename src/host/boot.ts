@@ -23,7 +23,7 @@ import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presen
 import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
 import { syncBackglass } from '../presentation/backglass/backglass';
 import { FONT_5X7 } from '../presentation/backglass/font';
-import { advanceLamps, INITIAL_LAMP_VIEW, type LampView } from '../presentation/lighting/lamp-view';
+import { advanceLamps, INITIAL_LAMP_VIEW, lampOverrideProblem, overlayLampView, type LampView } from '../presentation/lighting/lamp-view';
 import { syncLamps } from '../presentation/lighting/lamp-driver';
 import { createHostLoop, type HostLoop, type ResetOptions } from './loop';
 import { viewConfigFromKeyMap } from './input';
@@ -140,6 +140,24 @@ declare global {
 			 * `reset()`, so a stale A/B setting never survives a reset.
 			 */
 			setLightBudget: (budget: number | null) => void;
+			/**
+			 * Story 5.2 (DW-271, AC 2's browser half), same dev-only/console-only
+			 * terms as `setLightBudget` above: lays `override`'s lamps over the
+			 * folded lamp view before every subsequent `syncLamps()` call, so the
+			 * lead can light any insert, in any role and step, through the REAL
+			 * `LampDriver` -- e.g.
+			 * `window.__dragonwarBoot.setLampOverride({ l_top_2: { role: 'lit', step: 1 } })`.
+			 * Every other lamp keeps the game's own state (the overlay is the
+			 * pure `overlayLampView()` in `presentation/lighting/lamp-view.ts`).
+			 * `null` clears it. Lamp names are validated against `TABLE.lamps`,
+			 * roles against the closed `LAMP_ROLES` set and steps against
+			 * 0..3: an unknown lamp, a bad entry or a non-object is rejected
+			 * with a console error and otherwise ignored (the previous override
+			 * is kept). `reset()` clears it back to `null`, like the light
+			 * budget. It never reaches `sim/`: the game's lamp state is
+			 * untouched.
+			 */
+			setLampOverride: (override: LampView | null) => void;
 			/**
 			 * Story 5.0a (AC 4), same dev-only/console-only terms as every
 			 * hatch above: where the named mesh currently lands on
@@ -260,6 +278,11 @@ async function onBegin(): Promise<void> {
 		// production default (`TUNING.liveLightBudget.value`) exactly as it
 		// did before this hatch existed.
 		let lightBudgetOverride: number | null = null;
+		// Story 5.2 (DW-271): the lead's console-only lamp overlay, driven by
+		// `window.__dragonwarBoot.setLampOverride()` below. `null` (the
+		// default) means no overlay: `overlayLampView()` then returns
+		// `lampView` itself, so `syncLamps()` sees exactly what it did before.
+		let lampOverride: LampView | null = null;
 		// Story 5.0a: the live Babylon scene, captured by the render hook below
 		// for the `nodeScreenRect()` hatch.
 		let liveScene: LiveScene | undefined;
@@ -377,10 +400,11 @@ async function onBegin(): Promise<void> {
 			// HIGH 2a: null means no override -- syncLamps() resolves its own
 			// production default (TUNING.liveLightBudget.value) exactly as before
 			// this hatch existed.
+			// Story 5.2: the dev hatch's overlay, the identity when unset.
 			syncLamps(
 				scene,
 				nodes.playfieldRoot,
-				lampView,
+				overlayLampView(lampView, lampOverride),
 				performance.now(),
 				lightBudgetOverride === null ? undefined : { budget: lightBudgetOverride },
 			);
@@ -412,6 +436,7 @@ async function onBegin(): Promise<void> {
 				liveHostLoop.reset(resetOptions);
 				lampView = INITIAL_LAMP_VIEW;
 				lightBudgetOverride = null;
+				lampOverride = null;
 			},
 		};
 		window.__dragonwarBoot = {
@@ -501,6 +526,15 @@ async function onBegin(): Promise<void> {
 					return;
 				}
 				lightBudgetOverride = budget;
+			},
+			setLampOverride: (override: LampView | null) => {
+				const problem = lampOverrideProblem(override);
+				if (problem !== null) {
+					// eslint-disable-next-line no-console
+					console.error(`[dragonwar] setLampOverride(): ${problem} -- ignored; the previous override is kept.`);
+					return;
+				}
+				lampOverride = override === null ? null : Object.freeze({ ...override });
 			},
 			openTuningPanel: () => {
 				if (tuningPanel) {

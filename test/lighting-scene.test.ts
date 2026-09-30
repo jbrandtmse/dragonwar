@@ -33,7 +33,7 @@ import { LAMP_GRAMMAR, lookupGrammar } from '../src/presentation/lighting/gramma
 import { TABLE } from '../src/sim/table/dragonwar';
 import type { LampName } from '../src/sim/table/names';
 import type { LampRole, LampStep } from '../src/sim/contracts/commands';
-import type { LampView } from '../src/presentation/lighting/lamp-view';
+import { lampOverrideProblem, overlayLampView, type LampView } from '../src/presentation/lighting/lamp-view';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 
@@ -610,5 +610,72 @@ describe('syncLamps -- error handling (I/O matrix)', () => {
 		} finally {
 			engine.dispose();
 		}
+	});
+});
+
+// Story 5.2 (DW-271, AC 2's headless half; I/O matrix rows 3-5). The lead's
+// browser check lights inserts through `window.__dragonwarBoot
+// .setLampOverride()`, which `src/host/boot.ts` applies as
+// `syncLamps(scene, root, overlayLampView(lampView, lampOverride), ...)` on
+// every render frame. These rows drive that exact composition on the
+// committed glb (whose lenses are now dark and role-tinted), so the lamp the
+// lead lights is the lamp the REAL driver lights, at the grammar's colour x
+// INSERT_EMISSIVE_LEVEL, and nothing else moves.
+describe('Story 5.2 -- the setLampOverride() overlay, fed to syncLamps() on the committed glb', () => {
+	/** `projectLamp()`'s home role per `TABLE.lamps` subject kind (`src/sim/rules/lamps.ts`). */
+	const HOME_ROLE = { lane: 'lit', ball_save: 'lit', letter: 'dragon', lock: 'dragon' } as const;
+
+	it('an override lights exactly its insert at the grammar colour x INSERT_EMISSIVE_LEVEL; every other lamp is as in the view', async () => {
+		await withScene(async (scene, playfieldRoot) => {
+			const view: LampView = { l_top_1: { role: 'lit', step: 1 }, l_dragon_d: { role: 'off', step: 0 } };
+			const override: LampView = { l_dragon_d: { role: 'dragon', step: 1 } };
+			const merged = overlayLampView(view, override);
+			syncLamps(scene, playfieldRoot, merged, 0);
+			expect(emissiveColorOf(scene, 'l_dragon_d'), 'the overridden insert').toEqual(scaledEmissive(LAMP_GRAMMAR.dragon));
+			for (const lamp of Object.keys(TABLE.lamps) as LampName[]) {
+				if (lamp === 'l_dragon_d') {
+					continue;
+				}
+				const entry = view[lamp];
+				const expected = entry && entry.role !== 'off' && entry.step !== 0 ? scaledEmissive(LAMP_GRAMMAR[entry.role]) : { r: 0, g: 0, b: 0 };
+				expect(emissiveColorOf(scene, lamp), `${lamp}: as in the view`).toEqual(expected);
+			}
+			expect(view.l_dragon_d, 'the overlay never writes into the view it was given').toEqual({ role: 'off', step: 0 });
+		});
+	});
+
+	it('lit through the overlay in its home role, EVERY insert\'s emissive is that role\'s grammar colour x INSERT_EMISSIVE_LEVEL', async () => {
+		await withScene(async (scene, playfieldRoot) => {
+			const lamps = Object.keys(TABLE.lamps) as LampName[];
+			const override: LampView = Object.fromEntries(lamps.map((lamp) => [lamp, { role: HOME_ROLE[TABLE.lamps[lamp].subject.kind], step: 1 }]));
+			syncLamps(scene, playfieldRoot, overlayLampView({}, override), 0);
+			for (const lamp of lamps) {
+				expect(emissiveColorOf(scene, lamp), `${lamp} lit in its home role`).toEqual(scaledEmissive(LAMP_GRAMMAR[HOME_ROLE[TABLE.lamps[lamp].subject.kind]]));
+			}
+		});
+	});
+
+	it('a cleared override (null) returns the view itself, and the insert goes back to the game\'s own state', async () => {
+		await withScene(async (scene, playfieldRoot) => {
+			const view: LampView = { l_top_2: { role: 'off', step: 0 } };
+			syncLamps(scene, playfieldRoot, overlayLampView(view, { l_top_2: { role: 'lit', step: 1 } }), 0);
+			expect(emissiveColorOf(scene, 'l_top_2'), 'lit while overridden').toEqual(scaledEmissive(LAMP_GRAMMAR.lit));
+			const cleared = overlayLampView(view, null);
+			expect(cleared, 'null returns the same reference').toBe(view);
+			syncLamps(scene, playfieldRoot, cleared, 0);
+			expect(emissiveColorOf(scene, 'l_top_2'), 'back to the view (off)').toEqual({ r: 0, g: 0, b: 0 });
+		});
+	});
+
+	it('a bad override -- an unknown lamp, a bad role or step, or a non-object -- is named by lampOverrideProblem(), the hatch\'s validator; a good one and null pass', () => {
+		expect(lampOverrideProblem(null)).toBeNull();
+		expect(lampOverrideProblem({ l_top_2: { role: 'lit', step: 1 } })).toBeNull();
+		expect(lampOverrideProblem({ l_no_such_insert: { role: 'lit', step: 1 } })).toMatch(/l_no_such_insert/);
+		expect(lampOverrideProblem({ l_top_2: { role: 'purple', step: 1 } })).toMatch(/l_top_2/);
+		expect(lampOverrideProblem({ l_top_2: { role: 'lit', step: 4 } })).toMatch(/l_top_2/);
+		expect(lampOverrideProblem({ l_top_2: null })).toMatch(/l_top_2/);
+		expect(lampOverrideProblem('l_top_2')).toMatch(/expected an object/);
+		expect(lampOverrideProblem(42)).toMatch(/expected an object/);
+		expect(lampOverrideProblem([])).toMatch(/an array/);
 	});
 });

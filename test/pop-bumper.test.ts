@@ -361,13 +361,16 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 				z: 15,
 			};
 			// Approach from the WEST (x decreasing toward the zone), holding
-			// y fixed at insideMm.y -- not from the south. sw_pop_2/sw_pop_3
-			// genuinely overlap in a small x[192,218]/y[832,838] corner (the
-			// committed geometry), so a south-approaching sweep for c_pop_3
-			// clips straight through sw_pop_2's own box and produces a
-			// spurious second make; approaching along x at a y already
-			// outside every OTHER pop's own y-range avoids every sibling
-			// zone's bbox, for all three coils.
+			// y fixed at insideMm.y -- not from the south. Written when
+			// sw_pop_2/sw_pop_3 genuinely overlapped in a small
+			// x[192,218]/y[832,838] corner, where a south-approaching sweep
+			// for c_pop_3 clipped straight through sw_pop_2's own box and
+			// produced a spurious second make. [Story 5.2, DW-161] The zones
+			// are now disjoint (the facing edges split at y 834.5 / 835.5, the
+			// "Story 5.2 (DW-161)" cases below), but a south sweep would still
+			// cross sw_pop_2 on its way in, so the west approach -- at a y
+			// already outside every OTHER pop's own y-range, avoiding every
+			// sibling zone's bbox for all three coils -- is kept.
 			const outsideMm = { x: zone.minMm.x - 20, y: insideMm.y, z: 15 };
 			const fakeBall = { id: 0, hit: { vel: { x: 0, y: 0, z: 0, add(v: { x: number; y: number; z: number }) { this.x += v.x; this.y += v.y; this.z += v.z; } } } } as unknown as Ball;
 
@@ -446,7 +449,9 @@ describe('sim/physics/pops.ts -- I/O matrix edge cases (unit-level, matching tes
 //     permanent rest point.
 //   - a REAL, previously undocumented ceiling exists at 221 mm/s: a NEW
 //     permanent equilibrium appears near (93, 840) mm -- just outside
-//     sw_pop_1's own north edge (y = 838), a different location from the
+//     sw_pop_1's own north edge (y = 838 when measured; 834.5 since Story
+//     5.2's DW-161 split, which leaves the point outside it either way),
+//     a different location from the
 //     original (130.00, 833.55) apex-vertex rest point -- and most values
 //     re-measured from 221 through 300 mm/s re-strand there (one anomalous
 //     escape at 245 mm/s -- the transition is a knife-edge, not a clean
@@ -559,5 +564,139 @@ describe('AD-15 provenance: TUNING.hardware.popKickMmPerS -- the corrected floor
 			progressMm,
 			`at 225 mm/s trailing-window progress was ${progressMm.toFixed(2)} mm -- expected a re-strand (<= 15 mm) at this now-documented ceiling, distinct from the production value's own safe margin`,
 		).toBeLessThanOrEqual(15);
+	});
+});
+
+// Story 5.2 (DW-161, AC 4). At POP_ZONE_HALF_MM (38) on every edge,
+// sw_pop_1/sw_pop_3 and sw_pop_2/sw_pop_3 overlapped by 26 x 6 mm (y 832 to
+// 838), so one ball inside an overlap made two pop switches -- and fired two
+// pop coils -- on one tick. The generator now splits the FACING edges at
+// y_split = (pop_1.y + pop_3.y) / 2 = 835, 1 mm apart, and keeps every other
+// edge. These cases read the committed collision document through the real
+// loader and machine; every zone and pop comes from TABLE.popWiring and the
+// document, never a typed coordinate (the Matrix row's own drive line
+// excepted, which the spec fixes).
+describe('Story 5.2 (DW-161) -- the pop switch zones are disjoint and still contain each pop\'s contact disc', () => {
+	const POP_COILS = Object.keys(TABLE.popWiring) as PopCoilName[];
+	/** The spec's clearance every zone keeps beyond its pop's contact disc. */
+	const CONTACT_SPARE_MM = 0.5;
+
+	function popZones(doc: unknown): Array<{ coil: PopCoilName; zone: { minMm: { x: number; y: number }; maxMm: { x: number; y: number } } }> {
+		const loaded = loadCollision(doc, resolveTuning());
+		return POP_COILS.map((coil) => {
+			const zone = loaded.switchZones.find((z) => z.switch === TABLE.popWiring[coil].switch);
+			if (!zone) {
+				throw new Error(`test fixture is broken: no switch zone for ${TABLE.popWiring[coil].switch}`);
+			}
+			return { coil, zone };
+		});
+	}
+
+	it('the pop zones are pairwise disjoint', () => {
+		const zones = popZones(loadDoc());
+		expect(zones.length, 'non-vacuity: the pops from TABLE.popWiring').toBeGreaterThanOrEqual(3);
+		for (let i = 0; i < zones.length; i++) {
+			for (let j = i + 1; j < zones.length; j++) {
+				const a = zones[i]!.zone;
+				const b = zones[j]!.zone;
+				const overlapX = Math.min(a.maxMm.x, b.maxMm.x) - Math.max(a.minMm.x, b.minMm.x);
+				const overlapY = Math.min(a.maxMm.y, b.maxMm.y) - Math.max(a.minMm.y, b.minMm.y);
+				expect(overlapX > 0 && overlapY > 0, `${zones[i]!.coil}'s and ${zones[j]!.coil}'s zones overlap by ${overlapX.toFixed(2)} x ${overlapY.toFixed(2)} mm`).toBe(false);
+			}
+		}
+	});
+
+	it('each zone contains its own pop\'s full contact disc (the pop\'s circumradius + ballMm / 2) with >= 0.5 mm to spare on every edge', () => {
+		const doc = loadDoc() as { nodes: Array<{ name: string; surface: string; footprintMm?: Array<{ x: number; y: number }> }> };
+		const loaded = loadCollision(doc, resolveTuning());
+		for (const { coil, zone } of popZones(doc)) {
+			const centre = loaded.popCentroidsMm[coil];
+			const body = doc.nodes.find((n) => n.surface === 'bumper' && (n.footprintMm ?? []).some((p) => Math.hypot(p.x - centre.x, p.y - centre.y) < 30));
+			expect(body, `${coil}: its bumper body`).toBeDefined();
+			const radius = Math.max(...body!.footprintMm!.map((p) => Math.hypot(p.x - centre.x, p.y - centre.y)));
+			const reach = radius + TABLE.reference.ballMm / 2;
+			const spare = Math.min(centre.x - reach - zone.minMm.x, zone.maxMm.x - (centre.x + reach), centre.y - reach - zone.minMm.y, zone.maxMm.y - (centre.y + reach));
+			expect(reach, `${coil}: non-vacuity -- the contact disc (radius ${reach.toFixed(3)})`).toBeGreaterThan(30);
+			expect(spare, `${coil}: the zone leaves ${spare.toFixed(3)} mm beyond its contact disc`).toBeGreaterThanOrEqual(CONTACT_SPARE_MM);
+		}
+	});
+
+	/** Serves a ball, places it at `startMm` with velocity `velMmPerS` (table frame), steps `ticks` ticks through the real machine (pops enabled), and returns each tick's pop makes and pop coil fires. */
+	function drive(doc: unknown, startMm: { x: number; y: number }, velMmPerS: { x: number; y: number }, ticks: number): Array<{ tick: number; makes: string[]; fires: string[]; y: number }> {
+		const machine = createMachine(doc, resolveTuning());
+		let tick = 0;
+		for (let i = 0; i < 320; i++) {
+			tick += 1;
+			machine.step(tick, NO_FRAME, i === 0 ? [{ type: 'coil', coil: 'c_trough_eject', action: 'pulse', tick }] : []);
+		}
+		const ball = machine.balls[0]!;
+		const start = toPhysics({ x: startMm.x, y: startMm.y, z: 13.5 });
+		ball.state.pos.set(start.x, start.y, start.z);
+		// The table frame's +y is physics -y (VPX y-down, frames.ts) -- the same conversion driveToFirstPopMake() uses.
+		ball.hit.vel.set(velMmPerS.x / (MM_PER_VU * 100), -velMmPerS.y / (MM_PER_VU * 100), 0);
+		const popSwitches = new Set<string>(POP_COILS.map((c) => TABLE.popWiring[c].switch));
+		const out: Array<{ tick: number; makes: string[]; fires: string[]; y: number }> = [];
+		for (let i = 0; i < ticks; i++) {
+			tick += 1;
+			const result = machine.step(tick, NO_FRAME, []);
+			out.push({
+				tick,
+				makes: result.switchEvents.filter((e) => e.closed && popSwitches.has(e.switch)).map((e) => e.switch),
+				fires: result.contactEvents.filter((c) => c.kind === 'coil_fire' && (POP_COILS as string[]).includes(c.device ?? '')).map((c) => c.device!),
+				y: TABLE.reference.playfieldMm.h - ball.state.pos.y * MM_PER_VU,
+			});
+		}
+		return out;
+	}
+
+	it('I/O matrix "Ball through the former overlap": a ball driven south through (205, 845) toward (205, 825) at ~2.83 mm/tick never makes s_pop_2 and s_pop_3 on one tick, and no tick fires two pop coils', () => {
+		const ticks = drive(loadDoc(), { x: 205, y: 845 }, { x: 0, y: -2830 }, 8);
+		expect(ticks[ticks.length - 1]!.y, 'non-vacuity: the ball reached (205, ~825)').toBeLessThanOrEqual(826);
+		const made = new Set(ticks.flatMap((t) => t.makes));
+		expect([...made].sort(), 'non-vacuity: the drive crosses both zones').toEqual([TABLE.popWiring.c_pop_2.switch, TABLE.popWiring.c_pop_3.switch].sort());
+		for (const t of ticks) {
+			expect(t.makes.length, `tick ${t.tick} made ${t.makes.join(', ')}`).toBeLessThanOrEqual(1);
+			expect(t.fires.length, `tick ${t.tick} fired ${t.fires.join(', ')}`).toBeLessThanOrEqual(1);
+		}
+	});
+
+	// [Story 5.2 implement] The row above cannot tell the split from the old
+	// overlap: a ball already inside sw_pop_3 when it reaches the overlap
+	// makes sw_pop_2 alone on the tick it crosses, under either geometry
+	// (measured at implement: the old zones make s_pop_3 at tick 1 and
+	// s_pop_2 at tick 3; the split zones at ticks 1 and 4). The defect DW-161
+	// names is a ball INSIDE an overlap, so this row places a ball at rest at
+	// every point of a 2 mm grid over the former overlap band -- x across
+	// sw_pop_2's shared span with sw_pop_3, y between the old facing edges
+	// (each zone's centre -/+ the unsplit half the zone still keeps on its
+	// far edge) -- and requires at most one pop make and one pop coil fire
+	// per tick. Under the old zones every grid point makes both on its first
+	// tick. mutation: restore the 38 mm facing edges -> red here.
+	it('I/O matrix "Ball through the former overlap" (at rest, every point): a ball anywhere in either former 26 x 6 mm overlap makes at most one pop switch and fires at most one pop coil per tick', () => {
+		const doc = loadDoc();
+		const zones = popZones(doc);
+		const loaded = loadCollision(doc, resolveTuning());
+		const high = zones.find((z) => z.coil === 'c_pop_3')!;
+		const half = high.zone.maxMm.y - loaded.popCentroidsMm.c_pop_3.y; // sw_pop_3's unsplit (far) edge
+		const lows = zones.filter((z) => loaded.popCentroidsMm[z.coil].y < loaded.popCentroidsMm.c_pop_3.y);
+		expect(lows.map((z) => z.coil).sort(), 'non-vacuity: the lower pair').toEqual(['c_pop_1', 'c_pop_2']);
+		let points = 0;
+		for (const low of lows) {
+			const band = { y0: loaded.popCentroidsMm.c_pop_3.y - half, y1: loaded.popCentroidsMm[low.coil].y + half };
+			expect(band.y1 - band.y0, `${low.coil}: non-vacuity -- the former overlap band is 6 mm tall`).toBeCloseTo(6, 6);
+			const x0 = Math.max(low.zone.minMm.x, high.zone.minMm.x);
+			const x1 = Math.min(low.zone.maxMm.x, high.zone.maxMm.x);
+			expect(x1 - x0, `${low.coil}: non-vacuity -- the former overlap is 26 mm wide`).toBeCloseTo(26, 6);
+			for (let x = x0 + 1; x < x1; x += 2) {
+				for (let y = band.y0; y <= band.y1 + 1e-9; y += 2) {
+					for (const t of drive(doc, { x, y }, { x: 0, y: 0 }, 3)) {
+						expect(t.makes.length, `ball at rest at (${x}, ${y}): tick ${t.tick} made ${t.makes.join(', ')}`).toBeLessThanOrEqual(1);
+						expect(t.fires.length, `ball at rest at (${x}, ${y}): tick ${t.tick} fired ${t.fires.join(', ')}`).toBeLessThanOrEqual(1);
+					}
+					points += 1;
+				}
+			}
+		}
+		expect(points, 'non-vacuity: grid points over both former overlaps').toBeGreaterThan(80);
 	});
 });

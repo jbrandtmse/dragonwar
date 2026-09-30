@@ -16,7 +16,8 @@
 // that lands").
 
 import type { FrameOutput, LampCommand, LampName } from '../../sim/table/names';
-import type { LampProjectionEntry } from '../../sim/contracts/commands';
+import { LAMP_ROLES, type LampProjectionEntry } from '../../sim/contracts/commands';
+import { TABLE } from '../../sim/table/dragonwar';
 
 /** The presentation-held view of every lamp `syncLamps()` has ever heard about -- a lamp `advanceLamps()` has never seen a command for is simply absent (`Partial`), never defaulted to `off` here; `lamp-driver.ts` is what resolves an absent entry, since it alone knows every `TABLE.lamps` key. */
 export type LampView = Partial<Record<LampName, LampProjectionEntry>>;
@@ -57,4 +58,49 @@ export function advanceLamps(view: LampView, output: FrameOutput): LampView {
 		next[command.lamp] = { role: command.role, step: command.step };
 	}
 	return next;
+}
+
+/**
+ * Story 5.2 (DW-271) -- the dev hatch's pure overlay: `override`'s entries
+ * laid over `view`, every other lamp exactly as `view` has it. `null` returns
+ * `view` itself (the same reference), so the production path allocates
+ * nothing and `syncLamps()` sees exactly what it saw before the hatch
+ * existed. Presentation-only view state: it never reaches `sim/`, and
+ * `src/host/boot.ts`'s `setLampOverride()` hatch (dev-only, console-only) is
+ * its one caller -- the lead's lever for lighting any insert through the REAL
+ * `LampDriver` in the browser check.
+ */
+export function overlayLampView(view: LampView, override: LampView | null): LampView {
+	if (override === null) {
+		return view;
+	}
+	return { ...view, ...override };
+}
+
+/**
+ * Story 5.2: why a `setLampOverride()` argument (`src/host/boot.ts`'s dev
+ * hatch) is unusable, or `null` when it is fine. Pure, so the I/O matrix's
+ * "Bad override" row is testable without a browser. Every key must be a
+ * `TABLE.lamps` name, and every value a `{ role, step }` with a role from the
+ * closed `LAMP_ROLES` set and a step in 0..3 -- anything else would reach
+ * `syncLamps()` as a lamp it cannot resolve or a grammar lookup it cannot
+ * answer.
+ */
+export function lampOverrideProblem(override: unknown): string | null {
+	if (override === null) {
+		return null;
+	}
+	if (typeof override !== 'object' || Array.isArray(override)) {
+		return `expected an object of { lampName: { role, step } } or null, got ${Array.isArray(override) ? 'an array' : typeof override}`;
+	}
+	for (const [name, entry] of Object.entries(override as Record<string, unknown>)) {
+		if (!Object.prototype.hasOwnProperty.call(TABLE.lamps, name)) {
+			return `"${name}" is not a TABLE.lamps insert`;
+		}
+		const { role, step } = (entry ?? {}) as { role?: unknown; step?: unknown };
+		if (typeof entry !== 'object' || entry === null || !(LAMP_ROLES as readonly unknown[]).includes(role) || !(step === 0 || step === 1 || step === 2 || step === 3)) {
+			return `${name}: expected { role: one of ${LAMP_ROLES.join('/')}, step: 0..3 }, got ${JSON.stringify(entry)}`;
+		}
+	}
+	return null;
 }
