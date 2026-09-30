@@ -2012,6 +2012,48 @@ So that the shows Story 3.3 emits are something I actually watch.
 **When** the rig is reviewed
 **Then** it has exactly the open, close and hit animations and no idle animation
 
+### Story 3.3c: Epic 3 inserts
+
+As a player,
+I want the playfield inserts to tell me which Mode is lit, which shot a running Mode wants, how close the Jackpot is and when Extra ball is lit,
+So that the campaign's state is on the table, not only on the Backglass.
+
+*Built after Epic 5 merges and after Story 3.3b.* `[AMENDED 2026-09-30 — author decision at Epic 3's clarification: every Epic 3 insert is added in one story after Epic 5 merges, so the exported model and its generator are edited with no contended change; Stories 3.4–3.10 show their state on the Backglass meanwhile]` The inserts follow the insert and lens convention Epic 5 ships (Story 5.2: a dark lens in the insert's own colour when off, and the playfield translucency mask if it becomes lens-matched — every new lens is covered by it). Colours come only from FR-44's held grammar through `grammar.ts`; rules emit roles and steps 0–3, never RGB.
+
+**Acceptance Criteria:**
+
+**Given** the Epic 3 inserts below
+**When** they are added
+**Then** each has an `l_` node in `tools/make-placeholder-blend.py` and the exported model, a `TABLE.lamps` entry and a `lampsOf` role, the asset contract passes, and only golden headers move
+
+**Given** Modes lit at the Ramp (from Story 3.4)
+**When** `lampsOf` runs
+**Then** each lit Mode's insert shows its role at step 1 (Hurry-up red, Quick multiball green, Joust blue — FR-44), and goes off when its Mode starts
+
+**Given** Hurry-up is running (from Story 3.5)
+**When** `lampsOf` runs
+**Then** the Ramp insert carries role `hurryup` step 1, moving to step 3 in the last `hurryUpUrgentMs`
+
+**Given** Joust is running (from Story 3.6)
+**When** `lampsOf` runs
+**Then** both Loop inserts carry role `joust`, the next-expected Loop at step 2
+
+**Given** Quick multiball is running (from Story 3.7)
+**When** `lampsOf` runs
+**Then** the inserts for the Dragon and Ramp carry role `quickmb`
+
+**Given** the War is running (from Story 3.8)
+**When** `lampsOf` runs
+**Then** every War insert carries role `dragon` step 2
+
+**Given** the War is won and further Strikes land (from Story 3.9)
+**When** `lampsOf` runs
+**Then** the Jackpot insert ladder shows step 3
+
+**Given** Extra ball is lit (from Story 3.10)
+**When** `lampsOf` runs
+**Then** the Right Loop's Extra-ball insert carries role `special` step 1 (purple, FR-44), and goes off when the extra ball is awarded
+
 ### Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane
 
 As a player,
@@ -2021,8 +2063,8 @@ So that the campaign has a qualifier and a start shot without any gating.
 **Acceptance Criteria:**
 
 **Given** the base mode tracks `modesLit` and `modesPlayed` per player
-**When** `shot_ramp_made` arrives with no Mode lit
-**Then** the next unplayed Mode in the order Hurry-up → Quick multiball → Joust is lit and its insert shows its role at step 1; once all three are played, the order restarts
+**When** `shot_ramp_made` arrives `[AMENDED 2026-09-30 — author decision: every Ramp completion lights the next Mode, per FR-33 ("Ramp completions light Modes in campaign order"); the earlier "with no Mode lit" contradicted FR-33 and made the several-lit selection below unreachable]`
+**Then** the next unplayed Mode in the order Hurry-up → Quick multiball → Joust is lit and the Backglass shows it lit (its insert's role is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`); once all three are played, the order restarts
 
 **Given** exactly one Mode is lit and the player has two credits (or a lock was just credited)
 **When** `lock_lane_entered` arrives outside a multiball
@@ -2034,7 +2076,7 @@ So that the campaign has a qualifier and a start shot without any gating.
 
 **Given** a Mode starts
 **When** `mode_<name>_started` fires
-**Then** it is added to the player's `modesPlayed`, its insert goes off, and `ShowCommand show_mode_start` is emitted
+**Then** it is added to the player's `modesPlayed`, it is no longer shown lit (its insert going off is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`), and `ShowCommand show_mode_start` is emitted
 
 **Given** a switch-script test
 **When** the Ramp is made three times and the Lock lane entered after each
@@ -2064,7 +2106,7 @@ So that the call to arms is a race.
 
 **Given** Hurry-up is running
 **When** `lampsOf` runs
-**Then** the Ramp insert carries role `hurryup` step 1, moving to step 3 in the last `hurryUpUrgentMs`
+**Then** the Ramp insert's role (`hurryup` step 1, moving to step 3 in the last `hurryUpUrgentMs`) is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`; `hurryUpUrgentMs` is still authored here and the Backglass shows the running value
 
 **Given** Quick multiball starts while Hurry-up runs
 **When** ticks advance
@@ -2088,7 +2130,7 @@ So that the joust is charge, pass, wheel around, charge again.
 
 **Given** the Charge changes
 **When** `ModeView` is published
-**Then** `charge` carries the current value and the Backglass shows CHARGE ×N; both Loop inserts carry role `joust`, the next-expected Loop at step 2
+**Then** `charge` carries the current value and the Backglass shows CHARGE ×N; the Loop inserts' roles (`joust`, the next-expected Loop at step 2) are `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`
 
 **Given** the Charge reaches the cap
 **When** it happens
@@ -2115,7 +2157,7 @@ So that fighting the monster is a two-ball scrap.
 
 **Given** Quick multiball is running
 **When** `dragon_hit` or `shot_ramp_made` arrives
-**Then** the Mode's award is paid, and the inserts for the Dragon and Ramp carry role `quickmb`
+**Then** the Mode's award is paid (the Dragon and Ramp inserts' role `quickmb` is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`)
 
 **Given** Quick multiball is running
 **When** `lock_lane_entered` arrives
@@ -2162,7 +2204,7 @@ So that the founding moment of the project lands.
 
 **Given** the War starts
 **When** its `_starting` fires
-**Then** `ShowCommand show_war_start`, `GiCommand` dimming the playfield GI to `warGiLevel`, and `FlasherCommand`s on every flasher are emitted in that tick, the War arms `ballSave` with its own source, and every War insert carries role `dragon` step 2
+**Then** `ShowCommand show_war_start`, `GiCommand` dimming the playfield GI to `warGiLevel`, and `FlasherCommand`s on every flasher are emitted in that tick, the War arms `ballSave` with its own source (every War insert's role `dragon` step 2 is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`)
 
 **Given** the player's `warsStarted`
 **When** the War starts
@@ -2192,7 +2234,7 @@ So that winning the War is the biggest payoff on the table.
 
 **Given** the War is won
 **When** further Strikes land in the same War
-**Then** each re-awards the Jackpot, and the Jackpot insert ladder shows step 3
+**Then** each re-awards the Jackpot (the Jackpot insert ladder's step 3 is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`)
 
 **Given** `ballsInPlay` drops to 1
 **When** the ball controller reports it
@@ -2214,11 +2256,11 @@ So that the table feels authored and an extra ball is earned, not stumbled into.
 
 **Given** `war_won`, `joust_full_charge`, or `modesPlayed` containing all three Modes
 **When** any occurs for the first time this game for the player
-**Then** `extra_ball_lit { player, achievement }` fires and the Right Loop's Extra-ball insert carries role `special` step 1
+**Then** `extra_ball_lit { player, achievement }` fires and the Backglass shows Extra ball lit (the Right Loop's Extra-ball insert role `special` step 1 is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`)
 
 **Given** Extra ball is lit
 **When** `shot_right_loop_made` arrives
-**Then** the player's `extraBalls` increments, `extra_ball_awarded` fires with `show_extra_ball`, and the insert goes off
+**Then** the player's `extraBalls` increments, `extra_ball_awarded` fires with `show_extra_ball`, and Extra ball is no longer lit (the insert going off is `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`)
 
 **Given** the player's ball ends with `extraBalls > 0`
 **When** the ball controller rotates

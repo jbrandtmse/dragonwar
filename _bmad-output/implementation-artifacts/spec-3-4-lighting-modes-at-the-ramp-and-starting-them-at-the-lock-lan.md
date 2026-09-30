@@ -2,7 +2,7 @@
 title: 'Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane'
 type: 'feature'
 created: '2026-09-29'
-status: 'blocked'
+status: 'draft'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -24,6 +24,13 @@ deferred: []
 - Each Mode start credits `modesPlayed`, un-lights the Mode and emits `show_mode_start`.
 - The three Modes ship as registered shells: name, priority, lifecycle, nothing else. Stories 3.5, 3.6 and 3.7 fill them in.
 - The Backglass shows the candidates during the window, and a lit-Mode line on the score screen.
+
+**Author decisions (2026-09-30, relayed by the orchestrator; binding for this re-plan):**
+- **Inserts (Q1 = B):** every "insert shows its role" / "insert goes off" clause of this story moved to the new Story 3.3c (Epic 3 inserts), built after Epic 5 merges. This story does NOT touch `TABLE.lamps`, `lamps.ts`'s projection or any insert; a lit Mode is shown on the Backglass instead. `epics.md` Story 3.4 is amended with `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]` markers.
+- **Every Ramp completion lights the next Mode** (FR-33); the epics criterion was amended from "with no Mode lit" to match, so the several-lit selection window is reachable.
+- **The flippers select and a flipper HOLD confirms**, via a new tunable `modeSelectHoldMs` (500 ms, `unverified`, with an honest `source` and `confidence`); FR-33's "Start or either flipper confirms" is met by Start and the hold.
+- **A Lock-lane entry while the Lock is full never starts a Mode:** an uncaptured ball cannot be parked for selection.
+- **The Quick multiball shell stays single-ball until Story 3.7** (it never sets `machine.multiball`).
 
 ## Boundaries & Constraints
 
@@ -182,9 +189,13 @@ These rows are headless, through `runRulesScript`. W = `modeSelectTicks`, Hd = `
 
 ## Spec Change Log
 
+- 2026-09-30, lead (re-dispatch after the plan HALT `intent gap -- no insert lamp`): the author chose (B) -- inserts move to the new Story 3.3c -- and accepted the four Q2 calls (every Ramp lights the next Mode per FR-33, flipper hold confirms via `modeSelectHoldMs`, a full-Lock entry never starts a Mode, Quick multiball single-ball until 3.7). Written into the intent block and Design Notes; `epics.md` Story 3.4 amended accordingly. Status reset to `draft` for a re-plan on this spec path.
+
 ## Review Triage Log
 
 ## Design Notes
+
+**Q1 and Q2 are ANSWERED (2026-09-30, author) -- see the intent block's "Author decisions"; the text below records the question as it was asked.**
 
 **Q1 -- blocking (intent gap, Rule 11 (c) and Rule 5 ask-first): there is no insert for a lit Mode.**
 - The epics criteria want "its insert shows its role at step 1" and "its insert goes off". `TABLE.lamps` holds 15 inserts: seven lanes, six letters, `l_lock` and `l_ball_save`.
