@@ -2476,22 +2476,22 @@ So that I am playing a table, not watching a ball cross a bare board.
 ### Story 5.1: The Dragon
 
 As a player,
-I want the Dragon to be a sculpted creature crouched off-centre over its Lock lane, mouth and all,
+I want the Dragon to be a stylized creature crouched off-centre over its Lock lane, mouth and all, [AMENDED 2026-09-29 — author decision at Epic 5's clarification: pipeline-generated stylized art],
 So that the thing I am at war with looks like a dragon.
 
 **Acceptance Criteria:**
 
 **Given** a Dragon model authored in Blender (or generated, with tool and date recorded)
 **When** it replaces the placeholder `vis_dragon` mesh
-**Then** the `col_dragon_body`, `sw_lock_lane` and `bd_lock` nodes are unchanged or re-authored to the same names, `export.py` validates, both loaders load, and the Lawlor entry for the Dragon in `docs/feel-test.md` is re-run with no regression
+**Then** the `col_dragon_body`, `sw_lock_lane` and `bd_lock` nodes are unchanged or re-authored to the same names, `export.py` validates, both loaders load, and the Lawlor entry for the Dragon in `docs/feel-test.md` is re-run with no regression [AMENDED 2026-09-29 — pending the author; tracked as an action item] (the Lawlor re-run is the author's; the story closes on everything the pipeline can verify)
 
-**Given** the rig from Story 3.3
-**When** the model is bound
-**Then** the mouth open, close and hit-reaction animations play on the new mesh from the same shows, and the mouth is fully open before the first ball spawns
+**Given** the new Dragon mesh
+**When** it is exported
+**Then** it carries a named jaw node, a child of `vis_dragon` with its pivot at the hinge, so the rig can open, close and shake the mouth without code changes in this epic; this story creates no `src/presentation/mechanisms/dragon.ts` [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the original check -- "given the rig from Story 3.3, when the model is bound, then the mouth open, close and hit-reaction animations play on the new mesh from the same shows, and the mouth is fully open before the first ball spawns" -- moved to Story 3.3b in Epic 3, built after Epic 5 merges)
 
 **Given** the stylized direction
 **When** the model is reviewed
-**Then** it is within the single-LOD triangle budget (≤ 2,000), hand-painted textures, and its `ATTRIBUTIONS.md` entry exists before the file is committed
+**Then** it is within the single-LOD triangle budget (≤ 2,000), stylized painted-look textures, generated or author-painted [AMENDED 2026-09-29 — author decision at Epic 5's clarification: pipeline-generated stylized art], and its `ATTRIBUTIONS.md` entry exists before the file is committed
 
 - DW-165: Story 5.1 'The Dragon' names a col_dragon_body node in its acceptance criteria that does not exist in the committed geometry (ledger; routed by adjudication 2026-09-05)
 
@@ -2503,7 +2503,7 @@ So that realism lives in the light and the proportions while the art tells the w
 
 **Acceptance Criteria:**
 
-**Given** hand-painted playfield textures
+**Given** stylized painted-look playfield textures, generated or author-painted [AMENDED 2026-09-29 — author decision at Epic 5's clarification: pipeline-generated stylized art]
 **When** they replace the placeholder material
 **Then** the translucency mask matches every `l_` lens position, the material keeps `TEXCOORD_1` and `lightgroup`, and the collision scaffolding is untouched
 
@@ -2516,7 +2516,7 @@ So that realism lives in the light and the proportions while the art tells the w
 **Then** each is in `ATTRIBUTIONS.md` as author-made or generated with the tool and date, and the compressed build stays within the CI size budget
 
 - DW-271: No playfield insert is rendered, so a player cannot see WHICH Top lane is lit: the skill shot's entire premise (aim at the lit lane) and Story 2.14's rotation are both invisible in the shipped game (ledger; routed by smoke 2026-09-12)
-- DW-4: Author-owned: hand-authored art assets (Epic 5) (ledger; routed by burndown 2026-08-30)
+- DW-4: Author-owned: hand-authored art assets (Epic 5) (ledger; routed by burndown 2026-08-30) [AMENDED 2026-09-29 — author decision at Epic 5's clarification: pipeline-generated stylized art] -- read as: stylized painted-look art, generated or author-painted; generated assets recorded in `ATTRIBUTIONS.md` with tool and date before they land
 - DW-159: The new FR-31 post-protrusion gate passes any post showing more than ZERO exposure, so DW-154 (d) is narrowed rather than closed: a post buried to within a sub-ball sliver still certifies the guide end it nominally terminates (ledger; routed by merge_gate 2026-09-28)
 - DW-161: sw_pop_1/sw_pop_3 and sw_pop_2/sw_pop_3 skirt zones overlap in the committed geometry, so one ball crossing into an overlap makes two pop switches on one tick and pops.ts fires BOTH coils, applying two near-opposite radial impulses that largely cancel (ledger; routed by merge_gate 2026-09-28)
 
@@ -2530,7 +2530,7 @@ So that the first thing I see says "pinball machine".
 
 **Given** `cabinet_root` in the Blender source
 **When** the cabinet, backbox, glass, legs and lockdown bar are modelled at standard-body dimensions
-**Then** the Walk-up (Story 4.6) frames the backbox and descends past the glass, the glass surface is `vis_` only, and `cabinet_root` stays level while `playfield_root` pitches
+**Then** the cabinet, backbox and glass match standard-body dimensions and are framed by the fixed camera, the glass surface is `vis_` only, and `cabinet_root` stays level while `playfield_root` pitches [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the original clause "the Walk-up (Story 4.6) frames the backbox and descends past the glass" moved to Story 4.6)
 
 **Given** architectural lamps on the backbox and arch
 **When** `gi_backbox`, `gi_cabinet` and `gi_arch` are set
@@ -2562,6 +2562,7 @@ So that the playfield reads as hardware, not scaffolding.
 
 - DW-249: No flipper or plunger is rendered in the shipped game: src/presentation/mechanisms/ holds only Story 1.6's .gitkeep, so a player cannot see the flippers they are pressing (ledger; routed by smoke 2026-09-11)
 - DW-142: col_wall_lane, the shooter-lane divider a ball runs the full 950 mm of on every plunge, has a bare free end at (474.40, 950.00) 98.40 mm from the nearest rubber_post, and Story 2.1d's widened guide gate excludes it by surface rather than exempting it on the record (ledger; routed by merge_gate 2026-09-28)
+- DW-292: Snapshot plunger.posMm is hard-wired 0 (src/sim/physics/plunger.ts:100-104), so vis_plunger and any plunger art cannot show travel until physics publishes it -- author decision 2026-09-29: fix in 5.4 (src/sim/physics/plunger.ts, the one sanctioned src/sim exception) on condition that every golden's expectedHash and expectedGameStateHash stays unchanged (ledger; routed by clarification 2026-09-29)
 - DW-258: A ball at rest at the Ramp entrance (near x 377-380, y 508) rattles without settling or sinks through the playfield deck and falls below the table, closing no switch and never draining (ledger; routed by merge_gate 2026-09-28)
 
 ### Story 5.5: Backglass art and DMD frames
@@ -2578,11 +2579,11 @@ So that the fiction is set before I plunge.
 
 **Given** the Backglass renderer
 **When** it plays a sequence on a payload-complete event
-**Then** the sequence is selected and timed in presentation from the event, and the score layout remains legible during and after it
+**Then** the sequence is selected and timed in presentation from the event, and the score layout remains legible during and after it; every sequence is keyed by event name in a presentation-side map, Attract and Match are wired and verified now, and the Mode-prompt, War-start and Jackpot sequences are keyed by their plain event-name strings without reaching into `src/sim/` [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the real-event trigger check for Mode prompts, the War start and the Jackpot moved to Story 4.5)
 
 **Given** the war-fiction Attract sequence
 **When** a stranger watches the Walk-up
-**Then** it conveys a dragon and a knight without text instructions, judged by the SM-3 link test
+**Then** it conveys a dragon and a knight without text instructions, judged by the SM-3 link test [AMENDED 2026-09-29 — pending the author; tracked as an action item]
 
 ## Epic 6: Ship It — your machine, from a link
 

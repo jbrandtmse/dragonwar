@@ -1861,6 +1861,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: out-of-footprint
 - evidence: plunger.ts:100-104 returns { posMm: 0, holdTicks }; Story 5.0a's vis_plunger follows posMm faithfully but is static in real play; 5.4 AC1 'plunger travel' depends on it; src/sim is outside Epic 5
 - 2026-09-29T11:14:24Z status=routed owner=burndown by=harvest note=src/sim work Epic 5 cannot do; re-own to a sim-owning story at the burn-down gate
+- 2026-09-30T04:49:57Z owner=5-4-mechanisms-plastics-ramp-and-guides by=clarification note=author decision 2026-09-29: fix in 5.4 on the unchanged-goldens condition
 
 ### DW-293: src/host/boot.ts's per-frame syncMechanisms wiring has no automated test; deleting the call, or moving resolveMechanismNodes below the latestSnapshot guard, leaves every test green
 - source: spec-5-0a-visible-placeholder-geometry.md | severity: med | fix-risk: low | footprint: in-story
