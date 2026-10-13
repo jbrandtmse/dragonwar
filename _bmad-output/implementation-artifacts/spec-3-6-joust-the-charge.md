@@ -220,6 +220,7 @@ Measured at `c98dd0af1505b6f8258f14dff502a7cc491a89ad` on `DW-1-epic3`.
 ## Spec Change Log
 
 - 2026-09-30, lead spec gate: AD-19 amended with the fall-back signature (Rule 20). The first `deferred:` item (no flipper shot makes a Loop) was ledgered now as a decision-pending HIGH and raised to the orchestrator, because it is cross-epic geometry; it does not block this story's criteria, which are built and tested on switch events and teleported physics. No spec text changed.
+- 2026-10-13, clarification answered by the author (re-dispatched lead): DW-319 is routed to the new Story 3.3d "Open the Loop entries", a geometry story built after Epic 5 merges. This story is built now exactly as validated; none of its criteria depends on the answer. The first `deferred:` item above IS DW-319 (already ledgered, owner `3-3d-open-the-loop-entries`) and is not re-filed at harvest. Do not open a Loop entry here: the generator and `public/assets/**` are contended until the merge. No spec text changed.
 
 ## Review Triage Log
 

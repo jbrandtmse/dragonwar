@@ -2054,6 +2054,41 @@ So that the campaign's state is on the table, not only on the Backglass.
 **When** `lampsOf` runs
 **Then** the Right Loop's Extra-ball insert carries role `special` step 1 (purple, FR-44), and goes off when the extra ball is awarded
 
+### Story 3.3d: Open the Loop entries
+
+As a player,
+I want a flipper shot to be able to make the Left Loop and the Right Loop,
+So that Joust, the Right-Loop Extra-ball collect and the full-Charge Joust are things I can play, not only things the rules can score.
+
+*A focused geometry story, built after Epic 5 merges, beside Stories 3.3b and 3.3c and before Story 3.11.* `[AMENDED 2026-10-13 — author decision at Epic 3's clarification (DW-319): no real flipper shot makes either Loop — the collision document walls the left lane's mouth off from the field, and every Loop in the test corpus was a teleported launch or a plunge descending from the top — so one story opens both Loop entries after Epic 5 merges, when the generator and the exported assets stop being contended]`
+
+**Acceptance Criteria:**
+
+**Given** `tools/make-placeholder-blend.py` and the exported assets under `public/assets/**`
+**When** both Loop entries are opened
+**Then** the generator and the exported assets carry the change, the asset contract passes, and the story's record names the geometry change (what moved, and where)
+
+**Given** `test/util/reachability.ts`
+**When** the story closes
+**Then** it carries a recorded REAL flipper recipe for the Left Loop and one for the Right Loop, each of which makes its Loop on real physics — the story is done only when both do
+
+**Given** the recorded recipes
+**When** a teleported launch is offered in place of a real flipper recipe
+**Then** it cannot satisfy the criterion above, and a paired negative pins that
+
+**Given** the goldens in `test/replays/*.golden.json`
+**When** the geometry change lands
+**Then** only golden headers move, except under the trajectory pre-grant below
+
+**Trajectory pre-grant** (author decision, 2026-10-13 — limited and checked):
+
+- Story 3.3d may re-record the **trajectory** (`expectedHash` / `expectedGameStateHash`) of any golden whose path actually crosses the changed geometry, **and no other**.
+- Each re-record logs the old and new state hashes and names the geometry change that moved it. The code reviewer confirms the new trajectory is physically plausible.
+- A golden that moves WITHOUT crossing the changed geometry means the change leaked: stop with a `## Clarification Needed`.
+- This grant covers Story 3.3d only. Everywhere else a trajectory re-record still needs the author.
+
+- DW-319: No real flipper shot makes either Loop at this tree: Joust (3.6), the Right-Loop Extra-ball collect (3.10) and 3.11's full-Charge Joust cannot be played by real input (ledger; routed by clarification 2026-10-13)
+
 ### Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane
 
 As a player,
