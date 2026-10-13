@@ -92,10 +92,41 @@ export interface DmdRow {
  */
 export type DmdScreen = 'attract_prompt' | 'attract_scores' | 'attract_keys' | 'score' | 'ball_ended' | 'tilt_warning' | 'tilt' | 'game_over';
 
-/** One rendered frame: which screen, and the rows to rasterise. */
+/**
+ * Story 5.5: one 1-bit dot sprite, parsed once at module load from ASCII
+ * masks (`dmd-art.ts`'s `parseSprite()`). `dots` is row-major, `width *
+ * height` long, `1` lit / `0` unlit -- the same encoding as `DmdRaster.dots`.
+ */
+export interface DmdSprite {
+	readonly name: string;
+	readonly width: number;
+	readonly height: number;
+	readonly dots: Uint8Array;
+}
+
+/** Story 5.5: a sprite placed with its top-left dot at `(col, row)` on the 128 x 32 grid. Either may be negative or run past the panel edge: `raster.ts` clips silently. */
+export interface DmdSpritePlacement {
+	readonly sprite: DmdSprite;
+	readonly col: number;
+	readonly row: number;
+}
+
+/**
+ * Story 5.5: the dot art composited over a frame's text (`sequences.ts`'s
+ * `composeSequence()`). `region` is inclusive on all four edges; `raster.ts`
+ * draws an art dot only inside it, only inside the panel, and never inside
+ * any text row's protected box -- text always wins.
+ */
+export interface DmdArt {
+	readonly region: { readonly rowMin: number; readonly rowMax: number; readonly colMin: number; readonly colMax: number };
+	readonly placements: readonly DmdSpritePlacement[];
+}
+
+/** One rendered frame: which screen, and the rows to rasterise. Story 5.5: plus optional dot art, which `renderFrame()` itself never sets. */
 export interface DmdFrame {
 	readonly screen: DmdScreen;
 	readonly rows: readonly DmdRow[];
+	readonly art?: DmdArt;
 }
 
 /**
@@ -204,7 +235,8 @@ export const INITIAL_BACKGLASS_VIEW: BackglassView = {
 	heldMatch: null,
 };
 
-const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
+/** Presentation ms -> sim ticks via `TICK_HZ` (AD-3). Exported since Story 5.5: `sequences.ts` converts each authored frame hold with it. */
+export const msToTicks = (ms: number): number => Math.round((ms * TICK_HZ) / 1000);
 
 /**
  * How long the end-of-ball screen holds before the next frame may move on.
@@ -224,8 +256,8 @@ export const BALL_ENDED_HOLD_TICKS = msToTicks(3000);
  * (moves no golden).
  */
 export const TILT_WARNING_HOLD_TICKS = msToTicks(2000);
-/** Attract's own two-screen cycle: PRESS START, then both players' scores, then back. */
-const ATTRACT_PROMPT_HOLD_TICKS = msToTicks(3000);
+/** Attract's own two-screen cycle: PRESS START, then both players' scores, then back. Story 5.5 exports the prompt hold: the Attract art sequence must fit inside it. */
+export const ATTRACT_PROMPT_HOLD_TICKS = msToTicks(3000);
 const ATTRACT_SCORES_HOLD_TICKS = msToTicks(3000);
 const ATTRACT_CYCLE_TICKS = ATTRACT_PROMPT_HOLD_TICKS + ATTRACT_SCORES_HOLD_TICKS;
 /**

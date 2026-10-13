@@ -19,7 +19,8 @@ import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
 import { nodeScreenRect, type ScreenRect } from '../presentation/scene/node-screen-rect';
 import { resolveMechanismNodes, syncMechanisms } from '../presentation/mechanisms/sync-mechanisms';
-import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW } from '../presentation/backglass/frame';
+import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW, type DmdScreen } from '../presentation/backglass/frame';
+import { activeSequenceFrame, advanceSequences, composeSequence, INITIAL_SEQUENCE_VIEW } from '../presentation/backglass/sequences';
 import { rasterise, type DmdRaster } from '../presentation/backglass/raster';
 import { syncBackglass } from '../presentation/backglass/backglass';
 import { FONT_5X7 } from '../presentation/backglass/font';
@@ -169,6 +170,30 @@ declare global {
 			 * naming the node if it is missing. No network access (AD-17).
 			 */
 			nodeScreenRect: (name: string) => ScreenRect;
+			/**
+			 * Story 5.5 (AC 4), same dev-only/console-only terms as every hatch
+			 * above: the lead's negative control for the Backglass art. `false`
+			 * rasterises the plain `renderFrame()` output with no sequence art
+			 * composited; `true` (the default) restores it. The sequence
+			 * timeline keeps running either way, so switching back mid-sequence
+			 * shows the frame that is due at that tick. e.g.
+			 * `window.__dragonwarBoot.setBackglassSequencesEnabled(false)`.
+			 * `reset()` sets it back to `true`, like the light budget and the lamp
+			 * override -- and so do `replayRecorder.start()`/`play()` and a tuning
+			 * hot-apply, which reset the loop: to keep the control across one of
+			 * those, call this again afterwards.
+			 */
+			setBackglassSequencesEnabled: (on: boolean) => void;
+			/**
+			 * Story 5.5 (AC 4), same terms: what the Backglass shows at the
+			 * latest sim frame -- its screen, the art sequence due on that
+			 * screen (its event-name key, or `null`) and that sequence's frame
+			 * index (or `null`). It reports the timeline even while
+			 * `setBackglassSequencesEnabled(false)` hides the art, so the lead's
+			 * sampler can time a capture and its negative control alike. e.g.
+			 * `window.__dragonwarBoot.backglassState()`.
+			 */
+			backglassState: () => { screen: DmdScreen; sequence: string | null; frameIndex: number | null };
 		};
 	}
 }
@@ -261,6 +286,13 @@ async function onBegin(): Promise<void> {
 		// `backglassView` or `advanceBackglass()` itself.
 		let backglassView = INITIAL_BACKGLASS_VIEW;
 		let latestRaster: DmdRaster | undefined;
+		// Story 5.5: the Backglass art sequences' own view state, folded
+		// forward every SIM frame right after `backglassView` (it reads the
+		// screen that fold has just chosen). `sequencesEnabled` is the lead's
+		// negative control (`setBackglassSequencesEnabled()` below): when false
+		// the plain frame is rasterised, while the fold itself keeps running.
+		let sequenceView = INITIAL_SEQUENCE_VIEW;
+		let sequencesEnabled = true;
 		// Story 2.13 (AD-1, AD-14): built ONCE from the real `KEY_MAP` --
 		// `renderFrame()`'s own `ViewConfig` argument for the Attract keys
 		// screen. `host/input`'s `KEY_MAP` never changes at runtime, so this
@@ -345,10 +377,21 @@ async function onBegin(): Promise<void> {
 				replayPlayer.onFrame(output.snapshot);
 				// Story 2.6: fold this frame's events into the Backglass view
 				// (`ball_ended` reads output.events -- the ONE place FrameOutput.events
-				// reaches anything today) and rasterise it against this same frame's
-				// snapshot -- state from the sim chain, blit from the render chain.
+				// reached anything until Story 5.5's `advanceSequences()` below) and
+				// rasterise it against this same frame's snapshot -- state from the
+				// sim chain, blit from the render chain.
 				backglassView = advanceBackglass(backglassView, output);
-				latestRaster = rasterise(renderFrame(backglassView, output.snapshot, viewConfig), FONT_5X7);
+				// Story 5.5: then the art sequences -- selected by this frame's
+				// keyed events (or by the PRESS START screen, for Attract), timed
+				// from the triggering event's own tick, and composited under text
+				// priority by `rasterise()`.
+				sequenceView = advanceSequences(sequenceView, backglassView, output);
+				latestRaster = rasterise(
+					sequencesEnabled
+						? composeSequence(renderFrame(backglassView, output.snapshot, viewConfig), sequenceView, output.snapshot.tick)
+						: renderFrame(backglassView, output.snapshot, viewConfig),
+					FONT_5X7,
+				);
 				// Story 2.8 (AD-9): fold this frame's LampCommands (if any) into the
 				// held view -- the render hook below is what actually drives the
 				// Babylon driver from it.
@@ -437,6 +480,11 @@ async function onBegin(): Promise<void> {
 				lampView = INITIAL_LAMP_VIEW;
 				lightBudgetOverride = null;
 				lampOverride = null;
+				// Story 5.5: the Backglass negative control is an A/B setting like
+				// the two overrides above, so it does not survive a reset either.
+				// `sequenceView` needs no clearing here: `advanceSequences()` itself
+				// drops a sequence whose start lies ahead of a restarted tick count.
+				sequencesEnabled = true;
 			},
 		};
 		window.__dragonwarBoot = {
@@ -547,6 +595,13 @@ async function onBegin(): Promise<void> {
 					throw new Error('[dragonwar] nodeScreenRect(): no scene has rendered yet');
 				}
 				return nodeScreenRect(liveScene, name);
+			},
+			setBackglassSequencesEnabled: (on: boolean) => {
+				sequencesEnabled = on;
+			},
+			backglassState: () => {
+				const shown = activeSequenceFrame(sequenceView, backglassView.screen, latestSnapshot?.tick ?? 0);
+				return { screen: backglassView.screen, sequence: shown?.key ?? null, frameIndex: shown?.index ?? null };
 			},
 		};
 

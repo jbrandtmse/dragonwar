@@ -20,6 +20,10 @@
 // clamped, text length), clipped to the panel -- a dot ends up lit exactly
 // where the glyph pixel was unlit, and vice versa. Unemphasised rows are
 // completely unchanged by this pass.
+//
+// Story 5.5: a third pass draws a frame's optional dot art (`DmdFrame.art`)
+// inside its region and outside every text row's protected box -- see
+// `drawArt()` below.
 
 import { DMD_COLS, DMD_ROWS, type DmdFrame } from './frame';
 import { GLYPH_ADVANCE, GLYPH_H, GLYPH_W } from './font';
@@ -99,7 +103,70 @@ export function rasterise(frame: DmdFrame, font: Readonly<Record<string, readonl
 		}
 	}
 
+	if (frame.art) {
+		drawArt(frame, dots);
+	}
+
 	return { cols: DMD_COLS, rows: DMD_ROWS, dots };
+}
+
+/**
+ * Story 5.5: the art pass, third and last -- after the glyphs and after the
+ * emphasis inversion, so it can only ADD lit dots, and only where no text
+ * lives. Text always wins, by construction:
+ * 1. A protected mask is built from EVERY row (emphasised or not): the box
+ *    `[col-1, col+6n-1] x [row-1, row+7]`, `n` the row's clamped length --
+ *    the emphasis box plus one dot row above it, so art never touches a
+ *    glyph, its gutter, or its inverted background.
+ * 2. Each placed sprite's lit dots are ORed in only inside the art's own
+ *    region, inside the panel, and outside the mask. Anything else is
+ *    clipped silently; nothing here throws.
+ * So every dot inside every protected box is exactly what the first two
+ * passes left there, and a frame without `art` is untouched.
+ */
+function drawArt(frame: DmdFrame, dots: Uint8Array): void {
+	const art = frame.art!;
+	const protectedMask = new Uint8Array(DMD_COLS * DMD_ROWS);
+	for (const row of frame.rows) {
+		const length = row.text.slice(0, LINE_WIDTH_COLS).length;
+		const rowStart = Math.max(0, row.row - 1);
+		const rowEnd = Math.min(DMD_ROWS - 1, row.row + GLYPH_H);
+		const colStart = Math.max(0, row.col - 1);
+		const colEnd = Math.min(DMD_COLS - 1, row.col + GLYPH_ADVANCE * length - 1);
+		for (let r = rowStart; r <= rowEnd; r++) {
+			for (let c = colStart; c <= colEnd; c++) {
+				protectedMask[r * DMD_COLS + c] = 1;
+			}
+		}
+	}
+
+	const rowMin = Math.max(0, art.region.rowMin);
+	const rowMax = Math.min(DMD_ROWS - 1, art.region.rowMax);
+	const colMin = Math.max(0, art.region.colMin);
+	const colMax = Math.min(DMD_COLS - 1, art.region.colMax);
+	for (const placement of art.placements) {
+		const sprite = placement.sprite;
+		for (let sy = 0; sy < sprite.height; sy++) {
+			const destRow = placement.row + sy;
+			if (destRow < rowMin || destRow > rowMax) {
+				continue;
+			}
+			for (let sx = 0; sx < sprite.width; sx++) {
+				if (sprite.dots[sy * sprite.width + sx] !== 1) {
+					continue;
+				}
+				const destCol = placement.col + sx;
+				if (destCol < colMin || destCol > colMax) {
+					continue;
+				}
+				const idx = destRow * DMD_COLS + destCol;
+				if (protectedMask[idx] === 1) {
+					continue;
+				}
+				dots[idx] = 1;
+			}
+		}
+	}
 }
 
 /** Each dot occupies a `DOT_PITCH_PX`-square cell in the expanded pixel buffer. */
