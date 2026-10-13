@@ -2088,6 +2088,11 @@ So that Joust, the Right-Loop Extra-ball collect and the full-Charge Joust are t
 - This grant covers Story 3.3d only. Everywhere else a trajectory re-record still needs the author.
 
 - DW-319: No real flipper shot makes either Loop at this tree: Joust (3.6), the Right-Loop Extra-ball collect (3.10) and 3.11's full-Charge Joust cannot be played by real input (ledger; routed by clarification 2026-10-13)
+- DW-322: A made Ramp whose return to `s_loop_r_in` takes longer than `loopDescentWindowMs` arms the Right Loop and breaks it at the inlane, so a running Joust loses its Charge on a made Ramp; no finite window covers every return (ledger; routed by harvest 2026-10-13)
+- DW-323: A ball coming down a Loop lane that closes the entry switch twice arms the Loop on the second closure and breaks it at the inlane or outlane (seen only on teleported releases; re-check on real paths) (ledger; routed by harvest 2026-10-13)
+- DW-324: A descent mark that nothing consumes swallows the next real Loop entry on that side for `loopDescentWindowMs` (ledger; routed by harvest 2026-10-13)
+- DW-325: A ball that passes a Loop's far switch inside `loopWindowMs` and then falls back down the same lane is credited as a made Loop, and Joust pays and builds the Charge on it (ledger; routed by harvest 2026-10-13)
+- DW-326: Once the entries are open, a field ball that crosses an entry switch and then reaches that side's inlane or outlane will read as a broken Loop; field-origin witnesses must produce no Loop event (ledger; routed by harvest 2026-10-13)
 
 ### Story 3.4: Lighting Modes at the Ramp and starting them at the Lock lane
 

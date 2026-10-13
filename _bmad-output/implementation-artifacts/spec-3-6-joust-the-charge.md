@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-09-30'
 status: 'done'
 baseline_revision: '9c7d9187be1a533afaa939e7cb2a5f6258723821'
+baseline_commit: '9c7d9187be1a533afaa939e7cb2a5f6258723821'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -269,6 +270,7 @@ Measured at `c98dd0af1505b6f8258f14dff502a7cc491a89ad` on `DW-1-epic3`.
 
 - 2026-09-30, lead spec gate: AD-19 amended with the fall-back signature (Rule 20). The first `deferred:` item (no flipper shot makes a Loop) was ledgered now as a decision-pending HIGH and raised to the orchestrator, because it is cross-epic geometry; it does not block this story's criteria, which are built and tested on switch events and teleported physics. No spec text changed.
 - 2026-10-13, clarification answered by the author (re-dispatched lead): DW-319 is routed to the new Story 3.3d "Open the Loop entries", a geometry story built after Epic 5 merges. This story is built now exactly as validated; none of its criteria depends on the answer. The first `deferred:` item above IS DW-319 (already ledgered, owner `3-3d-open-the-loop-entries`) and is not re-filed at harvest. Do not open a Loop entry here: the generator and `public/assets/**` are contended until the merge. No spec text changed.
+- 2026-10-13, lead harvest at `dev_complete`: the `deferred:` list is ledgered. Item 1 is DW-319 (already routed to Story 3.3d; not re-filed). Item 2 is DW-321 (Story 3.7). Items 4 to 8 are DW-322, DW-323, DW-324, DW-325 and DW-326, all routed to Story 3.3d with acceptance bullets in `epics.md`; item 3 is the same root cause as item 7 and is merged into DW-325. They wait for 3.3d because no real shot can enter a Loop before it (DW-319), so a fix now could only be checked on teleported launches. AD-19's 2026-09-30 sentence "no false break on a made Loop or a non-entry path" is corrected in the spine to say it describes the planning sample only, and AD-7's inventory gains `fallBackStates`. No spec text changed.
 
 ## Review Triage Log
 
