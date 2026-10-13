@@ -313,6 +313,62 @@ describe('TABLE.shots -- Story 2.4 populates the three declared shots (AD-19)', 
 		expect(TABLE.shots.shot_right_loop.entryExclusive).toBe(false);
 		expect(TABLE.shots.shot_ramp.entryExclusive).toBe(true);
 	});
+
+	// Story 3.6 (AC1, AD-19 amended 2026-09-30, DW-288/DW-173): the Loops'
+	// fall-back signature is declared data. `descents` are the switches that
+	// mean a ball is coming down the lane from above -- each Loop's own far
+	// switch, and on the right the Ramp's return; `exits` are that side's
+	// inlane and outlane. The Ramp declares none and keeps its behaviour.
+	it('Story 3.6 AC1: both Loops declare fallBack with their descents, exits and two windows; the Ramp declares none', () => {
+		expect(TABLE.shots.shot_left_loop.fallBack).toEqual({
+			descents: ['s_loop_l_out'],
+			exits: ['s_inlane_l', 's_outlane_l'],
+			windowMs: 'loopBreakWindowMs',
+			descentWindowMs: 'loopDescentWindowMs',
+		});
+		expect(TABLE.shots.shot_right_loop.fallBack).toEqual({
+			descents: ['s_loop_r_out', 's_ramp_made'],
+			exits: ['s_inlane_r', 's_outlane_r'],
+			windowMs: 'loopBreakWindowMs',
+			descentWindowMs: 'loopDescentWindowMs',
+		});
+		expect('fallBack' in TABLE.shots.shot_ramp, 'the Ramp has no fall-back signature').toBe(false);
+	});
+
+	it('Story 3.6 AC1: every fallBack switch is a real switch, both windows are real tunables, and a fall-back shot is an entry switch and a far switch', () => {
+		const withFallBack = Object.entries(TABLE.shots).flatMap(([name, shot]) => ('fallBack' in shot ? [{ name, sequence: shot.sequence, fallBack: shot.fallBack }] : []));
+		expect(withFallBack.map((shot) => shot.name).sort(), 'sanity: exactly the two Loops').toEqual(['shot_left_loop', 'shot_right_loop']);
+		for (const { name, sequence, fallBack } of withFallBack) {
+			for (const switchName of [...fallBack.descents, ...fallBack.exits]) {
+				expect(Object.keys(TABLE.switches), `${name}.fallBack names an unknown switch "${switchName}"`).toContain(switchName);
+			}
+			for (const key of [fallBack.windowMs, fallBack.descentWindowMs]) {
+				expect(Object.keys(TUNING), `${name}.fallBack names an unknown tunable "${key}"`).toContain(key);
+			}
+			expect(sequence, `${name}: the tracker reads a fall-back shot's sequence as [entry, far]`).toHaveLength(2);
+			expect(fallBack.exits as readonly string[], `${name}: an exit is never the entry switch`).not.toContain(sequence[0]);
+			expect(fallBack.descents as readonly string[], `${name}: a descent is never the entry switch`).not.toContain(sequence[0]);
+		}
+	});
+
+	// Story 3.6 (AC1, AD-16, FR-36): the two shots Joust alternates between are
+	// named once, in `modeWiring`, and are declared shots -- the two Loops.
+	it('Story 3.6 AC1: modeWiring.joustLoops names two declared shots, the Left Loop and the Right Loop', () => {
+		expect(TABLE.modeWiring.joustLoops).toEqual(['shot_left_loop', 'shot_right_loop']);
+		expect(new Set<string>(TABLE.modeWiring.joustLoops).size, 'two different shots').toBe(2);
+		for (const wired of TABLE.modeWiring.joustLoops) {
+			expect(Object.keys(TABLE.shots), `the wiring names a declared shot: ${wired}`).toContain(wired);
+		}
+	});
+
+	// Story 3.6 review: Joust reads `<loop>_broken` as "entered and fell back",
+	// which is only what `_broken` means for a shot that declares `fallBack`.
+	// For a shot without one (the Ramp) it means "the window lapsed", so wiring
+	// such a shot here would turn every lapsed window into a lost Charge.
+	it('Story 3.6: every modeWiring.joustLoops shot declares a fallBack signature -- and the control, the Ramp, does not', () => {
+		expect(TABLE.modeWiring.joustLoops.map((wired) => 'fallBack' in TABLE.shots[wired])).toEqual([true, true]);
+		expect('fallBack' in TABLE.shots.shot_ramp).toBe(false);
+	});
 });
 
 describe('TABLE.laneWiring / dragonBodyWiring / lockLaneWiring / flipperButtonWiring -- Story 2.4 (AD-11/AD-19)', () => {

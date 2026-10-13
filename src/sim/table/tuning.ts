@@ -319,7 +319,7 @@ export const TUNING = deepFreeze({
 	 */
 	loopWindowMs: entry(
 		600,
-		'authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch); below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball no longer completes a single clean pass and instead rattles between the two switches over several thousand ticks, which is not "a made Loop" by any reading. 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks); TABLE.shots[*].entryExclusive being false for both Loops (task 2) means this window governs only whether a genuine orbit reads as shot_<side>_loop_made, never a spurious _broken (DW-133).',
+		'authored: PRD FR-26/FR-27 and AD-19 name the Loop as a mechanism (an ordered s_loop_*_in -> s_loop_*_out pair) but no window duration -- measured 2026-09-05 at this tree by driving the Left Loop (createMachine(), served ball repositioned to (31, 415, 13.5), straight-line launch at dirDeg 0) across a speed sweep: s_loop_l_in-close to s_loop_l_out-close intervals of 223 ticks at 2200 mm/s, 303 at 1800, 403 at 1500, and 452 ticks at 1400 mm/s -- the SLOWEST speed that still produced a clean single-pass orbit (s_loop_l_in and s_loop_l_out each closing exactly once before the next switch). 600 ms sits 148 ticks (33%) above the slowest genuine completion measured (452 ticks). Corrected 2026-09-30 (Story 3.6): below 1400 mm/s (1350, 1300, 1250 mm/s all measured) the ball does not rattle between the two switches, as this text used to say -- it climbs past s_loop_l_out, closing it once (inside this window at those three speeds), then falls back down the same lane, closing s_loop_l_out and s_loop_l_in again on the way down and leaving by the left outlane; the tracker reads that first close as shot_left_loop_made, a known false make on a teleported sub-1400 launch. This window governs only whether an entered Loop reads as shot_<side>_loop_made; shot_<side>_loop_broken is decided by the fall-back signature (TABLE.shots[*].fallBack, loopBreakWindowMs and loopDescentWindowMs), never by this window lapsing.',
 		'unverified',
 	),
 	rampWindowMs: entry(
@@ -410,6 +410,53 @@ export const TUNING = deepFreeze({
 	hurryUpUrgentMs: entry(
 		5000,
 		'authored: an authored placeholder, the last quarter of hurryUpMs (5000 of 20000 ms). PRD FR-34 states no urgent phase. Story 3.3c is the consumer (the Ramp insert steps to urgent in this last stretch of the decay); the Story 3.11 playtest owns the value',
+		'unverified',
+	),
+
+	/**
+	 * Story 3.6 (AD-3/AD-15, FR-36): Joust's Charge cap, its Loop award and
+	 * its timer. The Mode (`sim/rules/modes/joust.ts`) pays `loopValue` times
+	 * the Charge on each made Loop, caps the Charge at `joustChargeMax`, and
+	 * stops `joustMs` after its start (read once, through `shotWindowTicks()`,
+	 * clamped to at least 1 tick). `loopValue` is not `bonusLoopValue` (the
+	 * end-of-ball bonus, below): only Joust pays it, and a Loop outside Joust
+	 * still scores nothing.
+	 */
+	joustChargeMax: entry(
+		10,
+		'PRD FR-36 [value is an ASSUMPTION]: "Charge multiplies the Loop award up to 10" -- transcribed from that named figure, not authored here. The Story 3.11 playtest owns the value',
+		'unverified',
+	),
+	loopValue: entry(
+		25000,
+		"authored: PRD FR-36 names a Loop award that the Charge multiplies but no planning artifact states the figure. Set so that the x10 Loop equals Hurry-up's 250,000 start (hurryUpStartValue): 25000 x joustChargeMax (10). The Story 3.11 playtest owns the value",
+		'unverified',
+	),
+	joustMs: entry(
+		60000,
+		"authored: PRD FR-36 states no duration for Joust. Bounded below by a measurement (Story 3.6's planning, 2026-09-30, real createMachine() orbits): a measured Loop cycle is at least about 2.9 s, so ten alternating Loops need at least about 30 s; 60 s is twice that. The Story 3.11 playtest owns the value",
+		'unverified',
+	),
+
+	/**
+	 * Story 3.6 (AD-19 amended 2026-09-30, AD-3/AD-15, DW-288/DW-173): the two
+	 * windows of the Loops' fall-back signature (`TABLE.shots[*].fallBack`),
+	 * read by the shot tracker (`sim/rules/devices/shots.ts`) through
+	 * `shotWindowTicks()`. `loopBreakWindowMs` is how long an entered Loop
+	 * stays armed: inside it, the entry switch closing again or the ball
+	 * reaching that side's inlane or outlane is `shot_<loop>_broken`.
+	 * `loopDescentWindowMs` is how long a descent mark lasts: a ball seen
+	 * coming down the lane from above (the far switch, or the Ramp's return)
+	 * does not arm the Loop when it then crosses the entry switch.
+	 */
+	loopBreakWindowMs: entry(
+		3000,
+		"measured: no artifact states this figure. Story 3.6's planning (2026-09-30, real createMachine() runs, 638 recorded switch timelines) found that a failed Loop climb resolves -- its entry switch closing again, or that side's inlane or outlane closing -- 546 to 2167 ticks after the entry. 3000 ms sits 833 ticks (38%) above the slowest of them",
+		'unverified',
+	),
+	loopDescentWindowMs: entry(
+		2500,
+		"measured: no artifact states this figure. Story 3.6's planning (2026-09-30, real createMachine() runs, 638 recorded switch timelines) found that a ball descending a Loop lane takes 564 to 1196 ticks from the far switch (s_loop_*_out) to the entry switch (s_loop_*_in), and a made Ramp's return takes 1070 to 1893 ticks from s_ramp_made to s_loop_r_in. 2500 ms sits 607 ticks (32%) above the slowest of them",
 		'unverified',
 	),
 

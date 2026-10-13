@@ -76,6 +76,13 @@ describe('TUNING -- every entry carries value, source and confidence', () => {
 			'hurryUpFloor',
 			'hurryUpMs',
 			'hurryUpUrgentMs',
+			// Story 3.6 (AD-3/AD-15, FR-36): Joust's Charge cap, Loop award and
+			// timer, and the two windows of the Loops' fall-back signature.
+			'joustChargeMax',
+			'loopValue',
+			'joustMs',
+			'loopBreakWindowMs',
+			'loopDescentWindowMs',
 			// Story 2.7 (AD-15): the first scoring value in the file.
 			'skillShotAward',
 			// Story 2.8 (AD-12): the live dynamic-light budget syncLamps() enforces.
@@ -400,6 +407,63 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		expect(resolved.hurryUpUrgentTicks.value).toBe(5000);
 		expect(resolved.hurryUpTicks.confidence).toBe('unverified');
 		expect(resolved.hurryUpUrgentTicks.confidence).toBe('unverified');
+	});
+
+	// Story 3.6 (AC1, AD-3/AD-15, FR-36, AD-19): Joust's three tunables and the
+	// two windows of the Loops' fall-back signature. `joustChargeMax` is
+	// transcribed from FR-36 (its quote audit is below, beside Story 3.0a's);
+	// `loopValue` and `joustMs` are authored; the two windows are measured.
+	it('Story 3.6 AC1: joustChargeMax 10, loopValue 25000, joustMs 60000, loopBreakWindowMs 3000 and loopDescentWindowMs 2500 are all unverified, each with an honest source; joustTicks is 60000, loopBreakWindowTicks 3000 and loopDescentWindowTicks 2500', () => {
+		for (const [key, value] of [
+			['joustChargeMax', 10],
+			['loopValue', 25000],
+			['joustMs', 60000],
+			['loopBreakWindowMs', 3000],
+			['loopDescentWindowMs', 2500],
+		] as const) {
+			const entry = TUNING[key];
+			expect(entry.value, key).toBe(value);
+			expect(entry.confidence, `${key} is unverified`).toBe('unverified');
+		}
+		expect(TUNING.joustChargeMax.source, 'transcribed from FR-36, not authored').toContain('PRD FR-36');
+		expect(TUNING.joustChargeMax.source).not.toMatch(/^authored: /);
+		for (const key of ['loopValue', 'joustMs'] as const) {
+			expect(TUNING[key].source, `${key}'s source is honest about being authored`).toMatch(/^authored: /);
+			expect(TUNING[key].source, `${key}'s source names its owner`).toContain('Story 3.11');
+		}
+		expect(TUNING.loopValue.source, 'names what the figure is set against').toContain('hurryUpStartValue');
+		expect(TUNING.loopValue.value * TUNING.joustChargeMax.value, 'the x10 Loop equals Hurry-up\'s start').toBe(TUNING.hurryUpStartValue.value);
+		expect(TUNING.joustMs.source, 'names the measured Loop cycle it is bounded by').toContain('2.9 s');
+		for (const key of ['loopBreakWindowMs', 'loopDescentWindowMs'] as const) {
+			expect(TUNING[key].source, `${key}'s source says it was measured`).toMatch(/^measured: /);
+		}
+		expect(TUNING.loopBreakWindowMs.source, 'the measured span of a failed climb').toContain('546 to 2167 ticks');
+		expect(TUNING.loopBreakWindowMs.value, 'above the slowest measured fall-back').toBeGreaterThan(2167);
+		expect(TUNING.loopDescentWindowMs.source, 'the measured span of a lane descent').toContain('564 to 1196 ticks');
+		expect(TUNING.loopDescentWindowMs.source, 'the measured span of a Ramp return').toContain('1070 to 1893 ticks');
+		expect(TUNING.loopDescentWindowMs.value, 'above the slowest measured descent').toBeGreaterThan(1893);
+		expect(TICK_HZ, 'the premise of the literal tick counts below').toBe(1000);
+		expect(resolved.joustTicks.value).toBe(60000);
+		expect(resolved.loopBreakWindowTicks.value).toBe(3000);
+		expect(resolved.loopDescentWindowTicks.value).toBe(2500);
+		for (const key of ['joustTicks', 'loopBreakWindowTicks', 'loopDescentWindowTicks'] as const) {
+			expect(resolved[key].confidence, `${key} keeps its confidence`).toBe('unverified');
+		}
+	});
+
+	// Story 3.6 (AC1): `loopWindowMs`'s source used to say a sub-1400 mm/s Loop
+	// rattles between its two switches, and that the window never governs a
+	// `_broken`. Measured 2026-09-30, such a ball climbs past the far switch
+	// once and falls back; and a Loop's `_broken` is now the fall-back
+	// signature's. The value is unchanged.
+	it('Story 3.6 AC1: loopWindowMs is still 600 and unverified, and its source no longer claims a rattle or a never-broken Loop', () => {
+		expect(TUNING.loopWindowMs.value).toBe(600);
+		expect(TUNING.loopWindowMs.confidence).toBe('unverified');
+		expect(TUNING.loopWindowMs.source).toContain('falls back down the same lane');
+		expect(TUNING.loopWindowMs.source).toContain('does not rattle');
+		expect(TUNING.loopWindowMs.source).not.toContain('instead rattles');
+		expect(TUNING.loopWindowMs.source).not.toContain('never a spurious _broken');
+		expect(TUNING.loopWindowMs.source, 'it names what does decide a Loop\'s _broken').toContain('loopBreakWindowMs');
 	});
 
 	it('produces switchSettleTicksByClass with every class converted, preserving source/confidence', () => {
@@ -922,5 +986,21 @@ describe('Story 3.0a AC 8 (AD-15) -- the four playfield scoring values are unver
 	it('Story 3.5 control: the audit flags a misquote of FR-34', () => {
 		const result = quoteAudit('PRD FR-34: "start 250,000 decaying to a 25,000 floor over 20 s"', frSection(34));
 		expect(result.missing).toEqual(['start 250,000 decaying to a 25,000 floor over 20 s']);
+	});
+
+	// Story 3.6 (AC1): the same audit, extended to FR-36 for Joust's Charge
+	// cap -- FR-36's own figure, so it is quoted, not authored.
+	it("Story 3.6 AC1 -- joustChargeMax: confidence 'unverified', source names PRD FR-36 and quotes it verbatim", () => {
+		const entry = TUNING.joustChargeMax;
+		expect(entry.confidence).toBe('unverified');
+		expect(entry.source).toContain('PRD FR-36');
+		const result = quoteAudit(entry.source, frSection(36));
+		expect(result.quotes, 'the one quoted phrase').toEqual(['Charge multiplies the Loop award up to 10']);
+		expect(result.missing, "every quoted phrase must be FR-36's own words").toEqual([]);
+	});
+
+	it('Story 3.6 control: the audit flags a misquote of FR-36', () => {
+		const result = quoteAudit('PRD FR-36: "Charge multiplies the Loop award up to 20"', frSection(36));
+		expect(result.missing).toEqual(['Charge multiplies the Loop award up to 20']);
 	});
 });

@@ -177,13 +177,20 @@ export interface ShotMadeEvent {
 }
 
 /**
- * Emitted only for a shot whose `TABLE.shots[*].entryExclusive` is `true`
- * (the Ramp) -- a sequence with `entryExclusive: false` (both Loops) is
- * tracked to completion but never emits this (DW-133, this story's Design
- * Notes: a naive "emit `_broken` on expiry regardless" would fire on every
- * outlane drain and every made Ramp, which IS treating a bare
- * `s_loop_*_in` as a Loop entry -- the exact thing `entryExclusive: false`
- * forbids).
+ * Two meanings, told apart by the shot's own `TABLE.shots` declaration
+ * (`./shots.ts` holds the rules):
+ *
+ * - A shot with `entryExclusive: true` and no `fallBack` (the Ramp): its
+ *   window lapsed with no completion -- a rejected shot. Emitted on the
+ *   expiry tick.
+ * - A shot with a `fallBack` signature (both Loops; Story 3.6, AD-19 amended
+ *   2026-09-30, DW-288): the ball ENTERED AND FELL BACK -- an armed attempt
+ *   whose entry switch closed again, or whose ball reached that side's inlane
+ *   or outlane, inside `fallBack.windowMs`. Emitted on that closure's tick.
+ *   Never on expiry (DW-133: a naive "emit `_broken` whenever the window
+ *   lapses" would treat every bare `s_loop_*_in` as a Loop entry), and never
+ *   for a ball coming down the lane from above, which does not arm the Loop
+ *   at all.
  */
 export interface ShotBrokenEvent {
 	readonly type: `${ShotName}_broken`;

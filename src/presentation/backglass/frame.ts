@@ -792,10 +792,16 @@ function formatScore(n: number): string {
  * and its fields line shows its `timerTicks` and decaying `value`. The
  * literal matches `CAMPAIGN_DISPLAY_NAMES.hurryup` below, which is declared
  * after this table.
+ *
+ * Story 3.6 (FR-36): a running Joust owns the status line (`JOUST`) and its
+ * fields line shows its `timerTicks` and its Charge (`buildFieldsText()`).
+ * Joust (310) is above Hurry-up (300), so while both run Joust owns the
+ * panel (AD-8). The literal matches `CAMPAIGN_DISPLAY_NAMES.joust` below.
  */
 const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	skill_shot: 'ARM YOURSELF',
 	hurryup: 'HURRY-UP',
+	joust: 'JOUST',
 };
 
 /**
@@ -804,7 +810,7 @@ const MODE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
  * table from `MODE_DISPLAY_NAMES` on purpose: an entry there would give an
  * ACTIVE campaign shell a status-line name (`hasSomethingToShow()`), which
  * Stories 3.5-3.7 decide when they give each Mode its `ModeView` (Story 3.5
- * gave Hurry-up one). English lives here only (AD-9).
+ * gave Hurry-up one, Story 3.6 Joust). English lives here only (AD-9).
  */
 const CAMPAIGN_DISPLAY_NAMES: Readonly<Record<CampaignModeName, string>> = {
 	hurryup: 'HURRY-UP',
@@ -916,6 +922,10 @@ function formatScoreCell(score: number): string {
  * fields contribute nothing (I/O Matrix: "absent fields produce no row and
  * no placeholder"), exactly `buildModeRows()`'s old per-field guards, folded
  * into one line instead of several.
+ *
+ * Story 3.6 (FR-36: the Backglass shows the Charge): `charge` prints as
+ * `CHARGE X<n>`, with the letter X -- the 5x7 DMD font has no multiplication
+ * sign -- so a running Joust's fields line reads `60.0  CHARGE X1`.
  */
 function buildFieldsText(mode: ModeView): string {
 	const parts: string[] = [];
@@ -926,7 +936,7 @@ function buildFieldsText(mode: ModeView): string {
 		parts.push(String(mode.value));
 	}
 	if (mode.charge !== undefined) {
-		parts.push(String(mode.charge));
+		parts.push(`CHARGE X${mode.charge}`);
 	}
 	if (mode.strikesRemaining !== undefined) {
 		parts.push(String(mode.strikesRemaining));

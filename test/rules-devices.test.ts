@@ -19,11 +19,14 @@ import { applyDeviceEvents, applyRecovery } from '../src/sim/rules/ball-controll
 import { createRules } from '../src/sim/rules';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { resolveTuning } from '../src/sim/table/tuning';
-import { close, open, runSwitchScript } from './util/switch-script';
-import type { GameState, MachineState, SwitchName } from '../src/sim/table/names';
+import { close, open, runSwitchScript, type SwitchScriptRunResult } from './util/switch-script';
+import type { GameState, MachineState, SwitchEvent, SwitchName } from '../src/sim/table/names';
 
 const TUNING = resolveTuning();
 const LOOP_WINDOW_TICKS = TUNING.loopWindowTicks.value;
+// Story 3.6: the two windows of the Loops' fall-back signature.
+const LOOP_BREAK_TICKS = TUNING.loopBreakWindowTicks.value;
+const LOOP_DESCENT_TICKS = TUNING.loopDescentWindowTicks.value;
 const RAMP_WINDOW_TICKS = TUNING.rampWindowTicks.value;
 const LOCK_CAPTURE_WINDOW_TICKS = TUNING.lockCaptureWindowTicks.value;
 
@@ -100,19 +103,21 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 	});
 
 	// The Ramp gets a window straddle (AC 2, below) but the Loop did not, and
-	// the Loop's expiry has NO emitted observable of its own -- `entryExclusive:
-	// false` means expiry only deletes the in-flight entry and never pushes
-	// `_broken`. So without this pair, `loopWindowMs` (one of the three
-	// tunables this story exists to introduce) was unpinned in BOTH directions:
-	// measured at code review, gating the whole expiry on `entryExclusive`
-	// (i.e. never enforcing the Loop window at all) left the entire suite green
-	// while a `_out` closing 10x the window later still scored a made Loop.
+	// the Loop's made window lapsing has NO emitted observable of its own -- a
+	// Loop never pushes `_broken` because a window lapsed. So without this
+	// pair, `loopWindowMs` (one of the three tunables this story exists to
+	// introduce) was unpinned in BOTH directions: measured at code review,
+	// gating the whole expiry on `entryExclusive` (i.e. never enforcing the
+	// Loop window at all) left the entire suite green while a `_out` closing
+	// 10x the window later still scored a made Loop. Story 3.6: the attempt
+	// itself now stays armed for `loopBreakWindowMs` (so a fall-back can break
+	// it), and the late `_out` is ignored while it is.
 	it('window straddle: s_loop_l_out at exactly +loopWindowTicks still makes it; at +loopWindowTicks + 1 the window has lapsed and nothing at all is emitted', () => {
 		const lastInWindow = runSwitchScript(
 			close('s_loop_l_in').at(100).close('s_loop_l_out').at(100 + LOOP_WINDOW_TICKS).build(),
 			{ durationTicks: 100 + LOOP_WINDOW_TICKS + 50 },
 		);
-		expect(lastInWindow.events, 'the exact boundary tick is still inside the window (expiry is `tick > start + window`)').toEqual([
+		expect(lastInWindow.events, 'the exact boundary tick is still inside the window (the made rule is `tick <= start + window`)').toEqual([
 			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
 			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 100 + LOOP_WINDOW_TICKS },
 			{ type: 'shot_left_loop_made', tick: 100 + LOOP_WINDOW_TICKS },
@@ -124,7 +129,7 @@ describe('sim/rules/devices/ -- shots: the Loop, sequence-based (AC 2)', () => {
 		);
 		expect(
 			justOutside.events,
-			'one tick past the window the sequence has already been expired, and a Loop never emits _broken (entryExclusive: false) -- so only the two playfield_switch_closed reports remain, no shot event',
+			'one tick past the window the _out no longer completes the Loop, and a Loop never emits _broken for a lapsed window -- so only the two playfield_switch_closed reports remain, no shot event',
 		).toEqual([
 			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
 			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 100 + LOOP_WINDOW_TICKS + 1 },
@@ -223,59 +228,117 @@ describe('sim/rules/devices/ -- shots: the Ramp, entryExclusive (AC 2, AC 2 stra
 	});
 });
 
-describe('sim/rules/devices/ -- DW-133: a bare s_loop_*_in is never, on its own, a Loop entry (AC 3)', () => {
-	it('the measured made-Ramp make order (s_ramp_enter, s_ramp_made, s_loop_r_in, s_inlane_r) produces shot_ramp_made and lane_entered, but zero shot_right_loop_made/_broken', () => {
-		const script = close('s_ramp_enter').at(100)
-			.close('s_ramp_made').at(120)
-			.close('s_loop_r_in').at(130)
-			.close('s_inlane_r').at(140)
-			.build();
-		const result = runSwitchScript(script, { durationTicks: 140 + LOOP_WINDOW_TICKS + 20 });
+// ---------------------------------------------------------------------------
+// Story 3.6 (AD-19 amended 2026-09-30, DW-288/DW-173; AC 2, and AC 4 at the
+// device level): the Loops' fall-back signature (`TABLE.shots[*].fallBack`,
+// `src/sim/rules/devices/shots.ts`). A Loop is armed only by an entry that
+// did not come from above; an armed Loop is broken when its entry switch
+// closes again or the ball reaches that side's inlane or outlane, inside
+// `loopBreakWindowMs`; a ball seen coming down the lane (the far switch, or
+// the Ramp's return) leaves a descent mark for `loopDescentWindowMs` and
+// never arms. Every script below is hand-written switch edges. The tick
+// figures quoted from real physics are the spec's measured timelines:
+// 223, 1759, 2618, 3568 (the made Left Loop orbit), 1372 and 1281 (two
+// fall-backs), 582 and 640 (a plunge's descent, then its inlane) and 946 (a
+// Ramp return's inlane) are re-measured, to the tick, on a real
+// `createMachine()` by `test/loop-fall-back-physics.test.ts`. 1893 is NOT
+// re-driven there: it is the slowest Ramp return of the planning sample (the
+// physics file's own Ramp recipe returns in 1141 ticks), and the Story 3.6
+// review measured slower ones still -- see the spec's `deferred:` list.
+// ---------------------------------------------------------------------------
 
-		expect(result.events).toContainEqual({ type: 'shot_ramp_made', tick: 120 });
-		expect(result.events).toContainEqual({ type: 'lane_entered', lane: 'inlane_r', tick: 140 });
-		expect(
-			result.events.filter((e) => e.type === 'shot_right_loop_made' || e.type === 'shot_right_loop_broken'),
-			`expected zero shot_right_loop_*, got: ${JSON.stringify(result.events)}`,
-		).toEqual([]);
+/** Each Loop's own switches and shot name, by side. */
+const LOOP = {
+	l: { shot: 'shot_left_loop', in: 's_loop_l_in', out: 's_loop_l_out', inlane: 's_inlane_l', outlane: 's_outlane_l' },
+	r: { shot: 'shot_right_loop', in: 's_loop_r_in', out: 's_loop_r_out', inlane: 's_inlane_r', outlane: 's_outlane_r' },
+} as const satisfies Record<'l' | 'r', { readonly shot: string; readonly in: SwitchName; readonly out: SwitchName; readonly inlane: SwitchName; readonly outlane: SwitchName }>;
+
+/** Every `shot_*` event of a run as `[type, tick]` -- both Loops and the Ramp, so "and nothing else" is part of every assertion made with it. */
+function shotEvents(result: SwitchScriptRunResult): [string, number][] {
+	return result.events.filter((event) => event.type.startsWith('shot_')).map((event) => [event.type, event.tick]);
+}
+
+/** The measured made-Left-Loop timeline, in ticks after the Loop's entry switch: its own far switch, then the OTHER lane's far switch, entry switch and inlane as the ball descends. */
+const ORBIT = { out: 223, farOut: 1759, farIn: 2618, farInlane: 3568 } as const;
+
+/** One scripted Loop orbit entered at `t` on `side`; the right orbit is the left one mirrored. */
+function orbit(side: 'l' | 'r', t: number): readonly SwitchEvent[] {
+	const own = LOOP[side];
+	const far = LOOP[side === 'l' ? 'r' : 'l'];
+	return close(own.in).at(t).close(own.out).at(t + ORBIT.out).close(far.out).at(t + ORBIT.farOut).close(far.in).at(t + ORBIT.farIn).close(far.inlane).at(t + ORBIT.farInlane).build();
+}
+
+describe('sim/rules/devices/ -- Story 3.6, the Loop fall-back signature: the premises of the rows below', () => {
+	it('the production windows: loop 600, break 3000, descent 2500 ticks', () => {
+		expect([LOOP_WINDOW_TICKS, LOOP_BREAK_TICKS, LOOP_DESCENT_TICKS]).toEqual([600, 3000, 2500]);
 	});
 
-	it('an outlane drain (s_loop_r_in then s_outlane_r then s_drain) produces lane_entered { lane: outlane_r } only -- zero shot_right_loop_*', () => {
+	it('every measured figure scripted below sits inside the window it exercises', () => {
+		expect(ORBIT.out, 'a made Loop completes inside the loop window').toBeLessThanOrEqual(LOOP_WINDOW_TICKS);
+		expect(ORBIT.farIn - ORBIT.farOut, 'an orbit\'s descent crosses the far lane inside the descent window').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(1893, 'the slowest measured Ramp return reaches s_loop_r_in inside the descent window').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(582, 'a plunge\'s descent crosses the left lane inside the descent window').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(Math.max(1372, 1281), 'both measured fall-backs resolve inside the break window').toBeLessThanOrEqual(LOOP_BREAK_TICKS);
+	});
+});
+
+describe('sim/rules/devices/ -- Story 3.6 AC 2, Matrix "Non-entry" (DW-133): a ball coming down a Loop lane from above never arms it', () => {
+	it('the Ramp return (s_ramp_enter, s_ramp_made, s_loop_r_in 1893 ticks later, s_inlane_r): shot_ramp_made and the lane entry, and no shot_right_loop_* at all', () => {
+		const made = 120;
+		const script = close('s_ramp_enter').at(100).close('s_ramp_made').at(made).close('s_loop_r_in').at(made + 1893).close('s_inlane_r').at(made + 1893 + 946).build();
+		const result = runSwitchScript(script, { durationTicks: made + 1893 + 946 + LOOP_BREAK_TICKS + 20 });
+
+		expect(shotEvents(result)).toEqual([['shot_ramp_made', made]]);
+		expect(result.events).toContainEqual({ type: 'lane_entered', lane: 'inlane_r', tick: made + 1893 + 946 });
+	});
+
+	it('the plunge descent (s_loop_l_out, s_loop_l_in 582 ticks later, s_inlane_l): no shot event at all', () => {
+		const script = close('s_loop_l_out').at(100).close('s_loop_l_in').at(100 + 582).close('s_inlane_l').at(100 + 582 + 640).build();
+		const result = runSwitchScript(script, { durationTicks: 100 + 582 + 640 + LOOP_BREAK_TICKS + 20 });
+
+		expect(shotEvents(result)).toEqual([]);
+		expect(result.events, 'the premise: the edges did reach the layer').toContainEqual({ type: 'lane_entered', lane: 'inlane_l', tick: 100 + 582 + 640 });
+	});
+
+	it('control: with nothing coming down first, the same s_loop_r_in then s_inlane_r IS a broken Right Loop', () => {
+		const script = close('s_loop_r_in').at(100 + 1893).close('s_inlane_r').at(100 + 1893 + 946).build();
+		const result = runSwitchScript(script, { durationTicks: 100 + 1893 + 946 + 20 });
+		expect(shotEvents(result)).toEqual([['shot_right_loop_broken', 100 + 1893 + 946]]);
+	});
+
+	// The DW-133 row this block replaces asserted that a bare `s_loop_r_in`,
+	// `s_outlane_r`, `s_drain` produced no Loop event. Under the fall-back
+	// signature that script is the break: an entry that did not come from
+	// above, then that side's outlane.
+	it('control: a bare s_loop_r_in, s_outlane_r, s_drain is a broken Right Loop, on the outlane tick -- the whole event list', () => {
 		const script = close('s_loop_r_in').at(100).close('s_outlane_r').at(110).close('s_drain').at(120).build();
-		const result = runSwitchScript(script, { durationTicks: 120 + LOOP_WINDOW_TICKS + 20 });
+		const result = runSwitchScript(script, { durationTicks: 120 + LOOP_BREAK_TICKS + 20 });
 
 		expect(result.events).toEqual([
 			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: 100 },
 			{ type: 'playfield_switch_closed', switch: 's_outlane_r', tick: 110 },
 			{ type: 'lane_entered', lane: 'outlane_r', tick: 110 },
+			{ type: 'shot_right_loop_broken', tick: 110 },
 			{ type: 'playfield_switch_closed', switch: 's_drain', tick: 120 },
 		]);
 	});
 
-	// The THIRD closer of a bare `s_loop_*_in`, and the most frequent one in
-	// real play -- absent from `TABLE.shots`'s own comment, the Design Notes
-	// and AC 3, all of which enumerate only the outlane drain and the made
-	// Ramp. `test/shot-routing.test.ts:562` already asserts in-tree that one
-	// ball making the LEFT Loop closes `s_loop_l_in, s_loop_l_out,
-	// s_loop_r_out, s_loop_r_in` in approach order: every made Loop is an
-	// orbit that ends by closing the OPPOSITE Loop's own entry switch. Driving
-	// that measured order through the layer is what proves a single orbit
-	// scores once and only for the side actually shot.
-	it('the measured Left Loop ORBIT order (s_loop_l_in, s_loop_l_out, s_loop_r_out, s_loop_r_in) scores exactly one shot_left_loop_made and nothing for the right Loop', () => {
-		const result = runSwitchScript(
-			close('s_loop_l_in').at(100)
-				.close('s_loop_l_out').at(200)
-				.close('s_loop_r_out').at(240)
-				.close('s_loop_r_in').at(280)
-				.build(),
-			{ durationTicks: 280 + LOOP_WINDOW_TICKS + 50 },
-		);
+	// Every made Loop is an orbit that ends by descending the OTHER lane,
+	// closing that Loop's far switch and then its entry switch
+	// (`test/shot-routing.test.ts` asserts the order on real physics). Driving
+	// the measured timeline through the layer proves a single orbit scores
+	// once and only for the side actually shot.
+	it('the measured Left Loop ORBIT (s_loop_l_in, s_loop_l_out, s_loop_r_out, s_loop_r_in, s_inlane_r) scores exactly one shot_left_loop_made and nothing for the right Loop', () => {
+		const t = 100;
+		const result = runSwitchScript(orbit('l', t), { durationTicks: t + ORBIT.farInlane + LOOP_BREAK_TICKS + 50 });
 		expect(result.events).toEqual([
-			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: 100 },
-			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: 200 },
-			{ type: 'shot_left_loop_made', tick: 200 },
-			{ type: 'playfield_switch_closed', switch: 's_loop_r_out', tick: 240 },
-			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: 280 },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_in', tick: t },
+			{ type: 'playfield_switch_closed', switch: 's_loop_l_out', tick: t + ORBIT.out },
+			{ type: 'shot_left_loop_made', tick: t + ORBIT.out },
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_out', tick: t + ORBIT.farOut },
+			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: t + ORBIT.farIn },
+			{ type: 'playfield_switch_closed', switch: 's_inlane_r', tick: t + ORBIT.farInlane },
+			{ type: 'lane_entered', lane: 'inlane_r', tick: t + ORBIT.farInlane },
 		]);
 	});
 
@@ -286,6 +349,180 @@ describe('sim/rules/devices/ -- DW-133: a bare s_loop_*_in is never, on its own,
 			{ type: 'playfield_switch_closed', switch: 's_loop_r_in', tick: 100 },
 			{ type: 'playfield_switch_closed', switch: 's_loop_r_out', tick: 150 },
 			{ type: 'shot_right_loop_made', tick: 150 },
+		]);
+	});
+});
+
+describe('sim/rules/devices/ -- Story 3.6 AC 2, Matrix "Break": an armed Loop is broken when the ball falls back', () => {
+	it('re-entry: s_loop_l_in, then s_loop_l_in again 1372 ticks later -> exactly one shot_left_loop_broken, on the second closure, and nothing afterwards', () => {
+		const t = 100;
+		const script = close('s_loop_l_in').at(t).close('s_loop_l_in').at(t + 1372).build();
+		const result = runSwitchScript(script, { durationTicks: t + 1372 + LOOP_BREAK_TICKS + 20 });
+		expect(shotEvents(result)).toEqual([['shot_left_loop_broken', t + 1372]]);
+	});
+
+	for (const side of ['l', 'r'] as const) {
+		for (const exit of ['inlane', 'outlane'] as const) {
+			it(`exit: ${LOOP[side].in}, then ${LOOP[side][exit]} 1281 ticks later -> ${LOOP[side].shot}_broken on that tick`, () => {
+				const t = 100;
+				const script = close(LOOP[side].in).at(t).close(LOOP[side][exit]).at(t + 1281).build();
+				const result = runSwitchScript(script, { durationTicks: t + 1281 + LOOP_BREAK_TICKS + 20 });
+				expect(shotEvents(result)).toEqual([[`${LOOP[side].shot}_broken`, t + 1281]]);
+			});
+		}
+	}
+
+	it('control: the OTHER side\'s outlane breaks nothing -- and the Loop is still armed, so its own inlane then breaks it', () => {
+		const t = 100;
+		const script = close('s_loop_l_in').at(t).close('s_outlane_r').at(t + 500).close('s_inlane_l').at(t + 1281).build();
+		const result = runSwitchScript(script, { durationTicks: t + 1281 + 20 });
+		expect(shotEvents(result)).toEqual([['shot_left_loop_broken', t + 1281]]);
+	});
+
+	it('the break clears the attempt: an s_loop_l_out inside the loop window of a re-entry break completes nothing', () => {
+		const t = 100;
+		const script = close('s_loop_l_in').at(t).close('s_loop_l_in').at(t + 100).close('s_loop_l_out').at(t + 150).build();
+		const result = runSwitchScript(script, { durationTicks: t + 150 + LOOP_WINDOW_TICKS + 20 });
+		expect(t + 150, 'the premise: the s_loop_l_out is inside the loop window of BOTH entry closures').toBeLessThanOrEqual(t + LOOP_WINDOW_TICKS);
+		expect(shotEvents(result)).toEqual([['shot_left_loop_broken', t + 100]]);
+	});
+
+	it('control: the same s_loop_l_out with no second entry closure makes the Loop', () => {
+		const t = 100;
+		const script = close('s_loop_l_in').at(t).close('s_loop_l_out').at(t + 150).build();
+		const result = runSwitchScript(script, { durationTicks: t + 150 + LOOP_WINDOW_TICKS + 20 });
+		expect(shotEvents(result)).toEqual([['shot_left_loop_made', t + 150]]);
+	});
+
+	// Story 3.6 review: the exit break also CLEARS the attempt. Every exit row
+	// above ends on the exit, so none of them could tell a cleared attempt
+	// from a surviving one; here the Loop is entered again afterwards. A
+	// surviving attempt would read that second entry closure as the old ball
+	// falling back a second time.
+	it('the exit break clears the attempt: s_loop_l_in, s_inlane_l (broken), then s_loop_l_in and s_loop_l_out -> a NEW attempt, made', () => {
+		const t = 100;
+		const script = close('s_loop_l_in').at(t).close('s_inlane_l').at(t + 1281).close('s_loop_l_in').at(t + 1400).close('s_loop_l_out').at(t + 1600).build();
+		const result = runSwitchScript(script, { durationTicks: t + 1600 + 20 });
+		expect(1400, 'the premise: the second entry closure is inside the break window of the first, so a surviving attempt would break again there').toBeLessThanOrEqual(LOOP_BREAK_TICKS);
+		expect(1600 - 1400, 'the premise: the far switch closes inside the loop window of the second entry').toBeLessThanOrEqual(LOOP_WINDOW_TICKS);
+		expect(shotEvents(result)).toEqual([
+			['shot_left_loop_broken', t + 1281],
+			['shot_left_loop_made', t + 1600],
+		]);
+	});
+
+	// A far-switch closure while the Loop is armed but past its made window
+	// (measured: a 1200 mm/s Left Loop closes s_loop_l_out 617 and 1386 ticks
+	// after its entry, then falls back) is ignored: it neither breaks the
+	// attempt nor leaves a descent mark behind.
+	it('a late s_loop_l_out while armed is ignored: the fall-back still breaks, and no descent mark survives it (the next entry arms)', () => {
+		const t = 100;
+		const late = t + LOOP_WINDOW_TICKS + 17;
+		const script = close('s_loop_l_in').at(t).close('s_loop_l_out').at(late).close('s_loop_l_in').at(t + 2167).close('s_loop_l_in').at(t + 2300).close('s_outlane_l').at(t + 2400).build();
+		const result = runSwitchScript(script, { durationTicks: t + 2400 + 20 });
+		expect(t + 2300 - late, 'the premise: a descent mark left by the late s_loop_l_out would still be pending at the third entry closure').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(shotEvents(result)).toEqual([
+			['shot_left_loop_broken', t + 2167],
+			['shot_left_loop_broken', t + 2400],
+		]);
+	});
+});
+
+describe('sim/rules/devices/ -- Story 3.6 AC 2, Matrix "Windows": the break window and the descent window, to the tick', () => {
+	const t = 100;
+
+	it('a Loop never emits _broken on expiry: s_loop_l_in alone, run past the break window, emits no shot event', () => {
+		const result = runSwitchScript(close('s_loop_l_in').at(t).build(), { durationTicks: t + LOOP_BREAK_TICKS + 50 });
+		expect(shotEvents(result)).toEqual([]);
+	});
+
+	it('a second s_loop_l_in at exactly +loopBreakWindowTicks still breaks the attempt', () => {
+		const script = close('s_loop_l_in').at(t).close('s_loop_l_in').at(t + LOOP_BREAK_TICKS).build();
+		const result = runSwitchScript(script, { durationTicks: t + LOOP_BREAK_TICKS + 20 });
+		expect(shotEvents(result)).toEqual([['shot_left_loop_broken', t + LOOP_BREAK_TICKS]]);
+	});
+
+	it('at +loopBreakWindowTicks + 1 the attempt has lapsed silently: nothing on that tick, and the late s_loop_l_in arms a NEW attempt that an s_loop_l_out then makes', () => {
+		const late = t + LOOP_BREAK_TICKS + 1;
+		const script = close('s_loop_l_in').at(t).close('s_loop_l_in').at(late).close('s_loop_l_out').at(late + LOOP_WINDOW_TICKS).build();
+		const result = runSwitchScript(script, { durationTicks: late + LOOP_WINDOW_TICKS + 20 });
+		expect(shotEvents(result)).toEqual([['shot_left_loop_made', late + LOOP_WINDOW_TICKS]]);
+	});
+
+	it('s_loop_l_out, then s_loop_l_in at exactly +loopDescentWindowTicks: the descent is consumed, nothing is armed, and a later s_inlane_l breaks nothing', () => {
+		const script = close('s_loop_l_out').at(t).close('s_loop_l_in').at(t + LOOP_DESCENT_TICKS).close('s_inlane_l').at(t + LOOP_DESCENT_TICKS + 50).build();
+		const result = runSwitchScript(script, { durationTicks: t + LOOP_DESCENT_TICKS + 50 + LOOP_BREAK_TICKS + 20 });
+		expect(shotEvents(result)).toEqual([]);
+	});
+
+	it('at +loopDescentWindowTicks + 1 the descent mark has lapsed: the s_loop_l_in arms, and the later s_inlane_l breaks it', () => {
+		const script = close('s_loop_l_out').at(t).close('s_loop_l_in').at(t + LOOP_DESCENT_TICKS + 1).close('s_inlane_l').at(t + LOOP_DESCENT_TICKS + 51).build();
+		const result = runSwitchScript(script, { durationTicks: t + LOOP_DESCENT_TICKS + 51 + 20 });
+		expect(shotEvents(result)).toEqual([['shot_left_loop_broken', t + LOOP_DESCENT_TICKS + 51]]);
+	});
+
+	// Story 3.6 review: the entry closure CONSUMES the descent mark. Every
+	// consumed descent above is followed by an exit, a fresh far-switch
+	// closure or the end of the run, so none of them could tell a consumed
+	// mark from a surviving one; here the Loop is entered while a surviving
+	// mark would still be pending. This is the rule as the spec states it
+	// ("clear the descent ... nothing is armed", then "otherwise: arm"). Its
+	// cost -- a descending ball that closes the entry switch twice arms on the
+	// second closure -- was measured by the review and is in the spec's
+	// `deferred:` list.
+	it('the entry closure consumes the descent mark: s_loop_l_out, s_loop_l_in (consumed), then s_loop_l_in and s_loop_l_out inside the descent window -> armed, made', () => {
+		const script = close('s_loop_l_out').at(t).close('s_loop_l_in').at(t + 582).close('s_loop_l_in').at(t + 700).close('s_loop_l_out').at(t + 900).build();
+		const result = runSwitchScript(script, { durationTicks: t + 900 + 20 });
+		expect(700, 'the premise: a surviving descent mark would still be pending at the second entry closure').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(900 - 700, 'the premise: the far switch closes inside the loop window of the second entry closure').toBeLessThanOrEqual(LOOP_WINDOW_TICKS);
+		expect(shotEvents(result)).toEqual([['shot_left_loop_made', t + 900]]);
+	});
+});
+
+describe('sim/rules/devices/ -- Story 3.6 AC 2, Matrix "Exit clears descent": a descent that leaves by the inlane does not swallow the next entry', () => {
+	const t = 100;
+
+	it('s_ramp_made, then s_inlane_r with no s_loop_r_in, then s_loop_r_in and s_loop_r_out 200 ticks later -> shot_right_loop_made', () => {
+		const script = close('s_ramp_made').at(t).close('s_inlane_r').at(t + 100).close('s_loop_r_in').at(t + 200).close('s_loop_r_out').at(t + 400).build();
+		const result = runSwitchScript(script, { durationTicks: t + 400 + 20 });
+		expect(200, 'the premise: the Ramp\'s descent mark would still be pending at the s_loop_r_in, 200 ticks after s_ramp_made').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(shotEvents(result)).toEqual([['shot_right_loop_made', t + 400]]);
+	});
+
+	it('control: without the s_inlane_r, the same s_loop_r_in is the Ramp\'s descent passing down, and the Loop is not made', () => {
+		const script = close('s_ramp_made').at(t).close('s_loop_r_in').at(t + 200).close('s_loop_r_out').at(t + 400).build();
+		const result = runSwitchScript(script, { durationTicks: t + 400 + 20 });
+		expect(shotEvents(result)).toEqual([]);
+	});
+});
+
+describe('sim/rules/devices/ -- Story 3.6 AC 4, DW-173 at the device level: a Loop orbit\'s descent never arms the opposite Loop', () => {
+	const t = 100;
+
+	// Before the fix the first orbit's s_loop_r_in armed the Right Loop, and a
+	// second left orbit's s_loop_r_out landing inside the loop window of it
+	// read as shot_right_loop_made -- two same-side orbits faking an
+	// alternation.
+	for (const offset of [50, 300, 550]) {
+		it(`O_l, then a second left orbit whose s_loop_r_out lands ${offset} ticks after the first orbit's s_loop_r_in: exactly two shot_left_loop_made, and no shot_right_loop_* at all`, () => {
+			expect(offset, 'the premise: the second s_loop_r_out is inside the loop window of the first orbit\'s s_loop_r_in').toBeLessThanOrEqual(LOOP_WINDOW_TICKS);
+			const g = t + ORBIT.farIn + offset;
+			const second = close('s_loop_l_in').at(g - 40).close('s_loop_l_out').at(g - 20).close('s_loop_r_out').at(g).close('s_loop_r_in').at(g + 60).build();
+			const script = [...orbit('l', t), ...second].sort((a, b) => a.tick - b.tick);
+			const result = runSwitchScript(script, { durationTicks: t + ORBIT.farInlane + LOOP_BREAK_TICKS + 20 });
+			expect(shotEvents(result)).toEqual([
+				['shot_left_loop_made', t + ORBIT.out],
+				['shot_left_loop_made', g - 20],
+			]);
+		});
+	}
+
+	it('control: O_l then O_r 4000 ticks later is one made Loop on each side -- the right Loop still arms after an orbit has descended it', () => {
+		const script = [...orbit('l', t), ...orbit('r', t + 4000)];
+		const result = runSwitchScript(script, { durationTicks: t + 4000 + ORBIT.farInlane + 20 });
+		expect(shotEvents(result)).toEqual([
+			['shot_left_loop_made', t + ORBIT.out],
+			['shot_right_loop_made', t + 4000 + ORBIT.out],
 		]);
 	});
 });

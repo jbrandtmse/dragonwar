@@ -13,7 +13,8 @@
 // ball search's own `bank_reset_requested`, dispatched to the same
 // `./drop-bank.ts` component's `onResetRequested()`.
 //
-// The layer holds cross-tick state -- in-flight shot sequences (`./shots.ts`),
+// The layer holds cross-tick state -- in-flight shot sequences and, since
+// Story 3.6, each Loop's armed attempt and descent mark (`./shots.ts`),
 // the bank's own letters-down latch (`./drop-bank.ts`), `bd_lock`'s tracked
 // slot occupancy and the pending Lock-lane closure below -- so it is
 // INSTANTIATED, not module-global (`createDevicesLayer()` mirrors
@@ -90,7 +91,8 @@ export interface DevicesLayer {
 	 * returning the events and coil commands this tick produced. Called every
 	 * tick, even with no edges at all (AD-4: an in-flight, `entryExclusive:
 	 * true` shot can lapse with none, and its own `_broken` still owes a
-	 * tick).
+	 * tick; a Loop's armed attempt and its descent mark -- Story 3.6's
+	 * fall-back signature, `./shots.ts` -- also expire on the clock, silently).
 	 */
 	step(switchEvents: readonly SwitchEvent[], lifecycleEvents: readonly (BallWillStartEvent | BankResetRequest)[], tick: number): DevicesLayerStepResult;
 }

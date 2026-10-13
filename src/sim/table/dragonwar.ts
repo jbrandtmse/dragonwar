@@ -625,12 +625,15 @@ export const TABLE = deepFreeze({
 	 * shot whose completion collects a running Hurry-up
 	 * (`sim/rules/modes/hurry-up.ts` reads `${hurryUpCollectShot}_made`) --
 	 * PRD FR-34 `[ASSUMPTION: collect shot]`, which the Story 3.11 playtest
-	 * confirms or moves.
+	 * confirms or moves. Story 3.6 (FR-36): `joustLoops` are the two shots
+	 * Joust alternates between (`sim/rules/modes/joust.ts` reads each one's
+	 * `_made` and `_broken`).
 	 */
 	modeWiring: {
 		startShow: 'show_mode_start',
 		lightShot: 'shot_ramp',
 		hurryUpCollectShot: 'shot_ramp',
+		joustLoops: ['shot_left_loop', 'shot_right_loop'],
 	},
 
 	/**
@@ -659,27 +662,84 @@ export const TABLE = deepFreeze({
 	 * crosses into the Right Loop lane on its way to the right inlane
 	 * (measured `firstMakes`: `s_ramp_enter, s_ramp_made, s_loop_r_in,
 	 * s_inlane_r`) -- a bare `_in` is therefore never, on its own, evidence
-	 * of a Loop entry, so a sequence with `entryExclusive: false` is tracked
-	 * to completion but never emits `_broken` on expiry (the naive
-	 * alternative -- emit `_broken` whenever the window lapses without a
-	 * completion -- would fire on both the outlane drain and the made Ramp,
-	 * which IS treating the bare `_in` as a Loop entry, the exact thing this
-	 * flag forbids).
+	 * of a Loop entry, so a sequence with `entryExclusive: false` never
+	 * emits `_broken` on expiry (the naive alternative -- emit `_broken`
+	 * whenever the window lapses without a completion -- would fire on both
+	 * the outlane drain and the made Ramp, which IS treating the bare `_in`
+	 * as a Loop entry, the exact thing this flag forbids).
 	 *
 	 * The Ramp is `true`: `s_ramp_enter` is closed by nothing else in this
 	 * table, so a lapsed window genuinely means a rejected Ramp, and
 	 * `shot_ramp_broken` stays a real, falsifiable event.
+	 *
+	 * Story 3.6 (AD-19 amended 2026-09-30, DW-288/DW-173): both Loops declare
+	 * a `fallBack` signature, which is what gives them a `_broken` at all --
+	 * "entered and fell back" (`sim/rules/devices/shots.ts` holds the rules).
+	 * - `descents`: the switches that mean a ball is coming DOWN this lane
+	 *   from above, so the entry switch it crosses next is not an entry. For
+	 *   each Loop that is its own far switch (the other Loop's orbit, or a
+	 *   plunge, descending this lane); for the Right Loop also `s_ramp_made`
+	 *   (the Ramp's return). The mark lasts `descentWindowMs`.
+	 * - `exits`: that side's inlane and outlane -- an armed ball that reaches
+	 *   one has come back out of the lane.
+	 * - `windowMs`: how long an entered Loop stays armed. Inside it, the
+	 *   entry switch closing again or an `exits` switch closing is the break.
+	 * Measured 2026-09-30 over 638 real `createMachine()` switch timelines
+	 * (43 made Loops, 39 failed climbs, 532 non-entry paths, 24 ambiguous):
+	 * this signature breaks 39 of the 39 failed climbs and gives no false
+	 * break on a made Loop or on a real non-entry path. A failed climb closes
+	 * the entry switch a second time (measured: `s_loop_l_in` twice, then
+	 * `s_outlane_l`) or only reaches the outlane (`s_loop_l_in`, then
+	 * `s_outlane_l`); a made orbit descends the far lane as `_out`, `_in`,
+	 * then the inlane; the Ramp's return is `s_ramp_made`, `s_loop_r_in`,
+	 * `s_inlane_r`. Under this signature a bare `_in` followed by that side's
+	 * outlane is a break, not the incidental outlane drain the Story 2.4
+	 * paragraph above describes: the same measurement found no real
+	 * trajectory that reaches a Loop's entry switch from the open field
+	 * (DW-319). The Ramp declares no `fallBack`.
+	 *
+	 * What those figures do and do not say (Story 3.6 review, 2026-10-13):
+	 * - They are that sample's. A ball that reaches the far switch inside
+	 *   `loopWindowMs` and THEN falls back down the same lane reads as made,
+	 *   not as a failed climb -- the made rule is Story 2.4's, unchanged. The
+	 *   review measured that on all twelve teleported launches it tried 7 to
+	 *   17 mm east of the left entry column's centre (1800 to 3000 mm/s), not
+	 *   only below 1400 mm/s at the centre.
+	 * - On teleported launches outside the sample the review also measured a
+	 *   made Ramp whose return took longer than `loopDescentWindowMs` (2804
+	 *   ticks: the Right Loop armed, and broke at the inlane), and a
+	 *   descending ball that closed an entry switch twice (the second closure
+	 *   armed, and the exit broke it).
+	 * - A shot that declares `fallBack` never reads `entryExclusive`: the
+	 *   signature decides its `_broken`. Both Loops keep the flag as the
+	 *   recorded geometric fact it is.
+	 * These are recorded in the story's deferred list, not fixed here. Every
+	 * figure above was measured on this tree's lane geometry, which no real
+	 * flipper shot can enter (DW-319); it must be re-measured when that
+	 * geometry moves.
 	 */
 	shots: {
 		shot_left_loop: {
 			sequence: ['s_loop_l_in', 's_loop_l_out'],
 			windowMs: 'loopWindowMs',
 			entryExclusive: false,
+			fallBack: {
+				descents: ['s_loop_l_out'],
+				exits: ['s_inlane_l', 's_outlane_l'],
+				windowMs: 'loopBreakWindowMs',
+				descentWindowMs: 'loopDescentWindowMs',
+			},
 		},
 		shot_right_loop: {
 			sequence: ['s_loop_r_in', 's_loop_r_out'],
 			windowMs: 'loopWindowMs',
 			entryExclusive: false,
+			fallBack: {
+				descents: ['s_loop_r_out', 's_ramp_made'],
+				exits: ['s_inlane_r', 's_outlane_r'],
+				windowMs: 'loopBreakWindowMs',
+				descentWindowMs: 'loopDescentWindowMs',
+			},
 		},
 		shot_ramp: {
 			sequence: ['s_ramp_enter', 's_ramp_made'],

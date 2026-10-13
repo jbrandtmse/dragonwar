@@ -2,9 +2,10 @@
 title: 'Story 3.6: Joust -- the charge'
 type: 'feature'
 created: '2026-09-30'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '9c7d9187be1a533afaa939e7cb2a5f6258723821'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
 warnings: [oversized]
@@ -24,6 +25,53 @@ deferred:
     location: 'src/sim/table/tuning.ts loopWindowMs'
     severity: low
     footprint: in-story
+  - summary: >-
+      A made Ramp whose return to s_loop_r_in takes longer than loopDescentWindowMs arms the Right Loop and breaks it at the inlane, so a running Joust loses its Charge on a made Ramp; the window was sized from a sample whose slowest return (1893 ticks) is not this tree's slowest
+    evidence: |-
+      Measured 2026-10-13 at 9c7d918 plus this story (review; a real createMachine() feeding the real createShotTracker(); teleported launches straight up the Ramp mouth from y = 470). From (312.6, 470) at 1557 mm/s the ball closes s_ramp_made@286, s_loop_r_in@3090 (2804 ticks later) and s_inlane_r@4043, and the tracker emits shot_ramp_made, then shot_right_loop_broken@4043. Returns inside the window but past the documented range are ordinary between 1500 and 1600 mm/s: 1917 to 2456 ticks (2165 from the manifest's own point (315, 470) at 1580 mm/s; the documented slowest, 1893, is that point at 1600 mm/s exactly). At 1558 mm/s the ball does not return at all, it rolls back out of the Ramp, so the return time has no upper bound near the make threshold and no finite window covers every return.
+      The sources of loopDescentWindowMs ("1070 to 1893 ticks", "607 ticks (32%) above the slowest of them") and loopBreakWindowMs ("546 to 2167 ticks"; the review measured 2187 at 1210 mm/s) record the planning sample. They are pinned only as substrings of that prose (test/tuning.test.ts), and the 638-timeline measurement is not in the tree. Correcting a source re-records all five golden headers (AD-15). AD-19's 2026-09-30 amendment carries the same sample claim ("no false break on a made Loop or a non-entry path").
+      By real input this changes no state at this tree: no real shot makes a Loop (first item), so the Charge is 1 and the only effect is a joust_charge_broken{charge: 1}, which nothing reads yet. It becomes a lost Charge when a Loop can be made.
+    location: >-
+      src/sim/table/tuning.ts loopDescentWindowMs and loopBreakWindowMs; src/sim/rules/devices/shots.ts (the descent expiry); src/sim/table/dragonwar.ts shot_right_loop.fallBack
+    severity: medium
+    footprint: in-story
+  - summary: >-
+      A ball coming down a Loop lane that closes the entry switch twice arms the Loop on the second closure and breaks it at the inlane or outlane, because the first closure clears the descent mark
+    evidence: |-
+      Measured 2026-10-13 (review, same instruments). Balls released in the left lane above s_loop_l_out, at (39 to 41, 950) moving straight down at 900 to 1200 mm/s, close s_loop_l_out, s_loop_l_in, s_loop_l_in again 152 to 238 ticks later (a rebound), then the inlane or outlane; the tracker emits shot_left_loop_broken on that exit in 10 of 12 runs. These are teleported releases, and faster (377 to 457 ticks from the far switch to the entry) than any descent in the planning sample (564 to 1196). No real path shows a double closure: the planning sample's 532 non-entry paths, the three real plunges and a real autolaunch do not.
+      The rule is the spec's as written ("Own _in with a pending descent: clear the descent ... Own _in otherwise: arm a flight"), and test/rules-devices.test.ts now pins it ("the entry closure consumes the descent mark"). Same bound on harm as the previous item.
+    location: >-
+      src/sim/rules/devices/shots.ts, the entry-switch rules of applyFallBackEdge()
+    severity: medium
+    footprint: in-story
+  - summary: >-
+      A descent mark that nothing consumes swallows the next real entry on that side for loopDescentWindowMs; a ball that rolls back out of the Ramp after closing s_ramp_made, or crosses a far switch without coming down the lane, leaves one
+    evidence: |-
+      By the entry-switch rule, an entry closure with a mark pending clears the mark and arms nothing, so a Loop entered inside 2500 ticks of a stray mark is never made, and Joust pays nothing for it, with no event. The lost Loop's own far-switch closure then lays a fresh mark.
+      Measured 2026-10-13 (review, same instruments): from the manifest's Ramp point (315, 470), launches at 1650 to 2050 mm/s close s_ramp_enter, s_ramp_made, s_ramp_made again, then s_ramp_enter on the way back out, which leaves the Right Loop's mark pending (the Ramp still reads as made; that rule is Story 2.4's). The manifest's descend-loop-top-east closes s_loop_r_out and no s_loop_r_in.
+      Not reachable in harm until a real shot can enter a Loop (first item).
+    location: >-
+      src/sim/rules/devices/shots.ts, the descents and entry-switch rules; src/sim/table/dragonwar.ts shot_right_loop.fallBack.descents
+    severity: medium
+    footprint: in-story
+  - summary: >-
+      A ball that passes a Loop's far switch inside loopWindowMs and then falls back down the same lane is credited as a made Loop on every off-centre launch tried, not only below 1400 mm/s as the third item says, and Joust now pays loopValue x Charge and builds the Charge on it
+    evidence: |-
+      Measured 2026-10-13 (review, same instruments; teleported launches straight up from y = 415). At x = 38, 42, 45 and 48 (the left entry column's centre is 31) at 1800, 2200 and 3000 mm/s, 12 of 12 close s_loop_l_in and s_loop_l_out inside the window (shot_left_loop_made), then s_loop_l_out and s_loop_l_in again on the way down and the left inlane, with no _broken; the manifest's own loop-off-column-left-east-45 is one of them. The centre at 1220, 1300 and 1350 mm/s, and the right centre at 1300, do the same and leave by the outlane.
+      The made rule is Story 2.4's and this story leaves it unchanged, as the third item records for the sub-1400 case; this widens that item. No test pins either reading. Not reachable by real input until a real shot can enter a Loop (first item).
+    location: >-
+      src/sim/rules/devices/shots.ts, the made rule of applyFallBackEdge(); src/sim/table/tuning.ts loopWindowMs
+    severity: medium
+    footprint: in-story
+  - summary: >-
+      The fall-back signature reads an entry-switch closure that did not come from above, followed by that side's inlane or outlane, as a broken Loop; that is safe only while no field ball can reach an entry switch, which is the condition Story 3.3d is chartered to end
+    evidence: |-
+      Not verified, because no geometry exists to verify it on. At this tree the lane mouths are walled from the field (first item), and the planning measurement found no real trajectory that reaches an entry switch from the open field. If an opened mouth sits above s_loop_*_in, an ordinary inlane or outlane feed that crosses it will emit shot_<loop>_broken, and a running Joust will lose its Charge on it. The DW-133 row this story inverted (a bare s_loop_r_in then s_outlane_r is now a break) rests on the walled geometry.
+      What would settle it: once the entries are open, run field-origin witnesses (inlane and outlane feeds, slingshot rebounds) through the real tracker and assert that they produce no Loop event. No such test exists.
+    location: >-
+      src/sim/table/dragonwar.ts shots.*.fallBack; assets/src/** (the opened mouths, Story 3.3d)
+    severity: medium (unverified)
+    footprint: in-epic
 ---
 
 <intent-contract>
@@ -224,6 +272,59 @@ Measured at `c98dd0af1505b6f8258f14dff502a7cc491a89ad` on `DW-1-epic3`.
 
 ## Review Triage Log
 
+### 2026-10-13 — Review pass
+
+Four layers ran in parallel on the diff since `9c7d918`. The stage verified each claim itself before grading it: the physics claims by its own probes on a real `createMachine()` and the real `createShotTracker()` (scratch files outside the repository), the rest by reading the code and the tests. BH = Blind Hunter, EC = Edge Case Hunter, VG = Verification Gap, IA = Intent Alignment. "Deferred item 4..8" are the items this pass appended to the frontmatter `deferred:` list.
+
+- verdicts: 46 findings — high 1, medium 13, low 22, false 9, maybe-false 1
+- findings:
+  - `[medium]` `[defer]` BH1: a ball that passes a Loop's far switch inside the window and then falls back is paid as a made Loop — confirmed: 12 of 12 teleported launches 7 to 17 mm off the left column's centre at 1800 to 3000 mm/s, and the centre at 1220 to 1350 mm/s, give `_made` and no `_broken`. The made rule is Story 2.4's and the contract keeps it "(unchanged)", so it predates this story; it is wider than plan-time item 3 says. Deferred item 7.
+  - `[low]` `[patch]` BH2: the `TABLE.shots` comment reads "39 of the 39 failed climbs" and "no false break" as if they covered every path — true of the planning sample only. Patched: the comment now says what those figures do and do not cover, and names the three measured exceptions.
+  - `[medium]` `[defer]` BH3: the ranges that size the two new windows are not this tree's extremes — confirmed for the Ramp: returns of 1917 to 2456 ticks between 1500 and 1600 mm/s against the quoted 1070 to 1893 (the 1893 is the 1600 mm/s sample exactly). Same root cause as EC1. Deferred item 4.
+  - `[low]` `[defer]` BH4: the window figures are pinned only as substrings of the `source` prose, the 638-timeline harness is not in the tree, and `joustMs`'s "at least about 2.9 s" is the 2200 mm/s cycle — confirmed by reading `test/tuning.test.ts`. Same root cause as EC1 (a sample recorded as a range, with no in-tree instrument). Deferred item 4.
+  - `[low]` `[patch]` BH5: a comment in `test/rules-devices.test.ts` said eight figures were re-measured by the physics file, which pinned four — confirmed. Patched: the physics file now pins 1372, 1281, 582, 640 and 946 by equality (all hold at this tree), and the comment says 1893 is the planning sample's and is not re-driven.
+  - `[low]` `[reject]` BH6: nothing rejects `loopBreakWindowMs` below `loopWindowMs`, and the `fallBack` window keys accept any `...Ms` tunable — true by reading `shots.ts`, but only a mis-tuned dev panel reaches it (the defaults are 3000 against 600), and the fix is a new cross-tunable guard the contract does not state.
+  - `[low]` `[reject]` BH7: `joustChargeMax` is read unclamped (0, 1, 2.5) — true, but only a mis-tuned cap reaches it; the contract clamps T and takes M as given, and the fix is a clamp it does not state.
+  - `[low]` `[reject]` BH8: one failed attempt can emit two `_broken` (break, re-arm on a third entry closure, break on the exit) — true, and it is rules (d), (f) and (g) as written: an entry closure with nothing pending is a new attempt. Every measured fall-back closes the entry twice at most and emits one break; in Joust the second break carries Charge 1 and changes nothing. A fix adds state.
+  - `[medium]` `[defer]` BH9: a descent mark that nothing consumes swallows the next real entry — confirmed by rule (e), and the manifest's `descend-loop-top-east` closes `s_loop_r_out` with no `s_loop_r_in`. Needs a real Loop entry to matter (DW-319). Deferred item 6.
+  - `[low]` `[patch]` BH10: the Story 2.4 paragraph and the new one describe the same sequence differently, `entryExclusive` is not read for the Loops, and the "neither" branch has no shot — confirmed. Patched: the `TABLE.shots` comment says a `fallBack` shot never reads the flag, and the `shots.ts` header says no declared shot takes that branch and no test exercises it. The branch stays (the spec keeps `entryExclusive`; testing it needs an injection seam).
+  - `[maybe-false]` `[defer]` BH11: the signature is safe only while no field ball reaches an entry switch, and nothing pins that — cannot be checked at this tree, where the mouths are walled (DW-319). If true it is medium. What would settle it: field-origin witnesses through the tracker once Story 3.3d has opened the entries. Deferred item 8.
+  - `[low]` `[patch]` BH12: Joust reads `<loop>_broken` as "fell back" with nothing tying its Loops to a `fallBack` declaration — confirmed. Patched: `test/table.test.ts` pins that every `joustLoops` shot declares one, with the Ramp as the control (mutation recorded).
+  - `[low]` `[patch]` BH13: rows missing for the Slam and Attract stop, a ball-saved drain, the serves that precede a Joust Loop, and `plunge-weak-345` — Patched: a Slam row (the Attract entry with Joust live) and a `plunge-weak-345` real-plunge row with its control. Not added: a ball save is no ball end and Joust reads nothing of it; and the stage's probe shows a real autolaunch descends the left lane as `s_loop_l_out`, `s_loop_l_in`, `s_inlane_l` with no Loop event, and a real Mouth eject closes no shot switch.
+  - `[low]` `[patch]` BH14: the measured orbit is copied by hand into three test files and the right orbit is its mirror, not a measurement — true. Patched: the one physics pin now names the three copies. The mirror is the contract's own definition of O_r; no shared constant was added, since the headless ratchet limits what `rules-joust.test.ts` may import.
+  - `[low]` `[patch]` BH15: the corrected `plunge-weak-345` label was unpinned, and sibling prose is stale — the label is now pinned by the new physics row. The harness header and the 285 label are older than this story and are left as they are.
+  - `[low]` `[patch]` BH16: a Backglass test title promised a hand-back it does not perform — confirmed. Patched: retitled to what it renders.
+  - `[medium]` `[defer]` EC1: a made Ramp whose return is slower than `loopDescentWindowMs` breaks the Right Loop — confirmed: from (312.6, 470) at 1557 mm/s the return takes 2804 ticks and the tracker emits `shot_ramp_made`, then `shot_right_loop_broken` at the inlane. The window and its rule are the contract's, and the dispatch fixes the signature as validated; by real input the Charge is 1 at this tree (DW-319), so the break changes no state. Deferred item 4.
+  - `[medium]` `[defer]` EC2: a ball that rolls back out of the Ramp after `s_ramp_made` leaves the Right Loop's mark pending — confirmed: launches at 1650 to 2050 mm/s from the manifest's Ramp point do exactly that. Same root cause as BH9. Deferred item 6.
+  - `[medium]` `[defer]` EC3: a descending ball that closes the entry switch twice arms on the second closure and breaks at the exit — confirmed on 10 of 12 teleported descents at x 39 to 41, 900 to 1200 mm/s; not seen on any real path. It is rule (e) as the contract states it. Deferred item 5.
+  - `[low]` `[reject]` EC4: `loopBreakWindowMs` below `loopWindowMs` — same finding as BH6, same reason.
+  - `[low]` `[reject]` EC5: `joustChargeMax` at 0, negative or fractional — same finding as BH7, same reason.
+  - `[medium]` `[defer]` EC6: the Approach's "a descent from above ... never arms" does not hold outside the window or after the first entry closure — confirmed by EC1 and EC3, whose items carry it. Deferred items 4 and 5.
+  - `[medium]` `[patch]` VG1: no row observed the clearing half of rules (e) and (g). Patched: two rows in `test/rules-devices.test.ts`; each mutation turns exactly its row red.
+  - `[medium]` `[patch]` VG2: Joust's award was never run at a `loopValue` other than the default. Patched: a row at `loopValue` 7; reading the module default turns it, and only it, red.
+  - `[medium]` `[patch]` VG3: the Ball search row's "no `c_mouth`" could not fail, because the run ended 490 ticks before a Lock-stage open would pulse. Patched: both runs last past the Mouth lead and the control asserts the pulse; a probe shows `[]` at the old length and `[17600]` at the new one under the AC11 mutation. The same shape in `test/rules-lock-arbiter.test.ts` is Story 3.2's and is not touched.
+  - `[medium]` `[patch]` VG4: `joust_full_charge.player` was only ever asserted as 0. Patched: player 1 reaches the cap; a hard-coded 0 turns the row, and only it, red.
+  - `[false]` `[reject]` VG5: the Tilt row's score assertion cannot fail from removing Joust's own guard — it is not that guard's pin. It fails if `awardScore()`'s gate goes; the guard is pinned by the Charge and event assertions of the same row, as AC9's recorded mutation shows.
+  - `[low]` `[patch]` VG6: every AC has a `mutation:` line, but some clauses had none of their own. Closed in-pass where the review added or changed a row: AC1 (`joustLoops`), AC2 (the two clears), AC5 (`loopValue`), AC7 (`player`), AC8 (a stop-time award: Ball end and the Slam), AC11 (re-run), AC12 (the comparison itself watched red). The other clauses rest on their AC's existing line, which is Rule 19's bar.
+  - `[low]` `[patch]` VG7: `entryExclusive` is inert for the Loops and one branch has no test host — same finding as BH10, same patch.
+  - `[low]` `[patch]` VG8: the re-measurement comment overclaims — same finding as BH5, same patch.
+  - `[low]` `[reject]` VG9: the physics file hard-codes the plunge holds — true, but `WITNESSES` is not exported from `test/util/reachability.ts`, so reading them needs a new export from a shared helper; the file names each witness and its hold beside the number.
+  - `[medium]` `[defer]` VG10: `left-loop-1200` breaks only because its far switch closes 17 ticks past the window, and the false make just inside it is pinned nowhere — same finding as BH1. Deferred item 7.
+  - `[high]` `[defer]` IA1: every made Loop and fall-back is scripted, teleported or replayed; no real shot enters a Loop — true, and it is the first `deferred:` item already (DW-319, routed to Story 3.3d by the author on 2026-10-13). Not filed again.
+  - `[low]` `[reject]` IA2: physics, rules and presentation are never run composed — AC 10 asks for recorded-then-replayed timelines and a folded, rasterised DMD, which is what the diff does; a `createLoop()` run cannot reach a Joust Loop by real input (DW-319), and the browser smoke is the lead's.
+  - `[false]` `[reject]` IA3: the Windows and Exit-clears-descent rows run at the devices layer, not under Joust — AC 2 and task 5 put them there, and their expected outputs are tracker observables. The Joust rows assert the Charge and the pay on the `createRules()` run.
+  - `[false]` `[reject]` IA4: the `mutation:` lines are in the spec, not beside the tests — Rule 19 records them in this file's `## Verification`.
+  - `[false]` `[reject]` IA5: a repeat emits no `joust_charge_broken` — the Boundaries put that event only under `<loop>_broken`, and the Repeat row names Charges and awards, no event. Noted for the lead: a Charge lost to a repeat is visible only in state.
+  - `[false]` `[reject]` IA6: no intra-tick order is asserted between the stop triple and `ball_ended` — the two travel on separate channels of one step, so no order between them is observable here; the row asserts what "before" means in effect (same tick, the entry gone, the score change equal to `ball_ended.total`), and a stop-time award turns it red.
+  - `[false]` `[reject]` IA7: the Ball search row injects its Joust entry, and `joust.ts` tolerates an entry with no `startTick` or Charge — the row is built as 3.2's and 3.5's are and leaves the timer to the real tick hook; the guard is `hurry-up.ts`'s, needed to read the open `ActiveModeState` record.
+  - `[false]` `[reject]` IA8: the No re-fire row overrides more than `joustChargeMax` — a second Joust entry in one game needs the first to end and Joust to be lit again; the expectation is unchanged.
+  - `[low]` `[patch]` IA9: only the orbit figures were re-measured by equality — same finding as BH5, same patch.
+  - `[medium]` `[defer]` IA10: the `loopWindowMs` source admits a false make that no test covers — same finding as BH1. Deferred item 7.
+  - `[low]` `[reject]` IA11: the Backglass test hand-types priority 310 and its timers — fixture literals, as in `test/backglass-hurry-up.test.ts`; `test/rules-joust.test.ts` pins `MODE_PRIORITIES.joust` at 310, above Hurry-up. The 946 and 640 it mentions are now pinned to the machine (BH5).
+  - `[low]` `[patch]` IA12: three Boundaries clauses were carried by code shape alone — same finding as BH13 for the Slam and Attract entry, same patch. The other two have no row: no mode above 310 does anything yet, and the lifecycle leaves no Joust entry outside a game.
+  - `[false]` `[reject]` IA13: the diff changes things the contract does not name — each is named in the Code Map (the label, the pins that change by design) or follows from the `CHARGE X<n>` clause (the `backglass-frame` pin).
+  - `[false]` `[reject]` IA14: the spec's `mutation:` lines contain a literal arrow — Rule 14 exempts prose, and Rule 19 prescribes that arrow.
+
 ## Design Notes
 
 **Governing ADs:**
@@ -318,10 +419,129 @@ No AC contradicts an AD's Rule. **Rule 20 candidate (the lead's call):** AD-19 c
 - AC11: never publish `timerTicks`; the Ball search row goes red.
 - AC12: change one golden header's `joustMs`; `replay-goldens.test.ts` goes red.
 
+**Mutations observed** (implement stage, 2026-10-13). Each was applied to the finished tree, the named test file was run and seen red, and the mutation was reverted to a byte-identical tree: `git status --short`, `git diff`, `git diff --stat` and the four untracked test files hashed equal before the mutation and after the revert, every time.
+- mutation: AC1 -- `loopBreakWindowMs`'s confidence `'unverified'` changed to `'low'` (`tuning.ts`) → `test/tuning.test.ts`, "Story 3.6 AC1: joustChargeMax 10, loopValue 25000 ..." red (`loopBreakWindowMs is unverified: expected 'low' to be 'unverified'`); 1 failed of 80.
+- mutation: AC1 -- `'s_ramp_made'` dropped from `shot_right_loop.fallBack.descents` (`dragonwar.ts`) → `test/table.test.ts`, "Story 3.6 AC1: both Loops declare fallBack with their descents, exits and two windows; the Ramp declares none" red; 1 failed of 95.
+- mutation: AC2 -- the expiry pass emits `_broken` when it drops a lapsed Loop flight (`shots.ts`) → `test/rules-devices.test.ts`, Matrix "Windows" red: "a Loop never emits _broken on expiry" and "at +loopBreakWindowTicks + 1 the attempt has lapsed silently"; 2 failed of 79.
+- mutation: AC2 -- rule (e) removed, so an entry closure with a pending descent arms and the descent is never consumed (`shots.ts`) → `test/rules-devices.test.ts`, Matrix "Non-entry" red (the Ramp return, the plunge descent, the measured orbit), with the descent-window row, the Exit-clears-descent control and the DW-173 rows; 9 failed of 79.
+- mutation: AC2 -- rule (g) removed, so an `exits` switch no longer breaks an armed Loop (`shots.ts`) → `test/rules-devices.test.ts`, Matrix "Break" red: all four "exit:" rows, with both bare-entry controls, the other-side control, the late-`s_loop_l_out` row and the lapsed-descent row; 9 failed of 79.
+- mutation: AC2 -- rule (h) removed, so an `exits` switch no longer clears the descent (`shots.ts`) → `test/rules-devices.test.ts`, Matrix "Exit clears descent" red: "s_ramp_made, then s_inlane_r with no s_loop_r_in, then s_loop_r_in and s_loop_r_out 200 ticks later -> shot_right_loop_made"; 1 failed of 79.
+- mutation: AC3 -- rule (d) removed, so a second entry closure with a flight re-arms instead of breaking (`shots.ts`) → `test/loop-fall-back-physics.test.ts` red: "the left entry point at 800 mm/s", "the right entry point at 450 mm/s" and "left-loop-1200" (the break moves from the second entry closure to the outlane); 3 failed of 18.
+- mutation: AC4 -- rule (e) also arms a flight, so an entry closure arms even while a descent is pending (`shots.ts`) → `test/rules-joust.test.ts`, Matrix "DW-173" red at all three offsets, and `test/rules-devices.test.ts`'s DW-173 rows with it: four shot events where two are expected, the spurious `shot_right_loop_made` on the second orbit's `s_loop_r_out` among them; 37 failed across the two files.
+- mutation: AC5 -- `opens` no longer true for an absent `lastLoop`, so the first Loop "differs" (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Alternate" red (Charges start at 2; awards 50000, 75000, 100000 against 25000, 50000, 75000); 28 failed of 52.
+- mutation: AC5 -- `Math.min(..., chargeMax)` removed (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Cap" red (the eleventh Charge is 11); 2 failed of 52.
+- mutation: AC6 -- `onLoopBroken` keeps `lastLoop` (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Break (re-entry)" red: "the next O_l opens a new chain: Charge 1, paying V" got Charge 2; 6 failed of 52.
+- mutation: AC7 -- `&& entry.fullCharge !== true` removed (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "No re-fire" red (two `joust_full_charge` in the first entry, three in the game), and the Cap row with it; 3 failed of 52.
+- mutation: AC8 -- the `e >= T` stop removed from the tick hook (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Timer" red: no stop triple at t0+T, and none in the `joustMs` 0 row; 5 failed of 52.
+- mutation: AC8 -- Joust pays `loopValue` on `spinner_spin` (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Spinner" red (`expected 25500 to be 500`); 1 failed of 52.
+- mutation: AC9 -- the `scoringOpen()` guard removed from `onEvent` (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Tilt" red (the tilted Loop set `lastLoop`: `[1, 'shot_left_loop']` against `[1, 'absent']`); 1 failed of 52. `awardScore()`'s own gate still withholds the points, so it is the Charge, `lastLoop` and the events this guard protects.
+- mutation: AC9 -- `joust: 'JOUST'` removed from `MODE_DISPLAY_NAMES` (`frame.ts`) → `test/backglass-joust.test.ts` red: the status row is gone from every Joust frame; 6 failed of 11.
+- mutation: AC9 -- `buildFieldsText` prints `String(mode.charge)` (`frame.ts`) → `test/backglass-joust.test.ts` red: every `CHARGE X<n>` row; 7 failed of 11.
+- mutation: AC10 -- the award is `loopValue * (charge - 1)` (`joust.ts`) → `test/rules-joust-integration.test.ts` red: "the score rises by exactly V ..." (`expected +0 to be 25000`), the DMD score row, and both recorded-physics award rows; 4 failed of 11.
+- mutation: AC11 -- the tick hook returns the state without republishing `timerTicks` (`joust.ts`) → `test/rules-joust.test.ts`, Matrix "Ball search" red: `show_dragon_mouth_open` at tick 16600 where none is expected; 7 failed of 52. Re-run at review after the row's runs were lengthened (below): the same seven rows red, 7 failed of 56.
+- mutation: AC12 -- `header.gameStart.tuning.joustMs.value` 60000 changed to 60001 in `test/replays/full-plunge.golden.json` → `test/replay-goldens.test.ts` red: all six `full-plunge` tests throw `StaleReplayHeaderError`; 6 failed of 52.
+
+**Mutations observed at review** (review pass, 2026-10-13, for the rows the review added or changed). Same discipline: applied to the finished tree, the named file run and seen red, then reverted; the hash of `git diff <baseline>` (which covers the four new test files) and of `git status --short` was equal before each mutation and after its revert.
+- mutation: AC1 -- `modeWiring.joustLoops` changed to `['shot_left_loop', 'shot_ramp']` (`dragonwar.ts`) → `test/table.test.ts` red: "Story 3.6 AC1: modeWiring.joustLoops names two declared shots ..." and the new "Story 3.6: every modeWiring.joustLoops shot declares a fallBack signature ..."; 2 failed of 96.
+- mutation: AC2 -- rule (g) breaks but no longer clears the flight (`state.flight = null` removed from the `exits` branch, `shots.ts`) → `test/rules-devices.test.ts`, new Matrix "Break" row "the exit break clears the attempt ..." red (a second `_broken` at the re-entry where a `_made` is expected); 1 failed of 81. No other row saw it: every other exit row ends on the exit.
+- mutation: AC2 -- rule (e) no longer clears the descent (`state.descent = null` removed, `shots.ts`) → `test/rules-devices.test.ts`, new Matrix "Windows" row "the entry closure consumes the descent mark ..." red (no shot event where a `_made` is expected); 1 failed of 81. No other row saw it.
+- mutation: AC5 -- `createJoustMode()` reads the module default `TUNING.loopValue.value` instead of the resolved `tuning.loopValue.value` (`joust.ts`) → `test/rules-joust.test.ts`, new row "the award follows the resolved loopValue ..." red (`expected [ 25000, 50000 ] to deeply equal [ 7, 14 ]`); 1 failed of 56. Every other row stayed green, which is the gap the row closes.
+- mutation: AC7 -- `joust_full_charge` carries a hard-coded `player: 0` (`joust.ts`) → `test/rules-joust.test.ts`, new row 'Matrix "Hot seat", at the cap ...' red; 1 failed of 56. Every other row stayed green.
+- mutation: AC8 -- Joust gains an `onStopping` hook that adds `loopValue` to its player's score (`joust.ts`) → `test/rules-joust.test.ts` red: Matrix "Timer" (the stop tick), Matrix "Ball end" (the drain tick's score change), and the new Slam row; 3 failed of 56.
+- mutation: AC11 -- with the same mutation as above, a scratch probe outside the repository ran the Ball search script at both run lengths: at the old length (17110 ticks) it reads `show_dragon_mouth_open [16600]` and `c_mouth []`, so the row's "no c_mouth" could not fail; at the new length (17610) it reads `c_mouth [17600]`, so it can. Unmutated, both lengths read `[]` and `[]`.
+- mutation: AC12 -- the per-field golden comparison (the third command above) was run on a scratch copy of the five goldens with `expectedHash` changed in one, `transitions` shortened and `loopWindowMs.value` changed in another, and `checkpointTicks` and `rampWindowMs.value` changed in a third → `FAIL`, naming each of the five movements. On the real tree it reads `PASS`.
+
+**Results** (implement stage, 2026-10-13):
+- `pnpm test`: 159 files passed (159), 2623 tests passed (2623), none failed, none skipped. That is 4 more files than the 155-file baseline, not the 5 expected above: the four new files are `test/loop-fall-back-physics.test.ts`, `test/rules-joust.test.ts`, `test/rules-joust-integration.test.ts` and `test/backglass-joust.test.ts`, which is every new file the tasks name.
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm build`, `pnpm check:dist`, `pnpm check:size`: each exits 0.
+- Goldens, JSON-parsed per field against `HEAD` (all five): `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, `checkpointTicks` and `expectedCheckpointHashes` are identical. `header.tableHash` moved (`a0340e8c` to `8c29d2e5`). `header.gameStart.tuning` went from 84 to 92 keys: the eight named in AC 12 were added, and `loopWindowMs`/`loopWindowTicks` changed in `source` only. Nothing else in any header moved.
+- One pin changed by design that the Code Map does not list: `test/backglass-frame.test.ts`, "an unlabelled mode above the skill shot publishing ONLY charge owns the fields line", expected the bare `'3'`; it now expects `'CHARGE X3'`, which is the format the Boundaries set.
+
+**Results** (review pass, 2026-10-13, run by the stage itself on the patched tree; these are the final figures):
+- `pnpm test`: 159 files passed (159), 2632 tests passed (2632), none failed, none skipped. The 9 tests more than the implement stage's 2623 are the review's rows: 4 in `test/rules-joust.test.ts`, 2 in `test/rules-devices.test.ts`, 2 in `test/loop-fall-back-physics.test.ts` and 1 in `test/table.test.ts`.
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`, `pnpm build`, `pnpm check:dist`, `pnpm check:size`: each exits 0.
+- Goldens, JSON-parsed per field against the baseline `9c7d918` (all five): only `header.tableHash`, the eight new tuning keys and the `source` of `loopWindowMs`/`loopWindowTicks` differ. `transitions`, `coilPrologue`, `durationTicks`, `expectedHash`, `expectedGameStateHash`, `checkpointTicks` and `expectedCheckpointHashes` are identical. The review's comment edits in `dragonwar.ts` moved no hash.
+- The first command above expects 5 more test files. There are 4, and the tasks name 4; the 5 was a miscount in this section.
+
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
+
+**Implement and review run (2026-10-13, `bmad-build-auto`, dispatched on this spec at `ready-for-dev`).**
+
+The story is built as validated: every acceptance criterion and every Matrix row has a passing test, and every gate is green. The review's main result is not about the build. It is that the validated fall-back signature misreads some real-physics paths that lie outside the planning sample. Those are recorded as five new `deferred:` items (4 to 8) and are not fixed here. The lead should read "For the lead" below before closing the story.
+
+- **Where it ran.** `C:/git/dragonwar/.worktrees/epic-3` on `DW-1-epic3`, baseline `9c7d9187be1a533afaa939e7cb2a5f6258723821`, tree clean on entry. One implementation subagent, then four review subagents in parallel. None committed or pushed: `HEAD` was still the baseline, and the tree matched the reviewed diff byte for byte, when each returned. The stage applied the review's patches itself.
+
+- **What was built.**
+  - **The tracker.** Both Loops declare a `fallBack` signature in `TABLE.shots`, and `createShotTracker()` applies the eight edge rules of the Boundaries, expiry first and silent. A Loop's `_broken` now means "entered and fell back"; a ball coming down a lane from above, or returning from the Ramp, does not arm it. The Ramp's path is the old code moved, unchanged. DW-288 is built and DW-173 is fixed.
+  - **Joust.** The shell is filled in: Charge 1 at the start, `min(charge + 1, M)` on an alternating Loop, back to 1 on a repeat or a break, `loopValue x charge` paid through `awardScore()`, a `joustMs` timer on `tick - startTick`, `joust_charge_broken` and `joust_full_charge` (once per entry) on the `ModeEvent` channel, all behind `scoringOpen()`.
+  - **Tuning.** Five `unverified` tunables (`joustChargeMax` 10, `loopValue` 25000, `joustMs` 60000, `loopBreakWindowMs` 3000, `loopDescentWindowMs` 2500), and `loopWindowMs`'s source corrected.
+  - **Backglass.** `JOUST` on the status line and `CHARGE X<n>` on the fields line; Joust owns the panel over Hurry-up.
+  - **Goldens.** Headers only, in all five.
+
+- **Files changed** (27, paths from the worktree root).
+  - `src/sim/table/tuning.ts`: the five tunables; `loopWindowMs`'s source.
+  - `src/sim/table/dragonwar.ts`: `fallBack` on both Loops, `modeWiring.joustLoops`, the shots comment (with the review's scoping paragraph).
+  - `src/sim/rules/devices/shots.ts`: the fall-back signature.
+  - `src/sim/rules/devices/events.ts`, `src/sim/rules/devices/index.ts`: comments only.
+  - `src/sim/rules/modes/joust.ts`: the Joust rules.
+  - `src/sim/rules/modes/events.ts`, `src/sim/rules/modes/index.ts`, `src/sim/rules/index.ts`: the two events, their re-exports, `tuning` passed to `createJoustMode()`.
+  - `src/presentation/backglass/frame.ts`: `JOUST` and `CHARGE X<n>`.
+  - `test/rules-joust.test.ts` (new, 56 tests): the Joust Matrix rows, headless.
+  - `test/rules-joust-integration.test.ts` (new, 11): AC 10, from a real Start to the rasterised DMD, and two recorded physics timelines replayed through the rules.
+  - `test/loop-fall-back-physics.test.ts` (new, 20): AC 3 on a real `createMachine()`.
+  - `test/backglass-joust.test.ts` (new, 11): AC 9's Backglass rows.
+  - `test/rules-devices.test.ts`: the DW-133 block rewritten; the tracker's Break, Windows, Non-entry, Exit-clears-descent and DW-173 rows.
+  - `test/tuning.test.ts`, `test/table.test.ts`: AC 1's pins.
+  - `test/rules-devices-headless.test.ts`: `rules-joust.test.ts` joins `ENTRY_FILES`.
+  - `test/backglass-frame.test.ts`: one pin, `'3'` to `'CHARGE X3'` (the Boundaries' format).
+  - `test/util/reachability.ts`: the `plunge-weak-345` label. `test/util/switch-script.ts`: one comment.
+  - `test/replays/*.golden.json` (five): headers only.
+  - This spec.
+
+- **Review findings: 46 from four layers** (every row is in `## Review Triage Log`): high 1, medium 13, low 22, false 9, maybe-false 1.
+  - **Patched: 17 rows, 13 entries (4 medium, 9 low).** All are tests and comments; no production behaviour changed after the review.
+    - Medium: rows that observe the clearing half of rules (e) and (g) (VG1); a row at a non-default `loopValue` (VG2); the Ball search row's "no `c_mouth`" made able to fail, with its positive control (VG3); `joust_full_charge` for player 1 (VG4).
+    - Low: the shots comment scoped to its sample (BH2); the measured figures pinned by equality and the re-measurement comment corrected (BH5, VG8, IA9); `entryExclusive` and the untested branch described as they are (BH10, VG7); a pin that every `joustLoops` shot declares `fallBack` (BH12); a Slam row and a `plunge-weak-345` row (BH13, IA12, BH15); a note naming the three copies of the orbit figures (BH14); a test retitled (BH16); `mutation:` lines for the rows above (VG6).
+  - **Deferred: 12 rows.** Eleven make the five new items; the twelfth (IA1) is the first item, DW-319, and was not filed again.
+    - Item 4 (EC1, BH3, BH4, EC6): a made Ramp slower than `loopDescentWindowMs` breaks the Right Loop; the windows were sized from a sample that is not this tree's extreme.
+    - Item 5 (EC3, EC6): a descending ball that closes the entry switch twice arms and breaks.
+    - Item 6 (BH9, EC2): a descent mark that nothing consumes swallows the next entry.
+    - Item 7 (BH1, VG10, IA10): a ball that passes the far switch and falls back is a made Loop, far more widely than item 3 says.
+    - Item 8 (BH11): once Story 3.3d opens the entries, a field ball crossing an entry switch may read as a broken Loop. Not verifiable at this tree.
+  - **Rejected: 17 rows.**
+    - BH6, EC4 (`loopBreakWindowMs` below `loopWindowMs`) and BH7, EC5 (`joustChargeMax` at 0, 1 or a fraction): only a mis-tuned dev panel reaches either, and each fix is a guard the contract does not state.
+    - BH8 (two `_broken` from one attempt): the rules as written; no measured fall-back does it, and in Joust the second break changes nothing.
+    - VG9 (plunge holds hard-coded in the physics file): reading them needs a new export from a shared helper.
+    - IA2 (physics, rules and presentation never composed): AC 10 asks for what the diff does, and no real input can reach a Joust Loop (DW-319).
+    - IA11 (hand-typed priority and timers in the Backglass test): fixture literals, as in Story 3.5's file.
+    - False, nine rows: VG5 (the Tilt score assertion is `awardScore()`'s pin, not the guard's); IA3 (AC 2 puts the tracker rows at the devices layer); IA4 and IA14 (Rule 19 puts the `mutation:` lines, arrows included, in this file); IA5 (the Boundaries give a repeat no event); IA6 (the stop triple and `ball_ended` travel on separate channels); IA7 (the injected entry and the type guard follow 3.2 and 3.5); IA8 (a second Joust entry needs the extra setup); IA13 (each unnamed change is in the Code Map or follows from a Boundaries clause).
+
+- **Follow-up review recommended: true.** Four medium entries were patched on a first pass (0 high, 4 medium, 9 low). The specific unverified risk: nothing the stage added at triage has been seen by a review layer. Each new pinning row was watched red under its named mutation, so the risk is in what was not mutated: the Slam row and the lengthened Ball search runs rest on lifecycle and search timing the layers did not read (search slots 9 and 10 now fall inside the run), and the paragraph added to the `TABLE.shots` comment restates review measurements in source.
+
+- **Verification performed** (by the stage, on the final tree).
+  - `pnpm test`: 159 files, 2632 tests, all passed, none skipped. The baseline was 155 files and 2500 tests.
+  - `pnpm typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`, `build`, `check:dist`, `check:size`: each exits 0.
+  - Goldens, parsed per field against the baseline: only `header.tableHash`, the eight new tuning keys and the `source` of `loopWindowMs`/`loopWindowTicks` differ. `expectedHash`, `expectedGameStateHash`, `transitions` and `checkpointTicks` are identical in all five. The comparison itself was watched red on a mutated copy.
+  - Matrix Test Audit: all 16 rows have a covering test that ran and passed.
+  - Mutations: 20 at implement and 8 at review, each recorded under `## Verification`.
+  - No contended path is in the diff; no non-ASCII byte is in any changed source, test or golden file.
+
+- **Residual risks.**
+  - The five new deferred items. By real input none of them changes any state at this tree: no real shot makes a Loop (DW-319), so the Charge stays 1, and a false break only emits a `joust_charge_broken{charge: 1}` that nothing reads yet. They become lost Charges, unpaid Loops and unearned awards once a Loop can be made.
+  - Every physics input in this story is a teleported launch, a recorded-and-replayed one, or a real plunge or serve. None is a flipper shot.
+  - The exact-tick physics pins (223, 1759, 2618, 3568, 1372, 1281, 582, 640, 946, 1141) go red when the collision geometry moves. That is their purpose: it is the signal to re-measure.
+  - The per-shot (not per-ball) tracker state and the Loops' untested `entryExclusive` branch stand as recorded (item 2; the `shots.ts` header).
+
+- **For the lead.**
+  - **A decision that is yours, not this stage's** (Rule 5, ask-first tier; Rule 20). Items 4 to 6 show the validated signature gives false breaks and swallowed entries on real-physics paths, and item 4's measured Ramp return (2804 ticks) contradicts two things the planning recorded as measured: the `source` of `loopDescentWindowMs`, and AD-19's 2026-09-30 sentence "no false break on a made Loop or a non-entry path". The stage did not halt, for four reasons: every criterion passes as validated; the implementation contradicts no AD Rule; the dispatch says to build the story exactly as validated; and none of the misreads changes state by real input until a Loop entry is open. It also did not touch the three tuning sources or the spine: a source correction re-records all five golden headers (AD-15), and the fix to the rule is a design choice (a longer window only narrows the slow-return band, because the return time has no upper bound near the Ramp's make threshold). Recommended: route items 4 to 8 to Story 3.3d, which moves the lane geometry these figures were measured on, and correct AD-19's sentence and the sources there. If you would rather amend the signature now, the items carry the recipes.
+  - **Product note, not a finding.** A Charge lost to a repeated Loop emits no event; only a broken Loop emits `joust_charge_broken`. That is the Boundaries' wording. The first presentation reader of that event will not hear about repeats.
+  - **AD-7.** `shots.ts` holds a second closure field, `fallBackStates`: at most one flight and one descent per Loop, both expiring on the clock, reproducible from tick 0. It meets AD-7's bar; the spine's inventory is yours to re-derive.
+  - **Footprint extensions** (uncontended, as the Design Notes forecast): `src/presentation/backglass/frame.ts`; under `test/**`, the four new files, `rules-devices.test.ts`, `rules-devices-headless.test.ts`, `tuning.test.ts`, `table.test.ts`, `backglass-frame.test.ts`, `util/reachability.ts`, `util/switch-script.ts`.
+  - **Spec bookkeeping.** `## Verification` expected 5 new test files; the tasks name 4 and 4 exist.
+  - **What was written.** One local commit on `DW-1-epic3`: the reviewed diff and this spec. Nothing was pushed.
 
 **Planning run (2026-09-30, `bmad-build-auto`, halt after planning).**
 - **Where it ran.** Planned at `c98dd0af1505b6f8258f14dff502a7cc491a89ad` on `DW-1-epic3`. The worktree was verified as `C:/git/dragonwar/.worktrees/epic-3`, and the tree was clean on entry.

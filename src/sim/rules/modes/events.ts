@@ -16,6 +16,7 @@
 // the tick. `./lifecycle.ts` is their only producer.
 
 import { TABLE } from '../../table/dragonwar';
+import type { ShotName } from '../../table/names';
 
 /** `TABLE.laneWiring`'s own `set` field, derived -- `'top' | 'inout'` at this tree, never a second hand-typed union (DW-149): a future lane set widens this automatically, with no edit here. */
 export type LaneSetName = (typeof TABLE.laneWiring)[keyof typeof TABLE.laneWiring]['set'];
@@ -69,9 +70,39 @@ export interface HurryUpCollectedEvent {
 }
 
 /**
+ * Story 3.6 (FR-36): Joust's Charge was broken -- fired on the tick a
+ * `shot_<loop>_broken` reaches a running Joust, even at Charge 1. `player` is
+ * the Joust entry's own player, `shot` the Loop that was broken, and `charge`
+ * the Charge that was lost (the Charge is 1 again from this tick). Like
+ * `hurryup_collected` it has NO `mode` field, so the filters that read
+ * `'mode' in event` to find lifecycle events never count it, and it stays on
+ * this channel, off `SemanticEvent`, until a presentation reader exists.
+ */
+export interface JoustChargeBrokenEvent {
+	readonly type: 'joust_charge_broken';
+	readonly player: number;
+	readonly shot: ShotName;
+	readonly charge: number;
+	readonly tick: number;
+}
+
+/**
+ * Story 3.6 (FR-36): a made Loop took Joust's Charge to `joustChargeMax` --
+ * fired at most once per Joust entry, on that Loop's own tick, after its
+ * award. `player` is the Joust entry's own player. No `mode` field, and off
+ * `SemanticEvent`, for the same reasons as `joust_charge_broken`. Story 3.10
+ * reads it from `RulesStepResult.modeEvents` for the Extra-ball achievement.
+ */
+export interface JoustFullChargeEvent {
+	readonly type: 'joust_full_charge';
+	readonly player: number;
+	readonly tick: number;
+}
+
+/**
  * The mode stack's whole event vocabulary (AD-19/AD-9): a mode never emits a
  * `SwitchEvent`, a raw `DeviceEvent` or a `CoilCommand` (AD-8: "it never
  * emits a CoilCommand"), and this union is never merged into the closed
  * `SemanticEvent` union presentation reads.
  */
-export type ModeEvent = LanesCompletedEvent | ModeLifecycleEvent | HurryUpCollectedEvent;
+export type ModeEvent = LanesCompletedEvent | ModeLifecycleEvent | HurryUpCollectedEvent | JoustChargeBrokenEvent | JoustFullChargeEvent;

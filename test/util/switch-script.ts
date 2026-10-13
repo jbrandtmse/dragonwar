@@ -250,8 +250,9 @@ export function assertModesChangedOnlyByLifecycle(before: GameState, after: Game
 		add(entry.mode, entry.player, 1);
 	}
 	for (const event of modeEvents) {
-		// Only the lifecycle events carry `mode`: `lanes_completed` and (Story
-		// 3.5) `hurryup_collected` change no count.
+		// Only the lifecycle events carry `mode`: `lanes_completed`, (Story
+		// 3.5) `hurryup_collected` and (Story 3.6) `joust_charge_broken` /
+		// `joust_full_charge` change no count.
 		if (!('mode' in event)) {
 			continue;
 		}

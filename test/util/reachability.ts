@@ -114,7 +114,7 @@ const WITNESSES: readonly WitnessRecipe[] = [
 	},
 	{
 		id: 'plunge-weak-345',
-		label: 'a partial-strength manual plunge (hold 345 ticks, below plungerMaxHoldTicks = 500) -- too weak to complete the crossing, so it enters the Left Loop lane, climbs partway (closing s_spinner and s_loop_l_in) and falls back down the same lane through the entry column -- the witness for the Left Loop entry offsets',
+		label: 'a partial-strength manual plunge (hold 345 ticks, below plungerMaxHoldTicks = 500) -- at this tree it still crosses the top, then descends the Left Loop lane from above (closing s_loop_l_out, then s_loop_l_in) through the entry column and leaves by the left outlane (s_outlane_l) -- the witness for the Left Loop entry offsets',
 		settleTicks: 320,
 		plungeHoldTicks: 345,
 		ticksAfterRelease: 5500,

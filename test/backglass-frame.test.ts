@@ -1646,7 +1646,9 @@ describe('Story 3.1 (DW-206) -- the highest-priority mode with something to show
 				]),
 			}),
 		);
-		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', '3']);
+		// Story 3.6 (FR-36): the Charge prints as `CHARGE X<n>` -- it was a bare
+		// number until Joust gave the field its first real publisher.
+		expect(frame.rows.map((r) => r.text)).toEqual(['0', 'BALL 1', 'CHARGE X3']);
 		expect(frame.rows.some((r) => r.text === 'ARM YOURSELF')).toBe(false);
 	});
 
