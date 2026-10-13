@@ -196,6 +196,53 @@ deferred:
   - `git diff` over `src/sim`, `test/replays`, `public/assets`, `assets/src` and `tools/make-placeholder-blend.py` is empty.
   - Every golden matches the baseline field by field.
 
+### Review Findings
+
+Code review, 2026-10-13 (the story's first independent review; `bmad-code-review`, four read-only layers at the full-opus tier: blind hunter, edge-case hunter, verification gap, acceptance auditor). Diff: `c9754b3..HEAD` plus QA's uncommitted work. Row ids are prefixed `CR-` so they cannot be confused with the 2026-10-13 implement-stage pass in the Review Triage Log. 46 rows, 21 root-cause entries: 0 high, 3 medium, 18 low. Each entry carries Rule 15's fields as `(severity; fix-risk + why; footprint; spec-status)`. Mutation ids (`M1`...) are the runs recorded under Verification, "Mutation results (code review, 2026-10-13)".
+
+- [x] [Review][Patch] The wiring scan pins the fold's text and order, not that it runs unconditionally: `if (sequencesEnabled) sequenceView = advanceSequences(...)` left all four cases green (`M1`), which freezes the timeline under the negative control and falsifies the hatch's own JSDoc (CR-VG-1) (medium; fix-risk low: test-only; in-story; spec-clear) [test/boot-backglass-sequences-wiring.test.ts:79]
+- [x] [Review][Patch] The future-key case read its expected art from the map under test: with the War-start and Jackpot frames swapped behind their keys the unit file stayed 99/99 green (`M8`), so "its sequence is selected" (AC 2) held for the key and not for the art (CR-VG-4, CR-BH-9, CR-AA-3) (medium; fix-risk low: test-only; in-story; spec-clear) [test/backglass-sequences.test.ts:378]
+- [x] [Review][Patch] The scan's reading of `boot.ts` could hide a writer: block comments were stripped before line comments (a `host/**` glob inside a `//` line opens a false block comment), text in a trailing comment counted as live, and writers were listed by the literal ` = ` only. A fourth writer in `onFrame` (`M3`), the restore moved into a trailing comment (`M4`) and a compound write after the restore (`M5`) each left the file green (CR-BH-1, CR-VG-2, CR-ECH-3) (low; fix-risk low: test-only; in-story; spec-clear) [test/boot-backglass-sequences-wiring.test.ts:37]. The strip order was copied from `test/boot-mechanisms-wiring.test.ts` (Story 5.0a, in-epic), where the same trap is a false red: one harmless block comment added to `boot.ts` below the render hook turned 3 of its 7 cases red. That file's strip was reordered too (four lines; a low two-way door in the epic's footprint), and it still goes red on a commented-out `syncMechanisms` call.
+- [x] [Review][Patch] Nothing pinned that the tuning panel and the replay player are handed the reset wrapper, which the hatch's new JSDoc promises: `createTuningPanel({ hostLoop: liveHostLoop, ... })` left the file green (`M6`) (CR-VG-3) (low; fix-risk low: test-only; in-story; spec-clear) [test/boot-backglass-sequences-wiring.test.ts:114]
+- [x] [Review][Patch] `expect(typeAt).toBeGreaterThan(-1)` repeats `toContain(STATE_TYPE)` five lines above and cannot fail on its own (CR-BH-4) (low; fix-risk low: deletion; in-story; spec-clear) [test/boot-backglass-sequences-wiring.test.ts:107]
+- [x] [Review][Patch] A test comment says the replay player calls the reset seam with no options; it passes `{ tuning }` (`src/host/dev/replay-player.ts:122`). The no-option callers are the `reset()` hatch and `replayRecorder.start()` (CR-ECH-R1, CR-VG-O1) (low; fix-risk low: comment; in-story; spec-clear) [test/boot-backglass-sequences-wiring.test.ts:118]
+- [x] [Review][Patch] A zero-width mask (`parseSprite('x', [''])`) was unpinned: with `|| width === 0` dropped from the empty-mask guard the unit file stayed 99/99 green (`M9`) (CR-BH-6, CR-VG-M9) (low; fix-risk low: one test input; in-story; spec-clear) [test/backglass-sequences.test.ts:251]
+- [x] [Review][Patch] The no-font scan matched only `from './font'` and had no positive in the file (CR-BH-15, CR-ECH-4) (low; fix-risk low: test-only; in-story; spec-clear) [test/backglass-sequences.test.ts:232]
+- [x] [Review][Patch] The clamped-length case's positive assumed the probed dot is unlit without the art; its neighbour checks that, this one did not (CR-BH-16) (low; fix-risk low: one assertion; in-story; spec-clear) [test/backglass-sequences.test.ts:290]
+- [x] [Review][Patch] `withDot()`'s `region` parameter is an orphan: the region-clipping case rewritten on 2026-10-13 was its only caller that passed one (CR-AA-2) (low; fix-risk low: test-only; in-story; spec-clear) [test/backglass-sequences.test.ts:272]
+- [x] [Review][Patch] The cold-boot case's keys-screen loop had no count and could run zero times (CR-VG-O2) (low; fix-risk low: one assertion; in-story; spec-clear) [test/backglass-sequences.test.ts:583]
+- [x] [Review][Patch] "No Attract frame adds a text row" never asserted that art was composed, so it also passed with nothing composed (CR-VG-O3) (low; fix-risk low: one assertion; in-story; spec-clear) [test/backglass-sequences.test.ts:666]
+- [x] [Review][Patch] The unit and wiring headers still name only the integration file as the real-loop half; QA's real-game file is the one that passes the real `ViewConfig` and a real `createHostLoop().reset()` (CR-BH-8, CR-AA-3) (low; fix-risk low: comments; in-story; spec-clear) [test/backglass-sequences.test.ts:6]
+- [x] [Review][Patch] The real-game file asserts "timed from event.tick" in five runs with no sanity that the event lands inside its frame, and no `mutation:` line. Run now: `startTick = snapshot.tick` is red in all five (5278 against 5284, 4378 against 4388), so the claim does discriminate; the sanity and the line were missing (CR-BH-7) (low; fix-risk low: one assertion; in-story; spec-clear) [test/backglass-sequences-real-game.test.ts:197]
+- [x] [Review][Patch] Two comments in the real-game file overstate: "as the tuning panel's hot-apply does" (the call also passes `gameStart`, which no shipped caller does) and "authored from the spec" (the frame counts and holds are the as-built art's; the intent only bounds them) (CR-ECH-R2, CR-VG-O6) (low; fix-risk low: comments; in-story; spec-clear) [test/backglass-sequences-real-game.test.ts:32]
+- [x] [Review][Patch] "The in-game strip: rows 24-31, below the text" is untrue at 2-4 players, where the fields line sits on row 24 (the DW-320 layout) (CR-BH-10) (low; fix-risk low: comment only, no dot, placement or hold changes; in-story; spec-clear) [src/presentation/backglass/dmd-art.ts:278]
+- [x] [Review][Patch] `activeSequenceFrame()`'s JSDoc lists four reasons for `null`; the code has two more: a key the map does not hold, and a tick that is not a finite number (run on the real function: a fractional tick still returns its frame, so the edge-case layer's "non-integer" was half right) (CR-BH-12, CR-ECH-R3) (low; fix-risk low: comment; in-story; spec-clear) [src/presentation/backglass/sequences.ts:148]
+- [x] [Review][Patch] `rasterise()`'s JSDoc still describes the glyph pass only (CR-BH-13) (low; fix-risk low: comment; in-story; spec-clear) [src/presentation/backglass/raster.ts:44]
+- [x] [Review][Patch] Rule 19: the wiring order case and the invalid-character case had no `mutation:` line (CR-VG-5) (low; fix-risk low: tracking lines; in-story; spec-clear) [_bmad-output/implementation-artifacts/spec-5-5-backglass-art-and-dmd-frames.md, Verification]
+- [x] [Review][Defer] After a `reset()` taken from a post-game Attract the Backglass keeps the old Attract origin (CR-ECH-1, CR-ECH-2, CR-ECH-R4; QA's report 1) (low; fix-risk med: the one-line seam fix invalidates QA's restarted-timeline case and a `mutation:` line, and reverses Story 2.13's choice to let the view outlive a reset; in-story; not a two-way door) [src/presentation/backglass/frame.ts:592, src/host/boot.ts:478] — deferred: pre-existing (Story 2.13; byte-identical at `c9754b3`), closed `wontfix-accepted` as **DW-327**. Established by execution, not only by trace: on the real folds, with Attract entered at tick 20000 and then a reset, the screen is PRESS START at ticks 0-19984 (fresh views show the keys screen at 0-2992), the keys screen at 20000-22992, and PRESS START after; the first half also runs over a real `createHostLoop().reset()` in QA's restarted-timeline case. Reach: `__dragonwarBoot.reset()`, `replayRecorder.start()`/`play()` and a tuning hot-apply, all behind the dev console; no key and no shipped UI resets the loop. The sequence code adds nothing wrong on top: the stale sequence is dropped, Attract restarts at the new tick 0, shows nothing on the keys screen and restarts at the next prompt. `reopen_if`: `hostLoop.reset()` becomes reachable without the dev console. The comment in `boot.ts` that called `backglassView` self-correcting now names this one exception.
+- [x] [Review][Defer] The text-priority mask is never exercised by the real pipeline: with the mask skipped in `rasterise()` the real-game file stays 9/9 green (`M10`), because Attract and Match art never meet a text box; it bites only on the 2-4-player score layout, which no real event reaches yet (CR-VG-M10, CR-AA-R; QA's report 3) (medium; fix-risk med; in-story; spec-bound product call) [src/presentation/backglass/sequences.ts:57] — deferred: same root cause as **DW-320** (`decision-pending`); an occurrence was appended, nothing new was filed.
+
+Rejected (13 rows):
+- CR-BH-2 (the wiring file has no in-file negative controls) — low: the scanners' falsifiability is recorded by Rule 19's own instrument (every assertion of that file has now been watched red, see Verification); rebuilding the file around mutated copies is a refactor, not a correction.
+- CR-BH-3 (`squash`'s comment promises more than the code does) — false: it promises that re-indenting a call or joining its arguments cannot break a match, and both hold; the hunter's example is a WRAP, which fails loudly red, never silently green.
+- CR-BH-5 (three "shown/drawn" assertions sit under a stronger "selected" one) — false: they pin the other half of "never select or draw". A compositor that drew Match on `game_over` without consulting the selection would leave every `active` assertion green and turn exactly these red.
+- CR-BH-11 (`length: 10` and `/ 9` must change together) — low: a longer Match overshoots the panel and the containment case catches it; a shorter one stops short of the edge, which is a visible art change and no defect. Not worth an edit to the art-authoring code.
+- CR-BH-14, CR-ECH-R5 (the "must fit inside the hold" constraint and two exports serve tests only) — false: the intent contract asks for exactly this (export the constant; the lengths case enforces it). A load-time throw would guard a state the authored data cannot reach.
+- CR-BH-17 (two `boot.ts` comments about what `reset()` clears omit the new flag) — low: incomplete, not false; both point at the wrapper, and the hatch's JSDoc states it.
+- CR-ECH-R6 (panel-size literals in `dmd-art.ts`), CR-ECH-R7 (the setter hatch stores its argument unchecked) — already adjudicated as BH-14 and BH-3 in the Review Triage Log; no new evidence, and this review concurs.
+- CR-VG-5b (seven more cases have no `mutation:` line) — Rule 19 asks for one demonstrated mutation per AC, not per assertion. Three of them were demonstrated anyway while their cases were open (the empty mask, the clamped length, the invalid character).
+- CR-VG-O4 (the "composed onto an empty host frame" negative is weak) — false as a defect: it is a consistency case with its own positive; region clipping is pinned by the region-clipping case.
+- CR-VG-O5 (no authored sprite reaches the glyph comparison) — adjudicated as BH-9/VG-V3; AC 3's literal wording. Independently re-checked here: the positive control uses the same comparator, and a comparator packing LSB-first fails it.
+- CR-AA-1 (a malformed sprite would throw at module load, before the error panel exists) — false as a defect: the intent contract mandates the module-load parse, and no build that passes its own suite can carry a malformed sprite (every test file importing the module fails first). The general gap, no error path before `onBegin`, is DW-20 (routed to Story 6.1).
+
+Independent read of the four medium patches of 2026-10-13 (`followup_review_recommended`): all four hold.
+- (a) the events-stripped control: Match selected once on `phase === 'game_over'` with no event is red at tick 4274 on "events stripped, Match is never selected" (re-run here). The control folds real frames with `events: []` and asserts `active` on every frame; no hole found.
+- (b) the wiring scan's tightening: the helper comments are true, every parameter is used, both hatch bodies and the `rasterise` argument list are matched whole. What it still missed is the first, third and fourth patch entries above.
+- (c) the glyph control: the same comparator as the negative; LSB-first packing fails it (re-run here).
+- (d) the ragged-row case: with the width throw disabled it is red on the longer row (re-run here).
+
+Rules checked: Rule 1 and 2 (Integration AC, Consumes/Consumed-by: present); Rule 3 (real-runtime evidence: the lead's Chrome capture for AC 4 against build `2c6e3ca`, with `setBackglassSequencesEnabled(false)` as its named falsifier, plus QA's real-pipeline file; this review's `src` patches are comments only, so that capture still describes the reviewed build); Rule 5 (no NFR is involved); Rule 6 (AD-1, AD-3, AD-4, AD-9, AD-16 and the Conventions rows Events, Errors, Config, Assets, Licence headers and Backglass sequences: no mismatch); Rule 8 (QA's file is in the default suite); Rule 14 (zero non-ASCII and zero CR bytes in the story's source and test files).
+
 ## Spec Change Log
 
 - 2026-09-30 (lead spec gate, epic-runner-5): accepted the plan's Attract reading and applied it to `epics.md` Story 5.5 AC 2 as an `[AMENDED 2026-09-30]` apply-and-report amendment (no Attract event exists; presentation starts the Attract sequence on the PRESS START screen under `mode_attract_started`). Rule 20: the event-keyed sequence map, the plain-string names for Epic 3's not-yet-declared events, and the draw-region rule were written into the spine as the Consistency Conventions row 'Backglass sequences' so Epic 3 declares the events under the same names. Story 4.5's block is not edited here (Epic 4's; the orchestrator writes its bullet post-merge).
@@ -384,6 +431,51 @@ The list below is the current one (rewritten 2026-10-13; every line was demonstr
 - AC 4 (lead): the negative control is `setBackglassSequencesEnabled(false)`.
 - AC 5: a command check with no test, so no tree mutation exists for it (`src/sim` may not be touched, even to prove a point). Each instrument has a positive control instead: the same `git diff --exit-code` form over `src/host` must exit 1, and the golden comparer must report an in-memory tamper.
 
+**Test files added by QA (2026-10-13):**
+- `test/backglass-sequences-real-game.test.ts` (QA) -- 9 cases over the real pipeline in `boot.ts`'s `onFrame` order (real `createLoop` / real `createHostLoop`, `advanceBackglass`, `advanceSequences`, `renderFrame` with the real `ViewConfig`, `composeSequence`, `rasterise`). It pins the I/O rows that had synthetic-frame coverage only: "Attract with scores" and "Match" after real 2-, 3- and 4-player games; "Off-host screen" with a real `match_drawn` inside a real end-of-ball hold (`matchDelayMs` retuned below the 3 s hold); "Restarted timeline" through a real `createHostLoop().reset()`.
+- `test/boot-backglass-sequences-wiring.test.ts` (edited by QA, no new case): the reset-seam case now also requires the restore to be unconditional.
+
+**Mutations added by QA (2026-10-13; "real-game" is `test/backglass-sequences-real-game.test.ts`; every line was demonstrated, see "Mutation results (QA, 2026-10-13)"):**
+- AC 2 (selection and timing):
+  - `mutation: restart a sequence at the frame its host screen appears → the real-game off-host cases red (lead-in 1 s: frame 0 instead of frame 8; lead-in 100 ms: art on game_over)`
+  - `mutation: start Attract only when it is not already the active sequence → the real-game "Attract with scores" case red at the second PRESS START phase, at 2, 3 and 4 players`
+  - `mutation: drop "|| restarted" from the Attract trigger → the real-game restarted-timeline case red (no art on PRESS START after the reset)`
+  - `mutation: never detect a restarted timeline (restarted = false) → the real-game restarted-timeline case red at the first reset`
+- AC 2 (legibility):
+  - `mutation: drop the host-screen check in activeSequenceFrame → the real-game "Attract with scores" case red (the attract_scores raster differs from the baseline) and both off-host cases red (art on ball_ended)`
+  - `mutation: declare Match repeating → the real-game Match case red at "no art after the Match window", at 2, 3 and 4 players`
+- AC 2 (wiring, integration):
+  - `mutation: make the reset seam's restore conditional (if (resetOptions !== undefined) sequencesEnabled = true;) → the wiring reset-seam case red` (GREEN before QA's patch to that case)
+  - `mutation: wrap the seam's last two statements in if (resetOptions !== undefined) { ... } → the wiring reset-seam case red`
+  - `mutation: an early return above the restore (if (resetOptions === undefined) return;) → the wiring reset-seam case red`
+  - `mutation: drop sequencesEnabled = true from the reset seam → the wiring reset-seam case red` (the existing line, re-demonstrated against the patched case)
+
+**Mutations added by code review (2026-10-13; every line was demonstrated, see "Mutation results (code review, 2026-10-13)"; "order case" is the wiring file's first case, "reset-seam case" its fourth):**
+- AC 1:
+  - `mutation: drop "|| width === 0" from parseSprite's empty-mask guard → the unit empty-mask case red` (GREEN before this review's patch)
+  - `mutation: disable the invalid-character throw in parseSprite → the unit "a character other than # and . throws" case red`
+  - `mutation: import the font into sequences.ts through './font.js' → the unit no-font case red`
+- AC 2 (selection and timing):
+  - `mutation: swap the War-start and Jackpot frames behind their keys → the unit future-key cases of war_started and jackpot_awarded red` (GREEN before this review's patch)
+  - `mutation: give match_drawn ten Jackpot frames of the same timing → the unit Match timing case red at its sprite-name assertion`
+  - `mutation: startTick = snapshot.tick → the real-game Match case red at 2, 3 and 4 players, and both off-host cases red`
+- AC 2 (legibility):
+  - `mutation: build the protected box from the unclamped text length → the unit clamped-length case red`
+- AC 2 (wiring, integration):
+  - `mutation: gate the fold on the negative control (if (sequencesEnabled) sequenceView = advanceSequences(...)) → the wiring order case red` (GREEN before this review's patch)
+  - `mutation: fold only on the PRESS START screen (if (backglassView.screen === 'attract_prompt') ...) → the wiring order case red`
+  - `mutation: an early return above the fold (if (output.events.length === 0) return;) → the wiring order case red`
+  - `mutation: fold the sequences before the Backglass view (swap the two statements) → the wiring order case red`
+  - `mutation: a fourth writer in onFrame followed by a block comment (sequencesEnabled = false; /* A/B */) → the wiring reset-seam case red` (GREEN before this review's patch)
+  - `mutation: move the seam's restore into a trailing comment (void 0; // ... sequencesEnabled = true;) → the wiring reset-seam case red` (GREEN before this review's patch)
+  - `mutation: a compound write after the restore (sequencesEnabled &&= resetOptions !== undefined;) → the wiring reset-seam case red` (GREEN before this review's patch)
+  - `mutation: the seam calls the setter hatch after the restore → the wiring reset-seam case red`
+  - `mutation: hand the tuning panel the unwrapped loop (hostLoop: liveHostLoop) → the wiring reset-seam case red` (GREEN before this review's patch)
+  - `mutation: hand replay playback the raw loop (replayPlayer.start(hostLoop, recording)) → the wiring reset-seam case red`
+  - `mutation: replayRecorder.start() resets the raw loop (hostLoop.reset()) → the wiring reset-seam case red`
+- AC 3:
+  - `mutation: composeSequence composes nothing on the PRESS START screen → the unit "no Attract frame adds a text row" case red at its positive` (the positive is new: the case passed with nothing composed)
+
 **Manual checks:** AC 4, run by the lead in Chrome.
 
 **Results (implement, 2026-09-30; new files `git add -N` so the tracked-file gates see them) — SUPERSEDED 2026-10-13. Kept as the record of the first pass; it predates the later test edits and is not evidence. The current results are the two "review, 2026-10-13" blocks below.**
@@ -449,6 +541,78 @@ The list below is the current one (rewritten 2026-10-13; every line was demonstr
   - `composeSequence appends a text row` -> unit red: "no Attract frame adds a text row" and 45 legibility cases (46).
   - `draw coin as the font's R glyph` -> unit red: the glyph case, `[['coin', 'R']]` (1).
   - `the test's glyph comparator packs LSB-first` -> unit red: its positive control (1). The earlier control, built from the symmetric `'A'`, could not have seen this.
+
+**Results (QA, 2026-10-13; the new file `git add -N` so the tracked-file gates see it; nothing committed):**
+- `pnpm typecheck` green; `pnpm lint:boundaries` OK (115 files, no violations); `pnpm check:headers` OK; `pnpm check:attributions` OK.
+- `pnpm test`: 142 files / 2312 tests passed, none failed (141 / 2303 before QA: one new file, nine new cases; the wiring file still has 4).
+- Rule 14: zero non-ASCII bytes and zero CR bytes in `test/backglass-sequences-real-game.test.ts` and `test/boot-backglass-sequences-wiring.test.ts` (byte count).
+- No file under `src/**` was edited by QA. `git status --short` after the last mutation: the cycle log (the lead's), this spec, the new test file and the wiring test.
+- What stays outside the suite: `boot.ts` cannot be imported headlessly, so the reset seam's flag is still pinned by source text (now including "unconditional") and by nothing executed. The behaviour the seam's comment relies on -- `advanceSequences()` dropping a sequence from an earlier tick count, and restarting Attract when PRESS START outlives the reset -- IS now executed, over a real `createHostLoop().reset()`. Rendered pixels remain AC 4.
+
+**Mutation results (QA, 2026-10-13; Rule 19).** Each mutation ran alone inside ONE shell command, with the same discipline as the review pass: record `git diff | sha256sum`, `git status --short | sha256sum` and the target's sha256; copy the target to a backup outside the worktree; install a restore trap; apply the edit (refused unless each anchor matches exactly once); run the one test file; restore; compare all three hashes. Every run ended "identical" (`ab79141d…` before the wiring test was edited, `17222785…` after). The six `sequences.ts` runs below are on the final bytes of the real-game file.
+- Against `test/backglass-sequences-real-game.test.ts` (9 cases):
+  - `drop the host-screen check in activeSequenceFrame` -> red, 5 of 9: "Attract with scores" at 2, 3 and 4 players (476, 407 and 370 dots differ from the baseline on the first `attract_scores` frame), and both off-host cases (32 dots on `ball_ended`).
+  - `start Attract only when it is not already the active sequence` -> red, 3 of 9: "Attract with scores" at 2, 3 and 4 players, at phase 1's start tick. The shown frame is the same either way (the 6 s prompt/scores cycle is two whole loops of the 3 s sequence), so this row is pinned on the start tick, as the unit case pins it.
+  - `restart a sequence at the frame its host screen appears` -> red, 2 of 9: lead-in 1 s (`index: 0` against `index: 8`) and lead-in 100 ms (32 dots on `game_over` at tick 7300).
+  - `drop "|| restarted" from the Attract trigger` -> red, 1 of 9: the restarted-timeline case, at "the panel shows frame 0 again" (the raster after the reset has no art).
+  - `never detect a restarted timeline` -> red, 1 of 9: the restarted-timeline case, at the first reset ("a sequence that started ahead of the restarted count is dropped").
+  - `declare Match repeating` -> red, 5 of 9: the Match case at 2, 3 and 4 players ("no art after the Match window") and both off-host cases.
+- The same four `sequences.ts` mutations against the EXISTING `test/backglass-sequences-integration.test.ts`, to measure what the new file adds: `drop the host-screen check`, `start Attract only when it is not already active`, `restart a sequence at the frame its host screen appears` and `drop "|| restarted"` each left it GREEN (2 passed). Before QA those four were held by synthetic-frame unit cases only.
+- Against `test/boot-backglass-sequences-wiring.test.ts` (4 cases):
+  - `make the reset seam's restore conditional` -> GREEN, 4 passed, on the file as received: `toContain('sequencesEnabled = true;')` and the writers list both still match `if (resetOptions !== undefined) sequencesEnabled = true;`, under which the `reset()` hatch and replay playback (no options) would keep the negative control off. The case was patched (the restore must follow a finished statement, sit inside no nested block, and have no `return`/`throw` above it); re-run -> red, 1 of 4.
+  - `wrap the seam's last two statements in if (...) { ... }` -> red, 1 of 4, on the nesting assertion alone.
+  - `the restore alone inside if (...) { ... }` -> red, 1 of 4.
+  - `an early return above the restore` -> red, 1 of 4, on the early-exit assertion alone.
+  - `drop sequencesEnabled = true from the reset seam` -> red, 1 of 4 (unchanged from the review pass).
+
+**Results (code review, 2026-10-13; the patched tree; QA's new file still `git add -N`; nothing committed):**
+- `pnpm typecheck` green; `pnpm lint:boundaries` OK (115 files, no violations); `pnpm check:headers` OK; `pnpm check:attributions` OK.
+- `pnpm test`: 142 files / 2312 tests passed, none failed, none skipped (the counts QA left: this review added assertions to existing cases and no new case). The story's files: unit 99, integration 2, real-game 9, wiring 4; `boot-mechanisms-wiring` 7. The sha256 of `git diff` over everything outside `_bmad-output` was `e347a7d8…` before and after that run.
+- AC 5 re-checked on the final tree: `git diff --exit-code c9754b358d00b268d1b699f07dc0e647ec718e4d -- src/sim test/replays public/assets assets/src tools/make-placeholder-blend.py` exits 0 and `git status --short` over those paths is empty; the same form over `src/host` exits 1. Goldens, JSON-parsed and compared field by field with `git show c9754b3:<file>`: 5 goldens, 77 top-level and `header` fields, 0 differing; an in-memory tamper of `expectedHash` is reported.
+- This review's changes under `src` are comments only: of the lines changed there since `2c6e3ca`, none is a non-comment line (counted mechanically). So the build the lead captured for AC 4 is still the build under review. `package.json`, the lockfile and `ATTRIBUTIONS.md` are untouched by this review; no dot, placement or hold of `dmd-art.ts` changed.
+- Rule 14: zero non-ASCII and zero CR bytes in the story's five source files and four test files, and in `test/boot-mechanisms-wiring.test.ts` (byte count).
+
+**Mutation results (code review, 2026-10-13; Rule 19).** Each mutation ran alone inside ONE shell command, by a script kept outside the worktree: record `git diff | sha256sum`, `git status --short | sha256sum` and the target's sha256; copy the target to a backup outside the worktree; install a restore trap; apply the edit (refused unless each anchor matches exactly once); run the one test file; restore; compare all three hashes. Every run ended "identical". Snapshots (sha256 of `git diff`): `fe27e00b…` on the tree as received, `ae799bec…` on the patched tree, `68fa0d96…` after the sibling scan was reordered.
+- On the tree as received, the holes (each GREEN):
+  - `M1` gate the fold on the negative control -> wiring GREEN, 4 passed.
+  - `M3` a fourth writer in `onFrame` followed by a block comment -> wiring GREEN, 4 passed (the false block comment opened by `host/**` swallowed it).
+  - `M4` the seam's restore moved into a trailing comment -> wiring GREEN, 4 passed.
+  - `M5` a compound write after the restore -> wiring GREEN, 4 passed.
+  - `M6` the tuning panel handed the unwrapped loop -> wiring GREEN, 4 passed.
+  - `M8` the War-start and Jackpot frames swapped behind their keys -> unit GREEN, 99 passed.
+  - `M9` `|| width === 0` dropped from the empty-mask guard -> unit GREEN, 99 passed.
+  - `M10` the protected mask skipped in `rasterise()` -> real-game GREEN, 9 passed. Not a hole of this file: the real pipeline's art never meets a text box. This is DW-320's root cause, seen from the test side.
+- On the tree as received, the four medium patches of the earlier pass, re-run independently:
+  - Match selected once on `phase === 'game_over'` with no event -> integration red at tick 4274, "events stripped, Match is never selected" (1 of 2).
+  - the test's glyph comparator packing LSB-first -> unit red at the positive control, `null` against `'R'` (1 of 99).
+  - the ragged-row throw disabled -> unit red, "a ragged row throws … shorter OR longer" (1 of 99).
+  - `startTick = snapshot.tick` -> real-game red, 5 of 9: `startTick` 5284 against the event's 5278, and 4388 against 4378.
+- On the patched tree, wiring (4 cases):
+  - `M1` -> red: the order case ("no condition guards … in onFrame") and the flag's mention count (2 of 4).
+  - `M2` fold only on the PRESS START screen -> red: the order case alone (1).
+  - an early return above the fold -> red: the order case alone, on "nothing above … leaves onFrame early" (1).
+  - the two folds swapped -> red: the order case alone, on the order assertion (1).
+  - `M3` -> red: the reset-seam case, four writers listed (1). Control: a harmless block comment above the fold -> GREEN, 4 passed.
+  - `M4` -> red: the reset-seam case, on the trailing-comment assertion (1).
+  - `M5` -> red: the reset-seam case, five mentions of the flag against four (1).
+  - the seam calling the setter hatch after the restore -> red: three mentions of the hatch against two (1).
+  - `M6` -> red (1); replay playback handed the raw loop -> red (1); `replayRecorder.start()` resetting the raw loop -> red, one `hostLoopRef.reset();` against two (1).
+  - the earlier lines, re-run because this review changed the file: remove `composeSequence` -> red, the rasterise-arguments case and the view's mention count (2); compose in the negative control's branch too -> red (2); `backglassState()` reads tick 0 -> red, the hatch-bodies case (1); the setter hatch also resets `sequenceView` -> red, the hatch-bodies case and the writers list (2); drop the restore -> red (1); make the restore conditional -> red on "no condition guards" (1); wrap the seam's last two statements -> red on the nesting assertion (1); an early return above the restore -> red on the early-exit assertion (1).
+- On the patched tree, unit (99 cases):
+  - `M8` -> red, 2: `war_started` shows `['coin', 'coin']` against `['sword_left', 'sword_right']`, and `jackpot_awarded` the reverse.
+  - `match_drawn` given ten Jackpot frames of the same timing -> red, 2: the Match timing case at its sprite-name assertion, and the registry case (the wyrm is no longer placed).
+  - `M9` -> red, 1: the empty-mask case.
+  - the invalid-character throw disabled -> red, 1: that case alone. The ragged-row case stays green, so each guard is pinned on its own.
+  - the font imported into `dmd-art.ts` through `'./font'` -> red, 1; into `sequences.ts` through `'./font.js'` -> red, 1 (the module still loads, so this form is a real one).
+  - `composeSequence` composing nothing on the PRESS START screen -> red, 9, among them "no Attract frame adds a text row" at its new positive.
+  - `composeSequence` appending a text row -> red, 46 (that case and 45 legibility cases), as in the earlier pass.
+  - the protected box built from the unclamped length -> red, 1: the clamped-length case.
+  - `war_started` renamed -> red, 6 of 87 collected; `startTick = snapshot.tick` -> red, 5. Both as in the earlier pass.
+  - control (test-side): the cold-boot case's keys filter made empty -> its new count red (1).
+- On the patched tree, real-game (9 cases): `startTick = snapshot.tick` -> red, 5 of 9. QA's six lines, re-run because this review changed the file, with QA's results: the host-screen check dropped -> red, 5 (476, 407 and 370 dots on `attract_scores`; 32 on `ball_ended`); `|| restarted` dropped -> red, 1; Match declared repeating -> red, 5; a sequence restarted when its host screen appears -> red, 2; Attract started only when not already active -> red, 3; a restarted timeline never detected -> red, 1.
+- The sibling scan `test/boot-mechanisms-wiring.test.ts` (7 cases): a harmless block comment added to `boot.ts` below the render hook -> RED, 3 of 7, before its strip was reordered (a false red: "boot.ts must pass a render hook"), and GREEN, 7 passed, after; the `syncMechanisms` call commented out -> red, 1 of 7, after the reorder, so the scan still sees a real change.
+- A correction to a QA line above: replay playback calls the reset seam WITH options (`{ tuning }`, `src/host/dev/replay-player.ts:122`); the callers with none are the `reset()` hatch and `replayRecorder.start()`. QA's mutation and its result stand.
+- Two scratch probes, kept outside the worktree, ran the real modules through `vitest --dir`: the stale Attract origin after a reset (the trace recorded on DW-327), and `activeSequenceFrame()` on an unknown key, an inherited key, `NaN`, `Infinity` and fractional ticks (`null` for the first four; a fractional tick returns its frame).
 
 ## Auto Run Result
 

@@ -62,14 +62,21 @@ const RESOLVE_CALL = 'resolveMechanismNodes(scene, nodes.playfieldRoot);';
 const SYNC_CALL = 'syncMechanisms(scene, nodes.playfieldRoot, latestSnapshot);';
 const LIVE_SCENE_CAPTURE = 'liveScene = scene;';
 
-/** boot.ts with every block comment and every whole-line `//` comment removed, so a commented-out call is not mistaken for a live one. */
+/**
+ * boot.ts with every whole-line `//` comment and every block comment removed,
+ * so a commented-out call is not mistaken for a live one. Line comments go
+ * FIRST (Story 5.5 code review; `test/boot-lamp-override-wiring.test.ts`'s
+ * order): a glob such as `host/` + `**` inside a `//` line (boot.ts has one)
+ * would otherwise open a false block comment that any later block-comment
+ * close ends, deleting the live code in between -- the render hook included.
+ */
 function bootSourceWithoutComments(): string {
 	return readFileSync(BOOT_TS, 'utf8')
 		.replace(/\r\n/g, '\n')
-		.replace(/\/\*[\s\S]*?\*\//g, '')
 		.split('\n')
 		.filter((line) => !line.trimStart().startsWith('//'))
-		.join('\n');
+		.join('\n')
+		.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 /** The render hook passed to `bootScene()`: its body text, located from the call's own opening line to the hook's closing `});`. */

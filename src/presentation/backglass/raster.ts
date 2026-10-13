@@ -48,7 +48,10 @@ export interface DmdRaster {
  * row's dots) and drops any glyph pixel that would land outside the buffer
  * on either axis -- both axes are bounds-checked independently, so a row
  * authored above 0 or below `DMD_ROWS` is silently clipped rather than
- * corrupting a neighbouring row.
+ * corrupting a neighbouring row. Two more passes follow the glyphs, in this
+ * order: the emphasis inversion of each emphasised row (Story 2.13), then,
+ * when the frame carries `art`, the art pass (Story 5.5, `drawArt()` below),
+ * which only adds dots outside every text row's protected box.
  */
 export function rasterise(frame: DmdFrame, font: Readonly<Record<string, readonly number[]>>): DmdRaster {
 	const dots = new Uint8Array(DMD_COLS * DMD_ROWS);

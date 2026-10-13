@@ -455,7 +455,10 @@ async function onBegin(): Promise<void> {
 
 		// Story 2.8 (code review pass 3). `lampView` is purely command-driven
 		// -- unlike `backglassView`, which self-corrects every frame because
-		// `renderFrame()` re-derives it from the live snapshot -- and a rebuilt
+		// `renderFrame()` re-derives it from the live snapshot (with one known
+		// exception, recorded as DW-327: a reset taken on an Attract screen keeps
+		// that Attract's cycle origin, so PRESS START shows where a fresh boot
+		// shows the keys screen) -- and a rebuilt
 		// loop re-seeds its own `previousLamps` all-off, so it emits NO "off"
 		// command for a lamp that was lit before the reset. Code review pass 2
 		// found that and fixed it at the two reset-shaped hatches INSIDE this

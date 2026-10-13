@@ -4,12 +4,14 @@
 // Edge-Case Matrix row, AC 1-3, and every protected-mask case of `raster.ts`'s
 // art pass. Synthetic `FrameOutput`s are built with the same snapshot factory
 // `test/backglass-frame.test.ts` uses; the real-loop half is
-// `test/backglass-sequences-integration.test.ts`.
+// `test/backglass-sequences-integration.test.ts` and
+// `test/backglass-sequences-real-game.test.ts`.
 //
 // Expected values are authored here as literals (region rows, ms lengths,
-// frame counts, the five key names) in the AC 1, selection, timing and I/O
-// cases. The legibility cases then probe every sequence over the host, the
-// region and the frame boundaries the map declares -- values those cases bound.
+// frame counts, the five key names, the sprites each event-keyed sequence
+// shows first) in the AC 1, selection, timing and I/O cases. The legibility
+// cases then probe every sequence over the host, the region and the frame
+// boundaries the map declares -- values those cases bound.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -107,6 +109,24 @@ function frameProbeOffsets(key: string): number[] {
 
 const FIVE_KEYS = ['mode_attract_started', 'match_drawn', 'lock_lane_mode_start', 'war_started', 'jackpot_awarded'];
 const IN_GAME_KEYS = ['lock_lane_mode_start', 'war_started', 'jackpot_awarded'];
+/**
+ * The sprites each event-keyed sequence places on its FIRST frame, by name and
+ * sorted -- authored here from the art's own descriptions (`dmd-art.ts`, the
+ * `ATTRIBUTIONS.md` row), never read from the map: a wyrm for Match, two
+ * pointers closing on a shield for the Mode prompt, two swords charging in for
+ * the War start, the first two coins for the Jackpot. Two keys swapped in the
+ * map must fail against this.
+ */
+const FIRST_FRAME_SPRITES: Readonly<Record<string, readonly string[]>> = {
+	match_drawn: ['wyrm_up'],
+	lock_lane_mode_start: ['pointer_left', 'pointer_right', 'shield'],
+	war_started: ['sword_left', 'sword_right'],
+	jackpot_awarded: ['coin', 'coin'],
+};
+/** The names of the sprites `frame`'s art places, sorted; `null` when it carries no art. */
+function placedSpriteNames(frame: DmdFrame): string[] | null {
+	return frame.art ? frame.art.placements.map((p) => p.sprite.name).sort() : null;
+}
 const ALL_SCREENS: readonly DmdScreen[] = ['attract_prompt', 'attract_scores', 'attract_keys', 'score', 'ball_ended', 'tilt_warning', 'tilt', 'game_over'];
 
 // ---------------------------------------------------------------------------
@@ -230,9 +250,16 @@ describe('AC 1 -- the five sequences, as authored', () => {
 	});
 
 	it('no sequence uses a font: neither dmd-art.ts nor sequences.ts imports font.ts', () => {
+		// Any module specifier ending in `/font`, with or without a `.js`/`.ts` extension -- a `from`, a bare or a dynamic import alike.
+		const importsFont = /['"][^'"\n]*\/font(?:\.[jt]s)?['"]/;
+		// Positive controls: the scan fires on the one Backglass file that does import the font, and on each form.
+		expect(importsFont.test(readFileSync(path.join(BACKGLASS_DIR, 'raster.ts'), 'utf8')), 'control: raster.ts imports ./font').toBe(true);
+		for (const form of ["from './font'", 'from "./font.js"', "import('../backglass/font.ts')"]) {
+			expect(importsFont.test(form), `control: ${form}`).toBe(true);
+		}
 		for (const file of ['dmd-art.ts', 'sequences.ts']) {
 			const source = readFileSync(path.join(BACKGLASS_DIR, file), 'utf8');
-			expect(/from\s+['"]\.\/font['"]/.test(source), `${file} must not import ./font`).toBe(false);
+			expect(importsFont.test(source), `${file} must not import ./font`).toBe(false);
 		}
 	});
 });
@@ -248,8 +275,10 @@ describe('Malformed sprite -- load-time throw naming the sprite', () => {
 		expect(() => parseSprite('bad_char', ['#x#'])).toThrow(/bad_char/);
 		expect(() => parseSprite('bad_space', ['# #'])).toThrow(/bad_space/);
 	});
-	it('an empty mask throws, naming the sprite', () => {
+	it('an empty mask throws, naming the sprite -- no rows, or rows with no dots', () => {
 		expect(() => parseSprite('bad_empty', [])).toThrow(/bad_empty/);
+		// Rows of zero width: only the width half of the guard catches these (they would otherwise parse to a 0 x 1 sprite).
+		expect(() => parseSprite('bad_blank', [''])).toThrow(/bad_blank/);
 	});
 	it('control: a well-formed mask parses to the expected dots', () => {
 		const sprite = parseSprite('ok', ['#.', '.#']);
@@ -269,8 +298,8 @@ describe('Task 3 -- rasterise() art pass: text wins, region and grid clip', () =
 	function litAt(frame: DmdFrame, r: number, c: number): boolean {
 		return rasterise(frame, FONT_5X7).dots[r * 128 + c] === 1;
 	}
-	function withDot(rows: DmdRow[], r: number, c: number, region = FULL_REGION): DmdFrame {
-		return { screen: 'score', rows, art: { region, placements: [{ sprite: DOT, col: c, row: r }] } };
+	function withDot(rows: DmdRow[], r: number, c: number): DmdFrame {
+		return { screen: 'score', rows, art: { region: FULL_REGION, placements: [{ sprite: DOT, col: c, row: r }] } };
 	}
 
 	it('a dot on each edge of the protected box [col-1, col+6n-1] x [row-1, row+7] is suppressed', () => {
@@ -289,6 +318,7 @@ describe('Task 3 -- rasterise() art pass: text wins, region and grid clip', () =
 
 	it('the box uses the CLAMPED length (21 characters): a 25-character row at col 0 protects cols 0..125, not 126-127', () => {
 		const long: DmdRow = { text: 'ABCDEFGHIJKLMNOPQRSTUVWXY', col: 0, row: 0, emphasis: false };
+		expect(litAt({ screen: 'score', rows: [long] }, 3, 126), 'sanity: (3,126) is unlit in the baseline, so it is the art that lights it below').toBe(false);
 		expect(litAt(withDot([long], 3, 126), 3, 126)).toBe(true);
 		expect(litAt(withDot([long], 3, 125), 3, 125)).toBe(false);
 	});
@@ -369,13 +399,16 @@ describe('AC 2 (selection and timing) -- the map lookup, the event tick, restart
 		expect(activeSequenceFrame(seq, 'game_over', 10250)).toEqual({ key: 'match_drawn', index: 1 });
 		expect(activeSequenceFrame(seq, 'game_over', 12499)).toEqual({ key: 'match_drawn', index: 9 });
 		expect(activeSequenceFrame(seq, 'game_over', 12500), 'Match ends at startTick + 2500').toBeNull();
+		// And it is the Match ART the key shows: the wyrm, by name.
+		expect(placedSpriteNames(composeSequence(baseFrame('game_over', gameOver), seq, 10016))).toEqual(FIRST_FRAME_SPRITES['match_drawn']);
 	});
 
 	it.each(IN_GAME_KEYS)('future key %s: a synthetic event selects its sequence through the same lookup, and it composes on the score screen', (key) => {
 		const seq = advanceSequences(INITIAL_SEQUENCE_VIEW, scoreView, output(scoreGame, 500, [event(key, 490)]));
 		expect(seq.active).toEqual({ key, startTick: 490 });
 		const composed = composeSequence(baseFrame('score', scoreGame), seq, 500);
-		expect(composed.art?.placements).toBe(BACKGLASS_SEQUENCES[key]!.frames[0]!.placements);
+		// Which ART the key shows, as a literal: reading it back from the map would pass with two keys' frames swapped.
+		expect(placedSpriteNames(composed), `${key} shows its own motif on its first frame`).toEqual(FIRST_FRAME_SPRITES[key]);
 	});
 
 	it('control: events stripped -- the same game_over frames with events: [] never select or draw Match', () => {
@@ -580,7 +613,9 @@ describe('I/O -- Cold boot Attract (players: []): keys for 3 s, then the prompt 
 	it('the keys screen shows no art; the first prompt frame starts the Attract sequence at its own tick', () => {
 		const firstPrompt = frames.find((f) => f.screen === 'attract_prompt')!;
 		expect(firstPrompt.tick, 'sanity: the prompt follows the 3 s keys screen').toBeGreaterThanOrEqual(3000);
-		for (const f of frames.filter((x) => x.screen === 'attract_keys')) {
+		const keys = frames.filter((x) => x.screen === 'attract_keys');
+		expect(keys.length, 'sanity: the keys screen showed for its 3 s of 16-tick frames, so the loop below is not empty').toBeGreaterThan(150);
+		for (const f of keys) {
 			expect(f.composed, `tick ${f.tick}`).toBe(f.frame);
 		}
 		expect(firstPrompt.seq.active).toEqual({ key: 'mode_attract_started', startTick: firstPrompt.tick });
@@ -670,6 +705,7 @@ describe('AC 3 (proxy) -- a dragon and a knight, as a scene, in dots not text', 
 		let at = 0;
 		for (const f of seq.frames) {
 			const composed = composeSequence(frame, active, at);
+			expect(composed.art, `positive: the frame at ${at} carries art, so the row check below is about a composed frame`).toBeDefined();
 			expect(composed.rows).toEqual([{ text: 'PRESS START', col: 2, row: 0, emphasis: false }]);
 			at += f.holdTicks;
 		}

@@ -275,7 +275,9 @@ export const ATTRACT_FRAMES: readonly DmdArtFrame[] = [
 	{ placements: [dragonAt, place(KNIGHT, 46, KNIGHT_ROW)], holdMs: 500 },
 ];
 
-// --- The in-game strip: rows 24-31, below the text.
+// --- The in-game strip: rows 24-31, the panel's bottom line. It is clear of
+// text on game_over and on the 1-player score screen; with 2-4 players up the
+// mode fields line shares these rows, and text wins there (DW-320).
 const STRIP_ROW = 24;
 
 /** Match: a small wyrm flaps across the strip, left to right. Ten frames of 250 ms: 2500 ms. No digits. */

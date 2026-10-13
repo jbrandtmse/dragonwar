@@ -148,7 +148,10 @@ export function advanceSequences(seqView: SequenceView, backglassView: Backglass
 /**
  * Which sequence frame shows on `screen` at `tick`, or `null` for none: no
  * active sequence, a screen other than its host, a tick below its start, or
- * (for a sequence that does not repeat) a tick at or past its end.
+ * (for a sequence that does not repeat) a tick at or past its end. Also
+ * `null`, never a throw (step paths never throw), for a key the map does not
+ * hold and for a tick that is not a finite number -- states neither
+ * `advanceSequences()` nor the sim's integer ticks produce.
  */
 export function activeSequenceFrame(seqView: SequenceView, screen: DmdScreen, tick: number): { readonly key: string; readonly index: number } | null {
 	const active = seqView.active;
