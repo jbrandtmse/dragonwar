@@ -45,8 +45,11 @@
 //    (`fallBack.windowMs`) and a descent once `tick > descent.tick +
 //    descentTicks` (`fallBack.descentWindowMs`): a Loop NEVER emits `_broken`
 //    on expiry. Rule (e) is DW-173's fix: a made orbit's descent through the
-//    far lane no longer arms the opposite Loop, so two same-side orbits can
-//    never fake an alternation.
+//    far lane no longer arms the opposite Loop, so two same-side orbits no
+//    longer fake an alternation through it. The mark is consumed by the FIRST
+//    entry closure and lapses on the clock, so a descending ball that closes
+//    the entry switch twice, or reaches it after `descentWindowMs`, still
+//    arms (measured on teleported launches only; ledger DW-323 and DW-322).
 //
 // Ordering inside `step()` is load-bearing (I/O matrix "Ramp window
 // straddle"): the expiry pass for every shot runs BEFORE this tick's own
@@ -156,7 +159,12 @@ export function createShotTracker(tuning: ResolvedTuning): ShotTracker {
 		const exit = plan.sequence[plan.sequence.length - 1];
 		const flight = state.flight;
 
-		// (a) made: unchanged from before the fall-back signature.
+		// (a) made: the far switch inside `windowMs` of an armed entry -- the
+		// same test as before the fall-back signature. What ARMS an entry is
+		// not the same: every entry closure used to (re)start the attempt, and
+		// now rules (d) to (f) decide, so the same `_made` the end-of-ball
+		// bonus counts (`../bonus.ts`) needs an entry that did not come from
+		// above and was not closed a second time.
 		if (event.switch === exit && flight && tick <= flight.startTick + plan.windowTicks) {
 			state.flight = null;
 			events.push({ type: `${plan.name}_made`, tick } as ShotMadeEvent);

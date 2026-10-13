@@ -188,7 +188,9 @@ describe('Story 3.6 AC 3 -- a MADE Loop on real physics (teleported launches): e
 	// This is the ONE place the scripted orbit is checked against the machine.
 	// Three files copy these four figures by hand as their `ORBIT` constant:
 	// `test/rules-devices.test.ts`, `test/rules-joust.test.ts` and
-	// `test/rules-joust-integration.test.ts`. If this pin moves, move all three.
+	// `test/rules-joust-integration.test.ts`. If this pin moves, move all three,
+	// and the bare `223` in `test/rules-joust-qa-integration.test.ts` (QA's
+	// made Left Loop), which copies the first figure.
 	// (Their right orbit is this timeline mirrored, as the spec defines it; the
 	// table is not symmetric, and the real right orbit's own timing differs.)
 	it('left-loop-orbit-31: the orbit timeline the scripted rules rows use (ticks after s_loop_l_in: 223, 1759, 2618, 3568) is this tree\'s measured one', () => {

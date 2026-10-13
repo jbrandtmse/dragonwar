@@ -442,6 +442,26 @@ describe('Story 3.6 -- AC 6: a broken Loop fires joust_charge_broken with the Ch
 			expect(scoreAt(result, duration)).toBe(0);
 		});
 	}
+
+	// Story 3.6 code review: `shot_ramp_broken` is the tracker's OTHER kind of
+	// `_broken` (a lapsed window -- `src/sim/rules/devices/events.ts`), and no
+	// row above puts one in front of a running Joust, so a Joust that read
+	// every `_broken` as a Loop falling back would have passed them all.
+	it('control: a rejected Ramp (shot_ramp_broken) while Joust runs at Charge 2 is not a broken Loop -- no Joust event, the Charge and lastLoop unchanged, nothing paid', () => {
+		const enter = FIRST + 2 * GAP;
+		const script = merged(capture('s_lock_1', T0), orbit('l', FIRST), orbit('r', FIRST + GAP), close('s_ramp_enter').at(enter).build());
+		const duration = enter + BREAK_WINDOW;
+		const rejected = shotEvents(script, duration).filter(([type]) => type === 'shot_ramp_broken');
+		expect(rejected, 'the premise: the tracker rejects the Ramp exactly once, after it was entered').toHaveLength(1);
+		const brokenAt = rejected[0]![1];
+		expect(brokenAt).toBeGreaterThan(enter);
+		const result = runRulesScript(script, { durationTicks: duration, initialState: START_STATE() });
+		expect(chain(result, brokenAt - 1), 'the premise: Charge 2 on the Right Loop the tick before').toEqual([2, RIGHT]);
+		expect(chain(result, brokenAt)).toEqual([2, RIGHT]);
+		expect(chain(result, duration)).toEqual([2, RIGHT]);
+		expect(paidOn(result, brokenAt)).toBe(0);
+		expect(joustEvents(result)).toEqual([]);
+	});
 });
 
 // ---------------------------------------------------------------------------

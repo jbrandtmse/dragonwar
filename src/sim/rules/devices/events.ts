@@ -188,9 +188,11 @@ export interface ShotMadeEvent {
  *   whose entry switch closed again, or whose ball reached that side's inlane
  *   or outlane, inside `fallBack.windowMs`. Emitted on that closure's tick.
  *   Never on expiry (DW-133: a naive "emit `_broken` whenever the window
- *   lapses" would treat every bare `s_loop_*_in` as a Loop entry), and never
- *   for a ball coming down the lane from above, which does not arm the Loop
- *   at all.
+ *   lapses" would treat every bare `s_loop_*_in` as a Loop entry), and not
+ *   for a ball coming down the lane from above while its descent mark
+ *   stands: that ball does not arm the Loop. The mark lasts
+ *   `fallBack.descentWindowMs` and is consumed by the first entry closure;
+ *   `TABLE.shots`'s comment records the measured paths that outlast it.
  */
 export interface ShotBrokenEvent {
 	readonly type: `${ShotName}_broken`;

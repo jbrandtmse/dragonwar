@@ -1146,6 +1146,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - 2026-09-06T00:20:44Z status=escalated owner=burndown by=cr note=DW-133's evidence base names only two closers of a bare s_loop_*_in (outlane drain, made Ramp) and misses the most frequent one, the opposite Loop's own orbit descent. Not currently reachable in play: it needs orbit 2's r_out within 600 ms of orbit 1's r_in, i.e. a re-shot faster than a ball can return to the flipper -- but that margin was never measured (loopWindowMs's source prose measures only the intra-orbit _in->_out gap, 223-452 ticks, never the inter-orbit gap). Fix-risk HIGH: distinguishing the stale arm from a real entry needs cross-shot state, which is a change to DW-133's own resolution that all of Epic 3 consumes, plus a measurement this story did not take. Escalated for the decision sheet rather than patched blind. Affects FR-36 (Joust's Loop alternation)
 - 2026-09-28T14:07:22Z status=routed owner=3-11-the-first-full-playtest-and-the-scoring-freeze by=merge_gate note=Epic 2 decision sheet 2026-09-28: route to 3.11; fix the spurious shot_<other>_loop_made on two same-side Loops before scoring freezes
 - 2026-09-29T10:22:57Z status=routed owner=3-6-joust-the-charge by=x0 note=own -- re-owned from 3.11: Joust's Charge counts Loop alternation, so a spurious opposite-Loop event on two same-side orbits breaks 3.6's first criterion; lives beside DW-288 in the same shot tracker
+- 2026-10-13T15:19:04Z status=resolved-by:3-6-joust-the-charge by=adjudication note=commit 88ceb3f: the descent rule stops a made Loop's far-lane descent from arming the opposite Loop (AC4: the DW-173 rows in rules-devices.test.ts and rules-joust.test.ts at 50/300/550-tick gaps, with the alternating control). Residuals: DW-323 (double entry closure) and DW-321 (two balls)
 
 ### DW-174: AD-6's device_overflow obligation, routed to Story 2.4 by name in epic-2-context.md, is neither implemented nor declared deferred anywhere
 - source: spec-2-4-the-devices-and-shots-layer.md | severity: low | fix-risk: low | footprint: in-epic
@@ -1887,6 +1888,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: shots.ts:60-71; by design in spec-2-4-the-devices-and-shots-layer.md:234; the epics.md criteria were never amended
 - 2026-09-29T10:12:38Z status=routed owner=3-6-joust-the-charge by=retro note=decide at 3.6's spec gate: build _broken, or amend both criteria
 - 2026-09-29T10:23:01Z status=routed owner=3-6-joust-the-charge by=x0 note=own -- kept: 3.6's second criterion needs a Loop that is started and broken
+- 2026-10-13T15:19:04Z status=resolved-by:3-6-joust-the-charge by=adjudication note=commit 88ceb3f: Loops emit _broken by the declared fall-back signature (AC2 rules-devices.test.ts; AC3 loop-fall-back-physics.test.ts on real createMachine edges; QA joust-loop-qa-physics.test.ts on a real createLoop). Residuals are their own entries: DW-322..DW-326 (Story 3.3d)
 
 ### DW-289: The bonusCountMs provenance note quotes PRD FR-20 as saying categories count up, but the PRD says the bonus counts down and the quoted phrase exists nowhere: a false quotation inside a hashed provenance string
 - source: epic-2-retro-2026-09-28.md | severity: low | fix-risk: med | footprint: out-of-footprint
@@ -2015,6 +2017,7 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - evidence: 3.6 planning, 2026-09-30: ~12,400 real flips and 2085 mm/s launches across the field closed zero Loop switches; the collision document walls the left lane mouth from the field between y 200 and y 1004.8; every Loop in the test corpus is a teleported launch or a plunge descending from the top; geometry lives in tools/make-placeholder-blend.py / public/assets (contended with Epic 5)
 - 2026-09-30T11:46:28Z status=decision-pending owner=burndown by=plan note=cross-epic geometry call for the author: which story opens a Loop entry (Epic 5's geometry work now, or Story 3.3c after the merge), and a Loop-geometry change can move golden trajectories (author grant)
 - 2026-10-13T11:43:43Z status=routed owner=3-3d-open-the-loop-entries by=clarification note=author decision 2026-10-13
+- 2026-10-13T15:14:29Z occurrence=3-6-joust-the-charge
 
 ### DW-321: The shot tracker keeps one attempt and one descent mark per Loop, not per ball: in a multiball one ball's descent can cancel, suppress or complete another ball's Loop attempt (Joust can run under Quick multiball and the War)
 - source: spec-3-6-joust-the-charge.md | severity: med | fix-risk: med | footprint: in-epic
@@ -2025,23 +2028,36 @@ Migrated from the pre-2026-08-27.1 prose grammar; the original is kept verbatim 
 - source: spec-3-6-joust-the-charge.md | severity: med | fix-risk: med | footprint: in-story
 - evidence: Measured 2026-10-13 at 88ceb3f (real createMachine + real tracker; teleported launch up the Ramp mouth from (312.6,470) at 1557 mm/s): s_ramp_made@286, s_loop_r_in@3090 (2804 ticks later), s_inlane_r@4043 -> shot_ramp_made then shot_right_loop_broken@4043. Returns of 1917-2456 ticks are ordinary at 1500-1600 mm/s against the documented 1070-1893; at 1558 mm/s the ball rolls back out, so the return time is unbounded near the make threshold.
 - 2026-10-13T13:34:06Z status=routed owner=3-3d-open-the-loop-entries by=harvest note=3.6 implement-review deferred item 4. No state changes by real input before a Loop can be made (the only effect is joust_charge_broken{charge:1}, which nothing reads), and a fix can only be verified on real paths once 3.3d opens the entries. The fix is a signature change (e.g. the Ramp mark cleared by the roll-back or bounded by the exit, not by a clock), not a wider window. AD-19 and the two tuning sources carry the sample's claim.
+- 2026-10-13T15:14:29Z occurrence=3-6-joust-the-charge
+- 2026-10-13T15:14:30Z status=routed owner=3-3d-open-the-loop-entries by=cr note=cr re-measured: 2804 confirmed; (315,470) at 1584 and 1589 mm/s returns 2521 and 2568, both break; sources now say so
 
 ### DW-323: A ball coming down a Loop lane that closes the entry switch twice arms the Loop on the second closure and breaks it at the inlane or outlane, because the first closure consumes the descent mark
 - source: spec-3-6-joust-the-charge.md | severity: med | fix-risk: med | footprint: in-story
 - evidence: Measured 2026-10-13 (same instruments): teleported releases in the left lane at (39-41,950) moving down at 900-1200 mm/s close s_loop_l_out, s_loop_l_in, s_loop_l_in again 152-238 ticks later, then an exit; shot_left_loop_broken in 10 of 12 runs. No real path shows a double closure (532 planning non-entry paths, three real plunges, a real autolaunch).
 - 2026-10-13T13:34:07Z status=routed owner=3-3d-open-the-loop-entries by=harvest note=3.6 implement-review deferred item 5. Seen only on teleported releases faster than any measured descent; re-check on real descents and field-origin paths once 3.3d opens the entries; the rule is the spec's as written and rules-devices.test.ts pins it
+- 2026-10-13T15:14:30Z occurrence=3-6-joust-the-charge
 
 ### DW-324: A descent mark that nothing consumes swallows the next real Loop entry on that side for loopDescentWindowMs: a ball that rolls back out of the Ramp after closing s_ramp_made, or crosses a far switch without coming down the lane, leaves one
 - source: spec-3-6-joust-the-charge.md | severity: med | fix-risk: med | footprint: in-story
 - evidence: By the entry rule an entry closure with a mark pending clears the mark and arms nothing, so a Loop entered inside 2500 ticks of a stray mark is never made and Joust pays nothing, with no event. Measured 2026-10-13: teleported launches from the Ramp point (315,470) at 1650-2050 mm/s close s_ramp_enter, s_ramp_made, s_ramp_made, then s_ramp_enter on the way out, leaving the Right Loop's mark pending; descend-loop-top-east closes s_loop_r_out and no s_loop_r_in.
 - 2026-10-13T13:34:07Z status=routed owner=3-3d-open-the-loop-entries by=harvest note=3.6 implement-review deferred item 6. Not reachable in harm until a real shot can enter a Loop; fix with the same signature change as the slow-Ramp-return entry and verify on real paths at 3.3d
+- 2026-10-13T15:14:30Z occurrence=3-6-joust-the-charge
+- 2026-10-13T15:14:31Z status=routed owner=3-3d-open-the-loop-entries by=cr note=cr: a swallowed entry also costs a bonus Loop (bonus.ts counts the same _made); roll-back re-measured at 1558-1800 mm/s
 
 ### DW-325: A ball that passes a Loop's far switch inside loopWindowMs and then falls back down the same lane is credited as a made Loop (every off-centre launch tried, and centred launches below 1400 mm/s), and Joust pays loopValue x Charge and builds the Charge on it
 - source: spec-3-6-joust-the-charge.md | severity: med | fix-risk: med | footprint: in-story
 - evidence: Measured 2026-10-13 (teleported launches straight up from y=415): at x=38,42,45,48 at 1800/2200/3000 mm/s, 12 of 12 close s_loop_l_in and s_loop_l_out inside the window (shot_left_loop_made), then s_loop_l_out and s_loop_l_in again on the way down and the left inlane, no _broken. Centred at 1220-1350 mm/s does the same (Lin@7 Lout@526 Lout@1755 Lin@2369 outL@3180). The made rule is Story 2.4's, unchanged by 3.6; no test pins either reading.
 - 2026-10-13T13:34:08Z status=routed owner=3-3d-open-the-loop-entries by=harvest note=3.6 deferred items 7 and 3 (one root cause: made is decided at the far switch, not by the orbit completing; the loopWindowMs source sentence itself was corrected in 3.6). Whether a far-switch pass that falls back is a made Loop is decided on real flipper recipes at 3.3d
+- 2026-10-13T15:14:30Z occurrence=3-6-joust-the-charge
 
 ### DW-326: Once the Loop entries are open, a field ball that crosses an entry switch and then reaches that side's inlane or outlane will read as a broken Loop, and a running Joust will lose its Charge on it (unverified: no geometry exists to verify it on)
 - source: spec-3-6-joust-the-charge.md | severity: med | fix-risk: med | footprint: in-epic
 - evidence: The fall-back signature reads an entry closure that did not come from above, followed by that side's exit, as a break; that is safe only while no field ball can reach an entry switch. The DW-133 row 3.6 inverted (bare s_loop_r_in then s_outlane_r is now a break) rests on the walled geometry. No field-origin witness test exists.
 - 2026-10-13T13:34:08Z status=routed owner=3-3d-open-the-loop-entries by=harvest note=3.6 implement-review deferred item 8. Settled by running field-origin witnesses (inlane and outlane feeds, slingshot rebounds) through the real tracker on the opened geometry and asserting no Loop event
+- 2026-10-13T15:14:30Z occurrence=3-6-joust-the-charge
+- 2026-10-13T15:14:32Z status=routed owner=3-3d-open-the-loop-entries by=cr note=cr real-input probe: 14 games, 2.78M ticks, 49 entry closures, all descents, 0 Loop events; field play was sparse
+
+### DW-328: The shot tracker's branch for a shot with neither fallBack nor entryExclusive (tracked to completion, never broken) has no declared shot and no test host now that both Loops declare fallBack
+- source: spec-3-6-joust-the-charge.md | severity: low | fix-risk: med | footprint: in-story
+- evidence: shots.ts step(): the false arm of if (plan.entryExclusive) on a plan with no fallBack. TABLE.shots holds two fallBack Loops and one entryExclusive Ramp, so nothing takes it, and the file header says so. Raised by three review layers (blind, edge-case, acceptance) on 2026-10-13.
+- 2026-10-13T15:14:32Z status=wontfix-accepted owner=3-6-joust-the-charge by=cr note=reopen_if=TABLE.shots gains a shot with entryExclusive false and no fallBack; a test now needs an injectable shots table

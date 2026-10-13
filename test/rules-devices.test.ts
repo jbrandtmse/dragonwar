@@ -18,7 +18,7 @@ import { createDevicesLayer, PLAYFIELD_SWITCHES } from '../src/sim/rules/devices
 import { applyDeviceEvents, applyRecovery } from '../src/sim/rules/ball-controller';
 import { createRules } from '../src/sim/rules';
 import { TABLE } from '../src/sim/table/dragonwar';
-import { resolveTuning } from '../src/sim/table/tuning';
+import { resolveTuning, TUNING as RAW_TUNING } from '../src/sim/table/tuning';
 import { close, open, runSwitchScript, type SwitchScriptRunResult } from './util/switch-script';
 import type { GameState, MachineState, SwitchEvent, SwitchName } from '../src/sim/table/names';
 
@@ -276,7 +276,7 @@ describe('sim/rules/devices/ -- Story 3.6, the Loop fall-back signature: the pre
 	it('every measured figure scripted below sits inside the window it exercises', () => {
 		expect(ORBIT.out, 'a made Loop completes inside the loop window').toBeLessThanOrEqual(LOOP_WINDOW_TICKS);
 		expect(ORBIT.farIn - ORBIT.farOut, 'an orbit\'s descent crosses the far lane inside the descent window').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
-		expect(1893, 'the slowest measured Ramp return reaches s_loop_r_in inside the descent window').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
+		expect(1893, 'the planning sample\'s slowest Ramp return reaches s_loop_r_in inside the descent window (slower ones were measured since, and three outlast it: DW-322)').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
 		expect(582, 'a plunge\'s descent crosses the left lane inside the descent window').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
 		expect(Math.max(1372, 1281), 'both measured fall-backs resolve inside the break window').toBeLessThanOrEqual(LOOP_BREAK_TICKS);
 	});
@@ -476,6 +476,53 @@ describe('sim/rules/devices/ -- Story 3.6 AC 2, Matrix "Windows": the break wind
 		expect(700, 'the premise: a surviving descent mark would still be pending at the second entry closure').toBeLessThanOrEqual(LOOP_DESCENT_TICKS);
 		expect(900 - 700, 'the premise: the far switch closes inside the loop window of the second entry closure').toBeLessThanOrEqual(LOOP_WINDOW_TICKS);
 		expect(shotEvents(result)).toEqual([['shot_left_loop_made', t + 900]]);
+	});
+
+	// Story 3.6 code review: every row above runs at the default windows, on a
+	// layer built with the default tuning, so a tracker that ignored the tuning
+	// it was built with and read 3000, 2500 and 600 would pass them all -- and
+	// the dev tuning panel's hot-apply (`createLoop({ tuning })`) would then
+	// move nothing. Each row below moves ONE window and shows its boundary
+	// tick move with it; the last assertion of each is the same script at the
+	// default windows, reading the other way.
+	it('the break window follows the resolved loopBreakWindowMs: at 1000 ms a second s_loop_l_in at +1000 breaks, and one at +1001 arms a new attempt that is then made', () => {
+		const tuning = resolveTuning({ ...RAW_TUNING, loopBreakWindowMs: { ...RAW_TUNING.loopBreakWindowMs, value: 1000 } });
+		const short = tuning.loopBreakWindowTicks.value;
+		expect([short, LOOP_BREAK_TICKS], 'the premise: the overridden window is not the default').toEqual([1000, 3000]);
+
+		const onIt = runSwitchScript(close('s_loop_l_in').at(t).close('s_loop_l_in').at(t + short).build(), { tuning, durationTicks: t + short + 20 });
+		expect(shotEvents(onIt)).toEqual([['shot_left_loop_broken', t + short]]);
+
+		const late = t + short + 1;
+		const pastIt = close('s_loop_l_in').at(t).close('s_loop_l_in').at(late).close('s_loop_l_out').at(late + 100).build();
+		expect(shotEvents(runSwitchScript(pastIt, { tuning, durationTicks: late + 120 }))).toEqual([['shot_left_loop_made', late + 100]]);
+		expect(shotEvents(runSwitchScript(pastIt, { durationTicks: late + 120 })), 'control: at the default window the same closure is still inside it, and breaks').toEqual([['shot_left_loop_broken', late]]);
+	});
+
+	it('the descent window follows the resolved loopDescentWindowMs: at 1000 ms an s_loop_l_in at +1000 is consumed, and one at +1001 arms and the inlane breaks it', () => {
+		const tuning = resolveTuning({ ...RAW_TUNING, loopDescentWindowMs: { ...RAW_TUNING.loopDescentWindowMs, value: 1000 } });
+		const short = tuning.loopDescentWindowTicks.value;
+		expect([short, LOOP_DESCENT_TICKS], 'the premise: the overridden window is not the default').toEqual([1000, 2500]);
+
+		const onIt = close('s_loop_l_out').at(t).close('s_loop_l_in').at(t + short).close('s_inlane_l').at(t + short + 50).build();
+		expect(shotEvents(runSwitchScript(onIt, { tuning, durationTicks: t + short + 70 }))).toEqual([]);
+
+		const pastIt = close('s_loop_l_out').at(t).close('s_loop_l_in').at(t + short + 1).close('s_inlane_l').at(t + short + 51).build();
+		expect(shotEvents(runSwitchScript(pastIt, { tuning, durationTicks: t + short + 71 }))).toEqual([['shot_left_loop_broken', t + short + 51]]);
+		expect(shotEvents(runSwitchScript(pastIt, { durationTicks: t + short + 71 })), 'control: at the default window the same closure is still a descent passing down').toEqual([]);
+	});
+
+	it('the made window on a fall-back shot follows the resolved loopWindowMs: at 100 ms an s_loop_l_out at +100 makes the Loop, and one at +101 does not', () => {
+		const tuning = resolveTuning({ ...RAW_TUNING, loopWindowMs: { ...RAW_TUNING.loopWindowMs, value: 100 } });
+		const short = tuning.loopWindowTicks.value;
+		expect([short, LOOP_WINDOW_TICKS], 'the premise: the overridden window is not the default').toEqual([100, 600]);
+
+		const onIt = close('s_loop_l_in').at(t).close('s_loop_l_out').at(t + short).build();
+		expect(shotEvents(runSwitchScript(onIt, { tuning, durationTicks: t + short + 20 }))).toEqual([['shot_left_loop_made', t + short]]);
+
+		const pastIt = close('s_loop_l_in').at(t).close('s_loop_l_out').at(t + short + 1).build();
+		expect(shotEvents(runSwitchScript(pastIt, { tuning, durationTicks: t + short + 21 }))).toEqual([]);
+		expect(shotEvents(runSwitchScript(pastIt, { durationTicks: t + short + 21 })), 'control: at the default window the same closure makes the Loop').toEqual([['shot_left_loop_made', t + short + 1]]);
 	});
 });
 

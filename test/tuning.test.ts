@@ -437,11 +437,26 @@ describe('resolveTuning() -- the single load-time …Ms -> …Ticks conversion (
 		for (const key of ['loopBreakWindowMs', 'loopDescentWindowMs'] as const) {
 			expect(TUNING[key].source, `${key}'s source says it was measured`).toMatch(/^measured: /);
 		}
-		expect(TUNING.loopBreakWindowMs.source, 'the measured span of a failed climb').toContain('546 to 2167 ticks');
-		expect(TUNING.loopBreakWindowMs.value, 'above the slowest measured fall-back').toBeGreaterThan(2167);
-		expect(TUNING.loopDescentWindowMs.source, 'the measured span of a lane descent').toContain('564 to 1196 ticks');
-		expect(TUNING.loopDescentWindowMs.source, 'the measured span of a Ramp return').toContain('1070 to 1893 ticks');
-		expect(TUNING.loopDescentWindowMs.value, 'above the slowest measured descent').toBeGreaterThan(1893);
+		expect(TUNING.loopBreakWindowMs.source, 'the planning sample\'s span of a failed climb').toContain('546 to 2167 ticks');
+		expect(TUNING.loopBreakWindowMs.source, 'and the wider span the code review measured').toContain('388 to 2187 ticks');
+		expect(TUNING.loopBreakWindowMs.value, 'above the slowest fall-back measured so far').toBeGreaterThan(2187);
+		expect(TUNING.loopDescentWindowMs.source, 'the planning sample\'s span of a lane descent').toContain('564 to 1196 ticks');
+		expect(TUNING.loopDescentWindowMs.source, 'the planning sample\'s span of a Ramp return').toContain('1070 to 1893 ticks');
+		expect(TUNING.loopDescentWindowMs.value, 'above the planning sample\'s slowest descent').toBeGreaterThan(1893);
+		// Story 3.6 code review (AD-15: a `source` is hashed into every golden's
+		// header, so it is part of the contract, not commentary). The planning
+		// sample is not this tree's extreme: made Ramps were measured returning
+		// slower than this window, and each of those breaks the Right Loop
+		// (ledger DW-322). Both sources must say whose range they quote, and the
+		// descent window's must own up to the returns it does not cover.
+		for (const key of ['loopBreakWindowMs', 'loopDescentWindowMs'] as const) {
+			expect(TUNING[key].source, `${key}'s source says the ranges are the planning sample's`).toContain('in that sample');
+			expect(TUNING[key].source, `${key}'s source says the sample is not the extreme`).toContain('The sample is not this tree\'s extreme');
+		}
+		expect(TUNING.loopDescentWindowMs.source, 'it owns up to the made Ramps this window does not cover').toContain('does NOT cover every made Ramp');
+		expect(TUNING.loopDescentWindowMs.source, 'it quotes the slowest return measured').toContain('2804 ticks');
+		expect(TUNING.loopDescentWindowMs.source, 'it names the ledger entry').toContain('DW-322');
+		expect(TUNING.loopDescentWindowMs.value, 'the premise of that sentence: this window is shorter than the slowest return measured').toBeLessThan(2804);
 		expect(TICK_HZ, 'the premise of the literal tick counts below').toBe(1000);
 		expect(resolved.joustTicks.value).toBe(60000);
 		expect(resolved.loopBreakWindowTicks.value).toBe(3000);

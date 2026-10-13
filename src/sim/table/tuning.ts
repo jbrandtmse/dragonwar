@@ -451,12 +451,12 @@ export const TUNING = deepFreeze({
 	 */
 	loopBreakWindowMs: entry(
 		3000,
-		"measured: no artifact states this figure. Story 3.6's planning (2026-09-30, real createMachine() runs, 638 recorded switch timelines) found that a failed Loop climb resolves -- its entry switch closing again, or that side's inlane or outlane closing -- 546 to 2167 ticks after the entry. 3000 ms sits 833 ticks (38%) above the slowest of them",
+		"measured: no artifact states this figure. Story 3.6's planning (2026-09-30, real createMachine() runs, 638 recorded switch timelines) found that a failed Loop climb resolves -- its entry switch closing again, or that side's inlane or outlane closing -- 546 to 2167 ticks after the entry; 3000 ms sits 833 ticks (38%) above the slowest in that sample. The sample is not this tree's extreme: Story 3.6's code review (2026-10-13, teleported launches up the Left Loop's entry column from (31, 415) at 300 to 1400 mm/s in 10 mm/s steps) measured 92 failed climbs resolving 388 to 2187 ticks after the entry, the slowest at 1210 mm/s, so the margin over the slowest measured so far is 813 ticks (37%). Every figure is from a teleported launch, since no real shot can enter a Loop at this tree (DW-319); Story 3.3d re-measures the window when the Loop entries open",
 		'unverified',
 	),
 	loopDescentWindowMs: entry(
 		2500,
-		"measured: no artifact states this figure. Story 3.6's planning (2026-09-30, real createMachine() runs, 638 recorded switch timelines) found that a ball descending a Loop lane takes 564 to 1196 ticks from the far switch (s_loop_*_out) to the entry switch (s_loop_*_in), and a made Ramp's return takes 1070 to 1893 ticks from s_ramp_made to s_loop_r_in. 2500 ms sits 607 ticks (32%) above the slowest of them",
+		"measured: no artifact states this figure. Story 3.6's planning (2026-09-30, real createMachine() runs, 638 recorded switch timelines) found that a ball descending a Loop lane takes 564 to 1196 ticks from the far switch (s_loop_*_out) to the entry switch (s_loop_*_in), and a made Ramp's return takes 1070 to 1893 ticks from s_ramp_made to s_loop_r_in; 2500 ms sits 607 ticks (32%) above the slowest in that sample. The sample is not this tree's extreme, and this window does NOT cover every made Ramp: Story 3.6's code review (2026-10-13, teleported launches straight up the Ramp mouth from (312.6, 470) and (315, 470) at 1500 to 1640 mm/s in 1 mm/s steps) measured 163 returns of 1893 to 2804 ticks, three of them past this window -- 2521 and 2568 ticks from (315, 470) at 1584 and 1589 mm/s, 2804 ticks from (312.6, 470) at 1557 mm/s -- and each of those three arms the Right Loop and breaks it at the inlane. At neighbouring speeds the ball rolls back out of the Ramp and never returns, so no finite window is known to cover every made Ramp (DW-322). Story 3.3d re-validates the signature when the Loop entries open",
 		'unverified',
 	),
 

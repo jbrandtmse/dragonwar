@@ -2162,7 +2162,7 @@ So that the joust is charge, pass, wheel around, charge again.
 
 **Given** Joust starts (priority 310)
 **When** `shot_left_loop_made` or `shot_right_loop_made` arrives
-**Then** if it differs from the previous Loop the Charge increments (to a cap of `joustChargeMax`, 10) and the award is `loopValue × charge`; if it repeats the previous Loop the Charge resets to 1 and the base award is paid
+**Then** if it differs from the previous Loop the Charge increments (to a cap of `joustChargeMax`, 10) and the award is `loopValue × charge`; if it repeats the previous Loop the Charge resets to 1 and the base award is paid `[AMENDED 2026-10-13 — Rule 5, Story 3.6 (the reading its spec pinned, no change of intent): the first Loop of a Joust, and the first Loop after a break, has no previous Loop to differ from — it opens the chain at Charge 1 and pays `loopValue`; the Charge is the length of the current alternating run]`
 
 **Given** a Loop is started and broken (`shot_<loop>_broken`)
 **When** the break arrives
@@ -2170,7 +2170,7 @@ So that the joust is charge, pass, wheel around, charge again.
 
 **Given** the Charge changes
 **When** `ModeView` is published
-**Then** `charge` carries the current value and the Backglass shows CHARGE ×N; the Loop inserts' roles (`joust`, the next-expected Loop at step 2) are `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`
+**Then** `charge` carries the current value and the Backglass shows `CHARGE XN` `[AMENDED 2026-10-13 — Rule 5, Story 3.6 (a restated observable, no change of intent): the DMD prints the letter X, as in `CHARGE X3`, where this line read "CHARGE ×N" — its 5×7 font has no multiplication sign, and a new glyph would have changed the font's row in `ATTRIBUTIONS.md`, which was contended with Epic 5]`; the Loop inserts' roles (`joust`, the next-expected Loop at step 2) are `[AMENDED 2026-09-30 — author decision: moved to Story 3.3c]`
 
 **Given** the Charge reaches the cap
 **When** it happens

@@ -705,11 +705,26 @@ export const TABLE = deepFreeze({
 	 *   review measured that on all twelve teleported launches it tried 7 to
 	 *   17 mm east of the left entry column's centre (1800 to 3000 mm/s), not
 	 *   only below 1400 mm/s at the centre.
+	 *   What arms an attempt did change (`shots.ts`, rules (d) to (f)), and
+	 *   the end-of-ball bonus counts the same `_made` events
+	 *   (`sim/rules/bonus.ts`).
 	 * - On teleported launches outside the sample the review also measured a
 	 *   made Ramp whose return took longer than `loopDescentWindowMs` (2804
 	 *   ticks: the Right Loop armed, and broke at the inlane), and a
 	 *   descending ball that closed an entry switch twice (the second closure
-	 *   armed, and the exit broke it).
+	 *   armed, and the exit broke it). The code review re-measured the first
+	 *   and found two more from the manifest's own Ramp point (2521 and 2568
+	 *   ticks); `loopDescentWindowMs`'s `source` carries the figures.
+	 * - The Story 2.4 paragraph's "every outlane drain closes it" and this
+	 *   one's "no real trajectory reaches a Loop's entry switch from the open
+	 *   field" describe the same lane. The code review's real-input probe
+	 *   (2026-10-13: 14 seeded games on a real `createLoop()`, real plunges
+	 *   of seven lengths and random flipper presses, 2.78 million ticks) saw
+	 *   49 entry-switch closures and six outlane closures; every entry
+	 *   closure came inside the descent window of that lane's far switch or
+	 *   the Ramp's return -- a descent, which leaves a mark and does not arm
+	 *   -- so the tracker emitted no Loop event at all. Whether a field ball
+	 *   can reach an entry switch any other way is ledger DW-326.
 	 * - A shot that declares `fallBack` never reads `entryExclusive`: the
 	 *   signature decides its `_broken`. Both Loops keep the flag as the
 	 *   recorded geometric fact it is.

@@ -199,3 +199,26 @@ Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The physics file uses a re
 
 ### Next Steps
 - The lead's browser smoke (spec Design Notes). `test/hurry-up-physics.test.ts` now replays the smoke's start-decay-ball-end leg through `createLoop()`. A post-lock collect by real input still has no recipe.
+
+## Story 3.6
+
+Framework: Vitest (`pnpm test`, `test/**/*.test.ts`). The project has no HTTP API. What the player sees is the Backglass DMD, and what the browser runs is `createLoop()`. So the new tests run the real loop (physics and rules composed) and a real `createRules()`, fold each tick through `advanceBackglass()` and `renderFrame()`, and read the glyphs back from `rasterise()`'s dots.
+
+### Generated Tests (E2E / integration, real runtime)
+- [x] `test/joust-loop-qa-physics.test.ts` (28 tests). One real `createLoop()` game from Attract.
+  - Real input only: a real Start, three real Ramps (one per ball) light Hurry-up, Quick multiball and Joust; a real Lock capture, one left-flipper press and Start begin Joust. No state is seeded and nothing is repositioned.
+  - Real input, the descent rule: eleven real descents of a Loop lane from above (three medium plunges, three Ramp returns, four autolaunches, one full plunge) produce no Loop event. The last one happens with Joust running, and Joust sees nothing.
+  - The DMD from real input: `JOUST`, `BALL 4`, `60.0  CHARGE X1`, then 59.0 and 57.0.
+  - Teleported launches (no real shot can enter a Loop, DW-319): eleven alternating made Loops pay V, 2V, ... 10V, 10V; `joust_full_charge` fires once; a fall-back fires `joust_charge_broken{charge: 10}`; the real drain stops Joust with no award. These prove the wiring, not real play.
+- [x] `test/rules-joust-qa-integration.test.ts` (9 tests). A real `createRules()` run from Attract with Hurry-up and Joust both live.
+  - Joust owns the rasterised panel from its start; Hurry-up's value is not drawn.
+  - A Ramp collects Hurry-up under Joust's panel.
+  - With `joustMs` 3000, the panel returns to Hurry-up on the tick Joust's timer ends.
+
+### Coverage
+- AC1 to AC10: each has a mutation observed red at QA, recorded in the spec's `## Verification` (15 mutations).
+- AC11 (ball search) and AC12 (goldens): pinned by the implement stage; QA added nothing.
+- Not covered, and not coverable at this tree: a Loop made by a real flipper shot (DW-319, Story 3.3d).
+
+### Next Steps
+- The lead's browser smoke (spec `## Verification`).
