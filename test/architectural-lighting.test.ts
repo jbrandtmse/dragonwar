@@ -12,8 +12,8 @@
 // Boundaries -- never read from `ARCHITECTURAL_LAMPS`, which is the thing
 // under test. They are values the lead measures in a browser (`gi_cabinet`'s
 // 10 is a measured retune of 2026-10-13: at 20 the lockdown bar's top
-// saturated); a retune is an edit to that table and to this one, nowhere
-// else.
+// saturated); a retune is an edit to that table, to this one and to the
+// intensities typed in `test/cabinet-live-pipeline.test.ts`, nowhere else.
 //
 // What this file cannot prove: that a lamp changes a pixel. `NullEngine`
 // rasterises nothing. What it can prove is everything a pixel depends on

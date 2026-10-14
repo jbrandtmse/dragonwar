@@ -8,7 +8,9 @@
 //         fit table (the story's own constants), measured in the level
 //         frame -- the table frame of AD-10 as `cabinet_root` sees it;
 //   AC 2  the fit: every playfield vertex, pitched about `pivot_pitch` by
-//         each allowed pitch, stays under the glass and inside the tub, and
+//         each allowed pitch, stays at least 5 mm below the plane of the
+//         glass's lower face and inside the tub (the sheet itself ends about
+//         16 mm short of the playfield's far edge, as the fit table says), and
 //         the Backglass quad stays clear of the glass and inside the
 //         speaker panel; the plunger knob stays in front of the body's
 //         front face while the rod passes through the front wall; the
@@ -1171,8 +1173,18 @@ describe('Story 5.3 AC 2 -- the playfield fits the cabinet at every allowed pitc
 		expect(lowered.problems[0]).toMatch(/below the glass's lower face/);
 		expect(lowered.minGlassClearanceMm).toBeLessThan(GLASS_CLEARANCE);
 
-		const shifted = playfieldFit(withDoc(glb, translate('vis_cabinet', { x: 1, y: 0, z: 0 })), 6.5);
-		expect(shifted.problems.join('; '), 'a body moved 1 mm across puts the wall art through a side wall').toMatch(/not between the side walls' inner faces/);
+		// The wall art clears each side wall's inner face by only 0.6 mm, so a
+		// 5 mm move is reported with 4.4 mm in hand; one move per side, each
+		// reporting only that side's art (x read from the message's level point).
+		// mutation: drop either half of playfieldFit()'s side-wall comparison
+		// -> red here on that side's move.
+		const reportedX = (problem: string): number => Number(/-> level \((-?\d+(?:\.\d+)?),/.exec(problem)?.[1] ?? Number.NaN);
+		for (const [dx, side, onSide] of [[5, 'left', (x: number) => x < CENTRE_X], [-5, 'right', (x: number) => x > CENTRE_X]] as const) {
+			const shifted = playfieldFit(withDoc(glb, translate('vis_cabinet', { x: dx, y: 0, z: 0 })), 6.5);
+			const text = shifted.problems.join('; ');
+			expect(shifted.problems.length, `a body moved ${dx} mm across puts the ${side} wall art through the ${side} side wall`).toBeGreaterThan(0);
+			expect(shifted.problems.every((p) => /not between the side walls' inner faces/.test(p) && onSide(reportedX(p))), `every report is the ${side} wall's: ${text}`).toBe(true);
+		}
 
 		const pulled = playfieldFit(withDoc(glb, translate('vis_cabinet_arch', { x: 0, y: -5, z: 0 })), 6.0);
 		expect(pulled.problems.join('; '), 'an arch panel 5 mm nearer meets the playfield\'s far wall at 6.0 degrees').toMatch(/not in front of the arch panel's front face/);
@@ -1459,8 +1471,12 @@ describe('Story 5.3 AC 11 -- no two cabinet meshes share a face, in any directio
 		expect(scan.windingMismatches, 'every triangle\'s winding agrees with its stored normals, so "faces the same way" means what the renderer lights by').toBe(0);
 		// The scan does see coplanar, overlapping faces on this glb: the solids
 		// that are seated on one another (the rails on the rim, the arch panel
-		// between the side walls, the lightbox between the backbox's walls).
-		// Those face opposite ways and are inside the assembly.
+		// between the side walls, the lightbox between the backbox's walls, and
+		// the speaker panel's top on the translite's bottom at z 370). Those
+		// face opposite ways and AC 11 does not forbid them. All but one are
+		// between opaque parts; the z 370 seam is seen through the translite, a
+		// strip about 1 px tall from the fixed camera. The fit table puts both
+		// faces at z 370, so it is by design (the spec's "Notes for the lead").
 		expect(scan.opposedTrianglePairs, 'non-vacuity: the scan finds the seated (opposite-facing) contacts').toBeGreaterThan(0);
 		const shared = scan.sameFacing.map(describeSharedFace);
 		expect(shared, shared.join('; ')).toEqual([]);
@@ -1488,7 +1504,8 @@ describe('Story 5.3 AC 11 -- no two cabinet meshes share a face, in any directio
 		expect(Math.abs(flush[0]!.normal.x), 'the shared plane is a side face').toBeGreaterThan(0.99);
 
 		// The backbox's back face on the body's back face (both face +Y): the
-		// first build's 234 cm2.
+		// first build's defect (252 cm2 there, at y 1372; about 234 cm2 when put
+		// back on this fit, at y 1350).
 		const backed = sharedFaces(translated('vis_head', { x: 0, y: HEAD_BACK_IN_FRONT, z: 0 })).sameFacing;
 		expect(backed.map((f) => f.meshes), backed.map(describeSharedFace).join('; ')).toEqual([['vis_cabinet', 'vis_head']]);
 		expect(backed[0]!.overlapMm2, 'the two back faces overlap by about 234 cm2').toBeGreaterThan(20000);

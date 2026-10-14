@@ -752,10 +752,20 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 		expectFlipperPoseUncovered('held', pitchDeg);
 	});
 
-	it.each(PITCHES_DEG)('at %s degrees the Backglass quad\'s front face (centre and four inset corners) and the plunger knob\'s top are not covered', (pitchDeg) => {
-		const { backglass, knob } = resultAt(pitchDeg);
+	// mutation: give the vis_lockbar node a translation of 1000 mm toward table
+	// +Y and 300 mm upward in the glb JSON chunk -> red here at all three
+	// pitches, while the knob case below stays green.
+	it.each(PITCHES_DEG)('at %s degrees the Backglass quad\'s front face (centre and four inset corners) is not covered', (pitchDeg) => {
+		const { backglass } = resultAt(pitchDeg);
 		expect(backglass.samples, 'non-vacuity: five Backglass samples').toBe(5);
 		expect(backglass.covers, describeCovers(backglass.covers)).toEqual([]);
+	});
+
+	// mutation: give the vis_lockbar node a translation of 30 mm downward in
+	// the glb JSON chunk -> red here at 6.0 and 6.5 degrees (8.5 is still
+	// inside the knob's margin), while the Backglass case above stays green.
+	it.each(PITCHES_DEG)('at %s degrees the plunger knob\'s top is not covered', (pitchDeg) => {
+		const { knob } = resultAt(pitchDeg);
 		expect(knob.samples, 'non-vacuity: the knob sample').toBe(1);
 		expect(knob.covers, describeCovers(knob.covers)).toEqual([]);
 	});
@@ -763,6 +773,9 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 	// mutation: give the vis_lockbar node a translation of 20 mm upward in the
 	// glb JSON chunk -> red here at all three pitches (the centre's sight line
 	// clears the bar by 13.2 to 13.9 mm of lift; the top's by 22 to 24).
+	// mutation: give the vis_lockbar node a translation of 100 mm upward in the
+	// glb JSON chunk -> red here at all three pitches on the TOP, the centre
+	// still clear (the raised bar's face meets the top's sight line only).
 	it.each(PITCHES_DEG)('at %s degrees the centre and the top of the ball waiting against the shooter lane\'s end are not covered', (pitchDeg) => {
 		const { ballCentre, ballTop } = resultAt(pitchDeg);
 		expect(ballCentre, describeCovers(ballCentre)).toEqual([]);
@@ -936,13 +949,21 @@ describe('Story 5.3 -- setNodeVisible() (I/O matrix rows)', () => {
 		});
 	});
 
-	it('Hide an unknown or mesh-less node: a missing name, a lamp Empty and a root each throw naming the node, and nothing changes', async () => {
+	// mutation: delete `|| node.getTotalVertices() === 0` in node-visibility.ts
+	// -> red here (the loader's __root__ is a mesh with no vertices).
+	it('Hide an unknown or mesh-less node: a missing name, a lamp Empty, a root and a mesh with no vertices each throw naming the node, and nothing changes', async () => {
 		await withShippedScene((scene) => {
 			const before = scene.meshes.map((m) => m.isVisible);
 			expect(() => setNodeVisible(scene, 'vis_coin_door', false)).toThrow(/"vis_coin_door"/);
 			for (const empty of [...Object.keys(TABLE.giChannels), TABLE.nodes.cabinetRoot]) {
 				expect(() => setNodeVisible(scene, empty, false)).toThrow(new RegExp(`"${empty}" carries no mesh`));
 			}
+			// The glTF loader's __root__ IS an AbstractMesh, so it reaches the
+			// vertex-count half of the guard, which the nodes above never do.
+			const loaderRoot = getRequiredNode(scene, '__root__');
+			expect(loaderRoot, 'non-vacuity: __root__ is a mesh').toBeInstanceOf(AbstractMesh);
+			expect((loaderRoot as AbstractMesh).getTotalVertices(), 'non-vacuity: __root__ carries no vertices').toBe(0);
+			expect(() => setNodeVisible(scene, '__root__', false)).toThrow(/"__root__" carries no mesh/);
 			expect(() => setNodeVisible(scene, GLASS, 0 as unknown as boolean)).toThrow(/visible must be true or false/);
 			expect(scene.meshes.map((m) => m.isVisible), 'no mesh changed').toEqual(before);
 			expect(before.length, 'non-vacuity: meshes').toBeGreaterThan(100);

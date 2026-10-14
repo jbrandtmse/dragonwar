@@ -74,8 +74,9 @@ export interface ArchitecturalLamp {
  * ranges sit inside the band measured on a dark PBR surface under standard
  * falloff (intensity 1 to 20); the size of each lamp's rendered response is
  * settled in a real browser (the story's AC 9 (d)), and a retune is an edit
- * to this table and to the typed copy in
- * `test/architectural-lighting.test.ts`, nowhere else.
+ * to this table and to the two typed copies of its intensities, in
+ * `test/architectural-lighting.test.ts` and
+ * `test/cabinet-live-pipeline.test.ts`, nowhere else.
  *
  * `gi_cabinet`'s intensity is a MEASURED value (author decision 2026-10-13),
  * not a starting one: at 20, 95 % of the lockdown bar's top saturated in

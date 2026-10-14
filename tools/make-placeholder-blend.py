@@ -2909,9 +2909,10 @@ def fill_playfield_image(image, rgba):
 # named exactly as its `TABLE.giChannels` key (AD-11: Blender owns every
 # position, lamp positions included). Presentation creates the lights and sets
 # the glass's and the translite's transparency in code
-# (src/presentation/scene/cabinet.ts, src/presentation/lighting/architectural.ts):
-# this file exports both materials opaque, because no glTF extension is
-# registered at load.
+# (src/presentation/scene/cabinet.ts, src/presentation/lighting/architectural.ts),
+# so this file exports both materials opaque: the spine's "Cabinet parts" row
+# keeps a glb material's transparency in presentation, never asserted from
+# the glb (a placement decision, not a loader limit).
 #
 # Everything here is authored in the LEVEL frame: the table frame of AD-10 as
 # `cabinet_root` sees it, with `playfield_root` unpitched -- millimetres, X

@@ -220,8 +220,9 @@ declare global {
 			 * children, so `vis_cabinet` can be hidden while its rails stay
 			 * drawn (`presentation/scene/node-visibility.ts`). e.g.
 			 * `window.__dragonwarBoot.setNodeVisible('vis_top_glass', false)`.
-			 * Throws naming the node if it is missing or carries no mesh, and
-			 * if no scene has rendered yet. `reset()` does NOT restore it, for
+			 * Throws naming the node if it is missing or carries no mesh, a
+			 * `TypeError` if `visible` is not a boolean, and an error if no
+			 * scene has rendered yet. `reset()` does NOT restore it, for
 			 * the same reason as the level above.
 			 */
 			setNodeVisible: (name: string, visible: boolean) => void;

@@ -6,11 +6,11 @@
 // `vis-names.ts`), checks each one really descends from `cabinet_root`, and
 // gives the playfield glass and the backbox translite their transparency.
 //
-// Why the transparency is set here and not in the glb (AD-12, and the
-// spine's "Cabinet parts" row): this project registers no glTF extension
-// (`create-engine.ts` imports the base loader only), and an alpha the asset
-// carried would only be as good as an assertion nobody can make headlessly.
-// The glb therefore exports both materials OPAQUE, and this file sets
+// Why the transparency is set here and not in the glb: the spine's "Cabinet
+// parts" row keeps a glb material's transparency in presentation, never
+// asserted from the glb. It is a placement decision, not a loader limit --
+// core glTF's `alphaMode: BLEND` needs no extension, and `mat_playfield`
+// ships it. The glb therefore exports both materials OPAQUE, and this file sets
 // `alpha` and `transparencyMode` on exactly those two materials. Each is
 // used by exactly one mesh (`test/cabinet-art.test.ts` pins that from the
 // glb), so they are changed in place -- no clone, no new material.
