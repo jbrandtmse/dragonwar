@@ -2,7 +2,7 @@
 title: 'Story 5.3: Cabinet, backbox and glass'
 type: 'feature'
 created: '2026-10-13'
-status: 'blocked'
+status: 'draft'
 baseline_revision: '66234b251a09381f383d8fa6be9333839dd9e0d5'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -22,7 +22,7 @@ deferred: []
 - `gi_backbox`, `gi_cabinet` and `gi_arch` exist only as empty keys of `TABLE.giChannels`. Nothing in the scene is lit by them, and nothing in presentation can take a level for them.
 
 **Approach:**
-- `tools/make-placeholder-blend.py` gains a cabinet pass. Under `cabinet_root` it models a cabinet body, side rails, a lockdown bar, legs, a glass sheet and a backbox at the standard-body reference dimensions, fitted round this table, plus three lamp-position Empties named after the three GI channels. Everything is `vis_` only.
+- `tools/make-placeholder-blend.py` gains a cabinet pass. Under `cabinet_root` it models a cabinet body, side rails, a lockdown bar, legs, a glass sheet and a backbox at the standard-body reference dimensions, fitted round this table, plus three lamp-position Empties named after the three GI channels. Everything is `vis_` only. The cabinet's front is fitted so that both flippers at rest, and the gap between them, are wholly visible from the fixed camera, and the plunger rod art of Story 5.4 grows so its knob stays outside the cabinet [AMENDED 2026-10-13 — author decision].
 - Presentation gives the glass and the backbox translite their transparency in code, and creates one scoped light per GI channel at load. A `(channel, level)` seam drives the lights by intensity. Two dev hatches let the lead check the result in Chrome.
 - `GiCommand`-driven behaviour stays Story 4.1's. The Walk-up stays Story 4.6's.
 
@@ -49,20 +49,20 @@ deferred: []
   | Item | Value |
   |---|---|
   | Centreline | x = 257.2. Body outer faces at x = −22.8 and 537.2 |
-  | Body front and back outer faces | Y = −28 and Y = 1372. The plunger knob (y −40 to −28) stays in front of the front face |
-  | Body top line | Z = 70 at Y = −28, rising 205 in 1400 (8.33°) to Z = 275 at Y = 1372. Body underside level at Z = −330 |
-  | Wall thickness | sides 9; front, back and bottom 18. The body is an open-top tub |
-  | Side rails | 18 wide (X −22.8 to −4.8 and 519.2 to 537.2), 6 high, on the top line of each side wall, from Y = −8 to Y = 1068 |
-  | Lockdown bar | X −22.8 to 537.2, Y −44 to −8, Z 62 to 80 |
-  | Floor | Z = −830 (lockdown bar top at 910) |
-  | Legs | four square legs, 36 x 36, standing 4 mm proud of the body's outer corner faces, from Z = −830 up to Z = −150 |
-  | Glass | lower face on the plane Z = 66.10 + (205/1400)·Y, 8 mm below the top line; rear lower edge at Y = 1066.0; X −9.3 to 523.7. The 1093 is measured along the slope and the 4.76 normal to it, so the front lower edge is near Y = −15.5 |
+  | Body front and back outer faces | Y = −50 and Y = 1350 [AMENDED 2026-10-13 — author decision: the front assembly moved 22 mm toward the player along the body's own top line; was −28 and 1372]. The plunger knob (y −62 to −50) stays in front of the front face |
+  | Body top line | Z = 66.78 at Y = −50, rising 205 in 1400 (8.33°) to Z = 271.78 at Y = 1350. This is the same line in space as before, Z = 74.10 + (205/1400)·Y, so the glass plane and every height at the back are where they were. Body underside level at Z = −333.22 [AMENDED 2026-10-13 — author decision; was −330] |
+  | Wall thickness | sides 9; front, back and bottom 18. The body is an open-top tub. The front wall is Y −50 to −32, so its inner face is at Y = −32 [AMENDED 2026-10-13 — author decision] |
+  | Side rails | 18 wide (X −22.8 to −4.8 and 519.2 to 537.2), 6 high, on the top line of each side wall, from Y = −30 to Y = 1068 [AMENDED 2026-10-13 — author decision; was from −8] |
+  | Lockdown bar | X −24.8 to 539.2 (2 mm proud of each body side face, so its end faces are never coplanar with them), Y −66 to −30, Z 58.78 to 76.78 [AMENDED 2026-10-13 — author decision; was X −22.8 to 537.2, Y −44 to −8, Z 62 to 80]. It keeps its section (36 deep, 18 high) and its seat on the top line (8 below to 10 above the line at the front face) |
+  | Floor | Z = −830 (lockdown bar top at 906.78) [AMENDED 2026-10-13 — author decision: the bar came down 3.22 with the front; the floor and the assembled height stay] |
+  | Legs | four square legs, 36 x 36, standing 4 mm proud of the body's outer corner faces, from Z = −830 up to Z = −150. The front pair stands at the new front face and the back pair at the new back face |
+  | Glass | lower face on the plane Z = 66.10 + (205/1400)·Y, 8 mm below the top line (the plane is unchanged); rear lower edge at Y = 1044.0 [AMENDED 2026-10-13 — author decision: the sheet slid 22 mm down its own plane so its front edge stays 7.5 mm under the lockdown bar; was 1066.0]; X −9.3 to 523.7. The 1093 is measured along the slope and the 4.76 normal to it, so the front lower edge is near Y = −37.5. The sheet now ends about 16 mm short of the playfield's back edge; nothing depends on it reaching the arch |
   | Arch panel | the cabinet's inner back board: X −13.8 to 528.2, Y 1075 to 1081, Z 100 to 230 |
-  | Backbox | X −107.8 to 622.2, Y 1072 to 1372, Z 230 to 960; walls 12 thick; an open-front box whose front is closed by the two panels below |
-  | Speaker panel | in front of the box over its full width from Z 230 to 370: Y 1068 to 1072, so its front face is 0.2 mm behind `vis_backbox`'s back face |
-  | Translite | in front of the box over its full width from Z 370 to 960: Y 1068 to 1072 |
-  | Lightbox panel | inside the backbox: X −95.8 to 610.2, Y 1340 to 1344, Z 242 to 948 |
-  | Lamp Empties | `gi_backbox` (257.2, 1120, 600); `gi_cabinet` (257.2, −300, 400); `gi_arch` (257.2, 900, 210) |
+  | Backbox | X −107.8 to 622.2, Y 1072 to 1342 [AMENDED 2026-10-13 — author decision; was 1372: its back face stands 8 mm in front of the body's back face at Y 1350, so the two are never coplanar], Z 230 to 960; walls 12 thick; an open-front box whose front is closed by the two panels below |
+  | Speaker panel | in front of the box over its full width from Z 230 to 370: Y 1068 to 1071.5 [AMENDED 2026-10-13 — author decision (lead); was 1072: 0.5 mm clear of the backbox's front rim at Y 1072, whose face a double-sided panel would otherwise share], so its front face is 0.2 mm behind `vis_backbox`'s back face |
+  | Translite | in front of the box over its full width from Z 370 to 960: Y 1068 to 1071.5 [AMENDED 2026-10-13 — author decision (lead); was 1072, for the same reason] |
+  | Lightbox panel | inside the backbox: X −95.8 to 610.2, Y 1310 to 1314 [AMENDED 2026-10-13 — author decision; was 1340 to 1344: it stays 32 mm in front of the backbox's back face], Z 242 to 948 |
+  | Lamp Empties | `gi_backbox` (257.2, 1090, 600) [AMENDED 2026-10-13 — author decision; was Y 1120: it stays 220 mm in front of the lightbox]; `gi_cabinet` (257.2, −322, 396.78) [AMENDED 2026-10-13 — author decision; was (257.2, −300, 400): it moves with the front, so the lead's measured response still describes it]; `gi_arch` (257.2, 900, 210) |
 
 - **Assembled height.** The top of `vis_head` is 1790 ± 2 mm above the feet of `vis_legs`. This is the planned value; it is not the research's "about 1930" (Design Notes, amendment candidate 2).
 - **Nodes.** Exactly these eleven meshes are added, all with identity transforms:
@@ -89,16 +89,23 @@ deferred: []
   - is at least 5 mm below the plane of the glass's lower face;
   - has x strictly between the side walls' inner faces (−13.8 and 528.2);
   - has depth D below the arch panel's front face (1075);
-  - has depth D above the front wall's inner face (−10), except `vis_plunger` and its descendants, whose rod passes through the front wall by design.
+  - has depth D above the front wall's inner face (−32) [AMENDED 2026-10-13 — author decision; was −10], except `vis_plunger` and its descendants, whose rod passes through the front wall by design.
 - **Backglass stays clear.** All eight corners of `vis_backbox` lie at least 10 mm above the plane of the glass's upper face, inside the speaker panel's outline in X and Z, and in front of the speaker panel's front face.
-- **Transparency is set in presentation.** The glb carries the glass and the translite as opaque materials. `resolveCabinet()` sets `alpha` and `transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND` on exactly those two materials: `TOP_GLASS_ALPHA = 0.08`, `TRANSLITE_ALPHA = 0.55`.
+- **Flippers and the waiting ball stay in view [AMENDED 2026-10-13 — author decision].** At 6.0°, 6.5° and 8.5° no opaque cabinet mesh lies between the fixed camera and any vertex of `vis_flipper_l`, `vis_flipper_r` or their `_rubber` children, at BOTH poses:
+  - the **held** (end-of-stroke) pose, which is the pose the glb is authored in;
+  - the **resting** pose: the authored pose rotated about the flipper's own pivot, about the playfield normal, by the flipper's sweep toward the drain (the mover's rule in the sim's flipper configuration; read it, never edit it). This is what a player sees in Attract and between flips. A check that samples only the authored pose is vacuous: it is how the first plan missed that the bar hid both resting tips.
+  - The ball waiting to be plunged rests against the shooter lane's end, its centre at playfield (x of `bd_shooter`, ballMm/2, ballMm/2) -- measured in the running game at (497.4, 13.49, 13.5) -- and NOT at `bd_shooter`'s eject pose (498, 35, 13). Its centre and its top stay visible at every allowed pitch. The lockdown bar may hide its lowest part (the author's earlier "leave it" covers that).
+  - Measured for this fit by the lead (2026-10-13): none of the 792 resting bat and rubber vertices is hidden at any of the three pitches, and the worst sight line clears the occluding edge by 12.7 mm (16 mm of shift would leave 0.9 mm; 18 mm, 4.9 mm; 20 mm, 8.8 mm). In a live preview of the same move the bar's top edge sits at screen y 721.9 on an 889 px frame, 4.9 px below the lowest resting-bat vertex (717.0), and showing the cabinet changes no pixel row above 722. The waiting ball: 17.5 % of its disc stays behind the bar (the lowest 4.7 of its 20 px); as first built the bar hid all of it.
+- **Plunger art (Story 5.4's, amended here) [AMENDED 2026-10-13 — author decision].** `vis_plunger`'s rod grows 22 mm toward the player so its knob stays outside the cabinet: the knob spans playfield y −62 to −50 (was −40 to −28), and the rod runs from y −50 to its unchanged tip at `bd_shooter.y − ballMm/2`. Its centre x, cross-section, materials, the knob's shape and the follower (`posMm` toward table −Y) do not change.
+- **No shared faces [AMENDED 2026-10-13 — author decision (lead)].** No two faces of different cabinet meshes are coincident, coplanar and facing the same way, in any direction -- not only toward the fixed camera, because Story 4.6's Walk-up will see the sides and the back. A double-sided panel shares no plane with another mesh's face.
+- **Transparency is set in presentation.** The glb carries the glass and the translite as opaque materials. `resolveCabinet()` sets `alpha` and `transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND` on exactly those two materials: `TOP_GLASS_ALPHA = 0.02` [AMENDED 2026-10-13 — author decision, measured: was 0.08, which lifted dark playfield tones by 17 to 28 levels; at 0.02 the unlit lens lifts by 4.2/6.0/6.0 and the wood by 0/1.4/2.9, and a lit insert still separates from an unlit one by 108 levels], `TRANSLITE_ALPHA = 0.55`.
 - **Architectural lamps.**
   - One `PointLight` per key of `TABLE.giChannels`, named `` `light_${channel}` ``, created once per scene, parented to the Empty of the same name at local position zero. Three lights in all.
   - Each light is scoped with `includedOnlyMeshes` to its authored targets and to nothing else:
     - `gi_backbox` lights `vis_head_lightbox` (seen through the translite);
     - `gi_cabinet` lights `vis_cabinet`, `vis_cabinet_rail_l`, `vis_cabinet_rail_r` and `vis_lockbar`;
     - `gi_arch` lights `vis_cabinet_arch`.
-  - `falloffType = PointLight.FALLOFF_STANDARD` with an authored `range`; diffuse (1.0, 0.85, 0.6) on all three. Authored intensity and range: `gi_backbox` 20 and 2.0 m; `gi_cabinet` 20 and 3.0 m; `gi_arch` 10 and 2.0 m. These sit inside the band the lead measured (intensity 1 to 20 on a dark PBR surface under standard falloff).
+  - `falloffType = PointLight.FALLOFF_STANDARD` with an authored `range`; diffuse (1.0, 0.85, 0.6) on all three. Authored intensity and range: `gi_backbox` 20 and 2.0 m; `gi_cabinet` 10 and 3.0 m [AMENDED 2026-10-13 — author decision, measured: was 20, at which 95 % of the lockdown bar's top saturated; at 10 the bar reads about 201 and the cabinet front 132]; `gi_arch` 10 and 2.0 m. These sit inside the band the lead measured (intensity 1 to 20 on a dark PBR surface under standard falloff).
   - A channel's light intensity is `level × authored intensity`. The level is in [0, 1]. The default level is 1 for all three, because nothing in this tree emits a `GiCommand`.
   - Lights always stay enabled. A level change writes `intensity` only. No light is created, disposed, enabled or disabled after the first resolve.
   - The authoring table is keyed by `GiChannel` with unquoted keys. Channel names never appear as string literals under `src/`.
@@ -141,7 +148,7 @@ deferred: []
 | Hide a mesh | `setNodeVisible(scene, name, false)` | that mesh's `isVisible` is false; its children stay visible | No error expected |
 | Hide an unknown or mesh-less node | a missing name, or a lamp Empty's name | nothing changes | throws naming the node |
 | Hatch before a scene exists | either hatch, no frame rendered yet | nothing changes | throws `no scene has rendered yet`, like `nodeScreenRect` |
-| Pitch at 6.0 and at 8.5 | `applyPitch()` at the two bounds | no playfield vertex within 5 mm of the glass or outside the tub; no opaque cabinet mesh hides a flipper, an insert or the Backglass | No error expected |
+| Pitch at 6.0 and at 8.5 | `applyPitch()` at the two bounds | no playfield vertex within 5 mm of the glass or outside the tub; no opaque cabinet mesh hides a flipper (at rest or held), an insert or the Backglass; the waiting ball's centre and top are visible [AMENDED 2026-10-13 — author decision] | No error expected |
 
 </intent-contract>
 
@@ -304,6 +311,14 @@ deferred: []
     - "no cabinet that carries a glass over this table can do it from this camera" holds only while the cabinet's front stays where the fit table puts it. Two edges do the covering: the lockdown bar's back top edge (Y -8, Z 80) and the front wall's inner top edge (Y -10, Z 72.6). Swept on the same script over all 2,376 resting-flipper vertex samples (792 vertices at three pitches): with heights held, moving both toward the player leaves 114 hidden at 15 mm and none at 18 mm (the wall alone is clear by 15 mm); with positions held, lowering both leaves 12 hidden at 30 mm and none at 33 mm. So a fit that covers no flipper exists, but not inside the frozen table: 18 mm toward the player puts the front wall at Y -46 to -28, across the plunger knob (`vis_plunger_knob`, y -40 to -28, z 5 to 21), against the table's "the knob stays in front of the front face"; 33 mm lower puts the bar's top at Z 47, under the playfield's 50 mm walls and under the glass plane.
   - **Why this is an intent gap and not a patch.** The covering test is written as AC 5 words it, on the real loop's idle snapshot through the real follower (`test/cabinet-scene.test.ts:402-410`), so the test is not the defect. The I/O matrix's last row ("no opaque cabinet mesh hides a flipper") and the fit table are both inside the frozen intent contract and contradict each other on the committed glb; AC 9 (b) would fail in Chrome for the same reason, because the flippers are at rest in Attract. Making the case green means either changing what the player sees or changing a frozen figure, and both are the author's.
   - **Not run:** the Matrix Test Audit and the four review layers (the skill HALTs at the Verify step before either). No finding was triaged and nothing was deferred.
+- 2026-10-13 (author decisions after the implement stage's intent-gap halt, relayed at Epic 5's clarification; applied by the lead). Primary cause of this re-plan: `spec`. The first plan measured the glb's authored flipper pose, which is the held (end-of-stroke) pose, and took it for the resting pose; the lead's own spec gate repeated the error and added a second one (below).
+  - **Decision: Option 2.** The cabinet's front moves about 22 mm toward the player so that both resting flippers and the gap between them are wholly visible. The plunger rod art of Story 5.4 grows by the same amount. Body depth stays 1400 (the back face moves too) and every reference figure is still met; the assembled height stays 1790.
+  - **The offset was chosen by measurement: 22 mm, taken along the body's own top line** (22 toward the player and 3.22 down), so the glass plane and every relation at the back stay where they were. Numerically (lead's script over the 792 resting bat and rubber vertices at 6.0, 6.5 and 8.5 degrees, cabinet and camera typed from this spec): 0 hidden, worst sight line 12.7 mm clear of the occluding edge; 16 mm of shift leaves 0.9 mm, 18 mm leaves 4.9 mm, 20 mm leaves 8.8 mm. In Chrome, with the built cabinet slid by the same vector: the bar's top edge at screen y 721.9, 4.9 px below the lowest resting-bat vertex. The numeric model was checked against the browser first (pure-Y slides of 18 and 22 mm: 717.9 and 720.7 measured, 0.9 px and 3.7 px of margin, against 2.2 mm and 9.4 mm computed).
+  - **Correction of the lead's earlier record about the waiting ball.** The ball waits at playfield (497.4, 13.49, 13.5), against the lane's end, not at `bd_shooter`'s eject pose (498, 35, 13). The "about 4 mm" clip reported to the author on 2026-10-13 was computed at the wrong pose and with the wrong scale. As first built the lockdown bar hid the whole ball (309 of 309 px in Chrome). With this fit 17.5 % of its disc stays hidden (the lowest 4.7 of 20 px) and its centre and top are visible; hiding none of it would take about 30 mm. The author's "leave it" covers a remaining clip, and the figure goes back to the author in the lead's next report.
+  - **Two measured retunes, accepted by the author:** `gi_cabinet` intensity 20 -> 10 (at 20, 95 % of the lockdown bar's top saturated), and `TOP_GLASS_ALPHA` 0.08 -> 0.02. The glass value is a SAMPLED one, as the author required: 0.01, 0.02, 0.03, 0.04, 0.05 and 0.08 were each measured in Chrome, and 0.02 is the smallest whose lift on the unlit lens is at least 4 levels in every channel (4.2/6.0/6.0), so the sheet still registers well above the noise floor while the art stays clear (wood +0/1.4/2.9; lit against unlit insert 108 levels, against 112 with no glass).
+  - **Lead fixes folded into the same amendment** (from the handoff's own findings, no author decision needed): the lockdown bar stands 2 mm proud of each body side face, the backbox's back face stands 8 mm in front of the body's, and the speaker panel and translite end 0.5 mm short of the backbox's front rim, so that no two faces are shared in any direction.
+  - **What changed in the frozen block:** every `[AMENDED 2026-10-13 ...]` tag in Intent and Boundaries, and the last row of the I/O matrix. The block was edited by the lead and is to be preserved; everything outside it is to be re-derived by the plan stage, which must also re-check the amended fit against the committed glb by computation and HALT if any figure does not hold.
+  - **State of the tree:** the first implementation is commit `6588163` (work in progress, three cases red by design). It is the starting point for the next implement pass, not something to discard.
 
 ## Review Triage Log
 
