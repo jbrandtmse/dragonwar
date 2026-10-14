@@ -2218,9 +2218,10 @@ def _replace_mesh(obj, mesh):
 	mesh.name = obj.name
 
 
-def _new_art_node(name, mesh, parent, location_mm=(0.0, 0.0, 0.0)):
+def _new_art_node(name, mesh, parent, location_mm=(0.0, 0.0, 0.0), lightgroup='lg_playfield'):
 	"""A new art node (mesh datablock named like the node), with the static
-	mesh's lightgroup (AD-11/AD-12)."""
+	mesh's lightgroup (AD-11/AD-12). `lightgroup` (Story 5.3): the playfield
+	parts keep the default; the cabinet parts pass `lg_cabinet`."""
 	if name in bpy.data.objects:
 		raise RuntimeError(f'[make-placeholder-blend] art node name "{name}" already exists')
 	mesh.name = name
@@ -2229,13 +2230,13 @@ def _new_art_node(name, mesh, parent, location_mm=(0.0, 0.0, 0.0)):
 	bpy.context.scene.collection.objects.link(obj)
 	obj.parent = parent
 	obj.location = Vector((location_mm[0] * MM, location_mm[1] * MM, location_mm[2] * MM))
-	set_props(obj, lightgroup='lg_playfield')
+	set_props(obj, lightgroup=lightgroup)
 	return obj
 
 
-def _new_art_child(parent, part, mesh):
+def _new_art_child(parent, part, mesh, lightgroup='lg_playfield'):
 	"""A `<parent>_<part>` child mesh at its parent's own origin."""
-	return _new_art_node(f'{parent.name}_{part}', mesh, parent)
+	return _new_art_node(f'{parent.name}_{part}', mesh, parent, lightgroup=lightgroup)
 
 
 def _art_wall(twin, poly, body_top_mm, top_mm, material):
@@ -2890,6 +2891,373 @@ def fill_playfield_image(image, rgba):
 	if tuple(image.size) != (PLAYFIELD_IMAGE_W, PLAYFIELD_IMAGE_H):
 		raise RuntimeError(f'[make-placeholder-blend] the packed playfield image reads back as {tuple(image.size)}')
 	print(f'[make-placeholder-blend] {PLAYFIELD_IMAGE_NAME}: {PLAYFIELD_IMAGE_W}x{PLAYFIELD_IMAGE_H} PNG, {len(png)} B, {int((rgba[..., 3] == 0).sum())} mask texels open')
+
+
+# ---------------------------------------------------------------------------
+# Story 5.3: the cabinet, the backbox and the playfield glass.
+#
+# `add_cabinet()` models, under `cabinet_root`, what stands round the
+# playfield: a cabinet body with two side rails and an inner back board (the
+# arch panel), a lockdown bar, four legs, the playfield glass, and a backbox
+# closed at the front by a speaker panel and a translite, with a lightbox
+# panel inside it -- eleven `vis_` meshes in `lg_cabinet` -- plus three
+# mesh-less Empties that carry the positions of the architectural lamps, each
+# named exactly as its `TABLE.giChannels` key (AD-11: Blender owns every
+# position, lamp positions included). Presentation creates the lights and sets
+# the glass's and the translite's transparency in code
+# (src/presentation/scene/cabinet.ts, src/presentation/lighting/architectural.ts):
+# this file exports both materials opaque, because no glTF extension is
+# registered at load.
+#
+# Everything here is authored in the LEVEL frame: the table frame of AD-10 as
+# `cabinet_root` sees it, with `playfield_root` unpitched -- millimetres, X
+# right, Y away from the player, Z up, origin at the playfield's bottom-left
+# corner. `cabinet_root` never rotates, so the cabinet is fitted to the whole
+# allowed pitch range (TUNING.pitchMinDeg 6.0 to pitchMaxDeg 8.5), not to one
+# pitch; test/cabinet-art.test.ts pitches every playfield vertex and checks
+# the fit, the reference dimensions and the node contract from the EXPORTED
+# glb, never from this text.
+#
+# Rules:
+#   - `vis_` only. Nothing here is a `col_`, `sw_`, `bd_` or `l_` node, so the
+#     collision document, `tableHash` and `assetHash` do not move. The glass is
+#     `vis_top_glass`, a cabinet part at real height; `col_glass` stays the
+#     physics ceiling at GLASS_Z_MM and has no twin, and no node is named
+#     `vis_glass`.
+#   - `vis_backbox` (Story 2.6's DMD quad) is not touched: it gets no child,
+#     and no cabinet mesh uses `mat_backbox`. The modelled backbox is
+#     `vis_head`, seated so its speaker panel carries the quad where it is,
+#     which makes the assembled height 1790 mm (author decision 2026-10-13),
+#     not the reference machine's 1930 mm.
+#   - every mesh has an identity transform, one material, both UV layers and
+#     `lightgroup: 'lg_cabinet'`; a second material is a `<parent>_<part>`
+#     child (the "Art parts" convention).
+#   - no artwork, logo, lettering or shape of any commercial machine: the
+#     dimensions below are facts, everything else is plain boxes and slabs in
+#     flat paint.
+# ---------------------------------------------------------------------------
+
+# Reference figures (mm): the numbers this story is judged against. Source:
+# _bmad-output/planning-artifacts/research/technical-pinball-simulation-engine-and-technology-2026-08-26/digests/geometry-r1-1.md:15-25,186-192
+# (a standard-body cabinet, backbox and playfield glass; single-sourced
+# there, labelled high confidence).
+CAB_REF_BODY_W_MM = 560.0
+CAB_REF_BODY_D_MM = 1400.0
+CAB_REF_BODY_FRONT_H_MM = 400.0
+CAB_REF_BODY_BACK_H_MM = 605.0
+CAB_REF_HEAD_W_MM = 730.0
+CAB_REF_HEAD_H_MM = 730.0
+CAB_REF_GLASS_W_MM = 533.0
+CAB_REF_GLASS_L_MM = 1093.0
+CAB_REF_GLASS_T_MM = 4.76
+CAB_REF_LOCKBAR_TOP_MIN_MM, CAB_REF_LOCKBAR_TOP_MAX_MM = 900.0, 920.0  # the lockdown bar's top above the floor
+
+# Fit to this table (level-frame mm). The research gives no figure for any of
+# these; they are this story's own constants (its spec, "Fit to this table").
+CAB_CENTRE_X_MM = PLAYFIELD_W_MM / 2          # the cabinet is centred on the playfield
+CAB_BODY_FRONT_Y_MM = -28.0                   # the front outer face: the plunger knob (y -40 to -28) stays in front of it
+CAB_BODY_FRONT_TOP_Z_MM = 70.0                # the body's top line at the front outer face
+CAB_SIDE_WALL_T_MM = 9.0
+CAB_END_WALL_T_MM = 18.0                      # the front wall, the back wall and the bottom; the body is an open-top tub
+CAB_RAIL_W_MM, CAB_RAIL_H_MM = 18.0, 6.0      # side rails, on the top line of each side wall
+CAB_RAIL_Y0_MM, CAB_RAIL_Y1_MM = -8.0, 1068.0
+CAB_LOCKBAR_Y0_MM, CAB_LOCKBAR_Y1_MM = -44.0, -8.0
+CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM = 62.0, 80.0
+CAB_FLOOR_Z_MM = -830.0                       # puts the lockdown bar's top 910 above the floor
+CAB_LEG_SIDE_MM = 36.0                        # four square legs
+CAB_LEG_PROUD_MM = 4.0                        # ... standing this far proud of the body's outer corner faces
+CAB_LEG_TOP_Z_MM = -150.0
+CAB_GLASS_BELOW_TOP_LINE_MM = 8.0             # the glass's lower face below the top line (vertical)
+CAB_GLASS_REAR_Y_MM = 1066.0                  # the glass's rear lower edge
+CAB_ARCH_Y0_MM, CAB_ARCH_Y1_MM = 1075.0, 1081.0   # the arch panel: the cabinet's inner back board
+CAB_ARCH_Z0_MM, CAB_ARCH_Z1_MM = 100.0, 230.0
+CAB_HEAD_Y0_MM = 1072.0                       # the backbox's open front
+CAB_HEAD_D_MM = 300.0
+CAB_HEAD_Z0_MM = 230.0
+CAB_HEAD_WALL_T_MM = 12.0
+CAB_HEAD_FRONT_T_MM = 4.0                     # the speaker panel and the translite, in front of the box
+CAB_HEAD_PANEL_Z1_MM = 370.0                  # the speaker panel's top and the translite's bottom
+CAB_LIGHTBOX_Y0_MM, CAB_LIGHTBOX_Y1_MM = 1340.0, 1344.0   # the lightbox panel, inside the backbox
+# The architectural lamps' positions. Keys are the TABLE.giChannels keys
+# (src/sim/table/dragonwar.ts); test/cabinet-art.test.ts checks the two agree.
+CAB_LAMP_POS_MM = {
+	'gi_backbox': (CAB_CENTRE_X_MM, 1120.0, 600.0),   # inside the backbox: behind the translite, in front of the lightbox panel
+	'gi_cabinet': (CAB_CENTRE_X_MM, -300.0, 400.0),   # in front of and above the cabinet's front face
+	'gi_arch': (CAB_CENTRE_X_MM, 900.0, 210.0),       # in front of the arch panel
+}
+
+# Derived from the two tables above -- never a second typed figure.
+CAB_BODY_X0_MM = CAB_CENTRE_X_MM - CAB_REF_BODY_W_MM / 2
+CAB_BODY_X1_MM = CAB_CENTRE_X_MM + CAB_REF_BODY_W_MM / 2
+CAB_BODY_BACK_Y_MM = CAB_BODY_FRONT_Y_MM + CAB_REF_BODY_D_MM
+CAB_BODY_UNDERSIDE_Z_MM = CAB_BODY_FRONT_TOP_Z_MM - CAB_REF_BODY_FRONT_H_MM   # level: leg-leveller tilt is not modelled
+CAB_TOP_LINE_SLOPE = (CAB_REF_BODY_BACK_H_MM - CAB_REF_BODY_FRONT_H_MM) / CAB_REF_BODY_D_MM   # 205 in 1400, 8.33 degrees
+CAB_INNER_X0_MM = CAB_BODY_X0_MM + CAB_SIDE_WALL_T_MM
+CAB_INNER_X1_MM = CAB_BODY_X1_MM - CAB_SIDE_WALL_T_MM
+CAB_INNER_FRONT_Y_MM = CAB_BODY_FRONT_Y_MM + CAB_END_WALL_T_MM
+CAB_INNER_BACK_Y_MM = CAB_BODY_BACK_Y_MM - CAB_END_WALL_T_MM
+CAB_HEAD_X0_MM = CAB_CENTRE_X_MM - CAB_REF_HEAD_W_MM / 2
+CAB_HEAD_X1_MM = CAB_CENTRE_X_MM + CAB_REF_HEAD_W_MM / 2
+CAB_HEAD_Y1_MM = CAB_HEAD_Y0_MM + CAB_HEAD_D_MM
+CAB_HEAD_Z1_MM = CAB_HEAD_Z0_MM + CAB_REF_HEAD_H_MM
+CAB_HEAD_FRONT_Y_MM = CAB_HEAD_Y0_MM - CAB_HEAD_FRONT_T_MM   # the speaker panel's and the translite's front face
+CAB_GLASS_X0_MM = CAB_CENTRE_X_MM - CAB_REF_GLASS_W_MM / 2
+CAB_GLASS_X1_MM = CAB_CENTRE_X_MM + CAB_REF_GLASS_W_MM / 2
+
+# The planned assembled height: the top of the backbox above the legs' feet.
+CAB_ASSEMBLED_H_MM, CAB_ASSEMBLED_H_TOL_MM = 1790.0, 2.0
+CAB_BACKGLASS_CLEAR_MM = 10.0   # the DMD quad stays at least this far above the glass's upper face
+
+# Cabinet materials: (linear RGB, roughness); metallic 0, no texture. Authored
+# figures, not sampled from any machine. The lit surfaces are dark on purpose:
+# the scene has no exposure or tonemapping, so a pale surface sits at the LDR
+# ceiling under the hemispheric light alone and a lamp cannot brighten it. No
+# base colour is pure white and no roughness is 1.0, so the exporter writes
+# both factors.
+CABINET_MATERIALS = {
+	'cabinet': ((0.14, 0.05, 0.04), 0.60),         # dark red body and backbox
+	'cabinet_trim': ((0.20, 0.20, 0.22), 0.35),    # grey rails, lockdown bar and legs
+	'cabinet_arch': ((0.10, 0.12, 0.06), 0.60),    # dark olive arch panel
+	'glass': ((0.55, 0.70, 0.75), 0.10),           # the playfield glass (made see-through in presentation)
+	'head_panel': ((0.03, 0.03, 0.035), 0.50),     # near-black speaker panel round the DMD
+	'translite': ((0.45, 0.10, 0.04), 0.30),       # red translite (made translucent in presentation)
+	'lightbox': ((0.20, 0.14, 0.06), 0.80),        # dark amber lightbox panel, lit by the backbox lamp
+}
+
+
+def _cab_top_line_z(y_mm):
+	"""The body's top line: CAB_BODY_FRONT_TOP_Z_MM at the front outer face,
+	rising CAB_TOP_LINE_SLOPE per mm of depth."""
+	return CAB_BODY_FRONT_TOP_Z_MM + CAB_TOP_LINE_SLOPE * (y_mm - CAB_BODY_FRONT_Y_MM)
+
+
+def _cab_glass_profile():
+	"""The glass's cross-section as four (y, z) corners: front lower, rear
+	lower, rear upper, front upper. The lower face lies on the plane
+	CAB_GLASS_BELOW_TOP_LINE_MM below the top line; the reference length is
+	measured along that slope and the reference thickness normal to it."""
+	run = math.hypot(1.0, CAB_TOP_LINE_SLOPE)
+	along = (1.0 / run, CAB_TOP_LINE_SLOPE / run)      # up the slope, in (y, z)
+	normal = (-CAB_TOP_LINE_SLOPE / run, 1.0 / run)    # out of the upper face
+	rear = (CAB_GLASS_REAR_Y_MM, _cab_top_line_z(CAB_GLASS_REAR_Y_MM) - CAB_GLASS_BELOW_TOP_LINE_MM)
+	front = (rear[0] - CAB_REF_GLASS_L_MM * along[0], rear[1] - CAB_REF_GLASS_L_MM * along[1])
+	lift = (CAB_REF_GLASS_T_MM * normal[0], CAB_REF_GLASS_T_MM * normal[1])
+	return [front, rear, (rear[0] + lift[0], rear[1] + lift[1]), (front[0] + lift[0], front[1] + lift[1])]
+
+
+def _check_cabinet_constants():
+	"""Authoring-time guard for the cabinet rules this script can see (the
+	exported-glb checks live in test/cabinet-art.test.ts)."""
+	def fail(message):
+		raise RuntimeError(f'[make-placeholder-blend] cabinet: {message}')
+
+	lockbar_top = CAB_LOCKBAR_Z1_MM - CAB_FLOOR_Z_MM
+	if not CAB_REF_LOCKBAR_TOP_MIN_MM <= lockbar_top <= CAB_REF_LOCKBAR_TOP_MAX_MM:
+		fail(f'the lockdown bar\'s top is {lockbar_top:.3f} mm above the floor, outside {CAB_REF_LOCKBAR_TOP_MIN_MM:.0f} to {CAB_REF_LOCKBAR_TOP_MAX_MM:.0f}')
+	assembled = CAB_HEAD_Z1_MM - CAB_FLOOR_Z_MM
+	if abs(assembled - CAB_ASSEMBLED_H_MM) > CAB_ASSEMBLED_H_TOL_MM:
+		fail(f'the assembled height is {assembled:.3f} mm, not {CAB_ASSEMBLED_H_MM:.0f} +/- {CAB_ASSEMBLED_H_TOL_MM:.0f}')
+
+	# The DMD quad (vis_backbox, authored in main() from the BACKBOX_DMD_*
+	# figures) sits in front of the speaker panel and inside its outline.
+	quad_x0 = (PLAYFIELD_W_MM - BACKBOX_DMD_W_MM) / 2
+	quad_x1 = quad_x0 + BACKBOX_DMD_W_MM
+	quad_y0 = PLAYFIELD_H_MM
+	quad_y1 = quad_y0 + BACKBOX_DMD_THICK_MM
+	quad_z0 = BACKBOX_DMD_Z_MM
+	quad_z1 = quad_z0 + BACKBOX_DMD_H_MM
+	if not (CAB_HEAD_X0_MM < quad_x0 and quad_x1 < CAB_HEAD_X1_MM and CAB_HEAD_Z0_MM < quad_z0 and quad_z1 < CAB_HEAD_PANEL_Z1_MM):
+		fail(f'the DMD quad (x {quad_x0}..{quad_x1}, z {quad_z0}..{quad_z1}) is not inside the speaker panel\'s outline')
+	if not quad_y1 < CAB_HEAD_FRONT_Y_MM:
+		fail(f'the DMD quad\'s back face (y {quad_y1}) is not in front of the speaker panel\'s front face (y {CAB_HEAD_FRONT_Y_MM})')
+
+	# The glass's upper face passes below the quad, with room to spare.
+	front, rear, rear_upper, front_upper = _cab_glass_profile()
+	for quad_y in (quad_y0, quad_y1):
+		upper_z = rear_upper[1] + CAB_TOP_LINE_SLOPE * (quad_y - rear_upper[0])
+		if quad_z0 - upper_z < CAB_BACKGLASS_CLEAR_MM:
+			fail(f'the glass\'s upper face (z {upper_z:.3f} at y {quad_y}) is within {CAB_BACKGLASS_CLEAR_MM} mm of the DMD quad\'s bottom (z {quad_z0})')
+
+	# The glass lies between the side walls, under the rails, with its front
+	# edge under the lockdown bar and its rear edge in front of the backbox.
+	if not (CAB_INNER_X0_MM < CAB_GLASS_X0_MM and CAB_GLASS_X1_MM < CAB_INNER_X1_MM):
+		fail('the glass does not fit between the side walls\' inner faces')
+	for y, z in (front_upper, rear_upper):
+		if not z < _cab_top_line_z(y):
+			fail(f'the glass\'s upper face (z {z:.3f} at y {y:.3f}) is not below the top line the rails sit on')
+	if not (CAB_LOCKBAR_Y0_MM < front_upper[0] and front[0] < CAB_LOCKBAR_Y1_MM):
+		fail(f'the glass\'s front edge (y {front_upper[0]:.3f} to {front[0]:.3f}) is not under the lockdown bar')
+	if not rear[0] < CAB_HEAD_FRONT_Y_MM:
+		fail('the glass\'s rear edge is not in front of the backbox\'s panels')
+
+	# The arch panel stands behind the playfield and in front of the backbox's
+	# lightbox; the lightbox panel is inside the backbox.
+	if not (PLAYFIELD_H_MM < CAB_ARCH_Y0_MM < CAB_ARCH_Y1_MM < CAB_INNER_BACK_Y_MM):
+		fail('the arch panel is not between the playfield\'s far edge and the back wall')
+	if not (CAB_HEAD_Y0_MM < CAB_LIGHTBOX_Y0_MM < CAB_LIGHTBOX_Y1_MM < CAB_HEAD_Y1_MM - CAB_HEAD_WALL_T_MM):
+		fail('the lightbox panel is not inside the backbox')
+
+	# Each lamp stands on the lit side of what it lights (N.L > 0).
+	backbox_lamp, cabinet_lamp, arch_lamp = (CAB_LAMP_POS_MM[key] for key in ('gi_backbox', 'gi_cabinet', 'gi_arch'))
+	if not (CAB_HEAD_Y0_MM < backbox_lamp[1] < CAB_LIGHTBOX_Y0_MM and CAB_HEAD_Z0_MM < backbox_lamp[2] < CAB_HEAD_Z1_MM):
+		fail('the backbox lamp is not between the translite and the lightbox panel')
+	if not cabinet_lamp[1] < CAB_BODY_FRONT_Y_MM:
+		fail('the cabinet lamp is not in front of the body\'s front face')
+	if not arch_lamp[1] < CAB_ARCH_Y0_MM:
+		fail('the arch lamp is not in front of the arch panel')
+
+	for kind, (rgb, roughness) in CABINET_MATERIALS.items():
+		if min(rgb) >= 1.0 or roughness >= 1.0:
+			fail(f'mat_art_{kind} would lose a factor on export (pure white or roughness 1.0)')
+
+
+def _extrude_x(art, profile_yz, x0_mm, x1_mm):
+	"""A closed solid: the (y, z) profile extruded along X from x0 to x1."""
+	art.loft(
+		[[(x0_mm, y, z) for y, z in profile_yz], [(x1_mm, y, z) for y, z in profile_yz]],
+		cap_start=True, cap_end=True, smooth=False,
+	)
+
+
+def _box(art, x0_mm, x1_mm, y0_mm, y1_mm, z0_mm, z1_mm):
+	"""A closed axis-aligned box."""
+	art.prism([(x0_mm, y0_mm), (x1_mm, y0_mm), (x1_mm, y1_mm), (x0_mm, y1_mm)], z0_mm, z1_mm)
+
+
+def _shell(art, outer, inner, floor):
+	"""An open box as ONE closed surface: `outer` and `inner` are the two
+	rings of its open end's rim (four `_ArtMesh.vert`s each, the same
+	winding), `floor` the two rings at its closed end (outer, inner). Faces:
+	the outer end, four outer sides, the four rim quads, four inner sides and
+	the inner end -- no face is shared, hidden or doubled."""
+	outer_floor, inner_floor = floor
+	art.face(list(reversed(outer_floor)))
+	for i in range(4):
+		j = (i + 1) % 4
+		art.face((outer_floor[i], outer_floor[j], outer[j], outer[i]))
+		art.face((outer[i], outer[j], inner[j], inner[i]))
+		art.face((inner[i], inner[j], inner_floor[j], inner_floor[i]))
+	art.face(inner_floor)
+
+
+def add_cabinet(cabinet_root):
+	"""Story 5.3's cabinet pass -- see the block comment above. Returns every
+	object it creates: the eleven `vis_` meshes and the three lamp Empties."""
+	_check_cabinet_constants()
+	materials = {
+		kind: new_material(f'mat_art_{kind}', base_color=(*rgb, 1.0), roughness=roughness, metallic=0.0)
+		for kind, (rgb, roughness) in CABINET_MATERIALS.items()
+	}
+	created = []
+
+	def node(name, art, kind):
+		obj = _new_art_node(name, art.to_mesh(materials[kind]), cabinet_root, lightgroup='lg_cabinet')
+		created.append(obj)
+		return obj
+
+	def child(parent, part, art, kind):
+		obj = _new_art_child(parent, part, art.to_mesh(materials[kind]), lightgroup='lg_cabinet')
+		created.append(obj)
+		return obj
+
+	# ---- vis_cabinet: an open-top tub. Its rim lies on the top line; the
+	# underside is level. ----
+	body = _ArtMesh()
+	outer_xy = [(CAB_BODY_X0_MM, CAB_BODY_FRONT_Y_MM), (CAB_BODY_X1_MM, CAB_BODY_FRONT_Y_MM), (CAB_BODY_X1_MM, CAB_BODY_BACK_Y_MM), (CAB_BODY_X0_MM, CAB_BODY_BACK_Y_MM)]
+	inner_xy = [(CAB_INNER_X0_MM, CAB_INNER_FRONT_Y_MM), (CAB_INNER_X1_MM, CAB_INNER_FRONT_Y_MM), (CAB_INNER_X1_MM, CAB_INNER_BACK_Y_MM), (CAB_INNER_X0_MM, CAB_INNER_BACK_Y_MM)]
+	_shell(
+		body,
+		[body.vert(x, y, _cab_top_line_z(y)) for x, y in outer_xy],
+		[body.vert(x, y, _cab_top_line_z(y)) for x, y in inner_xy],
+		(
+			[body.vert(x, y, CAB_BODY_UNDERSIDE_Z_MM) for x, y in outer_xy],
+			[body.vert(x, y, CAB_BODY_UNDERSIDE_Z_MM + CAB_END_WALL_T_MM) for x, y in inner_xy],
+		),
+	)
+	vis_cabinet = node('vis_cabinet', body, 'cabinet')
+
+	# ---- the side rails: on the top line of each side wall, overhanging
+	# inward. ----
+	rail_profile = [
+		(CAB_RAIL_Y0_MM, _cab_top_line_z(CAB_RAIL_Y0_MM)),
+		(CAB_RAIL_Y1_MM, _cab_top_line_z(CAB_RAIL_Y1_MM)),
+		(CAB_RAIL_Y1_MM, _cab_top_line_z(CAB_RAIL_Y1_MM) + CAB_RAIL_H_MM),
+		(CAB_RAIL_Y0_MM, _cab_top_line_z(CAB_RAIL_Y0_MM) + CAB_RAIL_H_MM),
+	]
+	for part, x0, x1 in (('rail_l', CAB_BODY_X0_MM, CAB_BODY_X0_MM + CAB_RAIL_W_MM), ('rail_r', CAB_BODY_X1_MM - CAB_RAIL_W_MM, CAB_BODY_X1_MM)):
+		rail = _ArtMesh()
+		_extrude_x(rail, rail_profile, x0, x1)
+		child(vis_cabinet, part, rail, 'cabinet_trim')
+
+	# ---- the arch panel: the cabinet's inner back board, between the side
+	# walls' inner faces. ----
+	arch = _ArtMesh()
+	_box(arch, CAB_INNER_X0_MM, CAB_INNER_X1_MM, CAB_ARCH_Y0_MM, CAB_ARCH_Y1_MM, CAB_ARCH_Z0_MM, CAB_ARCH_Z1_MM)
+	child(vis_cabinet, 'arch', arch, 'cabinet_arch')
+
+	# ---- vis_lockbar ----
+	lockbar = _ArtMesh()
+	_box(lockbar, CAB_BODY_X0_MM, CAB_BODY_X1_MM, CAB_LOCKBAR_Y0_MM, CAB_LOCKBAR_Y1_MM, CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM)
+	node('vis_lockbar', lockbar, 'cabinet_trim')
+
+	# ---- vis_legs: four square legs in one mesh, each standing
+	# CAB_LEG_PROUD_MM proud of the body's two outer faces at its corner. ----
+	legs = _ArtMesh()
+	leg_x = (
+		(CAB_BODY_X0_MM - CAB_LEG_PROUD_MM, CAB_BODY_X0_MM - CAB_LEG_PROUD_MM + CAB_LEG_SIDE_MM),
+		(CAB_BODY_X1_MM + CAB_LEG_PROUD_MM - CAB_LEG_SIDE_MM, CAB_BODY_X1_MM + CAB_LEG_PROUD_MM),
+	)
+	leg_y = (
+		(CAB_BODY_FRONT_Y_MM - CAB_LEG_PROUD_MM, CAB_BODY_FRONT_Y_MM - CAB_LEG_PROUD_MM + CAB_LEG_SIDE_MM),
+		(CAB_BODY_BACK_Y_MM + CAB_LEG_PROUD_MM - CAB_LEG_SIDE_MM, CAB_BODY_BACK_Y_MM + CAB_LEG_PROUD_MM),
+	)
+	for x0, x1 in leg_x:
+		for y0, y1 in leg_y:
+			_box(legs, x0, x1, y0, y1, CAB_FLOOR_Z_MM, CAB_LEG_TOP_Z_MM)
+	node('vis_legs', legs, 'cabinet_trim')
+
+	# ---- vis_top_glass: one sloped slab. ----
+	glass = _ArtMesh()
+	_extrude_x(glass, _cab_glass_profile(), CAB_GLASS_X0_MM, CAB_GLASS_X1_MM)
+	node('vis_top_glass', glass, 'glass')
+
+	# ---- vis_head: the backbox, an open-front box (rings in x-z, the open
+	# end at its front). ----
+	head = _ArtMesh()
+	t = CAB_HEAD_WALL_T_MM
+	outer_xz = [(CAB_HEAD_X0_MM, CAB_HEAD_Z0_MM), (CAB_HEAD_X1_MM, CAB_HEAD_Z0_MM), (CAB_HEAD_X1_MM, CAB_HEAD_Z1_MM), (CAB_HEAD_X0_MM, CAB_HEAD_Z1_MM)]
+	inner_xz = [(CAB_HEAD_X0_MM + t, CAB_HEAD_Z0_MM + t), (CAB_HEAD_X1_MM - t, CAB_HEAD_Z0_MM + t), (CAB_HEAD_X1_MM - t, CAB_HEAD_Z1_MM - t), (CAB_HEAD_X0_MM + t, CAB_HEAD_Z1_MM - t)]
+	_shell(
+		head,
+		[head.vert(x, CAB_HEAD_Y0_MM, z) for x, z in outer_xz],
+		[head.vert(x, CAB_HEAD_Y0_MM, z) for x, z in inner_xz],
+		(
+			[head.vert(x, CAB_HEAD_Y1_MM, z) for x, z in outer_xz],
+			[head.vert(x, CAB_HEAD_Y1_MM - t, z) for x, z in inner_xz],
+		),
+	)
+	vis_head = node('vis_head', head, 'cabinet')
+
+	# ---- the speaker panel and the translite close the box's front, over
+	# its full width; the lightbox panel stands inside it, across its whole
+	# inner section. ----
+	panel = _ArtMesh()
+	_box(panel, CAB_HEAD_X0_MM, CAB_HEAD_X1_MM, CAB_HEAD_FRONT_Y_MM, CAB_HEAD_Y0_MM, CAB_HEAD_Z0_MM, CAB_HEAD_PANEL_Z1_MM)
+	child(vis_head, 'panel', panel, 'head_panel')
+	translite = _ArtMesh()
+	_box(translite, CAB_HEAD_X0_MM, CAB_HEAD_X1_MM, CAB_HEAD_FRONT_Y_MM, CAB_HEAD_Y0_MM, CAB_HEAD_PANEL_Z1_MM, CAB_HEAD_Z1_MM)
+	child(vis_head, 'translite', translite, 'translite')
+	lightbox = _ArtMesh()
+	_box(lightbox, CAB_HEAD_X0_MM + t, CAB_HEAD_X1_MM - t, CAB_LIGHTBOX_Y0_MM, CAB_LIGHTBOX_Y1_MM, CAB_HEAD_Z0_MM + t, CAB_HEAD_Z1_MM - t)
+	child(vis_head, 'lightbox', lightbox, 'lightbox')
+
+	# ---- the three lamp-position Empties: no mesh and no property. ----
+	for name, position in CAB_LAMP_POS_MM.items():
+		created.append(new_empty(name, position, parent=cabinet_root))
+
+	triangles = sum(len(p.vertices) - 2 for obj in created if obj.type == 'MESH' for p in obj.data.polygons)
+	print(f'[make-placeholder-blend] cabinet: {sum(1 for obj in created if obj.type == "MESH")} meshes, {triangles} triangles, {len(CAB_LAMP_POS_MM)} lamp Empties')
+	return created
 
 
 def main():
@@ -4854,6 +5222,11 @@ def main():
 	)
 	set_props(vis_backbox, lightgroup='lg_cabinet')
 
+	# ---- Story 5.3: the cabinet, the backbox and the glass, round the
+	# playfield and the DMD quad above -- see add_cabinet()'s own block
+	# comment. vis_backbox itself is not touched. ----
+	cabinet_objects = add_cabinet(cabinet_root)
+
 	# ---- Story 5.0a (DW-279): the visible placeholder twins and the
 	# plunger rod -- see add_visible_twins()'s own block comment. Runs here,
 	# after every col_ object above exists. col_playfield's visual is
@@ -4882,7 +5255,8 @@ def main():
 	# the three roots, vis_playfield, vis_backbox, the
 	# fourteen Story 2.8 insert lamps plus Story 2.9's l_ball_save,
 	# bd_trough, bd_shooter, bd_lock, Story 5.0a's vis_ twins and
-	# vis_plunger, and Story 5.4's art children, spinner and plastics.
+	# vis_plunger, Story 5.4's art children, spinner and plastics, and
+	# Story 5.3's cabinet meshes and lamp Empties.
 	# col_/sw_ nodes are excluded -- collision scaffolding,
 	# never rendered. ----
 	for obj in bpy.data.objects:
@@ -4894,6 +5268,7 @@ def main():
 		*dragon_letter_inserts.values(), l_lock, l_ball_save,
 		bd_trough, bd_shooter, bd_lock,
 		*vis_twins, vis_plunger, *art_objects,
+		*cabinet_objects,
 	]
 	for obj in presentation_objects:
 		obj.select_set(True)

@@ -19,6 +19,18 @@
 // is the translucent deck the lens sits under, and its mask opening is what
 // test/playfield-art.test.ts pins.
 //
+// [Story 5.3] `vis_top_glass` is exempt too. The playfield glass is a
+// see-through sheet over the whole table -- `resolveCabinet()`
+// (src/presentation/scene/cabinet.ts) makes its material alpha-blended at
+// load -- so it lies on EVERY lens ray by design and is not an occluder. The
+// exemption is by name, and it must be doing real work: a third case shows
+// that the glass is hit on every lens ray, nearer than the lens, and that
+// the checker WITHOUT the exemption reports every lens behind it. Every
+// other cabinet mesh Story 5.3 adds (the body, rails, lockdown bar, legs,
+// backbox and its panels) is an ordinary `vis_` candidate here: none may
+// hide a lens. (That the glass really is drawn see-through is the lead's
+// browser check; `NullEngine` rasterises nothing.)
+//
 // The checker is a function of the scene, so it carries its own
 // positive/negative pair: the shipped scene reports nothing; the same scene
 // with a synthetic tall `vis_` box stood on the camera ray just down-table of
@@ -41,6 +53,7 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { Scene } from '@babylonjs/core/scene';
 import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engine';
+import { VIS_TOP_GLASS_NODE_NAME } from '../src/presentation/scene/vis-names';
 import { TABLE } from '../src/sim/table/dragonwar';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
@@ -67,8 +80,14 @@ function isLens(mesh: AbstractMesh): boolean {
 	return mesh.name.startsWith('l_') && mesh.getTotalVertices() > 0;
 }
 
-function isOccluderCandidate(mesh: AbstractMesh): boolean {
+/** Every visible `vis_` mesh except the deck -- the glass included. What `isOccluderCandidate()` was before Story 5.3; kept for the glass's positive control. */
+function isVisMeshOverDeck(mesh: AbstractMesh): boolean {
 	return mesh.name.startsWith('vis_') && mesh.name !== DECK_NODE_NAME && !mesh.name.startsWith(`${DECK_NODE_NAME}_`) && mesh.getTotalVertices() > 0 && mesh.isEnabled() && mesh.isVisible;
+}
+
+/** [Story 5.3] The playfield glass is a see-through sheet, not an occluder (the header says why). */
+function isOccluderCandidate(mesh: AbstractMesh): boolean {
+	return isVisMeshOverDeck(mesh) && mesh.name !== VIS_TOP_GLASS_NODE_NAME;
 }
 
 /**
@@ -117,7 +136,7 @@ function lensTopPoints(lens: AbstractMesh): Array<{ label: string; world: Vector
  * `multiPickWithRay()` (world-space ray, each mesh's world matrix -- the
  * applied pitch included -- handled by Babylon), triangle-exact.
  */
-function lensOcclusions(scene: Scene): { lenses: string[]; occlusions: Occlusion[] } {
+function lensOcclusions(scene: Scene, isCandidate: (mesh: AbstractMesh) => boolean = isOccluderCandidate): { lenses: string[]; occlusions: Occlusion[] } {
 	const camera = scene.activeCamera;
 	if (!camera) {
 		throw new Error('no active camera');
@@ -134,7 +153,7 @@ function lensOcclusions(scene: Scene): { lenses: string[]; occlusions: Occlusion
 			const toPoint = world.subtract(eye);
 			const lensM = toPoint.length();
 			const ray = new Ray(eye, toPoint.scale(1 / lensM), lensM);
-			const hits = (scene.multiPickWithRay(ray, isOccluderCandidate) ?? []).filter((pick) => pick.hit && pick.pickedMesh !== null && pick.distance < lensM - DEPTH_EPSILON_M);
+			const hits = (scene.multiPickWithRay(ray, isCandidate) ?? []).filter((pick) => pick.hit && pick.pickedMesh !== null && pick.distance < lensM - DEPTH_EPSILON_M);
 			if (hits.length > 0) {
 				const nearest = hits.reduce((a, b) => (b.distance < a.distance ? b : a));
 				occlusions.push({ lens: lens.name, point: label, occluder: nearest.pickedMesh!.name, hitM: nearest.distance, lensM });
@@ -193,6 +212,26 @@ describe('Story 5.2 task 12 -- every insert lens is visible from the fixed camer
 			expect(blocked.length, 'non-vacuity: the synthetic box blocks at least the centre ray').toBeGreaterThan(0);
 			expect([...new Set(blocked.map((o) => o.lens))], describeOcclusions(blocked)).toContain(target);
 			expect(blocked.find((o) => o.lens === target && o.point === 'centre'), `${target}'s centre ray is blocked by the box`).toBeDefined();
+		});
+	});
+
+	// [Story 5.3] The positive control for the glass exemption.
+	it('the glass exemption does real work: vis_top_glass is on every lens ray, nearer than the lens, and without the exemption the checker reports every lens behind it', async () => {
+		await withShippedScene((scene) => {
+			const glass = scene.meshes.filter((m) => m.name === VIS_TOP_GLASS_NODE_NAME);
+			expect(glass.length, 'the scene carries exactly one vis_top_glass').toBe(1);
+			expect(isVisMeshOverDeck(glass[0]!), 'the glass is a visible vis_ mesh: only its name exempts it').toBe(true);
+			expect(isOccluderCandidate(glass[0]!), 'and the exemption removes it').toBe(false);
+			expect(scene.meshes.filter((m) => isVisMeshOverDeck(m) && !isOccluderCandidate(m)).map((m) => m.name), 'the glass is the ONLY mesh the exemption removes').toEqual([VIS_TOP_GLASS_NODE_NAME]);
+
+			const { lenses, occlusions } = lensOcclusions(scene, isVisMeshOverDeck);
+			const samples = lenses.length * 5;
+			expect(samples, 'non-vacuity: five samples per lens').toBeGreaterThan(0);
+			expect(occlusions.length, 'every lens sample is behind something once the glass counts').toBe(samples);
+			expect([...new Set(occlusions.map((o) => o.occluder))], 'and that something is the glass alone').toEqual([VIS_TOP_GLASS_NODE_NAME]);
+			for (const o of occlusions) {
+				expect(o.hitM, `${o.lens} ${o.point}: the glass is hit nearer than the lens`).toBeLessThan(o.lensM - DEPTH_EPSILON_M);
+			}
 		});
 	});
 });

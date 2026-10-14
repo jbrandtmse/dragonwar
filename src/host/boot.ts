@@ -18,6 +18,8 @@ import { bootScene } from '../presentation/scene/create-engine';
 import { syncBalls } from '../presentation/scene/balls';
 import { applyPitch } from '../presentation/scene/playfield';
 import { nodeScreenRect, type ScreenRect } from '../presentation/scene/node-screen-rect';
+import { resolveCabinet } from '../presentation/scene/cabinet';
+import { setNodeVisible } from '../presentation/scene/node-visibility';
 import { resolveMechanismNodes, syncMechanisms } from '../presentation/mechanisms/sync-mechanisms';
 import { advanceBackglass, renderFrame, INITIAL_BACKGLASS_VIEW, type DmdScreen } from '../presentation/backglass/frame';
 import { activeSequenceFrame, advanceSequences, composeSequence, INITIAL_SEQUENCE_VIEW } from '../presentation/backglass/sequences';
@@ -26,6 +28,7 @@ import { syncBackglass } from '../presentation/backglass/backglass';
 import { FONT_5X7 } from '../presentation/backglass/font';
 import { advanceLamps, INITIAL_LAMP_VIEW, nextLampOverride, overlayLampView, type LampView } from '../presentation/lighting/lamp-view';
 import { syncLamps } from '../presentation/lighting/lamp-driver';
+import { ARCHITECTURAL_DEFAULT_LEVEL, architecturalLevelProblem, resolveArchitecturalLamps, setArchitecturalLevel } from '../presentation/lighting/architectural';
 import { createHostLoop, type HostLoop, type ResetOptions } from './loop';
 import { viewConfigFromKeyMap } from './input';
 import { createReplayRecorder, type InvalidRecordingResult, type RecordingResult } from './dev/replay-recorder';
@@ -35,7 +38,7 @@ import { BUILD_SHA } from './build-info';
 import { deriveGameSeed } from './game-seed';
 import { resolveTuning, TUNING } from '../sim/table/tuning';
 import { TABLE } from '../sim/table/dragonwar';
-import type { CoilName, GameStart, Snapshot } from '../sim/table/names';
+import type { CoilName, GameStart, GiChannel, Snapshot } from '../sim/table/names';
 
 /** The Babylon scene type, named through presentation's own signature so host/ stays free of a direct `@babylonjs/*` import. */
 type LiveScene = Parameters<typeof nodeScreenRect>[0];
@@ -194,6 +197,34 @@ declare global {
 			 * `window.__dragonwarBoot.backglassState()`.
 			 */
 			backglassState: () => { screen: DmdScreen; sequence: string | null; frameIndex: number | null };
+			/**
+			 * Story 5.3 (AC 9), same dev-only/console-only terms as every hatch
+			 * above: the lead's lever for the architectural lamps. Sets one
+			 * `TABLE.giChannels` channel's level through presentation's own seam
+			 * (`presentation/lighting/architectural.ts`), which scales that
+			 * channel's light by intensity alone -- no light is created, removed
+			 * or toggled. `level` is a number in [0, 1], or `null` for the
+			 * default level. e.g.
+			 * `window.__dragonwarBoot.setArchitecturalLevel('gi_backbox', 0)`.
+			 * An unknown channel, or a level that is not a finite number in
+			 * [0, 1], is rejected with a console error and otherwise ignored.
+			 * Throws if no scene has rendered yet. `reset()` does NOT restore a
+			 * level: it is view state of the scene, not of the game loop --
+			 * restore it by hand (`null`) or reload. Nothing here reaches
+			 * `sim/`; routing `GiCommand` to the same seam is Story 4.1's.
+			 */
+			setArchitecturalLevel: (channel: GiChannel, level: number | null) => void;
+			/**
+			 * Story 5.3 (AC 9), same terms: the lead's negative control for the
+			 * cabinet. Shows or hides one named mesh -- its own mesh, not its
+			 * children, so `vis_cabinet` can be hidden while its rails stay
+			 * drawn (`presentation/scene/node-visibility.ts`). e.g.
+			 * `window.__dragonwarBoot.setNodeVisible('vis_top_glass', false)`.
+			 * Throws naming the node if it is missing or carries no mesh, and
+			 * if no scene has rendered yet. `reset()` does NOT restore it, for
+			 * the same reason as the level above.
+			 */
+			setNodeVisible: (name: string, visible: boolean) => void;
 		};
 	}
 }
@@ -420,6 +451,14 @@ async function onBegin(): Promise<void> {
 			// error panel (AD-17) rather than as an uncaught render-loop error.
 			// Cached per scene -- every later call is a map lookup.
 			resolveMechanismNodes(scene, nodes.playfieldRoot);
+			// Story 5.3: the cabinet meshes and the architectural lamps, resolved
+			// on the same first frame for the same reason -- a glb missing a
+			// cabinet mesh or a lamp Empty fails here, into the error panel
+			// (AD-17). Both are cached per scene: the glass and the translite are
+			// made see-through once, and the three lights are created once and
+			// never again, so every later call is a map lookup.
+			resolveCabinet(scene, nodes.cabinetRoot);
+			resolveArchitecturalLamps(scene);
 			// The host loop's own rAF and Babylon's render loop are two separate
 			// requestAnimationFrame chains driven by the same browser scheduler --
 			// this callback simply re-syncs presentation to whatever FrameOutput
@@ -605,6 +644,26 @@ async function onBegin(): Promise<void> {
 			backglassState: () => {
 				const shown = activeSequenceFrame(sequenceView, backglassView.screen, latestSnapshot?.tick ?? 0);
 				return { screen: backglassView.screen, sequence: shown?.key ?? null, frameIndex: shown?.index ?? null };
+			},
+			setArchitecturalLevel: (channel: GiChannel, level: number | null) => {
+				if (!liveScene) {
+					throw new Error('[dragonwar] setArchitecturalLevel(): no scene has rendered yet');
+				}
+				// Console input is unchecked: validate through presentation's own
+				// pure rule before anything is touched.
+				const problem = architecturalLevelProblem(channel, level);
+				if (problem !== null) {
+					// eslint-disable-next-line no-console
+					console.error(`[dragonwar] setArchitecturalLevel(): ${problem} -- ignored.`);
+					return;
+				}
+				setArchitecturalLevel(liveScene, channel, level ?? ARCHITECTURAL_DEFAULT_LEVEL);
+			},
+			setNodeVisible: (name: string, visible: boolean) => {
+				if (!liveScene) {
+					throw new Error('[dragonwar] setNodeVisible(): no scene has rendered yet');
+				}
+				setNodeVisible(liveScene, name, visible);
 			},
 		};
 
