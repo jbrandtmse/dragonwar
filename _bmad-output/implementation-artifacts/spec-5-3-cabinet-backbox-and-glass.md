@@ -2,7 +2,7 @@
 title: 'Story 5.3: Cabinet, backbox and glass'
 type: 'feature'
 created: '2026-10-13'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: '66234b251a09381f383d8fa6be9333839dd9e0d5'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -10,7 +10,18 @@ context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-5-4-mechanisms-plastics-ramp-and-guides.md'
 warnings: [oversized, multiple-goals]
-deferred: []
+deferred:
+  - summary: >-
+      Author decision needed: the spinning blade of vis_spinner_l (Story 5.4's art) sweeps to within 5 mm of the playfield glass above about 8.0 degrees of pitch, and 0.54 mm into its lower face at 8.5 degrees. The "at least 5 mm below the glass" rule is specified and tested on the glb's authored pose, where it holds with 7.08 mm.
+    evidence: |-
+      Measured from the committed glb (sha256 9e9d6466...) by three instruments that share no code: the edge-case and verification-gap reviewers' scripts and the stage agent's own (scratchpad e5-s53-impl2/lead/spinner-sweep.mjs). The blade's spin axis is at playfield (33, 648, 48) and its largest radius about table +X is 16.03 mm, so the top of its swing is 64.03 mm above the deck.
+      Clearance under the glass's lower face, normal to it. Authored (hanging) pose: 43.75 / 38.10 / 15.48 mm at 6.0 / 6.5 / 8.5 degrees. Worst over a full turn: 27.76 / 22.10 / -0.54 mm (5.11 at 8.0 degrees, 0.02 at 8.45).
+      syncSpinner() (src/presentation/mechanisms/sync-mechanisms.ts:241-252) turns the blade through 360 degrees whenever the spinner's speed is not zero. AC 2 and the fit case of test/cabinet-art.test.ts pitch the glb's stored vertices, as the spec words AC 2 ("Given the regenerated glb ..."), and are green. No other part under playfield_root rises above its authored pose: the flippers turn about the playfield normal, the plunger slides in y, the drop targets go down.
+      A player cannot reach it today: boot.ts runs at TABLE.reference.pitchDeg (6.5), where the swept blade clears by 22.1 mm. The glass is drawn at alpha 0.02, so nothing visible is expected. It is a question of what the rule covers, the same shape as the resting-flipper miss (a check on the authored pose only).
+      Nothing was adjusted and no check was loosened. Every remedy is outside this story's authority: accept it and word the rule as the authored pose, with the swept blade named as a known graze from 8.0 to 8.5 degrees; shorten or lower the blade art (Story 5.4's; test/mechanism-art.test.ts pins its downward reach against a ball); or move the glass (a frozen figure that follows from the reference dimensions). A blade change regenerates the glb, so an AC 9 sample taken before it would have to be taken again.
+    location: >-
+      test/cabinet-art.test.ts (playfieldFit and the "at %s degrees every playfield vertex ..." case); tools/make-placeholder-blend.py (the glass profile and Story 5.4's spinner blade); src/presentation/mechanisms/sync-mechanisms.ts:241
+    severity: low
 ---
 
 <intent-contract>
@@ -203,9 +214,9 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
 
 **Execution (changes to the tree at `6588163`; every task says what changes and what stays):**
 
-- [ ] Scratchpad -- before any edit, copy `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json` and `test/replays/*.golden.json` to the scratchpad with their sha256, and record `pnpm check:size`'s figure. Expect the glb and collision hashes of the Code Map. -- these are this pass's baselines; the story's baseline for `src/sim`, the collision document and the goldens is still `66234b2`.
-- [ ] `ATTRIBUTIONS.md` -- BEFORE any generated file changes, extend the existing `Story 5.3 (...)` sentence in the `.blend` row (:72) and in the glb row (:73). Add, in each: the cabinet's front was fitted 22 mm toward the player so both resting flippers are in view, and the same run lengthened the rod of `vis_plunger` (Story 5.4's art) by 22 mm so its knob stays outside the cabinet. If the generation date is later than 2026-10-13, move the sentence's leading date and the row's Date cell to it. Keep every phrase the attribution case matches (Code Map). Leave the collision row (:74) and the `## Assets` table alone. -- provenance precedes the files.
-- [ ] `tools/make-placeholder-blend.py` -- four edits; everything not named here stays (the reference figures, the materials, `_ArtMesh`, `_shell`, the node names and parents, `main()`).
+- [x] Scratchpad -- before any edit, copy `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `public/assets/dragonwar.collision.json` and `test/replays/*.golden.json` to the scratchpad with their sha256, and record `pnpm check:size`'s figure. Expect the glb and collision hashes of the Code Map. -- these are this pass's baselines; the story's baseline for `src/sim`, the collision document and the goldens is still `66234b2`.
+- [x] `ATTRIBUTIONS.md` -- BEFORE any generated file changes, extend the existing `Story 5.3 (...)` sentence in the `.blend` row (:72) and in the glb row (:73). Add, in each: the cabinet's front was fitted 22 mm toward the player so both resting flippers are in view, and the same run lengthened the rod of `vis_plunger` (Story 5.4's art) by 22 mm so its knob stays outside the cabinet. If the generation date is later than 2026-10-13, move the sentence's leading date and the row's Date cell to it. Keep every phrase the attribution case matches (Code Map). Leave the collision row (:74) and the `## Assets` table alone. -- provenance precedes the files.
+- [x] `tools/make-placeholder-blend.py` -- four edits; everything not named here stays (the reference figures, the materials, `_ArtMesh`, `_shell`, the node names and parents, `main()`).
   - Plunger: `VIS_PLUNGER_Y0_MM` :1713 from `-40.0` to `-62.0`, and its comment. Nothing else in `add_visible_plunger` or `_art_plunger` changes: the knob's shape, the rod's radius, the tip and the centre follow from the same constants.
   - Fit constants :2957-2987, to the amended fit table:
 
@@ -227,10 +238,10 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
     Unchanged: `CAB_FLOOR_Z_MM` (-830; only its comment, the bar's top is now 906.78 above it), the wall thicknesses, the rails' section and `CAB_RAIL_Y1_MM`, the legs, `CAB_GLASS_BELOW_TOP_LINE_MM`, the arch panel, `CAB_HEAD_Y0_MM`, `CAB_HEAD_Z0_MM`, `CAB_HEAD_WALL_T_MM`, `CAB_HEAD_PANEL_Z1_MM` and `gi_arch`. The derived constants follow by themselves and must come out as the fit table states: back face Y 1350, underside Z -333.22, top line 271.78 at the back face, front wall's inner face Y -32, legs at the new corners. Update the comments that quote an old figure (:2958, :2966).
   - `_check_cabinet_constants()` :3048 -- keep every rule it has (each holds with the new constants; Design Notes). Add the rules the amendments introduce that the script can see, each raising with the offending figures: the bar's ends are proud of the body's side faces; the bar's seat is 8 below and 10 above the top line at the front face; the rails start at the bar's back face; the backbox's back face is in front of the body's back face; the speaker panel's and the translite's back faces are in front of the backbox's front rim; the plunger knob's north end (`VIS_PLUNGER_Y0_MM + ART_PLUNGER_KNOB_LEN_MM`) is not behind the body's front face, and the rod's tip is behind the front wall's inner face.
   - `add_cabinet()` :3143 -- the lockdown bar's box takes its own X (:3200); the two panels end at their own back face (:3245, :3248). Nothing else: the meshes are still eleven closed solids with shared vertices.
-- [ ] `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` -- regenerate with Blender, then `pnpm export:assets`; export a second time and confirm the glb's sha256 is identical; confirm `public/assets/dragonwar.collision.json` is byte-identical to the baseline. -- the three artefacts are committed in sync.
-- [ ] `src/presentation/scene/cabinet.ts` -- `TOP_GLASS_ALPHA` :40 from `0.08` to `0.02`, and its doc comment: it is now a sampled value, the smallest whose lift on an unlit lens is at least 4 levels in every channel. Everything else stays.
-- [ ] `src/presentation/lighting/architectural.ts` -- `gi_cabinet`'s `intensity` :98 from `20` to `10`, and the table's doc comment :72-87: the `gi_cabinet` value is measured (at 20 the lockdown bar's top saturated). Everything else stays.
-- [ ] `test/cabinet-art.test.ts` -- retype the fit table and add three cases; the reference figures, the helpers, AC 3's and AC 10's cases stay.
+- [x] `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` -- regenerate with Blender, then `pnpm export:assets`; export a second time and confirm the glb's sha256 is identical; confirm `public/assets/dragonwar.collision.json` is byte-identical to the baseline. -- the three artefacts are committed in sync.
+- [x] `src/presentation/scene/cabinet.ts` -- `TOP_GLASS_ALPHA` :40 from `0.08` to `0.02`, and its doc comment: it is now a sampled value, the smallest whose lift on an unlit lens is at least 4 levels in every channel. Everything else stays.
+- [x] `src/presentation/lighting/architectural.ts` -- `gi_cabinet`'s `intensity` :98 from `20` to `10`, and the table's doc comment :72-87: the `gi_cabinet` value is measured (at 20 the lockdown bar's top saturated). Everything else stays.
+- [x] `test/cabinet-art.test.ts` -- retype the fit table and add three cases; the reference figures, the helpers, AC 3's and AC 10's cases stay.
   - Typed fit table :86-110, from the amended Boundaries, never from the generator: `BODY` (y0 -50, y1 1350, underside -333.22, frontTop 66.78, backTop 271.78), `RAIL.y0` -30, `LOCKBAR` (x -24.8..539.2, y -66..-30, z 58.78..76.78), `GLASS` (rearY 1044.0, frontLowerY -37.5), `HEAD.y1` 1342, `PANEL.y1` and `TRANSLITE.y1` 1071.5, `LIGHTBOX` (y 1310..1314), `LAMP_POS` (`gi_backbox` y 1090; `gi_cabinet` (257.2, -322, 396.78)).
   - Figures inside cases: the bar's top above the floor is 906.78 (:763); the front wall's inner face is -32 (:829); the case titles that quote a figure (:750, :773).
   - The check at :785 compares two typed figures (the glass plane's 66.10 against the top line less 8) at 1e-9. With the amended figures they differ by 1.4 micrometres (Design Notes, "Rounding"). Compare at `FIT_TOL`.
@@ -239,7 +250,7 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
   - New case, AC 2: the glass's front edge lies under the lockdown bar (the glass's smallest y is above the bar's smallest y, its front lower edge is below the bar's greatest y, and its front upper edge is below the bar's top).
   - New case, AC 11: a function of a parsed glb that lists every pair of triangles from two different meshes under `cabinet_root` (all twelve, `vis_backbox` included) that are coplanar within 0.01 mm, face the same way and overlap by more than 1 mm2. It returns none for the committed glb. In-memory controls beside it: `vis_lockbar` moved 2 mm toward +X is reported against `vis_cabinet`; `vis_head` moved 8 mm toward +Y is reported against `vis_cabinet`. The same case asserts the three designed clearances from the glb: the bar's ends 2.0 mm proud of the body's sides, the backbox's back face 8.0 mm in front of the body's, and the speaker panel's and the translite's back faces 0.5 mm in front of the backbox's front rim.
   - Header: the mutation list gains the AC 11 and AC 2 (knob) lines of Verification.
-- [ ] `test/cabinet-scene.test.ts` -- rework AC 5's flipper, ball and control cases; AC 4, AC 6, the lens, Backglass, knob and deck-grid cases, the synthetic-box control and the I/O rows stay.
+- [x] `test/cabinet-scene.test.ts` -- rework AC 5's flipper, ball and control cases; AC 4, AC 6, the lens, Backglass, knob and deck-grid cases, the synthetic-box control and the I/O rows stay.
   - `TYPED_GLASS_ALPHA` :84 becomes `0.02`.
   - Flippers: replace `boxSamples` for the flippers with EVERY vertex of `vis_flipper_l`, `vis_flipper_r` and their `_rubber` children, in world space. Sample two poses in the shared pass and keep their results apart:
     - RESTING: the real idle `createLoop` snapshot through the real `syncMechanisms`, as now.
@@ -249,11 +260,11 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
   - Waiting ball: replace `SHOOTER_POS_MM`'s y and z with the rest pose, typed: x 498.0 (pinned to `bd_shooter`'s x in the glb, as now), y and z `TABLE.reference.ballMm / 2`. Sample its centre and its top (centre plus one radius along the playfield normal). Add the pose anchor of AC 5: a real `createLoop` game whose served ball has settled in the shooter lane reports that ball within 1.5 mm of the typed pose on each axis (the lead measured it at (497.4, 13.49, 13.5)).
   - Controls (:524-528): the deck control moves from y 10 to y 2 (hidden) and gains a visible partner at y 25; the ball's hidden control becomes the typed point of AC 5. Each hidden control names `vis_lockbar`.
   - Header and in-file mutation comments: the three AC 5 lines of Verification replace the two old ones.
-- [ ] `test/architectural-lighting.test.ts` -- `TYPED_LAMPS.gi_cabinet.intensity` :71 becomes `10`. Nothing else: every case reads the typed table.
-- [ ] `test/mechanism-art.test.ts` (Story 5.4's test; a footprint extension) -- in the `vis_plunger` case :700-737 add typed pins: the knob's own vertices span y -62 to -50, the rod's own smallest y is -50, and the knob is 12 long (tolerance 0.05 mm). Say in a comment that Story 5.3 moved the south end. The existing pins stay as they are.
-- [ ] No edit expected, and each must stay green: `src/presentation/scene/vis-names.ts`, `src/presentation/scene/node-visibility.ts`, `src/host/boot.ts`, `test/boot-cabinet-wiring.test.ts`, `test/insert-occlusion.test.ts`, `test/mechanisms-follow.test.ts`, `test/placeholder-geometry.test.ts`. If one of them goes red, report it; do not edit round it.
-- [ ] Every I/O matrix row keeps its case in `cabinet-scene`, `architectural-lighting` or `boot-cabinet-wiring` (as built); the last row is AC 2 and AC 5.
-- [ ] Run Verification: every command, then every mutation, each observed red and reverted; write the observations under Verification.
+- [x] `test/architectural-lighting.test.ts` -- `TYPED_LAMPS.gi_cabinet.intensity` :71 becomes `10`. Nothing else: every case reads the typed table.
+- [x] `test/mechanism-art.test.ts` (Story 5.4's test; a footprint extension) -- in the `vis_plunger` case :700-737 add typed pins: the knob's own vertices span y -62 to -50, the rod's own smallest y is -50, and the knob is 12 long (tolerance 0.05 mm). Say in a comment that Story 5.3 moved the south end. The existing pins stay as they are.
+- [x] No edit expected, and each must stay green: `src/presentation/scene/vis-names.ts`, `src/presentation/scene/node-visibility.ts`, `src/host/boot.ts`, `test/boot-cabinet-wiring.test.ts`, `test/insert-occlusion.test.ts`, `test/mechanisms-follow.test.ts`, `test/placeholder-geometry.test.ts`. If one of them goes red, report it; do not edit round it.
+- [x] Every I/O matrix row keeps its case in `cabinet-scene`, `architectural-lighting` or `boot-cabinet-wiring` (as built); the last row is AC 2 and AC 5.
+- [x] Run Verification: every command, then every mutation, each observed red and reverted; write the observations under Verification.
 
 **Acceptance Criteria:**
 
@@ -375,10 +386,87 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
   - **Known-bad state this avoids:** a "nothing is hidden" check that samples only the authored (held) pose, and controls that sit within a few millimetres of the boundary they are supposed to prove.
   - **KEEP (it worked and must survive the next pass):** the eleven meshes as closed solids with shared vertices; `test/cabinet-art`'s way of measuring the surfaces from the glb and pinning them separately to typed figures, with an in-memory negative control beside each positive; `FIT_TOL` 0.05 mm; the triangle-exact `covered()` picker and the synthetic-box control; the real idle snapshot through the real follower; the two hatches and the boot wiring; the `insert-occlusion` exemption with its positive control; every mutation applied inside one shell command with a `trap` that restores a byte backup.
   - **Flagged to the lead, not blocking** (Design Notes, "Notes for the lead"): the speaker panel's top face and the translite's bottom face meet at Z 370; the fit table's two-decimal figures differ from "the same line as before" by 1.4 micrometres; the plunger knob clears the front face by 0.58 mm at 6.0 degrees.
+- 2026-10-13 (implement pass 2, 5-3-cabinet-backbox-and-glass-implement-2). The tasks were done as written, as changes to the tree at `6588163`. Every figure of the amended fit table is in the regenerated glb as written, within 0.05 mm; no frozen figure was adjusted, no clearance the spec states failed to hold, and no check was loosened. Nothing halted.
+  - **Paths changed, all in the spec's planned list:** `ATTRIBUTIONS.md` (first, before any generated file changed), `tools/make-placeholder-blend.py`, `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb`, `src/presentation/scene/cabinet.ts`, `src/presentation/lighting/architectural.ts`, `test/cabinet-art.test.ts`, `test/cabinet-scene.test.ts`, `test/architectural-lighting.test.ts`, `test/mechanism-art.test.ts`, and this spec (task ticks, the Observed block, this entry). No other existing file was edited. The seven files listed as "no edit expected" were not edited and are green.
+  - **Choices inside the spec, for review.**
+    - Generator. Three constants are new: `CAB_LOCKBAR_PROUD_MM` (2.0; the bar's X is derived from it and the body's), `CAB_HEAD_PANEL_BACK_Y_MM` (1071.5) and the pair `CAB_LOCKBAR_BELOW_TOP_LINE_MM`, `CAB_LOCKBAR_ABOVE_TOP_LINE_MM` (8.0 and 10.0), which exist only so the new seat rule has something typed to compare the bar's typed Z against. `CAB_HEAD_FRONT_T_MM` keeps its value (4.0) and now places the two panels' front face; the panels themselves are 3.5 thick, as the fit table's Y 1068 to 1071.5 says.
+    - `test/cabinet-art.test.ts`. `measureTub()` gained `frontOuterY` (the body's first distinct y) for the knob case. AC 11's scan decides "faces the same way" from each triangle's winding and asserts, on the committed glb, that every winding agrees with its stored normals. It COUNTS coplanar overlapping pairs that face opposite ways and reports only the same-facing ones, so a panel pushed back onto the backbox's rim is not reported by the scan; that is why the 0.5 mm clearance is asserted on its own, and the case says so. The knob case has two in-memory controls (the knob moved 22 mm; a rod pulled 80 mm, which no longer reaches the tub), and the front-wall control has a partner at 20 mm that is not reported.
+    - `test/cabinet-scene.test.ts`. The HELD snapshot comes from the same real loop as the RESTING one, 100 ticks and more after both buttons go down, until both angles stop changing. Each flipper case pins its pose per mesh (both bats, both rubbers), not as one minimum over all four. The pose anchor calls a ball settled after five successive 100-tick samples within 0.1 mm of one place: a "bit-still" criterion never holds, because the solver's resting contact keeps the ball trembling by up to 0.03 mm. The pose case beside it also checks, from the collision document, that the lane's end is at y 0 and spans the ball. `boxSamples()` stays for the synthetic control only. The three controls stay in one case per pitch.
+    - `test/architectural-lighting.test.ts`. Beside the typed figure, two header comments changed: the sentence that called all three values "starting values", and the mutation list, which gained the `gi_cabinet` line. Comment only; reported because the task said "nothing else".
+  - **Mutations added to Verification by this pass** (Rule 19; each observed red, in the Observed block): the glass's front edge (new AC 2 case), the pose anchor (new AC 5 case), the ball's hidden control, and the rod's south end for AC 12, which the knob mutation does not reach. The seven new generator guards were each watched firing on a scratchpad copy of the script.
+  - **Observations for the lead; none changes a frozen figure.**
+    - A served ball enters the lane at `bd_trough`'s eject pose, x 497.4, so it waits 0.6 mm left of the typed x 498.0 (`bd_shooter`'s). That is inside the 1.5 mm tolerance and is the lead's own measured (497.4, 13.49, 13.5).
+    - Where the lockdown bar is absent, the cabinet's front wall hides the waiting ball's low point by itself (the ball-control mutation). The bar is the nearest cover, not the only one.
+    - AC 11 is tested as the Design Notes read it: no same-facing pair anywhere, plus the three clearances. The opposite-facing contacts remain, the Z 370 seam between the speaker panel and the translite among them.
+    - `check:size` moved by 2 B (1,196,840 to 1,196,842).
+  - **Unverified, and the lead's at AC 9:** anything rendered. No dev server was started and no browser opened.
+- 2026-10-13 (implement pass 2, stage agent: verify, review and finalize; 5-3-cabinet-backbox-and-glass-implement-2). The handoff's work was verified again by this stage's own instruments, the four review layers ran over the WHOLE story (`git diff 66234b2`, the lead's bookkeeping left out), and the patches below were applied by this stage (the handoff subagent cannot be re-engaged). No frozen figure moved, no check was loosened, and no file outside the spec's planned list was edited.
+  - **Review patches (test, comment and provenance wording only; no production logic changed after the review).**
+    - `test/architectural-lighting.test.ts` -- beyond the task's "nothing else", and for that reason logged: the light-cap case of AC 7 could not fail (four lights in the scene against a cap of four). It now lights every insert through the real `syncLamps()`, asserts the scene holds more enabled lights than the cap, and carries an in-memory negative control (un-scoped insert lights put all eleven cabinet meshes over the cap). The missing-Empty-or-target case gained the mesh-less-target row. `lamp-driver.ts` is imported and called, never edited.
+    - `test/cabinet-art.test.ts` -- the attribution case's Date cell check is "ends on or after the note's date" (it was "ends at", which the next regeneration of these files would have turned red on a correct file); one comment in `nodeContractProblems()` now says what the lines under it check.
+    - `test/cabinet-scene.test.ts` -- the mesh-missing case gained the two `resolveCabinet()` guards that had no test (a cabinet name on a mesh-less node; the glass and the translite on one material).
+    - `test/mechanism-art.test.ts`, and the headers of the three cabinet test files -- the mutation lines added by this pass are now listed where the others are.
+    - `src/presentation/scene/cabinet.ts`, `src/presentation/lighting/architectural.ts` -- doc comments only: the quoted Chrome figures are labelled as taken on the first build of this cabinet (AC 9 samples the shipped one), and the two constants are called the material's alpha, not the sheet's opacity (every glb material is double-sided and both sheets are closed slabs).
+    - `ATTRIBUTIONS.md` (both Story 5.3 notes) and the generator's reference-figure comment -- **a provenance wording change for the author to confirm**: the notes now name where the reference dimensions come from, as the intent contract already does: the Bally/Williams WPC cabinet and backbox dimensions, the lockdown-bar height and the standard playfield-glass size, published at https://www.flippers.be/basics/101_pinball_dimensions.html and recorded (accessed 2026-08-26) in the research digest. Before, they said "a standard-body cabinet" and cited the digest's path only. Every phrase the attribution case matches is kept. Dimensions are facts; nothing else is taken. The generator's comment changed after the last regeneration, so this stage regenerated out of tree from the final generator text and got the committed glb byte for byte.
+  - **One finding is deferred for the author, and is not a patch: the spinner blade's swing against the glass** (frontmatter `deferred:`; Review Triage Log). At 8.5 degrees of pitch a spinning `vis_spinner_l_blade` reaches 0.54 mm into the glass's lower face, and above about 8.0 degrees its swing is inside the 5 mm the fit rule asks for. AC 2 measures the glb's authored pose, where the blade hangs down and the rule holds (7.08 mm is the tightest of all 25,290 vertices at 8.5 degrees). Nothing was adjusted: the remedies are a frozen figure, Story 5.4's art, or the rule's wording.
+  - **Passed to the lead without a change** (each is in the triage log with its reason):
+    - the spine's "Cabinet parts" row gives "(no glTF extension is registered)" as the reason transparency is set in code, but plain `alphaMode: BLEND` is core glTF and `mat_playfield` already ships it. The decision stands on the intent; the reason is imprecise;
+    - `gi_backbox` (20) and `gi_arch` (10) have no saturation probe in AC 9 (d); only `gi_cabinet` has;
+    - the body's side walls rise up to 36 mm through the backbox's floor (frozen figures), so two 9 mm wide wall stubs stand behind the lowest 14 to 23 mm of the translite strip (two estimates);
+    - `setNodeVisible()` on a ball or a drop target is overwritten by its follower on the next frame.
 
 ## Review Triage Log
 
-- 2026-10-13: no review ran. The run HALTed `blocked` at the implement step's Verify (`pnpm test`: 3 failed, all the AC 5 flipper case), before the Matrix Test Audit and the review layers. Nothing to triage; `deferred:` is empty.
+### 2026-10-13 — Review pass
+- scope: the whole story against `baseline_revision` `66234b251a09381f383d8fa6be9333839dd9e0d5` (the first pass, commit `6588163`, never reached review), with the lead's bookkeeping under `_bmad-output/**` other than this spec left out. Four layers, launched together, each read-only, each on `claude-opus-5-5`: Blind Hunter (17 findings), Edge Case Hunter (6), Verification Gap (7 gaps and 2 other findings), Intent Alignment (10 divergences and 3 observations).
+- verdicts: 45 findings — high 0, medium 1, low 32, false 10, maybe-false 2
+- findings:
+  - `[low]` `[patch]` Blind: the two see-through slabs blend twice, so the authored alphas are not the sheets' opacity — verified in part: all 28 glb materials are `doubleSided`, and the loader then sets `backFaceCulling = false` (`glTFLoader.pure.js:1965`), so both faces of each closed slab are drawn; the rendered size of it is AC 9's. Patched: the doc comments in `cabinet.ts` now call the constants the material's alpha and say so. Culling is not changed: the intent sets `alpha` and `transparencyMode` only, and the sampled 0.02 was taken with double-sided materials in effect.
+  - `[low]` `[reject]` Blind: the stated reason for setting transparency in code ("no glTF extension is registered") is wrong, since `alphaMode: BLEND` is core glTF — true of the reason, not of the decision. The reason is the spine's "Cabinet parts" row and the intent's; the code comments repeat them. Rewording them is the lead's; passed on in the Spec Change Log.
+  - `[low]` `[reject]` Blind: the glass-over-deck draw order rests on bounding-sphere distance, no `alphaIndex` — the intent excludes every camera but the fixed one, and AC 6 pins the order there at three pitches. Reopen if Story 4.6's camera shows the deck drawn over the glass.
+  - `[maybe-false]` `[reject]` Blind: `gi_backbox` (20) and `gi_arch` (10) are still starting values and may saturate — not decidable headlessly. If true it is low for this story: the reviewer's own estimate puts the strip the fixed camera frames at 0.77 linear, and the values are frozen in the intent. What settles it: a 0.5-against-1 sample on the translite strip and on the arch band at AC 9 (d). Passed on to the lead.
+  - `[low]` `[patch]` Blind: nothing rendered is verified for the shipped build, and the doc comments quote first-build figures as if they described it — AC 9 is the lead's, after this stage, by the spawn contract. Patched: the comments in `cabinet.ts` and `architectural.ts` now say the figures were taken on the first build, before the 22 mm re-fit.
+  - `[false]` `[reject]` Blind: the spec is stale (Auto Run Result, Triage Log, Code Map) — the diff was staged mid-run; the first two are written at finalize, in this pass, and the Code Map is labelled "HEAD's at planning".
+  - `[low]` `[reject]` Blind: the export gate has no rule for `gi_` nodes, and the lamp resolve does not check an Empty's ancestry — `tools/export.py` is read-only to this story. The Empties are pinned as direct, mesh-less children of `cabinet_root` by `cabinet-art` and by `architectural-lighting` (`empty.parent`), so a runtime guard would guard a state no test can reach.
+  - `[low]` `[patch]` Blind: the provenance notes do not name the source of the reference dimensions — verified against `geometry-r1-1.md:15-25,186-192`. Patched: both notes and the generator's comment now name the Bally/Williams WPC figures, the flippers.be page and the digest's access date; flagged for the author to confirm. The rest of the finding (the attribution case's parse is fragile) is not acted on: it reads one row by its prefix and has a mutation.
+  - `[low]` `[reject]` Blind: the visual glass and the physics ceiling disagree, and nothing tracks it — the intent itself keeps `col_glass` at z 400 with no twin, and the Design Notes give hop height to physics (AD-15). Named under residual risks.
+  - `[low]` `[reject]` Blind: `boot-cabinet-wiring` pins mention counts that Story 4.1 must change — a deliberate tripwire, the idiom of `boot-mechanisms-wiring`: a second caller of the seam has to be looked at.
+  - `[low]` `[reject]` Blind: the hatch and hook tests run a restated copy of `boot.ts` — `boot.ts` cannot be imported (the `module-coverage` allowlist); AC 8 is written this way; the scanners carry negative controls on mutated copies of the real source; the real boot is AC 9's.
+  - `[false]` `[reject]` Blind: the two hatches break the reset rule and have no read-back — the intent says "`reset()` does not restore either"; `architecturalLevel()` is the seam's read-back, used by the tests and by Story 4.1.
+  - `[low]` `[reject]` Blind: the light-budget meaning is now ambiguous — the arithmetic is the spec's AD-12 note (19 of 20), and the `setLightBudget` JSDoc scopes its quoted phrase to the insert lights in the same sentence. The scene-wide cap is Story 4.1's (Design Notes, Consumed-by).
+  - `[low]` `[reject]` Blind: the lamp tests miss range coverage and compute no N.L — for the axis-aligned faces tested, the coordinate comparison is N.L > 0; ranges and positions are typed-pinned and the farthest target vertex is well inside each range; the rendered response is AC 9 (d).
+  - `[low]` `[reject]` Blind: the lamp Empties are not plausible fixture positions — they are the frozen fit table's own figures, shading positions for unshadowed scoped lights. A change is the lead's.
+  - `[low]` `[reject]` Blind: interpenetrating solids (the legs inside the tub's corners, the body's rim through the backbox floor, the knob on the front-face plane) — each follows from frozen figures; AC 11 is about same-facing shared faces. The wall stubs behind the translite strip are passed on for AC 9.
+  - `[low]` `[patch]` Blind: two test statements claim more than the code does — patched: the comment in `nodeContractProblems()` now points at the exact-set check that does the work. The winding assertion stays: it ties "same-facing" to the stored normals, and the falsifiability case pins the back planes' normal with its sign.
+  - `[low]` `[defer]` Edge: the spinner blade turned upward passes 0.54 mm through the glass at 8.5 degrees — verified by this stage's own script: 27.76 / 22.10 / -0.54 mm over a full turn at 6.0 / 6.5 / 8.5 degrees, against 43.75 / 38.10 / 15.48 at the authored pose. Low by harm: invisible behind a 0.02-alpha sheet, and unreachable today (boot runs at 6.5 degrees). The blade's swing is Story 5.4's art; no remedy is inside this story's authority. Deferred, not rejected, so that the lead harvests it and the author decides what the rule covers. One entry with the two spinner rows below.
+  - `[low]` `[reject]` Edge: a ball more than about 49 mm off the deck is drawn through the glass — same as the Blind finding on `col_glass`: the intent's own decision.
+  - `[low]` `[reject]` Edge: `setNodeVisible()` on a mesh a follower rewrites each frame reverts silently — verified (`sync-mechanisms.ts:274`, `balls.ts:92`). A dev-only hatch that this story uses on cabinet meshes only; the proposed guard would narrow what the intent defines as "one named mesh". Told to the lead.
+  - `[low]` `[patch]` Edge: the attribution case's Date cell check goes red when a later story moves the cell's end past 2026-10-13 — real, and due at the next regeneration. Patched to "ends on or after the note's date"; mutation observed (the cell's end moved back to 2026-10-12).
+  - `[low]` `[reject]` Edge: the glass's or the translite's material shared with a third mesh — pinned from the glb ("used by exactly one mesh") and on the scene; a guard for a state no test can reach.
+  - `[low]` `[reject]` Edge: a lamp Empty outside `cabinet_root` — as the Blind finding on the export gate.
+  - `[low]` `[defer]` Verification gap: the glass-clearance fit case samples moving parts in their authored pose only — the spinner entry above. The filed patch (a swept-envelope check) would be red at 8.5 degrees and cannot be made green inside the frozen figures; at 6.0 and 6.5 degrees the static check binds first, so a partial check would pin nothing new.
+  - `[medium]` `[patch]` Verification gap: AC 7's light-cap assertion cannot fail in the scene it runs in — filed with its evidence. Patched as filed: every insert lit through the real `syncLamps()`, a non-vacuity count, an in-memory negative control, and the file mutation (the scoping line of `lamp-driver.ts` deleted and restored inside one command) observed red.
+  - `[low]` `[patch]` Verification gap: eleven AC clauses have their own case but no mutation line — each AC had one line, which is Rule 19's scope; closed anyway. Fourteen mutations applied for them, each observed red on the case named and reverted (Verification, "Observed (stage agent)").
+  - `[low]` `[reject]` Verification gap: assertions that compare two typed literals — they check the typed table's arithmetic and say so in their messages; the same figures are pinned against the glb beside them.
+  - `[low]` `[reject]` Verification gap: `boot.ts` has no executed test host — as the Blind finding on restated copies.
+  - `[low]` `[patch]` Verification gap: three guard throws have no test — three assertions added in `cabinet-scene` and `architectural-lighting`; each guard's removal observed red.
+  - `[low]` `[reject]` Verification gap: "every other node byte-identical" and "moved 22 mm" are checked by scratch scripts only — the spec gives them to the Verification scripts. Run again by this stage with its own instrument and a positive control; a durable check would need a committed baseline glb.
+  - `[low]` `[defer]` Verification gap (other): at 8.5 degrees a spinning blade passes 0.54 mm through the glass's lower face — the spinner entry above.
+  - `[low]` `[patch]` Verification gap (other): four mutation lines exist only under Observed — added to the planned list and to the test files' own lists.
+  - `[false]` `[reject]` Intent: the rendered expectations are exercised by no test — no defect of the diff: the intent provides the two hatches so the lead can check the result in Chrome, and AC 9 is the lead's after this stage.
+  - `[low]` `[reject]` Intent: "the gap between them" is sampled by one deck point, and the deck grid still starts at y 45 — the bar's back top edge is straight in x, so a deck point's visibility over it does not depend on x; the bats' own deck-level vertices at y 18.53 are sampled on both sides of the gap, and the deck at y 25 is a visible control. For the lead to look at in AC 9 (b).
+  - `[false]` `[reject]` Intent: the waiting ball is typed at x 498.0 while it rests at 497.4, and the hidden fraction is unasserted — the intent types the pose at `bd_shooter`'s x; the anchor case pins a real served ball within 1.5 mm; the fraction is AC 9 (b)'s to record.
+  - `[low]` `[reject]` Intent: the speaker panel's top and the translite's bottom share Z 370 — the plan flagged this seam to the lead (Design Notes, "Notes for the lead") and the spec was validated with AC 11 as written. The remedy is a fit-table figure.
+  - `[low]` `[reject]` Intent: fail-fast and hatch behaviour are tested on restated copies — as the Blind finding.
+  - `[false]` `[reject]` Intent: "Scene rebuilt" is two `NullEngine` scenes — the matrix row's input is "a second scene"; the real WebGPU-to-WebGL2 fallback runs in the lead's AC 9 session.
+  - `[false]` `[reject]` Intent: the generator-to-glb link rests on a recorded regeneration — this stage regenerated out of tree from the generator text, twice (the second time after its last comment edit): the glb is the committed one byte for byte.
+  - `[false]` `[reject]` Intent: `vis_backbox`'s bytes are pinned by bounds only — this stage's node diff against `66234b2` finds its accessor data (UVs included), material, parent and node properties identical, with a positive control.
+  - `[maybe-false]` `[reject]` Intent: "the note before the files" is a time order nobody can see — git holds one working tree and the mutation restores rewrote the file's mtime. The handoff reports that order. Low if it were false: the note and the files land in one commit.
+  - `[false]` `[reject]` Intent: `check:size` is a recorded figure — run by this stage: 1,196,842 B of 2,750,000.
+  - `[false]` `[reject]` Intent (observation): the Auto Run Result still reads "ready-for-dev" — written at finalize, in this pass.
+  - `[false]` `[reject]` Intent (observation): `epics.md` changed outside the reviewed diff — the lead's own amendments, left out by the lead's definition of the diff.
+  - `[low]` `[reject]` Intent (observation): the rod's tip lies inside the waiting ball — the intent fixes both figures; both are opaque; already in the plan's notes for the lead.
+- routes: patch 9 (medium 1, low 8); defer 3 rows, one entry; reject 33. No `intent_gap`, no `bad_spec`. `review_loop_iteration` stays 0.
 
 ## Design Notes
 
@@ -517,8 +605,140 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
 - AC 11: `mutation: give the vis_lockbar node a translation of 2 mm toward +X in the glb JSON chunk -> cabinet-art shared-face case red, naming vis_cabinet and vis_lockbar`.
 - AC 12: `mutation: give the vis_plunger_knob node a translation of 22 mm toward table +Y in the glb JSON chunk -> mechanism-art vis_plunger case red (the knob at y -40 to -28)`. It is the AC 2 knob mutation; one application can serve both lines if both reds are recorded.
 - `insert-occlusion` (unedited test, new glass): `mutation: give the vis_top_glass node a translation of 300 mm across in the glb JSON chunk -> the glass-exemption positive control red`.
+- Added by implement pass 2 and by its review (each observed red; "Observed" and "Observed (stage agent)" below):
+  - AC 1 (lamp positions): `mutation: give the gi_arch node a translation of 5 mm toward table +Y in the glb JSON chunk -> cabinet-art lamp-position case red`.
+  - AC 1 (backbox and assembled height): `mutation: raise one top vertex of vis_head 5 mm in the glb BIN -> cabinet-art backbox-dimension case and assembled-height case red`.
+  - AC 1 (body): `mutation: lower one front-face bottom vertex of vis_cabinet 5 mm in the glb BIN -> cabinet-art body-dimension case red`.
+  - AC 1 (lockdown bar height): `mutation: give the vis_lockbar node a translation of 20 mm upward in the glb JSON chunk -> cabinet-art lockdown-bar-height case red (926.78 above the feet)`.
+  - AC 2 (the glass's front edge): `mutation: give the vis_top_glass node a translation of 10 mm toward table +Y in the glb JSON chunk -> cabinet-art glass-front-edge case red`.
+  - AC 3 (materials): `mutation: set mat_art_glass's roughnessFactor to 0.2 in the glb JSON chunk -> cabinet-art material case red`.
+  - AC 3 (`vis_backbox`): `mutation: give the vis_backbox node a translation of 5 mm toward table +Y in the glb JSON chunk -> cabinet-art vis_backbox-untouched case red`.
+  - AC 4 (backbox): `mutation: give the vis_head node a translation of 500 mm downward in the glb JSON chunk -> cabinet-scene backbox framing case red`.
+  - AC 4 (feet): `mutation: give the vis_legs node a translation of 800 mm upward in the glb JSON chunk -> cabinet-scene feet case red`.
+  - AC 5 (lenses and deck grid): `mutation: give the vis_cabinet node a translation of 400 mm upward in the glb JSON chunk -> cabinet-scene lens case and deck-grid case red at all three pitches`.
+  - AC 5 (Backglass): `mutation: give the vis_lockbar node a translation of 1000 mm toward table +Y and 300 mm upward in the glb JSON chunk -> cabinet-scene Backglass-and-knob case red on the Backglass sample`.
+  - AC 5 (knob): `mutation: give the vis_lockbar node a translation of 30 mm downward in the glb JSON chunk -> cabinet-scene Backglass-and-knob case red on the knob sample at 6.0 and 6.5 degrees`.
+  - AC 5 (the pose anchor): `mutation: move the inner face of col_wall_lane_bottom from y 0 to y 5 in the collision document -> cabinet-scene pose-anchor case red`.
+  - AC 5 (the ball's hidden control): `mutation: give the vis_lockbar node a translation of 60 mm toward -X in the glb JSON chunk -> cabinet-scene controls case red on the ball's assertion`.
+  - AC 6 (draw order): `mutation: give the vis_top_glass node a translation of 300 mm toward table +Y in the glb JSON chunk -> cabinet-scene draw-order case red`.
+  - AC 7 (falloff): `mutation: delete the light.falloffType assignment in architectural.ts -> architectural-lighting position-and-falloff case red`.
+  - AC 7 (lit side): `mutation: give the gi_arch node a translation of 200 mm toward table +Y in the glb JSON chunk (behind the arch panel) -> architectural-lighting lit-side case red`.
+  - AC 7 (light cap): `mutation: delete the light.includedOnlyMeshes = [node] assignment in lamp-driver.ts (read-only to this story; applied and reverted inside one command) -> architectural-lighting light-cap case red`.
+  - AC 7 (mesh-less target): `mutation: replace the condition of the "carries no mesh to light" guard with false in architectural.ts -> architectural-lighting missing-Empty-or-target case red`.
+  - AC 10 (Date cell): `mutation: move the end of the glb row's Date cell in ATTRIBUTIONS.md back to 2026-10-12 -> cabinet-art attribution case red`.
+  - AC 12 (the rod): `mutation: move one south-ring vertex of vis_plunger 5 mm toward table -Y in the glb BIN -> mechanism-art vis_plunger case red`.
+  - I/O rows (`resolveCabinet()`): `mutation: replace the condition of the "resolved to a node with no mesh" guard with false in cabinet.ts -> cabinet-scene mesh-missing case red`; `mutation: replace the condition of the "share one material" guard with false in cabinet.ts -> the same case red`.
 
-**Observed (next implement pass).** Not yet run. Record here: the commands' results, the regenerated glb's sha256 and size, the fit as measured by `cabinet-art` (compare with the Design Notes table), and every mutation's observed red.
+**Observed (implement pass 2, 2026-10-13; 5-3-cabinet-backbox-and-glass-implement-2).** Every command of this section was run, then every mutation. All scratch, baseline and backup files were kept outside the worktree (scratchpad `e5-s53-impl2/handoff/`).
+
+*Baselines, taken before any edit:* glb sha256 `0998103209588f86226c6147fcbcacd8f0fa4152180658d1b72b3db69b492151` (1,446,792 B) and collision sha256 `415412a80e6668f0fe73e4aaea1521ed6fef1838163474629db8d49ef3821d19`, both as the Code Map states; `check:size` 1.197 MB (1,196,840 B).
+
+*Commands:*
+- Regenerate, then `pnpm export:assets` twice: glb sha256 `9e9d64661f736f73a873d909b9f39d7ee92cccfbc42cd36fcb9d6a28c3a6b589` both times, 1,446,800 B; it differs from the baseline. `.blend` 495,189 B (not byte-reproducible). Collision sha256 unchanged, and byte-identical (`cmp`) to this pass's baseline copy and to `66234b2`'s.
+- `git diff --exit-code 66234b2 -- public/assets/dragonwar.collision.json src/sim test/replays`: exit 0. Positive control, the same form over `public/assets/dragonwar.glb`: exit 1.
+- Golden script, parsed per field: 5 goldens, 77 field comparisons (every top-level field and every `header` field), against `66234b2`'s copies and against this pass's baseline copies: none moved (`assetHash bcecd10d` and `tableHash e22fbdcf` in all five). Positive control: an in-memory change to `header.assetHash` is reported on every golden.
+- glb node script, against this pass's baseline glb: 184 nodes before and after, same names and parents; the 168 nodes outside the exempt sixteen have byte-identical accessor data and node properties; the one image's bytes and the 28 materials are identical. `vis_plunger_knob`: 224 vertices, every one the baseline's moved 22 mm toward table -Y (worst deviation 1.2e-7 mm). `vis_plunger`: 224 vertices; the 48 of its south ring moved the same 22 mm, the other 176 are unchanged, none is neither. Positive control: one flipped byte in `vis_backbox`'s POSITION data is reported, naming `vis_backbox`.
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`: green.
+- `pnpm test` with `BLENDER` set, run twice, the second time after the last test edit: 146 files, 2424 tests passed, 0 failed, 0 skipped.
+- `pnpm build`, `pnpm check:dist`, `pnpm check:size`: 1.197 MB (1,196,842 B) of 2.750 MB, 2 B more than this pass's baseline.
+
+*The fit as built.* A second instrument: a scratch script (`measure-fit.mjs`) that reads the glb only and shares no code with `cabinet-art`. It equals the Design Notes table to the last digit shown.
+
+| Measure | 6.0 deg | 6.5 deg | 8.5 deg |
+|---|---|---|---|
+| Tightest clearance under the glass's lower face, normal to it | 15.40 (`vis_wall_lane`) | 15.33 (`vis_post_pocket_l`) | 7.08 (`vis_plastic_sling_r`) |
+| Playfield x | -13.2 to 527.6 | same | same |
+| Greatest depth (arch panel front at 1075) | 1072.89 | 1071.87 | 1066.95 |
+| Smallest non-plunger depth (front wall's inner face at -32) | -6.42 | -6.85 | -8.58 |
+| Plunger knob's greatest depth (front face at -50) | -50.58 | -50.61 | -50.66 |
+| Plunger rod's depth span | -51.40 to 20.50 | -51.49 to 20.40 | -51.82 to 20.01 |
+
+- Fixed figures: body 560.000 x 1400.000, 400.000 high at the front face and 605.000 at the back; lockdown bar top 906.780 above the feet; top of `vis_head` 1790.000 above them; backbox 730.000 x 730.000; glass 533.000 x 1093.000, 4.7600 thick.
+- Boxes (level-frame mm): `vis_cabinet` x -22.8..537.2, y -50..1350, z -333.22..271.78; `vis_lockbar` x -24.8..539.2, y -66..-30, z 58.78..76.78; rails y -30..1068; `vis_legs` x -26.8..541.2, y -54..1354, z -830..-150; `vis_head` y 1072..1342; `vis_head_panel` and `vis_head_translite` y 1068..1071.5; `vis_head_lightbox` y 1310..1314; lamp Empties at (257.2, 1090, 600), (257.2, -322, 396.78) and (257.2, 900, 210).
+- Glass: front lower edge (y -37.467, z 60.615), front upper edge (y -38.157, z 65.325), rear lower edge y 1044.000; its lower face is at z 66.1014 at y 0 (the 1.4 micrometres of "Rounding").
+- `vis_backbox`'s lowest corner is 22.492 above the glass's upper face and 0.200 in front of the speaker panel.
+- Counts: 163 meshes and 25,290 vertices under `playfield_root`, 448 of them the plunger's.
+- AC 11, by `cabinet-art`'s scan: twelve meshes, more than 200 triangles, every winding agreeing with its stored normals; no same-facing shared face; the seated (opposite-facing) contacts are seen and counted.
+
+*AC 5 as measured through the real loop and the real follower* (read from a temporary log line, since removed):
+- Poses: the idle snapshot reports `angleDeg` 141 and -141 exactly; the held snapshot 90 and -90 exactly. Smallest playfield y: resting bat 18.530, resting rubber 16.555; held bat 59.500, held rubber 57.500, each the same for both sides and at all three pitches. These are the typed pins to three decimals.
+- 792 vertices sampled per pose; 0 covered at 6.0, 6.5 and 8.5 degrees, at rest and held.
+- Pose anchor: after a real Start press the served ball enters at `bd_trough`'s eject pose (x 497.4, y 20), runs up the lane to about y 50, comes back and rests at (497.400, 13.496, 13.498), which is the lead's (497.4, 13.49, 13.5). The solver keeps a resting ball trembling by up to 0.03 mm, so the case calls it settled after five successive 100-tick samples within 0.1 mm of one place (reached at tick 1203), not when it is bit-still.
+
+*Generator guards.* Each of the seven rules added to `_check_cabinet_constants()` was watched firing, on a copy of the script in the scratchpad with one constant changed (the script derives its output path from its own location, so a copy cannot write into the worktree). Each run printed the rule's own message with the offending figures and wrote no `.blend`; the unchanged copy, the control, wrote one. The seven: `CAB_LOCKBAR_PROUD_MM` 0.0 ("is not proud of the body's side faces"); the bar's Z back at 62.0 and 80.0 ("sits 4.7800 below and 13.2200 above the top line"); `CAB_RAIL_Y0_MM` -8.0 ("not at the lockdown bar's back face (y -30.0)"); `CAB_HEAD_D_MM` 278.0 ("back face (y 1350.0) is not in front of the body's back face (y 1350.0)"); the panels' back face 1072.0 ("is not between their front face (y 1068.0) and the backbox's front rim (y 1072.0)"); `VIS_PLUNGER_Y0_MM` -40.0 ("the plunger knob's north end (y -28.0) is behind the body's front face (y -50.0)"); `CAB_END_WALL_T_MM` 80.0 ("the plunger rod's tip (y 21.505...) is not behind the front wall's inner face (y 30.0)").
+
+*Mutations.* Each was applied, run against ONE test file and reverted inside one shell command, with the target backed up outside the worktree and a `trap` that restores it. After every one the target's sha256, `git diff | sha256sum` and `git status --short` equalled the values taken immediately before in the same command (glb `9e9d6466...`; collision `415412a8...`). Counts are the reporter's own.
+- AC 1: `mutation: add 5 mm to one vis_top_glass vertex x in the glb BIN -> cabinet-art glass-dimension case red`. Observed: 1 failed of 34, that case ("vis_top_glass vertex (-4.300, -37.467, 60.615): x is -9.3 or 523.7").
+- AC 2: `mutation: give the vis_top_glass node a translation of 30 mm downward in the glb JSON chunk -> cabinet-art fit case red (clearance below 5 mm)`. Observed: the fit case red at all three pitches (`vis_dragon` 4.481 mm below the glass at 6.0 degrees, 0.279 at 6.5, -16.499 at 8.5); 7 failed of 34 with the cases that share the glass.
+- AC 2 (the knob): `mutation: give the vis_plunger_knob node a translation of 22 mm toward table +Y in the glb JSON chunk -> cabinet-art knob-in-front-of-the-front-face case red`. Observed: exactly the three knob cases red, one per pitch ("vis_plunger_knob vertex at level (504.40, -41.14, 8.75) is not in front of the body's front face (-50.000)"). The general fit case stays green under it, because it exempts the plunger: the knob case is the discriminating one.
+- AC 2 (the glass's front edge; added by this pass): `mutation: give the vis_top_glass node a translation of 10 mm toward table +Y in the glb JSON chunk -> cabinet-art glass-front-edge case red`. Observed: red ("the glass's front lower edge (y -27.467) is not in front of the lockdown bar's back face (y -30.000)").
+- AC 3: `mutation: rename vis_top_glass to vis_glass in the glb JSON chunk -> cabinet-art node case red, and placeholder-geometry's exclusion case red`. Observed, two runs: cabinet-art 13 failed of 34, the node case among them; placeholder-geometry 1 failed of 9 ("the set of col_ bodies WITHOUT a twin equals the exclusion rule exactly").
+- AC 4: `mutation: give the vis_lockbar node a translation of 500 mm toward the player in the glb JSON chunk -> cabinet-scene framing case red`. Observed: red ("vis_lockbar corner 0 projects outside the frame on y (NDC -1.6993)"); the three control cases go red with it, because with the bar gone the deck at y 2 is behind `vis_cabinet`.
+- AC 5 (RESTING flippers): `mutation: give the vis_lockbar node a translation of 22 mm toward table +Y and 3.22 mm upward in the glb JSON chunk (the bar back at the first fit) -> cabinet-scene RESTING-pose flipper case red at all three pitches, while the HELD-pose flipper case stays green`. Observed, both halves: RESTING red at 6.0, 6.5 and 8.5 degrees with 308 of 792 vertices covered at each (the plan's 308, 308, 308; the first covered is `vis_flipper_l` at playfield (204.1, 20.0, 0.0) behind `vis_lockbar`); HELD green at all three. The waiting-ball centre and the visible deck control go red with it, as the plan's table says.
+- AC 5 (HELD flippers): `mutation: give the vis_lockbar node a translation of 100 mm upward in the glb JSON chunk -> cabinet-scene HELD-pose flipper case red`. Observed: HELD red with 294, 294 and 286 of 792 covered, and RESTING red with 364, 364 and 358 (the plan's counts exactly).
+- AC 5 (the waiting ball): `mutation: give the vis_lockbar node a translation of 20 mm upward in the glb JSON chunk -> cabinet-scene waiting-ball centre case red at all three pitches`. Observed: red at all three ("waiting ball centre at playfield (498.0, 13.495, 13.495) behind vis_lockbar"); RESTING red with 110 of 792 at each pitch; HELD green.
+- AC 5 (the pose anchor; added by this pass): `mutation: move the inner face of col_wall_lane_bottom from y 0 to y 5 in the collision document -> cabinet-scene pose-anchor case red`. Observed: red ("the served ball rests at (497.400, 18.496, 13.507); y vs the typed 13.495: expected 5.0008 to be less than or equal to 1.5"). The collision document was restored byte for byte.
+- AC 5 (the ball's hidden control; added by this pass): `mutation: give the vis_lockbar node a translation of 60 mm toward -X in the glb JSON chunk (the bar no longer over the shooter lane) -> cabinet-scene controls case red on the ball's assertion`. Observed: the three control cases red on that assertion alone ("expected [ 'vis_cabinet' ] to deeply equal [ 'vis_lockbar' ]"), the flipper and ball cases green. It also shows that where the bar is absent the front wall hides that point.
+- AC 6: `mutation: delete the transparencyMode assignment in cabinet.ts -> cabinet-scene transparency case red`. Observed: red ("vis_top_glass: transparencyMode: expected +0 to be 2"). `mutation: set TOP_GLASS_ALPHA back to 0.08 in cabinet.ts -> the same case red (alpha 0.08 against the typed 0.02)`. Observed: red ("the authored opacities: expected [ 0.08, 0.55 ] to deeply equal [ 0.02, 0.55 ]").
+- AC 7: `mutation: delete the includedOnlyMeshes assignment in architectural.ts -> architectural-lighting light-list case red`. Observed: red ("gi_backbox: scoped to its 1 target(s): expected +0 to be 1"). `mutation: set intensity to the authored value regardless of level -> the level case red`. Observed: red ("a quarter of its authored intensity: expected 20 to be close to 5"). `mutation: set gi_cabinet's intensity back to 20 in architectural.ts -> the typed-table case red`. Observed: red, with the default-intensity cases ("default intensities: expected [ 20, 20, 10 ] to deeply equal [ 20, 10, 10 ]").
+- AC 8: `mutation: move resolveCabinet(...) below the snapshot guard in boot.ts -> boot-cabinet-wiring ordering case red`. Observed: red ("must run BEFORE the latestSnapshot guard ... expected 160 to be less than 117"). `boot.ts` was restored byte for byte.
+- AC 10: `mutation: remove the Story 5.3 sentence from the glb row of ATTRIBUTIONS.md -> cabinet-art attribution case red`. Observed: 1 failed of 34, that case. `mutation: set the count of vis_legs' index accessor to 6003 in the glb JSON chunk -> cabinet-art budget case red`. Observed: red ("vis_legs: 2001 triangles (budget 2000)").
+- AC 11: `mutation: give the vis_lockbar node a translation of 2 mm toward +X in the glb JSON chunk -> cabinet-art shared-face case red, naming vis_cabinet and vis_lockbar`. Observed: red ("vis_cabinet and vis_lockbar share a face: 4 coplanar same-facing triangle pairs, 189.3 mm2, normal (-1.00, 0.00, 0.00)"); the fit-table pin of the bar's box and the node-contract case go red with it. The in-memory control beside it reports the backbox moved 8 mm as 23,396.8 mm2 against `vis_cabinet`: the first build's 1.9 cm2 and 234 cm2.
+- AC 12: `mutation: give the vis_plunger_knob node a translation of 22 mm toward table +Y in the glb JSON chunk -> mechanism-art vis_plunger case red (the knob at y -40 to -28)`. Observed, in a run of its own: 1 failed of 26 ("the knob's south end y -40.000 vs -62"). Added by this pass for the rod's pin, which that mutation does not reach: `mutation: move one south-ring vertex of vis_plunger 5 mm toward table -Y in the glb BIN -> mechanism-art vis_plunger case red`. Observed: red ("the rod's south end y -55.000 vs -50").
+- `insert-occlusion` (unedited test, new glass): `mutation: give the vis_top_glass node a translation of 300 mm across in the glb JSON chunk -> the glass-exemption positive control red`. Observed: 1 failed of 3 ("every lens sample is behind something once the glass counts: expected 15 to be 75").
+
+*Not run, and not this stage's:* AC 9. No dev server was started and no browser opened; nothing above is a rendered claim.
+
+**Observed (stage agent, 2026-10-13: verify, review patches, re-verify).** Run by the stage agent itself, with instruments that share no code with the handoff's (scratchpad `e5-s53-impl2/lead/`). Nothing below is a rendered claim. The figures are those of the tree as committed.
+
+*Commands, on the final tree (after the review patches):*
+- Generator text to glb, out of tree: the committed `tools/make-placeholder-blend.py` was copied to the scratchpad (it derives its output path from its own location), run under Blender 5.2.1, and its `.blend` exported through the worktree's own `runExportAssets()` into a scratch directory. Before the patches: twice from one fresh `.blend`, and once from the committed `.blend`; after the last generator comment edit: once more from a fresh `.blend`. Every glb is sha256 `9e9d64661f736f73a873d909b9f39d7ee92cccfbc42cd36fcb9d6a28c3a6b589` (1,446,800 B), the committed one; every collision document is `415412a80e6668f0fe73e4aaea1521ed6fef1838163474629db8d49ef3821d19`.
+- `git diff --exit-code 66234b2 -- public/assets/dragonwar.collision.json src/sim test/replays`: exit 0. Positive control over the glb: exit 1. Also unchanged against `66234b2`: `tools/export.py`, `tools/export-assets.mjs`, `src/presentation/backglass`, `src/presentation/camera`, `lamp-driver.ts`, `grammar.ts`, `lamp-view.ts`, `package.json`, the lockfile and `pnpm-workspace.yaml`.
+- Goldens, parsed per field against `66234b2`'s copies: 5 goldens, 77 field comparisons, none moved (`assetHash bcecd10d`, `tableHash e22fbdcf` in all five; the files are byte-identical too). Positive control: an in-memory change to `header.assetHash` is reported on all five.
+- glb node diff, by a script of this stage's own:
+  - against this pass's baseline glb (HEAD's, `0998...`): 184 nodes on both sides, none added or removed; 14 differ, exactly the ten re-fitted cabinet meshes, `gi_backbox`, `gi_cabinet`, `vis_plunger` and `vis_plunger_knob` (`vis_cabinet_arch` and `gi_arch` did not move); 170 are identical in accessor data, parent and node properties; materials and the image identical;
+  - against the story's baseline glb (`66234b2`'s): 14 nodes added (the eleven meshes and three Empties), none removed; only `cabinet_root`'s child list, `vis_plunger` and `vis_plunger_knob` differ; 167 identical, `vis_backbox` among them; 7 materials added, none changed; one image, no `extensionsUsed`;
+  - positive control: one flipped byte in `vis_backbox`'s POSITION data is reported, naming `vis_backbox`.
+- `pnpm typecheck`, `pnpm lint:boundaries`, `pnpm check:headers`, `pnpm check:attributions`: green, before and after the patches.
+- `pnpm test` with `BLENDER` set, once before the review and once after the patches: 146 files, 2424 tests passed, 0 failed, 0 skipped, 0 todo, both times (from vitest's JSON report).
+- `pnpm build`, `pnpm check:dist`, `pnpm check:size`: 1.197 MB (1,196,842 B) of 2.750 MB, before and after the patches.
+- Matrix Test Audit: each of the fourteen I/O matrix rows has a case that ran and passed in that report (`boot-cabinet-wiring`: Boot with the shipped glb, Cabinet mesh missing, Lamp Empty missing, Unknown channel at the hatch, Hatch level null, Hatch before a scene exists; `cabinet-scene`: Cabinet mesh outside `cabinet_root`, Resolve called every frame, Scene rebuilt, Hide a mesh, Hide an unknown or mesh-less node; `architectural-lighting`: Level set, Level out of range or not finite, Scene rebuilt; the pitch row: `cabinet-art`'s fit cases and `cabinet-scene`'s AC 5 cases at 6.0, 6.5 and 8.5 degrees).
+
+*The spinner blade (deferred; frontmatter `deferred:`).* By this stage's own script on the committed glb: the blade's node origin is at playfield (33.00, 648.00, 48.00), 24 vertices, largest radius about table +X 16.031 mm. Clearance under the glass's lower face, normal to it:
+
+| Pitch | Authored pose | Worst over a full turn |
+|---|---|---|
+| 6.0 deg | 43.75 | 27.76 |
+| 6.5 deg | 38.10 | 22.10 |
+| 8.0 deg | 21.14 | 5.11 |
+| 8.4 deg | 16.62 | 0.59 |
+| 8.45 deg | 16.05 | 0.02 |
+| 8.5 deg | 15.48 | -0.54 |
+
+*Mutations observed by the stage agent.* Each inside ONE shell command: the target copied to a backup outside the worktree, a `trap` that restores it, the mutation, one test file, the restore; then the target's sha256, `git diff | sha256sum` and `git status --short` compared with the values taken before the mutation in the same command. All equal, every time.
+- Before the review, three of the handoff's lines again:
+  - AC 5 (RESTING): the bar back at the first fit -> RESTING red at 6.0, 6.5 and 8.5 degrees with 308 of 792 vertices covered; HELD green at all three.
+  - AC 5 (HELD): the bar 100 mm up -> HELD red with 294, 294 and 286 of 792; RESTING red with 364, 364 and 358.
+  - AC 11: the bar 2 mm toward +X -> the shared-face case red, "vis_cabinet and vis_lockbar share a face: 4 coplanar same-facing triangle pairs, 189.3 mm2, normal (-1.00, 0.00, 0.00)".
+- For the review's findings, on the patched tests:
+  - AC 1 (lamp positions): red, "gi_arch y: 905.0000 vs 900".
+  - AC 1 (backbox and assembled height): red, "vis_head height: 735.0000 vs 730" and "assembled height ... 1795.0000 vs 1790".
+  - AC 1 (body): red, "vis_cabinet front-face height: 405.0000 vs 400".
+  - AC 1 (lockdown bar height): red, "lockdown bar top 926.780 mm above the feet".
+  - AC 3 (materials): red, "mat_art_glass roughness: 0.2000 vs 0.1".
+  - AC 3 (`vis_backbox`): red on the untouched case (a node translation where none is allowed), and on AC 2's Backglass case and the 0.2 mm gap pin with it.
+  - AC 4 (backbox): red, "vis_head front-face top corner 0 is above the frame (NDC y 0.9147)".
+  - AC 4 (feet): red, "front foot (-26.8, -54.0, -30.0) is below the frame (NDC y -0.7497)".
+  - AC 5 (lenses and deck grid): both red at all three pitches, behind `vis_cabinet` (the flipper, ball and control cases go red with them).
+  - AC 5 (Backglass): red at all three pitches, "vis_backbox centre behind vis_lockbar".
+  - AC 5 (knob): red at 6.0 and 6.5 degrees, "vis_plunger_knob top centre behind vis_lockbar"; green at 8.5 degrees, where 30 mm is still inside the knob's margin (the plan's 27.5 to 31.2 mm of lift; Design Notes, "Margins").
+  - AC 6 (draw order): red, "6 deg: glass 1897.2 mm, deck 1750.3 mm from the camera".
+  - AC 7 (falloff): red, "gi_backbox: bounded standard falloff: expected +0 to be 3".
+  - AC 7 (lit side): red, "gi_arch is in front of the arch panel's front face: expected -24.99997615814209 to be greater than 0".
+  - AC 7 (light cap; the patched case): red, all eleven cabinet meshes over their cap. `lamp-driver.ts` was restored byte for byte and is identical to `66234b2`'s.
+  - AC 7 (mesh-less target): red, "expected [Function] to throw an error".
+  - AC 10 (Date cell; the patched assertion): red, "the Date cell "2026-09-01 to 2026-10-12" ends on or after the note's date 2026-10-13". And the earlier AC 10 line again on the patched case (the Story 5.3 sentence removed from the glb row): red, "a "Story 5.3 (" note".
+  - I/O rows (`resolveCabinet()` guards): each of the two red on the mesh-missing case, "expected [Function] to throw an error".
 
 **History: the first implement pass (commit `6588163`, the FIRST fit; for comparison only).** glb 1,446,792 B, sha256 `0998103209588f86226c6147fcbcacd8f0fa4152180658d1b72b3db69b492151`, reproducible over three exports; collision sha256 `415412a80e6668f0fe73e4aaea1521ed6fef1838163474629db8d49ef3821d19`; 146 files and 2412 tests, 2409 passed and 3 failed (the one flipper case at three pitches), 0 skipped; `check:size` 1.197 MB (1,196,840 B) of 2.750 MB against 1.193 MB before the story; 77 golden field comparisons, none moved. Every mutation of that pass was observed red except the flipper one, which could not go from green to red. The Spec Change Log holds the detail.
 
@@ -535,16 +755,72 @@ The first implement pass is commit `6588163bd9a07c2f91b935f3b3467117aa03d580` (`
 
 ## Auto Run Result
 
-Status: ready-for-dev
+Status: done
 Blocking condition: none
 
-**Plan stage, re-plan (2026-10-13).** The spec is re-derived round the lead's amended intent contract and halts after planning, as directed. Nothing is implemented, committed or pushed by this stage; the only file written in the worktree is this spec.
+**Implement pass 2 (2026-10-13; stage agent 5-3-cabinet-backbox-and-glass-implement-2, on `claude-opus-5-5`, as were its handoff subagent and all four review layers).** The story is implemented, verified and reviewed as a whole against `66234b2`. One finding is deferred for the author (the spinner blade's swing against the glass, below). AC 9 is the lead's and is not run: nothing here is a rendered claim.
 
-**The amended fit holds.** Re-checked by the plan stage's own computation on the committed glb (Design Notes, "Plan-stage re-check"): every playfield-fit and Backglass rule at 6.0, 6.5 and 8.5 degrees; no flipper vertex hidden at the resting pose or at the held pose (0 of 792 at each pitch; the worst resting sight line clears by 12.7 mm); the waiting ball's centre and top visible, with 18 to 20 % of its disc behind the bar; the plunger knob in front of the front face by 0.58 mm or more and the rod through the wall; the reference dimensions and the two heights; no shared same-facing faces; the lamp Empties where the block puts them.
+**What was implemented.**
+- Under `cabinet_root`, eleven `vis_` meshes in `lg_cabinet` (body with two rails and the arch panel, lockdown bar, legs, glass, backbox with speaker panel, translite and lightbox) at the reference dimensions and the AMENDED fit table, plus three mesh-less lamp Empties named as the `TABLE.giChannels` keys. The front stands 22 mm nearer the player than the first fit, so both resting flippers are in view; the plunger rod (Story 5.4's art) is 22 mm longer so its knob stays outside the cabinet.
+- `resolveCabinet()` makes the glass (alpha 0.02) and the translite (alpha 0.55) alpha-blended in code; `resolveArchitecturalLamps()` creates one scoped `PointLight` per channel (`gi_cabinet` at 10); `setArchitecturalLevel(scene, channel, level)` is the seam; two dev hatches; both resolves run on boot's first render frame, before the snapshot guard.
+- Everything is `vis_` only: the collision document, `src/sim/**` and every golden field are unchanged against `66234b2`.
 
-**What the next implement pass does.** It starts from the tree at `6588163`. It edits the generator's fit constants, self-check and two boxes, and `VIS_PLUNGER_Y0_MM`; regenerates and re-exports; retunes one constant in `cabinet.ts` and one in `architectural.ts`; retypes the fit figures in `test/cabinet-art.test.ts` and adds the knob, glass-edge and shared-face cases; reworks AC 5 in `test/cabinet-scene.test.ts` into resting, held and waiting-ball cases with controls chosen with margin; retypes one figure in `test/architectural-lighting.test.ts`; and pins the plunger's new south end in `test/mechanism-art.test.ts`. Then it runs Verification and every mutation.
+**Files changed (the story against `66234b2`).**
+- `ATTRIBUTIONS.md` -- the Story 5.3 notes in the `.blend` and glb rows: Claude Code, Blender 5.2.1, 2026-10-13, the re-fit, the source of the reference dimensions.
+- `tools/make-placeholder-blend.py` -- the cabinet pass (`add_cabinet()`, its constants and its self-check), `VIS_PLUNGER_Y0_MM` -62, a `lightgroup` parameter on the two art-node helpers.
+- `assets/src/dragonwar.blend`, `public/assets/dragonwar.glb` -- regenerated; glb 1,446,800 B, sha256 `9e9d64661f736f73a873d909b9f39d7ee92cccfbc42cd36fcb9d6a28c3a6b589`.
+- `src/presentation/scene/cabinet.ts` (new) -- `resolveCabinet()`, `TOP_GLASS_ALPHA`, `TRANSLITE_ALPHA`.
+- `src/presentation/scene/node-visibility.ts` (new) -- `setNodeVisible()`.
+- `src/presentation/scene/vis-names.ts` -- the eleven names and `VIS_CABINET_NODE_NAMES`.
+- `src/presentation/lighting/architectural.ts` (new) -- `ARCHITECTURAL_LAMPS`, the resolve, the level seam and its pure validation rule.
+- `src/host/boot.ts` -- the two resolves in the render hook; the two hatches and their types.
+- `test/cabinet-art.test.ts`, `test/cabinet-scene.test.ts`, `test/architectural-lighting.test.ts`, `test/boot-cabinet-wiring.test.ts` (new) -- AC 1 to AC 8, AC 10, AC 11 and the I/O rows.
+- `test/insert-occlusion.test.ts` -- the glass exemption and its positive control.
+- `test/mechanism-art.test.ts` -- typed pins for the plunger's new south end (AC 12).
+- This spec.
 
-**For the lead's validation gate.**
-- Footprint extensions: Design Notes lists them; `test/mechanism-art.test.ts` is new in this re-plan.
-- Three notes that are not blocking: the panel-and-translite seam at Z 370, the 1.4 micrometre rounding in the fit table, and the knob's 0.58 mm clearance (Design Notes, "Notes for the lead").
-- Not established here, because the plan stage runs no test and renders nothing: anything rendered (AC 9); the held and resting poses as the real follower builds them (derived here from `flipper-config.ts`, and equal to what the first implement pass measured through the follower); the served ball's rest pose in a real loop (the collision document puts the lane's end at y 0, and the lead measured (497.4, 13.49, 13.5) in the running game).
+**Review (one pass; Review Triage Log).** 45 findings from four layers: high 0, medium 1, low 32, false 10, maybe-false 2. No `intent_gap`, no `bad_spec`.
+- **Patched, 9 (medium 1, low 8)** -- tests, comments and provenance wording only:
+  - (medium) AC 7's light-cap assertion could not fail; it now runs with every insert lit through the real `syncLamps()`, with an in-memory negative control and a file mutation observed red;
+  - the attribution case's Date cell check ("ends on or after the note's date");
+  - the three guard throws that had no test;
+  - fourteen clause-level mutations demonstrated and recorded, and the four lines of this pass listed where the others are;
+  - the doc comments in `cabinet.ts` and `architectural.ts` (first-build figures labelled; "the material's alpha", not "opacity");
+  - a comment in `cabinet-art` that claimed more than its lines check;
+  - the provenance notes now name the source of the reference dimensions.
+- **Deferred, 1 entry (3 rows)** -- the spinner blade, below.
+- **Rejected, 33**, each with its reason in the triage log. In groups:
+  - false (10): the spec's result sections were still to be written at finalize (2); the reset rule is the intent's own; claims this stage settled with its own instruments (the generator-to-glb link, `vis_backbox`'s bytes, `check:size`); expectations that are the lead's AC 9 or the matrix row's own wording (3); `epics.md` is the lead's amendment;
+  - maybe-false (2): whether `gi_backbox` and `gi_arch` saturate (AC 9 settles it; low for this story if true); the time order of the attribution note (not visible in git; low if false);
+  - low and the intent's or the spec's own decision (12): `col_glass` at z 400 against the visual glass (2 rows), the Z 370 seam, the lamp positions, the solids that pass through one another, the rod's tip inside the waiting ball, the rationale wording of the spine's row, the draw order under other cameras, the light-budget arithmetic, the restated `boot.ts` copies (3 rows, one from each of three layers);
+  - low and a guard for a state no test can reach (4): a lamp Empty outside `cabinet_root` (2 rows), a shared glass material, the hatch on a follower-driven mesh;
+  - low and already covered another way (5): the mention-count tripwire, lamp range coverage, typed-against-typed assertions, the scratch-script checks, the gap between the flippers.
+
+**Follow-up review recommended: false.** Patched this pass: high 0, medium 1, low 8. The one medium patch is a test that was made able to fail, and its red was observed. No production logic changed after the review.
+
+**Verification performed (Verification, "Observed" and "Observed (stage agent)").**
+- `pnpm test`: 146 files, 2424 tests passed, 0 failed, 0 skipped, before the review and again after the patches.
+- `pnpm typecheck`, `lint:boundaries`, `check:headers`, `check:attributions`: green. `pnpm build`, `check:dist`, `check:size`: 1.197 MB (1,196,842 B) of 2.750 MB.
+- The generator text reproduces the committed glb byte for byte, out of tree, four times; the committed `.blend` exports to it too.
+- Collision document sha256 `415412a8...1d19`, byte-identical to `66234b2`'s; 5 goldens, 77 field comparisons, none moved; against `66234b2`'s glb only the fourteen new nodes, `cabinet_root`'s child list, `vis_plunger` and `vis_plunger_knob` differ.
+- Matrix Test Audit: all fourteen rows have a case that ran and passed.
+- Mutations: every line of the handoff's list observed red by the handoff; three of them again by this stage (RESTING red with HELD green; HELD red; AC 11), and twenty more for the review's findings. Every one restored byte for byte.
+
+**Residual risks.**
+1. **The spinner blade and the glass (deferred; the author's decision).** A spinning `vis_spinner_l_blade` swings to 64.03 mm above the deck. Its clearance under the glass over a full turn is 27.76 / 22.10 / -0.54 mm at 6.0 / 6.5 / 8.5 degrees: inside the rule's 5 mm above about 8.0 degrees, and through the lower face above about 8.45. AC 2 measures the authored pose (15.48 mm for the blade at 8.5 degrees) and is green. Not reachable today (boot runs at 6.5 degrees) and not expected to be visible behind a 0.02-alpha sheet. The choices: word the rule as the authored pose and accept the graze; change the blade art (Story 5.4's); or move the glass (a frozen figure). A blade change regenerates the glb, so decide it before AC 9 if that choice is live.
+2. **Nothing rendered is verified** (AC 9). The figures quoted in the code comments were taken on the first build.
+3. **The translite's effective opacity.** Every glb material is double-sided and both see-through sheets are closed slabs, so a camera ray meets two blended faces: computed for two layers, not measured, 0.55 behaves as about 0.80 and 0.02 as about 0.04. The sampled 0.02 was taken with that in effect. If `gi_backbox`'s response through the translite is too weak at AC 9 (d), back-face culling on those two materials is the lever, and it is the author's, because it changes a sampled look.
+4. **`col_glass` is at z 400, the visual glass 63 to 100 mm above the deck.** A ball that hops more than about 36 mm is drawn through the sheet. The intent keeps it so; hop height is physics' (AD-15).
+5. **The knob clears the front face by 0.58 mm** at 6.0 degrees (the plan's own note).
+6. **The provenance notes were reworded by the stage agent** to name flippers.be and the WPC figures; the author should confirm the wording.
+
+**For the lead: AC 9.**
+- Hatches: `window.__dragonwarBoot.setNodeVisible(name, visible)` and `window.__dragonwarBoot.setArchitecturalLevel(channel, level)` (`null` for the default); neither is undone by `reset()`. With them: `nodeScreenRect(name)`, `setLampOverride(...)`, `setBackglassSequencesEnabled(false)`.
+- Nodes: `vis_cabinet`, `vis_cabinet_rail_l`, `vis_cabinet_rail_r`, `vis_cabinet_arch`, `vis_lockbar`, `vis_legs`, `vis_top_glass`, `vis_head`, `vis_head_panel`, `vis_head_translite`, `vis_head_lightbox`; the channels `gi_backbox`, `gi_cabinet`, `gi_arch` (lights `light_gi_backbox`, `light_gi_cabinet`, `light_gi_arch`); `vis_plunger_knob`; `ball_0`.
+- Look first at:
+  - the resting flipper tips against the lockdown bar's top edge in Attract (the plan expects 4.9 px of margin on an 889 px frame), and the deck between the two tips;
+  - the waiting ball: its centre and top in view, about 18 % of its disc behind the bar;
+  - the top of `vis_lockbar` between `gi_cabinet` 0.5 and 1 (not saturated at 10); the same probe on the translite strip and the arch band would settle the two starting values;
+  - the lowest 14 to 23 mm of the translite strip near x -18 and x 532 (the reviewer's estimate and this stage's): the body's side walls rise up to 36 mm into the backbox there, behind the translite and in front of the lightbox, and `gi_backbox` does not light them;
+  - the seam at Z 370 between the speaker panel and the translite (about 1 px);
+  - `setNodeVisible()` on a ball or a drop target is overwritten by its follower on the next frame: use it on cabinet meshes.

@@ -1708,9 +1708,13 @@ VIS_TOP_OFFSET_MM = {
 
 # vis_plunger's authored box (mm). Half-width across the lane, the rod's own
 # far (south) end under the apron, and its z band -- all authored placeholder
-# figures, not measurements of any real plunger.
+# figures, not measurements of any real plunger. The south end is the knob's
+# south end: Story 5.3 (2026-10-13, author decision) moved it 22 mm toward the
+# player, from -40 to -62, so the knob (ART_PLUNGER_KNOB_LEN_MM long, y -62 to
+# -50) stays in front of the cabinet's front face at CAB_BODY_FRONT_Y_MM and
+# the rod passes through the front wall. Only `vis_` art reads it.
 VIS_PLUNGER_HALF_W_MM = 5.0
-VIS_PLUNGER_Y0_MM = -40.0
+VIS_PLUNGER_Y0_MM = -62.0
 VIS_PLUNGER_Z0_MM = 3.0
 VIS_PLUNGER_Z1_MM = 23.0
 
@@ -2939,8 +2943,10 @@ def fill_playfield_image(image, rgba):
 
 # Reference figures (mm): the numbers this story is judged against. Source:
 # _bmad-output/planning-artifacts/research/technical-pinball-simulation-engine-and-technology-2026-08-26/digests/geometry-r1-1.md:15-25,186-192
-# (a standard-body cabinet, backbox and playfield glass; single-sourced
-# there, labelled high confidence).
+# (a standard-body cabinet, backbox and playfield glass: the Bally/Williams
+# WPC cabinet and backbox dimensions, the lockdown-bar height and the standard
+# playfield-glass size, as published at flippers.be; single-sourced there,
+# labelled high confidence). Dimensions are facts; nothing else is taken.
 CAB_REF_BODY_W_MM = 560.0
 CAB_REF_BODY_D_MM = 1400.0
 CAB_REF_BODY_FRONT_H_MM = 400.0
@@ -2954,35 +2960,46 @@ CAB_REF_LOCKBAR_TOP_MIN_MM, CAB_REF_LOCKBAR_TOP_MAX_MM = 900.0, 920.0  # the loc
 
 # Fit to this table (level-frame mm). The research gives no figure for any of
 # these; they are this story's own constants (its spec, "Fit to this table").
+#
+# The front was re-fitted on 2026-10-13 (author decision): the whole front
+# assembly moved 22 mm toward the player along the body's own top line (22 in
+# -Y, 3.22 in -Z), so that both RESTING flippers and the gap between them are
+# in view from the fixed camera. The first fit (front face at Y -28, lockdown
+# bar at Y -44..-8, Z 62..80) hid both resting tips behind the bar. The body
+# keeps its 1400 depth, so its back face moved too; the glass slid down its
+# own plane by the same 22 mm; the top line is the same line in space.
 CAB_CENTRE_X_MM = PLAYFIELD_W_MM / 2          # the cabinet is centred on the playfield
-CAB_BODY_FRONT_Y_MM = -28.0                   # the front outer face: the plunger knob (y -40 to -28) stays in front of it
-CAB_BODY_FRONT_TOP_Z_MM = 70.0                # the body's top line at the front outer face
+CAB_BODY_FRONT_Y_MM = -50.0                   # the front outer face: the plunger knob (y -62 to -50) stays in front of it
+CAB_BODY_FRONT_TOP_Z_MM = 66.78               # the body's top line at the front outer face
 CAB_SIDE_WALL_T_MM = 9.0
 CAB_END_WALL_T_MM = 18.0                      # the front wall, the back wall and the bottom; the body is an open-top tub
 CAB_RAIL_W_MM, CAB_RAIL_H_MM = 18.0, 6.0      # side rails, on the top line of each side wall
-CAB_RAIL_Y0_MM, CAB_RAIL_Y1_MM = -8.0, 1068.0
-CAB_LOCKBAR_Y0_MM, CAB_LOCKBAR_Y1_MM = -44.0, -8.0
-CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM = 62.0, 80.0
-CAB_FLOOR_Z_MM = -830.0                       # puts the lockdown bar's top 910 above the floor
+CAB_RAIL_Y0_MM, CAB_RAIL_Y1_MM = -30.0, 1068.0   # ... from the lockdown bar's back face
+CAB_LOCKBAR_Y0_MM, CAB_LOCKBAR_Y1_MM = -66.0, -30.0
+CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM = 58.78, 76.78   # seated on the top line: 8 below it and 10 above it at the front face
+CAB_LOCKBAR_PROUD_MM = 2.0                    # the bar's ends stand this far proud of the body's side faces, so the two are never coplanar
+CAB_LOCKBAR_BELOW_TOP_LINE_MM, CAB_LOCKBAR_ABOVE_TOP_LINE_MM = 8.0, 10.0   # the bar's seat, checked below
+CAB_FLOOR_Z_MM = -830.0                       # puts the lockdown bar's top 906.78 above the floor
 CAB_LEG_SIDE_MM = 36.0                        # four square legs
 CAB_LEG_PROUD_MM = 4.0                        # ... standing this far proud of the body's outer corner faces
 CAB_LEG_TOP_Z_MM = -150.0
 CAB_GLASS_BELOW_TOP_LINE_MM = 8.0             # the glass's lower face below the top line (vertical)
-CAB_GLASS_REAR_Y_MM = 1066.0                  # the glass's rear lower edge
+CAB_GLASS_REAR_Y_MM = 1044.0                  # the glass's rear lower edge
 CAB_ARCH_Y0_MM, CAB_ARCH_Y1_MM = 1075.0, 1081.0   # the arch panel: the cabinet's inner back board
 CAB_ARCH_Z0_MM, CAB_ARCH_Z1_MM = 100.0, 230.0
-CAB_HEAD_Y0_MM = 1072.0                       # the backbox's open front
-CAB_HEAD_D_MM = 300.0
+CAB_HEAD_Y0_MM = 1072.0                       # the backbox's open front (its front rim)
+CAB_HEAD_D_MM = 270.0                         # the box is Y 1072 to 1342: its back face stands 8 mm in front of the body's
 CAB_HEAD_Z0_MM = 230.0
 CAB_HEAD_WALL_T_MM = 12.0
-CAB_HEAD_FRONT_T_MM = 4.0                     # the speaker panel and the translite, in front of the box
+CAB_HEAD_FRONT_T_MM = 4.0                     # the speaker panel's and the translite's front face, this far in front of the box's rim
+CAB_HEAD_PANEL_BACK_Y_MM = 1071.5             # ... and their back face: 0.5 mm clear of the rim, whose plane a double-sided panel would otherwise share
 CAB_HEAD_PANEL_Z1_MM = 370.0                  # the speaker panel's top and the translite's bottom
-CAB_LIGHTBOX_Y0_MM, CAB_LIGHTBOX_Y1_MM = 1340.0, 1344.0   # the lightbox panel, inside the backbox
+CAB_LIGHTBOX_Y0_MM, CAB_LIGHTBOX_Y1_MM = 1310.0, 1314.0   # the lightbox panel, inside the backbox, 32 mm in front of its back face
 # The architectural lamps' positions. Keys are the TABLE.giChannels keys
 # (src/sim/table/dragonwar.ts); test/cabinet-art.test.ts checks the two agree.
 CAB_LAMP_POS_MM = {
-	'gi_backbox': (CAB_CENTRE_X_MM, 1120.0, 600.0),   # inside the backbox: behind the translite, in front of the lightbox panel
-	'gi_cabinet': (CAB_CENTRE_X_MM, -300.0, 400.0),   # in front of and above the cabinet's front face
+	'gi_backbox': (CAB_CENTRE_X_MM, 1090.0, 600.0),   # inside the backbox: behind the translite, 220 mm in front of the lightbox panel
+	'gi_cabinet': (CAB_CENTRE_X_MM, -322.0, 396.78),  # in front of and above the cabinet's front face (it moved with the front)
 	'gi_arch': (CAB_CENTRE_X_MM, 900.0, 210.0),       # in front of the arch panel
 }
 
@@ -2996,6 +3013,8 @@ CAB_INNER_X0_MM = CAB_BODY_X0_MM + CAB_SIDE_WALL_T_MM
 CAB_INNER_X1_MM = CAB_BODY_X1_MM - CAB_SIDE_WALL_T_MM
 CAB_INNER_FRONT_Y_MM = CAB_BODY_FRONT_Y_MM + CAB_END_WALL_T_MM
 CAB_INNER_BACK_Y_MM = CAB_BODY_BACK_Y_MM - CAB_END_WALL_T_MM
+CAB_LOCKBAR_X0_MM = CAB_BODY_X0_MM - CAB_LOCKBAR_PROUD_MM
+CAB_LOCKBAR_X1_MM = CAB_BODY_X1_MM + CAB_LOCKBAR_PROUD_MM
 CAB_HEAD_X0_MM = CAB_CENTRE_X_MM - CAB_REF_HEAD_W_MM / 2
 CAB_HEAD_X1_MM = CAB_CENTRE_X_MM + CAB_REF_HEAD_W_MM / 2
 CAB_HEAD_Y1_MM = CAB_HEAD_Y0_MM + CAB_HEAD_D_MM
@@ -3106,6 +3125,43 @@ def _check_cabinet_constants():
 	if not arch_lamp[1] < CAB_ARCH_Y0_MM:
 		fail('the arch lamp is not in front of the arch panel')
 
+	# ---- The rules the 2026-10-13 re-fit introduced. ----
+	eps = 1e-6
+	# The lockdown bar's ends stand proud of the body's side faces, so no end
+	# face of the bar is coplanar with a side face of the body.
+	if not (CAB_LOCKBAR_X0_MM < CAB_BODY_X0_MM and CAB_BODY_X1_MM < CAB_LOCKBAR_X1_MM):
+		fail(f'the lockdown bar (x {CAB_LOCKBAR_X0_MM}..{CAB_LOCKBAR_X1_MM}) is not proud of the body\'s side faces (x {CAB_BODY_X0_MM}..{CAB_BODY_X1_MM})')
+	# The bar keeps its seat on the top line at the front outer face.
+	front_top = _cab_top_line_z(CAB_BODY_FRONT_Y_MM)
+	below, above = front_top - CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM - front_top
+	if abs(below - CAB_LOCKBAR_BELOW_TOP_LINE_MM) > eps or abs(above - CAB_LOCKBAR_ABOVE_TOP_LINE_MM) > eps:
+		fail(
+			f'the lockdown bar (z {CAB_LOCKBAR_Z0_MM}..{CAB_LOCKBAR_Z1_MM}) sits {below:.4f} below and {above:.4f} above the top line at the front face '
+			f'(z {front_top:.4f}), not {CAB_LOCKBAR_BELOW_TOP_LINE_MM} below and {CAB_LOCKBAR_ABOVE_TOP_LINE_MM} above'
+		)
+	# The side rails start at the bar's back face.
+	if abs(CAB_RAIL_Y0_MM - CAB_LOCKBAR_Y1_MM) > eps:
+		fail(f'the side rails start at y {CAB_RAIL_Y0_MM}, not at the lockdown bar\'s back face (y {CAB_LOCKBAR_Y1_MM})')
+	# The backbox's back face stands in front of the body's back face, so the
+	# two are never coplanar.
+	if not CAB_HEAD_Y1_MM < CAB_BODY_BACK_Y_MM:
+		fail(f'the backbox\'s back face (y {CAB_HEAD_Y1_MM}) is not in front of the body\'s back face (y {CAB_BODY_BACK_Y_MM})')
+	# The speaker panel and the translite end short of the backbox's front
+	# rim: a double-sided panel shares no plane with the rim's face.
+	if not CAB_HEAD_FRONT_Y_MM < CAB_HEAD_PANEL_BACK_Y_MM < CAB_HEAD_Y0_MM:
+		fail(
+			f'the speaker panel\'s and the translite\'s back face (y {CAB_HEAD_PANEL_BACK_Y_MM}) is not between their front face '
+			f'(y {CAB_HEAD_FRONT_Y_MM}) and the backbox\'s front rim (y {CAB_HEAD_Y0_MM})'
+		)
+	# The plunger (Story 5.4's art, playfield frame, unpitched): its knob stays
+	# in front of the body's front face and its rod reaches into the tub.
+	knob_north_y = VIS_PLUNGER_Y0_MM + ART_PLUNGER_KNOB_LEN_MM
+	if knob_north_y > CAB_BODY_FRONT_Y_MM + eps:
+		fail(f'the plunger knob\'s north end (y {knob_north_y}) is behind the body\'s front face (y {CAB_BODY_FRONT_Y_MM})')
+	rod_tip_y = BD_SHOOTER_POS_MM[1] - BALL_MM / 2
+	if not rod_tip_y > CAB_INNER_FRONT_Y_MM:
+		fail(f'the plunger rod\'s tip (y {rod_tip_y}) is not behind the front wall\'s inner face (y {CAB_INNER_FRONT_Y_MM})')
+
 	for kind, (rgb, roughness) in CABINET_MATERIALS.items():
 		if min(rgb) >= 1.0 or roughness >= 1.0:
 			fail(f'mat_art_{kind} would lose a factor on export (pure white or roughness 1.0)')
@@ -3195,9 +3251,10 @@ def add_cabinet(cabinet_root):
 	_box(arch, CAB_INNER_X0_MM, CAB_INNER_X1_MM, CAB_ARCH_Y0_MM, CAB_ARCH_Y1_MM, CAB_ARCH_Z0_MM, CAB_ARCH_Z1_MM)
 	child(vis_cabinet, 'arch', arch, 'cabinet_arch')
 
-	# ---- vis_lockbar ----
+	# ---- vis_lockbar: its own X, CAB_LOCKBAR_PROUD_MM proud of each body
+	# side face. ----
 	lockbar = _ArtMesh()
-	_box(lockbar, CAB_BODY_X0_MM, CAB_BODY_X1_MM, CAB_LOCKBAR_Y0_MM, CAB_LOCKBAR_Y1_MM, CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM)
+	_box(lockbar, CAB_LOCKBAR_X0_MM, CAB_LOCKBAR_X1_MM, CAB_LOCKBAR_Y0_MM, CAB_LOCKBAR_Y1_MM, CAB_LOCKBAR_Z0_MM, CAB_LOCKBAR_Z1_MM)
 	node('vis_lockbar', lockbar, 'cabinet_trim')
 
 	# ---- vis_legs: four square legs in one mesh, each standing
@@ -3239,13 +3296,14 @@ def add_cabinet(cabinet_root):
 	vis_head = node('vis_head', head, 'cabinet')
 
 	# ---- the speaker panel and the translite close the box's front, over
-	# its full width; the lightbox panel stands inside it, across its whole
-	# inner section. ----
+	# its full width, each ending at its own back face just short of the
+	# box's front rim; the lightbox panel stands inside the box, across its
+	# whole inner section. ----
 	panel = _ArtMesh()
-	_box(panel, CAB_HEAD_X0_MM, CAB_HEAD_X1_MM, CAB_HEAD_FRONT_Y_MM, CAB_HEAD_Y0_MM, CAB_HEAD_Z0_MM, CAB_HEAD_PANEL_Z1_MM)
+	_box(panel, CAB_HEAD_X0_MM, CAB_HEAD_X1_MM, CAB_HEAD_FRONT_Y_MM, CAB_HEAD_PANEL_BACK_Y_MM, CAB_HEAD_Z0_MM, CAB_HEAD_PANEL_Z1_MM)
 	child(vis_head, 'panel', panel, 'head_panel')
 	translite = _ArtMesh()
-	_box(translite, CAB_HEAD_X0_MM, CAB_HEAD_X1_MM, CAB_HEAD_FRONT_Y_MM, CAB_HEAD_Y0_MM, CAB_HEAD_PANEL_Z1_MM, CAB_HEAD_Z1_MM)
+	_box(translite, CAB_HEAD_X0_MM, CAB_HEAD_X1_MM, CAB_HEAD_FRONT_Y_MM, CAB_HEAD_PANEL_BACK_Y_MM, CAB_HEAD_PANEL_Z1_MM, CAB_HEAD_Z1_MM)
 	child(vis_head, 'translite', translite, 'translite')
 	lightbox = _ArtMesh()
 	_box(lightbox, CAB_HEAD_X0_MM + t, CAB_HEAD_X1_MM - t, CAB_LIGHTBOX_Y0_MM, CAB_LIGHTBOX_Y1_MM, CAB_HEAD_Z0_MM + t, CAB_HEAD_Z1_MM - t)

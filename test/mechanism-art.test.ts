@@ -712,6 +712,24 @@ describe('Story 5.4 AC 2 -- the moving parts keep the follower\'s contract', () 
 		expect(Math.abs((box.min.z + box.max.z) / 2 - shooter.z), `vis_plunger centre z ${((box.min.z + box.max.z) / 2).toFixed(3)} vs bd_shooter ${shooter.z}`).toBeLessThanOrEqual(PIN_TOLERANCE_MM);
 		expect(box.min.z, 'the rod and knob stay above the deck').toBeGreaterThanOrEqual(0);
 		expect(box.min.y, 'the knob reaches south of the playfield').toBeLessThan(0);
+		// [Story 5.3, 2026-10-13, author decision] Story 5.3 moved the plunger's
+		// south end 22 mm toward the player, so the knob stays outside the
+		// cabinet whose front face that story fits at level y -50: the knob's
+		// own vertices span y -62 to -50 (they were -40 to -28), and the rod's
+		// own run from -50 to the unchanged tip pinned above. Typed here from
+		// that story's spec; the knob keeps its 12 mm length.
+		// mutation: give the vis_plunger_knob node a translation of 22 mm toward
+		// table +Y in the glb JSON chunk -> red here (the knob at y -40 to -28).
+		// mutation: move one south-ring vertex of vis_plunger 5 mm toward table
+		// -Y in the glb BIN -> red here on the rod's own pin, which the knob
+		// mutation does not reach.
+		const SOUTH_END_TOLERANCE_MM = 0.05;
+		const knobBox = bbox(meshes.find((m) => m.node === `${VIS_PLUNGER_NODE_NAME}_knob`)!.vertices);
+		const rodBox = bbox(meshes.find((m) => m.node === VIS_PLUNGER_NODE_NAME)!.vertices);
+		expect(Math.abs(knobBox.min.y - -62), `the knob's south end y ${knobBox.min.y.toFixed(3)} vs -62`).toBeLessThanOrEqual(SOUTH_END_TOLERANCE_MM);
+		expect(Math.abs(knobBox.max.y - -50), `the knob's north end y ${knobBox.max.y.toFixed(3)} vs -50`).toBeLessThanOrEqual(SOUTH_END_TOLERANCE_MM);
+		expect(Math.abs(knobBox.max.y - knobBox.min.y - 12), `the knob is 12 long (${(knobBox.max.y - knobBox.min.y).toFixed(3)})`).toBeLessThanOrEqual(SOUTH_END_TOLERANCE_MM);
+		expect(Math.abs(rodBox.min.y - -50), `the rod's south end y ${rodBox.min.y.toFixed(3)} vs -50`).toBeLessThanOrEqual(SOUTH_END_TOLERANCE_MM);
 		// [Story 5.4 code review] The knob is an art mesh too ("Art
 		// materials"), and the rod and knob are round parts: at most 16
 		// segments per ring, counted as distinct angles about bd_shooter's own

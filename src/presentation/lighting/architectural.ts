@@ -71,11 +71,19 @@ export interface ArchitecturalLamp {
 
 /**
  * The one authored table of the architectural lamps. The intensities and
- * ranges are STARTING values inside the band measured on a dark PBR surface
- * under standard falloff (intensity 1 to 20); the size of each lamp's
- * rendered response is settled in a real browser (the story's AC 9 (d)), and
- * a retune is an edit to this table and to the typed copy in
+ * ranges sit inside the band measured on a dark PBR surface under standard
+ * falloff (intensity 1 to 20); the size of each lamp's rendered response is
+ * settled in a real browser (the story's AC 9 (d)), and a retune is an edit
+ * to this table and to the typed copy in
  * `test/architectural-lighting.test.ts`, nowhere else.
+ *
+ * `gi_cabinet`'s intensity is a MEASURED value (author decision 2026-10-13),
+ * not a starting one: at 20, 95 % of the lockdown bar's top saturated in
+ * Chrome, so a level change could not show there; at 10 the bar's top reads
+ * about 201 and the cabinet's front about 132. Those figures were taken on
+ * the first build of this cabinet, before its front (and this lamp with it)
+ * moved 22 mm toward the player; the story's AC 9 (d) samples the shipped
+ * one. `gi_backbox` (20) and `gi_arch` (10) are still the starting values.
  *
  * `gi_backbox` lights the lightbox panel, which is seen THROUGH the
  * translite: a lamp behind an opaque panel lights nothing a player sees, so
@@ -95,7 +103,7 @@ export const ARCHITECTURAL_LAMPS: Readonly<Record<GiChannel, ArchitecturalLamp>>
 	gi_cabinet: {
 		targets: [VIS_CABINET_NODE_NAME, VIS_CABINET_RAIL_L_NODE_NAME, VIS_CABINET_RAIL_R_NODE_NAME, VIS_LOCKBAR_NODE_NAME],
 		color: [1.0, 0.85, 0.6],
-		intensity: 20,
+		intensity: 10,
 		rangeM: 3.0,
 	},
 	gi_arch: {

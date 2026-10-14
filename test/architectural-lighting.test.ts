@@ -10,8 +10,10 @@
 //
 // The authored values are typed ONCE below (`TYPED_LAMPS`), from the spec's
 // Boundaries -- never read from `ARCHITECTURAL_LAMPS`, which is the thing
-// under test. They are starting values the lead measures in a browser; a
-// retune is an edit to that table and to this one, nowhere else.
+// under test. They are values the lead measures in a browser (`gi_cabinet`'s
+// 10 is a measured retune of 2026-10-13: at 20 the lockdown bar's top
+// saturated); a retune is an edit to that table and to this one, nowhere
+// else.
 //
 // What this file cannot prove: that a lamp changes a pixel. `NullEngine`
 // rasterises nothing. What it can prove is everything a pixel depends on
@@ -30,6 +32,13 @@
 //     -> the light-list case red.
 //   mutation: set intensity to the authored value regardless of level -> the
 //     level case red.
+//   mutation: set gi_cabinet's intensity back to 20 in architectural.ts ->
+//     the typed-table case red.
+//   mutation: delete the `light.includedOnlyMeshes = [node]` assignment in
+//     lamp-driver.ts (read-only to this story: applied and reverted inside
+//     one command) -> the light-cap case red.
+//   mutation: delete the "carries no mesh to light" guard in
+//     architectural.ts -> the missing-Empty-or-target case red.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -38,6 +47,7 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { PointLight } from '@babylonjs/core/Lights/pointLight';
 import type { Light } from '@babylonjs/core/Lights/light';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
@@ -54,10 +64,12 @@ import {
 	resolveArchitecturalLamps,
 	setArchitecturalLevel,
 } from '../src/presentation/lighting/architectural';
+import { syncLamps } from '../src/presentation/lighting/lamp-driver';
+import type { LampView } from '../src/presentation/lighting/lamp-view';
 import { glbToTable, type Vec3 } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { TUNING } from '../src/sim/table/tuning';
-import type { GiChannel } from '../src/sim/table/names';
+import type { GiChannel, LampName } from '../src/sim/table/names';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 
@@ -68,7 +80,7 @@ const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.gl
  */
 const TYPED_LAMPS: Readonly<Record<string, { targets: string[]; color: [number, number, number]; intensity: number; rangeM: number }>> = {
 	gi_backbox: { targets: ['vis_head_lightbox'], color: [1.0, 0.85, 0.6], intensity: 20, rangeM: 2.0 },
-	gi_cabinet: { targets: ['vis_cabinet', 'vis_cabinet_rail_l', 'vis_cabinet_rail_r', 'vis_lockbar'], color: [1.0, 0.85, 0.6], intensity: 20, rangeM: 3.0 },
+	gi_cabinet: { targets: ['vis_cabinet', 'vis_cabinet_rail_l', 'vis_cabinet_rail_r', 'vis_lockbar'], color: [1.0, 0.85, 0.6], intensity: 10, rangeM: 3.0 },
 	gi_arch: { targets: ['vis_cabinet_arch'], color: [1.0, 0.85, 0.6], intensity: 10, rangeM: 2.0 },
 };
 const TYPED_DEFAULT_LEVEL = 1;
@@ -123,6 +135,23 @@ function levelPosition(world: Vector3): Vec3 {
 
 function architecturalLights(scene: Scene): Light[] {
 	return [...resolveArchitecturalLamps(scene).values()];
+}
+
+/**
+ * Every mesh of `meshes` that has more ENABLED light sources than its
+ * material takes, as a sentence each. A function of the scene, so the case
+ * that uses it can also run it on a scene it has broken on purpose.
+ */
+function overTheLightCap(meshes: readonly AbstractMesh[]): string[] {
+	const out: string[] = [];
+	for (const mesh of meshes) {
+		const cap = (mesh.material as PBRMaterial).maxSimultaneousLights;
+		const enabled = mesh.lightSources.filter((l) => l.isEnabled()).length;
+		if (enabled > cap) {
+			out.push(`${mesh.name}: ${enabled} enabled lights, material takes ${cap}`);
+		}
+	}
+	return out;
 }
 
 describe('Story 5.3 AC 7 -- the authored table', () => {
@@ -231,21 +260,44 @@ describe('Story 5.3 AC 7 -- resolveArchitecturalLamps() on the shipped scene (Nu
 		});
 	});
 
-	it('no cabinet mesh has more enabled light sources than its material takes', async () => {
+	// mutation: delete the `light.includedOnlyMeshes = [node]` assignment in
+	// lamp-driver.ts (read-only to this story: applied and reverted inside one
+	// command) -> red here: every lit insert light then reaches every cabinet
+	// mesh.
+	it('with every insert lamp lit as well, no cabinet mesh has more enabled light sources than its material takes', async () => {
 		await withShippedScene((scene, nodes) => {
-			resolveArchitecturalLamps(scene);
+			const architectural = new Set<Light>(resolveArchitecturalLamps(scene).values());
 			const cabinet = resolveCabinet(scene, nodes.cabinetRoot);
-			expect(cabinet.meshes.size, 'non-vacuity: the eleven cabinet meshes').toBe(11);
-			let lit = 0;
-			for (const mesh of cabinet.meshes.values()) {
-				const material = mesh.material as PBRMaterial;
-				const enabled = mesh.lightSources.filter((l) => l.isEnabled()).length;
-				expect(enabled, `${mesh.name}: ${enabled} enabled lights, material takes ${material.maxSimultaneousLights}`).toBeLessThanOrEqual(material.maxSimultaneousLights);
-				if (enabled > 1) {
-					lit += 1;
-				}
+			const meshes = [...cabinet.meshes.values()];
+			expect(meshes.length, 'non-vacuity: the eleven cabinet meshes').toBe(11);
+			// The scene the cap matters in: every `TABLE.lamps` insert lit through
+			// the real driver, so the scene holds far more enabled lights than one
+			// material takes. With the hemispheric light and the three
+			// architectural lights alone there are four lights against a cap of
+			// four, and the count below could not fail.
+			const view: LampView = {};
+			for (const name of Object.keys(TABLE.lamps) as LampName[]) {
+				view[name] = { role: 'lit', step: 1 };
 			}
+			syncLamps(scene, nodes.playfieldRoot, view, 0);
+			const enabledLights = scene.lights.filter((l) => l.isEnabled());
+			const insertLights = enabledLights.filter((l) => l instanceof PointLight && !architectural.has(l));
+			expect(insertLights.length, 'non-vacuity: every insert light is enabled').toBe(Object.keys(TABLE.lamps).length);
+			const largestCap = Math.max(...meshes.map((mesh) => (mesh.material as PBRMaterial).maxSimultaneousLights));
+			expect(enabledLights.length, 'non-vacuity: the scene holds more enabled lights than any cabinet material takes').toBeGreaterThan(largestCap);
+
+			expect(overTheLightCap(meshes)).toEqual([]);
+			const lit = meshes.filter((mesh) => mesh.lightSources.filter((l) => l.isEnabled()).length > 1).length;
 			expect(lit, 'non-vacuity: the six targets carry a second light').toBe(Object.values(TYPED_LAMPS).reduce((n, lamp) => n + lamp.targets.length, 0));
+
+			// The negative control, on this same scene: un-scope the insert lights
+			// (what a driver without `includedOnlyMeshes` would do) and every
+			// cabinet mesh is over its cap.
+			for (const light of insertLights) {
+				light.includedOnlyMeshes = [];
+			}
+			const over = overTheLightCap(meshes);
+			expect(over.length, `un-scoped insert lights put every cabinet mesh over its cap: ${over.join('; ')}`).toBe(meshes.length);
 		});
 	});
 
@@ -386,6 +438,19 @@ describe('Story 5.3 AC 7 -- setArchitecturalLevel() (I/O matrix rows)', () => {
 				expect(scene.lights.length, `${name} missing: no orphan light`).toBe(lightsBefore);
 				node.name = name;
 			}
+			// A target name that resolves to a node with no mesh is refused too,
+			// naming the node and its channel: a light scoped to a mesh-less node
+			// would light nothing.
+			// mutation: delete the "carries no mesh to light" guard in
+			// architectural.ts -> red here.
+			const targetName = TYPED_LAMPS[CHANNELS[0]!]!.targets[0]!;
+			const target = getRequiredNode(scene, targetName);
+			target.name = `${targetName}_gone`;
+			const standIn = new TransformNode(targetName, scene);
+			expect(() => resolveArchitecturalLamps(scene)).toThrow(new RegExp(`"${targetName}", a target of channel ${CHANNELS[0]}, carries no mesh to light`));
+			expect(scene.lights.length, 'a mesh-less target: no orphan light').toBe(lightsBefore);
+			standIn.dispose();
+			target.name = targetName;
 			expect(resolveArchitecturalLamps(scene).size, 'the positive control: the restored scene resolves').toBe(CHANNELS.length);
 			expect(scene.lights.length - lightsBefore).toBe(CHANNELS.length);
 		});

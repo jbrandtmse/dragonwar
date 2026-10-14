@@ -33,16 +33,32 @@ import { getRequiredNode } from './playfield';
 import { VIS_CABINET_NODE_NAMES, VIS_HEAD_TRANSLITE_NODE_NAME, VIS_TOP_GLASS_NODE_NAME } from './vis-names';
 
 /**
- * The playfield glass's opacity: nearly clear, so the table reads through
- * it. An authored starting value, to be judged in a real browser (the
- * story's AC 9 (c)); `NullEngine` rasterises nothing.
+ * The playfield glass material's alpha: nearly clear, so the table reads
+ * through it. A SAMPLED value, not a guess (author decision 2026-10-13):
+ * 0.01, 0.02, 0.03, 0.04, 0.05 and 0.08 were each measured in Chrome on the
+ * WebGL2 path, and 0.02 is the smallest whose lift on an unlit insert lens is
+ * at least 4 levels in every channel (4.2 / 6.0 / 6.0), so the sheet still
+ * registers above the noise floor while the art under it stays clear (the
+ * wood lifts by 0 / 1.4 / 2.9, and a lit insert still separates from an
+ * unlit one by 108 levels, against 112 with no glass). The first value,
+ * 0.08, lifted dark playfield tones by 17 to 28 levels. Those samples were
+ * taken on the first build of this cabinet, before its front was re-fitted
+ * 22 mm toward the player; the story's AC 9 (c) samples the shipped one.
+ * `NullEngine` rasterises nothing, so a retune is a browser measurement plus
+ * an edit here and to the typed copy in `test/cabinet-scene.test.ts`.
+ *
+ * It is the material's alpha, not the sheet's opacity: the glb exports every
+ * material double-sided (the loader then turns back-face culling off) and
+ * the sheet is a closed slab, so a camera ray meets two faces of it. The
+ * same holds for the translite below. The sampled figures above were taken
+ * with that in effect.
  */
-export const TOP_GLASS_ALPHA = 0.08;
+export const TOP_GLASS_ALPHA = 0.02;
 
 /**
- * The backbox translite's opacity: translucent enough that the lamp-lit
- * lightbox panel behind it shows through. An authored starting value, to be
- * judged in a real browser (AC 9 (d)).
+ * The backbox translite material's alpha: translucent enough that the
+ * lamp-lit lightbox panel behind it shows through. An authored starting
+ * value, to be judged in a real browser (AC 9 (d)).
  */
 export const TRANSLITE_ALPHA = 0.55;
 

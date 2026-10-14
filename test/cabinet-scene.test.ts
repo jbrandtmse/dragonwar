@@ -9,8 +9,10 @@
 //         lower part of the backbox are in frame; the top of the backbox and
 //         the feet of the front legs are not;
 //   AC 5  nothing is covered -- at each allowed pitch, the camera ray to
-//         every lens, flipper, Backglass, plunger-knob, resting-ball and
-//         deck sample reaches it before any OPAQUE cabinet mesh;
+//         every lens, Backglass, plunger-knob, waiting-ball and deck sample,
+//         and to EVERY VERTEX of both flippers and their rubbers at TWO
+//         poses (resting and held), reaches it before any OPAQUE cabinet
+//         mesh;
 //   AC 6  the glass and the translite are alpha-blended in code
 //         (`resolveCabinet()`), and nothing else is;
 //   and the I/O matrix rows of `resolveCabinet()` and `setNodeVisible()`.
@@ -24,22 +26,53 @@
 // of view is fixed, so the NDC y results hold at every aspect ratio; the
 // NDC x results hold at this one.
 //
+// The two flipper poses are both produced by a real `createLoop` and posed
+// by the real follower, and are sampled in SEPARATE cases:
+//   RESTING  the idle snapshot (the bats droop toward the player). This is
+//            what a player sees in Attract and between flips.
+//   HELD     both flipper buttons held to the end of stroke. This is the
+//            pose the glb is AUTHORED in, so a check that samples only the
+//            authored pose samples only this one -- which is how the first
+//            fit of this cabinet hid both resting tips behind the lockdown
+//            bar while its plan read "both flippers are clear".
+// Each case first pins the pose it sampled (the snapshot's angles, and the
+// smallest playfield y among the sampled bat and rubber vertices) to typed
+// figures, so neither can quietly sample the other's pose.
+//
 // The picker carries its own controls beside every "nothing is hidden"
-// result: a deck point the lockdown bar hides by design IS reported, the
-// resting ball's near point IS reported behind the lockdown bar, and a
-// synthetic opaque box hung on `cabinet_root` in front of a flipper IS
-// reported.
+// result, each chosen at least 8 mm clear of the boundary it proves (the
+// ball's point 12.7 mm by lift, the deepest a ball offers): a deck point the
+// lockdown bar hides by design IS reported and a deck point 23 mm further up
+// is NOT, a point low on the waiting ball IS reported behind the lockdown
+// bar, and a synthetic opaque box hung on `cabinet_root` in front of a
+// flipper IS reported.
 //
 // Falsifiability (Rule 19; each observed red, recorded in the spec's
 // Verification section):
 //   mutation: give the vis_lockbar node a translation of 500 mm toward the
 //     player in the glb JSON chunk -> the framing case red.
+//   mutation: give the vis_lockbar node a translation of 22 mm toward table
+//     +Y and 3.22 mm upward in the glb JSON chunk (the bar back at the first
+//     fit) -> the RESTING-pose flipper case red at all three pitches, while
+//     the HELD-pose flipper case stays green.
 //   mutation: give the vis_lockbar node a translation of 100 mm upward in
-//     the glb JSON chunk -> the flipper ray case red.
-//   mutation: give the vis_lockbar node a translation of 12 mm upward in the
-//     glb JSON chunk -> the resting-ball centre case red.
+//     the glb JSON chunk -> the HELD-pose flipper case red.
+//   mutation: give the vis_lockbar node a translation of 20 mm upward in the
+//     glb JSON chunk -> the waiting-ball centre case red at all three
+//     pitches.
 //   mutation: delete the transparencyMode assignment in cabinet.ts -> the
 //     transparency case red.
+//   mutation: set TOP_GLASS_ALPHA back to 0.08 in cabinet.ts -> the same
+//     case red (alpha 0.08 against the typed 0.02).
+//   mutation: move the inner face of col_wall_lane_bottom from y 0 to y 5 in
+//     the collision document (applied and reverted inside one command) -> the
+//     pose-anchor case red.
+//   mutation: give the vis_lockbar node a translation of 60 mm toward -X in
+//     the glb JSON chunk (the bar no longer over the shooter lane) -> the
+//     controls case red on the waiting ball's assertion.
+//   mutation: delete the "resolved to a node with no mesh" guard in
+//     cabinet.ts -> the mesh-missing case red; delete the "share one
+//     material" guard -> the same case red.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -52,7 +85,7 @@ import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
 import { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import type { Scene } from '@babylonjs/core/scene';
-import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import '@babylonjs/loaders/glTF/2.0/glTFLoader';
 import { loadAndRenderOnceForTests } from '../src/presentation/scene/create-engine';
 import { applyPitch, getRequiredNode, type PlayfieldNodes } from '../src/presentation/scene/playfield';
@@ -60,10 +93,11 @@ import { resolveCabinet, TOP_GLASS_ALPHA, TRANSLITE_ALPHA } from '../src/present
 import { setNodeVisible } from '../src/presentation/scene/node-visibility';
 import { syncMechanisms } from '../src/presentation/mechanisms/sync-mechanisms';
 import { VIS_PLUNGER_NODE_NAME, visTwinName } from '../src/presentation/scene/vis-names';
-import { createLoop } from '../src/sim/loop';
+import { createLoop, NO_FRAME } from '../src/sim/loop';
 import { glbToTable, toScene, type Vec3 } from '../src/sim/table/frames';
 import { TABLE } from '../src/sim/table/dragonwar';
 import { TUNING } from '../src/sim/table/tuning';
+import type { Snapshot } from '../src/sim/table/names';
 
 const GLB_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.glb');
 const COLLISION_PATH = path.resolve(__dirname, '..', 'public', 'assets', 'dragonwar.collision.json');
@@ -81,11 +115,45 @@ const LOCKBAR = 'vis_lockbar';
 const OPAQUE_CABINET = ['vis_cabinet', 'vis_cabinet_arch', 'vis_cabinet_rail_l', 'vis_cabinet_rail_r', 'vis_head', 'vis_head_lightbox', 'vis_head_panel', 'vis_legs', 'vis_lockbar'] as const;
 const ALL_CABINET = [...OPAQUE_CABINET, GLASS, TRANSLITE].sort();
 /** The authored opacities (the spec's Boundaries), typed. */
-const TYPED_GLASS_ALPHA = 0.08;
+const TYPED_GLASS_ALPHA = 0.02;
 const TYPED_TRANSLITE_ALPHA = 0.55;
-/** The ball waiting to be plunged: `bd_shooter`'s authored pose in the playfield frame (the generator's BD_SHOOTER_POS_MM). */
-const SHOOTER_POS_MM = { x: 498.0, y: 35.0, z: 13.0 };
+/** `bd_shooter`'s authored EJECT pose in the playfield frame (the generator's BD_SHOOTER_POS_MM): where a ball is served, NOT where it waits. */
+const SHOOTER_EJECT_POS_MM = { x: 498.0, y: 35.0, z: 13.0 };
 const BALL_RADIUS_MM = TABLE.reference.ballMm / 2;
+/**
+ * The ball waiting to be plunged, in the playfield frame: it rests against
+ * the shooter lane's end (the inner face of `col_wall_lane_bottom`, at y 0)
+ * and on the deck, so its centre is one radius from each, on `bd_shooter`'s
+ * x. The lead measured it in the running game at (497.4, 13.49, 13.5); the
+ * pose-anchor case below measures it again on a real loop.
+ */
+const WAITING_BALL_MM = { x: 498.0, y: BALL_RADIUS_MM, z: BALL_RADIUS_MM };
+const WAITING_BALL_TOLERANCE_MM = 1.5;
+/** The waiting pose is this much nearer the player than the eject pose, at least. */
+const WAITING_BALL_FROM_EJECT_MIN_MM = 15;
+/**
+ * The waiting ball's hidden control: the point of its surface 20 degrees
+ * below the playfield's -y direction from its centre, (x, r(1 - cos 20),
+ * r(1 - sin 20)) with r = ballMm / 2. 12.7 mm clear of the boundary by lift.
+ */
+const BALL_CONTROL_MM = { x: 498.0, y: 0.814, z: 8.879 };
+/** The two deck controls on the centreline: hidden by the lockdown bar, and visible. Each at least 8 mm clear of the boundary (near y 11.5). */
+const DECK_HIDDEN_CONTROL_MM = { x: 257.2, y: 2, z: 0 };
+const DECK_VISIBLE_CONTROL_MM = { x: 257.2, y: 25, z: 0 };
+/**
+ * The two flipper poses AC 5 samples, typed: the snapshot's `angleDeg` per
+ * side (the mover's convention: held is +/-90, resting is that plus or
+ * minus `TUNING.flipper.sweepDeg`), and the smallest playfield y among the
+ * sampled bat vertices and among the sampled rubber vertices.
+ */
+const FLIPPER_POSES = {
+	resting: { angleDeg: { l: 141, r: -141 }, batMinY: 18.53, rubberMinY: 16.55 },
+	held: { angleDeg: { l: 90, r: -90 }, batMinY: 59.5, rubberMinY: 57.5 },
+} as const;
+type FlipperPose = keyof typeof FLIPPER_POSES;
+const FLIPPER_POSE_TOLERANCE = 0.5;
+/** Every vertex of both bats (108 each) and both rubbers (288 each) on the committed glb. */
+const FLIPPER_VERTICES = 792;
 /** The deck grid of AC 5: 9 x 9 over x 10..504, y 45..1056, on the deck. */
 const DECK_GRID = { x0: 10, x1: 504, y0: 45, y1: 1056, steps: 9 };
 /** A hit this close in front of a sample point (scene metres, 0.5 mm) is the point's own neighbourhood, not a cover. */
@@ -276,7 +344,60 @@ function lensSamples(lens: AbstractMesh): Sample[] {
 	return local.map(([label, x, z]) => ({ label: `${lens.name} ${label}`, world: Vector3.TransformCoordinates(new Vector3(x, topY, z), world) }));
 }
 
-/** A mesh's bounding-box centre and its eight world-bbox corners. */
+interface VertexSampling {
+	readonly samples: Sample[];
+	/** The smallest PLAYFIELD-frame y (mm) among each mesh's own sampled vertices, by mesh name. */
+	readonly minPlayfieldY: Record<string, number>;
+}
+
+/**
+ * EVERY vertex of each mesh, in world space as it is posed right now, with
+ * its playfield-frame position in its label. A bounding box's corners are
+ * not points of the bat: the first fit's bar hid real vertices of both
+ * resting bats, and a sample of nine box points could not say which.
+ */
+function vertexSamples(meshes: readonly AbstractMesh[], playfieldRoot: TransformNode): VertexSampling {
+	const toPlayfield = Matrix.Invert(playfieldRoot.computeWorldMatrix(true));
+	const samples: Sample[] = [];
+	const minPlayfieldY: Record<string, number> = {};
+	for (const mesh of meshes) {
+		const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+		if (!positions || positions.length === 0) {
+			throw new Error(`${mesh.name}: no vertex positions`);
+		}
+		const world = mesh.computeWorldMatrix(true);
+		let minY = Infinity;
+		for (let i = 0; i < positions.length; i += 3) {
+			const point = Vector3.TransformCoordinates(new Vector3(positions[i]!, positions[i + 1]!, positions[i + 2]!), world);
+			const local = Vector3.TransformCoordinates(point, toPlayfield);
+			const mm = glbToTable({ x: local.x, y: local.y, z: local.z });
+			minY = Math.min(minY, mm.y);
+			samples.push({ label: `${mesh.name} vertex ${i / 3} at playfield (${mm.x.toFixed(1)}, ${mm.y.toFixed(1)}, ${mm.z.toFixed(1)})`, world: point });
+		}
+		minPlayfieldY[mesh.name] = minY;
+	}
+	return { samples, minPlayfieldY };
+}
+
+/** Advances a real loop in <= 100 ms chunks (the loop's own 200 ms owed-time cap) until `ticks` more have run (`test/mechanisms-follow.test.ts`'s own idiom). */
+function advanceTicks(loop: ReturnType<typeof createLoop>, ticks: number, transitions: Parameters<ReturnType<typeof createLoop>['advance']>[1] = []): Snapshot {
+	let remaining = ticks;
+	let snapshot: Snapshot | undefined;
+	let pending = transitions;
+	while (remaining > 0) {
+		const step = Math.min(remaining, 100);
+		snapshot = loop.advance(step, pending).snapshot;
+		pending = [];
+		remaining -= step;
+	}
+	return snapshot!;
+}
+
+function loadCollisionDoc(): unknown {
+	return JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as unknown;
+}
+
+/** A mesh's bounding-box centre and its eight world-bbox corners (the synthetic control's own target; the flippers are sampled by vertex). */
 function boxSamples(mesh: AbstractMesh): Sample[] {
 	mesh.computeWorldMatrix(true);
 	const box = mesh.getBoundingInfo().boundingBox;
@@ -318,22 +439,33 @@ function deckSamples(playfieldRoot: TransformNode): Sample[] {
 	return out;
 }
 
+interface FlipperPoseResult {
+	readonly samples: number;
+	readonly covers: Cover[];
+	readonly minPlayfieldY: Readonly<Record<string, number>>;
+}
+
 interface PitchResult {
 	readonly lenses: { samples: number; names: string[]; covers: Cover[] };
-	readonly flippers: { samples: number; covers: Cover[] };
+	/** The two flipper poses, sampled apart. */
+	readonly flippers: Readonly<Record<FlipperPose, FlipperPoseResult>>;
 	readonly backglass: { samples: number; covers: Cover[] };
 	readonly knob: { samples: number; covers: Cover[] };
 	readonly ballCentre: Cover[];
 	readonly ballTop: Cover[];
-	readonly ballNear: Cover[];
+	readonly ballControl: Cover[];
 	readonly deck: { samples: number; covers: Cover[] };
-	readonly deckFrontControl: Cover[];
+	readonly deckHiddenControl: Cover[];
+	readonly deckVisibleControl: Cover[];
 	readonly candidates: string[];
 }
 
 const byPitch = new Map<number, PitchResult>();
 let syntheticControl: { covers: Cover[]; target: string } | undefined;
 let shooterLocalMm: Vec3 | undefined;
+/** The `angleDeg` of the two real snapshots the flipper cases sampled. */
+let sampledAngles: Record<FlipperPose, { l: number; r: number }> | undefined;
+let flipperMeshNames: { bats: string[]; rubbers: string[] } | undefined;
 
 function resultAt(pitchDeg: number): PitchResult {
 	const result = byPitch.get(pitchDeg);
@@ -402,47 +534,80 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 	beforeAll(async () => {
 		await withShippedScene((scene, nodes) => {
 			resolveCabinet(scene, nodes.cabinetRoot);
-			// The rest pose: a real loop's snapshot after 200 idle ticks (flippers
-			// drooped, plunger forward), posed by the real follower.
-			const loop = createLoop({ collisionDoc: JSON.parse(readFileSync(COLLISION_PATH, 'utf8')) as unknown });
-			loop.advance(100, []);
-			const snapshot = loop.advance(100, []).snapshot;
-			syncMechanisms(scene, nodes.playfieldRoot, snapshot);
+			// The two flipper poses, both from ONE real loop and never from a
+			// rotation written here (AD-4, AD-5).
+			// RESTING: the snapshot after 200 idle ticks (flippers drooped,
+			// plunger forward).
+			const loop = createLoop({ collisionDoc: loadCollisionDoc() });
+			const resting = advanceTicks(loop, 200);
+			// HELD: both flipper buttons held from the next tick until both
+			// angles settle at the end of stroke.
+			let held = advanceTicks(loop, 100, [{ tick: resting.tick + 1, frame: { ...NO_FRAME, flipper_l: true, flipper_r: true } }]);
+			let previous: [number, number] = [Number.NaN, Number.NaN];
+			const angles = (snapshot: Snapshot): [number, number] => [snapshot.mechanisms.flippers.l.angleDeg, snapshot.mechanisms.flippers.r.angleDeg];
+			for (let i = 0; i < 20 && (angles(held)[0] !== previous[0] || angles(held)[1] !== previous[1]); i++) {
+				previous = angles(held);
+				held = advanceTicks(loop, 50);
+			}
+			expect(angles(held), 'both held bats must have settled at the end of stroke').toEqual(previous);
+			const snapshots: Record<FlipperPose, Snapshot> = { resting, held };
+			sampledAngles = {
+				resting: { l: angles(resting)[0], r: angles(resting)[1] },
+				held: { l: angles(held)[0], r: angles(held)[1] },
+			};
 
 			const shooter = getRequiredNode(scene, 'bd_shooter');
 			expect(shooter.parent, 'bd_shooter is a child of playfield_root, so it pitches with the playfield').toBe(nodes.playfieldRoot);
 			shooterLocalMm = glbToTable({ x: shooter.position.x, y: shooter.position.y, z: shooter.position.z });
 
-			const flipperMeshes = [TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR].flatMap((col) => [meshNamed(scene, visTwinName(col)), meshNamed(scene, `${visTwinName(col)}_rubber`)]);
+			const bats = [TABLE.nodes.colFlipperL, TABLE.nodes.colFlipperR].map((col) => meshNamed(scene, visTwinName(col)));
+			const rubbers = bats.map((bat) => meshNamed(scene, `${bat.name}_rubber`));
+			const flipperMeshes = [...bats, ...rubbers];
+			flipperMeshNames = { bats: bats.map((m) => m.name), rubbers: rubbers.map((m) => m.name) };
 			const lenses = scene.meshes.filter((m) => m.name.startsWith('l_') && m.getTotalVertices() > 0);
+
+			const root = nodes.playfieldRoot;
+			const check = (samples: readonly Sample[]): Cover[] => covered(scene, nodes.cabinetRoot, samples);
+			/** Poses the mechanisms from one real snapshot, through the real follower, and samples every flipper vertex. */
+			const sampleFlippers = (pose: FlipperPose): FlipperPoseResult => {
+				syncMechanisms(scene, root, snapshots[pose]);
+				refreshWorld(scene);
+				const { samples, minPlayfieldY } = vertexSamples(flipperMeshes, root);
+				return { samples: samples.length, covers: check(samples), minPlayfieldY };
+			};
 
 			for (const pitchDeg of PITCHES_DEG) {
 				applyPitch(nodes, pitchDeg);
-				refreshWorld(scene);
-				const root = nodes.playfieldRoot;
-				const check = (samples: readonly Sample[]): Cover[] => covered(scene, nodes.cabinetRoot, samples);
+				// HELD first, then RESTING, so every other sample below is taken
+				// with the mechanisms at rest (the plunger forward).
+				const heldFlippers = sampleFlippers('held');
+				const restingFlippers = sampleFlippers('resting');
 				const lensPoints = lenses.flatMap(lensSamples);
-				const flipperPoints = flipperMeshes.flatMap(boxSamples);
 				const backglassPoints = backglassSamples(scene);
 				const knobPoints = knobSamples(scene);
 				const deckPoints = deckSamples(root);
+				const point = (label: string, mm: Vec3): Sample[] => [{ label: `${label} at playfield (${mm.x.toFixed(1)}, ${mm.y.toFixed(3)}, ${mm.z.toFixed(3)})`, world: playfieldPoint(root, mm) }];
 				byPitch.set(pitchDeg, {
 					lenses: { samples: lensPoints.length, names: lenses.map((m) => m.name).sort(), covers: check(lensPoints) },
-					flippers: { samples: flipperPoints.length, covers: check(flipperPoints) },
+					flippers: { resting: restingFlippers, held: heldFlippers },
 					backglass: { samples: backglassPoints.length, covers: check(backglassPoints) },
 					knob: { samples: knobPoints.length, covers: check(knobPoints) },
-					ballCentre: check([{ label: 'resting ball centre', world: playfieldPoint(root, SHOOTER_POS_MM) }]),
-					ballTop: check([{ label: 'resting ball top', world: playfieldPoint(root, { ...SHOOTER_POS_MM, z: SHOOTER_POS_MM.z + BALL_RADIUS_MM }) }]),
-					ballNear: check([{ label: 'resting ball near point', world: playfieldPoint(root, { ...SHOOTER_POS_MM, y: SHOOTER_POS_MM.y - BALL_RADIUS_MM }) }]),
+					ballCentre: check(point('waiting ball centre', WAITING_BALL_MM)),
+					// One radius from the centre along the playfield normal.
+					ballTop: check(point('waiting ball top', { ...WAITING_BALL_MM, z: WAITING_BALL_MM.z + BALL_RADIUS_MM })),
+					ballControl: check(point('waiting ball low point', BALL_CONTROL_MM)),
 					deck: { samples: deckPoints.length, covers: check(deckPoints) },
-					deckFrontControl: check([{ label: 'deck (257.2, 10.0)', world: playfieldPoint(root, { x: TABLE.reference.playfieldMm.w / 2, y: 10, z: 0 }) }]),
+					deckHiddenControl: check(point('deck', DECK_HIDDEN_CONTROL_MM)),
+					deckVisibleControl: check(point('deck', DECK_VISIBLE_CONTROL_MM)),
 					candidates: opaqueCabinetMeshes(scene, nodes.cabinetRoot).map((m) => m.name).sort(),
 				});
 			}
 
-			// The synthetic control, at the reference pitch: an opaque box hung on
-			// cabinet_root a quarter of the way from a flipper back to the camera.
+			// The synthetic control, at the reference pitch and the resting pose:
+			// an opaque box hung on cabinet_root a quarter of the way from a
+			// flipper back to the camera.
 			applyPitch(nodes, TABLE.reference.pitchDeg);
+			syncMechanisms(scene, root, snapshots.resting);
 			refreshWorld(scene);
 			const target = flipperMeshes[0]!;
 			const centre = boxSamples(target)[0]!;
@@ -457,13 +622,76 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 		});
 	});
 
-	it('the three pitches are the tuning bounds and the reference pitch, and the waiting ball\'s pose is bd_shooter\'s own', () => {
+	it('the three pitches are the tuning bounds and the reference pitch; the waiting ball is on bd_shooter\'s x, one radius from the lane\'s end and from the deck, and NOT at bd_shooter\'s eject pose', () => {
 		expect([TUNING.pitchMinDeg.value, TABLE.reference.pitchDeg, TUNING.pitchMaxDeg.value]).toEqual([...PITCHES_DEG]);
 		expect(byPitch.size, 'non-vacuity: a result per pitch').toBe(PITCHES_DEG.length);
 		expect(shooterLocalMm, 'bd_shooter was resolved').toBeDefined();
 		for (const axis of ['x', 'y', 'z'] as const) {
-			expect(Math.abs(shooterLocalMm![axis] - SHOOTER_POS_MM[axis]), `bd_shooter ${axis}: ${shooterLocalMm![axis]} vs ${SHOOTER_POS_MM[axis]}`).toBeLessThanOrEqual(0.01);
+			expect(Math.abs(shooterLocalMm![axis] - SHOOTER_EJECT_POS_MM[axis]), `bd_shooter ${axis}: ${shooterLocalMm![axis]} vs ${SHOOTER_EJECT_POS_MM[axis]}`).toBeLessThanOrEqual(0.01);
 		}
+		expect(Math.abs(WAITING_BALL_MM.x - shooterLocalMm!.x), 'the typed waiting pose is on bd_shooter\'s own x').toBeLessThanOrEqual(0.01);
+		expect(TABLE.reference.ballMm, 'the reference ball').toBe(26.99);
+		expect(SHOOTER_EJECT_POS_MM.y - WAITING_BALL_MM.y, 'the waiting pose is not the eject pose').toBeGreaterThan(WAITING_BALL_FROM_EJECT_MIN_MM);
+		// The lane's end is the inner face of col_wall_lane_bottom, at y 0, and
+		// that wall spans bd_shooter's x: the ball can rest against it there.
+		const collision = loadCollisionDoc() as { nodes: Array<{ name: string; bboxMm: { min: Vec3; max: Vec3 } }> };
+		const laneEnd = collision.nodes.filter((n) => n.name === 'col_wall_lane_bottom');
+		expect(laneEnd.length, 'col_wall_lane_bottom is in the collision document').toBe(1);
+		expect(laneEnd[0]!.bboxMm.max.y, 'the shooter lane\'s end is at y 0').toBe(0);
+		expect(laneEnd[0]!.bboxMm.min.x, 'the lane\'s end spans the waiting ball\'s x').toBeLessThan(WAITING_BALL_MM.x - BALL_RADIUS_MM);
+		expect(laneEnd[0]!.bboxMm.max.x, 'the lane\'s end spans the waiting ball\'s x').toBeGreaterThan(WAITING_BALL_MM.x + BALL_RADIUS_MM);
+		// The typed control point is on the typed ball's surface, 20 degrees
+		// below the playfield's -y direction from its centre.
+		const rad = (20 * Math.PI) / 180;
+		expect(Math.abs(BALL_CONTROL_MM.y - BALL_RADIUS_MM * (1 - Math.cos(rad))), 'the control\'s y is r(1 - cos 20)').toBeLessThanOrEqual(0.001);
+		expect(Math.abs(BALL_CONTROL_MM.z - BALL_RADIUS_MM * (1 - Math.sin(rad))), 'the control\'s z is r(1 - sin 20)').toBeLessThanOrEqual(0.001);
+		expect(Math.abs(Math.hypot(BALL_CONTROL_MM.y - WAITING_BALL_MM.y, BALL_CONTROL_MM.z - WAITING_BALL_MM.z) - BALL_RADIUS_MM), 'the control is on the ball\'s surface').toBeLessThanOrEqual(0.001);
+	});
+
+	// The pose anchor: where a served ball really waits. The typed pose above
+	// is the one every waiting-ball sample uses; this is the real loop saying
+	// the same thing.
+	it('pose anchor: in a real game the served ball, left alone, settles in the shooter lane within 1.5 mm of the typed waiting pose on each axis, and more than 15 mm from bd_shooter\'s eject pose in y', () => {
+		const loop = createLoop({ collisionDoc: loadCollisionDoc() });
+		// A real Start press (`test/game-over-restart-integration.test.ts`'s idiom); the plunger is never touched.
+		loop.advance(1, [{ tick: 2, frame: { ...NO_FRAME, start: true } }]);
+		let out = loop.advance(1, [{ tick: 3, frame: NO_FRAME }]);
+		expect(out.snapshot.game.phase, 'the Start press started a game').toBe('game');
+		let servedAt = -1;
+		for (let i = 0; i < 2000 && servedAt === -1; i++) {
+			out = loop.advance(1, []);
+			if (out.snapshot.mechanisms.devices.bd_shooter.slots[0]) {
+				servedAt = out.snapshot.tick;
+			}
+		}
+		expect(servedAt, 'the game\'s first ball must really reach the shooter lane').toBeGreaterThan(0);
+		// Settled: five successive 100-tick samples within SETTLE_MM of one
+		// resting place. The solver's resting contact keeps a ball trembling
+		// by a few hundredths of a millimetre, so "at rest" is not "bit-still".
+		const SETTLE_MM = 0.1;
+		let snapshot = out.snapshot;
+		let anchor = snapshot.balls[0]!.pos;
+		let stillFor = 0;
+		for (let i = 0; i < 40 && stillFor < 5; i++) {
+			snapshot = advanceTicks(loop, 100);
+			expect(snapshot.balls, 'exactly one ball on the table').toHaveLength(1);
+			const now = snapshot.balls[0]!.pos;
+			if (Math.hypot(now.x - anchor.x, now.y - anchor.y, now.z - anchor.z) <= SETTLE_MM) {
+				stillFor += 1;
+			} else {
+				stillFor = 0;
+				anchor = now;
+			}
+		}
+		expect(stillFor, 'the served ball must come to rest').toBe(5);
+		expect(snapshot.mechanisms.devices.bd_shooter.slots[0], 'still in the shooter lane: nothing launched it').toBe(true);
+		expect(snapshot.mechanisms.plunger.posMm, 'the plunger was never pulled').toBe(0);
+		const rest = snapshot.balls[0]!.pos;
+		const at =`the served ball rests at (${rest.x.toFixed(3)}, ${rest.y.toFixed(3)}, ${rest.z.toFixed(3)})`;
+		for (const axis of ['x', 'y', 'z'] as const) {
+			expect(Math.abs(rest[axis] - WAITING_BALL_MM[axis]), `${at}; ${axis} vs the typed ${WAITING_BALL_MM[axis]}`).toBeLessThanOrEqual(WAITING_BALL_TOLERANCE_MM);
+		}
+		expect(Math.abs(rest.y - SHOOTER_EJECT_POS_MM.y), `${at}; bd_shooter's eject pose is at y ${SHOOTER_EJECT_POS_MM.y}`).toBeGreaterThan(WAITING_BALL_FROM_EJECT_MIN_MM);
 	});
 
 	it.each(PITCHES_DEG)('at %s degrees the picker looks at exactly the nine opaque cabinet meshes', (pitchDeg) => {
@@ -477,25 +705,51 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 		expect(lenses.covers, describeCovers(lenses.covers)).toEqual([]);
 	});
 
+	/** Pins the pose a flipper case sampled to its typed figures, then expects no cover. */
+	function expectFlipperPoseUncovered(pose: FlipperPose, pitchDeg: number): void {
+		const typed = FLIPPER_POSES[pose];
+		const result = resultAt(pitchDeg).flippers[pose];
+		// The pose first: the real snapshot's angles ...
+		expect(sampledAngles, 'the shared scene pass ran').toBeDefined();
+		const angles = sampledAngles![pose];
+		expect(Math.abs(angles.l - typed.angleDeg.l), `${pose}: left angleDeg ${angles.l.toFixed(3)} vs ${typed.angleDeg.l}`).toBeLessThanOrEqual(FLIPPER_POSE_TOLERANCE);
+		expect(Math.abs(angles.r - typed.angleDeg.r), `${pose}: right angleDeg ${angles.r.toFixed(3)} vs ${typed.angleDeg.r}`).toBeLessThanOrEqual(FLIPPER_POSE_TOLERANCE);
+		// ... and where the follower actually put the sampled vertices.
+		expect(flipperMeshNames, 'the flipper meshes were resolved').toBeDefined();
+		expect(flipperMeshNames!.bats.length + flipperMeshNames!.rubbers.length, 'non-vacuity: two bats and two rubbers').toBe(4);
+		for (const [names, typedMinY, part] of [[flipperMeshNames!.bats, typed.batMinY, 'bat'], [flipperMeshNames!.rubbers, typed.rubberMinY, 'rubber']] as const) {
+			for (const name of names) {
+				const minY = result.minPlayfieldY[name];
+				expect(minY, `${pose}: ${name} was sampled`).toBeDefined();
+				expect(Math.abs(minY! - typedMinY), `${pose}: ${name}'s smallest playfield y ${minY!.toFixed(3)} vs the typed ${part} figure ${typedMinY}`).toBeLessThanOrEqual(FLIPPER_POSE_TOLERANCE);
+			}
+		}
+		expect(result.samples, 'non-vacuity: every vertex of both bats and both rubbers').toBe(FLIPPER_VERTICES);
+		expect(result.covers.length, `${result.covers.length} of ${result.samples} ${pose} flipper vertices are covered -- the first: ${describeCovers(result.covers.slice(0, 4))}`).toBe(0);
+	}
+
+	it('the two flipper poses are different poses: resting is the held pose swung by TUNING.flipper.sweepDeg toward the player', () => {
+		expect(90 + TUNING.flipper.sweepDeg.value, 'the typed resting angle is 90 plus the sim\'s own sweep').toBe(FLIPPER_POSES.resting.angleDeg.l);
+		expect(FLIPPER_POSES.resting.angleDeg.r).toBe(-FLIPPER_POSES.resting.angleDeg.l);
+		expect(FLIPPER_POSES.held.batMinY - FLIPPER_POSES.resting.batMinY, 'a resting tip is some 41 mm nearer the player than a held bat').toBeGreaterThan(40);
+	});
+
+	// The author's own instruction: the RESTING pose is sampled as well as the
+	// HELD one, in separate cases. A check that samples only the held pose is
+	// the vacuity that let the first fit through.
+	//
+	// mutation: give the vis_lockbar node a translation of 22 mm toward table
+	// +Y and 3.22 mm upward in the glb JSON chunk (the bar back at the first
+	// fit) -> red here at all three pitches, while the HELD case below stays
+	// green.
+	it.each(PITCHES_DEG)('at %s degrees, RESTING (the real idle snapshot, angleDeg +/-141): no vertex of either flipper or its rubber is covered', (pitchDeg) => {
+		expectFlipperPoseUncovered('resting', pitchDeg);
+	});
+
 	// mutation: give the vis_lockbar node a translation of 100 mm upward in the
 	// glb JSON chunk -> red here.
-	//
-	// [2026-10-13, implement -- OPEN, reported to the lead, NOT worked round]
-	// This case is RED on the committed glb, as AC 5 words it ("at the rest
-	// pose"). At rest (the real loop's idle pose, angleDeg +/-141) each bat
-	// droops to level-frame y 15..16, and the lockdown bar of the spec's fit
-	// table (y -44..-8, z 62..80) hides the deck up to y 35 and anything 20 mm
-	// above it up to y 26.5: the four tip-end corners of each bat and of each
-	// rubber are behind `vis_lockbar` at all three pitches (42 of 108 bat
-	// vertices, 112 of 288 rubber vertices). The plan's "both flippers start
-	// at y 57.5 and are clear" holds for the authored END-OF-STROKE pose only,
-	// where all nine samples of each are visible. The case is left exactly as
-	// the spec states it; the measurement and the choices are in the spec's
-	// Spec Change Log (2026-10-13, implement).
-	it.each(PITCHES_DEG)('at %s degrees neither flipper nor its rubber (centre and eight world-bbox corners, at rest) is covered', (pitchDeg) => {
-		const { flippers } = resultAt(pitchDeg);
-		expect(flippers.samples, 'non-vacuity: two bats and two rubbers, nine samples each').toBe(4 * 9);
-		expect(flippers.covers, describeCovers(flippers.covers)).toEqual([]);
+	it.each(PITCHES_DEG)('at %s degrees, HELD (both buttons held to the end of stroke, angleDeg +/-90): no vertex of either flipper or its rubber is covered', (pitchDeg) => {
+		expectFlipperPoseUncovered('held', pitchDeg);
 	});
 
 	it.each(PITCHES_DEG)('at %s degrees the Backglass quad\'s front face (centre and four inset corners) and the plunger knob\'s top are not covered', (pitchDeg) => {
@@ -506,10 +760,10 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 		expect(knob.covers, describeCovers(knob.covers)).toEqual([]);
 	});
 
-	// mutation: give the vis_lockbar node a translation of 12 mm upward in the
-	// glb JSON chunk -> red here (the ray to the ball's centre passes about
-	// 9 mm above the bar's back top edge).
-	it.each(PITCHES_DEG)('at %s degrees the centre and the top of the ball resting in the shooter lane are not covered', (pitchDeg) => {
+	// mutation: give the vis_lockbar node a translation of 20 mm upward in the
+	// glb JSON chunk -> red here at all three pitches (the centre's sight line
+	// clears the bar by 13.2 to 13.9 mm of lift; the top's by 22 to 24).
+	it.each(PITCHES_DEG)('at %s degrees the centre and the top of the ball waiting against the shooter lane\'s end are not covered', (pitchDeg) => {
 		const { ballCentre, ballTop } = resultAt(pitchDeg);
 		expect(ballCentre, describeCovers(ballCentre)).toEqual([]);
 		expect(ballTop, describeCovers(ballTop)).toEqual([]);
@@ -521,10 +775,11 @@ describe('Story 5.3 AC 5 -- no opaque cabinet mesh covers what a player must see
 		expect(deck.covers, describeCovers(deck.covers)).toEqual([]);
 	});
 
-	it.each(PITCHES_DEG)('controls at %s degrees: the deck at y 10 on the centreline IS behind the lockdown bar, and so is the resting ball\'s near point', (pitchDeg) => {
-		const { deckFrontControl, ballNear } = resultAt(pitchDeg);
-		expect(deckFrontControl.map((c) => c.by), 'the lockdown bar hides the first 35 mm of deck by design').toEqual([LOCKBAR]);
-		expect(ballNear.map((c) => c.by), 'the lockdown bar clips the waiting ball\'s near edge, and only that').toEqual([LOCKBAR]);
+	it.each(PITCHES_DEG)('controls at %s degrees: the deck at y 2 on the centreline IS behind the lockdown bar and the deck at y 25 is NOT; the waiting ball\'s low point IS behind the lockdown bar', (pitchDeg) => {
+		const { deckHiddenControl, deckVisibleControl, ballControl } = resultAt(pitchDeg);
+		expect(deckHiddenControl.map((c) => c.by), 'the lockdown bar hides the first 11.5 mm or so of deck by design').toEqual([LOCKBAR]);
+		expect(deckVisibleControl, `the deck 23 mm further up is in view: ${describeCovers(deckVisibleControl)}`).toEqual([]);
+		expect(ballControl.map((c) => c.by), 'the lockdown bar hides the lowest part of the waiting ball, and only that').toEqual([LOCKBAR]);
 	});
 
 	it('control: a synthetic opaque box hung on cabinet_root in front of a flipper is reported, naming the box', () => {
@@ -640,6 +895,26 @@ describe('Story 5.3 -- resolveCabinet() (I/O matrix rows)', () => {
 				expect(() => resolveCabinet(scene, nodes.cabinetRoot)).toThrow(new RegExp(`"${name}" has no PBR material`));
 				mesh.material = material;
 			}
+			// A cabinet name that resolves to a node with no mesh (an Empty where
+			// a part should be) is refused, naming the node.
+			// mutation: delete the "resolved to a node with no mesh" guard in
+			// cabinet.ts -> red here.
+			legs.name = 'vis_legs_gone';
+			const standIn = new TransformNode('vis_legs', scene);
+			standIn.parent = nodes.cabinetRoot;
+			expect(() => resolveCabinet(scene, nodes.cabinetRoot)).toThrow(/"vis_legs" resolved to a node with no mesh/);
+			standIn.dispose();
+			legs.name = 'vis_legs';
+			// The glass and the translite on ONE material would share one opacity:
+			// refused, naming both.
+			// mutation: delete the "share one material" guard in cabinet.ts -> red here.
+			const translite = meshNamed(scene, TRANSLITE);
+			const transliteMaterial = translite.material;
+			translite.material = meshNamed(scene, GLASS).material;
+			expect(() => resolveCabinet(scene, nodes.cabinetRoot)).toThrow(new RegExp(`"${GLASS}" and "${TRANSLITE}" share one material`));
+			translite.material = transliteMaterial;
+			const glass = meshNamed(scene, GLASS);
+			expect(glass.material!.needAlphaBlendingForMesh(glass), 'every failed resolve above left the glass as loaded').toBe(false);
 			expect(() => resolveCabinet(scene, nodes.cabinetRoot), 'the positive control: the restored scene resolves').not.toThrow();
 		});
 	});

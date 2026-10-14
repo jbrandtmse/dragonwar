@@ -10,12 +10,21 @@
 //   AC 2  the fit: every playfield vertex, pitched about `pivot_pitch` by
 //         each allowed pitch, stays under the glass and inside the tub, and
 //         the Backglass quad stays clear of the glass and inside the
-//         speaker panel;
+//         speaker panel; the plunger knob stays in front of the body's
+//         front face while the rod passes through the front wall; the
+//         glass's front edge lies under the lockdown bar;
 //   AC 3  `vis_` only, contract kept: exactly eleven meshes and three lamp
 //         Empties, with their parents, materials, `lg_cabinet`, both UV
 //         sets and no node transform; `vis_backbox` untouched; one image,
 //         no extension;
-//   AC 10 attribution and the triangle budget.
+//   AC 10 attribution and the triangle budget;
+//   AC 11 no shared faces: no two triangles of different meshes under
+//         `cabinet_root` are coplanar, same-facing and overlapping, in any
+//         direction, and the three clearances that keep them apart.
+//
+// The fit table is the AMENDED one (author decision 2026-10-13): the
+// cabinet's front stands 22 mm nearer the player than the first fit, along
+// the body's own top line, so that both resting flippers are in view.
 //
 // Every expected figure below is TYPED here from the spec's two tables (the
 // reference figures and the fit table), not read from the generator and not
@@ -34,14 +43,25 @@
 //     glass-dimension case red.
 //   mutation: give the vis_top_glass node a translation of 30 mm downward in
 //     the glb JSON chunk -> the fit case red (clearance below 5 mm).
+//   mutation: give the vis_plunger_knob node a translation of 22 mm toward
+//     table +Y in the glb JSON chunk -> the knob-in-front-of-the-front-face
+//     case red (AC 2).
+//   mutation: give the vis_lockbar node a translation of 2 mm toward +X in
+//     the glb JSON chunk -> the shared-face case red, naming vis_cabinet and
+//     vis_lockbar (AC 11).
 //   mutation: rename vis_top_glass to vis_glass in the glb JSON chunk -> the
 //     node case red.
 //   mutation: remove the Story 5.3 sentence from the glb row of
 //     ATTRIBUTIONS.md -> the attribution case red.
 //   mutation: set the count of vis_legs' index accessor to 6003 in the glb
 //     JSON chunk -> the budget case red.
-// The fit, node and budget checks are functions of a parsed glb, so each
-// also carries an in-memory negative control beside its positive.
+//   mutation: give the vis_top_glass node a translation of 10 mm toward table
+//     +Y in the glb JSON chunk -> the glass-front-edge case red (AC 2).
+//   mutation: move the end of the glb row's Date cell in ATTRIBUTIONS.md back
+//     to 2026-10-12 -> the attribution case red.
+// The fit, knob, glass-edge, shared-face, node and budget checks are
+// functions of a parsed glb, so each also carries an in-memory negative
+// control beside its positive.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -85,29 +105,36 @@ const REF_GLASS_T_TOL = 0.05;
 // ---------------------------------------------------------------------------
 const FIT_TOL = 0.05;
 const CENTRE_X = 257.2;
-const BODY = { x0: -22.8, x1: 537.2, y0: -28, y1: 1372, underside: -330, frontTop: 70, backTop: 275 };
+const BODY = { x0: -22.8, x1: 537.2, y0: -50, y1: 1350, underside: -333.22, frontTop: 66.78, backTop: 271.78 };
 const SIDE_WALL_T = 9;
 const END_WALL_T = 18;
-/** The body's top line: Z = 70 at Y = -28, rising 205 in 1400. */
+/** The body's top line: Z = 66.78 at Y = -50, rising 205 in 1400. */
 const TOP_LINE_SLOPE = 205 / 1400;
 const topLineZ = (y: number): number => BODY.frontTop + TOP_LINE_SLOPE * (y - BODY.y0);
-const RAIL = { w: 18, h: 6, y0: -8, y1: 1068 };
-const LOCKBAR = { x0: -22.8, x1: 537.2, y0: -44, y1: -8, z0: 62, z1: 80 };
+const RAIL = { w: 18, h: 6, y0: -30, y1: 1068 };
+/** The lockdown bar: 2 mm proud of each body side face; seated 8 below and 10 above the top line at the front face. */
+const LOCKBAR = { x0: -24.8, x1: 539.2, y0: -66, y1: -30, z0: 58.78, z1: 76.78 };
 const FLOOR_Z = -830;
 const LEG = { side: 36, proud: 4, top: -150 };
 /** The glass's lower face lies on Z = 66.10 + (205/1400) Y, 8 mm below the top line. */
-const GLASS = { lowerZ0: 66.1, rearY: 1066.0, x0: -9.3, x1: 523.7, frontLowerY: -15.5 };
+const GLASS = { lowerZ0: 66.1, rearY: 1044.0, x0: -9.3, x1: 523.7, frontLowerY: -37.5 };
 const ARCH = { x0: -13.8, x1: 528.2, y0: 1075, y1: 1081, z0: 100, z1: 230 };
-const HEAD = { x0: -107.8, x1: 622.2, y0: 1072, y1: 1372, z0: 230, z1: 960, wall: 12 };
-const PANEL = { x0: -107.8, x1: 622.2, y0: 1068, y1: 1072, z0: 230, z1: 370 };
-const TRANSLITE = { x0: -107.8, x1: 622.2, y0: 1068, y1: 1072, z0: 370, z1: 960 };
-const LIGHTBOX = { x0: -95.8, x1: 610.2, y0: 1340, y1: 1344, z0: 242, z1: 948 };
+const HEAD = { x0: -107.8, x1: 622.2, y0: 1072, y1: 1342, z0: 230, z1: 960, wall: 12 };
+const PANEL = { x0: -107.8, x1: 622.2, y0: 1068, y1: 1071.5, z0: 230, z1: 370 };
+const TRANSLITE = { x0: -107.8, x1: 622.2, y0: 1068, y1: 1071.5, z0: 370, z1: 960 };
+const LIGHTBOX = { x0: -95.8, x1: 610.2, y0: 1310, y1: 1314, z0: 242, z1: 948 };
 /** The lamp Empties, keyed by `TABLE.giChannels` key. */
 const LAMP_POS: Readonly<Record<string, readonly [number, number, number]>> = {
-	gi_backbox: [257.2, 1120, 600],
-	gi_cabinet: [257.2, -300, 400],
+	gi_backbox: [257.2, 1090, 600],
+	gi_cabinet: [257.2, -322, 396.78],
 	gi_arch: [257.2, 900, 210],
 };
+/** The three clearances that keep cabinet faces off one another's planes (AC 11). */
+const LOCKBAR_PROUD = 2.0;
+const HEAD_BACK_IN_FRONT = 8.0;
+const PANEL_SHORT_OF_RIM = 0.5;
+/** The plunger's knob (Story 5.4's art, amended by this story), a child of `vis_plunger`. */
+const PLUNGER_KNOB = `${VIS_PLUNGER_NODE_NAME}_knob`;
 /** The fit rules' own margins. */
 const GLASS_CLEARANCE = 5;
 const BACKGLASS_CLEARANCE = 10;
@@ -455,11 +482,13 @@ interface FitReport {
 interface Tub {
 	readonly innerX0: number;
 	readonly innerX1: number;
+	/** The front wall's outer face: the body's front face. */
+	readonly frontOuterY: number;
 	readonly frontInnerY: number;
 	readonly archFrontY: number;
 }
 
-/** The tub's inner surfaces, measured from the glb: the body's second and third distinct x, its second distinct y, and the arch panel's front face. */
+/** The tub's surfaces, measured from the glb: the body's second and third distinct x, its first and second distinct y, and the arch panel's front face. */
 function measureTub(glb: Glb): Tub {
 	const body = cabinetVertices(glb, 'vis_cabinet');
 	const xs = distinct(body, 'x');
@@ -467,7 +496,7 @@ function measureTub(glb: Glb): Tub {
 	if (xs.length !== 4 || ys.length !== 4) {
 		throw new Error(`vis_cabinet is not a four-walled tub: distinct x ${xs.join(', ')}; distinct y ${ys.join(', ')}`);
 	}
-	return { innerX0: xs[1]!, innerX1: xs[2]!, frontInnerY: ys[1]!, archFrontY: boxOf(cabinetVertices(glb, 'vis_cabinet_arch')).min.y };
+	return { innerX0: xs[1]!, innerX1: xs[2]!, frontOuterY: ys[0]!, frontInnerY: ys[1]!, archFrontY: boxOf(cabinetVertices(glb, 'vis_cabinet_arch')).min.y };
 }
 
 /**
@@ -561,6 +590,271 @@ function backglassProblems(glb: Glb): { corners: number; problems: string[] } {
 	return { corners: corners.length, problems };
 }
 
+/** A playfield-frame point pitched by `pitchDeg` about `pivot`, in the level frame. */
+function pitchedToLevel(v: Vec3, pivot: Vec3, pitchDeg: number): Vec3 {
+	const cos = Math.cos((pitchDeg * Math.PI) / 180);
+	const sin = Math.sin((pitchDeg * Math.PI) / 180);
+	const dy = v.y - pivot.y;
+	const dz = v.z - pivot.z;
+	return { x: v.x, y: pivot.y + dy * cos - dz * sin, z: pivot.z + dz * cos + dy * sin };
+}
+
+interface PlungerFit {
+	readonly knobVertices: number;
+	readonly rodVertices: number;
+	/** The knob's greatest level depth: its nearest approach to the body's front face. */
+	readonly knobMaxY: number;
+	readonly rodMinY: number;
+	readonly rodMaxY: number;
+	readonly frontOuterY: number;
+	readonly frontInnerY: number;
+	readonly problems: string[];
+}
+
+/**
+ * The plunger against the cabinet's front wall, both as the glb carries
+ * them: every vertex of the knob lies in front of the body's front outer
+ * face, and the rod's OWN vertices lie on both sides of the wall (some in
+ * front of its outer face, some behind its inner face) -- the rod passes
+ * through the wall by design, which is why `playfieldFit()` exempts it.
+ */
+function plungerFit(glb: Glb, pitchDeg: number): PlungerFit {
+	const { doc } = glb;
+	const rootIndex = indexOfNode(doc, PLAYFIELD_ROOT);
+	const pivotNode = doc.nodes[indexOfNode(doc, PIVOT_PITCH)]!;
+	const pivot = glbToTable({ x: pivotNode.translation![0]!, y: pivotNode.translation![1]!, z: pivotNode.translation![2]! });
+	const tub = measureTub(glb);
+	const level = (name: string): Vec3[] => ownVertices(glb, indexOfNode(doc, name), rootIndex).map((v) => pitchedToLevel(v, pivot, pitchDeg));
+	const knob = level(PLUNGER_KNOB);
+	const rod = level(VIS_PLUNGER_NODE_NAME);
+	const problems: string[] = [];
+	let reported = 0;
+	for (const v of knob) {
+		if (!(v.y < tub.frontOuterY) && reported++ < 4) {
+			problems.push(`${pitchDeg} deg: ${PLUNGER_KNOB} vertex at level (${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}) is not in front of the body's front face (${tub.frontOuterY.toFixed(3)})`);
+		}
+	}
+	const rodYs = rod.map((v) => v.y);
+	const rodMinY = Math.min(...rodYs);
+	const rodMaxY = Math.max(...rodYs);
+	if (!(rodMinY < tub.frontOuterY)) {
+		problems.push(`${pitchDeg} deg: ${VIS_PLUNGER_NODE_NAME}'s rod has no vertex in front of the body's front face (${tub.frontOuterY.toFixed(3)}); its smallest depth is ${rodMinY.toFixed(3)}`);
+	}
+	if (!(rodMaxY > tub.frontInnerY)) {
+		problems.push(`${pitchDeg} deg: ${VIS_PLUNGER_NODE_NAME}'s rod has no vertex behind the front wall's inner face (${tub.frontInnerY.toFixed(3)}); its greatest depth is ${rodMaxY.toFixed(3)}`);
+	}
+	return {
+		knobVertices: knob.length,
+		rodVertices: rod.length,
+		knobMaxY: Math.max(...knob.map((v) => v.y)),
+		rodMinY,
+		rodMaxY,
+		frontOuterY: tub.frontOuterY,
+		frontInnerY: tub.frontInnerY,
+		problems,
+	};
+}
+
+interface GlassEdge {
+	/** The glass's front lower and front upper edges, as (y, z). */
+	readonly frontLower: { readonly y: number; readonly z: number };
+	readonly frontUpper: { readonly y: number; readonly z: number };
+	readonly problems: string[];
+}
+
+/** The "glass's front edge lies under the lockdown bar" rule, with the glass and the bar as the glb carries them. */
+function glassEdgeProblems(glb: Glb): GlassEdge {
+	const glass = glassFrame(glb);
+	const bar = boxOf(cabinetVertices(glb, 'vis_lockbar'));
+	const frontmost = (d: number): { y: number; z: number } => {
+		const face = glass.vertices.filter((v) => Math.abs(dot(glass.normal, v) - d) <= FIT_TOL);
+		const front = face.reduce((best, v) => (v.y < best.y ? v : best), face[0]!);
+		return { y: front.y, z: front.z };
+	};
+	const frontLower = frontmost(glass.lowerD);
+	const frontUpper = frontmost(glass.upperD);
+	const smallestY = Math.min(...glass.vertices.map((v) => v.y));
+	const problems: string[] = [];
+	if (!(smallestY > bar.min.y)) {
+		problems.push(`the glass's smallest y (${smallestY.toFixed(3)}) is not behind the lockdown bar's front face (y ${bar.min.y.toFixed(3)})`);
+	}
+	if (!(frontLower.y < bar.max.y)) {
+		problems.push(`the glass's front lower edge (y ${frontLower.y.toFixed(3)}) is not in front of the lockdown bar's back face (y ${bar.max.y.toFixed(3)})`);
+	}
+	if (!(frontUpper.z < bar.max.z)) {
+		problems.push(`the glass's front upper edge (z ${frontUpper.z.toFixed(3)}) is not below the lockdown bar's top (z ${bar.max.z.toFixed(3)})`);
+	}
+	return { frontLower, frontUpper, problems };
+}
+
+// ---------------------------------------------------------------------------
+// AC 11: no shared faces, as a function of a parsed glb.
+// ---------------------------------------------------------------------------
+
+interface Triangle {
+	readonly mesh: string;
+	readonly points: readonly [Vec3, Vec3, Vec3];
+	/** Unit normal from the triangle's own winding. */
+	readonly normal: Vec3;
+	/** `normal . p` on the triangle's plane. */
+	readonly d: number;
+}
+
+interface SharedFace {
+	readonly meshes: readonly [string, string];
+	readonly trianglePairs: number;
+	readonly overlapMm2: number;
+	/** The shared plane's normal, in the level frame. */
+	readonly normal: Vec3;
+}
+
+interface SharedFaceScan {
+	readonly meshes: string[];
+	readonly triangles: number;
+	/** Triangles whose winding normal disagrees with their stored vertex normals. */
+	readonly windingMismatches: number;
+	/** Coplanar, overlapping triangle pairs that face the SAME way: the defect. One entry per pair of meshes. */
+	readonly sameFacing: SharedFace[];
+	/** Coplanar, overlapping triangle pairs that face OPPOSITE ways (one solid seated on another): counted, never a defect. */
+	readonly opposedTrianglePairs: number;
+}
+
+const COPLANAR_TOL_MM = 0.01;
+const OVERLAP_MIN_MM2 = 1;
+
+/** Every triangle of every mesh under `cabinet_root` (vis_backbox included), in the level frame. */
+function cabinetTriangles(glb: Glb): { meshes: string[]; triangles: Triangle[]; windingMismatches: number } {
+	const { doc } = glb;
+	const rootIndex = indexOfNode(doc, CABINET_ROOT);
+	const meshes: string[] = [];
+	const triangles: Triangle[] = [];
+	let windingMismatches = 0;
+	for (const index of descendants(doc, rootIndex)) {
+		const node = doc.nodes[index]!;
+		if (node.mesh === undefined) {
+			continue;
+		}
+		const primitives = doc.meshes[node.mesh]!.primitives;
+		if (primitives.length !== 1) {
+			throw new Error(`${node.name}: ${primitives.length} primitives (one expected)`);
+		}
+		meshes.push(node.name!);
+		const vertices = ownVertices(glb, index, rootIndex);
+		// A direction converts like a point: glbToTable() is linear (a permutation and a scale).
+		const normals = readAccessor(glb, primitives[0]!.attributes.NORMAL!).map((n) => glbToTable({ x: n[0]!, y: n[1]!, z: n[2]! }));
+		const flat = readAccessor(glb, primitives[0]!.indices!).map((i) => i[0]!);
+		for (let k = 0; k + 2 < flat.length; k += 3) {
+			const points = [vertices[flat[k]!]!, vertices[flat[k + 1]!]!, vertices[flat[k + 2]!]!] as const;
+			const n = cross(sub(points[1], points[0]), sub(points[2], points[0]));
+			const length = Math.hypot(n.x, n.y, n.z);
+			if (length < 1e-6) {
+				continue; // a degenerate triangle covers nothing
+			}
+			const normal = { x: n.x / length, y: n.y / length, z: n.z / length };
+			const stored = [flat[k]!, flat[k + 1]!, flat[k + 2]!].reduce((sum, i) => ({ x: sum.x + normals[i]!.x, y: sum.y + normals[i]!.y, z: sum.z + normals[i]!.z }), { x: 0, y: 0, z: 0 });
+			if (!(dot(normal, stored) > 0)) {
+				windingMismatches += 1;
+			}
+			triangles.push({ mesh: node.name!, points, normal, d: dot(normal, points[0]) });
+		}
+	}
+	return { meshes, triangles, windingMismatches };
+}
+
+type Point2 = readonly [number, number];
+
+function polygonArea(polygon: readonly Point2[]): number {
+	let twice = 0;
+	for (let i = 0; i < polygon.length; i++) {
+		const [x0, y0] = polygon[i]!;
+		const [x1, y1] = polygon[(i + 1) % polygon.length]!;
+		twice += x0 * y1 - x1 * y0;
+	}
+	return twice / 2;
+}
+
+/** The area two coplanar triangles share: `a` clipped by each edge of `b` (Sutherland-Hodgman), in the plane of `a`. */
+function overlapArea(a: Triangle, b: Triangle): number {
+	const origin = a.points[0];
+	const edge = sub(a.points[1], origin);
+	const edgeLength = Math.hypot(edge.x, edge.y, edge.z);
+	const u = { x: edge.x / edgeLength, y: edge.y / edgeLength, z: edge.z / edgeLength };
+	const v = cross(a.normal, u);
+	const flatten = (p: Vec3): Point2 => [dot(sub(p, origin), u), dot(sub(p, origin), v)];
+	let subject: Point2[] = a.points.map(flatten);
+	let clip: Point2[] = b.points.map(flatten);
+	if (polygonArea(clip) < 0) {
+		clip = clip.reverse();
+	}
+	for (let i = 0; i < clip.length && subject.length > 0; i++) {
+		const [cx0, cy0] = clip[i]!;
+		const [cx1, cy1] = clip[(i + 1) % clip.length]!;
+		const side = (p: Point2): number => (cx1 - cx0) * (p[1] - cy0) - (cy1 - cy0) * (p[0] - cx0);
+		const next: Point2[] = [];
+		for (let j = 0; j < subject.length; j++) {
+			const from = subject[j]!;
+			const to = subject[(j + 1) % subject.length]!;
+			const sFrom = side(from);
+			const sTo = side(to);
+			if (sFrom >= 0) {
+				next.push(from);
+			}
+			if ((sFrom > 0 && sTo < 0) || (sFrom < 0 && sTo > 0)) {
+				const t = sFrom / (sFrom - sTo);
+				next.push([from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])]);
+			}
+		}
+		subject = next;
+	}
+	return subject.length < 3 ? 0 : Math.abs(polygonArea(subject));
+}
+
+/**
+ * Every pair of triangles from two DIFFERENT meshes under `cabinet_root`
+ * that are coplanar within COPLANAR_TOL_MM and overlap by more than
+ * OVERLAP_MIN_MM2, split by whether they face the same way. Same-facing
+ * pairs are what z-fights from some direction; the scan looks in every
+ * direction, not only toward the fixed camera, because the Walk-up will see
+ * the sides and the back.
+ */
+function sharedFaces(glb: Glb): SharedFaceScan {
+	const { meshes, triangles, windingMismatches } = cabinetTriangles(glb);
+	const same = new Map<string, { meshes: [string, string]; trianglePairs: number; overlapMm2: number; normal: Vec3 }>();
+	let opposedTrianglePairs = 0;
+	for (let i = 0; i < triangles.length; i++) {
+		for (let j = i + 1; j < triangles.length; j++) {
+			const a = triangles[i]!;
+			const b = triangles[j]!;
+			if (a.mesh === b.mesh) {
+				continue;
+			}
+			const offPlane = Math.max(...b.points.map((p) => Math.abs(dot(a.normal, p) - a.d)), ...a.points.map((p) => Math.abs(dot(b.normal, p) - b.d)));
+			if (offPlane > COPLANAR_TOL_MM) {
+				continue;
+			}
+			const area = overlapArea(a, b);
+			if (!(area > OVERLAP_MIN_MM2)) {
+				continue;
+			}
+			if (dot(a.normal, b.normal) < 0) {
+				opposedTrianglePairs += 1;
+				continue;
+			}
+			const pair = [a.mesh, b.mesh].sort() as [string, string];
+			const key = pair.join(' / ');
+			const entry = same.get(key) ?? { meshes: pair, trianglePairs: 0, overlapMm2: 0, normal: a.normal };
+			entry.trianglePairs += 1;
+			entry.overlapMm2 += area;
+			same.set(key, entry);
+		}
+	}
+	return { meshes, triangles: triangles.length, windingMismatches, sameFacing: [...same.values()], opposedTrianglePairs };
+}
+
+function describeSharedFace(face: SharedFace): string {
+	return `${face.meshes[0]} and ${face.meshes[1]} share a face: ${face.trianglePairs} coplanar same-facing triangle pairs, ${face.overlapMm2.toFixed(1)} mm2, normal (${face.normal.x.toFixed(2)}, ${face.normal.y.toFixed(2)}, ${face.normal.z.toFixed(2)})`;
+}
+
 // ---------------------------------------------------------------------------
 // AC 3: the node contract, as a function of a parsed glb.
 // ---------------------------------------------------------------------------
@@ -646,7 +940,9 @@ function nodeContractProblems(glb: Glb): string[] {
 		problems.push(`cabinet_root's direct children are [${direct.join(' ')}], expected [${expectedDirect.join(' ')}]`);
 	}
 
-	// No twin of col_glass, and no new collision-, switch-, device- or lamp-prefixed node among the additions.
+	// No twin of col_glass, anywhere in the glb. (That nothing else was added
+	// under cabinet_root -- a collision-, switch-, device- or lamp-prefixed
+	// node included -- is the exact-set check just above.)
 	if (indicesNamed(doc, 'vis_glass').length !== 0) {
 		problems.push('a node is named vis_glass: that is the twin name of col_glass, which has no twin');
 	}
@@ -744,10 +1040,14 @@ describe('Story 5.3 AC 1 -- the fit table: every part is where the spec puts it'
 			const onFloor = Math.min(Math.abs(v.z - BODY.underside), Math.abs(v.z - (BODY.underside + END_WALL_T)));
 			expect(Math.min(offTopLine, onFloor), `vis_cabinet vertex (${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)})`).toBeLessThanOrEqual(FIT_TOL);
 		}
-		expectClose(topLineZ(BODY.y1), BODY.backTop, 1e-9, 'the typed top line reaches 275 at the back face');
+		expectClose(topLineZ(BODY.y1), BODY.backTop, 1e-9, 'the typed top line reaches 271.78 at the back face');
+		expectClose(BODY.y1 - BODY.y0, REF_BODY_D, 1e-9, 'the typed body is the reference depth');
+		expectClose(BODY.frontTop - BODY.underside, REF_BODY_FRONT_H, 1e-9, 'the typed front face is the reference height');
+		expectClose(BODY.backTop - BODY.underside, REF_BODY_BACK_H, 1e-9, 'the typed back face is the reference height');
 	});
 
-	it('the side rails sit on the top line, 18 wide and 6 high, from y -8 to y 1068', () => {
+	it('the side rails sit on the top line, 18 wide and 6 high, from y -30 (the lockdown bar\'s back face) to y 1068', () => {
+		expect(RAIL.y0, 'the typed rails start at the typed bar\'s back face').toBe(LOCKBAR.y1);
 		for (const [name, x0, x1] of [['vis_cabinet_rail_l', BODY.x0, BODY.x0 + RAIL.w], ['vis_cabinet_rail_r', BODY.x1 - RAIL.w, BODY.x1]] as const) {
 			const vertices = cabinetVertices(glb, name);
 			expectBox(boxOf(vertices), [x0, x1], [RAIL.y0, RAIL.y1], [topLineZ(RAIL.y0), topLineZ(RAIL.y1) + RAIL.h], name);
@@ -760,7 +1060,13 @@ describe('Story 5.3 AC 1 -- the fit table: every part is where the spec puts it'
 
 	it('the lockdown bar, the legs and the arch panel', () => {
 		expectBox(boxOf(cabinetVertices(glb, 'vis_lockbar')), [LOCKBAR.x0, LOCKBAR.x1], [LOCKBAR.y0, LOCKBAR.y1], [LOCKBAR.z0, LOCKBAR.z1], 'vis_lockbar');
-		expectClose(LOCKBAR.z1 - FLOOR_Z, 910, 1e-9, 'the typed lockdown bar top is 910 above the typed floor');
+		expectClose(LOCKBAR.z1 - FLOOR_Z, 906.78, 1e-9, 'the typed lockdown bar top is 906.78 above the typed floor');
+		// The bar keeps its section (36 deep, 18 high) and its seat on the top
+		// line: 8 below and 10 above it at the body's front face.
+		expectClose(LOCKBAR.y1 - LOCKBAR.y0, 36, 1e-9, 'the typed lockdown bar is 36 deep');
+		expectClose(LOCKBAR.z1 - LOCKBAR.z0, 18, 1e-9, 'the typed lockdown bar is 18 high');
+		expectClose(topLineZ(BODY.y0) - LOCKBAR.z0, 8, 1e-9, 'the typed bar is 8 below the top line at the front face');
+		expectClose(LOCKBAR.z1 - topLineZ(BODY.y0), 10, 1e-9, 'the typed bar is 10 above the top line at the front face');
 
 		const legs = cabinetVertices(glb, 'vis_legs');
 		expectValues(distinct(legs, 'x'), [BODY.x0 - LEG.proud, BODY.x0 - LEG.proud + LEG.side, BODY.x1 + LEG.proud - LEG.side, BODY.x1 + LEG.proud], FIT_TOL, 'vis_legs distinct x (four legs, 36 square, 4 proud)');
@@ -770,7 +1076,7 @@ describe('Story 5.3 AC 1 -- the fit table: every part is where the spec puts it'
 		expectBox(boxOf(cabinetVertices(glb, 'vis_cabinet_arch')), [ARCH.x0, ARCH.x1], [ARCH.y0, ARCH.y1], [ARCH.z0, ARCH.z1], 'vis_cabinet_arch');
 	});
 
-	it('the glass\'s lower face lies on z = 66.10 + (205/1400) y, with its rear lower edge at y 1066.0 and x from -9.3 to 523.7', () => {
+	it('the glass\'s lower face lies on z = 66.10 + (205/1400) y, with its rear lower edge at y 1044.0 and x from -9.3 to 523.7', () => {
 		const glass = glassFrame(glb);
 		const lower = glass.vertices.filter((v) => Math.abs(dot(glass.normal, v) - glass.lowerD) <= FIT_TOL);
 		expect(lower.length, 'non-vacuity: vertices on the lower face').toBeGreaterThanOrEqual(4);
@@ -779,10 +1085,13 @@ describe('Story 5.3 AC 1 -- the fit table: every part is where the spec puts it'
 		}
 		const lowerBox = boxOf(lower);
 		expectClose(lowerBox.max.y, GLASS.rearY, FIT_TOL, 'the rear lower edge');
-		expectClose(lowerBox.min.y, GLASS.frontLowerY, 0.5, 'the front lower edge (near y -15.5)');
+		expectClose(lowerBox.min.y, GLASS.frontLowerY, 0.5, 'the front lower edge (near y -37.5)');
 		expectClose(lowerBox.min.x, GLASS.x0, FIT_TOL, 'the glass\'s left edge');
 		expectClose(lowerBox.max.x, GLASS.x1, FIT_TOL, 'the glass\'s right edge');
-		expectClose(GLASS.lowerZ0, topLineZ(0) - 8, 1e-9, 'the typed lower face is 8 below the typed top line');
+		// Two typed figures against each other, at FIT_TOL and never tighter: the
+		// fit table's two-decimal figures put the top line at 74.1014 + (205/1400) Y,
+		// so "8 below it" is 1.4 micrometres above the table's own "66.10".
+		expectClose(GLASS.lowerZ0, topLineZ(0) - 8, FIT_TOL, 'the typed lower face is 8 below the typed top line');
 	});
 
 	it('the backbox: a 12-walled open-front box, closed by the speaker panel and the translite, with the lightbox panel inside', () => {
@@ -826,7 +1135,8 @@ describe('Story 5.3 AC 2 -- the playfield fits the cabinet at every allowed pitc
 		const tub = measureTub(glb);
 		expectClose(tub.innerX0, -13.8, FIT_TOL, 'the left wall\'s inner face');
 		expectClose(tub.innerX1, 528.2, FIT_TOL, 'the right wall\'s inner face');
-		expectClose(tub.frontInnerY, -10, FIT_TOL, 'the front wall\'s inner face');
+		expectClose(tub.frontOuterY, -50, FIT_TOL, 'the body\'s front outer face');
+		expectClose(tub.frontInnerY, -32, FIT_TOL, 'the front wall\'s inner face');
 		expectClose(tub.archFrontY, 1075, FIT_TOL, 'the arch panel\'s front face');
 		const pivot = glb.doc.nodes[indexOfNode(glb.doc, PIVOT_PITCH)]!.translation!;
 		const at = glbToTable({ x: pivot[0]!, y: pivot[1]!, z: pivot[2]! });
@@ -867,8 +1177,66 @@ describe('Story 5.3 AC 2 -- the playfield fits the cabinet at every allowed pitc
 		const pulled = playfieldFit(withDoc(glb, translate('vis_cabinet_arch', { x: 0, y: -5, z: 0 })), 6.0);
 		expect(pulled.problems.join('; '), 'an arch panel 5 mm nearer meets the playfield\'s far wall at 6.0 degrees').toMatch(/not in front of the arch panel's front face/);
 
-		const forward = playfieldFit(withDoc(glb, translate('vis_cabinet', { x: 0, y: 4, z: 0 })), 8.5);
-		expect(forward.problems.join('; '), 'a body moved 4 mm up-table puts its front wall through the lane wall at 8.5 degrees').toMatch(/not behind the front wall's inner face/);
+		// The nearest non-plunger vertex is 23.4 mm behind the inner face at 8.5
+		// degrees, so 30 mm reaches it and 20 mm does not.
+		const forward = playfieldFit(withDoc(glb, translate('vis_cabinet', { x: 0, y: 30, z: 0 })), 8.5);
+		expect(forward.problems.join('; '), 'a body moved 30 mm up-table puts its front wall through the playfield at 8.5 degrees').toMatch(/not behind the front wall's inner face/);
+		const short = playfieldFit(withDoc(glb, translate('vis_cabinet', { x: 0, y: 20, z: 0 })), 8.5);
+		expect(short.problems.join('; '), 'a body moved 20 mm up-table does not reach the playfield').not.toMatch(/not behind the front wall's inner face/);
+	});
+
+	// mutation: give the vis_plunger_knob node a translation of 22 mm toward
+	// table +Y in the glb JSON chunk -> red here (the knob at y -40 to -28,
+	// inside the front wall).
+	it.each(PITCHES_DEG)('at %s degrees every vertex of the plunger knob is in front of the body\'s front face, and the rod\'s own vertices span the front wall', (pitchDeg) => {
+		const fit = plungerFit(glb, pitchDeg);
+		expect(fit.knobVertices, 'non-vacuity: knob vertices checked').toBeGreaterThan(50);
+		expect(fit.rodVertices, 'non-vacuity: rod vertices checked').toBeGreaterThan(50);
+		expectClose(fit.frontOuterY, -50, FIT_TOL, 'the front face the knob is measured against');
+		expectClose(fit.frontInnerY, -32, FIT_TOL, 'the inner face the rod is measured against');
+		expect(fit.problems, fit.problems.join('; ')).toEqual([]);
+		expect(fit.knobMaxY, 'the knob\'s nearest approach to the front face').toBeLessThan(fit.frontOuterY);
+		expect(fit.rodMinY, 'the rod starts in front of the front face').toBeLessThan(fit.frontOuterY);
+		expect(fit.rodMaxY, 'the rod ends behind the inner face').toBeGreaterThan(fit.frontInnerY);
+	});
+
+	it('the knob check is falsifiable: a knob moved 22 mm up-table (where Story 5.4 authored it) is reported, and so is a rod that stops short of the wall', () => {
+		const moveKnob = withDoc(glb, (doc) => {
+			const node = doc.nodes[indexOfNode(doc, PLUNGER_KNOB)]!;
+			const t = node.translation ?? [0, 0, 0];
+			// table +Y is glb -Z.
+			node.translation = [t[0]!, t[1]!, t[2]! - 0.022];
+		});
+		for (const pitchDeg of PITCHES_DEG) {
+			const moved = plungerFit(moveKnob, pitchDeg);
+			expect(moved.problems.join('; '), `${pitchDeg} deg: the knob back at y -40 to -28 is inside the front wall`).toMatch(/vis_plunger_knob vertex .* is not in front of the body's front face/);
+			expect(moved.knobMaxY).toBeGreaterThan(moved.frontOuterY);
+		}
+		// A rod (and its knob) pulled 80 mm toward the player no longer reaches the tub.
+		const pulled = plungerFit(withDoc(glb, (doc) => {
+			const node = doc.nodes[indexOfNode(doc, VIS_PLUNGER_NODE_NAME)]!;
+			const t = node.translation ?? [0, 0, 0];
+			node.translation = [t[0]!, t[1]!, t[2]! + 0.08];
+		}), 6.5);
+		expect(pulled.problems.join('; ')).toMatch(/rod has no vertex behind the front wall's inner face/);
+	});
+
+	it('the glass\'s front edge lies under the lockdown bar', () => {
+		const edge = glassEdgeProblems(glb);
+		expect(edge.problems, edge.problems.join('; ')).toEqual([]);
+		// The edge is inside the bar's section, about 7.5 mm in from its back face.
+		expectClose(edge.frontLower.y, GLASS.frontLowerY, 0.5, 'the front lower edge (near y -37.5)');
+		expect(edge.frontUpper.y, 'the upper edge leans toward the player from the lower one').toBeLessThan(edge.frontLower.y);
+		expect(edge.frontUpper.z, 'the upper edge is above the lower one').toBeGreaterThan(edge.frontLower.z);
+		// Falsifiable: a glass moved 10 mm up-table leaves the bar's back face
+		// behind; a bar lowered 15 mm no longer covers the glass's upper edge; a
+		// glass moved 40 mm toward the player sticks out in front of the bar.
+		const move = (name: string, tableDelta: Vec3) => withDoc(glb, (doc) => {
+			doc.nodes[indexOfNode(doc, name)]!.translation = [tableDelta.x / 1000, tableDelta.z / 1000, -tableDelta.y / 1000];
+		});
+		expect(glassEdgeProblems(move('vis_top_glass', { x: 0, y: 10, z: 0 })).problems.join('; ')).toMatch(/front lower edge .* is not in front of the lockdown bar's back face/);
+		expect(glassEdgeProblems(move('vis_lockbar', { x: 0, y: 0, z: -15 })).problems.join('; ')).toMatch(/front upper edge .* is not below the lockdown bar's top/);
+		expect(glassEdgeProblems(move('vis_top_glass', { x: 0, y: -40, z: 0 })).problems.join('; ')).toMatch(/smallest y .* is not behind the lockdown bar's front face/);
 	});
 
 	it('all eight corners of vis_backbox are at least 10 mm above the glass\'s upper face, inside the speaker panel\'s outline, and in front of its front face', () => {
@@ -1028,9 +1396,16 @@ describe('Story 5.3 AC 10 -- attribution and budget', () => {
 			expect(note, `${prefix}: says nothing is copied or traced from a commercial machine`).toMatch(/nothing is copied or traced from a commercial machine/);
 			expect(note, `${prefix}: says no third-party asset is added`).toMatch(/no third-party asset, texture, image, font or glTF extension is added/);
 			expect(note, `${prefix}: says the collision document is unchanged`).toMatch(/the collision document(?: \(`[^`]+`\))? is unchanged/);
-			// The row's Date cell (the third) reaches the note's own date.
+			// The row's Date cell (the third) reaches the note's own date: it
+			// ends on that day or on a later one. Not "ends at": the next story
+			// that regenerates these files moves the cell's end past this note's
+			// date, and this case must stay green on that correct file.
+			// mutation: move the end of the glb row's Date cell back to
+			// 2026-10-12 -> red here.
 			const dateCell = row.split('|')[3]!.trim();
-			expect(dateCell.endsWith(date!), `${prefix}: the Date cell "${dateCell}" ends at ${date}`).toBe(true);
+			const cellEnd = /(\d{4}-\d{2}-\d{2})$/.exec(dateCell)?.[1];
+			expect(cellEnd, `${prefix}: the Date cell "${dateCell}" ends with a date`).toBeDefined();
+			expect(cellEnd! >= date!, `${prefix}: the Date cell "${dateCell}" ends on or after the note's date ${date}`).toBe(true);
 		}
 	});
 
@@ -1062,5 +1437,70 @@ describe('Story 5.3 AC 10 -- attribution and budget', () => {
 			doc.accessors[doc.meshes[legs.mesh!]!.primitives[0]!.indices!]!.count = 6003;
 		});
 		expect(triangleCount(heavy, 'vis_legs').triangles).toBeGreaterThan(TRIANGLE_BUDGET);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// AC 11.
+// ---------------------------------------------------------------------------
+
+describe('Story 5.3 AC 11 -- no two cabinet meshes share a face, in any direction', () => {
+	const translated = (name: string, tableDelta: Vec3): Glb => withDoc(glb, (doc) => {
+		// table (dx, dy, dz) mm -> glb (dx, dz, -dy) m: the inverse of glbToTable().
+		doc.nodes[indexOfNode(doc, name)]!.translation = [tableDelta.x / 1000, tableDelta.z / 1000, -tableDelta.y / 1000];
+	});
+
+	// mutation: give the vis_lockbar node a translation of 2 mm toward +X in
+	// the glb JSON chunk -> red here, naming vis_cabinet and vis_lockbar.
+	it('no two triangles of different meshes under cabinet_root are coplanar, same-facing and overlapping; the three clearances that keep them apart are as designed', () => {
+		const scan = sharedFaces(glb);
+		expect([...scan.meshes].sort(), 'non-vacuity: all twelve meshes under cabinet_root are compared').toEqual([BACKBOX, ...CABINET_NODES.map((n) => n.name)].sort());
+		expect(scan.triangles, 'non-vacuity: triangles compared').toBeGreaterThan(200);
+		expect(scan.windingMismatches, 'every triangle\'s winding agrees with its stored normals, so "faces the same way" means what the renderer lights by').toBe(0);
+		// The scan does see coplanar, overlapping faces on this glb: the solids
+		// that are seated on one another (the rails on the rim, the arch panel
+		// between the side walls, the lightbox between the backbox's walls).
+		// Those face opposite ways and are inside the assembly.
+		expect(scan.opposedTrianglePairs, 'non-vacuity: the scan finds the seated (opposite-facing) contacts').toBeGreaterThan(0);
+		const shared = scan.sameFacing.map(describeSharedFace);
+		expect(shared, shared.join('; ')).toEqual([]);
+
+		// The three designed clearances, from the glb.
+		const body = boxOf(cabinetVertices(glb, 'vis_cabinet'));
+		const bar = boxOf(cabinetVertices(glb, 'vis_lockbar'));
+		const head = boxOf(cabinetVertices(glb, 'vis_head'));
+		expectClose(body.min.x - bar.min.x, LOCKBAR_PROUD, FIT_TOL, 'the lockdown bar\'s left end, proud of the body\'s left side');
+		expectClose(bar.max.x - body.max.x, LOCKBAR_PROUD, FIT_TOL, 'the lockdown bar\'s right end, proud of the body\'s right side');
+		expectClose(body.max.y - head.max.y, HEAD_BACK_IN_FRONT, FIT_TOL, 'the backbox\'s back face, in front of the body\'s back face');
+		for (const name of ['vis_head_panel', 'vis_head_translite']) {
+			const part = boxOf(cabinetVertices(glb, name));
+			expectClose(head.min.y - part.max.y, PANEL_SHORT_OF_RIM, FIT_TOL, `${name}'s back face, in front of the backbox's front rim`);
+		}
+	});
+
+	it('the shared-face check is falsifiable: the first build\'s two defects are each reported when they are put back, and a seated contact is not', () => {
+		// The lockdown bar's left end flush with the body's left side face
+		// (both face -X): the first build's 1.9 cm2.
+		const flush = sharedFaces(translated('vis_lockbar', { x: LOCKBAR_PROUD, y: 0, z: 0 })).sameFacing;
+		expect(flush.map((f) => f.meshes), flush.map(describeSharedFace).join('; ')).toEqual([['vis_cabinet', 'vis_lockbar']]);
+		expect(flush[0]!.overlapMm2, 'the bar\'s end overlaps the side face by about 1.9 cm2').toBeGreaterThan(150);
+		expect(flush[0]!.overlapMm2).toBeLessThan(230);
+		expect(Math.abs(flush[0]!.normal.x), 'the shared plane is a side face').toBeGreaterThan(0.99);
+
+		// The backbox's back face on the body's back face (both face +Y): the
+		// first build's 234 cm2.
+		const backed = sharedFaces(translated('vis_head', { x: 0, y: HEAD_BACK_IN_FRONT, z: 0 })).sameFacing;
+		expect(backed.map((f) => f.meshes), backed.map(describeSharedFace).join('; ')).toEqual([['vis_cabinet', 'vis_head']]);
+		expect(backed[0]!.overlapMm2, 'the two back faces overlap by about 234 cm2').toBeGreaterThan(20000);
+		expect(backed[0]!.normal.y, 'the shared plane faces away from the player').toBeGreaterThan(0.99);
+
+		// A panel pushed back onto the backbox's front rim faces the rim, not
+		// the same way: the scan counts it as a seated contact and does not
+		// report it. That is why the panels' 0.5 mm clearance from the rim is
+		// asserted on its own in the case above, and not left to the scan.
+		const before = sharedFaces(glb);
+		const seated = sharedFaces(translated('vis_head_panel', { x: 0, y: PANEL_SHORT_OF_RIM, z: 0 }));
+		expect(seated.sameFacing.map(describeSharedFace)).toEqual([]);
+		expect(seated.opposedTrianglePairs, 'the panel\'s back face on the rim is one more opposite-facing contact').toBeGreaterThan(before.opposedTrianglePairs);
 	});
 });
