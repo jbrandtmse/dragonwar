@@ -2530,15 +2530,15 @@ So that the first thing I see says "pinball machine".
 
 **Given** `cabinet_root` in the Blender source
 **When** the cabinet, backbox, glass, legs and lockdown bar are modelled at standard-body dimensions
-**Then** the cabinet, backbox and glass match standard-body dimensions and are framed by the fixed camera, the glass surface is `vis_` only, and `cabinet_root` stays level while `playfield_root` pitches [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the original clause "the Walk-up (Story 4.6) frames the backbox and descends past the glass" moved to Story 4.6)
+**Then** the cabinet, backbox and glass match standard-body dimensions and are framed by the fixed camera, the glass surface is `vis_` only, and `cabinet_root` stays level while `playfield_root` pitches [AMENDED 2026-09-29 — author decision at Epic 5's clarification: cross-epic check moved out] (the original clause "the Walk-up (Story 4.6) frames the backbox and descends past the glass" moved to Story 4.6) [AMENDED 2026-10-13 — author decision at Epic 5's clarification] (the reference figures are cabinet 560 x 1400 mm, 400 mm high at the front and 605 mm at the back, backbox 730 x 730 mm, glass 533 x 1093 x 4.76 mm, and lockdown bar 900 to 920 mm above the floor, from the research geometry digest; the backbox is seated to carry the existing Backglass quad where Story 2.6 put it, so the assembled height is 1790 mm, not the reference's 1930 mm; "framed by the fixed camera" reads: the lockdown bar, the side rails, the glass, the cabinet's front face and the lower part of the backbox carrying the Backglass are in frame and are checked on screen, and none of them hides the playable area, a flipper, an insert or the Backglass; the rest of the backbox and the legs' feet lie outside the frame and are verified by geometry; the lockdown bar hides about 4 mm of the waiting ball's near edge, and that ball's centre and top stay visible at every allowed pitch)
 
 **Given** architectural lamps on the backbox and arch
-**When** `gi_backbox`, `gi_cabinet` and `gi_arch` are set
-**Then** they light the cabinet art and the backbox translucency as authored
+**When** `gi_backbox`, `gi_cabinet` and `gi_arch` are set [AMENDED 2026-10-13 — author decision at Epic 5's clarification] (read as: given a level through presentation's architectural seam; this story authors the three lamps, creates one scoped light per channel at load, and exposes the level seam with a dev hatch for the browser check; routing `GiCommand` to the seam stays Story 4.1's own criterion)
+**Then** they light the cabinet art and the backbox translucency as authored [AMENDED 2026-10-13 — author decision at Epic 5's clarification] (each channel's lamp lights its authored cabinet parts and the backbox translite, and nothing else, in proportion to the level)
 
 **Given** the cabinet art
 **When** it is added
-**Then** it carries `ATTRIBUTIONS.md` entries and stays within the single-LOD budget per object
+**Then** it carries `ATTRIBUTIONS.md` entries and stays within the single-LOD budget per object [AMENDED 2026-10-13 — author decision at Epic 5's clarification] (an object is each direct child of `cabinet_root` with its descendants, capped at 2,000 triangles; cabinet art is flat paint with no pictorial texture)
 
 ### Story 5.4: Mechanisms, plastics, ramp and guides
 

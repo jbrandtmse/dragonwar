@@ -270,6 +270,11 @@ deferred: []
   - AC 5 and AC 9 (b) now sample the ball at rest in the shooter lane. The plan's "covers nothing" list started the deck grid at y 45 and did not include that ball, whose centre is at y 35. By the lead's own projection (camera at level-frame (257.2, -700, 1300) mm; bar back top edge at Y -8, Z 80) the ray to the ball's centre passes 9.2 mm above that edge at 6.5 degrees and the ray to its top 19.7 mm above it, so both are visible at every allowed pitch; the ray to the ball's near point at centre height passes at Z 65, inside the bar, so it is hidden. The bar therefore clips about 4 mm of the 27 mm ball at its near edge. The deck contact point is NOT used as a control: it sits within 1 mm of the boundary (hidden by 0.6 mm at 6.5 degrees, visible by 0.3 mm at 8.5). The clip is a consequence of the fit table and was reported to the author with the height question.
   - The four amendment candidates and the Rule 20 candidate under Design Notes are the lead's to apply. Candidates 1, 3 and 4 are intent-preserving readings. Candidate 2's assembled height (1790 mm against the reference's 1930 mm) is a product choice and was put to the author before implementation (cycle log, `plan_clarification_requested`).
 
+- 2026-10-13 (author decisions, relayed at Epic 5's clarification; applied by the lead): no change to this spec's intent contract.
+  - **Height: Option A.** The assembled height is 1790 mm; the backbox carries the Backglass where Story 2.6 put it. Implement as planned. A squat silhouette in the Walk-up is Story 4.6's to raise.
+  - **Amendment candidates 1, 3 and 4 are accepted**, and candidate 2 with them. `epics.md` Story 5.3 now carries each as `[AMENDED 2026-10-13 -- author decision at Epic 5's clarification]` (its lines 2533, 2536, 2537 and 2541). Rule 20: the Conventions row "Cabinet parts" is in the spine, with the memlog entry; no AD id was claimed.
+  - **The lockdown bar stays as fitted.** It hides about 4 mm of the waiting ball's near edge, as on a real machine. The check that the ball's centre and top stay visible at every allowed pitch stays in AC 5 and AC 9 (b), and is pinned by the mutation added under Verification.
+
 ## Review Triage Log
 
 ## Design Notes
@@ -360,6 +365,7 @@ deferred: []
 - AC 3: `mutation: rename vis_top_glass to vis_glass in the glb JSON chunk -> cabinet-art node case red, and placeholder-geometry's exclusion case red`.
 - AC 4: `mutation: give the vis_lockbar node a translation of 500 mm toward the player in the glb JSON chunk -> cabinet-scene framing case red`.
 - AC 5: `mutation: give the vis_lockbar node a translation of 100 mm upward in the glb JSON chunk -> cabinet-scene flipper ray case red`.
+- AC 5 (the waiting ball; author decision 2026-10-13: the bar stays, the check is pinned): `mutation: give the vis_lockbar node a translation of 12 mm upward in the glb JSON chunk -> cabinet-scene resting-ball centre case red` (the ray to the ball's centre passes 9.2 mm above the bar's back top edge at 6.5 degrees, so 12 mm hides it). The near-point control needs no mutation of its own: it is the picker's positive on the ball, and it holds by the bar or, with the bar moved away, by the cabinet's front wall (the ray to the near point passes that wall's inner top edge about 4 mm below it), so do not use "move the bar" to try to turn it red.
 - AC 6: `mutation: delete the transparencyMode assignment in cabinet.ts -> cabinet-scene transparency case red`.
 - AC 7: `mutation: delete the includedOnlyMeshes assignment in architectural.ts -> architectural-lighting light-list case red`; `mutation: set intensity to the authored value regardless of level -> the level case red`.
 - AC 8: `mutation: move resolveCabinet(...) below the snapshot guard in boot.ts -> boot-cabinet-wiring ordering case red`.
