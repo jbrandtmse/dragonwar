@@ -7,7 +7,7 @@ review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/planning-artifacts/architecture/architecture-dragonwar-2026-08-26/ARCHITECTURE-SPINE.md'
-warnings: [oversized, multiple-goals]
+warnings: [oversized]
 deferred:
   - summary: >-
       A Mouth eject can create a ball on top of a ball that is in the Lock lane at the pulse tick, against FR-12 ("two balls never overlap"); first reachable once two balls are in play
@@ -65,11 +65,10 @@ deferred:
 
 ## Intent
 
-**Problem:** Quick multiball (`modes/quick-multiball.ts`, priority 400) is a shell: it starts at the Lock lane and does nothing. FR-35 asks for a second ball with its own ball save, awards on Dragon hits and Ramp shots, a Lock that answers with a bash hit instead of locking, and an end when one ball remains. Nothing in the ball controller has ever handled a second ball: measured at this tree, the first of two drains does nothing, a drain while the other ball waits for the Mouth is lost without a save, and two serves inside 19 ticks deadlock the shooter lane. Eleven ledger entries were routed here; two of them (the game clock, DW-280, and the replay header, DW-185) are a separate goal.
+**Problem:** Quick multiball (`modes/quick-multiball.ts`, priority 400) is a shell: it starts at the Lock lane and does nothing. FR-35 asks for a second ball with its own ball save, awards on Dragon hits and Ramp shots, a Lock that answers with a bash hit instead of locking, and an end when one ball remains. Nothing in the ball controller has ever handled a second ball: measured at this tree, the first of two drains does nothing, a drain while the other ball waits for the Mouth is lost without a save, and two serves inside 19 ticks deadlock the shooter lane. Eleven ledger entries were routed here; the author's split of 2026-10-13 moved the game clock (DW-280) and the replay header (DW-185) to Story 3.7b.
 
-**Approach:** This spec has two parts, cut so they can be built as two stories (see `## Auto Run Result`, "Proposed split").
+**Approach:** This spec is Part A of the original two-part plan; Part B is Story 3.7b (see `## Spec Change Log`).
 - **Part A, Quick multiball.** Teach the ball controller a second ball: one serve path with a queue, a multiball drain that saves, and a stop when one ball remains. Fill the Mode: `machine.multiball`, its own ball-save source, its awards. Give the Lock arbiter the `lock_lane_strike` outcome and hand it to the mode stack. Fix what two balls make reachable in ball save (DW-219, DW-226, DW-228), the Lock lane (DW-295), ball search (DW-268), the controller's closure ordering (DW-273) and the Loop tracker's serve pair (DW-321).
-- **Part B, the game clock.** Each Start that begins a game rebuilds the loop's machine and rules from a fresh `GameStart` at tick 0 (DW-280), and a replay runs on its own header's `GameStart` (DW-185).
 
 ## Boundaries & Constraints
 
@@ -122,23 +121,7 @@ Symbols, each read from `resolveTuning()`: S = `quickMbBallSaveTicks`, G = `mult
 - **Goldens.** Headers only: `tableHash` and the eight new `gameStart.tuning` keys (`quickMbBallSaveMs`/`Ticks`, `multiballServeGapMs`/`Ticks`, `lockFullReentryMs`/`Ticks`, `quickMbDragonValue`, `quickMbRampValue`).
 - **Tests.** Every AC has a pinning test and a `mutation:` line (Rule 19). Every negative is paired with its positive control. Ticks and values come from `resolveTuning()` and from the run's own recorded events, never from the code under test. Every physics input is labelled real input, synthetic coil, teleport or state-injected. Non-ASCII by escape (Rule 14).
 
-### Part B -- Always
-
-- **One loop, one game** (`loop/index.ts`; AD-3, AD-4, AD-14). When a Start begins a game, the loop discards its machine, its rules and its `GameState` and builds fresh ones from a fresh `GameStart`, with `tick` 0. This happens for every such Start, the first after boot included.
-- **Who decides.** The rules decide whether a Start begins a game, exactly as today (`handleStartButton()`: Attract, or a resolved `game_over`, and no Mouth eject pending). A Start that adds a Hot-seat player begins no game.
-  - `createRules()` takes an in-place game budget. The loop's boot instance has 0: it reports such a Start as `RulesStepResult.newGameRequested` and creates nothing. An instance the loop has just rebuilt has 1: it creates its one game in place and reports any later one. With the budget omitted (a bare `createRules()`, every headless test) every game is created in place, as today.
-- **The fresh timeline.** The loop re-applies the two most recent input frames at once: the frame in force before the press on tick 1, and the press on tick 2. These two ticks consume no owed time. Every input transition still pending is re-based by the same offset, and a queued dev coil command is dropped. The old tick's own events and commands are kept. The lamp diff is taken against the old game's last projection.
-- **What the fresh `GameStart` sets.** `seed` becomes `GameState.rng`; `highscores` becomes `machine.highscores`; `adjustments` go to `createRules()`. Tuning is the loop's own (`options.tuning ?? resolveTuning()`), as today: no loop reads `gameStart.tuning`.
-- **Where it comes from.** `CreateLoopOptions.nextGameStart?: () => GameStart`, called once per rebuild. Omitted, the loop reuses `options.gameStart`.
-- **What survives a game boundary.** The input frame in force, pending input transitions (re-based), the accumulator's carried remainder, and the lamp projection used for the next diff. Nothing else: not a locked or loose ball, not a ball resting in the shooter lane, not a coil's enable state, not the bob or the slam window, not any rules closure mark, not `GameState`.
-- **The host.** `Loop.currentGame()` reports the game index, its `GameStart` and the tick offset of the last rebuild. `createHostLoop()` forwards `nextGameStart`, and `boot.ts` supplies the boot bundle with a fresh `deriveGameSeed()` per game. `HostLoop.reset()` takes its own `gameStart` and `nextGameStart`; neither is carried forward, as `tuning` is not today.
-- **Replays (DW-185).** `runReplay()` builds its loop with `replay.header.gameStart`.
-  - The dev recorder resets the host loop with the bundle it stamps, so the recorded loop runs on it.
-  - At the first game boundary the recording becomes that one game: the header takes the bundle `Loop.currentGame()` reports; everything recorded before the boundary is replaced by the two re-applied frames on ticks 1 and 2; transitions of the boundary frame are re-based by the reported offset; coil pulses recorded before the boundary are dropped. A second boundary invalidates the recording with a named reason.
-  - The player resets with the header's `gameStart` and no provider, so playback reuses that bundle.
-- **Goldens.** Each header's `gameStart.seed` changes from 12345 to 0, the seed the recorded hashes were produced under. Nothing else moves.
-
-### Never (both parts)
+### Never
 
 - Never touch `TABLE.lamps`, `sim/rules/lamps.ts`, `MODE_LAMP_ROLES` or any insert (Story 3.3c), or the Dragon rig (Story 3.3b).
 - Never touch a path contended with Epic 5: `assets/src/**`, `public/assets/**`, `src/presentation/mechanisms/**`, `src/presentation/scene/**`, `tools/make-placeholder-blend.py`, `ATTRIBUTIONS.md`. No third-party file or pasted third-party code.
@@ -147,6 +130,8 @@ Symbols, each read from `resolveTuning()`: S = `quickMbBallSaveTicks`, G = `mult
 - Never let `expectedHash`, `expectedGameStateHash`, `transitions`, `checkpointTicks` or `expectedCheckpointHashes` move in any golden, and never remove a coil prologue. If one would move, HALT with an intent gap.
 - Never build the War, a War start, or `show_dragon_hit` on a strike (DW-303 is Story 3.9's). Never build on DW-308 or DW-309.
 - Never write `score` except through `awardScore()`, never add or remove a `modes[]` entry outside `lifecycle.ts`, never emit a `CoilCommand` from a mode.
+- Never edit `src/sim/loop/**`, `src/host/**` or any golden's `gameStart.seed`: the game clock and the replay header are Story 3.7b's.
+- Never pin the DW-329 overlap as correct: a Mouth eject can create a ball on top of a ball that is in the Lock lane at the pulse tick (Story 3.7a fixes it). No test in this story may assert an overlapping creation, or a trajectory that follows one, as expected behaviour. If any run in this story produces one, report it in `## Auto Run Result` with the tick and the centre separation.
 
 ## I/O & Edge-Case Matrix
 
@@ -179,12 +164,6 @@ Part A rows run headless (`runRulesScript` on a real `createRules()`) unless mar
 | A-Search (DW-268) | one ball in play, one resting in the lane, no closure for `ballSearchTicks` | the shooter stage pulses `c_autolaunch`; no `RecoverCommand` three steps later; that launch arms nothing. Control: lane empty, the recover fires on that tick | No error expected |
 | A-Backglass | a snapshot with a `quickmb` entry; the same above Hurry-up; the entry gone | `QUICK MB` over `BALL 1`, no fields line; `QUICK MB` owns the panel; Hurry-up's own lines return | No error expected |
 | A-Loops (DW-321, physics) | real input to a Quick multiball start; then the same with `multiballServeGapMs` 300 | no `shot_*_loop_*` event from the two serves; with the short gap, `shot_left_loop_broken` | No error expected |
-| B-Fresh | a real game 1 to game over; Start; game 2 | game 2's `stateHash` equals, tick for tick, a fresh `createLoop()` given the same `GameStart` and the re-based inputs | No error expected |
-| B-Clock | the Start that begins game 2 | `ball_will_start { tick: 2 }`; `rng` follows the fresh seed; `nextGameStart` called once | Provider omitted: `options.gameStart` is reused |
-| B-Boundary | a ball locked, a ball loose after a Slam, a ball resting in the lane, a flipper held, lamps lit, Start released one tick after the press | the Lock empty and the trough full on tick 1; no `ball_missing`; the flipper re-edges on tick 1; the release lands on tick 3; every lamp the old game left lit is turned off or restated; the four start events once | No error expected |
-| B-Request | Start in a resolved `game_over` on the tenth reveal step's tick; a Slam and a Start on one tick; Start with a Mouth eject pending | the reveal step is kept and the game starts; the game starts; nothing starts and nothing is rebuilt | No error expected |
-| B-No carry | a nudge 480 ticks before the Start; two nudges 200 ticks before it | game 2 warns and slams exactly as the same game does alone | No error expected |
-| B-Replay | each golden; a replay that presses Start with `tiltWarnings: 3` in its header | every recorded hash holds; the replayed game allows three warnings | A stale header still throws `StaleReplayHeaderError` |
 
 </intent-contract>
 
@@ -223,15 +202,6 @@ Measured at `5683305ba533edd6bdb4a350a34d769de33d991c` on `DW-1-epic3`.
 
   Diagnose every other red test; never loosen one.
 
-**Part B**
-- `src/sim/loop/index.ts:264-309` (construction), `:369-495` `advance()`: `tick` (:282), `pendingTransitions` (:286), `pendingCommands` (:296), `previousFrame` (:285), `previousLamps` (:320).
-- `src/sim/loop/replay.ts:381`: `createLoop({ collisionDoc })`.
-- `src/sim/rules/index.ts:271-399` `createRules` (a third, optional argument carries the in-place game budget; `RulesStepResult` gains `newGameRequested`); `src/sim/rules/ball-controller/start.ts:161-215` `handleStartButton` (`:167` is the test that decides a Start begins a game; `:181-193` creates it).
-- `src/sim/loop/replay.ts:285-289` `CoilPrologueEntry`: its doc comment records DW-175's retirement (Design Notes).
-- `src/host/loop.ts:115-137,275-305`; `src/host/boot.ts:282-319,400-431`; `src/host/dev/replay-recorder.ts:138-169`; `src/host/dev/replay-player.ts:122`.
-- Tests that pin a second game on a real `createLoop()` and change by design: `test/rules-modes-integration.test.ts:385`; `test/stray-clear-integration.test.ts:55,224`; `test/stray-clear-game-over-integration.test.ts:68`; `test/game-over-restart-integration.test.ts:58`; `test/fixtures/dw70-ad7/ad7-device-slots.harness.ts` case (ii). `test/host-game-seed.test.ts:37-93` scans `boot.ts` for three text anchors.
-- All 21 `createLoop()` tests that press Start press their first Start on tick 2 of a loop nothing has touched, which is the case the fresh timeline reproduces exactly.
-
 ## Tasks & Acceptance
 
 **Execution -- Part A**
@@ -246,13 +216,6 @@ Measured at `5683305ba533edd6bdb4a350a34d769de33d991c` on `DW-1-epic3`.
 9. `src/presentation/backglass/frame.ts`: `QUICK MB`.
 10. Tests: `test/rules-quick-multiball.test.ts` and `test/rules-serve-path.test.ts` (new, headless, both added to `ENTRY_FILES` in `test/rules-devices-headless.test.ts`); `test/rules-ball-save.test.ts`, `test/rules-devices.test.ts`, `test/rules-ball-search.test.ts`, `test/tuning.test.ts`, `test/table.test.ts` (extended); `test/backglass-quick-multiball.test.ts`, `test/quick-multiball-physics.test.ts`, `test/lock-full-reentry-physics.test.ts` (new).
 11. Finish Part A: refresh the golden headers only; update the by-design pins; record one `mutation:` line per AC.
-
-**Execution -- Part B**
-12. `src/sim/rules/index.ts`, `src/sim/rules/ball-controller/start.ts`, `index.ts`, `shared.ts`: `newGameRequested` and the in-place budget.
-13. `src/sim/loop/index.ts`: the rebuild, the two re-applied frames, the re-base, `nextGameStart`, `currentGame()`.
-14. `src/sim/loop/replay.ts`: `runReplay()` on the header's `GameStart`. `test/replays/*.golden.json`: `gameStart.seed`.
-15. `src/host/loop.ts`, `src/host/boot.ts`, `src/host/dev/replay-recorder.ts`, `src/host/dev/replay-player.ts`: the provider, the recorder's bundle and re-base, the player's bundle.
-16. Tests: `test/loop-new-game.test.ts` (new); the six second-game tests re-pointed; `test/replay-goldens.test.ts`, `test/replay-round-trip.test.ts`, `test/replay-recorder.test.ts`, `test/host-loop.test.ts`, `test/host-game-seed.test.ts`.
 
 **Acceptance Criteria -- Part A**
 - **A1.** Given `TUNING`, `resolveTuning()` and `TABLE`, when the tuning and table tests run, then the five keys are `unverified` with the values above, the three `...Ticks` are 15000, 1500 and 1000, `modeWiring.quickMbRampShot` names a declared shot, and `modeWiring.multiballBalls.quickmb` is 2.
@@ -275,16 +238,9 @@ Measured at `5683305ba533edd6bdb4a350a34d769de33d991c` on `DW-1-epic3`.
   - with no further input, every drain before `untilTick` + C is followed by `ball_saved`, the first drain after it stops the Mode with no `ball_ended`, and the next drain ends the ball.
 - **A14.** Given Part A, when the gates run, then every gate passes and the goldens differ from the baseline only in `tableHash` and the eight new tuning keys.
 
-**Acceptance Criteria -- Part B**
-- **B1** (rows B-Fresh, B-Clock; DW-280). Given a session that has played a game, when a Start begins another, then the new game's state hash equals, at every sampled tick and at the end, that of a fresh `createLoop()` given the same `GameStart` and the same inputs re-based; its first ball starts on tick 2 and its `rng` follows the fresh seed.
-- **B2** (row B-Boundary). Given a ball in the Lock, loose, or resting in the lane, a held flipper, lit lamps and a pending Start release, when the game boundary passes, then the outcome is exactly the Matrix row's.
-- **B3** (rows B-Request, B-No carry). Given a Start the rules would refuse, when it is pressed, then nothing is rebuilt. Given a Slam and a Start on one tick, then the game still starts. Given cabinet nudges before the boundary, then they have no effect after it.
-- **B4.** Given a loop nothing has touched, when Start is pressed on tick 2, then the game's events carry the ticks they carry today: `ball_will_start` on tick 2, and Story 3.3's recipe still parks in the Lock on tick 5506 (`test/dragon-shows-physics.test.ts:125`; measured, with the press on tick 1 or 3 it does not park at all). Given the same press on tick 4 instead, then every event of the game carries the same tick as in the tick-2 run. The 21 `createLoop()` test files that press Start stay green with only the six second-game tests of the Code Map changed.
-- **B5** (row B-Replay; DW-185). Given a replay, when `runReplay()` runs it, then the loop is built with the header's `GameStart`; all five goldens keep `expectedHash`, `expectedGameStateHash` and every checkpoint hash with `gameStart.seed` 0.
-- **B6.** Given the host loop with a provider, when a game begins, then the provider is called once and its bundle is the one `Loop.currentGame()` reports. Given the dev recorder recording, when the first game boundary passes, then the saved replay is that one game from tick 0 (the press on tick 2), carries that game's bundle in its header and reproduces its hash through `runReplay()` and through the player; a second boundary invalidates the recording with a named reason.
-- **B7.** Given Part B, when the gates run, then every gate passes and the goldens differ from Part A's only in `gameStart.seed`.
-
 ## Spec Change Log
+
+- 2026-10-13, author decision at the plan gate (lead): the plan was two stories' worth and is SPLIT. This spec is cut to Part A, Quick multiball (criteria A1 to A14, tasks 1 to 11); Part A's criteria, tasks, boundaries and Matrix rows are unchanged; the lead added two Never items (Story 3.7b's files; the DW-329 overlap), a DW-329 smoke bullet and manual check, and one line recording the author's acceptance of the readings. Part B (the game clock and the replay header, DW-280 and DW-185, criteria B1 to B7) is Story 3.7b, built after Epic 5 merges; its planning is preserved verbatim in `story-3-7b-planning-notes.md` and in git at 6bffa64. Also decided: DW-329 (a Mouth eject can create a ball on top of a ball in the Lock lane) is its own Story 3.7a right after this one, and this story must not pin that overlap as correct; DW-175 is retired; the four FR-35 readings in Design Notes are accepted. DW-141 is re-owned to Story 3.3d.
 
 ## Review Triage Log
 
@@ -299,7 +255,6 @@ Measured at `5683305ba533edd6bdb4a350a34d769de33d991c` on `DW-1-epic3`.
 - AD-9: payload-complete events; English only in `frame.ts`.
 - AD-3, AD-15: every duration in ms in `tuning.ts`; a tuning change moves golden headers.
 - AD-16: no device-name literal in rules.
-- Part B: AD-3 (`tick` reset at game start), AD-4 (a replay is header plus transitions), AD-14 (`GameStart` is the one bundle).
 
 No AC contradicts an AD's Rule. AD-7 says `ball_will_start` resets `multiball` and AD-18 says it is cleared only in `_stopped`; both hold, because a ball end stops every mode before `ball_will_start`, so the reset there writes `null` over `null`. A8's mid-ball stop is the case that shows which one does the clearing.
 
@@ -308,9 +263,9 @@ No AC contradicts an AD's Rule. AD-7 says `ball_will_start` resets `multiball` a
 - AD-18: every ball the controller owes to play goes through one serve path; a multiball's serves are G apart; the ball does not end while a serve is outstanding or a mode-select window is open; the Mode ends when live balls fall to one.
 - AD-7: `machine.ballSave` carries an optional per-source `deadlines`; two more `ControllerState` fields and one devices-layer mark.
 - AD-19: a full-device `lock_lane_entered` is emitted at most once per `lockFullReentryMs`.
-- Part B, AD-3 / AD-6 / AD-18: each game runs on a fresh loop, so the Start-time stray clear and the DW-296 refusal become defence in depth at a game boundary.
 
 **Readings pinned here.**
+All four FR-35 readings below (a strike pays; Tilt wins over the strike; under Tilt the Mode ends with the ball; "one ball remains" counts balls still owed) were accepted by the author on 2026-10-13 and are recorded on the story block in `epics.md`.
 - **A strike pays.** The brief's wording is "an under-leg shot *counts as* a bash hit, not a re-lock" (addendum section 8), and `machine-behaviour.md` says "in the War it is a Strike, in Quick multiball a bash hit". A hit on the bash toy is what the Mode pays for, so the strike pays D. It emits no `show_dragon_hit`: that question is Story 3.9's (DW-303).
 - **Tilt wins over the strike.** A Tilted entry keeps Story 3.2's `lock_lane_spit { credited: false }`. Nothing scores under Tilt (FR-15).
 - **Under Tilt the Mode ends with the ball.** FR-15: "during a multiball the ball ends when the last ball drains and the Mode ends with it".
@@ -330,19 +285,17 @@ No AC contradicts an AD's Rule. AD-7 says `ball_will_start` resets `multiball` a
 - **L1, a capture in a multiball.** Instrument: a real `createLoop()`, `machine.multiball` state-injected, balls teleported; this proves wiring, not play. 12 runs: the outcome and the Mouth show on the capture tick, `c_mouth` 1000 later, the same slot opens at 1001, `ballsInPlay` dips for 1001 ticks.
 - **L2, a full Lock.** 741 teleported zero-spin launches (19 speeds from 450 to 4000 mm/s, 5 angles, up to 11 offsets). Of 521 that reached `s_lock_lane`, 373 closed it twice and none three times; every ball that reached the slot band did. First-to-second gap 66 / 450 / 829 ticks. The ledger's own figure (518) is the 800 mm/s shot. Bound: zero spin; 1000 to 2400 mm/s gives 120 to 829.
 - **L3, L4.** 130 and 15 runs: nothing ended the ball while a Mouth eject was pending, with `ballsInPlay` at 0 for up to 1001 ticks.
-- **Sweep (DW-273).** All 18 closure fields under `sim/rules/`, read and write sites in seam order, the worst candidates probed headless. Two-ball defects: the classic save has no lane check; a drain to zero ends the ball while a serve or a window is still open; a lock and a drain on one tick pulse the trough twice. Single-ball, one-tick coincidences: the tilt settle mark survives a Slam and a Start on one tick; a Start is honoured on the tick a Lock overflow requests a Mouth eject. Part B dissolves the last two.
-- **Clock (Part B).** DW-280 reproduced on a real loop: game 2 starts on tick 13113 with an inherited `rng` and lights a different lane than the same game alone; 0 of 6000 ticks hash-equal. A rebuild prototype outside `src/`: 6000 of 6000 ticks equal on both hashes. The physics solver alternates one bit per iteration, so the Start tick's parity moves trajectories (a plain plunge drains 11 ticks later with Start on tick 1 or 3 than on tick 2); the fresh timeline puts Start on tick 2, where every recipe in the suite was recorded.
-- **Goldens (Part B).** `runReplay()`'s body with the loop options varied: with the header's adjustments and seed 0 all five keep every hash; with the header's seed 12345 all five move and `rng` is the only field that differs. Every golden reads `phase: 'attract'`, an empty `ballSave` and `multiball: null` at every tick, so the optional `deadlines` key moves no hash.
+- **Sweep (DW-273).** All 18 closure fields under `sim/rules/`, read and write sites in seam order, the worst candidates probed headless. Two-ball defects: the classic save has no lane check; a drain to zero ends the ball while a serve or a window is still open; a lock and a drain on one tick pulse the trough twice. Single-ball, one-tick coincidences: the tilt settle mark survives a Slam and a Start on one tick; a Start is honoured on the tick a Lock overflow requests a Mouth eject. Story 3.7b dissolves the last two.
 
 **Ledger inbox (Rule 17).**
 - DW-219, DW-226, DW-228: addressed, A2.
-- DW-273: addressed. The sweep is done (above); A10 pins the two-ball instances, B3 the two that Part B dissolves. The one-record limits are in `deferred`.
+- DW-273: addressed. The sweep is done (above); A10 pins the two-ball instances, Story 3.7b the two that a rebuild dissolves. The one-record limits are in `deferred`.
 - DW-295: addressed, A6.
 - DW-268: addressed, A11. Decision: a pass that launches a ball does not recover it. Measured: an autolaunched ball's first playfield closure is `s_loop_l_out` 1951 to 1995 ticks after the pulse (416 launches), and the recover came 750 after it, so the old pass always removed the ball it had launched.
 - DW-321: addressed in part, A13. The serve pair no longer reaches the tracker interleaved. Residual: the tracker still keeps one mark and one attempt per Loop, so the other ball crossing an inlane or outlane during a served ball's descent can still arm and break that Loop. With no Loop makeable by real input (DW-319) this changes no Charge. Re-own the residual to Story 3.3d with DW-322 to DW-326.
-- DW-280, DW-185: addressed, Part B (B1 to B6).
-- Declined DW-175: formally retire. The goldens are physics-determinism pins; a harness that serves its own ball is isolated from rules churn, and Start has its own tests. Removal is a trajectory re-record that is not granted, and the two-ball golden cannot take the unavoidable +1-tick serve shift: its margin at this tree is 0.023 mm (27.0132 mm at tick 1587 against a 26.99 mm ball), thinner than the 0.191 mm the entry records. The retirement belongs on the ledger entry (a terminal trailer line), on `epics.md` Story 1.8's prologue clause (an amendment marker), and in `CoilPrologueEntry`'s doc comment in `src/sim/loop/replay.ts`, which Part B task 14 edits.
-- Declined DW-141: belongs to Story 3.3d. This story moves no geometry and does not rebuild the feed-rail record, which was the reason it was routed here. Story 3.3d moves the lane geometry and must re-record the two feed margins, so a shared `test/util/` driver belongs there (measured: 3 files, about 300 lines). The entry's "unreachable release point" half is stale: all seven cases are declared reachable since Story 2.1f.
+- DW-280, DW-185: moved to Story 3.7b by the author's split of 2026-10-13 (ledger re-owned).
+- DW-175: retired by the author on 2026-10-13 (`by-design`): the goldens keep their coil prologue. Recorded on the ledger entry and on `epics.md` Story 1.8; the `CoilPrologueEntry` doc comment follows with Story 3.7b.
+- Declined DW-141: re-owned to Story 3.3d at the spec gate (ledger-only; that story is at its bullet cap). This story moves no geometry and does not rebuild the feed-rail record, which was the reason it was routed here. Story 3.3d moves the lane geometry and must re-record the two feed margins, so a shared `test/util/` driver belongs there (measured: 3 files, about 300 lines). The entry's "unreachable release point" half is stale: all seven cases are declared reachable since Story 2.1f.
 
 **DW-308 and DW-309.** The plan depends on neither. The Mode's window is armed at the Mode's own start, after any mode-select window, and no window timing changes. The lapse rule keeps sources and does not decide whether the clock pauses during a window (DW-308). A Tilted arrival still consumes the serve record without a pulse, as today (DW-309).
 
@@ -353,27 +306,25 @@ No AC contradicts an AD's Rule. AD-7 says `ball_will_start` resets `multiball` a
   - **3.9** counts `lock_lane_strike` as a Strike through the mode input, and ends the War on the one-ball stop.
   - **3.3c** shows the `quickmb` role on the Dragon and Ramp inserts.
   - **3.11** needs a Quick multiball in the playtest.
-- A13 is the real-runtime Integration AC for Part A; B1 for Part B.
+- A13 is the real-runtime Integration AC.
 
 **Footprint.**
 - In the footprint: `src/sim/rules/**`, `src/sim/table/**`, `test/replays/**` (headers only).
 - Extensions to report (uncontended), Part A: `src/sim/contracts/events.ts`, `src/sim/contracts/state.ts`, `src/presentation/backglass/frame.ts`, `test/**`.
-- Extensions to report (uncontended), Part B: `src/sim/loop/**`, `src/host/loop.ts`, `src/host/boot.ts`, `src/host/dev/replay-recorder.ts`, `src/host/dev/replay-player.ts`, `test/**`.
-- The one golden header field outside `tableHash`, tuning, adjustments and notes: Part B's `gameStart.seed`.
 - No contended path.
 
 **Browser smoke (lead).**
 - **What real input can reach.** A Quick multiball start, in a default three-ball game, on ball 3: two Ramps (one per ball) and a Lock shot, then a flipper press and Start in the window. By hand it needs three aimed shots; the measured recipe is tick-exact, so replay it through the dev recorder rather than play it.
 - **What the DMD should show.** `QUICK MB` on the status line from the confirm, two balls on the playfield about 1.5 s apart, `l_ball_save` lit, each early drain followed by a fresh ball, then the score screen again once one ball is left.
 - **The deciding check, headless.** A13: the same recorded input through `createLoop()`, asserting the serve gap, `ballsInPlay` 2, the rasterised `QUICK MB` and the stop.
-- **Part B.** Play a game to its end and press Start: the Backglass leaves the game-over screen, the Lock reads empty, and a second game plays. The deciding check is B1.
+- **DW-329.** If the smoke or the A13 run shows a ball created on top of another at a Mouth eject, record it; it is Story 3.7a's defect and must be reported, not hidden.
 
 ## Verification
 
 **Commands** (first `export BLENDER=C:/Users/Josh/tools/blender-5.2.1-windows-x64/blender.exe` and `export PNPM_CONFIG_STRICT_DEP_BUILDS=false`; one vitest invocation per tool call; the baseline is 159 files / 2632 tests):
-- `pnpm test` -- expected: all green; Part A adds 5 files, Part B adds 1.
+- `pnpm test` -- expected: all green; this story adds 5 files.
 - `pnpm typecheck && pnpm lint:boundaries && pnpm check:headers && pnpm check:attributions && pnpm build && pnpm check:dist && pnpm check:size` -- expected: each exits 0.
-- JSON-parse each `test/replays/*.golden.json` against the baseline -- expected: only the fields A14 and B7 name differ. Any movement in a hash, `transitions` or `checkpointTicks` means HALT with an intent gap.
+- JSON-parse each `test/replays/*.golden.json` against the baseline -- expected: only the fields A14 names differ. Any movement in a hash, `transitions` or `checkpointTicks` means HALT with an intent gap.
 
 **Mutations** (Rule 19; planned here, applied and recorded by the implement stage as `mutation: <change> → <red test>`):
 - A1: change `multiballServeGapMs` confidence to `'low'`; the tuning pin goes red.
@@ -390,15 +341,10 @@ No AC contradicts an AD's Rule. AD-7 says `ball_will_start` resets `multiball` a
 - A12: remove `MODE_DISPLAY_NAMES.quickmb`; A-Backglass goes red.
 - A13: arm ball save on a served launch; the "no `ball_save_timer_started`" assertion goes red.
 - A14: change one golden header's `quickMbRampValue`; `replay-goldens.test.ts` goes red.
-- B1: keep the old `rng` across the rebuild; B-Fresh goes red.
-- B2: reset `previousLamps` at the rebuild; the lamp assertion of B-Boundary goes red. Re-base pending transitions by one tick less; the Start release assertion goes red.
-- B3: detect the new game from a phase edge in the loop; the Slam-and-Start row goes red.
-- B4: re-apply the press on tick 1; the equality pin goes red.
-- B5: build `runReplay()`'s loop without the header's `GameStart`; the `tiltWarnings: 3` replay goes red.
-- B6: skip the recorder's re-base; the recorded game's hash through `runReplay()` goes red.
 
 **Manual checks:**
 - In the A13 run, count every `shot_*_loop_*` event from the Mode start to the ball end and record the count in `## Auto Run Result`. It is expected to be zero, since consecutive served launches are at least G apart. A non-zero count is DW-321's residual and is reported, not hidden.
+- In every run of this story that ejects a ball through the Mouth while another ball is live, compare the created ball's centre with every other ball's at the creation tick. A separation under one ball diameter (26.99 mm) is DW-329: report the count, the ticks and the smallest separation in `## Auto Run Result`. Never assert it as expected.
 
 ## Auto Run Result
 
@@ -411,23 +357,16 @@ Blocking condition: none
 - **Context.** It reused the committed `epic-3-context.md` (valid, newer than every planning artifact) without recompiling it. Continuity came from Story 3.6's `done` spec.
 - **Measurements.** Four synchronous planning subagents ran on the real engine. They wrote only to the session scratchpad and to probe files under `test/` that they deleted; once all four had returned, `git status --short` showed nothing but this spec. The figures and their bounds are under Design Notes, "Measurements".
 
-**This plan is more than one story (`warnings: [oversized, multiple-goals]`). Proposed split.**
-
-- **Story 3.7, Quick multiball (Part A).** ACs A1 to A14. Ledger: DW-219, DW-226, DW-228, DW-268, DW-273 (the two-ball instances), DW-295, DW-321 (the serve pair). Footprint: `src/sim/rules/**`, `src/sim/table/**`, two contracts files, `frame.ts`, golden headers (`tableHash`, eight tuning keys). It is already large: the ball controller learns a second ball, which is the work Story 3.8 builds on.
-- **A new story, the game clock and replay honesty (Part B).** ACs B1 to B7. Ledger: DW-280, DW-185, and the two single-ball instances of DW-273 that a rebuild dissolves (the tilt settle mark across a Slam and a Start on one tick; a Start honoured on a Lock-overflow tick). Footprint: `src/sim/loop/**`, `src/host/**`, the rules' Start path, golden headers (`gameStart.seed`).
-- **Order.** Neither part needs the other. They meet in four files (`src/sim/rules/index.ts` and `ball-controller/index.ts`, `shared.ts`, `start.ts`), in different functions. Build Part A first, since 3.8 to 3.10 wait on it. Part B should land before Story 3.11, so that each recorded playtest game replays on its own.
-- **Not in either:** DW-175 (declined: retire) and DW-141 (declined: Story 3.3d).
-
-If the author keeps them as one story, this spec builds as written: tasks 1 to 11, then 12 to 16.
+**Split decided (author, 2026-10-13).** This spec is Part A only. Part B is Story 3.7b (`story-3-7b-planning-notes.md`). See `## Spec Change Log`.
 
 **The eleven inbox entries.**
-- DW-141: declined to Story 3.3d (no geometry moves here; the feed-rail record is not rebuilt).
-- DW-175: declined, formally retire (the record is named under Design Notes).
-- DW-185: addressed, B5 and B6.
+- DW-141: declined, re-owned to Story 3.3d at the spec gate (ledger-only; that story is at its bullet cap). No geometry moves here; the feed-rail record is not rebuilt.
+- DW-175: retired by the author on 2026-10-13 (`by-design`): the goldens keep their coil prologue (the record is named under Design Notes).
+- DW-185: moved to Story 3.7b by the author's split of 2026-10-13 (ledger re-owned).
 - DW-219, DW-226, DW-228: addressed, A2.
 - DW-268: addressed, A11.
-- DW-273: addressed, A10 (two-ball instances) and B3 (the two a rebuild dissolves); the sweep itself was done at planning.
-- DW-280: addressed, B1 to B4.
+- DW-273: addressed, A10 (two-ball instances) and Story 3.7b (the two a rebuild dissolves); the sweep itself was done at planning.
+- DW-280: moved to Story 3.7b by the author's split of 2026-10-13 (ledger re-owned).
 - DW-295: addressed, A6.
 - DW-321: addressed in part, A13; the per-ball residual is named for re-owning to Story 3.3d.
 
@@ -436,9 +375,6 @@ If the author keeps them as one story, this spec builds as written: tasks 1 to 1
 **Readings applied** (Rule 5, apply and report; Design Notes): a strike pays the Dragon award; a Tilted entry stays a spit; under Tilt the Mode ends with the ball; "one ball remains" counts balls the controller still owes.
 
 **For the lead, before dispatching implement.**
-- **The split** is the author's call.
-- **Part B changes a golden header field outside the list this stage was given**: each header's `gameStart.seed`, 12345 to 0. Measured: with seed 0 and the header's adjustments all five goldens keep every hash; honouring 12345 moves all five (`rng` only). No hash, transition or checkpoint moves. If that field may not change, DW-185 cannot be closed without a state-hash re-record.
-- **Part B's consequences, which the author's DW-280 decision implies but does not state**: a ball locked at game over is back in the trough when the next game starts, and the same holds for a loose ball and a ball in the shooter lane; a nudge before Start no longer reaches the new game. Worth one line of confirmation.
 - **Authored placeholders** for the Story 3.11 playtest: 15 s of ball save, 10,000 per Dragon hit or strike, 25,000 per Ramp, and a 1.5 s gap before the second ball.
 - **`machine.ballSave` gains an optional `deadlines` key** in `contracts/state.ts`. Measured: no golden ever holds a non-empty `ballSave`, so no hash moves.
 

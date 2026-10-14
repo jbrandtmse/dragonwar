@@ -651,7 +651,7 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
 **When** CI runs Vitest in Node
 **Then** goldens for roll-and-drain, **hold-and-release**, full plunge, nudge coupling, and a two-ball collision (momentum transferred, no overlap, no sticking) replay to their recorded hashes `[AMENDED 2026-08-29 — see the story change log below]`
 **And** the two-ball golden also asserts the balls' separation never drops below one diameter
-**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Epic 3** removes the prologue and re-records the goldens, at or after Story 3.7 (Quick multiball), or formally retires the obligation there `[AMENDED 2026-09-06 — see the story change log below]`
+**And** because Epic 1's rules layer cannot yet issue a coil command (`RulesStepResult.commands` is `readonly never[]`), each golden carries a **declared coil prologue** alongside its `ReplayHeader + InputTransition[]` — the `pulseCoil` sequence that puts a ball in play — recorded as data in the golden file and re-asserted on replay; **Epic 3** removes the prologue and re-records the goldens, at or after Story 3.7 (Quick multiball), or formally retires the obligation there `[AMENDED 2026-09-06 — see the story change log below]` `[AMENDED 2026-10-13 — author decision: the obligation is RETIRED; the goldens keep their coil prologue — see the story change log below]`
 
 **Given** a browser test page or Vitest browser run
 **When** each golden is replayed in Chrome and Safari
@@ -700,6 +700,14 @@ So that determinism is enforced by tests, ball-to-ball behaviour is pinned, and 
   *What this does not weaken.* **The goldens are physics-determinism pins.** Removing the prologue would
   make them end-to-end; it is not what covers Start. **Story 2.5 tests the Start path directly, with its
   own tests**, so the Start path is asserted either way. Tracked as `DW-175`, routed to Story 3.7.
+- **2026-10-13 — the prologue's removal is retired (author decision, at Story 3.7's plan gate).**
+  The five goldens keep their declared coil prologue for good: they are physics-determinism pins that
+  serve their own ball, isolated from the rules layer, and Start keeps its own tests. Story 3.7's planning
+  re-measured the reason removal is a trajectory re-record: the two-ball golden's margin at that tree is
+  **0.023 mm** (27.0132 mm at tick 1587 against a 26.99 mm ball), thinner than the 0.191 mm recorded
+  above, and it cannot take the unavoidable one-tick serve shift. No golden changes. `DW-175` is closed
+  `by-design`; the `CoilPrologueEntry` doc comment in `src/sim/loop/replay.ts` is to say the same by the
+  time Epic 3 completes (Story 3.7b edits that file).
 
 ### Story 1.9: Dev tuning panel and the first feel ritual
 
@@ -1681,7 +1689,7 @@ So that the game closes the way a real machine does.
 - DW-197: the Backglass score screen has no combined line budget, so with several players plus an active mode the mode information silently drops off the display rather than degrading visibly; the author's decision is to give the ball number a shared or shortened line rather than its own (ledger; routed by merge_gate 2026-09-06)
 - DW-198: the DMD never identifies WHICH player a score belongs to -- `DmdRow.emphasis` is set and asserted but no renderer reads it, and the Attract scores screen emits bare unlabelled numbers; the author's decision is to render `emphasis` as the current player's row highlighted or boxed, and its pinning test must assert that the rendered DOTS differ between an emphasised and an unemphasised row, never merely that the field is set (ledger; routed by merge_gate 2026-09-06)
 - DW-235: the bonus count-up schedule's closure state has no reset across a game-over-to-new-game transition, so a stray `bonus_count_step` from a finished game could animate into the next; 2.13 owns that lifecycle boundary (ledger; routed by harvest 2026-09-08)
-- DW-244: a Slam tilt returns to Attract with the voided game's ball still live, and Start has no balls-home handling, so the old ball's drain ends the NEW game's ball 1 and a second serve stacks in the occupied lane; the author's decision is CLEAN UP THE STRAYS, THEN START -- before serving, for Start in Attract and for every new ball, a loose ball is removed through the `RecoverCommand` path Story 2.12 built and a ball already resting in the shooter lane is treated as the ball being served (no trough eject, no stacking); both routes (a voided game's loose ball; a ball left in the lane by a cancelled search pass) need their own pinning test that is red on the pre-fix code, each negative paired with its positive (ledger; routed by spec_gate 2026-09-11)
+- DW-244: a Slam tilt returns to Attract with the voided game's ball still live, and Start has no balls-home handling, so the old ball's drain ends the NEW game's ball 1 and a second serve stacks in the occupied lane; the author's decision is CLEAN UP THE STRAYS, THEN START -- before serving, for Start in Attract and for every new ball, a loose ball is removed through the `RecoverCommand` path Story 2.12 built and a ball already resting in the shooter lane is treated as the ball being served (no trough eject, no stacking); both routes (a voided game's loose ball; a ball left in the lane by a cancelled search pass) need their own pinning test that is red on the pre-fix code, each negative paired with its positive (ledger; routed by spec_gate 2026-09-11) `[AMENDED 2026-10-13 — author decision (a fresh table at every game start; Story 3.7b builds it): once that story lands, a Start that begins a game finds all balls in the trough, so a loose ball or a ball resting in the shooter lane at that Start is no longer carried into the new game and the Start-time clean-up becomes defence in depth there; the clean-up before every new ball within a game is unchanged]`
 - DW-257: recovered balls are never replenished -- `recover()` removes every ball outside a device and opens no trough slot, while the tree's only `spawnBall()` sits inside a parking eject that needs an already-filled slot, so each recovery permanently costs the machine a ball and four empty the trough, after which the serve answers `eject_failed`, no ball can drain and the ball never ends (a hard hang, reachable by a Slam then Start before the old ball drains, four times). Because 2.13 makes the serve path a second `RecoverCommand` issuer, this story owns the fix: the author's decision is RETURN RECOVERED BALLS TO THE TROUGH -- `recover()` parks each ball it removes into the trough's lowest empty slot and closes that slot's switch, so AD-6's four-ball invariant holds across any number of recoveries and ball search's own hang closes with it; its pinning test must pair the negative (the trough never empties across repeated recoveries) with its positive (the recovered ball IS in a trough slot and CAN be ejected again), and be red on the pre-fix code (ledger; routed by spec_gate 2026-09-11)
 
 **Story change log**
@@ -2189,6 +2197,8 @@ As a player,
 I want Quick multiball to add a second ball with its own ball save and pay on Dragon hits and Ramp shots,
 So that fighting the monster is a two-ball scrap.
 
+*Quick multiball only.* `[AMENDED 2026-10-13 — author decision at Epic 3's clarification: this story's plan measured as two stories' worth, so it is cut to Quick multiball (the criteria below). The game clock and the replay header (DW-280, DW-185) move to Story 3.7b, and the ball a Mouth eject can create on top of another (DW-329, found by this story's planning) is Story 3.7a. For the span of this story that overlap is reachable; no test here may pin it as correct]`
+
 **Acceptance Criteria:**
 
 **Given** Quick multiball starts (priority 400) and `machine.multiball === null`
@@ -2201,22 +2211,97 @@ So that fighting the monster is a two-ball scrap.
 
 **Given** Quick multiball is running
 **When** `lock_lane_entered` arrives
-**Then** the arbiter emits `lock_lane_strike` (a bash hit for this Mode), no credit is added, and the ball is ejected back via the Mouth
+**Then** the arbiter emits `lock_lane_strike` (a bash hit for this Mode), no credit is added, and the ball is ejected back via the Mouth `[AMENDED 2026-10-13 — author decision (the readings of FR-35): the ball is struck back out and the strike pays the Mode's Dragon-hit award; a Tilted entry stays a spit, with no award]`
 
 **Given** `ballsInPlay` drops to 1
 **When** the ball controller reports it
-**Then** the Mode stops and `machine.multiball` is cleared only in `_stopped`; its ball-save source is disarmed
+**Then** the Mode stops and `machine.multiball` is cleared only in `_stopped`; its ball-save source is disarmed `[AMENDED 2026-10-13 — author decision (the readings of FR-35): "one ball remains" counts a ball the controller still owes — a serve outstanding, or a ball held for the Mouth — so the Mode does not stop while its second ball is on its way; under Tilt the Mode ends with the ball]`
 
 **Given** `machine.multiball !== null`
 **When** a Lock-lane Mode start or a War start would otherwise apply
 **Then** neither happens; a switch-script test covers Quick multiball → Lock lane → no lock, no War
 
 - DW-268: Ball search's own autolaunch step can launch a ball resting in the shooter lane into play, and the same pass's RecoverCommand despawns it about 750 ms later unless it closes a playfield switch first (ledger; routed by smoke 2026-09-11)
-- DW-141: The DW-130 feed-rail record runs on driveCaseSwept(), a hand-copied third implementation of driveShot() with no equality check against it, and measures partly from a release point this same story proves unreachable (ledger; routed by merge_gate 2026-09-28)
 - DW-226: A ball loses ball-save eligibility for the rest of that ball once its window's grace fully lapses, because hasGraceLapsed() clears sources and the new arming gate reads sources (ledger; routed by merge_gate 2026-09-28)
-- DW-185: runReplay discards the replay header's own GameStart: it builds createLoop({ collisionDoc }) with no gameStart, so a golden's declared adjustments are stamped into the file and ignored on playback (ledger; routed by cr 2026-09-06)
 - DW-219: disarm() of the source that set the maximum leaves untilTick at the departed source's deadline, so AD-18's 'the longest LIVE window wins' stops holding after any disarm (ledger; routed by adjudication 2026-09-08)
-- DW-280: tick is never reset at game start, against AD-3: since Story 2.13 made a second game possible, it inherits game 1's tick and rng and cannot be replayed or hashed standalone (ledger; routed by retro 2026-09-29)
+- DW-228: awaitingSaveRelaunch's bounded-lifetime fix is a TIMEOUT, not a per-pulse causal binding: any ball_launched arriving inside the bounded window is still consumed as the deferred pulse's own, so a genuinely concurrent second launch would be misclassified (ledger; routed by merge_gate 2026-09-28; bullet written at the 3.7 split 2026-10-13)
+- DW-273: The read-before-same-tick-write ordering class in createBallController's closure fields has never been swept: this story sweeps it and pins the two-ball instances (ledger; routed by retro 2026-09-29; bullet written at the 3.7 split 2026-10-13)
+- DW-295: A Lock-lane shot into a full bd_lock is not parked; the ball rolls back and re-closes s_lock_lane, so one shot emits a SECOND lock_lane_entered while the device is still full: a double lock credit now, a double bash hit under Quick multiball or the War (ledger; routed by adjudication 2026-09-30; bullet written at the 3.7 split 2026-10-13)
+
+### Story 3.7a: The Mouth never ejects onto a ball
+
+As a player,
+I want a ball the Dragon spits back to never appear on top of another ball,
+So that two balls never overlap, even when both of them are at the Lock lane.
+
+*A small physics story, built right after Story 3.7 and before Story 3.8.* `[AMENDED 2026-10-13 — author decision at Epic 3's clarification (DW-329): Story 3.7's planning measured that a Mouth eject can create a ball on top of a ball that is in the Lock lane at the pulse tick — centre separations down to 1.9 mm against a 26.99 mm ball — against FR-12; Quick multiball makes it reachable and the War makes it frequent, so it is its own story between them]`
+
+**Acceptance Criteria:**
+
+**Given** a real `createLoop()` with two balls in play and a ball in the Lock lane at a Mouth eject's pulse tick
+**When** the story is planned
+**Then** what the solver does today is characterised on the real engine and recorded first — the overlap at creation and what follows it (Story 3.7's planning did not characterise it; the same class of overlap at the trough dropped a ball through the playfield) — and only then is the fix chosen: the spec gate measures before it prescribes
+
+**Given** that record
+**When** the fix lands
+**Then** no ball is ever created overlapping another (FR-12) across a measured sweep of the second ball's arrival times and speeds, and a paired control shows the same sweep reaching the overlap without the fix
+
+**Given** a fix that changes what the player sees (the Mouth waits, the lane ball is held, the eject is skipped)
+**When** it is chosen
+**Then** that choice is brought to the author before it is built
+
+**Given** the goldens in `test/replays/*.golden.json`
+**When** the physics change lands
+**Then** no `expectedHash`, `expectedGameStateHash`, checkpoint hash, `transitions` or `checkpointTicks` moves; one that moves is a stop, not a re-record
+
+**Given** Story 3.2's Mouth sequence and the Lock arbiter (AD-18)
+**When** an eject is delayed or refused by the fix
+**Then** the arbiter's accounting, the open and close shows and ball search still hold: no ball is lost or counted twice, and the ball does not end while an eject is owed
+
+- DW-329: A Mouth eject can create a ball on top of a ball that is in the Lock lane at the pulse tick, against FR-12 (two balls never overlap); first reachable once two balls are in play (ledger; routed by author 2026-10-13)
+
+### Story 3.7b: The game clock and replay honesty
+
+As a player, and as whoever replays a recorded game,
+I want every game to start from a fresh table at tick 0, and a replay to run on the `GameStart` its own header states,
+So that a second game plays exactly as a first one does, and any recorded game replays on its own.
+
+*Built after Epic 5 merges, beside Stories 3.3b, 3.3c and 3.3d, and before Story 3.11.* `[AMENDED 2026-10-13 — author decision at Epic 3's clarification: Story 3.7's plan measured as two stories' worth, and this is its second part (DW-280, DW-185). It waits for the merge because it edits `src/host/boot.ts`, which Epic 5 also edits]`
+
+*Planning already done is kept, not lost.* `_bmad-output/implementation-artifacts/story-3-7b-planning-notes.md` holds what Story 3.7's planning produced for this part on 2026-10-13: the boundaries, the code map, criteria B1 to B7 with their planned mutations, and the measurements (a second game today is hash-equal to the same game alone on 0 of 6000 ticks; a rebuild prototype on 6000 of 6000; the Start-tick parity result; the golden seed result). **Every figure there is re-measured on the merged tree before it is relied on**, because Epic 5's merge changes `boot.ts` and the golden headers.
+
+**Acceptance Criteria:**
+
+**Given** a session that has already played a game
+**When** a Start begins another
+**Then** the new game runs from tick 0 on a fresh `GameStart` (AD-3): its state hash equals, at every sampled tick and at its end, that of a fresh loop given the same `GameStart` and the same inputs re-based, and its `rng` follows the fresh seed, not the last game's
+
+**Given** a ball in the Lock, a loose ball, or a ball resting in the shooter lane when a game ends, and a nudge given before Start
+**When** a Start begins the next game
+**Then** that game finds all balls in the trough, the Lock empty and the tilt bob at rest; none of those is carried into it `[AMENDED 2026-10-13 — author decision: a fresh table at every game start. A ball locked at game over is not carried into the next game; the same holds for a loose ball and a ball in the shooter lane; a nudge before Start does not reach the new game]`
+
+**Given** a Start that begins no game (a Hot-seat join, or a Start the rules refuse)
+**When** it is pressed
+**Then** nothing is rebuilt and the game in progress is untouched
+
+**Given** a loop nothing has touched
+**When** Start is pressed
+**Then** the first game's events carry the ticks they carry today, so the suite's recorded recipes stay valid
+
+**Given** a replay
+**When** `runReplay()` runs it
+**Then** the loop is built from the replay header's own `GameStart` (DW-185), and all five goldens keep every `expectedHash`, `expectedGameStateHash` and checkpoint hash `[AMENDED 2026-10-13 — author decision, one field granted to this story only: each golden's `header.gameStart.seed` may change from 12345 to 0, so the header states what was actually run. Nothing else is granted: every `expectedHash`, `expectedGameStateHash`, checkpoint hash, `transitions` and `checkpointTicks` stays byte-identical, and the seed measurement is re-run on the merged tree before the field is written]`
+
+**Given** the host loop and the dev recorder
+**When** a game begins while a recording is running
+**Then** the saved replay is that one game from tick 0, carries that game's `GameStart` in its header, and reproduces its hash through `runReplay()` and through the player; a second game boundary invalidates the recording with a named reason
+
+**Given** the goldens' declared coil prologue
+**When** this story edits `src/sim/loop/replay.ts`
+**Then** the `CoilPrologueEntry` doc comment says the prologue stays: its removal was retired on 2026-10-13 (DW-175; Story 1.8's change log)
+
+- DW-185: runReplay discards the replay header's own GameStart: it builds createLoop({ collisionDoc }) with no gameStart, so a golden's declared adjustments are stamped into the file and ignored on playback (ledger; routed by cr 2026-09-06; moved from Story 3.7 by author 2026-10-13)
+- DW-280: tick is never reset at game start, against AD-3: since Story 2.13 made a second game possible, it inherits game 1's tick and rng and cannot be replayed or hashed standalone (ledger; routed by retro 2026-09-29; moved from Story 3.7 by author 2026-10-13)
 
 ### Story 3.8: The War starts — dragon fire
 
